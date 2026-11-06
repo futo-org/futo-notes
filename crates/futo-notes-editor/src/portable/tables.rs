@@ -20,6 +20,14 @@ impl PortableSession {
         Ok(self.engine.inspect_table(expected, range)?)
     }
 
+    pub fn inspect_tables(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<Vec<TableDescription>, PortableError> {
+        Ok(self.engine.inspect_tables(expected, range)?)
+    }
+
     pub fn inspect_table_utf16(
         &self,
         expected: Revision,

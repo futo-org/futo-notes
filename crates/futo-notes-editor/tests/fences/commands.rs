@@ -76,7 +76,7 @@ fn code_block_command_wraps_only_its_selected_physical_lines() {
     );
     assert_eq!(
         session.source_text(),
-        "before\r\n\r\n```\nab\n```\r\n\r\nafter"
+        "before\r\n\r\n```\r\nab\r\n```\r\n\r\nafter"
     );
     assert_eq!(view.text, "before\r\n\r\nab\r\n\r\nafter");
     view.apply(
@@ -202,4 +202,197 @@ fn the_shipping_triple_backtick_shortcut_is_inert_inside_literal_inline_code() {
     );
     assert_eq!(session.source_text(), source);
     assert_eq!(view.text, "```js");
+}
+
+#[test]
+fn code_command_on_a_code_line_takes_that_line_out_of_the_fence() {
+    for (opening, shown, caret, expected) in [
+        ("```\nx\n```", "x", range(0, 0), "x"),
+        ("```\nx\ny\n```", "x\ny", range(2, 2), "```\nx\n```\ny"),
+        ("```\nx\ny\n```", "x\ny", range(0, 0), "x\n```\ny\n```"),
+        (
+            "a\n\n```rust\nx\ny\nz\n```\n\nb",
+            "a\n\nx\ny\nz\n\nb",
+            range(5, 5),
+            "a\n\n```rust\nx\n```\ny\n```rust\nz\n```\n\nb",
+        ),
+        ("```\nx\ny\n```", "x\ny", range(0, 3), "x\ny"),
+        ("```\nx\ny", "x\ny", range(2, 2), "```\nx\n```\ny"),
+        ("> ```\n> x\n> ```", "x", range(0, 0), "> x"),
+    ] {
+        let mut session = EditorSession::open(opening);
+        let mut view = ReferenceView::new(shown);
+        session.select(session.revision(), caret).unwrap();
+        let change = session
+            .block_command(
+                session.revision(),
+                caret,
+                BlockCommand::CodeBlock,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap_or_else(|| panic!("{opening:?}: the command did nothing"));
+        view.apply(change);
+        assert_eq!(session.source_text(), expected, "{opening:?}");
+        assert_eq!(view.text, shown, "the displayed text does not move");
+        assert_eq!(session.selection(), caret);
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), opening);
+    }
+}
+
+#[test]
+fn code_command_on_an_empty_fence_removes_the_fence() {
+    let mut session = EditorSession::open("a\n\n```\n```");
+    session.select(session.revision(), range(3, 3)).unwrap();
+    let change = session
+        .block_command(
+            session.revision(),
+            range(3, 3),
+            BlockCommand::CodeBlock,
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    assert!(change.is_some());
+    assert!(
+        !session.source_text().contains("```"),
+        "{:?}",
+        session.source_text()
+    );
+}
+
+#[test]
+fn code_command_takes_lines_out_as_plain_text_not_markdown_structure() {
+    for (opening, shown, expected) in [
+        ("```\n# x\n```", "# x", "\\# x"),
+        ("```\n- a\n```", "- a", "\\- a"),
+        ("```\n> q\n```", "> q", "\\> q"),
+        ("```\n1. x\n```", "1. x", "1\\. x"),
+        ("```\n---\n```", "---", "\\---"),
+        ("```\n  x\n```", "  x", "&#32; x"),
+        ("> ```\n> # x\n> ```", "# x", "> \\# x"),
+        ("- a\n  ```\n  - b\n  ```", "a\n- b", "- a\n  \\- b"),
+    ] {
+        let mut session = EditorSession::open(opening);
+        let mut view = ReferenceView::new(shown);
+        let line = shown.rfind('\n').map_or(0, |at| at + 1);
+        let caret = range(line, line);
+        session.select(session.revision(), caret).unwrap();
+        view.apply(
+            session
+                .block_command(
+                    session.revision(),
+                    caret,
+                    BlockCommand::CodeBlock,
+                    &mut |_| Ok(()),
+                )
+                .unwrap()
+                .unwrap_or_else(|| panic!("{opening:?}: the command did nothing")),
+        );
+        assert_eq!(session.source_text(), expected, "{opening:?}");
+        assert_eq!(
+            view.text, shown,
+            "{opening:?}: the displayed text does not move"
+        );
+        assert_eq!(
+            session.display_text(),
+            shown,
+            "{opening:?}: plain text, not structure"
+        );
+    }
+}
+
+#[test]
+fn android_code_command_wraps_selected_mixed_blocks_in_one_fence_and_one_undo() {
+    let opening = "# **title**\n\n- one\n- two\n\n> quote\n\n~~~rs\ncode\n~~~\n\n| a | b |\n| - | - |\n| c | d |\n";
+    let mut s = EditorSession::open(opening);
+    let shown = s.display_text();
+    let selected = range(0, shown.len());
+    s.select(s.revision(), selected).unwrap();
+    let mut accepted = 0;
+    let change = s
+        .block_command(
+            s.revision(),
+            selected,
+            BlockCommand::WrapCodeBlock,
+            &mut |_| {
+                accepted += 1;
+                Ok(())
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(accepted, 1);
+    assert_eq!(
+        s.source_text(),
+        format!("```\n{}\n```\n", shown.trim_end_matches('\n'))
+    );
+    let mut view = ReferenceView::new(&shown);
+    view.apply(change);
+    assert_eq!(view.text, shown.trim_end_matches('\n'));
+    assert_eq!(s.selection(), range(0, view.text.len()));
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(s.source_text(), opening);
+    assert_eq!(s.selection(), selected);
+    assert!(s.undo(s.revision(), &mut |_| Ok(())).unwrap().is_none());
+}
+
+#[test]
+fn android_code_wrap_preserves_neighbors_and_uses_a_safe_fence() {
+    for (opening, selected, expected) in [
+        (
+            "before\n\n# **one**\n\n*two*\n\nafter",
+            range(8, 16),
+            "before\n\n```\none\n\ntwo\n```\n\nafter",
+        ),
+        ("> one\n> two", range(0, 7), "> ```\n> one\n> two\n> ```"),
+        ("- one\n- two", range(0, 7), "```\none\ntwo\n```"),
+        (
+            "````\n```\n````\n\ntext",
+            range(0, 9),
+            "````\n```\n\ntext\n````",
+        ),
+    ] {
+        let mut s = EditorSession::open(opening);
+        let shown = s.display_text();
+        s.select(s.revision(), selected).unwrap();
+        s.block_command(
+            s.revision(),
+            selected,
+            BlockCommand::WrapCodeBlock,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(s.source_text(), expected, "{opening:?}: {shown:?}");
+        assert!(s.selection().end.0 <= s.display_text().len());
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(s.source_text(), opening);
+    }
+}
+
+#[test]
+fn android_code_wrap_of_a_mixed_quote_includes_the_opening_container_prefix_once() {
+    let opening = "> ```\n> raw\n> ```\n>\n> text";
+    let mut s = EditorSession::open(opening);
+    let shown = s.display_text();
+    let selected = range(0, shown.len());
+    s.select(s.revision(), selected).unwrap();
+    s.block_command(
+        s.revision(),
+        selected,
+        BlockCommand::WrapCodeBlock,
+        &mut |_| Ok(()),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(s.source_text(), "> ```\n> raw\n> \n> text\n> ```");
+    assert_eq!(s.display_text(), shown);
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(s.source_text(), opening);
 }

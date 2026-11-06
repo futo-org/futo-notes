@@ -15,11 +15,17 @@ mod native_input_traces;
 mod portable;
 mod portable_attachment;
 mod portable_waiting;
+mod quick_open;
 mod saving;
 mod seams;
 mod tables;
 mod tags;
 mod wikilinks;
+
+/// A root note holding exactly `source`.
+fn plant_note(root: &TestRoot, id: &str, source: &str) {
+    fs::write(root.0.join(format!("{id}.md")), source).unwrap();
+}
 
 fn range(start: usize, end: usize) -> DisplayRange {
     DisplayRange {

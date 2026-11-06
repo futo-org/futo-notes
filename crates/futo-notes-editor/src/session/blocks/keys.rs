@@ -216,6 +216,42 @@ impl EditorSession {
                         .map(Some);
                 }
             }
+            // A quoted line directly under another (Enter continues a quote a
+            // line at a time) is dropped and the caret leaves one level.
+            let previous = DisplayOffset(
+                self.projection
+                    .display_at(self.source.line_to_byte(index.saturating_sub(1))),
+            );
+            if index > 0
+                && self
+                    .projection
+                    .block_lines(DisplayRange {
+                        start: previous,
+                        end: previous,
+                    })
+                    .first()
+                    .is_some_and(|above| {
+                        !above.content.is_empty()
+                            && above.quote_depth == line.quote_depth
+                            && above.heading == 0
+                            && !above.divider
+                            && !above.code
+                    })
+            {
+                let quote = "> ".repeat(line.quote_depth - 1);
+                let output = format!("{}\n{quote}", quote.trim_end());
+                let caret = line.source.start + output.len();
+                return self
+                    .commit_block_key(
+                        expected,
+                        range,
+                        line.source.start..line.content.end,
+                        &output,
+                        caret,
+                        accept,
+                    )
+                    .map(Some);
+            }
             return self.block_command(expected, range, BlockCommand::Outdent, accept);
         }
         if at_start
@@ -232,42 +268,6 @@ impl EditorSession {
                     accept,
                 )
                 .map(Some);
-        }
-        if at_start && line.quote_depth > 0 {
-            let index = self.source.byte_to_line(line.source.start);
-            if index > 0 {
-                let previous = DisplayOffset(
-                    self.projection
-                        .display_at(self.source.line_to_byte(index - 1)),
-                );
-                if self
-                    .projection
-                    .block_lines(DisplayRange {
-                        start: previous,
-                        end: previous,
-                    })
-                    .first()
-                    .is_some_and(|previous| {
-                        !previous.content.is_empty()
-                            && previous.quote_depth == line.quote_depth
-                            && previous.heading == 0
-                            && !previous.divider
-                            && !previous.code
-                    })
-                {
-                    let separator = format!("{}\n", "> ".repeat(line.quote_depth).trim_end());
-                    return self
-                        .commit_block_key(
-                            expected,
-                            range,
-                            line.source.start..line.source.start,
-                            &separator,
-                            line.content.start + separator.len(),
-                            accept,
-                        )
-                        .map(Some);
-                }
-            }
         }
         if line.divider {
             let at = line.content.end;
@@ -358,5 +358,70 @@ impl EditorSession {
             + deleted.work.link_copied_bytes
             + entered.work.link_copied_bytes;
         Ok(change)
+    }
+}
+
+impl EditorSession {
+    pub(in crate::session) fn heading_join_backspace(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        if range.start != range.end {
+            return Ok(None);
+        }
+        let Some(line) = self.projection.block_lines(range).into_iter().next() else {
+            return Ok(None);
+        };
+        if line.heading == 0 || range.start.0 != self.projection.display_at(line.content.start) {
+            return Ok(None);
+        }
+        let index = self.source.byte_to_line(line.source.start);
+        if index == 0
+            || line.source.start
+                <= self
+                    .projection
+                    .source_bounds(self.projection.body_start())
+                    .1
+        {
+            return Ok(None);
+        }
+        let previous_start = self.source.line_to_byte(index - 1);
+        let previous = self
+            .source
+            .byte_slice(previous_start..line.source.start)
+            .to_string();
+        let blank = previous.trim().is_empty()
+            || line.quote_depth > 0 && previous.trim() == "> ".repeat(line.quote_depth).trim();
+        if blank {
+            return self
+                .commit_block_key(
+                    expected,
+                    range,
+                    previous_start..line.source.start,
+                    "",
+                    line.content.start - previous.len(),
+                    accept,
+                )
+                .map(Some);
+        }
+        // Retire only the heading frame, then use ordinary paragraph deletion
+        // to preserve the established list, quote, code and table join rules.
+        // Both changes stay invisible until one protected source acceptance.
+        self.stage_block_action(expected, range, None, accept, |staged, local, accept| {
+            let demoted =
+                staged.block_command(staged.revision(), local, BlockCommand::Heading(0), accept)?;
+            let mut joined = staged.paragraph_key(
+                staged.revision(),
+                staged.selection(),
+                ParagraphKey::Backspace,
+                accept,
+            )?;
+            if let (Some(demoted), Some(joined)) = (&demoted, &mut joined) {
+                accumulate_planning_work(&mut joined.work, demoted.work);
+            }
+            Ok(joined.or(demoted))
+        })
     }
 }

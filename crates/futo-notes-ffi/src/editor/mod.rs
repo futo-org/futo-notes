@@ -14,8 +14,10 @@ mod find;
 mod images;
 mod links;
 mod tags;
+mod toolbar;
 pub use contract::*;
 pub use find::{editor_find_scan, EditorFindReport, EditorFindScanRequest, EditorFindScanResult};
+pub use toolbar::{EditorToolbarList, EditorToolbarState};
 mod tables;
 pub use tables::*;
 

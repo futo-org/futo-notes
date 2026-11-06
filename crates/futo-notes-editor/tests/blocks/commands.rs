@@ -136,12 +136,6 @@ fn explicit_quote_choice_replaces_heading_and_indent_changes_one_level() {
     })
     .unwrap();
     assert_eq!(s.source_text(), "> Title\r\n\r\nend");
-    assert!(s
-        .block_command(s.revision(), range(0, 0), BlockCommand::Quote, &mut |_| Ok(
-            ()
-        ))
-        .unwrap()
-        .is_none());
     s.block_command(s.revision(), range(0, 0), BlockCommand::Indent, &mut |_| {
         Ok(())
     })
@@ -360,16 +354,17 @@ fn text_conversion_retires_heading_indentation_without_exposing_spaces() {
 }
 
 #[test]
-fn explicit_quote_retires_an_existing_quoted_heading_without_changing_depth() {
-    for (raw, expected, shown, depth) in [
-        ("> ## Title ##", "> Title", "Title", 1),
+fn explicit_quote_on_a_quoted_heading_takes_one_quote_level_off_and_keeps_the_heading() {
+    for (raw, expected, shown, level, depth) in [
+        ("> ## Title ##", "## Title ##", "Title", 2, 0),
         (
             "> > ### 猫🦊 ###\r\n\r\nend",
-            "> > 猫🦊\r\n\r\nend",
+            "> ### 猫🦊 ###\r\n\r\nend",
             "猫🦊\r\n\r\nend",
-            2,
+            3,
+            1,
         ),
-        ("> > > ###### x ######", "> > > x", "x", 3),
+        ("> > > ###### x ######", "> > ###### x ######", "x", 6, 2),
     ] {
         let mut s = EditorSession::open(raw);
         let mut v = ReferenceView::new(shown);
@@ -386,22 +381,13 @@ fn explicit_quote_retires_an_existing_quoted_heading_without_changing_depth() {
         assert_eq!(s.source_text(), expected);
         assert_eq!(v.text, shown);
         let blocks = s.project(s.revision(), range(0, 0)).unwrap().blocks;
-        assert_eq!(blocks[0].heading, 0);
+        assert_eq!(blocks[0].heading, level);
         assert_eq!(blocks[0].quote_depth, depth);
         v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), raw);
         assert_eq!(v.text, shown);
         v.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), expected);
-        assert!(s
-            .block_command(
-                s.revision(),
-                range(0, 0),
-                BlockCommand::Quote,
-                &mut |_| panic!("no-op must not append")
-            )
-            .unwrap()
-            .is_none());
     }
 }
 
@@ -541,5 +527,37 @@ fn whole_setext_quote_depth_changes_every_owned_prefix_and_exact_history() {
         v.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), expected);
         assert_eq!(v.text, shown);
+    }
+}
+
+#[test]
+fn a_block_command_on_the_last_empty_line_reports_that_line_s_new_block() {
+    for raw in ["", "text\n", "text\n\n\n", "text\n\n\nmore"] {
+        for command in [
+            BlockCommand::Heading(1),
+            BlockCommand::Quote,
+            BlockCommand::CodeBlock,
+        ] {
+            let mut s = EditorSession::open(raw);
+            let caret = if raw.ends_with("more") { 6 } else { raw.len() };
+            let change = s
+                .block_command(s.revision(), range(caret, caret), command, &mut |_| Ok(()))
+                .unwrap()
+                .unwrap();
+            let carries_it = change.projection.blocks.iter().any(|b| {
+                b.range.start.0 <= caret
+                    && caret <= b.range.end.0
+                    && match command {
+                        BlockCommand::Heading(level) => b.heading == level,
+                        BlockCommand::Quote => b.quote_depth > 0,
+                        _ => b.code,
+                    }
+            });
+            assert!(
+                carries_it,
+                "{raw:?} {command:?}: {:?}",
+                change.projection.blocks
+            );
+        }
     }
 }

@@ -67,6 +67,16 @@ strip = "none"
 [profile.dev.package."*"]
 opt-level = 2
 
+# `"*"` above skips workspace members, so the editor engine ran at opt-level 0 in
+# every `cargo test`. Its seeded fuzz tests (cut tables, word seams, nested lists)
+# replay thousands of edits: one took 22s unoptimized and 8s at opt-level 1, and
+# the editor + long_regions test binaries were ~35s of a ~55s editor/core/store/ffi
+# run (CPU time of the whole run: 82s -> 31s). Level 1 keeps debug assertions and
+# overflow checks, so the tests assert the same things, and recompiling editor +
+# store + ffi costs the same CPU as level 0 (69s either way); level 2 compiled slower.
+[profile.dev.package.futo-notes-editor]
+opt-level = 1
+
 # Tantivy is the hottest dependency in `just tauri-dev` and the dev-profile test
 # runs (BM25 reconcile + queries), so bump it and its hot sub-crates from the
 # blanket 2 up to full optimization.

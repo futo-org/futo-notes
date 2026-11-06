@@ -238,6 +238,11 @@ impl Row {
             .unwrap_or_else(|| Self::parse_with_references(text, references, winners));
         row.continue_fence(text, shape.continued, shape.followed);
         row.continues = shape.continues;
+        if shape.continues && opener.is_none() {
+            if let Some(first) = row.blocks.first_mut().filter(|block| block.quote_depth > 0) {
+                first.quote_start = false;
+            }
+        }
         row.through = shape.through;
         row.mid_line = shape.mid_line;
         row.opener = opener.map(Into::into);

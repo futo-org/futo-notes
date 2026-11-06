@@ -65,6 +65,26 @@ impl Projection {
             || last + 1 < self.rows.len() && self.rows.at(last + 1).0.mid_line
     }
 
+    /// Whether a collapsed caret sits on the blank line that ends its row,
+    /// directly above another row: text typed there joins that row's
+    /// paragraph, so its delimiters can pair with that row's syntax.
+    pub(super) fn joins_next_row(&self, range: DisplayRange) -> bool {
+        if range.start != range.end {
+            return false;
+        }
+        let index = self.rows.locate(range.end.0, true);
+        if index + 1 >= self.rows.len() {
+            return false;
+        }
+        let (row, _, display_start) = self.rows.at(index);
+        let text = &row.display;
+        let at = range.end.0.wrapping_sub(display_start);
+        at <= text.len()
+            && text.is_char_boundary(at)
+            && (at == 0 || text[..at].ends_with('\n'))
+            && matches!(&text[at..], "\n" | "\r\n")
+    }
+
     /// Rows `first..=last` widened past word seams to whole physical lines.
     pub(super) fn whole_lines(&self, mut first: usize, mut last: usize) -> (usize, usize) {
         while first > 0 && self.rows.at(first).0.mid_line {

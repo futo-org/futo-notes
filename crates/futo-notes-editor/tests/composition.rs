@@ -419,3 +419,140 @@ fn legacy_host_owned_commit_cannot_mix_with_engine_owned_composition() {
     session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
     assert_eq!(session.source_text(), "__word__");
 }
+
+/// Each marked character's reported formats, by byte offset into the marked text.
+fn marked_formats(marked: &Composition) -> Vec<Vec<InlineFormat>> {
+    marked
+        .text
+        .char_indices()
+        .map(|(at, _)| {
+            marked
+                .runs
+                .iter()
+                .find(|run| run.start <= at && at < run.end)
+                .map(|run| run.formats.clone())
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
+/// Each committed character's formats, as a view draws them from the projection.
+fn drawn_formats(session: &EditorSession, start: usize, text: &str) -> Vec<Vec<InlineFormat>> {
+    let slice = session
+        .project(session.revision(), range(start, start + text.len()))
+        .unwrap();
+    text.char_indices()
+        .map(|(at, _)| {
+            let at = start + at;
+            let mut formats: Vec<_> = slice
+                .runs
+                .iter()
+                .find(|run| run.range.start.0 <= at && at < run.range.end.0)
+                .map(|run| run.formats.clone())
+                .unwrap_or_default();
+            formats.sort();
+            formats
+        })
+        .collect()
+}
+
+/// Compose a word at `caret` after `toggles`, then commit it: every marked
+/// update reports `expected` for each character, and the committed text is
+/// drawn the same way.
+fn compose_then_commit(
+    source: &str,
+    caret: usize,
+    toggles: &[InlineFormat],
+    expected: &[InlineFormat],
+) -> String {
+    let mut session = EditorSession::open(source);
+    session.select(Revision(0), range(caret, caret)).unwrap();
+    for format in toggles {
+        session
+            .toggle_format(session.revision(), *format, &mut |_| Ok(()))
+            .unwrap();
+    }
+    let revision = session.revision();
+    for word in ["H", "He", "Hey"] {
+        let marked = session
+            .compose(revision, range(caret, caret), word)
+            .unwrap();
+        assert_eq!(
+            marked_formats(&marked),
+            vec![expected.to_vec(); word.chars().count()],
+            "marked {word:?} in {source:?}"
+        );
+    }
+    session
+        .commit_composition(revision, None, &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        drawn_formats(&session, caret, "Hey"),
+        vec![expected.to_vec(); 3],
+        "committed in {source:?}: {}",
+        session.source_text()
+    );
+    session.source_text()
+}
+
+#[test]
+fn marked_text_reports_the_carried_formats_it_commits_with() {
+    use InlineFormat::*;
+    assert_eq!(
+        compose_then_commit("text\n", 5, &[Bold], &[Bold]),
+        "text\n**Hey**"
+    );
+    compose_then_commit("text\n", 5, &[Italic], &[Italic]);
+    compose_then_commit("text\n", 5, &[Strike], &[Strike]);
+    compose_then_commit("text\n", 5, &[Code], &[Code]);
+    compose_then_commit("text\n", 5, &[Bold, Italic], &[Bold, Italic]);
+    compose_then_commit("# heading\n", 7, &[Bold], &[Bold]);
+    assert_eq!(
+        compose_then_commit("text\n", 5, &[Bold, Bold], &[]),
+        "text\nHey"
+    );
+}
+
+#[test]
+fn marked_text_inside_a_span_reports_that_span_unless_toggled_off() {
+    use InlineFormat::*;
+    assert_eq!(
+        compose_then_commit("a **bold** b", 4, &[], &[Bold]),
+        "a **boHeyld** b"
+    );
+    compose_then_commit("a *it* b", 3, &[], &[Italic]);
+    compose_then_commit("a `code` b", 4, &[], &[Code]);
+    compose_then_commit("a **bold** b", 4, &[Bold], &[]);
+    compose_then_commit("plain", 2, &[], &[]);
+}
+
+#[test]
+fn reconverted_marked_text_keeps_each_unchanged_characters_formats() {
+    let mut session = EditorSession::open("half**way** there");
+    // A keyboard reopens the word "halfway" and replaces its "f".
+    let marked = session
+        .compose(Revision(0), range(0, 7), "halfway")
+        .unwrap();
+    let bold = vec![InlineFormat::Bold];
+    let expected = [
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        bold.clone(),
+        bold.clone(),
+        bold.clone(),
+    ];
+    assert_eq!(marked_formats(&marked), expected);
+    let marked = session
+        .compose(Revision(0), range(0, 7), "hallway")
+        .unwrap();
+    assert_eq!(marked_formats(&marked), expected);
+    session
+        .commit_composition(Revision(0), None, &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text(), "hall**way** there");
+    assert_eq!(drawn_formats(&session, 0, "hallway"), expected);
+}

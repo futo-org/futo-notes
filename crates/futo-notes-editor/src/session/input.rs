@@ -53,14 +53,39 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<(ViewChange, InputMapping), EditorError> {
         let mut query_work = crate::inline::references::ReferenceWork::default();
-        let (mut change, mapping) = self.replace_action_planned(
-            expected,
-            range,
-            inserted,
-            action,
-            accept,
-            &mut query_work,
-        )?;
+        let planned =
+            self.replace_action_planned(expected, range, inserted, action, accept, &mut query_work);
+        // A typed character is never refused: when no spelling of it reads as
+        // typed, its delimiters land escaped, and failing that the text lands
+        // as literal source.
+        let typing = action == crate::InputAction::Typing
+            && !inserted.is_empty()
+            && self.composition.is_none();
+        let (mut change, mapping) = match planned {
+            Err(EditorError::UnrepresentableFormat) if typing => {
+                let escaped = {
+                    let _escape = crate::inline::EscapeTypedDelimiters::set();
+                    self.replace_action_planned(
+                        expected,
+                        range,
+                        inserted,
+                        action,
+                        accept,
+                        &mut query_work,
+                    )
+                };
+                match escaped {
+                    Err(EditorError::UnrepresentableFormat) => {
+                        let change =
+                            self.literal_typing(expected, range, inserted, action, accept)?;
+                        let mapping = InputMapping::new(change.range, change.inserted.len());
+                        (change, mapping)
+                    }
+                    other => other?,
+                }
+            }
+            other => other?,
+        };
         change.work.parsed_source_bytes += query_work.parsed;
         change.work.link_metadata_items += query_work.items;
         change.work.link_copied_bytes += query_work.copied;
@@ -89,6 +114,13 @@ impl EditorSession {
                 });
         }
         self.validate_range(range)?;
+        // Text inserted at a caret never splits a CRLF; a foreign replacement
+        // range may still address the CR and LF code points separately.
+        let range = if range.start == range.end {
+            self.outside_crlf(range)
+        } else {
+            range
+        };
         let cell = self.input_cell(range, inserted, query_work);
         let flat = cell.as_ref().map(|_| blocks::CellInput::flatten(inserted));
         let inserted = flat.as_deref().unwrap_or(inserted);
@@ -97,11 +129,22 @@ impl EditorSession {
             return Ok((change, mapping));
         }
         if action == crate::InputAction::Typing {
-            if let Some(change) =
-                self.line_start_conversion(expected, range, inserted, accept, query_work)?
-            {
-                let mapping = InputMapping::new(change.range, change.inserted.len());
-                return Ok((change, mapping));
+            // A typed character is never refused: a shortcut whose block
+            // cannot be written leaves its marker as literal text instead.
+            let converted =
+                self.marker_committed_into_empty_item(expected, range, inserted, accept)
+                    .and_then(|change| match change {
+                        Some(change) => Ok(Some(change)),
+                        None => self
+                            .line_start_conversion(expected, range, inserted, accept, query_work),
+                    });
+            match converted {
+                Ok(Some(change)) => {
+                    let mapping = InputMapping::new(change.range, change.inserted.len());
+                    return Ok((change, mapping));
+                }
+                Ok(None) | Err(EditorError::UnrepresentableFormat) => {}
+                Err(error) => return Err(error),
             }
         }
         if let Some(change) = self.input_at_divider(expected, range, inserted, action, accept)? {

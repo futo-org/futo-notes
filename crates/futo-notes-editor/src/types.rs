@@ -63,7 +63,8 @@ pub struct EditWork {
     /// and the table run (plus rows checked) read for input in a table cell.
     pub parsed_source_bytes: usize,
     /// Charged metadata visits and fixed-size copies during link/reference
-    /// interpretation, source correspondence and pending-field planning.
+    /// interpretation, source correspondence, pending-field planning and block
+    /// boundary/physical-row selection membership and inline seam comparisons.
     /// Parser input is counted separately above; this is not total CPU work.
     pub link_metadata_items: usize,
     /// Bytes copied into retained link/reference meaning and returned targets;

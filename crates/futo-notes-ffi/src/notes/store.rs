@@ -48,6 +48,17 @@ impl NoteStore {
         crate::NativeEditorSession::open(&self.inner, &id)
     }
 
+    /// A long note's first screens, to show read-only while `open_editor`
+    /// runs; `None` for a short note, one with no safe cut, or a failed read
+    /// (the whole open then reports it). Blocking file I/O.
+    pub fn quick_open_editor(&self, id: String) -> Option<crate::EditorQuickOpen> {
+        self.inner
+            .quick_open_editor(&id)
+            .ok()
+            .flatten()
+            .map(Into::into)
+    }
+
     /// Search startup is best effort so index availability never gates the note snapshot.
     pub fn bootstrap(
         &self,

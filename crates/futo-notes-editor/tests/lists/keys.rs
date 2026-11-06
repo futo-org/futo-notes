@@ -16,15 +16,21 @@ fn enter_splits_a_bullet_item_with_exact_history_and_unrelated_neighbors() {
         .unwrap(),
     );
     assert_eq!(accepts, 1);
-    assert_eq!(s.source_text(), "* __a__\n* __b__\r\n\r\n+ neighbor  \r\n");
-    assert_eq!(view.text, "a\nb\r\n\r\nneighbor  \r\n");
-    assert_eq!(s.selection(), range(2, 2));
+    assert_eq!(
+        s.source_text(),
+        "* __a__\r\n* __b__\r\n\r\n+ neighbor  \r\n"
+    );
+    assert_eq!(view.text, "a\r\nb\r\n\r\nneighbor  \r\n");
+    assert_eq!(s.selection(), range(3, 3));
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), raw);
     assert_eq!(s.selection(), range(1, 1));
     view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), "* __a__\n* __b__\r\n\r\n+ neighbor  \r\n");
-    assert_eq!(s.selection(), range(2, 2));
+    assert_eq!(
+        s.source_text(),
+        "* __a__\r\n* __b__\r\n\r\n+ neighbor  \r\n"
+    );
+    assert_eq!(s.selection(), range(3, 3));
 }
 
 #[test]
@@ -32,27 +38,27 @@ fn task_enter_keeps_the_original_state_and_starts_an_unchecked_item() {
     for (selected, expected, shown, caret) in [
         (
             range(0, 0),
-            "- [ ] \n- [X] done\r\n\r\n+ keep",
-            "\ndone\r\n\r\nkeep",
-            1,
+            "- [ ] \r\n- [X] done\r\n\r\n+ keep",
+            "\r\ndone\r\n\r\nkeep",
+            2,
         ),
         (
             range(2, 2),
-            "- [X] do\n- [ ] ne\r\n\r\n+ keep",
-            "do\nne\r\n\r\nkeep",
-            3,
+            "- [X] do\r\n- [ ] ne\r\n\r\n+ keep",
+            "do\r\nne\r\n\r\nkeep",
+            4,
         ),
         (
             range(4, 4),
-            "- [X] done\n- [ ] \r\n\r\n+ keep",
-            "done\n\r\n\r\nkeep",
-            5,
+            "- [X] done\r\n- [ ] \r\n\r\n+ keep",
+            "done\r\n\r\n\r\nkeep",
+            6,
         ),
         (
             range(0, 4),
-            "- [ ] \n- [X] \r\n\r\n+ keep",
-            "\n\r\n\r\nkeep",
-            1,
+            "- [ ] \r\n- [X] \r\n\r\n+ keep",
+            "\r\n\r\n\r\nkeep",
+            2,
         ),
     ] {
         let raw = "- [X] done\r\n\r\n+ keep";
@@ -168,13 +174,13 @@ fn ordered_task_split_maps_later_item_digit_growth_and_supplied_caret() {
 }
 
 #[test]
-fn enter_at_a_list_start_leaves_a_line_above_and_continuation_enter_splits_the_item() {
+fn enter_at_a_list_start_opens_an_item_above_and_continuation_enter_splits_the_item() {
     for (raw, selected, expected, shown, caret) in [
-        ("* ab", range(0, 0), "\n* ab", "\nab", 1),
+        ("* ab", range(0, 0), "* \n* ab", "\nab", 1),
         (
             "5) ab\n1) keep",
             range(0, 0),
-            "\n5) ab\n1) keep",
+            "5) \n6) ab\n1) keep",
             "\nab\nkeep",
             1,
         ),

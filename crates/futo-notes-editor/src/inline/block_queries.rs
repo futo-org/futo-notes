@@ -1,5 +1,6 @@
 //! Canonical retained block/list metadata and physical row queries.
 use super::*;
+mod visit;
 
 impl Projection {
     fn command_line(
@@ -13,6 +14,35 @@ impl Projection {
             self.fix_list(index, base, list);
         }
         line
+    }
+
+    /// A caret needs the preceding sibling flag, not the full source ranges
+    /// of a list's owner/items. Keep this bounded to its retained row.
+    fn fix_previous_sibling(&self, index: usize, base: usize, list: &mut ListLine) {
+        let row = self.rows.at(index).0;
+        let first_line = row.blocks.first().map_or(0, |block| block.source.end);
+        if list.quote_depth == 0
+            && row.start_depth() == list.depth
+            && list.item.start - base < first_line
+            && list.previous_content_column.is_none()
+        {
+            list.previous_content_column = Some(list.content_column);
+        }
+    }
+
+    /// Row-local attribution for a caret's toolbar. Expanding cut nested-list
+    /// item or fence ranges here would make a typing refresh walk that region.
+    pub(crate) fn caret_block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
+        let mut result = Vec::new();
+        self.visit_block_lines(range, true, |block, base, index| {
+            let mut block = block.clone();
+            block.shift(base);
+            if let Some(list) = &mut block.list {
+                self.fix_previous_sibling(index, base, list);
+            }
+            result.push(block);
+        });
+        result
     }
 
     /// A cut list keeps each row's own parse. Its ranges reaching across a
@@ -36,11 +66,7 @@ impl Projection {
         let len = row.source_len;
         let at = |range: &std::ops::Range<usize>| range.start - base..range.end - base;
         let (owner, item, outer) = (at(&list.owner), at(&list.item), at(&list.outer_item));
-        let first_line = row.blocks.first().map_or(0, |block| block.source.end);
-        if start_depth == depth && item.start < first_line && list.previous_content_column.is_none()
-        {
-            list.previous_content_column = Some(list.content_column);
-        }
+        self.fix_previous_sibling(index, base, list);
         if continued_start(row, depth, owner.start) {
             list.owner.start = self.open_start(index, depth, false);
         }
@@ -166,29 +192,31 @@ impl Projection {
     /// Shifted block lines whose cut list ranges stay row-local: only for
     /// readers of depth, number, check state and first-line role.
     pub(crate) fn view_block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
-        let mut result = Vec::new();
-        self.visit_block_lines(range, false, |block, base, _| {
+        self.collect_block_lines(range, false, |block, base, _| {
             let mut block = block.clone();
             block.shift(base);
-            result.push(block);
-        });
-        result
+            block
+        })
     }
 
     pub(crate) fn block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
-        let mut result = Vec::new();
-        self.visit_block_lines(range, false, |block, base, index| {
-            result.push(self.fixed_block(block, base, index));
-        });
-        result
+        self.collect_block_lines(range, false, |block, base, index| {
+            self.fixed_block(block, base, index)
+        })
+    }
+
+    /// Whether every block line [`Self::block_lines`] returns for `range`
+    /// is code, without copying any of them.
+    pub(crate) fn all_code_lines(&self, range: DisplayRange) -> bool {
+        let mut all = true;
+        self.visit_block_lines(range, false, |block, _, _| all &= block.code);
+        all
     }
 
     pub(crate) fn format_block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
-        let mut result = Vec::new();
-        self.visit_block_lines(range, true, |block, base, index| {
-            result.push(self.fixed_block(block, base, index));
-        });
-        result
+        self.collect_block_lines(range, true, |block, base, index| {
+            self.fixed_block(block, base, index)
+        })
     }
 
     /// A shifted copy with a cut list's and cut fence's block-wide fields.
@@ -274,7 +302,7 @@ impl Projection {
 
     /// The row where the physical line holding row `index`'s start begins:
     /// word seams cut one line across several rows.
-    fn line_head(&self, mut index: usize) -> usize {
+    pub(super) fn line_head(&self, mut index: usize) -> usize {
         while index > 0 && self.rows.at(index).0.mid_line {
             index -= 1;
         }
@@ -282,7 +310,7 @@ impl Projection {
     }
 
     /// Whether row `index`'s last block continues into the next row's first.
-    fn joins_next(&self, index: usize) -> bool {
+    pub(super) fn joins_next(&self, index: usize) -> bool {
         index + 1 < self.rows.len() && self.rows.at(index + 1).0.mid_line
     }
 
@@ -290,7 +318,7 @@ impl Projection {
     /// row that starts inside its line at a word seam: the one physical line
     /// an uncut row holds, in absolute source coordinates. Also whether that
     /// line is its final row's last block.
-    fn joined_line(&self, index: usize) -> (blocks::BlockLine, usize, bool) {
+    pub(super) fn joined_line(&self, index: usize) -> (blocks::BlockLine, usize, bool) {
         let (row, base, _) = self.rows.at(index);
         let mut line = row.blocks.last().expect("a row holds a block").clone();
         line.shift(base);
@@ -349,81 +377,6 @@ impl Projection {
                 let (line, ..) = self.joined_line(index);
                 if range.start < line.source.end && line.source.start < range.end {
                     visit(&line, 0, index);
-                }
-            }
-        }
-    }
-
-    fn visit_block_lines(
-        &self,
-        range: DisplayRange,
-        formatting: bool,
-        mut visit: impl FnMut(&blocks::BlockLine, usize, usize),
-    ) {
-        let first = self.line_head(self.rows.locate(range.start.0, true));
-        let last = self.rows.locate(range.end.0, true);
-        let note_end =
-            self.rows.at(self.rows.len() - 1).1 + self.rows.at(self.rows.len() - 1).0.source_len;
-        for index in first..=last {
-            let (row, source, display) = self.rows.at(index);
-            let joined = self.joins_next(index);
-            for (at, block) in row.blocks.iter().enumerate() {
-                if block.empty_comment || at == 0 && row.mid_line {
-                    continue;
-                }
-                if joined && at + 1 == row.blocks.len() {
-                    // One physical line cut at word seams: plain paragraph text.
-                    let (line, _, last_block) = self.joined_line(index);
-                    let a = self.display_at(line.source.start);
-                    let z = self.display_at(line.source.end);
-                    let hit = if range.start == range.end {
-                        a <= range.start.0
-                            && (range.start.0 < z || last_block && line.source.end == note_end)
-                    } else {
-                        a < range.end.0 && range.start.0 < z
-                    };
-                    if hit {
-                        visit(&line, 0, index);
-                    }
-                    continue;
-                }
-                let a = display + row.display_at(block.source.start);
-                let z = display + row.display_at(block.source.end);
-                let hit = if range.start == range.end {
-                    a <= range.start.0
-                        && (range.start.0 < z
-                            || block.fence.as_ref().is_some_and(|fence| {
-                                fence.body.start <= block.source.start
-                                    && block.source.start <= fence.body.end
-                                    && row.display_at(block.content.end) + display == range.start.0
-                                    && row.display_at(fence.body.end) + display == range.start.0
-                            })
-                            || (block.source.start == row.blocks.last().unwrap().source.start
-                                && source + block.source.end
-                                    == self.rows.at(self.rows.len() - 1).1
-                                        + self.rows.at(self.rows.len() - 1).0.source_len))
-                } else {
-                    a < range.end.0 && range.start.0 < z
-                };
-                let empty_fence = block.fence.as_ref().is_some_and(|fence| {
-                    row.display_at(fence.body.start) == row.display_at(fence.body.end)
-                        && block.source.start <= fence.whole.start
-                        && fence.whole.start < block.source.end
-                        && a == range.start.0
-                });
-                let format_endpoint = formatting
-                    && range.start != range.end
-                    && block.list.as_ref().is_some_and(|list| list.first)
-                    && display + row.display_at(block.content.start) == range.end.0;
-                if hit || empty_fence || format_endpoint {
-                    // The synthetic end line of a nonfinal row belongs to its successor.
-                    if !block.source.is_empty()
-                        || source + row.source_len
-                            == self.rows.at(self.rows.len() - 1).1
-                                + self.rows.at(self.rows.len() - 1).0.source_len
-                    {
-                        visit(block, source, index);
-                    }
                 }
             }
         }

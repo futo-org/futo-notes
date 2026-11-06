@@ -90,6 +90,45 @@ fn native_wikilink_completion_requests_accepts_and_rejects_stale_claims() {
     );
 }
 
+/// The engine, not the shell, unwraps `<...>` destinations and decides what is fetchable.
+#[test]
+fn native_image_atoms_classify_destinations_once() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    let source = "![a](<https://x.test/a.png>) ![b](http://x.test/b.png) ![c](<my pic.png>) ![d](data:image/png;base64,AAAA)";
+    store
+        .create_note("mix".into(), "".into(), source.into())
+        .unwrap();
+    let session = store.open_editor("mix".into()).unwrap();
+    let atoms = session
+        .project(
+            0,
+            EditorByteRange {
+                start: 0,
+                end: source.len() as u64,
+            },
+        )
+        .unwrap()
+        .atoms;
+    let described: Vec<_> = atoms
+        .iter()
+        .map(|atom| {
+            let image = atom.image.as_ref().unwrap();
+            (image.destination.as_str(), image.vault, image.remote)
+        })
+        .collect();
+    assert_eq!(
+        described,
+        vec![
+            ("https://x.test/a.png", false, true),
+            ("http://x.test/b.png", false, true),
+            ("my pic.png", true, false),
+            ("data:image/png;base64,AAAA", false, false),
+        ]
+    );
+}
+
 #[test]
 fn native_atoms_and_image_insertion_reject_claims_from_a_reopened_session() {
     let tree = TempTree::new();
@@ -112,6 +151,7 @@ fn native_atoms_and_image_insertion_reject_claims_from_a_reopened_session() {
         ("x", "image-1.png")
     );
     assert!(image.vault);
+    assert!(!image.remote);
 
     let claim = session.image_claim().unwrap();
     session

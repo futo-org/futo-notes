@@ -17,7 +17,17 @@ mod conversions;
 mod keys;
 #[path = "blocks/projection.rs"]
 mod projection;
+#[path = "blocks/quote_enter.rs"]
+mod quote_enter;
 #[path = "blocks/seams.rs"]
 mod seams;
 #[path = "blocks/selected_source.rs"]
 mod selected_source;
+#[path = "blocks/toggle.rs"]
+mod toggle;
+
+#[path = "blocks/heading_join.rs"]
+mod heading_join;
+
+#[path = "blocks/line_endings.rs"]
+mod line_endings;

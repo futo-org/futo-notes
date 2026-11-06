@@ -205,6 +205,15 @@ impl EditorSession {
         Some((window, cell?))
     }
 
+    pub(super) fn in_table(&self, range: DisplayRange) -> bool {
+        self.table_target(range).is_some()
+    }
+
+    pub(super) fn in_table_cell(&self, range: DisplayRange) -> bool {
+        self.table_target(range)
+            .is_some_and(|(_, cell)| cell.is_some())
+    }
+
     fn table_target(&self, range: DisplayRange) -> Option<(Window, Option<(usize, usize)>)> {
         self.table_target_counted(range, &mut 0)
     }
@@ -276,6 +285,44 @@ impl EditorSession {
         }
     }
 
+    /// Every table whose header line starts in `range`, in order: what a host
+    /// gets by asking `inspect_table` at each block start, in one call.
+    pub fn inspect_tables(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<Vec<TableDescription>, EditorError> {
+        self.check_revision(expected)?;
+        self.validate_range(range)?;
+        let mut tables: Vec<TableDescription> = Vec::new();
+        let mut covered = 0;
+        for line in self.projection.view_block_lines(range) {
+            // A list, quote, code or heading line is never a root table row.
+            if line.code
+                || line.quote_depth > 0
+                || line.list.is_some()
+                || line.in_list
+                || line.heading > 0
+                || line.divider
+            {
+                continue;
+            }
+            let at = self.projection.display_at(line.content.start);
+            if at < covered {
+                continue;
+            }
+            let at = DisplayRange {
+                start: DisplayOffset(at),
+                end: DisplayOffset(at),
+            };
+            if let Some(table) = self.inspect_table(expected, at)? {
+                covered = table.display.end.0;
+                tables.push(table);
+            }
+        }
+        Ok(tables)
+    }
+
     /// The table at `range`, with its focused cell and applicable commands when
     /// the range lies inside one cell. Hosts pass the current selection.
     pub fn inspect_table(
@@ -308,6 +355,13 @@ impl EditorSession {
                     .collect()
             })
             .collect();
+        let line_range = |line: &table::Line| {
+            self.display_range(window.base + line.start..window.base + line.end)
+        };
+        let row_lines = (0..layout.rows())
+            .map(|row| line_range(layout.row_line(row)))
+            .collect();
+        let delimiter_line = Some(line_range(&layout.lines[1]));
         let first = window.base + layout.lines[0].start;
         let last = window.base + layout.lines.last().unwrap().end;
         Ok(Some(TableDescription {
@@ -321,6 +375,8 @@ impl EditorSession {
             rows,
             focus: focus.map(|(row, column)| TableFocus { row, column }),
             controls: focus.map(|(row, _)| -> TableControls { layout.controls(row) }),
+            row_lines,
+            delimiter_line,
         }))
     }
 

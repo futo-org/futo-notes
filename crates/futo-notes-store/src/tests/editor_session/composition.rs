@@ -95,7 +95,7 @@ fn implicit_commit_and_paragraph_key_keep_the_separate_history_result() {
             )
             .unwrap()
             .unwrap();
-        assert_eq!(editor.source_text(), "__a日__\n tail\r\n");
+        assert_eq!(editor.source_text(), "__a日__\r\n tail\r\n");
         assert_eq!(editor.revision(), Revision(1));
         editor.undo(Revision(1)).unwrap().unwrap();
         assert_eq!(editor.source_text(), "__a日__ tail\r\n");

@@ -129,6 +129,14 @@ pub(super) fn read_optional(root: &Path, relative: &str) -> Result<Option<Vec<u8
         Err(e) => Err(e.to_string()),
     }
 }
+pub(super) fn open_optional(root: &Path, relative: &str) -> Result<Option<std::fs::File>, String> {
+    super::validate_path(root, relative)?;
+    match std::fs::File::open(root.join(relative)) {
+        Ok(file) => Ok(Some(file)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
 pub(super) fn create_new(root: &Path, relative: &str, bytes: &[u8]) -> Result<bool, String> {
     crate::files::atomic_write::create_new_atomic_reporting(
         &checked_path(root, relative, true).map_err(OpenParentError::message)?,
