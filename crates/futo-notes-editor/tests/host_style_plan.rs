@@ -162,3 +162,61 @@ fn an_image_atom_stays_whole_when_split_at_lines() {
     assert_eq!(image.len(), 1);
     assert_eq!(image[0].range(), (2, 15));
 }
+
+#[test]
+fn tables_plan_as_whole_row_spans_with_cell_ranges_and_a_delimiter() {
+    let source = "intro\n\n| 日本 | b |\n|:--|--:|\n| x | y |\n\nafter\n";
+    let session = EditorSession::open(source);
+    let display = session.display_text();
+    let mirror = DisplayMirror::new(&display);
+    let end = display.len();
+    let range = DisplayRange {
+        start: DisplayOffset(0),
+        end: DisplayOffset(end),
+    };
+    let tables = session.inspect_tables(session.revision(), range).unwrap();
+    assert_eq!(tables.len(), 1);
+    let spans = host::plan_tables(&tables, &mut |b| mirror.byte_to_utf16(b).unwrap());
+    let units: Vec<u16> = display.encode_utf16().collect();
+    let text = |s: usize, e: usize| String::from_utf16(&units[s..e]).unwrap();
+    let rows: Vec<_> = spans
+        .iter()
+        .filter_map(|s| match s {
+            StyleSpec::TableRow {
+                start,
+                end,
+                header,
+                cells,
+                columns,
+                ..
+            } => Some((
+                text(*start, *end),
+                *header,
+                *columns,
+                cells
+                    .iter()
+                    .map(|c| (text(c.start, c.end), c.alignment))
+                    .collect::<Vec<_>>(),
+            )),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(rows.len(), 2);
+    assert!(rows[0].1 && !rows[1].1);
+    assert_eq!(rows[0].2, 2);
+    assert_eq!(
+        rows[0].3,
+        vec![
+            ("日本".to_string(), TableAlignment::Left),
+            ("b".to_string(), TableAlignment::Right)
+        ]
+    );
+    assert_eq!(rows[1].3[0].0, "x");
+    assert_eq!(
+        spans
+            .iter()
+            .filter(|s| matches!(s, StyleSpec::TableDelimiter { .. }))
+            .count(),
+        1
+    );
+}

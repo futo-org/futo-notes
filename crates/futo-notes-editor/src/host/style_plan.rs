@@ -1,5 +1,14 @@
 use crate::{InlineFormat, ProjectionSlice};
 
+/// One cell of a table row: its content's range and column, with the column's alignment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableCellSpan {
+    pub column: usize,
+    pub start: usize,
+    pub end: usize,
+    pub alignment: crate::TableAlignment,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListMarker {
     Bullet,
@@ -61,6 +70,21 @@ pub enum StyleSpec {
         start: usize,
         end: usize,
     },
+    /// One physical row of a root GFM table, drawn as a grid row from its cells.
+    TableRow {
+        start: usize,
+        end: usize,
+        columns: usize,
+        header: bool,
+        /// Where this row's table starts, so a host keys shared scrolling by it.
+        table_start: usize,
+        cells: Vec<TableCellSpan>,
+    },
+    /// The delimiter line: Markdown, with no visible row.
+    TableDelimiter {
+        start: usize,
+        end: usize,
+    },
     /// An image atom: its `![alt](destination)` glyphs are one unit. `vault` and `remote` are the
     /// engine's classification of the destination (a bare vault reference, an `http(s)` URL);
     /// a destination that is neither never loads.
@@ -86,6 +110,8 @@ impl StyleSpec {
             | Self::Link { start, end, .. }
             | Self::Wikilink { start, end, .. }
             | Self::Image { start, end, .. }
+            | Self::TableRow { start, end, .. }
+            | Self::TableDelimiter { start, end }
             | Self::Divider { start, end } => (*start, *end),
         }
     }
@@ -101,6 +127,8 @@ impl StyleSpec {
             | Self::Link { start, end, .. }
             | Self::Wikilink { start, end, .. }
             | Self::Image { start, end, .. }
+            | Self::TableRow { start, end, .. }
+            | Self::TableDelimiter { start, end }
             | Self::Divider { start, end } => (*start, *end) = (s, e),
             Self::ListRow {
                 start,
@@ -302,7 +330,11 @@ fn split_at_lines(specs: Vec<StyleSpec>, units: &[u16], start_utf16: usize) -> V
         let (start, end) = spec.range();
         let atom = matches!(
             spec,
-            StyleSpec::Wikilink { .. } | StyleSpec::Divider { .. } | StyleSpec::Image { .. }
+            StyleSpec::Wikilink { .. }
+                | StyleSpec::Divider { .. }
+                | StyleSpec::Image { .. }
+                | StyleSpec::TableRow { .. }
+                | StyleSpec::TableDelimiter { .. }
         );
         if atom || end <= start {
             out.push(spec);
