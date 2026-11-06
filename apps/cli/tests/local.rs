@@ -166,7 +166,7 @@ fn edge_case_bodies_and_ids_round_trip() {
             .line(),
         "-dash"
     );
-    assert_eq!(env.run(&["read", "--", "-dash"]).stdout, "-x");
+    assert_eq!(env.run(&["read", "--", "-dash"]).stdout, "-x\n");
 
     // `.md` inside an ID is part of the title, not a suffix to strip.
     assert_eq!(
@@ -176,14 +176,14 @@ fn edge_case_bodies_and_ids_round_trip() {
         "notes.md"
     );
     assert!(env.vault().join("notes.md.md").is_file());
-    assert_eq!(env.run(&["read", "notes.md"]).stdout, "m");
+    assert_eq!(env.run(&["read", "notes.md"]).stdout, "m\n");
 
-    // An empty append changes nothing; a non-empty one adds no separator.
+    // An empty append changes nothing; a non-empty one adds no separator (the save adds the final newline).
     env.run(&["append", "empty", "--body", ""]).assert_ok();
     env.run(&["append", "empty", "--body", "a"]).assert_ok();
     env.run_stdin(&["append", "empty", "--stdin"], b"b\n")
         .assert_ok();
-    assert_eq!(env.run(&["read", "empty"]).stdout, "ab\n");
+    assert_eq!(env.run(&["read", "empty"]).stdout, "a\nb\n");
 }
 
 #[test]
@@ -354,7 +354,7 @@ fn rename_and_move_rewrite_backlinks_and_report_final_ids() {
     let value = moved.json();
     let moved_id = value["data"]["id"].as_str().unwrap().to_owned();
     assert!(moved_id.starts_with("archive/2026/"), "{moved_id}");
-    assert_eq!(env.run(&["read", &moved_id]).stdout, "t");
+    assert_eq!(env.run(&["read", &moved_id]).stdout, "t\n");
     assert!(env.run(&["read", "linker"]).stdout.contains(&moved_id));
 }
 
