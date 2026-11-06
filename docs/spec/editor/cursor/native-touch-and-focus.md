@@ -32,6 +32,7 @@
   platform callout are all native on both shells; the editor adds nothing to
   them and takes nothing away, except while a block-drag press is live (see
   "Selection"). _(native shells)_
+- *(Android text-first editor)* A double tap on a word selects that word even where the platform's own double tap leaves only a caret (seen on Samsung One UI 8.5, Android 16); a double tap on spaces or punctuation adds no selection. → apps/android/app/src/main/java/com/futo/notes/textfirst/LineSelectTouch.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstTapGestureTest.kt
 - *(Android text-first editor)* A triple tap selects the logical line, including its wrapped rows, and opens the platform's selection handles and callout on every sequence. → apps/android/app/src/main/java/com/futo/notes/textfirst/LineSelectTouch.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstTapGestureTest.kt
 - *(Android text-first editor)* Platform classification supplies smart callout actions without asynchronously expanding or restoring an earlier selection range. → apps/android/app/src/main/java/com/futo/notes/textfirst/SelectionTextClassifier.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstTapGestureTest.kt
 - *(Android text-first editor)* Select All preserves the note's current scroll position. → apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditTextReveal.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstCaretFollowTest.kt

@@ -97,7 +97,12 @@ class TextFirstTapGestureTest {
         private var clock = SystemClock.uptimeMillis()
 
         /** [count] quick taps at one point, 100 ms apart by their own timestamps; returns when the last one is up. */
-        suspend fun taps(point: Pair<Float, Float>, count: Int, drift: FloatArray = floatArrayOf()) {
+        suspend fun taps(
+            point: Pair<Float, Float>,
+            count: Int,
+            drift: FloatArray = floatArrayOf(),
+            afterDown: (tap: Int) -> Unit = {},
+        ) {
             clock = maxOf(clock + 1_000L, SystemClock.uptimeMillis())
             repeat(count) {
                 val down = clock
@@ -107,6 +112,7 @@ class TextFirstTapGestureTest {
                     val e = MotionEvent.obtain(down, down + 40L * step / path.lastIndex, action, point.first + dx, point.second, 0)
                     e.source = InputDevice.SOURCE_TOUCHSCREEN
                     try { view.dispatchTouchEvent(e) } finally { e.recycle() }
+                    if (action == MotionEvent.ACTION_DOWN) afterDown(it)
                 }
                 clock += 100L
             }
@@ -141,6 +147,41 @@ class TextFirstTapGestureTest {
         taps(x to y, 2, drift = floatArrayOf(2f, 4f, 5f))
         delay(500L)
         assertEquals("jittery double tap: sel ${view.selectionStart}-${view.selectionEnd}", "gamma", selected())
+    }
+
+    /**
+     * Samsung's One UI 8.5 (Android 16) text view placed a caret on a double-tap and selected
+     * nothing, where AOSP selects the word on the second touch-down. Model that phone by taking
+     * the platform's selection away as soon as the second tap lands: the word is still selected.
+     */
+    @Test
+    fun aDoubleTapSelectsTheWordWhenThePlatformSelectsNothing() = exercise {
+        view.setSelection(0)
+        val caret = text.indexOf("beta") + 2
+        taps(pointAt("beta"), 2, afterDown = { tap -> if (tap == 1) view.setSelection(caret) })
+        delay(500L)
+        assertEquals("platform without word select: sel ${view.selectionStart}-${view.selectionEnd}", "beta", selected())
+    }
+
+    /** The same phone's selection can also collapse a moment after the second tap lifts. */
+    @Test
+    fun aDoubleTapKeepsTheWordWhenThePlatformCollapsesItLater() = exercise {
+        view.setSelection(0)
+        val caret = text.indexOf("beta") + 2
+        taps(pointAt("beta"), 2)
+        view.setSelection(caret)
+        delay(800L)
+        assertEquals("late collapse: sel ${view.selectionStart}-${view.selectionEnd}", "beta", selected())
+    }
+
+    /** A double-tap on the space between two words selects nothing of its own making. */
+    @Test
+    fun aDoubleTapOnBlankSpaceAddsNoWordSelection() = exercise {
+        view.setSelection(0)
+        val (x, y) = pointAt("alpha beta", 5)
+        taps(x to y, 2, afterDown = { tap -> if (tap == 1) view.setSelection(5) })
+        delay(800L)
+        assertEquals("blank double tap: sel ${view.selectionStart}-${view.selectionEnd}", "", selected())
     }
 
     /** Gboard marks the word the caret lands in; the second tap of a double-tap arrives with that composition open. */
