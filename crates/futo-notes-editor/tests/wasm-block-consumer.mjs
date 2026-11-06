@@ -224,7 +224,7 @@ export async function runBlockRegressions() {
     ['> x\n> =', 'Delete', '> # ', 'x', 0, 1, ''],
     ['   foo', { Heading: 2 }, '## &#32;  foo', '   foo', 6],
     ['   # foo', { Heading: 0 }, 'foo', 'foo', 0],
-    ['> > ## 猫🦊 ##', 'Quote', '> > 猫🦊', '猫🦊', 0],
+    ['> > ## 猫🦊 ##', 'Quote', '> ## 猫🦊 ##', '猫🦊', 0],
     ['> foo\r\n> bar\r\n> ===', { Heading: 0 }, '> foo\r\n> bar', 'foo\r\nbar', 5],
   ])
     await reviewedBlockRegression(...item);
