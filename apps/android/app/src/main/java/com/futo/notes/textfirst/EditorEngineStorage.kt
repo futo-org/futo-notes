@@ -13,41 +13,54 @@ import uniffi.futo_notes_ffi.FlushDraftResult
 import uniffi.futo_notes_ffi.NativeEditorSession
 
 /**
- * Wait for ordinary vault I/O off the editor thread, then open the whole note
- * there too, so the editor thread stays free to show the quick first screens
- * and queue input meanwhile. The gate stays held until the attachment is
- * installed; callbacks run only after admission ends.
+ * Wait for ordinary vault I/O off the editor thread. The gate stays held
+ * until the attachment is ready; callbacks run only after admission ends.
+ * The quick first screens are posted first, so they show while the whole
+ * open runs; work posted after open() still runs after the whole open.
  */
 internal fun EditorEngine.open(onOpened: (Throwable?) -> Unit) {
     handler.post { showQuickOpen() }
     val gate = storageGate
+    if (gate == null) {
+        handler.post {
+            val error = openAttachment()
+            ui.post { onOpened(error) }
+        }
+        return
+    }
     CoroutineScope(Dispatchers.IO).launch {
         var error: Throwable? = null
-        val attach: suspend () -> Unit = {
-            val began = SystemClock.elapsedRealtimeNanos()
-            val opened = store().openEditor(noteId)
-            Log.i(EditorEngine.TAG, "openEditor ${(SystemClock.elapsedRealtimeNanos() - began) / 1000} us")
-            suspendCoroutine<Unit> { done ->
-                if (!handler.post {
-                    error = install(opened)
-                    done.resume(Unit)
-                }) {
-                    opened.destroy()
-                    error = IllegalStateException("The editor was closed before opening")
-                    done.resume(Unit)
+        try {
+            gate.runAccess {
+                suspendCoroutine<Unit> { done ->
+                    if (!handler.post {
+                        error = openAttachment()
+                        done.resume(Unit)
+                    }) {
+                        error = IllegalStateException("The editor was closed before opening")
+                        done.resume(Unit)
+                    }
                 }
             }
-        }
-        try {
-            if (gate == null) attach() else gate.runAccess { attach() }
         } catch (failure: Throwable) {
-            Log.e(EditorEngine.TAG, "open $noteId failed", failure)
             error = failure
         }
         // An open that never ran leaves nothing for waiting input to reach.
         if (error != null) handler.post { if (session == null) awaitingOpen = null }
         ui.post { onOpened(error) }
     }
+}
+
+private fun EditorEngine.openAttachment(): Throwable? = try {
+    check(!closed) { "The editor is closed" }
+    val began = SystemClock.elapsedRealtimeNanos()
+    val opened = store().openEditor(noteId)
+    Log.i(EditorEngine.TAG, "openEditor ${(SystemClock.elapsedRealtimeNanos() - began) / 1000} us")
+    install(opened)
+} catch (failure: Throwable) {
+    Log.e(EditorEngine.TAG, "open $noteId failed", failure)
+    awaitingOpen = null
+    failure
 }
 
 /**
@@ -77,10 +90,6 @@ internal fun EditorEngine.showQuickOpen() {
 
 /** Take the opened session on the editor thread and hand the view over to it. */
 private fun EditorEngine.install(opened: NativeEditorSession): Throwable? = try {
-    if (closed) {
-        opened.destroy()
-        throw IllegalStateException("The editor is closed")
-    }
     val began = SystemClock.elapsedRealtimeNanos()
     session = opened
     fast = FastSession.of(opened)
