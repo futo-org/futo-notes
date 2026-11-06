@@ -55,9 +55,33 @@
                         Color.clear
                     }
                 }
+                // A layout sibling above the keyboard, so the note never runs under the bar.
+                if let controller {
+                    TextFirstFindBar(model: controller.findModel, controller: controller)
+                }
             }
             .background(Theme.background)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            controller?.openFind()
+                        } label: {
+                            Label(
+                                localization.localizedText("editor.find.open"),
+                                systemImage: "magnifyingglass")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel(
+                        localization.localizedText("notes.actions.moreAccessibilityLabel")
+                    )
+                    .tint(Theme.primary)
+                    .disabled(controller == nil)
+                }
+            }
             .onAppear {
                 // Back from a pushed note: the leave closed this editor, so attach it again.
                 if leaving, controller == nil {

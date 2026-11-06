@@ -51,6 +51,9 @@
         /// Each table's sideways scroll, by the display offset its table starts at.
         var tableScroll: [Int: CGFloat] = [:]
         var cellEditor: TextFirstCellEditor?
+        /// Find in note: the bar's model and the engine-side bookkeeping.
+        let findModel = TextFirstFindModel()
+        var find = TextFirstFindState()
         var tablePan: UIPanGestureRecognizer?
         var tablePanRow: (row: NSRange, span: TextFirstTableRowSpan)?
         var tablePanOrigin: CGFloat = 0
@@ -167,6 +170,7 @@
             refreshCompletion()
             markDirty()
             checkDivergence()
+            scheduleFindRefresh()
             onAccepted?()
         }
 

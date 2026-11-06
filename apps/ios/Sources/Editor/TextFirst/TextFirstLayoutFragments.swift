@@ -118,11 +118,18 @@
                 }
                 let width = TextFirstTableMetrics.cellWidth
                 let pad = TextFirstTableMetrics.padding
+                let marks = tableMarks(for: run)
                 for column in 0..<span.columns {
                     let cell = CGRect(
                         x: rect.minX - scroll + CGFloat(column) * width, y: rect.minY, width: width,
                         height: rect.height)
                     if cell.maxX < rect.minX || cell.minX > rect.maxX { continue }
+                    for mark in marks where mark.column == column {
+                        TextFirstFindColors.fill(current: mark.current).setFill()
+                        for r in mark.rects {
+                            context.fill(r.offsetBy(dx: cell.minX + pad, dy: cell.minY + pad))
+                        }
+                    }
                     UIColor.separator.setStroke()
                     context.setLineWidth(1)
                     context.stroke(cell.insetBy(dx: 0.5, dy: 0.5))
@@ -259,6 +266,7 @@
             if let list = block.list, block.showsMarker {
                 drawListMarker(list, at: point, in: context)
             }
+            drawFindMarks(at: point, in: context)
             super.draw(at: pointIn, in: context)
             drawImages(at: point, in: context)
             drawTables(at: point, in: context)
@@ -338,22 +346,11 @@
                 let text = paragraph.attributedString
                 let block =
                     text.attribute(.tfBlock, at: 0, effectiveRange: nil) as? TextFirstBlockAttribute
-                var image = false
-                for key in [NSAttributedString.Key.tfImage, .tfTable] {
-                    text.enumerateAttribute(
-                        key, in: NSRange(location: 0, length: text.length), options: []
-                    ) { value, _, stop in
-                        if value != nil {
-                            image = true
-                            stop.pointee = true
-                        }
-                    }
-                }
-                if block != nil || image {
-                    return TextFirstLayoutFragment(
-                        block: block ?? TextFirstBlockAttribute(), element: textElement,
-                        range: textElement.elementRange, host: host)
-                }
+                // Every paragraph: a find mark can land on any of them, and a fragment already laid
+                // out is not rebuilt when the first mark arrives.
+                return TextFirstLayoutFragment(
+                    block: block ?? TextFirstBlockAttribute(), element: textElement,
+                    range: textElement.elementRange, host: host)
             }
             return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
         }
