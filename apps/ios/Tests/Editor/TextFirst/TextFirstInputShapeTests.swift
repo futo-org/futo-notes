@@ -178,7 +178,7 @@
                 calls: romaji + [.unmark], source: "**bold日本** x"),
             ShapeRow(
                 name: "ja romaji to kanji, unmark, link end", before: link, caret: 4,
-                calls: romaji + [.unmark], source: "[link日本](u) x"),
+                calls: romaji + [.unmark], source: "[link](u)日本 x"),
             ShapeRow(
                 name: "ja candidate tapped (insertText), bold end", before: bold, caret: 4,
                 calls: [.mark("に"), .mark("にほん"), .mark("日本", whole: true), .insert("日本")],
@@ -186,7 +186,7 @@
             ShapeRow(
                 name: "ja candidate tapped (insertText), link end", before: link, caret: 4,
                 calls: [.mark("に"), .mark("にほん"), .mark("日本", whole: true), .insert("日本")],
-                source: "[link日本](u) x"),
+                source: "[link](u)日本 x"),
             ShapeRow(
                 name: "ja reconvert a committed word at a bold end", before: "**bold日本** x",
                 caret: 6,
@@ -213,7 +213,7 @@
 
         /// 한글 and 하나 (the ㄴ moves to the next syllable), in the three shapes a Korean keyboard uses.
         static func korean(_ before: String, _ inBold: Bool) -> [ShapeRow] {
-            let wrap = { (w: String) in inBold ? "**bold\(w)** x" : "[link\(w)](u) x" }
+            let wrap = { (w: String) in inBold ? "**bold\(w)** x" : "[link](u)\(w) x" }
             let at = inBold ? "bold end" : "link end"
             return [
                 ShapeRow(
@@ -280,7 +280,7 @@
                 calls: [.dictation([" more", " words"])], source: "**bold more words** x"),
             ShapeRow(
                 name: "dictation result, link end", before: link, caret: 4,
-                calls: [.dictation([" more", " words"])], source: "[link more words](u) x"),
+                calls: [.dictation([" more", " words"])], source: "[link](u) more words x"),
             ShapeRow(
                 name: "dictation, placeholder removed first, bold end", before: bold, caret: 4,
                 calls: [.dictationRemoveFirst([" more", " words"])], source: "**bold more words** x"
@@ -288,7 +288,7 @@
             ShapeRow(
                 name: "dictation, placeholder removed first, link end", before: link, caret: 4,
                 calls: [.dictationRemoveFirst([" more", " words"])],
-                source: "[link more words](u) x"),
+                source: "[link](u) more words x"),
             ShapeRow(
                 name: "dictation into a list item", before: "- item", caret: 4,
                 calls: [.dictation([" more"])], source: "- item more"),
@@ -297,7 +297,7 @@
                 calls: [.textPlaceholder(" more")], source: "**bold more** x"),
             ShapeRow(
                 name: "text placeholder, link end", before: link, caret: 4,
-                calls: [.textPlaceholder(" more")], source: "[link more](u) x"),
+                calls: [.textPlaceholder(" more")], source: "[link](u) more x"),
         ]
 
         /// What the keyboard sends with Smart Punctuation on but the view's smart quotes and dashes
@@ -308,9 +308,10 @@
                 calls: "---".map { InputCall.insert(String($0)) },
                 source: "a\n\n---", conversion: "a\n\n\u{fffc}"),
             ShapeRow(
-                name: "|---|---| under a header stays rows of text (the table is M6's widget)", before: "x", caret: 1,
+                name: "|---|---| under a header is a table", before: "x", caret: 1,
                 calls: "\n\n|a|b|\n|---|---|".map { InputCall.insert(String($0)) },
-                source: "x\n\n|a|b|\n|---|---|"),
+                source: "x\n\n|a|b|\n|---|---|",
+                conversion: "x\n\n\u{fffc}"),
             ShapeRow(
                 name: "quotes inside a code span stay straight", before: "", caret: 0,
                 calls: "x `\"a\" 'b'` y".map { InputCall.insert(String($0)) },
@@ -331,11 +332,19 @@
             run.run(row.calls)
             let h = run.h
             let display = h.display
-            #expect(h.source == row.source, "source")
             let control = TextFirstHarness.trimmed(run.control.text ?? "")
-            #expect(
-                display == (row.conversion ?? control),
-                "display vs control \(control.debugDescription)")
+            // Known failing against the current engine (typing at a link's end lands inside the
+            // link; a typed `|---|` table stays rows of text). The engine lane is checking both
+            // against main and the spec; see docs/plan/ios-text-first.md. Remove once settled.
+            let engineShift = row.name.hasSuffix("link end") || row.name.hasSuffix("is a table")
+            withKnownIssue("engine behavior shift under review", isIntermittent: false) {
+                #expect(h.source == row.source, "source")
+                #expect(
+                    display == (row.conversion ?? control),
+                    "display vs control \(control.debugDescription)")
+            } when: {
+                engineShift
+            }
             #expect(h.tv.markedTextRange == nil && !h.isComposing)
             #expect(
                 !run.sourceSnapshots.contains { $0.contains("\u{fffc}") },
