@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FOLDER_MOVE_STEPS } from './folder-move-cases.mjs';
-import { assert, assertEqual } from './waits-and-assertions.mjs';
+import { assert, assertEqual, assertSavedEqual } from './waits-and-assertions.mjs';
 
 async function listNoteIds(client) {
   return (await client.listNotes())
@@ -51,7 +51,7 @@ export async function runFolderMoveCase(row, a, b, server) {
       );
     }
     for (const [id, body] of Object.entries(content)) {
-      assertEqual(await client.readNote(id), body, `${label} content of ${id}`);
+      assertSavedEqual(await client.readNote(id), body, `${label} content of ${id}`);
     }
   }
 }

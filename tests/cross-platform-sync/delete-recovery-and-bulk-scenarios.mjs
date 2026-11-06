@@ -9,6 +9,8 @@ import { sleep } from '../lib/mcp-client.mjs';
 import {
   assert,
   assertEqual,
+  assertSavedEqual,
+  sameSavedText,
   waitForEditorContent,
   waitForOpenNoteState,
   waitForSaveIdle,
@@ -51,10 +53,10 @@ export async function deleteVsEdit(a, b, server) {
   for (let attempt = 0; attempt < 6; attempt += 1) {
     await a.syncNow();
     aContent = await a.readNote('contested');
-    if (aContent === '# B edited this') break;
+    if (sameSavedText(aContent, '# B edited this')) break;
     await sleep(500);
   }
-  assertEqual(aContent, '# B edited this', "A should get B's edit back");
+  assertSavedEqual(aContent, '# B edited this', "A should get B's edit back");
 }
 
 // F4: a peer deletes the note the observer currently has open. read_note
@@ -278,7 +280,7 @@ export async function largeSync(a, b, server) {
   // Spot check a few — verify full content round-tripped correctly
   for (const i of [0, 499, 999]) {
     const content = await b.readNote(`bulk ${String(i).padStart(4, '0')}`);
-    assertEqual(content, contentByIndex[i], `bulk ${i} content mismatch`);
+    assertSavedEqual(content, contentByIndex[i], `bulk ${i} content mismatch`);
   }
 }
 
