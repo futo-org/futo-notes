@@ -5,9 +5,9 @@ fn rename_is_one_operation_that_moves_content_and_rewrites_resolvable_links() {
     let root = TestRoot::new();
     let store = store(&root);
     store
-        .write("Lists/groceries", "self [[groceries]]", None)
+        .write("Lists/groceries", "self [[groceries]]\n", None)
         .unwrap();
-    store.write("pointer", "see [[groceries]]", None).unwrap();
+    store.write("pointer", "see [[groceries]]\n", None).unwrap();
 
     let mutation = store
         .rename("Lists/groceries", "Archive/groceries")
@@ -15,9 +15,12 @@ fn rename_is_one_operation_that_moves_content_and_rewrites_resolvable_links() {
     assert_eq!(mutation.renamed[0].to, "Archive/groceries");
     assert_eq!(
         store.read("Archive/groceries").unwrap(),
-        "self [[Archive/groceries]]"
+        "self [[Archive/groceries]]\n"
     );
-    assert_eq!(store.read("pointer").unwrap(), "see [[Archive/groceries]]");
+    assert_eq!(
+        store.read("pointer").unwrap(),
+        "see [[Archive/groceries]]\n"
+    );
     assert!(!store.exists("Lists/groceries"));
 }
 
@@ -35,20 +38,20 @@ fn collision_check_sees_folded_twins_behind_variant_folders_at_any_depth() {
     fs::write(root.0.join("Caf\u{00E9}/menu.md"), "nfc").unwrap();
 
     assert!(
-        store.write("docs/plans/Roadmap", "two", None).is_err(),
+        store.write("docs/plans/Roadmap", "two\n", None).is_err(),
         "case-variant folders and leaf must collide"
     );
     assert!(
-        store.write("Cafe\u{0301}/Menu", "nfd", None).is_err(),
+        store.write("Cafe\u{0301}/Menu", "nfd\n", None).is_err(),
         "an NFD folder name must collide with its NFC twin"
     );
     assert!(
-        store.write("Docs/roadmap", "shallower", None).is_ok(),
+        store.write("Docs/roadmap", "shallower\n", None).is_ok(),
         "a same-named note one level up is a different id"
     );
     assert!(
         store
-            .write("Docs/Plans/Archive/roadmap", "deeper", None)
+            .write("Docs/Plans/Archive/roadmap", "deeper\n", None)
             .is_ok(),
         "a same-named note one level down is a different id"
     );
@@ -57,7 +60,7 @@ fn collision_check_sees_folded_twins_behind_variant_folders_at_any_depth() {
 
     // Unique-id allocation consults the same candidates: a create whose folded
     // id is taken behind variant folders gets the next suffix, never a shadow.
-    let created = store.create("docs/plans", "Roadmap", "three").unwrap();
+    let created = store.create("docs/plans", "Roadmap", "three\n").unwrap();
     assert!(
         created.final_id.as_deref().unwrap().ends_with("/Roadmap-2"),
         "got {:?}",
@@ -69,11 +72,11 @@ fn collision_check_sees_folded_twins_behind_variant_folders_at_any_depth() {
 fn rename_never_overwrites_a_case_or_unicode_colliding_destination() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.write("note", "mine", None).unwrap();
-    if store.write("Note", "other", None).is_err() {
+    store.write("note", "mine\n", None).unwrap();
+    if store.write("Note", "other\n", None).is_err() {
         // A case-insensitive filesystem cannot hold both directory entries;
         // rejecting the second identity is the safe outcome there.
-        assert_eq!(store.read("note").unwrap(), "mine");
+        assert_eq!(store.read("note").unwrap(), "mine\n");
         return;
     }
 
@@ -121,7 +124,7 @@ fn a_failed_source_removal_during_rename_leaves_no_duplicate() {
     use std::os::unix::fs::PermissionsExt;
     let root = TestRoot::new();
     let store = store(&root);
-    store.write("Src/note", "the content", None).unwrap();
+    store.write("Src/note", "the content\n", None).unwrap();
     let src_dir = root.0.join("Src");
     let original = fs::metadata(&src_dir).unwrap().permissions();
     fs::set_permissions(&src_dir, fs::Permissions::from_mode(0o555)).unwrap();
@@ -144,7 +147,7 @@ fn a_failed_source_removal_during_rename_leaves_no_duplicate() {
     );
     assert_eq!(
         store.read("Src/note").unwrap(),
-        "the content",
+        "the content\n",
         "source note preserved"
     );
     assert!(
@@ -157,17 +160,17 @@ fn a_failed_source_removal_during_rename_leaves_no_duplicate() {
 fn deleting_a_folder_moves_notes_up_with_collisions_before_removing_the_tree() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.write("A/note", "existing", None).unwrap();
-    store.write("A/B/note", "moved", None).unwrap();
-    store.write("A/B/C/deep", "deep", None).unwrap();
-    store.write("pointer", "[[A/B/note]]", None).unwrap();
+    store.write("A/note", "existing\n", None).unwrap();
+    store.write("A/B/note", "moved\n", None).unwrap();
+    store.write("A/B/C/deep", "deep\n", None).unwrap();
+    store.write("pointer", "[[A/B/note]]\n", None).unwrap();
 
     let mutation = store.delete_folder("A/B").unwrap();
     assert_eq!(mutation.renamed.len(), 2);
-    assert_eq!(store.read("A/note").unwrap(), "existing");
-    assert_eq!(store.read("A/note-2").unwrap(), "moved");
-    assert_eq!(store.read("A/C/deep").unwrap(), "deep");
-    assert_eq!(store.read("pointer").unwrap(), "[[A/note-2]]");
+    assert_eq!(store.read("A/note").unwrap(), "existing\n");
+    assert_eq!(store.read("A/note-2").unwrap(), "moved\n");
+    assert_eq!(store.read("A/C/deep").unwrap(), "deep\n");
+    assert_eq!(store.read("pointer").unwrap(), "[[A/note-2]]\n");
     assert!(!root.0.join("A/B").exists());
 }
 
@@ -175,14 +178,14 @@ fn deleting_a_folder_moves_notes_up_with_collisions_before_removing_the_tree() {
 fn native_folder_delete_preserves_nested_attachments_and_name_collisions() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.write("A/B/C/note", "body", None).unwrap();
+    store.write("A/B/C/note", "body\n", None).unwrap();
     std::fs::write(root.0.join("A/B/C/photo.png"), b"moved image").unwrap();
     std::fs::create_dir_all(root.0.join("A/C")).unwrap();
     std::fs::write(root.0.join("A/C/photo.png"), b"existing image").unwrap();
 
     store.delete_folder("A/B").unwrap();
 
-    assert_eq!(store.read("A/C/note").unwrap(), "body");
+    assert_eq!(store.read("A/C/note").unwrap(), "body\n");
     assert_eq!(
         std::fs::read(root.0.join("A/C/photo.png")).unwrap(),
         b"existing image"
@@ -220,12 +223,14 @@ fn native_folder_delete_numbers_a_near_limit_unicode_attachment() {
 fn moving_a_folder_is_one_collision_safe_workflow_and_rewrites_links() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.write("Projects/Plans/roadmap", "body", None).unwrap();
     store
-        .write("Archive/Plans/existing", "occupied", None)
+        .write("Projects/Plans/roadmap", "body\n", None)
         .unwrap();
     store
-        .write("pointer", "[[Projects/Plans/roadmap]]", None)
+        .write("Archive/Plans/existing", "occupied\n", None)
+        .unwrap();
+    store
+        .write("pointer", "[[Projects/Plans/roadmap]]\n", None)
         .unwrap();
 
     let mutation = store.move_folder("Projects/Plans", "Archive").unwrap();
@@ -238,10 +243,10 @@ fn moving_a_folder_is_one_collision_safe_workflow_and_rewrites_links() {
             to: "Archive/Plans-2/roadmap".to_owned(),
         }]
     );
-    assert_eq!(store.read("Archive/Plans-2/roadmap").unwrap(), "body");
+    assert_eq!(store.read("Archive/Plans-2/roadmap").unwrap(), "body\n");
     assert_eq!(
         store.read("pointer").unwrap(),
-        "[[Archive/Plans-2/roadmap]]"
+        "[[Archive/Plans-2/roadmap]]\n"
     );
     assert!(!root.0.join("Projects/Plans").exists());
 }
@@ -250,7 +255,9 @@ fn moving_a_folder_is_one_collision_safe_workflow_and_rewrites_links() {
 fn moving_a_folder_refuses_itself_or_a_descendant_without_changing_the_vault() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.write("Projects/Plans/roadmap", "body", None).unwrap();
+    store
+        .write("Projects/Plans/roadmap", "body\n", None)
+        .unwrap();
 
     for destination in ["Projects", "Projects/Plans", "Projects/Plans/Child"] {
         assert!(
@@ -259,7 +266,7 @@ fn moving_a_folder_refuses_itself_or_a_descendant_without_changing_the_vault() {
         );
     }
 
-    assert_eq!(store.read("Projects/Plans/roadmap").unwrap(), "body");
+    assert_eq!(store.read("Projects/Plans/roadmap").unwrap(), "body\n");
     assert_eq!(store.snapshot().folders, ["Projects", "Projects/Plans"]);
 }
 
@@ -267,14 +274,14 @@ fn moving_a_folder_refuses_itself_or_a_descendant_without_changing_the_vault() {
 fn destructive_operations_refuse_the_vault_root_and_traversal() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.write("keep", "body", None).unwrap();
+    store.write("keep", "body\n", None).unwrap();
     for unsafe_path in ["", "/", "..", "A/../B", "../outside", "trail/"] {
         assert!(
             store.delete_folder(unsafe_path).is_err(),
             "accepted {unsafe_path:?}"
         );
     }
-    assert_eq!(store.read("keep").unwrap(), "body");
+    assert_eq!(store.read("keep").unwrap(), "body\n");
     assert!(!root.0.parent().unwrap().join("outside").exists());
 }
 
@@ -286,7 +293,7 @@ fn mutations_feed_the_same_background_search_owner() {
     store
         .start_search(index.0.clone(), Arc::new(|_| {}))
         .unwrap();
-    store.write("pancakes", "milk eggs flour", None).unwrap();
+    store.write("pancakes", "milk eggs flour\n", None).unwrap();
 
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
@@ -315,7 +322,9 @@ fn renaming_a_note_removes_the_old_id_from_search_without_a_restart() {
     store
         .start_search(index.0.clone(), Arc::new(|_| {}))
         .unwrap();
-    store.write("alpha", "zzqm distinctive body", None).unwrap();
+    store
+        .write("alpha", "zzqm distinctive body\n", None)
+        .unwrap();
 
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
@@ -354,7 +363,7 @@ fn mutations_report_the_post_commit_folder_projection() {
     let created_folder = store.create_folder("Projects/Empty").unwrap();
     assert_eq!(created_folder.folders, ["Projects", "Projects/Empty"]);
 
-    let created_note = store.create("Projects", "note", "body").unwrap();
+    let created_note = store.create("Projects", "note", "body\n").unwrap();
     assert_eq!(created_note.folders, ["Projects", "Projects/Empty"]);
 
     let moved = store.move_note("Projects/note", "Archive").unwrap();

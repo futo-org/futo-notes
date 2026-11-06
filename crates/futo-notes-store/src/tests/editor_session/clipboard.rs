@@ -4,7 +4,7 @@ use super::*;
 fn paste_and_cut_survive_rejected_append_recovery_and_checkpoint() {
     let root = TestRoot::new();
     let store = store(&root);
-    let original = "ab **cd**\r\nend";
+    let original = "ab **cd**\r\nend\r\n";
     store.create("", "clip", original).unwrap();
     let mut session = store.open_editor("clip").unwrap();
     assert_eq!(session.source_text(), original);
@@ -17,11 +17,11 @@ fn paste_and_cut_survive_rejected_append_recovery_and_checkpoint() {
         .paste_markdown(Revision(0), range(1, 1), "x \t\n# T\ny")
         .unwrap()
         .unwrap();
-    let pasted = "ax \t\r\n# T\r\nyb **cd**\r\nend";
+    let pasted = "ax \t\r\n# T\r\nyb **cd**\r\nend\r\n";
     assert_eq!(session.source_text(), pasted);
     let (copied, _) = session.cut_markdown(Revision(1), range(12, 14)).unwrap();
     assert_eq!(copied, "**cd**");
-    let cut = "ax \t\r\n# T\r\nyb \r\nend";
+    let cut = "ax \t\r\n# T\r\nyb \r\nend\r\n";
     assert_eq!(session.source_text(), cut);
     session.undo(Revision(2)).unwrap().unwrap();
     assert_eq!(session.source_text(), pasted);

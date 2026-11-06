@@ -65,9 +65,9 @@ fn entries(root: &Path, folder: &str) -> Vec<String> {
 fn a_rename_records_its_exact_collision_resolved_move_for_sync() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("twin", "same body", None).unwrap();
-    store.write("old", "same body", None).unwrap();
-    store.write("taken", "other", None).unwrap();
+    store.write("twin", "same body\n", None).unwrap();
+    store.write("old", "same body\n", None).unwrap();
+    store.write("taken", "other\n", None).unwrap();
 
     let final_id = store.rename("old", "taken").unwrap().final_id.unwrap();
 
@@ -84,7 +84,7 @@ fn a_rename_records_its_exact_collision_resolved_move_for_sync() {
 fn without_a_sync_scope_a_rename_keeps_no_intent() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.write("old", "body", None).unwrap();
+    store.write("old", "body\n", None).unwrap();
 
     store.rename("old", "new").unwrap();
 
@@ -96,7 +96,7 @@ fn without_a_sync_scope_a_rename_keeps_no_intent() {
 fn a_new_sync_scope_drops_intents_recorded_for_another() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("old", "body", None).unwrap();
+    store.write("old", "body\n", None).unwrap();
     store.rename("old", "new").unwrap();
 
     set_rename_scope(&root.0, Some("another collection")).unwrap();
@@ -108,7 +108,7 @@ fn a_new_sync_scope_drops_intents_recorded_for_another() {
 fn a_bound_object_persists_until_its_intent_is_acknowledged() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("old", "body", None).unwrap();
+    store.write("old", "body\n", None).unwrap();
     store.rename("old", "new").unwrap();
 
     let key = with_rename_journal(&root.0, |journal| {
@@ -131,7 +131,7 @@ fn a_bound_object_persists_until_its_intent_is_acknowledged() {
 fn a_crash_before_the_source_moves_leaves_the_note_and_no_intent() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("old", "body", None).unwrap();
+    store.write("old", "body\n", None).unwrap();
 
     let image = crash_image(&root, "move old.md", || {
         store.rename("old", "new").unwrap();
@@ -139,7 +139,7 @@ fn a_crash_before_the_source_moves_leaves_the_note_and_no_intent() {
     let restarted = LocalNoteStore::new(image.0.clone());
     restarted.bootstrap().unwrap();
 
-    assert_eq!(restarted.read("old").unwrap(), "body");
+    assert_eq!(restarted.read("old").unwrap(), "body\n");
     assert!(!restarted.exists("new"));
     assert!(intents(&image.0).is_empty());
     assert!(!image.0.join(".local-renames").exists());
@@ -149,8 +149,8 @@ fn a_crash_before_the_source_moves_leaves_the_note_and_no_intent() {
 fn a_crash_between_moves_finishes_the_rename_and_its_backlinks_on_restart() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("old", "body", None).unwrap();
-    store.write("pointer", "see [[old]]", None).unwrap();
+    store.write("old", "body\n", None).unwrap();
+    store.write("pointer", "see [[old]]\n", None).unwrap();
 
     let image = crash_image(&root, "move .local-renames", || {
         store.rename("old", "new").unwrap();
@@ -159,9 +159,9 @@ fn a_crash_between_moves_finishes_the_rename_and_its_backlinks_on_restart() {
     let restarted = LocalNoteStore::new(image.0.clone());
     let listed = restarted.bootstrap().unwrap().snapshot;
 
-    assert_eq!(restarted.read("new").unwrap(), "body");
+    assert_eq!(restarted.read("new").unwrap(), "body\n");
     assert!(!restarted.exists("old"));
-    assert_eq!(restarted.read("pointer").unwrap(), "see [[new]]");
+    assert_eq!(restarted.read("pointer").unwrap(), "see [[new]]\n");
     assert!(listed.notes.iter().any(|note| note.id == "new"));
     assert_eq!(
         intents(&image.0),
@@ -174,7 +174,7 @@ fn a_crash_between_moves_finishes_the_rename_and_its_backlinks_on_restart() {
 fn a_crash_before_the_commit_record_commits_it_on_restart() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("old", "body", None).unwrap();
+    store.write("old", "body\n", None).unwrap();
 
     let image = crash_image(&root, "commit", || {
         store.rename("old", "new").unwrap();
@@ -191,7 +191,7 @@ fn a_crash_before_the_commit_record_commits_it_on_restart() {
 fn a_case_only_rename_interrupted_between_moves_finishes_with_the_new_spelling() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("note", "body", None).unwrap();
+    store.write("note", "body\n", None).unwrap();
 
     let image = crash_image(&root, "move .local-renames", || {
         store.rename("note", "Note").unwrap();
@@ -210,7 +210,7 @@ fn a_case_only_rename_interrupted_between_moves_finishes_with_the_new_spelling()
 fn recovery_never_overwrites_a_newcomer_at_the_destination() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("old", "ours", None).unwrap();
+    store.write("old", "ours\n", None).unwrap();
 
     let image = crash_image(&root, "move .local-renames", || {
         store.rename("old", "new").unwrap();
@@ -225,7 +225,7 @@ fn recovery_never_overwrites_a_newcomer_at_the_destination() {
     assert_eq!(recovered[0].0, "old.md");
     let ours = recovered[0].1.trim_end_matches(".md");
     assert_ne!(ours, "new");
-    assert_eq!(restarted.read(ours).unwrap(), "ours");
+    assert_eq!(restarted.read(ours).unwrap(), "ours\n");
     assert!(warnings.iter().any(|warning| warning.contains("was taken")));
 }
 
@@ -233,7 +233,7 @@ fn recovery_never_overwrites_a_newcomer_at_the_destination() {
 fn undoing_an_unrecorded_move_never_overwrites_a_newcomer_at_the_source() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("old", "ours", None).unwrap();
+    store.write("old", "ours\n", None).unwrap();
 
     let image = crash_image(&root, "stage", || {
         store.rename("old", "new").unwrap();
@@ -249,7 +249,7 @@ fn undoing_an_unrecorded_move_never_overwrites_a_newcomer_at_the_source() {
         .filter(|id| id != "old")
         .collect::<Vec<_>>();
     assert_eq!(ours.len(), 1);
-    assert_eq!(restarted.read(&ours[0]).unwrap(), "ours");
+    assert_eq!(restarted.read(&ours[0]).unwrap(), "ours\n");
     assert!(intents(&image.0).is_empty());
 }
 
@@ -257,8 +257,8 @@ fn undoing_an_unrecorded_move_never_overwrites_a_newcomer_at_the_source() {
 fn a_folder_rename_interrupted_between_moves_finishes_every_note_on_restart() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("Proj/a", "a", None).unwrap();
-    store.write("Proj/b", "b", None).unwrap();
+    store.write("Proj/a", "a\n", None).unwrap();
+    store.write("Proj/b", "b\n", None).unwrap();
 
     let image = crash_image(&root, "move .local-renames", || {
         store.rename_folder("Proj", "Work").unwrap();
@@ -266,8 +266,8 @@ fn a_folder_rename_interrupted_between_moves_finishes_every_note_on_restart() {
     let restarted = LocalNoteStore::new(image.0.clone());
     restarted.bootstrap().unwrap();
 
-    assert_eq!(restarted.read("Work/a").unwrap(), "a");
-    assert_eq!(restarted.read("Work/b").unwrap(), "b");
+    assert_eq!(restarted.read("Work/a").unwrap(), "a\n");
+    assert_eq!(restarted.read("Work/b").unwrap(), "b\n");
     assert!(!image.0.join("Proj").exists());
     let mut recovered = intents(&image.0);
     recovered.sort();
@@ -284,7 +284,7 @@ fn a_folder_rename_interrupted_between_moves_finishes_every_note_on_restart() {
 fn deleting_a_folder_journals_each_note_it_moves_up() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("Proj/a", "a", None).unwrap();
+    store.write("Proj/a", "a\n", None).unwrap();
 
     store.delete_folder("Proj").unwrap();
 
@@ -298,8 +298,8 @@ fn deleting_a_folder_journals_each_note_it_moves_up() {
 fn a_failed_move_rolls_every_note_back_and_keeps_no_intent() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("Proj/a", "a", None).unwrap();
-    store.write("Proj/b", "b", None).unwrap();
+    store.write("Proj/a", "a\n", None).unwrap();
+    store.write("Proj/b", "b\n", None).unwrap();
     let mut placed = 0;
     tests_support::on_step(move |name| {
         if name.starts_with("move .local-renames") {
@@ -315,8 +315,8 @@ fn a_failed_move_rolls_every_note_back_and_keeps_no_intent() {
     tests_support::clear();
 
     assert!(result.is_err());
-    assert_eq!(store.read("Proj/a").unwrap(), "a");
-    assert_eq!(store.read("Proj/b").unwrap(), "b");
+    assert_eq!(store.read("Proj/a").unwrap(), "a\n");
+    assert_eq!(store.read("Proj/b").unwrap(), "b\n");
     assert!(!store.exists("a") && !store.exists("b"));
     assert!(intents(&root.0).is_empty());
     assert!(!root.0.join(".local-renames").exists());
@@ -326,7 +326,7 @@ fn a_failed_move_rolls_every_note_back_and_keeps_no_intent() {
 fn an_unknown_journal_format_stops_renames_and_is_kept_as_evidence() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.write("old", "body", None).unwrap();
+    store.write("old", "body\n", None).unwrap();
     let future = br#"{"version":2,"transactions":[{"something":"new"}]}"#;
     fs::write(root.0.join(".local-renames.json"), future).unwrap();
 
@@ -349,7 +349,7 @@ fn an_unknown_journal_format_stops_renames_and_is_kept_as_evidence() {
 fn a_vault_migration_carries_pending_intents_to_the_new_root() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("old", "body", None).unwrap();
+    store.write("old", "body\n", None).unwrap();
     store.rename("old", "new").unwrap();
     let destination = TestRoot::new();
 
@@ -371,7 +371,7 @@ fn staged_file(root: &Path) -> std::path::PathBuf {
 fn a_crash_after_recovery_relocates_a_move_still_records_where_it_went() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("old", "ours", None).unwrap();
+    store.write("old", "ours\n", None).unwrap();
     let image = crash_image(&root, "move .local-renames", || {
         store.rename("old", "new").unwrap();
     });
@@ -390,14 +390,14 @@ fn a_crash_after_recovery_relocates_a_move_still_records_where_it_went() {
     assert_eq!(recovered.len(), 1, "{recovered:?}");
     let ours = recovered[0].1.trim_end_matches(".md");
     assert_ne!(ours, "new", "the intent must never name the newcomer");
-    assert_eq!(restarted.read(ours).unwrap(), "ours");
+    assert_eq!(restarted.read(ours).unwrap(), "ours\n");
 }
 
 #[test]
 fn a_failed_rename_whose_source_name_was_retaken_keeps_the_original_visible() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("old", "ours", None).unwrap();
+    store.write("old", "ours\n", None).unwrap();
     let vault = root.0.clone();
     let mut failed = false;
     tests_support::on_step(move |name| {
@@ -419,7 +419,7 @@ fn a_failed_rename_whose_source_name_was_retaken_keeps_the_original_visible() {
         .filter(|id| id != "old")
         .collect::<Vec<_>>();
     assert_eq!(others.len(), 1, "{others:?}");
-    assert_eq!(store.read(&others[0]).unwrap(), "ours");
+    assert_eq!(store.read(&others[0]).unwrap(), "ours\n");
     assert!(!root.0.join(".local-renames").exists());
     assert!(intents(&root.0).is_empty());
 }
@@ -428,7 +428,7 @@ fn a_failed_rename_whose_source_name_was_retaken_keeps_the_original_visible() {
 fn a_crash_inside_the_destination_move_leaves_one_note_not_two() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("old", "ours", None).unwrap();
+    store.write("old", "ours\n", None).unwrap();
     let image = crash_image(&root, "move .local-renames", || {
         store.rename("old", "new").unwrap();
     });
@@ -439,7 +439,7 @@ fn a_crash_inside_the_destination_move_leaves_one_note_not_two() {
     restarted.bootstrap().unwrap();
 
     assert_eq!(ids_in_order(&restarted), vec!["new".to_owned()]);
-    assert_eq!(restarted.read("new").unwrap(), "ours");
+    assert_eq!(restarted.read("new").unwrap(), "ours\n");
     assert_eq!(
         intents(&image.0),
         vec![("old.md".to_owned(), "new.md".to_owned())]
@@ -451,7 +451,7 @@ fn a_crash_inside_the_destination_move_leaves_one_note_not_two() {
 fn a_crash_inside_undoing_a_move_leaves_one_note_not_two() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("old", "ours", None).unwrap();
+    store.write("old", "ours\n", None).unwrap();
     let image = crash_image(&root, "stage", || {
         store.rename("old", "new").unwrap();
     });
@@ -461,7 +461,7 @@ fn a_crash_inside_undoing_a_move_leaves_one_note_not_two() {
     restarted.bootstrap().unwrap();
 
     assert_eq!(ids_in_order(&restarted), vec!["old".to_owned()]);
-    assert_eq!(restarted.read("old").unwrap(), "ours");
+    assert_eq!(restarted.read("old").unwrap(), "ours\n");
     assert!(intents(&image.0).is_empty());
     assert!(!image.0.join(".local-renames").exists());
 }
@@ -470,8 +470,8 @@ fn a_crash_inside_undoing_a_move_leaves_one_note_not_two() {
 fn deleting_a_renamed_note_ends_its_rename_chain() {
     let root = TestRoot::new();
     let store = scoped(&root);
-    store.write("a", "body", None).unwrap();
-    store.write("other", "body", None).unwrap();
+    store.write("a", "body\n", None).unwrap();
+    store.write("other", "body\n", None).unwrap();
     store.rename("a", "b").unwrap();
     store.rename("b", "c").unwrap();
     store.rename("other", "kept").unwrap();

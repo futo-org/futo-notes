@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
+import { savedSource } from '../wasm-saved-source.mjs';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import console from 'node:console';
@@ -75,7 +76,7 @@ try {
   await accept(session.redo(3n));
   await stop();
   const reopened = await start('--reopen');
-  assert.equal(session.draft_text(), finalSource);
+  assert.equal(session.draft_text(), savedSource(finalSource));
   assert.equal(JSON.parse(session.project(0n, 0, Buffer.byteLength(display))).text, display);
   assert.deepEqual(await reopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();

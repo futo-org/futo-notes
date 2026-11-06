@@ -13,7 +13,7 @@ fn global_rename_retargets_dirty_attachment_and_preserves_history() {
     let root = tempfile::tempdir().unwrap();
     let store = LocalNoteStore::new(root.path().to_owned());
     store.create("", "old", "__日__\r\n").unwrap();
-    store.create("", "wanted", "occupied").unwrap();
+    store.create("", "wanted", "occupied\n").unwrap();
     let mut editor = store.open_editor("old").unwrap();
     editor
         .select_with_affinity(Revision(0), range(3, 3), Affinity::Backward)
@@ -35,7 +35,7 @@ fn global_rename_retargets_dirty_attachment_and_preserves_history() {
     );
     assert_eq!(store.read_existing("old").unwrap(), None);
     assert_eq!(store.read("wanted-2").unwrap(), "__日😀!__\r\n");
-    assert_eq!(store.read("wanted").unwrap(), "occupied");
+    assert_eq!(store.read("wanted").unwrap(), "occupied\n");
     drop(editor);
     assert_eq!(
         store.open_editor("wanted-2").unwrap().source_text(),
@@ -47,24 +47,24 @@ fn global_rename_retargets_dirty_attachment_and_preserves_history() {
 fn delete_fences_the_old_attachment_even_after_intentional_recreation() {
     let root = tempfile::tempdir().unwrap();
     let store = LocalNoteStore::new(root.path().to_owned());
-    store.create("", "note", "old").unwrap();
+    store.create("", "note", "old\n").unwrap();
     let mut old = store.open_editor("note").unwrap();
     old.replace(Revision(0), range(3, 3), " draft").unwrap();
     let mutation = store.delete("note").unwrap();
     assert_eq!(mutation.removed, ["note"]);
-    store.create("", "note", "new incarnation").unwrap();
+    store.create("", "note", "new incarnation\n").unwrap();
     let new = store.open_editor("note").unwrap();
-    assert_eq!(new.source_text(), "new incarnation");
+    assert_eq!(new.source_text(), "new incarnation\n");
     assert!(old.replace(Revision(1), range(9, 9), "!").is_err());
     assert!(old.undo(Revision(1)).is_err());
     assert!(old.checkpoint().is_err());
-    assert_eq!(old.source_text(), "old draft");
+    assert_eq!(old.source_text(), "old draft\n");
     drop(new);
     drop(old);
     let mut reopened = store.open_editor("note").unwrap();
-    assert_eq!(reopened.source_text(), "new incarnation");
+    assert_eq!(reopened.source_text(), "new incarnation\n");
     assert_eq!(reopened.checkpoint().unwrap().mutation, None);
-    assert_eq!(store.read("note").unwrap(), "new incarnation");
+    assert_eq!(store.read("note").unwrap(), "new incarnation\n");
 }
 
 #[path = "editor_lifecycle/folders.rs"]
@@ -79,12 +79,12 @@ fn saving_an_emptied_note_keeps_empty_content_distinct_from_an_absent_note() {
     assert!(store.open_editor("never attached").is_err());
     assert_eq!(store.read_existing("never attached").unwrap(), None);
     assert!(store.snapshot().notes.is_empty());
-    store.create("", "emptied", "body").unwrap();
+    store.create("", "emptied", "body\n").unwrap();
     {
         let mut editor = store.open_editor("emptied").unwrap();
-        editor.replace(Revision(0), range(0, 4), "").unwrap();
+        editor.replace(Revision(0), range(0, 5), "").unwrap();
         assert_eq!(editor.source_text(), "");
-        assert_eq!(store.read("emptied").unwrap(), "body");
+        assert_eq!(store.read("emptied").unwrap(), "body\n");
         assert_eq!(
             editor.checkpoint().unwrap().disposition,
             FlushDisposition::Wrote

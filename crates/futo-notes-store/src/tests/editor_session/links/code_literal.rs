@@ -94,8 +94,9 @@ fn code_literal_release_restores_history_and_reopens_without_live_ownership() {
     editor.checkpoint().unwrap();
     drop(editor);
     let mut reopened = store.open_editor("code-literal").unwrap();
-    assert_eq!(reopened.source_text(), released);
-    assert_eq!(reopened.display_text(), "<https://x.test/path>");
+    // The save appended the note's final line ending.
+    assert_eq!(reopened.source_text(), format!("{released}\n"));
+    assert_eq!(reopened.display_text(), "<https://x.test/path>\n");
     // Recovery owns standard Markdown, never the old live scalar witness.
     reopened
         .replace(reopened.revision(), range(21, 21), " ")
@@ -115,7 +116,7 @@ fn divider_scalar_transport_rejects_atomically_and_recovery_never_persists_live_
     use futo_notes_editor::{BlockCommand, DisplayUtf16Offset, DisplayUtf16Range};
     let root = TestRoot::new();
     let store = store(&root);
-    store.create("", "divider-literal", "pre ").unwrap();
+    plant_note(&root, "divider-literal", "pre ");
     let mut editor = store.open_editor("divider-literal").unwrap();
     editor
         .replace(Revision(0), range(4, 4), "<https://x.test/path")
@@ -206,7 +207,7 @@ fn divider_scalar_transport_rejects_atomically_and_recovery_never_persists_live_
     editor.checkpoint().unwrap();
     drop(editor);
     let mut recovered = store.open_editor("divider-literal").unwrap();
-    assert_eq!(recovered.source_text(), divided);
+    assert_eq!(recovered.source_text(), format!("{divided}\n"));
     recovered
         .select_with_affinity(
             recovered.revision(),
@@ -308,7 +309,7 @@ fn failed_last_code_body_deletion_preserves_the_old_owner_and_retries_a_fresh_ur
     editor.checkpoint().unwrap();
     drop(editor);
     let mut recovered = store.open_editor("code-delete").unwrap();
-    assert_eq!(recovered.source_text(), deleted);
+    assert_eq!(recovered.source_text(), format!("{deleted}\n"));
     recovered
         .replace(recovered.revision(), range(16, 16), " ")
         .unwrap();
