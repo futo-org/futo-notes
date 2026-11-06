@@ -55,7 +55,8 @@
             #expect(!h.controller.toolbarState.activeFormats.contains("bold"))
             #expect(h.controller.toolbarState.activeFormats.contains("paragraph"))
             #expect(!h.controller.toolbarState.disabledFormats.contains("undo"))
-            #expect(h.controller.toolbarState.disabledFormats.isSuperset(of: ["indent", "outdent"]))
+            #expect(
+                h.controller.toolbarState.disabledFormats.isSuperset(of: ["indent", "outdent"]))
             tap(h, "undo")
             #expect(h.source.hasPrefix("one two three"))
             #expect(h.controller.toolbarState.disabledFormats.contains("undo"))
@@ -88,7 +89,9 @@
             #expect(s != nil)
             tap(h, "heading-2")
             #expect(font(h, at: 0).pointSize == 24)
-            #expect(font(h, at: text.range(of: "i").location).fontDescriptor.symbolicTraits.contains(.traitItalic))
+            #expect(
+                font(h, at: text.range(of: "i").location).fontDescriptor.symbolicTraits.contains(
+                    .traitItalic))
         }
 
         // Mason A3: Backspace at a heading's start joins it up; a first-line heading becomes text.

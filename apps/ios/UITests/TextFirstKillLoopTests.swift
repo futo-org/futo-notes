@@ -72,22 +72,30 @@ final class TextFirstKillLoopTests: XCTestCase {
         while logLines().count < 2, Date().timeIntervalSince(started) < 10 {
             Thread.sleep(forTimeInterval: 0.05)
         }
-        guard let head = logLines().first, head.hasPrefix("pid "), let pid = pid_t(head.dropFirst(4))
+        guard let head = logLines().first, head.hasPrefix("pid "),
+            let pid = pid_t(head.dropFirst(4))
         else { return "run \(run): typist never started" }
         Thread.sleep(forTimeInterval: 10)
         XCTAssertEqual(app.state, .runningForeground, "run \(run): app not running before the kill")
-        guard kill(pid, SIGKILL) == 0 else { return "run \(run): kill(\(pid)) failed, errno \(errno)" }
+        guard kill(pid, SIGKILL) == 0 else {
+            return "run \(run): kill(\(pid)) failed, errno \(errno)"
+        }
         guard app.wait(for: .notRunning, timeout: 15) else {
             return "run \(run): pid \(pid) still running after SIGKILL"
         }
 
-        guard let last = logLines().last?.split(separator: " "), last.count == 2, let typed = Int(last[0])
+        guard let last = logLines().last?.split(separator: " "), last.count == 2,
+            let typed = Int(last[0])
         else { return "run \(run): no keystroke logged" }
         let onDisk = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
         // The Store ends every note it writes with a line ending; the seeded file has none.
-        guard let kept = (0...typed + 1).last(where: { expected($0) == onDisk || expected($0) + "\n" == onDisk })
+        guard
+            let kept = (0...typed + 1).last(where: {
+                expected($0) == onDisk || expected($0) + "\n" == onDisk
+            })
         else {
-            return "run \(run): CORRUPT: the file the kill left is not the note plus a prefix of the keys"
+            return
+                "run \(run): CORRUPT: the file the kill left is not the note plus a prefix of the keys"
         }
 
         launch(name, typing: false)
@@ -99,7 +107,9 @@ final class TextFirstKillLoopTests: XCTestCase {
         XCTContext.runActivity(named: line) { _ in }
         app.terminate()
         if shown != onDisk { return "run \(run): reopened text differs from the file (\(line))" }
-        if typed - kept > Self.maxLostKeys { return "run \(run): lost more than the save window: \(line)" }
+        if typed - kept > Self.maxLostKeys {
+            return "run \(run): lost more than the save window: \(line)"
+        }
         return nil
     }
 
@@ -109,6 +119,7 @@ final class TextFirstKillLoopTests: XCTestCase {
         for run in 1...10 { if let failure = try killRun(run) { failures.append(failure) } }
         XCTAssertTrue(
             failures.isEmpty,
-            "\(failures.count)/10 runs lost or corrupted bytes:\n" + failures.joined(separator: "\n"))
+            "\(failures.count)/10 runs lost or corrupted bytes:\n"
+                + failures.joined(separator: "\n"))
     }
 }

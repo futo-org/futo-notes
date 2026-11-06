@@ -26,7 +26,9 @@
 
     enum TextFirstMetrics {
         static func listIndent(depth: Int) -> CGFloat { 30 + CGFloat(depth) * 24 }
-        static func quoteIndent(depth: Int) -> CGFloat { depth > 0 ? 14 + CGFloat(depth - 1) * 14 : 0 }
+        static func quoteIndent(depth: Int) -> CGFloat {
+            depth > 0 ? 14 + CGFloat(depth - 1) * 14 : 0
+        }
         static let checkboxSide: CGFloat = 18
     }
 
@@ -35,6 +37,8 @@
         var accent: UIColor = UIColor(Theme.primary)
         /// The controller whose selection decides whether the marker is highlighted.
         weak var host: TextFirstEditorController?
+        /// The images of this paragraph: where their glyphs start in it, and the span.
+        let imageRuns: [(range: NSRange, span: TextFirstImageSpan)]
 
         init(
             block: TextFirstBlockAttribute, element: NSTextElement, range: NSTextRange?,
@@ -42,7 +46,74 @@
         ) {
             self.block = block
             self.host = host
+            var runs: [(NSRange, TextFirstImageSpan)] = []
+            if let paragraph = element as? NSTextParagraph {
+                let text = paragraph.attributedString
+                text.enumerateAttribute(.tfImage, in: NSRange(location: 0, length: text.length)) {
+                    value, run, _ in
+                    if let span = value as? TextFirstImageSpan { runs.append((run, span)) }
+                }
+            }
+            imageRuns = runs
             super.init(textElement: element, range: range)
+        }
+
+        /// An image's rect in this fragment's coordinates (x in container coordinates).
+        func imageRect(_ run: (range: NSRange, span: TextFirstImageSpan)) -> CGRect? {
+            guard
+                let line = textLineFragments.first(where: {
+                    NSLocationInRange(run.range.location, $0.characterRange)
+                })
+            else { return nil }
+            // The line's own x excludes the paragraph's head indent (list, quote).
+            let style =
+                line.attributedString.attribute(
+                    .paragraphStyle,
+                    at: line.characterRange.location - line.characterRange.location,
+                    effectiveRange: nil) as? NSParagraphStyle
+            let indent =
+                (line.characterRange.location == 0 ? style?.firstLineHeadIndent : style?.headIndent)
+                ?? 0
+            let x =
+                line.typographicBounds.minX + indent
+                + line.locationForCharacter(at: run.range.location).x
+            let size = run.span.size
+            return CGRect(
+                x: x, y: line.typographicBounds.minY, width: size.width, height: size.height)
+        }
+
+        private func drawImages(at point: CGPoint, in context: CGContext) {
+            UIGraphicsPushContext(context)
+            defer { UIGraphicsPopContext() }
+            for run in imageRuns {
+                guard let rect = imageRect(run)?.offsetBy(dx: point.x, dy: point.y) else {
+                    continue
+                }
+                let atom = run.span.atom
+                if let image = atom.image {
+                    image.draw(in: rect)
+                    continue
+                }
+                let path = UIBezierPath(roundedRect: rect, cornerRadius: 6)
+                UIColor.tertiarySystemFill.setFill()
+                path.fill()
+                if atom.failed {
+                    let label = NSAttributedString(
+                        string: atom.alt.isEmpty ? atom.destination : atom.alt,
+                        attributes: [
+                            .font: UIFont.systemFont(ofSize: 13),
+                            .foregroundColor: UIColor.secondaryLabel,
+                        ])
+                    let box = rect.insetBy(dx: 8, dy: 0)
+                    let size = label.boundingRect(
+                        with: CGSize(width: box.width, height: rect.height), options: [],
+                        context: nil)
+                    label.draw(
+                        in: CGRect(
+                            x: box.minX, y: rect.midY - size.height / 2, width: box.width,
+                            height: size.height + 1))
+                }
+            }
         }
 
         required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -114,15 +185,20 @@
                 UIColor.tertiaryLabel.setFill()
                 for i in 0..<block.quoteDepth {
                     let x = point.x + 2 + CGFloat(i) * 14
-                    context.fill(CGRect(x: x, y: point.y, width: 3, height: layoutFragmentFrame.height))
+                    context.fill(
+                        CGRect(x: x, y: point.y, width: 3, height: layoutFragmentFrame.height))
                 }
             }
             if let marker = highlightedMarkerRect {
-                (MainActor.assumeIsolated { host?.textView.tintColor } ?? accent).withAlphaComponent(0.2).setFill()
+                (MainActor.assumeIsolated { host?.textView.tintColor } ?? accent)
+                    .withAlphaComponent(0.2).setFill()
                 context.fill(marker.offsetBy(dx: point.x, dy: point.y))
             }
-            if let list = block.list, block.showsMarker { drawListMarker(list, at: point, in: context) }
+            if let list = block.list, block.showsMarker {
+                drawListMarker(list, at: point, in: context)
+            }
             super.draw(at: pointIn, in: context)
+            drawImages(at: point, in: context)
         }
 
         private func drawListMarker(
@@ -168,7 +244,8 @@
                 // Disc, ring, square by depth.
                 let d: CGFloat = 6
                 let r = CGRect(
-                    x: point.x + textIndent - 14 - d / 2, y: point.y + line.minY + line.height / 2 - d / 2,
+                    x: point.x + textIndent - 14 - d / 2,
+                    y: point.y + line.minY + line.height / 2 - d / 2,
                     width: d, height: d)
                 UIColor.secondaryLabel.setFill()
                 UIColor.secondaryLabel.setStroke()
@@ -188,15 +265,30 @@
         weak var host: TextFirstEditorController?
 
         func textLayoutManager(
-            _ textLayoutManager: NSTextLayoutManager, textLayoutFragmentFor location: NSTextLocation,
+            _ textLayoutManager: NSTextLayoutManager,
+            textLayoutFragmentFor location: NSTextLocation,
             in textElement: NSTextElement
         ) -> NSTextLayoutFragment {
-            if let paragraph = textElement as? NSTextParagraph, paragraph.attributedString.length > 0,
-                let block = paragraph.attributedString.attribute(.tfBlock, at: 0, effectiveRange: nil)
-                    as? TextFirstBlockAttribute
+            if let paragraph = textElement as? NSTextParagraph,
+                paragraph.attributedString.length > 0
             {
-                return TextFirstLayoutFragment(
-                    block: block, element: textElement, range: textElement.elementRange, host: host)
+                let text = paragraph.attributedString
+                let block =
+                    text.attribute(.tfBlock, at: 0, effectiveRange: nil) as? TextFirstBlockAttribute
+                var image = false
+                text.enumerateAttribute(
+                    .tfImage, in: NSRange(location: 0, length: text.length), options: []
+                ) { value, _, stop in
+                    if value != nil {
+                        image = true
+                        stop.pointee = true
+                    }
+                }
+                if block != nil || image {
+                    return TextFirstLayoutFragment(
+                        block: block ?? TextFirstBlockAttribute(), element: textElement,
+                        range: textElement.elementRange, host: host)
+                }
             }
             return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
         }

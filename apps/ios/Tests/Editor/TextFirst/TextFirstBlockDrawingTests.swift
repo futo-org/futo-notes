@@ -7,7 +7,9 @@
 
     @Suite @MainActor
     struct TextFirstBlockDrawingTests {
-        private func block(_ h: TextFirstHarness, atLineStartingWith word: String) -> TextFirstBlockAttribute? {
+        private func block(_ h: TextFirstHarness, atLineStartingWith word: String)
+            -> TextFirstBlockAttribute?
+        {
             let at = (h.tv.text as NSString).range(of: word).location
             return h.controller.storage.attribute(.tfBlock, at: at, effectiveRange: nil)
                 as? TextFirstBlockAttribute
@@ -29,7 +31,8 @@
             let text = h.tv.text as NSString
             let second = text.range(of: "second").location
             let blank = second + "second".count + 0
-            let b = h.controller.storage.attribute(.tfBlock, at: blank + 1, effectiveRange: nil)
+            let b =
+                h.controller.storage.attribute(.tfBlock, at: blank + 1, effectiveRange: nil)
                 as? TextFirstBlockAttribute
             #expect(b == nil || b?.showsMarker == false)
             let done = block(h, atLineStartingWith: "done")
@@ -41,7 +44,8 @@
             #expect(block(h, atLineStartingWith: "nested")?.list?.depth == 1)
             #expect(block(h, atLineStartingWith: "deep")?.quoteDepth == 2)
             let at = (h.tv.text as NSString).range(of: "nested").location
-            let style = h.controller.storage.attribute(.paragraphStyle, at: at, effectiveRange: nil)
+            let style =
+                h.controller.storage.attribute(.paragraphStyle, at: at, effectiveRange: nil)
                 as! NSParagraphStyle
             #expect(style.headIndent == TextFirstMetrics.listIndent(depth: 1))
         }
@@ -51,7 +55,8 @@
             #expect(block(h, atLineStartingWith: "code line")?.code == true)
             let divider = (h.tv.text as NSString).range(of: "\u{fffc}").location
             #expect(divider != NSNotFound)
-            let b = h.controller.storage.attribute(.tfBlock, at: divider, effectiveRange: nil)
+            let b =
+                h.controller.storage.attribute(.tfBlock, at: divider, effectiveRange: nil)
                 as? TextFirstBlockAttribute
             #expect(b?.divider == true)
         }
@@ -62,7 +67,8 @@
             h.select(1, 1)
             let manager = h.tv.textLayoutManager!
             var hit: NSTextLayoutFragment?
-            manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: []) {
+            manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [])
+            {
                 f in
                 if hit == nil, f is TextFirstLayoutFragment { hit = f }
                 return hit == nil
@@ -90,7 +96,9 @@
             let manager = h.tv.textLayoutManager!
             func markerRects() -> [CGRect?] {
                 var out: [CGRect?] = []
-                manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: []) {
+                manager.enumerateTextLayoutFragments(
+                    from: manager.documentRange.location, options: []
+                ) {
                     f in
                     if let f = f as? TextFirstLayoutFragment { out.append(f.highlightedMarkerRect) }
                     return true
@@ -126,7 +134,8 @@
         @Test func enterContinuesAListAndBackspaceLiftsItsMarker() {
             let h = TextFirstHarness("- item\n")
             h.select(4, 4)
-            _ = h.tv.delegate?.textView?(h.tv, shouldChangeTextIn: h.tv.selectedRange, replacementText: "\n")
+            _ = h.tv.delegate?.textView?(
+                h.tv, shouldChangeTextIn: h.tv.selectedRange, replacementText: "\n")
             #expect(h.source.hasPrefix("- item\n- "))
             #expect(block(h, atLineStartingWith: "item")?.list?.marker == .bullet)
             #expect(h.controller.divergences.isEmpty)

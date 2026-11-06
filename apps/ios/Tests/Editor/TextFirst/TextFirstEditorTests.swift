@@ -10,7 +10,8 @@
         @Test func typingEnterAndBackspaceReachTheEngine() throws {
             let h = TextFirstHarness("")
             h.type("ab")
-            _ = h.tv.delegate?.textView?(h.tv, shouldChangeTextIn: h.tv.selectedRange, replacementText: "\n")
+            _ = h.tv.delegate?.textView?(
+                h.tv, shouldChangeTextIn: h.tv.selectedRange, replacementText: "\n")
             h.type("cd")
             #expect(h.source == "ab\ncd")
             #expect(h.display == "ab\ncd")

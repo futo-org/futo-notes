@@ -43,7 +43,8 @@
                         ? line.locationForCharacter(at: candidate + 1).x
                         : line.typographicBounds.width
                     guard x >= start && x < end else { continue }
-                    let attributes = line.attributedString.attributes(at: candidate, effectiveRange: nil)
+                    let attributes = line.attributedString.attributes(
+                        at: candidate, effectiveRange: nil)
                     _ = base
                     if let url = attributes[.tfLinkURL] as? String { return .url(url) }
                     if let note = attributes[.tfWikilink] as? String { return .note(note) }
@@ -116,7 +117,8 @@
                     let to = Int(try mirror.byteToUtf16(byte: projection.range.end))
                     let specs = try session.stylePlan(expected: rev, range: projection.range)
                     TextFirstStyler.apply(
-                        specs, to: storage, window: NSRange(location: from, length: to - from))
+                        specs, to: storage, window: NSRange(location: from, length: to - from),
+                        images: images)
                 }
             } catch { recover(error, context: "note ids") }
         }
@@ -147,7 +149,8 @@
                 }
                 alert.addTextField {
                     $0.text = link?.destination ?? ""
-                    $0.placeholder = localization.localizedText("editor.linkPrompt.urlAccessibilityLabel")
+                    $0.placeholder = localization.localizedText(
+                        "editor.linkPrompt.urlAccessibilityLabel")
                     $0.keyboardType = .URL
                     $0.autocapitalizationType = .none
                     $0.accessibilityIdentifier = "text-first-link-destination"
@@ -169,7 +172,10 @@
                         UIAlertAction(
                             title: localization.localizedText("editor.linkPrompt.remove"),
                             style: .destructive
-                        ) { [weak self] _ in self?.commitLink(revision: revision, range: target, label: nil, destination: "") })
+                        ) { [weak self] _ in
+                            self?.commitLink(
+                                revision: revision, range: target, label: nil, destination: "")
+                        })
                 }
                 alert.addAction(
                     UIAlertAction(
@@ -180,7 +186,9 @@
 
         /// A blank destination removes the link; otherwise label and destination are the engine's
         /// to spell. The prompt's revision must still be current.
-        func commitLink(revision: UInt64, range: EditorByteRange, label: String?, destination: String) {
+        func commitLink(
+            revision: UInt64, range: EditorByteRange, label: String?, destination: String
+        ) {
             guard revision == rev, !closed else { return }
             do {
                 let change: EditorViewChange?

@@ -14,8 +14,10 @@
             guard selected.length > 0 else { return nil }
             let start = manager.offset(
                 from: manager.documentRange.location, to: fragment.rangeInElement.location)
-            let end = start + manager.offset(
-                from: fragment.rangeInElement.location, to: fragment.rangeInElement.endLocation)
+            let end =
+                start
+                + manager.offset(
+                    from: fragment.rangeInElement.location, to: fragment.rangeInElement.endLocation)
             let text = storage.string as NSString
             let rowEnd = (end > start && text.character(at: end - 1) == 0x0A) ? end - 1 : end
             return selected.location <= start && NSMaxRange(selected) >= rowEnd ? selected : nil
@@ -27,8 +29,10 @@
                 let content = manager.textContentManager
             else { return }
             let union = NSUnionRange(old, new)
-            let from = content.location(manager.documentRange.location, offsetBy: min(union.location, storage.length))
-            let to = content.location(manager.documentRange.location, offsetBy: min(NSMaxRange(union), storage.length))
+            let from = content.location(
+                manager.documentRange.location, offsetBy: min(union.location, storage.length))
+            let to = content.location(
+                manager.documentRange.location, offsetBy: min(NSMaxRange(union), storage.length))
             if let from, let to, let range = NSTextRange(location: from, end: to) {
                 manager.invalidateLayout(for: range)
             }
@@ -72,16 +76,56 @@
 
         /// The fragment whose checkbox (with a generous touch margin) holds `p`.
         func checkboxFragment(at p: CGPoint) -> TextFirstLayoutFragment? {
-            guard let f = fragment(at: p) as? TextFirstLayoutFragment, let box = f.checkboxRect else {
+            guard let f = fragment(at: p) as? TextFirstLayoutFragment, let box = f.checkboxRect
+            else {
                 return nil
             }
             let frame = f.layoutFragmentFrame
-            let rect = box.offsetBy(dx: inset.left, dy: frame.minY + inset.top).insetBy(dx: -12, dy: -12)
+            let rect = box.offsetBy(dx: inset.left, dy: frame.minY + inset.top).insetBy(
+                dx: -12, dy: -12)
             return rect.contains(p) ? f : nil
         }
 
+        /// The storage range of the image whose drawn rect holds `p`, if any.
+        func imageHit(at p: CGPoint) -> NSRange? {
+            guard let f = fragment(at: p) as? TextFirstLayoutFragment, !f.imageRuns.isEmpty,
+                let manager = textView.textLayoutManager
+            else { return nil }
+            let local = CGPoint(
+                x: p.x - inset.left, y: p.y - inset.top - f.layoutFragmentFrame.minY)
+            let base = manager.offset(
+                from: manager.documentRange.location, to: f.rangeInElement.location)
+            for run in f.imageRuns {
+                if let rect = f.imageRect(run), rect.contains(local) {
+                    return NSRange(location: base + run.range.location, length: run.range.length)
+                }
+            }
+            return nil
+        }
+
+        /// A short tap on an image selects it as one object (its two caret stops, start to end);
+        /// Enter then acts after it, which is how a caret gets past a last image.
+        private func selectImage(_ range: NSRange) {
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, !self.closed, NSMaxRange(range) <= self.storage.length else {
+                        return
+                    }
+                    self.textView.selectedRange = range
+                }
+            }
+        }
+
         @objc func handleTap(_ g: UITapGestureRecognizer) {
-            if g.state == .ended, !touchHitCheckbox, let target = linkTarget(at: g.location(in: textView)) {
+            if g.state == .ended, !touchHitCheckbox,
+                let image = imageHit(at: g.location(in: textView))
+            {
+                selectImage(image)
+                return
+            }
+            if g.state == .ended, !touchHitCheckbox,
+                let target = linkTarget(at: g.location(in: textView))
+            {
                 suppressFocus = false
                 applying += 1
                 textView.selectedRange = selectionBeforeTouch
@@ -89,7 +133,8 @@
                 open(target)
                 return
             }
-            guard g.state == .ended, touchHitCheckbox, let f = checkboxFragment(at: g.location(in: textView)),
+            guard g.state == .ended, touchHitCheckbox,
+                let f = checkboxFragment(at: g.location(in: textView)),
                 let manager = textView.textLayoutManager
             else { return }
             touchHitCheckbox = false

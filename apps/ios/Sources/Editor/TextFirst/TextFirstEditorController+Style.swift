@@ -26,7 +26,8 @@
                 let specs = try session.stylePlan(
                     expected: rev, range: EditorByteRange(start: startByte, end: endByte))
                 TextFirstStyler.apply(
-                    specs, to: storage, window: NSRange(location: from, length: to - from))
+                    specs, to: storage, window: NSRange(location: from, length: to - from),
+                    images: images)
                 styledThrough = to
             } catch {
                 print("text-first: style plan failed: \(error)")
@@ -55,7 +56,9 @@
             guard Int(edit.start) < styledThrough else { return }
             styledThrough = max(
                 Int(edit.start),
-                min(mirrorLength, styledThrough + Int(edit.insertedUtf16) - Int(edit.end - edit.start)))
+                min(
+                    mirrorLength,
+                    styledThrough + Int(edit.insertedUtf16) - Int(edit.end - edit.start)))
         }
 
         /// Restyle the window the engine reparsed for `change`.
@@ -68,7 +71,9 @@
                 // A window past the styled prefix is styled by the slices, from the current text.
                 guard from <= styledThrough else { return }
                 let specs = try session.stylePlan(expected: rev, range: range)
-                TextFirstStyler.apply(specs, to: storage, window: NSRange(location: from, length: to - from))
+                TextFirstStyler.apply(
+                    specs, to: storage, window: NSRange(location: from, length: to - from),
+                    images: images)
             } catch {
                 print("text-first: restyle failed: \(error)")
             }

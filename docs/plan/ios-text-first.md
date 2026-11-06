@@ -28,7 +28,7 @@ commit that finishes the last milestone (archive rule).
 | M2 | Toolbar and selection state (Mason's heading/format items), projection styling | done |
 | M3 | Lists, checkboxes, quotes, code | done |
 | M4 | Links and wikilinks, including completion | done |
-| M5 | Images | |
+| M5 | Images | done |
 | M6 | Tables | |
 | M7 | Find | |
 | M8 | Long notes: quick open, streaming, Select All | |
@@ -45,7 +45,8 @@ commit that finishes the last milestone (archive rule).
 | Kotlin | Rust | MR | !564 note |
 |---|---|---|---|
 | `SpanPlan.kt` (`planSpans`, `splitAtLines`) | `host::plan_styles`, `NativeEditorSession.style_plan` | !592 (stacked on !589) | posted |
-| `toolbarActive` / disabled-id mapping in `TextFirstToolbar.kt`, `EditorEngineCaret.kt` | `host::toolbar_highlights`, `NativeEditorSession.toolbar_highlights` | commit on this branch (needs `ToolbarState`, which is not on main yet; cut an engine MR once `engine/from-android-text-first` lands) | to post with that MR |
+| `toolbarActive` / disabled-id mapping in `TextFirstToolbar.kt`, `EditorEngineCaret.kt` | `host::toolbar_highlights`, `NativeEditorSession.toolbar_highlights` | !594 (stacked on !592, merges !590 for `ToolbarState`) | posted |
+| `SpanPlan.kt` image branch (`SpanSpec.Image`) | `host::StyleSpec::Image`, `EditorStyleSpan.Image` | !593 (stacked on !592, merges !590 for `is_http_image_source`) | posted |
 | `ToolbarCommandGate.kt` | not needed on iOS: every command runs synchronously on the main actor, so none is queued or dropped. Revisit if M8 moves the engine off the main thread. | | |
 
 ## M2 notes
@@ -112,6 +113,49 @@ commit that finishes the last milestone (archive rule).
 - Not unit-tested: the prompt's UIAlertController presentation and the completion list's
   rendering (the engine calls behind them are).
 
+## M5 notes
+
+- Engine: the style plan carries `Image` (range of the glyphs, destination, alt, `vault`, `remote`,
+  kept whole by the line splitter). !590 had not merged, so !593/!594 merge it into their branches.
+- Drawing (no view providers): the display keeps `![alt](dest)`; the styler hides those glyphs
+  (0.01 pt clear font), puts a kern as wide as the image on the FIRST glyph (so a break can never
+  fall inside the run and words flow past), and sets the paragraph's minimum line height to the
+  image's height. `TextFirstLayoutFragment` draws the bitmap (or a placeholder / alt-text box) at the
+  glyph's x (plus the paragraph's head indent: `locationForCharacter` excludes it). One
+  `TextFirstImageSpan` per occurrence, one interned `TextFirstImageAtom` per destination so a
+  restyle (every keystroke) finds the decoded bitmap. NSTextAttachment view providers were not used:
+  they need a U+FFFC in the text, which would break display-text-only; so the iOS 27
+  `registerTextAttachmentViewProviderReusePolicy` has nothing to apply to.
+- Loading (`TextFirstImageLoader`): vault references percent-decoded and kept inside the vault
+  root (symlinks resolved), image extensions only; ImageIO thumbnails sized to the display width,
+  EXIF-upright; remote through an ephemeral URLSession (no URL cache, platform TLS; the app's ATS
+  already allows http). Sizes are points = pixels / screen scale, never wider than the line (minus a
+  list/quote indent). Loads wait until the view has a width; a width change relays out and
+  re-decodes larger if needed. Failed loads retry after 10 s (vault) / 30 s (remote). Scroll anchor is
+  held when a load changes heights above the screen.
+- Interaction: caret stops only at an image's ends (nearest end; one glyph step from an end jumps
+  across); a tap selects the image as one object (engine Enter keeps it and acts after); caret
+  Backspace/Delete next to an image removes it whole (`deleteImage`: the engine's Backspace removes
+  one grapheme, which would leave `![](p.png` as text; Android has that gap too, an engine-level fix
+  would serve both); text typed after an image is plain.
+- Adding: Camera/Image toolbar items, and a paste that is an image with no text, take the engine's
+  `image_claim` first, save through `VaultImages.save` (now takes a root) and present the claim to
+  `insert_image`; a refused insertion (stale claim, caret in code) deletes the file. The camera
+  checkpoints first. `canPerformAction(paste)` is true for an image alone; adaptive image glyphs
+  (Genmoji) are off.
+- Not done: tables refuse image content (M6); iOS has no `commitContent` analogue; no persisted
+  camera-recreation recovery (Android needed it for process death; iOS only checkpoints); VoiceOver
+  reads the hidden Markdown spelling, not the alt text; no per-image accessibility element.
+- Spec: four lines moved to `docs/spec/editor/mobile/images.md` (30683320d on `android-text-first`):
+  inline drawing + caret stops/tap/Enter (new), remote http(s), the picker claim, image paste. The
+  `commitContent` and camera-recreation lines stay Android's.
+- Swift lint: baseline had 139 swift-format violations in the text-first files; the whole set is
+  formatted now, 0.
+- Simulator (iOS 27.2, futo-qa-6, flag on): vault images draw (wide, inline mid-sentence with
+  words flowing past, in a list item, a missing file as an alt-text box), and a real tap selected an
+  image with the keyboard up. The simulator has no camera and PHPicker is out of process, so the
+  picker flows are covered by the unit tests only.
+
 ## M1 notes
 
 Architecture as built: `TextFirstNoteScreen` (native title field + editor) replaces `NoteEditorView`
@@ -166,4 +210,5 @@ before the session exists (the text view appears when the session is attached; M
   proofread, third-party keyboards, Apple Pencil Scribble.
 - Toolbar behavior over the real keyboard on a phone, arrow-key caret affinity at format boundaries
   (hardware keyboard), VoiceOver reading headings.
+- Camera capture, the photo picker, and pasting from Photos/Safari ("Copy Image") into a note; EXIF-rotated camera photos drawing upright; large photos (12 MP) loading without a hitch.
 - Real-device keystroke timings at 20k lines (the simulator numbers are not phone numbers).

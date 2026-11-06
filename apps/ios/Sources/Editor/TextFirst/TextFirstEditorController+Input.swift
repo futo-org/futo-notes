@@ -39,7 +39,15 @@
                 // the engine before any selection report.
                 storage.length == mirrorLength
             else { return }
-            let selected = textView.selectedRange
+            var selected = textView.selectedRange
+            // An image's glyphs have caret stops only at its two ends.
+            let clamped = clampedOutOfImages(selected)
+            if clamped != selected {
+                selected = clamped
+                applying += 1
+                textView.selectedRange = clamped
+                applying -= 1
+            }
             guard selected != engineSelection else { return }
             do {
                 let change = try session.selectUtf16(
@@ -117,9 +125,12 @@
             let platform = storage.string as NSString
             let newLength = platform.length
             // No hint, no equal-length shortcut: a same-length replacement is only found by comparing.
-            if hint == nil, newLength == mirrorLength, mirror.text() == (platform as String) { return }
+            if hint == nil, newLength == mirrorLength, mirror.text() == (platform as String) {
+                return
+            }
             let radius = 32
-            let from: Int, oldTo: Int
+            let from: Int
+            let oldTo: Int
             if let hint {
                 from = max(0, min(hint.range.location, newLength, mirrorLength) - radius)
                 oldTo = min(mirrorLength, NSMaxRange(hint.range) + radius)
@@ -135,7 +146,8 @@
                 return
             }
             let old = oldSlice as NSString
-            let new = platform.substring(with: NSRange(location: from, length: newTo - from)) as NSString
+            let new =
+                platform.substring(with: NSRange(location: from, length: newTo - from)) as NSString
             // A bare insertText at a caret inserted there; a minimal diff cannot tell which side
             // of a hidden run the text went.
             let caret = engineSelection.location - from
@@ -151,10 +163,13 @@
             }
             var prefix = 0
             let most = min(old.length, new.length)
-            while prefix < most, old.character(at: prefix) == new.character(at: prefix) { prefix += 1 }
+            while prefix < most, old.character(at: prefix) == new.character(at: prefix) {
+                prefix += 1
+            }
             var suffix = 0
             while suffix < most - prefix,
-                old.character(at: old.length - 1 - suffix) == new.character(at: new.length - 1 - suffix)
+                old.character(at: old.length - 1 - suffix)
+                    == new.character(at: new.length - 1 - suffix)
             { suffix += 1 }
             let range = NSRange(location: from + prefix, length: old.length - prefix - suffix)
             let text = new.substring(
@@ -212,7 +227,8 @@
             guard length >= 0, compositionRange.location + length <= platform.length else {
                 return lastMarked
             }
-            return platform.substring(with: NSRange(location: compositionRange.location, length: length))
+            return platform.substring(
+                with: NSRange(location: compositionRange.location, length: length))
         }
 
         /// `unmarkText()` with no text change: the marked text simply became real.

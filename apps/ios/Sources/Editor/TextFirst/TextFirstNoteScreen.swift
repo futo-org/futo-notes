@@ -70,7 +70,10 @@
             }
             .onChange(of: noteId) { _, id in PuppetVerbs.shared.openNote = id }
             .task { await open() }
-            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) {
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: UIApplication.willResignActiveNotification)
+            ) {
                 _ in checkpointInBackground()
             }
             .onReceive(store.$localTreeChange) { summary in
@@ -139,7 +142,8 @@
                 return
             }
             self.controller = nil
-            let untouched = autoFocus && noteId == originalId
+            let untouched =
+                autoFocus && noteId == originalId
                 && titleField == splitId(id: originalId).title && !controller.dirty
             let token = ownerToken
             TextFirstLeaves.leave(
@@ -177,7 +181,8 @@
             guard sanitized != parts.title else { return }
             let target = makeId(folder: parts.folder, title: sanitized)
             let key = collisionKey(id: target)
-            guard !store.notes.contains(where: { $0.id != noteId && collisionKey(id: $0.id) == key })
+            guard
+                !store.notes.contains(where: { $0.id != noteId && collisionKey(id: $0.id) == key })
             else { return }
             switch await store.rename(
                 oldId: noteId, newId: target, draft: nil, ownerToken: ownerToken)

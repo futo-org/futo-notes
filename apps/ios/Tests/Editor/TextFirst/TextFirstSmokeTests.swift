@@ -27,7 +27,9 @@
                 case 0: return "## Section \(i)"
                 case 1: return "The **quick** brown fox jumps over the lazy dog, line \(i)."
                 case 2: return "- item \(i) with `code` and a [link](https://example.com/\(i))"
-                case 3: return "Plain sentence number \(i), with some words to wrap across the width of a phone."
+                case 3:
+                    return
+                        "Plain sentence number \(i), with some words to wrap across the width of a phone."
                 case 4: return "> a quoted thought \(i)"
                 case 5: return "Another sentence \(i) with a trailing *emphasis* word."
                 case 6: return "日本語の文章 \(i) mixed with ascii and emoji 😀"
@@ -62,7 +64,12 @@
             // Caret in the middle of the note (line 10,000).
             let text = tv.text as NSString
             var offset = 0
-            for _ in 0..<10_000 { offset = text.range(of: "\n", range: NSRange(location: offset, length: text.length - offset)).upperBound }
+            for _ in 0..<10_000 {
+                offset =
+                    text.range(
+                        of: "\n", range: NSRange(location: offset, length: text.length - offset)
+                    ).upperBound
+            }
             tv.selectedRange = NSRange(location: offset, length: 0)
             tv.scrollRangeToVisible(tv.selectedRange)
             tv.layoutIfNeeded()
@@ -71,18 +78,24 @@
             for character in String(repeating: "abcdefghij", count: 30) {
                 let s = String(character)
                 let begin = CACurrentMediaTime()
-                if tv.delegate?.textView?(tv, shouldChangeTextIn: tv.selectedRange, replacementText: s) ?? true {
+                if tv.delegate?.textView?(
+                    tv, shouldChangeTextIn: tv.selectedRange, replacementText: s) ?? true
+                {
                     tv.insertText(s)
                 }
                 tv.layoutIfNeeded()
                 samples.append((CACurrentMediaTime() - begin) * 1000)
             }
             samples.sort()
-            func p(_ q: Double) -> Double { samples[min(samples.count - 1, Int(Double(samples.count) * q))] }
+            func p(_ q: Double) -> Double {
+                samples[min(samples.count - 1, Int(Double(samples.count) * q))]
+            }
             let line =
                 "TFSMOKE20K lines=20000 bytes=\(source.utf8.count) open_ms=\(Int((opened - t0) * 1000)) "
                 + "first_layout_ms=\(Int((laidOut - opened) * 1000)) keys=\(samples.count) "
-                + String(format: "p50_ms=%.1f p95_ms=%.1f max_ms=%.1f", p(0.5), p(0.95), samples.last ?? 0)
+                + String(
+                    format: "p50_ms=%.1f p95_ms=%.1f max_ms=%.1f", p(0.5), p(0.95),
+                    samples.last ?? 0)
             print(line)
             if let dir = ProcessInfo.processInfo.environment["TEXT_FIRST_SMOKE_OUT"] {
                 try? line.write(toFile: dir, atomically: true, encoding: .utf8)

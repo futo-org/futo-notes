@@ -26,7 +26,8 @@
         @Test func aTapOnALinkOrAResolvedWikilinkNamesItsTarget() {
             let h = harness("see [site](https://example.com) and [[Other]] and [[Missing]] end")
             #expect(
-                h.controller.linkTarget(at: point(h, inside: "site")) == .url("https://example.com"))
+                h.controller.linkTarget(at: point(h, inside: "site")) == .url("https://example.com")
+            )
             #expect(h.controller.linkTarget(at: point(h, inside: "Other")) == .note("Other"))
             // An unresolved wikilink and plain text are no link.
             #expect(h.controller.linkTarget(at: point(h, inside: "Missing")) == nil)
@@ -64,9 +65,11 @@
             let range = try h.controller.session.utf16ToDisplay(
                 expected: h.controller.rev, range: EditorUtf16Range(start: 2, end: 6))
             h.controller.commitLink(
-                revision: h.controller.rev, range: range, label: "site", destination: "https://x.test")
+                revision: h.controller.rev, range: range, label: "site",
+                destination: "https://x.test")
             #expect(h.source.hasPrefix("a [site]("))
-            let link = try h.controller.session.inspectLink(expected: h.controller.rev, range: range)
+            let link = try h.controller.session.inspectLink(
+                expected: h.controller.rev, range: range)
             #expect(link?.destination == "https://x.test")
             h.controller.commitLink(
                 revision: h.controller.rev, range: link!.range, label: nil, destination: "")

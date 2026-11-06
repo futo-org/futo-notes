@@ -20,11 +20,17 @@
         /// the line up (or demotes a first-line heading); elsewhere it is a plain Backspace.
         override func deleteBackward() {
             guard markedTextRange == nil, selectedRange.length == 0, let controller,
-                controller.paragraphKey(.backspaceJoiningHeading)
+                controller.deleteImage(adjacentTo: selectedRange.location, forward: false)
+                    || controller.paragraphKey(.backspaceJoiningHeading)
             else {
                 super.deleteBackward()
                 return
             }
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            controller?.images.widthChanged()
         }
 
         override func becomeFirstResponder() -> Bool {
@@ -37,6 +43,16 @@
             controller?.platformUnmarked()
         }
 
+        /// An image alone on the pasteboard is pasteable too (it becomes a vault image).
+        override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+            if action == #selector(paste(_:)), UIPasteboard.general.hasImages,
+                !UIPasteboard.general.hasStrings
+            {
+                return true
+            }
+            return super.canPerformAction(action, withSender: sender)
+        }
+
         override func copy(_ sender: Any?) { controller?.copySelection() }
         override func cut(_ sender: Any?) { controller?.cutSelection() }
         override func paste(_ sender: Any?) { controller?.pasteFromPasteboard() }
@@ -46,7 +62,8 @@
                 // A caret's forward Delete is the engine's; Tab and Shift-Tab indent and outdent
                 // a list item, and anywhere else are UIKit's.
                 if key.keyCode == .keyboardDeleteForward, selectedRange.length == 0,
-                    controller.paragraphKey(.delete)
+                    controller.deleteImage(adjacentTo: selectedRange.location, forward: true)
+                        || controller.paragraphKey(.delete)
                 {
                     return
                 }

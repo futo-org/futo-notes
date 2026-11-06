@@ -38,12 +38,22 @@
         private func updateTypingAttributes(_ active: Set<String>) {
             guard textView.selectedRange.length == 0 else { return }
             var attributes = textView.typingAttributes
+            // After an image the view offers its hidden glyphs' attributes; text typed there is plain.
+            if attributes[.tfImage] != nil { attributes = Self.baseAttributes }
             let base = (attributes[.font] as? UIFont) ?? Self.bodyFont
             var traits = base.fontDescriptor.symbolicTraits
-            if active.contains("bold") { traits.insert(.traitBold) } else if !active.contains("heading-1")
+            if active.contains("bold") {
+                traits.insert(.traitBold)
+            } else if !active.contains("heading-1")
                 && !active.contains("heading-2") && !active.contains("heading-3")
-            { traits.remove(.traitBold) }
-            if active.contains("italic") { traits.insert(.traitItalic) } else { traits.remove(.traitItalic) }
+            {
+                traits.remove(.traitBold)
+            }
+            if active.contains("italic") {
+                traits.insert(.traitItalic)
+            } else {
+                traits.remove(.traitItalic)
+            }
             if let descriptor = base.fontDescriptor.withSymbolicTraits(traits) {
                 attributes[.font] = UIFont(descriptor: descriptor, size: base.pointSize)
             }
@@ -53,7 +63,7 @@
         func toolbar(_ item: ToolbarItemSpec) {
             switch item.action {
             case .dismiss: textView.resignFirstResponder()
-            case .pickImage: break  // M5
+            case .pickImage(let source): pickImage(source: source)
             case .exec: run(toolbarCommand: item.id)
             }
         }

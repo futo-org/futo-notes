@@ -17,3 +17,4 @@ The section files under `mobile/` are added as lines move.
 - [Toolbar state and commands](mobile/toolbar.md)
 - [Heading keys](mobile/headings.md)
 - [Lists, checkboxes and links](mobile/lists.md)
+- [Images](mobile/images.md)

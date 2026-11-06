@@ -30,7 +30,8 @@
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
-                                .accessibilityIdentifier("text-first-completion-\(candidate.noteId)")
+                                .accessibilityIdentifier(
+                                    "text-first-completion-\(candidate.noteId)")
                             }
                         }
                     }

@@ -47,6 +47,10 @@
         let toolbarState = WebEditorToolbarState()
         var toolbarInstalled = false
         let layoutDelegate = TextFirstLayoutDelegate()
+        let imageRoot: URL
+        let imageProtocols: [AnyClass]?
+        lazy var images = TextFirstImages(
+            controller: self, root: imageRoot, protocols: imageProtocols)
         var touchHitCheckbox = false
         /// A touch on a checkbox or link is under way: the text view must not become first responder.
         var suppressFocus = false
@@ -68,15 +72,22 @@
             return [.font: bodyFont, .foregroundColor: UIColor.label, .paragraphStyle: paragraph]
         }
 
-        init(noteId: String, session: NativeEditorSession) throws {
+        init(
+            noteId: String, session: NativeEditorSession,
+            imageRoot: URL = NotesStore.resolveNotesRoot(), imageProtocols: [AnyClass]? = nil
+        ) throws {
             self.noteId = noteId
             self.session = session
+            self.imageRoot = imageRoot
+            self.imageProtocols = imageProtocols
             let display = try session.displayText()
             rev = try session.revision()
             mirror = EditorDisplayMirror(display: display)
             mirrorLength = display.utf16.count
             textView = TextFirstTextView(usingTextLayoutManager: true)
-            guard let content = textView.textLayoutManager?.textContentManager as? NSTextContentStorage,
+            guard
+                let content = textView.textLayoutManager?.textContentManager
+                    as? NSTextContentStorage,
                 let storage = content.textStorage
             else { preconditionFailure("TextKit 2 content storage missing") }
             self.storage = storage
@@ -111,6 +122,7 @@
             // Smart quotes and dashes would rewrite Markdown syntax as it is typed. Smart
             // insert/delete stays UIKit's: its space edits arrive as ordinary platform edits.
             tv.smartQuotesType = .no
+            tv.supportsAdaptiveImageGlyph = false
             tv.smartDashesType = .no
             tv.typingAttributes = Self.baseAttributes
             tv.accessibilityIdentifier = "text-first-editor"
@@ -161,7 +173,9 @@
             _ edit: EditorMirrorEdit?, inserted: String,
             platform p: (range: NSRange, text: String)?
         ) throws {
-            let es: Int, ee: Int, inserts: Int
+            let es: Int
+            let ee: Int
+            let inserts: Int
             if let edit {
                 (es, ee, inserts) = (Int(edit.start), Int(edit.end), Int(edit.insertedUtf16))
             } else if let p {
@@ -183,19 +197,25 @@
                 to = max(ee, p.range.location + p.range.length)
                 storageDelta = p.text.utf16.count - p.range.length
             }
-            let target = try mirror.sliceUtf16(start: UInt64(from), end: UInt64(to + inserts - (ee - es)))
+            let target = try mirror.sliceUtf16(
+                start: UInt64(from), end: UInt64(to + inserts - (ee - es)))
             let region = NSRange(location: from, length: to - from + storageDelta)
-            guard NSMaxRange(region) <= storage.length else { throw EditorSessionError.InvalidRange }
+            guard NSMaxRange(region) <= storage.length else {
+                throw EditorSessionError.InvalidRange
+            }
             if (storage.string as NSString).substring(with: region) == target { return }
             applying += 1
             storage.replaceCharacters(
-                in: region, with: NSAttributedString(string: target, attributes: Self.baseAttributes))
+                in: region,
+                with: NSAttributedString(string: target, attributes: Self.baseAttributes))
             applying -= 1
         }
 
         func setSelection(_ range: NSRange) {
             engineSelection = range
-            guard textView.selectedRange != range, NSMaxRange(range) <= storage.length else { return }
+            guard textView.selectedRange != range, NSMaxRange(range) <= storage.length else {
+                return
+            }
             applying += 1
             textView.selectedRange = range
             applying -= 1
@@ -238,7 +258,8 @@
             guard verifyDivergence else { return }
             let engine = mirror.text()
             if engine != storage.string, !engineComposing, textView.markedTextRange == nil {
-                divergences.append("view differs from the engine's display (\(storage.length) vs \(mirrorLength))")
+                divergences.append(
+                    "view differs from the engine's display (\(storage.length) vs \(mirrorLength))")
             }
             if let engineText = try? session.displayText(), engineText != engine {
                 divergences.append("mirror differs from the session's display")
@@ -275,7 +296,8 @@
             // Undo and Redo stay inert while marked text is pending.
             guard !closed, !engineComposing, textView.markedTextRange == nil else { return }
             do {
-                if let change = try redo ? session.redo(expected: rev) : session.undo(expected: rev) {
+                if let change = try redo ? session.redo(expected: rev) : session.undo(expected: rev)
+                {
                     try accept(change)
                 }
             } catch {
@@ -313,6 +335,7 @@
         }
 
         func pasteFromPasteboard() {
+            if pasteImageFromPasteboard() { return }
             guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
             finishComposition()
             do {
@@ -409,7 +432,9 @@
                 io.async { done.resume(returning: Result { try session.detach() }) }
             }
             switch result {
-            case .success: closed = true
+            case .success:
+                closed = true
+                images.shutdown()
             case .failure: armSave()
             }
             return result

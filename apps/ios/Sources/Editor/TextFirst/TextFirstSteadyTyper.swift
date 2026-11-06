@@ -35,12 +35,15 @@
         private func tick() {
             let tv = controller.textView
             let key = String(typed % 10)
-            if tv.delegate?.textView?(tv, shouldChangeTextIn: tv.selectedRange, replacementText: key) ?? true {
+            if tv.delegate?.textView?(
+                tv, shouldChangeTextIn: tv.selectedRange, replacementText: key) ?? true
+            {
                 tv.insertText(key)
             }
             typed += 1
             let source = (try? controller.session.sourceText()) ?? ""
-            let sha = SHA256.hash(data: Data(source.utf8)).map { String(format: "%02x", $0) }.joined()
+            let sha = SHA256.hash(data: Data(source.utf8)).map { String(format: "%02x", $0) }
+                .joined()
             append("\(typed) \(sha)\n")
         }
 

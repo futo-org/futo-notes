@@ -10,14 +10,17 @@
         static var mono: UIFont { .monospacedSystemFont(ofSize: 15, weight: .regular) }
 
         /// Reset `window` to the base look, then apply `specs` (spans of the whole display).
-        static func apply(_ specs: [EditorStyleSpan], to storage: NSTextStorage, window: NSRange) {
+        static func apply(
+            _ specs: [EditorStyleSpan], to storage: NSTextStorage, window: NSRange,
+            images: TextFirstImages
+        ) {
             let length = storage.length
             guard window.location < length else { return }
             let window = NSRange(
                 location: window.location, length: min(window.length, length - window.location))
             storage.beginEditing()
             storage.setAttributes(TextFirstEditorController.baseAttributes, range: window)
-            for spec in specs { apply(spec, to: storage, length: length) }
+            for spec in specs { apply(spec, to: storage, length: length, images: images) }
             storage.endEditing()
         }
 
@@ -27,12 +30,15 @@
             return s < e ? NSRange(location: s, length: e - s) : nil
         }
 
-        private static func apply(_ spec: EditorStyleSpan, to storage: NSTextStorage, length: Int) {
+        private static func apply(
+            _ spec: EditorStyleSpan, to storage: NSTextStorage, length: Int, images: TextFirstImages
+        ) {
             switch spec {
             case .heading(let start, let end, let level):
                 guard let r = range(start, end, length) else { return }
                 let size = headingSizes[min(max(Int(level), 1), 6) - 1]
-                storage.addAttribute(.font, value: UIFont.systemFont(ofSize: size, weight: .bold), range: r)
+                storage.addAttribute(
+                    .font, value: UIFont.systemFont(ofSize: size, weight: .bold), range: r)
                 let paragraph = NSMutableParagraphStyle()
                 paragraph.lineSpacing = 4
                 paragraph.paragraphSpacingBefore = level <= 2 ? 6 : 2
@@ -42,7 +48,8 @@
                 block(storage, r).quoteDepth = Int(depth)
                 indent(storage, r)
                 storage.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: r)
-            case .listRow(let start, let end, let depth, let marker, let number, let checked, let first):
+            case .listRow(
+                let start, let end, let depth, let marker, let number, let checked, let first):
                 guard let r = range(start, end, length) else { return }
                 block(storage, r).list = (Int(depth), marker, number, checked)
                 block(storage, r).showsMarker = first
@@ -61,6 +68,10 @@
                 paragraph.minimumLineHeight = 28
                 storage.addAttributes(
                     [.paragraphStyle: paragraph, .foregroundColor: UIColor.clear], range: r)
+            case .image(let start, let end, let destination, let alt, let vault, let remote):
+                guard let r = range(start, end, length) else { return }
+                images.style(
+                    storage, r, destination: destination, alt: alt, vault: vault, remote: remote)
             case .metadata(let start, let end):
                 guard let r = range(start, end, length) else { return }
                 storage.addAttributes(
@@ -72,7 +83,10 @@
                     storage.addAttribute(
                         .strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: r)
                 }
-                if code { storage.addAttribute(.backgroundColor, value: UIColor.tertiarySystemFill, range: r) }
+                if code {
+                    storage.addAttribute(
+                        .backgroundColor, value: UIColor.tertiarySystemFill, range: r)
+                }
             case .link(let start, let end, let destination):
                 guard let r = range(start, end, length) else { return }
                 storage.addAttributes(
@@ -84,14 +98,16 @@
             case .wikilink(let start, let end, _, let noteId):
                 guard let r = range(start, end, length) else { return }
                 storage.addAttribute(
-                    .foregroundColor, value: noteId == nil ? UIColor.secondaryLabel : UIColor(Theme.primary),
+                    .foregroundColor,
+                    value: noteId == nil ? UIColor.secondaryLabel : UIColor(Theme.primary),
                     range: r)
                 if let noteId { storage.addAttribute(.tfWikilink, value: noteId, range: r) }
             }
         }
 
         /// The one drawing record of this line, shared by every span that touches it.
-        private static func block(_ storage: NSTextStorage, _ r: NSRange) -> TextFirstBlockAttribute {
+        private static func block(_ storage: NSTextStorage, _ r: NSRange) -> TextFirstBlockAttribute
+        {
             if let existing = storage.attribute(.tfBlock, at: r.location, effectiveRange: nil)
                 as? TextFirstBlockAttribute
             {
@@ -123,9 +139,13 @@
                 if bold { traits.insert(.traitBold) }
                 if italic { traits.insert(.traitItalic) }
                 var base = old
-                if code { base = .monospacedSystemFont(ofSize: old.pointSize - 2, weight: .regular) }
-                let descriptor = base.fontDescriptor.withSymbolicTraits(traits) ?? base.fontDescriptor
-                storage.addAttribute(.font, value: UIFont(descriptor: descriptor, size: base.pointSize), range: sub)
+                if code {
+                    base = .monospacedSystemFont(ofSize: old.pointSize - 2, weight: .regular)
+                }
+                let descriptor =
+                    base.fontDescriptor.withSymbolicTraits(traits) ?? base.fontDescriptor
+                storage.addAttribute(
+                    .font, value: UIFont(descriptor: descriptor, size: base.pointSize), range: sub)
             }
         }
     }
