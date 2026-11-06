@@ -102,3 +102,42 @@ fn a_window_planned_with_its_own_offset_matches_the_whole() {
         );
     }
 }
+
+#[test]
+fn an_image_is_one_unbroken_span_with_the_engines_classification() {
+    let (display, spans) = plan("日本 ![a b](pic 1.png) x ![](https://e.com/p.png)\n![](my.png)\n");
+    let units: Vec<u16> = display.encode_utf16().collect();
+    let text = |s: usize, e: usize| String::from_utf16(&units[s..e]).unwrap();
+    let images: Vec<_> = spans
+        .iter()
+        .filter_map(|s| match s {
+            StyleSpec::Image {
+                start,
+                end,
+                destination,
+                alt,
+                vault,
+                remote,
+            } => Some((text(*start, *end), destination.clone(), alt.clone(), *vault, *remote)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(images.len(), 2, "{spans:?}");
+    // `pic 1.png` has a space, so only the angle spelling is an image; the bare one is text.
+    assert_eq!(
+        images[0],
+        ("![](https://e.com/p.png)".into(), "https://e.com/p.png".into(), "".into(), false, true)
+    );
+    assert_eq!(images[1], ("![](my.png)".into(), "my.png".into(), "".into(), true, false));
+}
+
+#[test]
+fn an_image_atom_stays_whole_when_split_at_lines() {
+    let (_, spans) = plan("a ![alt](x.png) b\nsecond\n");
+    let image: Vec<_> = spans
+        .iter()
+        .filter(|s| matches!(s, StyleSpec::Image { .. }))
+        .collect();
+    assert_eq!(image.len(), 1);
+    assert_eq!(image[0].range(), (2, 15));
+}
