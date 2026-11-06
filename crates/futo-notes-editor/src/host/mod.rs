@@ -10,6 +10,12 @@ pub use find_plan::{plan_find, FindLanding, FindSnapshot, FindStepPlan};
 mod style_plan;
 pub use style_plan::{plan_styles, ListMarker, StyleSpec, TableCellSpan};
 
+mod pending_edits;
+pub use pending_edits::PendingEdits;
+
+mod quick_plan;
+pub use quick_plan::plan_quick_open;
+
 mod table_plan;
 pub use table_plan::plan_tables;
 

@@ -115,43 +115,72 @@
 
         // MARK: open and leave
 
+        /// A long note shows its first screens at once, read-only, while the engine's open runs
+        /// beside them (TextFirstEditorController+Opening.swift); a short one opens whole.
         private func open() async {
             guard controller == nil else { return }
             await TextFirstLeaves.awaitLeave(of: noteId)
+            let id = noteId
+            let opener = Task { try await Self.openSession(store: store, id: id) }
+            do {
+                let made: TextFirstEditorController
+                if let quick = await store.quickOpenView(id) {
+                    made = try TextFirstEditorController(noteId: id, quick: quick)
+                    made.opener = opener
+                    show(made)
+                    do {
+                        try made.attach(session: try await opener.value)
+                    } catch {
+                        made.abandonOpening()
+                        controller = nil
+                        throw error
+                    }
+                } else {
+                    made = try TextFirstEditorController(
+                        noteId: id, session: try await opener.value)
+                    show(made)
+                }
+                made.refreshNoteIds()
+                if let path = ProcessInfo.processInfo.environment["FUTO_TF_STEADY_LOG"] {
+                    made.steadyTyper = TextFirstSteadyTyper(controller: made, path: path)
+                    made.steadyTyper?.start()
+                }
+            } catch {
+                // A note that cannot be opened never shows as a blank page.
+                print("text-first: open \(noteId) failed: \(error)")
+                if !navPath.isEmpty { navPath.removeLast() }
+            }
+        }
+
+        private func show(_ made: TextFirstEditorController) {
+            made.onCheckpoint = { result in
+                if let mutation = result.mutation { store.applyEditorMutation(mutation) }
+                if case .parkedConflict = result.disposition {
+                    store.showTransient(LocalizedMessage("notes.save.conflictCopy"))
+                }
+            }
+            made.onFailure = { _ in
+                store.showTransient(LocalizedMessage("notes.save.failedPending"))
+            }
+            made.installToolbar(localization: localization)
+            made.onOpenNote = { id in
+                if id != noteId { navPath.append(.note(id)) }
+            }
+            controller = made
+            if autoFocus { made.textView.becomeFirstResponder() }
+        }
+
+        /// The engine's open; waits while the previous screen's attachment on the note is released.
+        private static func openSession(store: NotesStore, id: String) async throws
+            -> NativeEditorSession
+        {
             var attempts = 0
             while true {
                 do {
-                    let session = try await store.openEditorSession(noteId)
-                    let made = try TextFirstEditorController(noteId: noteId, session: session)
-                    made.onCheckpoint = { result in
-                        if let mutation = result.mutation { store.applyEditorMutation(mutation) }
-                        if case .parkedConflict = result.disposition {
-                            store.showTransient(LocalizedMessage("notes.save.conflictCopy"))
-                        }
-                    }
-                    made.onFailure = { _ in
-                        store.showTransient(LocalizedMessage("notes.save.failedPending"))
-                    }
-                    made.installToolbar(localization: localization)
-                    made.onOpenNote = { id in
-                        if id != noteId { navPath.append(.note(id)) }
-                    }
-                    made.refreshNoteIds()
-                    controller = made
-                    if let path = ProcessInfo.processInfo.environment["FUTO_TF_STEADY_LOG"] {
-                        made.steadyTyper = TextFirstSteadyTyper(controller: made, path: path)
-                        made.steadyTyper?.start()
-                    }
-                    if autoFocus { made.textView.becomeFirstResponder() }
-                    return
+                    return try await store.openEditorSession(id)
                 } catch EditorSessionError.SessionAlreadyOpen where attempts < 20 {
                     attempts += 1
                     try? await Task.sleep(nanoseconds: 100_000_000)
-                } catch {
-                    // A note that cannot be opened never shows as a blank page.
-                    print("text-first: open \(noteId) failed: \(error)")
-                    if !navPath.isEmpty { navPath.removeLast() }
-                    return
                 }
             }
         }

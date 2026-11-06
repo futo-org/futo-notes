@@ -117,6 +117,11 @@
             return super.canPerformAction(action, withSender: sender)
         }
 
+        override func selectAll(_ sender: Any?) {
+            if let controller, controller.selectAll() { return }
+            super.selectAll(sender)
+        }
+
         override func copy(_ sender: Any?) { controller?.copySelection() }
         override func cut(_ sender: Any?) { controller?.cutSelection() }
         override func paste(_ sender: Any?) { controller?.pasteFromPasteboard() }

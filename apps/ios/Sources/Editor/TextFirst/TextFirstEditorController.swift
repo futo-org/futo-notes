@@ -8,7 +8,13 @@
     @MainActor
     final class TextFirstEditorController: NSObject {
         let textView: TextFirstTextView
-        let session: NativeEditorSession
+        /// The engine session; nil while a long note's quick first screens are all there is
+        /// (`opening`, TextFirstEditorController+Opening.swift).
+        var attached: NativeEditorSession?
+        var session: NativeEditorSession {
+            guard let attached else { preconditionFailure("the engine session is not attached") }
+            return attached
+        }
         let mirror: EditorDisplayMirror
         let storage: NSTextStorage
         private(set) var noteId: String
@@ -26,9 +32,9 @@
         /// The committed-display range the live composition replaces.
         var compositionRange = NSRange(location: 0, length: 0)
         var lastMarked = ""
-        private(set) var closed = false
+        var closed = false
         /// Typed since the last save the engine confirmed.
-        private(set) var dirty = false
+        var dirty = false
         /// Debug and tests: compare the view with the engine after every change.
         var verifyDivergence = false
         private(set) var divergences: [String] = []
@@ -39,6 +45,25 @@
         var onOpenNote: ((String) -> Void)?
         /// Debug: the kill loop's typist, kept alive with the controller.
         var steadyTyper: TextFirstSteadyTyper?
+        /// The first screens shown while `opening`; what the whole open must begin with.
+        var quickView: EditorQuickView?
+        /// Input the opening view took, replayed on the engine once it lands, in order.
+        var openingOps: [OpeningOp] = []
+        /// What the engine changed while those replayed, to map the next op's range through.
+        let replayed = EditorPendingEdits()
+        var replaying = false
+        /// Large engine jobs (a toolbar command, the toolbar's state for a huge selection) running
+        /// on the engine's queue; while any runs, nothing else may call the engine (it would wait
+        /// on the engine's lock, on the main thread).
+        var engineJobs = 0
+        /// The edit menu (Cut, Copy, Select All) is showing.
+        var menuVisible = false
+        /// Select All on a note too long for UIKit to highlight: the engine selects it all while
+        /// the view's selection is the stretch around the viewport (TextFirstEditorController+SelectAll.swift).
+        var selectAllClipped = false
+        var selectionMenu: UIEditMenuInteraction?
+        /// The engine's open, while `opening` (a leave waits for it).
+        var opener: Task<NativeEditorSession, Error>?
 
         /// Display UTF-16 units already styled (the rest of a long note follows in slices).
         var styledThrough = 0
@@ -83,16 +108,27 @@
             return [.font: bodyFont, .foregroundColor: UIColor.label, .paragraphStyle: paragraph]
         }
 
+        /// With `session`, the whole note. Without, `quick` is a long note's first screens: read-only
+        /// until `attach(session:)` (the engine's open runs beside it).
         init(
-            noteId: String, session: NativeEditorSession,
+            noteId: String, session: NativeEditorSession? = nil, quick: EditorQuickView? = nil,
             imageRoot: URL = NotesStore.resolveNotesRoot(), imageProtocols: [AnyClass]? = nil
         ) throws {
             self.noteId = noteId
-            self.session = session
+            self.attached = session
             self.imageRoot = imageRoot
             self.imageProtocols = imageProtocols
-            let display = try session.displayText()
-            rev = try session.revision()
+            let display: String
+            if let session {
+                display = try session.displayText()
+                rev = try session.revision()
+            } else if let quick {
+                display = quick.display
+                rev = 0
+                quickView = quick
+            } else {
+                preconditionFailure("an editor needs a session or a quick open")
+            }
             mirror = EditorDisplayMirror(display: display)
             mirrorLength = display.utf16.count
             textView = TextFirstTextView(usingTextLayoutManager: true)
@@ -107,7 +143,11 @@
                 NSAttributedString(string: display, attributes: Self.baseAttributes))
             configureTextView()
             installTapRecognizer()
-            styleFirstScreen()
+            if let quick = quickView {
+                styleQuickView(quick)
+            } else {
+                styleFirstScreen()
+            }
         }
 
         private func configureTextView() {
@@ -159,6 +199,10 @@
                 selectionStart: change.selection.start, selectionEnd: change.selection.end)
             rev = change.revision
             mirrorLength += Int(edit.insertedUtf16) - Int(edit.end - edit.start)
+            if replaying {
+                try? replayed.record(
+                    start: edit.start, end: edit.end, insertedUtf16: edit.insertedUtf16)
+            }
             try reconcile(edit, inserted: change.inserted, platform: platform)
             setSelection(
                 NSRange(
@@ -226,11 +270,18 @@
 
         func setSelection(_ range: NSRange) {
             engineSelection = range
-            guard textView.selectedRange != range, NSMaxRange(range) <= storage.length else {
-                return
+            selectAllClipped = false
+            guard NSMaxRange(range) <= storage.length else { return }
+            // A selection too large for UIKit to highlight is shown as the stretch around the
+            // viewport (see +SelectAll).
+            var shown = range
+            if range.length > Self.clipSelectionAbove {
+                selectAllClipped = true
+                shown = clippedWindow(of: range)
             }
+            guard textView.selectedRange != shown else { return }
             applying += 1
-            textView.selectedRange = range
+            textView.selectedRange = shown
             applying -= 1
         }
 
@@ -287,10 +338,12 @@
         func paragraphKey(
             _ key: EditorParagraphKey, range: NSRange? = nil, onlyIfChanged: Bool = false
         ) -> Bool {
-            guard !closed, !engineComposing, textView.markedTextRange == nil else { return false }
+            guard !closed, !engineBusy, !engineComposing, textView.markedTextRange == nil else {
+                return false
+            }
             do {
                 if let change = try session.paragraphKeyUtf16(
-                    expected: rev, range: Self.range(range ?? textView.selectedRange), key: key)
+                    expected: rev, range: Self.range(range ?? effectiveSelection), key: key)
                 {
                     try accept(change)
                     return true
@@ -306,8 +359,10 @@
         func redo() { history(redo: true) }
 
         private func history(redo: Bool) {
-            // Undo and Redo stay inert while marked text is pending.
-            guard !closed, !engineComposing, textView.markedTextRange == nil else { return }
+            // Undo and Redo stay inert while marked text is pending, and until the engine lands.
+            guard !closed, !engineBusy, !engineComposing, textView.markedTextRange == nil else {
+                return
+            }
             do {
                 if let change = try redo ? session.redo(expected: rev) : session.undo(expected: rev)
                 {
@@ -329,8 +384,8 @@
         }
 
         func copySelection(_ range: NSRange? = nil) {
-            let r = range ?? textView.selectedRange
-            guard r.length > 0, !engineComposing else { return }
+            let r = range ?? effectiveSelection
+            guard r.length > 0, !engineBusy, !engineComposing else { return }
             do {
                 UIPasteboard.general.string = try session.copyMarkdown(
                     expected: rev, range: byteRange(r))
@@ -338,8 +393,8 @@
         }
 
         func cutSelection(_ range: NSRange? = nil) {
-            let r = range ?? textView.selectedRange
-            guard r.length > 0, !engineComposing else { return }
+            let r = range ?? effectiveSelection
+            guard r.length > 0, !engineBusy, !engineComposing else { return }
             do {
                 let cut = try session.cutMarkdown(expected: rev, range: byteRange(r))
                 UIPasteboard.general.string = cut.markdown
@@ -348,109 +403,17 @@
         }
 
         func pasteFromPasteboard(_ range: NSRange? = nil) {
+            guard !engineBusy else { return }
             if range == nil, pasteImageFromPasteboard() { return }
             guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
             finishComposition()
             do {
                 if let change = try session.pasteMarkdown(
-                    expected: rev, range: byteRange(range ?? textView.selectedRange), text: text)
+                    expected: rev, range: byteRange(range ?? effectiveSelection), text: text)
                 {
                     try accept(change)
                 }
             } catch { recover(error, context: "paste") }
-        }
-
-        // MARK: saving (the Store owns the debounce; this only wakes when it says a save is due)
-
-        private func markDirty() {
-            dirty = true
-            armSave()
-        }
-
-        func armSave() {
-            guard saveTimer == nil, !closed, let delay = try? session.saveDelay() else { return }
-            let timer = Timer(timeInterval: max(delay, 0), repeats: false) { [weak self] _ in
-                MainActor.assumeIsolated { self?.saveFired() }
-            }
-            RunLoop.main.add(timer, forMode: .common)
-            saveTimer = timer
-        }
-
-        private func saveFired() {
-            saveTimer = nil
-            guard !closed else { return }
-            runSave({ try $0.saveIfDue() })
-        }
-
-        /// Write now, ahead of the debounce (the app is going to the background).
-        func checkpoint(then done: @escaping () -> Void = {}) {
-            guard !closed else { return done() }
-            saveTimer?.invalidate()
-            saveTimer = nil
-            finishComposition()
-            runSave({ try $0.checkpoint() }, then: done)
-        }
-
-        private func runSave(
-            _ save: @escaping @Sendable (NativeEditorSession) throws -> FlushDraftResult?,
-            then done: @escaping () -> Void = {}
-        ) {
-            let session = session
-            io.async { [weak self] in
-                let result = Result { try save(session) }
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        self?.saved(result)
-                        done()
-                    }
-                }
-            }
-        }
-
-        private func saved(_ result: Result<FlushDraftResult?, Error>) {
-            switch result {
-            case .success(let flushed):
-                if let flushed {
-                    dirty = false
-                    onCheckpoint?(flushed)
-                    drainCoordinatedChanges()
-                }
-            case .failure(let error):
-                onFailure?(error)
-            }
-            armSave()
-        }
-
-        /// Own-action changes (a relink after a rename) the Store queued for this session.
-        func drainCoordinatedChanges() {
-            guard !closed, !engineComposing else { return }
-            do {
-                for change in try session.takeCoordinatedChanges() {
-                    guard change.previousRevision == rev else {
-                        reloadFromEngine()
-                        return
-                    }
-                    try accept(change)
-                }
-            } catch { recover(error, context: "coordinated changes") }
-        }
-
-        /// Save, then release the attachment. A failed detach leaves the session attached.
-        func close() async -> Result<FlushDraftResult, Error> {
-            finishComposition()
-            saveTimer?.invalidate()
-            saveTimer = nil
-            let session = session
-            let result: Result<FlushDraftResult, Error> = await withCheckedContinuation { done in
-                io.async { done.resume(returning: Result { try session.detach() }) }
-            }
-            switch result {
-            case .success:
-                closed = true
-                images.shutdown()
-            case .failure: armSave()
-            }
-            return result
         }
     }
 #endif

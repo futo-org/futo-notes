@@ -74,7 +74,7 @@
 
         /// Ask the engine for the completion at the caret; none while composing.
         func refreshCompletion() {
-            guard !closed else { return }
+            guard !closed, !engineBusy else { return }
             guard !engineComposing, textView.markedTextRange == nil else { return }
             guard let found = try? session.wikilinkCompletion(expected: rev) else {
                 dismissedCompletionStart = nil
@@ -109,7 +109,7 @@
         /// The vault's note ids changed: the engine re-resolves its wikilinks and says which
         /// projections to redraw.
         func refreshNoteIds() {
-            guard !closed, !engineComposing else { return }
+            guard !closed, !engineBusy, !engineComposing else { return }
             do {
                 let change = try session.refreshNoteIds()
                 for projection in change.projections {
@@ -127,6 +127,7 @@
 
         /// Edit the link under the selection, or make one from it.
         func presentLinkPrompt(localization: Localization) {
+            guard !engineBusy else { return }
             finishComposition()
             guard let presenter = textView.window?.rootViewController?.topmost else { return }
             do {

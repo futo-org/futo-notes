@@ -51,7 +51,10 @@
             textView.addGestureRecognizer(pan)
             tablePan = pan
             let tracker = TextFirstTouchTracker(target: nil, action: nil)
-            tracker.onChange = { [weak self] down in self?.textView.fingerIsDown = down }
+            tracker.onChange = { [weak self] down in
+                self?.textView.fingerIsDown = down
+                if !down { self?.renderHoldChanged() }
+            }
             textView.addGestureRecognizer(tracker)
         }
 
@@ -158,6 +161,12 @@
         }
 
         @objc func handleTap(_ g: UITapGestureRecognizer) {
+            // A cell, an image or a checkbox is the engine's to change: nothing until it lands.
+            if engineBusy, g.state == .ended, linkTarget(at: g.location(in: textView)) == nil {
+                touchHitCheckbox = false
+                suppressFocus = false
+                return
+            }
             if g.state == .ended, let hit = tableCellHit(at: g.location(in: textView)) {
                 suppressFocus = false
                 openCellEditor(hit)
@@ -195,7 +204,7 @@
         }
 
         func toggleTask(atLineOffset offset: Int) {
-            guard !closed else { return }
+            guard !closed, !engineBusy else { return }
             finishComposition()
             do {
                 let at = EditorUtf16Range(start: UInt64(offset), end: UInt64(offset))

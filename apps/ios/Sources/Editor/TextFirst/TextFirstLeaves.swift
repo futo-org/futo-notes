@@ -29,6 +29,9 @@
                         }
                         release()
                         return
+                    case .failure(let error) where error is TextFirstNeverOpened:
+                        release()
+                        return
                     case .failure(let error):
                         attempts += 1
                         print("text-first: detach \(id) failed (\(attempts)): \(error)")

@@ -13,6 +13,22 @@
             _ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String
         ) -> Bool {
             guard applying == 0, !closed else { return true }
+            // The engine has not landed: the view keeps its text, and the input waits its turn.
+            if opening {
+                queueWhileOpening(range, text)
+                return false
+            }
+            // A large command is running on the engine; keys made meanwhile are not applied.
+            if commandRunning { return false }
+            // The view's selection stands for a larger one, the engine's: the key replaces that.
+            if selectAllClipped, range == textView.selectedRange {
+                if text == "\n" {
+                    paragraphKey(.enter, range: engineSelection)
+                } else {
+                    report(engineSelection, text, applied: false)
+                }
+                return false
+            }
             // Enter is the engine's: it decides the break's spelling and every list, quote and
             // heading rule. A newline typed into marked text stays UIKit's.
             if text == "\n", textView.markedTextRange == nil, !engineComposing,
@@ -25,6 +41,23 @@
             return true
         }
 
+        func textView(
+            _ textView: UITextView,
+            willPresentEditMenuWith animator: any UIEditMenuInteractionAnimating
+        ) {
+            menuVisible = true
+        }
+
+        func textView(
+            _ textView: UITextView,
+            willDismissEditMenuWith animator: any UIEditMenuInteractionAnimating
+        ) {
+            menuVisible = false
+            renderHoldChanged()
+        }
+
+        func scrollViewDidScroll(_ scrollView: UIScrollView) { viewportMoved() }
+
         func textViewDidChange(_ textView: UITextView) {
             guard applying == 0, !closed else { return }
             platformChanged()
@@ -35,8 +68,15 @@
             self.textView.fingerIsDown = false
             invalidateMarkerHighlights(old: lastDrawnSelection, new: textView.selectedRange)
             lastDrawnSelection = textView.selectedRange
-            guard applying == 0, !closed, !engineComposing, textView.markedTextRange == nil,
-                pendingEdit == nil,
+            if opening {
+                // The keyboard reads the caret at once; the engine takes it when it lands.
+                if applying == 0, !closed { queueSelectionWhileOpening(textView.selectedRange) }
+                return
+            }
+            // The user chose a selection of their own.
+            if applying == 0 { selectAllClipped = false }
+            guard applying == 0, !closed, !commandRunning, !engineComposing,
+                textView.markedTextRange == nil, pendingEdit == nil,
                 // A text change not yet reported (no shouldChangeTextIn): its report must reach
                 // the engine before any selection report.
                 storage.length == mirrorLength
@@ -51,6 +91,11 @@
                 applying -= 1
             }
             guard selected != engineSelection else { return }
+            reportSelection(selected)
+        }
+
+        /// Tell the engine where the view's selection now is, and take its answer.
+        func reportSelection(_ selected: NSRange) {
             do {
                 let change = try session.selectUtf16(
                     expected: rev, range: Self.range(selected))
@@ -90,7 +135,8 @@
             }
         }
 
-        private func report(_ range: NSRange, _ text: String) {
+        /// `applied`: UIKit already made the edit (false when replaying input queued while the note opened).
+        func report(_ range: NSRange, _ text: String, applied: Bool = true) {
             let units = Array(text.utf16)
             let placeholders = Self.dictationPlaceholders(in: units)
             do {
@@ -105,8 +151,8 @@
                         action: units.count > 1 || range.length > 1 ? .isolated : .typing)
                 }
                 if let change {
-                    try accept(change, platform: (range, text))
-                } else {
+                    try accept(change, platform: applied ? (range, text) : nil)
+                } else if applied {
                     try rejectPlatformEdit((range, text))
                 }
             } catch {

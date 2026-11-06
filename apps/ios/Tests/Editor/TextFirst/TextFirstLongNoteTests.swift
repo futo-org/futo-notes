@@ -155,5 +155,111 @@
             tv.fingerIsDown = false
             #expect(tv.caretRect(for: start).minY < tv.textContainerInset.top + 10)
         }
+
+        // MARK: M8 carry-overs
+
+        /// What UIKit asks while a finger lands: the origin, then where the previous caret was.
+        private func touchDown(_ tv: TextFirstTextView) {
+            let previous = tv.selectedTextRange!
+            tv.fingerIsDown = true
+            _ = tv.closestPosition(to: .zero)
+            _ = tv.caretRect(for: previous.start)
+            _ = tv.selectionRects(for: previous)
+        }
+
+        private func settle(_ tv: UITextView) async throws {
+            for _ in 0..<10 {
+                tv.layoutIfNeeded()
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+        }
+
+        @Test func aDoubleTapAndAHandleDragFarFromTheTopSelectWhereTheFingerIs() async throws {
+            let h = await openAtTheEnd()
+            let tv = h.tv
+            let (headingEnd, endPoint) = try #require(visibleHeading(in: tv))
+            let text = tv.text as NSString
+            let headingStart = text.lineRange(for: NSRange(location: headingEnd, length: 0))
+                .location
+            let offsetBefore = tv.contentOffset.y
+
+            // Double tap: the same hit test as a tap, then the word around the hit.
+            touchDown(tv)
+            let wordPoint = CGPoint(x: tv.textContainerInset.left + 25, y: endPoint.y)
+            let hit = try #require(tv.closestPosition(to: wordPoint))
+            let word = try #require(
+                tv.tokenizer.rangeEnclosingPosition(
+                    hit, with: .word, inDirection: .storage(.forward)))
+            tv.selectedTextRange = word
+            try await settle(tv)
+            #expect(tv.selectedRange == NSRange(location: headingStart, length: 7))
+            #expect(text.substring(with: tv.selectedRange) == "Section")
+            #expect(abs(tv.contentOffset.y - offsetBefore) < 40)
+
+            // The end handle dragged to the end of the line: the same hit test with a finger down.
+            touchDown(tv)
+            let dragged = try #require(tv.closestPosition(to: endPoint))
+            let start = try #require(tv.selectedTextRange).start
+            tv.selectedTextRange = tv.textRange(from: start, to: dragged)
+            try await settle(tv)
+            #expect(
+                tv.selectedRange
+                    == NSRange(location: headingStart, length: headingEnd - headingStart))
+            #expect(abs(tv.contentOffset.y - offsetBefore) < 40)
+        }
+
+        @Test func aNewWidthKeepsTheReadersLineAtTheTop() async throws {
+            let h = TextFirstHarness(Self.longNote(sections: 400))
+            _ = await h.until(60) { h.controller.styledThrough >= h.controller.mirrorLength }
+            let tv = h.tv
+            let container = TextFirstEditorContainer(textView: tv)
+            container.frame = CGRect(x: 0, y: 0, width: 390, height: 700)
+            h.window.addSubview(container)
+            container.layoutIfNeeded()
+            tv.contentOffset.y = 40_000
+            tv.layoutIfNeeded()
+            let top = try #require(
+                tv.closestPosition(
+                    to: CGPoint(x: tv.textContainerInset.left + 1, y: tv.contentOffset.y + 1)))
+            let before = tv.offset(from: tv.beginningOfDocument, to: top)
+
+            let began = CACurrentMediaTime()
+            container.frame = CGRect(x: 0, y: 0, width: 844, height: 390)
+            container.layoutIfNeeded()
+            tv.layoutIfNeeded()
+            let tookMs = (CACurrentMediaTime() - began) * 1000
+            let after = try #require(
+                tv.closestPosition(
+                    to: CGPoint(x: tv.textContainerInset.left + 1, y: tv.contentOffset.y + 1)))
+            let now = tv.offset(from: tv.beginningOfDocument, to: after)
+            // UIKit keeps the reader's line through a new width (a landscape line holds under 130
+            // characters); a fixed point offset would show text thousands of characters away.
+            #expect(abs(now - before) < 260, "top was \(before), is \(now)")
+            print("TFBENCH width change at 40,000 pt: \(Int(tookMs)) ms")
+        }
+
+        @Test func aTallTablesCellFieldDoesNotMoveTheReaderWhenItIsPlacedFarAway() async throws {
+            var source = "intro\n\n| a | b |\n|---|---|\n"
+            for i in 0..<300 { source += "| row \(i) | \(i) |\n" }
+            source += "\n" + Self.longNote(sections: 300)
+            let h = TextFirstHarness(source)
+            _ = await h.until(60) { h.controller.styledThrough >= h.controller.mirrorLength }
+            h.tv.layoutIfNeeded()
+            let cellOffset = (h.tv.text as NSString).range(of: "row 3 ").location
+            h.controller.selectInCell(NSRange(location: cellOffset, length: 5))
+            let editor = TextFirstCellEditor(controller: h.controller)
+            editor.install()
+            try await settle(h.tv)
+            // Far away, the field is off screen; placing it asks TextKit for the cell's layout. That
+            // must not lay the note out up to the cell and re-base the estimate under the reader.
+            h.tv.setContentOffset(
+                CGPoint(x: 0, y: max(0, h.tv.contentSize.height - 2_000)), animated: false)
+            try await settle(h.tv)
+            let offset = h.tv.contentOffset.y
+            #expect(offset > 50_000)
+            editor.reposition()
+            h.tv.layoutIfNeeded()
+            #expect(abs(h.tv.contentOffset.y - offset) < 1)
+        }
     }
 #endif

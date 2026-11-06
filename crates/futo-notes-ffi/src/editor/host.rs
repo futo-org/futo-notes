@@ -117,6 +117,20 @@ impl EditorDisplayMirror {
         Ok(self.with(|m| m.slice_utf16(start, end))?)
     }
 
+    /// Where a render slice starting at UTF-16 unit `from` ends: after the line before the first
+    /// blank line `chars` units on (so no block is cut in two), else after the next line end, else
+    /// the end. Always on a scalar boundary.
+    pub fn slice_end(&self, from: u64, chars: u64) -> Result<u64, EditorMirrorError> {
+        let (from, chars) = (index(from)?, index(chars)?);
+        Ok(self.with(|m| m.slice_end(from, chars))? as u64)
+    }
+
+    /// The UTF-16 length of `prefix` when the display starts with exactly those bytes, else nil:
+    /// whether a long note's quick first screens stand as the start of the whole open.
+    pub fn begins_with(&self, prefix: String) -> Option<u64> {
+        self.with(|m| m.begins_with(&prefix)).map(|n| n as u64)
+    }
+
     /// Apply `EditorViewChange { range, inserted, selection }`.
     pub fn apply_change(
         &self,

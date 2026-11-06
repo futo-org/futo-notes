@@ -15,12 +15,12 @@
 
         /// Style the next `units` UTF-16 units from `styledThrough`.
         private func styleSlice(units: Int) {
-            guard !closed, styledThrough < mirrorLength else { return }
+            guard !closed, !engineBusy, styledThrough < mirrorLength else { return }
             let from = styledThrough
-            var to = min(mirrorLength, from + units)
-            // End on a scalar boundary; a surrogate pair is never split.
-            while to < mirrorLength, (try? mirror.utf16ToByte(unit: UInt64(to))) == nil { to += 1 }
             do {
+                // The engine's rule for a slice's end (a blank line, so no table is cut in two:
+                // the engine reports a table only from the slice it starts in).
+                let to = Int(try mirror.sliceEnd(from: UInt64(from), chars: UInt64(units)))
                 let startByte = try mirror.utf16ToByte(unit: UInt64(from))
                 let endByte = try mirror.utf16ToByte(unit: UInt64(to))
                 let specs = try session.stylePlan(
@@ -35,19 +35,39 @@
             }
         }
 
-        private func scheduleNextSlice() {
-            guard !styleSlicePending, styledThrough < mirrorLength else { return }
+        /// A slice waits while a finger is on the note or its edit menu shows (the platform hides
+        /// the menu and handles on a text change), and never follows another without a gap, so
+        /// touches, scrolling and drawing run between slices.
+        var renderHeld: Bool { textView.fingerIsDown || menuVisible }
+        private static let sliceGap = 0.008
+
+        func renderHoldChanged() {
+            if !renderHeld { scheduleNextSlice() }
+        }
+
+        func scheduleNextSlice(after gap: Double = 0) {
+            guard !styleSlicePending, !engineBusy, !renderHeld, styledThrough < mirrorLength
+            else { return }
             styleSlicePending = true
-            DispatchQueue.main.async { [weak self] in
+            let work = { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.styleSlicePending = false
+                    guard !self.renderHeld else { return }  // renderHoldChanged() resumes
+                    var took = 0.0
                     // Typing and composing come first; a slice waits for the next turn.
                     if !self.engineComposing, self.textView.markedTextRange == nil {
+                        let began = CACurrentMediaTime()
                         self.styleSlice(units: Self.laterSlice)
+                        took = CACurrentMediaTime() - began
                     }
-                    self.scheduleNextSlice()
+                    self.scheduleNextSlice(after: max(Self.sliceGap, took))
                 }
+            }
+            if gap > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + gap, execute: work)
+            } else {
+                DispatchQueue.main.async(execute: work)
             }
         }
 
@@ -70,6 +90,10 @@
                 let to = Int(try mirror.byteToUtf16(byte: range.end))
                 // A window past the styled prefix is styled by the slices, from the current text.
                 guard from <= styledThrough else { return }
+                if to - from > Self.restyleAtOnce {
+                    restyleProgressively(from: from, to: to)
+                    return
+                }
                 let specs = try session.stylePlan(expected: rev, range: range)
                 TextFirstStyler.apply(
                     specs, to: storage, window: NSRange(location: from, length: to - from),

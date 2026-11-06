@@ -26,6 +26,9 @@
         /// The current match's index in `marks`, or -1.
         var current = -1
         var scanning = false
+        /// The query to scan for once the engine's current job ends (a long note's scan runs on the
+        /// engine's queue; the latest query wins).
+        var pendingQuery: String?
         var refresh: DispatchWorkItem?
         /// Where the note was when the bar opened; closing puts it back if nothing was edited.
         var restore: (rev: UInt64, selection: NSRange, offset: CGPoint)?
@@ -60,7 +63,7 @@
         private static let findRefreshDelay = 0.15
 
         func openFind() {
-            guard !closed else { return }
+            guard !closed, !engineBusy else { return }
             if !findModel.visible {
                 find.restore = (rev, engineSelection, textView.contentOffset)
                 findModel.visible = true
@@ -68,9 +71,18 @@
             setFindQuery(findModel.query)
         }
 
+        /// A display this long is scanned off the main thread (about 10 ms per 100,000 units; a
+        /// 2.3 MB note holds the main thread for 100 ms to seconds).
+        static let findInBackgroundAbove = 200_000
+
         func setFindQuery(_ query: String) {
-            guard !closed else { return }
+            guard !closed, !opening else { return }
             find.landing.reset()
+            if mirrorLength >= Self.findInBackgroundAbove {
+                find.pendingQuery = query
+                startPendingFind()
+                return
+            }
             do {
                 let report = try session.findSetQuery(expected: rev, query: query)
                 find.open = report.open
@@ -78,10 +90,43 @@
             } catch { recover(error, context: "find query") }
         }
 
+        /// Scan for the latest query on the engine's queue, then draw its marks.
+        func startPendingFind() {
+            guard let query = find.pendingQuery, engineJobs == 0, !closed else { return }
+            find.pendingQuery = nil
+            let expected = rev
+            let session = session
+            engineJobs += 1
+            io.async { [weak self] in
+                let report = Result { try session.findSetQuery(expected: expected, query: query) }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        self.engineJobs -= 1
+                        if !self.closed {
+                            switch report {
+                            case .success(let report):
+                                self.find.open = report.open
+                                self.publishFindIfCurrent(reveal: report.reveal != nil)
+                            case .failure(let error): self.recover(error, context: "find query")
+                            }
+                        }
+                        self.settleJobs()
+                    }
+                }
+            }
+        }
+
+        /// The marks of a scan that ended, unless the bar closed or another query is waiting.
+        private func publishFindIfCurrent(reveal: Bool) {
+            guard find.open, find.pendingQuery == nil else { return }
+            publishFind(reveal: reveal)
+        }
+
         /// Next (`forward`) or previous match. The first press after the query changed lands on the
         /// current match; later ones move from it; during composition it does nothing.
         func stepFind(forward: Bool) {
-            guard !closed, find.open else { return }
+            guard !closed, !engineBusy, find.open else { return }
             do {
                 let step = try session.findStepLanding(
                     expected: rev, landing: find.landing, forward: forward,
@@ -99,6 +144,14 @@
 
         func closeFind() {
             guard !closed else { return }
+            find.pendingQuery = nil
+            // A scan is still running on the engine's queue: close when it ends.
+            if engineJobs > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                    MainActor.assumeIsolated { self?.closeFind() }
+                }
+                return
+            }
             find.refresh?.cancel()
             find.landing.reset()
             _ = try? session.findClose()
@@ -160,6 +213,7 @@
         /// Input only logs its window in the engine; matches are rebased on read and a rescan of a
         /// snapshot replaces stale ones once typing settles.
         func scheduleFindRefresh() {
+            guard !engineBusy else { return }
             guard find.open, !closed else { return }
             find.refresh?.cancel()
             let work = DispatchWorkItem { [weak self] in
@@ -170,7 +224,7 @@
         }
 
         private func refreshFind() {
-            guard find.open, !closed, !engineComposing else { return }
+            guard find.open, !closed, !engineBusy, !engineComposing else { return }
             do {
                 let report = try session.findReport()
                 if report.stale, !find.scanning, let request = try session.findScanRequest() {
@@ -239,136 +293,6 @@
             let target = min(max(-adjusted.top, top - adjusted.top - viewport / 3), maxOffset)
             textView.setContentOffset(
                 CGPoint(x: textView.contentOffset.x, y: target), animated: false)
-        }
-    }
-
-    // MARK: drawing
-
-    extension TextFirstLayoutFragment {
-        /// This fragment's first UTF-16 offset in the note, and its length.
-        var absoluteRange: NSRange? {
-            guard let manager = textLayoutManager else { return nil }
-            let start = manager.offset(
-                from: manager.documentRange.location, to: rangeInElement.location)
-            let length = manager.offset(
-                from: rangeInElement.location, to: rangeInElement.endLocation)
-            return NSRange(location: start, length: length)
-        }
-
-        /// The marks overlapping this fragment's text.
-        func findMarks() -> (base: Int, marks: [(range: NSRange, current: Bool)]) {
-            guard let own = absoluteRange, let host else { return (0, []) }
-            let marks = MainActor.assumeIsolated {
-                host.find.marks(from: own.location, to: NSMaxRange(own))
-            }
-            return (own.location, marks)
-        }
-
-        /// Paint the text marks (and the image marks) behind this paragraph's glyphs.
-        func drawFindMarks(at point: CGPoint, in context: CGContext) {
-            let (base, marks) = findMarks()
-            // A grid draws its own marks inside its cells.
-            guard !marks.isEmpty, tableRuns.isEmpty else { return }
-            for (range, current) in marks {
-                context.setFillColor(TextFirstFindColors.fill(current: current).cgColor)
-                if let image = imageRuns.first(where: {
-                    NSIntersectionRange(
-                        NSRange(location: base + $0.range.location, length: $0.range.length), range
-                    ).length > 0
-                }) {
-                    // The image's spelling is hidden: mark the picture.
-                    if let rect = imageRect(image)?.offsetBy(dx: point.x, dy: point.y) {
-                        context.addPath(UIBezierPath(roundedRect: rect, cornerRadius: 6).cgPath)
-                        context.fillPath()
-                    }
-                    continue
-                }
-                for line in textLineFragments {
-                    let local = NSRange(location: range.location - base, length: range.length)
-                    let shared = NSIntersectionRange(local, line.characterRange)
-                    guard shared.length > 0 else { continue }
-                    let origin = lineOrigin(line)
-                    let x1 = origin + line.locationForCharacter(at: shared.location).x
-                    let x2 =
-                        NSMaxRange(shared) >= NSMaxRange(line.characterRange)
-                        ? origin + line.typographicBounds.width
-                        : origin + line.locationForCharacter(at: NSMaxRange(shared)).x
-                    context.fill(
-                        CGRect(
-                            x: point.x + x1, y: point.y + line.typographicBounds.minY,
-                            width: max(1, x2 - x1), height: line.typographicBounds.height))
-                }
-            }
-        }
-
-        /// The marks inside one table row's cells: a cell is a grid slot, so each mark is placed by
-        /// laying the cell's text out the way it is drawn.
-        func tableMarks(for run: (range: NSRange, span: TextFirstTableRowSpan)) -> [(
-            column: Int, rects: [CGRect], current: Bool
-        )] {
-            let (base, marks) = findMarks()
-            guard !marks.isEmpty else { return [] }
-            var out: [(Int, [CGRect], Bool)] = []
-            for cell in run.span.cells {
-                let start = base + run.range.location + cell.rowOffset
-                let content = NSRange(location: start, length: cell.range.length)
-                for (range, current) in marks {
-                    let shared = NSIntersectionRange(content, range)
-                    guard shared.length > 0 || (range.length == 0 && range.location == start)
-                    else { continue }
-                    let local = NSRange(location: shared.location - start, length: shared.length)
-                    out.append(
-                        (
-                            cell.column,
-                            TextFirstTableMetrics.markRects(
-                                in: cell, range: local, header: run.span.header), current
-                        ))
-                }
-            }
-            return out
-        }
-
-        /// The x a line's text starts at (its own origin plus the paragraph's head indent).
-        func lineOrigin(_ line: NSTextLineFragment) -> CGFloat {
-            let style =
-                line.attributedString.attribute(.paragraphStyle, at: 0, effectiveRange: nil)
-                as? NSParagraphStyle
-            let indent =
-                (line.characterRange.location == 0 ? style?.firstLineHeadIndent : style?.headIndent)
-                ?? 0
-            return line.typographicBounds.minX + indent
-        }
-    }
-
-    extension TextFirstTableMetrics {
-        /// Where `range` of a cell's text lands inside the cell's padded text box, laid out as the
-        /// grid draws it (width, font, alignment); rects are relative to that box's origin.
-        static func markRects(
-            in cell: TextFirstTableRowSpan.Cell, range: NSRange, header: Bool
-        ) -> [CGRect] {
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.alignment =
-                cell.alignment == .right ? .right : cell.alignment == .center ? .center : .natural
-            let storage = NSTextStorage(
-                string: cell.text,
-                attributes: [.font: font(header: header), .paragraphStyle: paragraph])
-            let manager = NSLayoutManager()
-            let container = NSTextContainer(
-                size: CGSize(width: cellWidth - padding * 2, height: .greatestFiniteMagnitude))
-            container.lineFragmentPadding = 0
-            manager.addTextContainer(container)
-            storage.addLayoutManager(manager)
-            let glyphs = manager.glyphRange(
-                forCharacterRange: NSIntersectionRange(
-                    range, NSRange(location: 0, length: storage.length)),
-                actualCharacterRange: nil)
-            var rects: [CGRect] = []
-            manager.enumerateEnclosingRects(
-                forGlyphRange: glyphs,
-                withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
-                in: container
-            ) { rect, _ in rects.append(rect) }
-            return rects
         }
     }
 

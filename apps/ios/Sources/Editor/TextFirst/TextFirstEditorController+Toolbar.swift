@@ -20,8 +20,16 @@
 
         /// Push the engine's state into the toolbar (only what changed, to spare redraws).
         func syncToolbar() {
-            guard toolbarInstalled, !closed else { return }
+            guard toolbarInstalled, !closed, !engineBusy else { return }
+            if engineSelection.length >= Self.heavySelection {
+                syncToolbarInBackground()
+                return
+            }
             guard let highlights = try? session.toolbarHighlights() else { return }
+            applyToolbar(highlights)
+        }
+
+        func applyToolbar(_ highlights: EditorToolbarHighlights) {
             let active = Set(highlights.active)
             let disabled = Set(highlights.disabled)
             if toolbarState.activeFormats != active { toolbarState.activeFormats = active }
@@ -76,7 +84,7 @@
         }
 
         private func run(toolbarCommand id: String) {
-            guard !closed else { return }
+            guard !closed, !engineBusy else { return }
             finishComposition()
             switch id {
             case "undo": undo()
@@ -100,27 +108,16 @@
         }
 
         func format(_ format: EditorInlineFormat) {
-            do {
-                if let change = try session.toggleFormat(expected: rev, format: format) {
-                    try accept(change)
-                } else {
-                    syncToolbar()  // a collapsed toggle only changes the carried format
-                }
-            } catch EditorSessionError.UnrepresentableFormat {
-                syncToolbar()
-            } catch { recover(error, context: "format") }
+            runCommand("format") { session, expected in
+                try session.toggleFormat(expected: expected, format: format)
+            }
         }
 
         func block(_ command: EditorBlockCommand) {
-            do {
-                if let change = try session.blockCommandUtf16(
-                    expected: rev, range: Self.range(textView.selectedRange), command: command)
-                {
-                    try accept(change)
-                }
-            } catch EditorSessionError.UnrepresentableFormat {
-                syncToolbar()
-            } catch { recover(error, context: "block command") }
+            let range = Self.range(effectiveSelection)
+            runCommand("block command") { session, expected in
+                try session.blockCommandUtf16(expected: expected, range: range, command: command)
+            }
         }
     }
 #endif
