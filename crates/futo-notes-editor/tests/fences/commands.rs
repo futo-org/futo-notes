@@ -275,6 +275,11 @@ fn code_command_takes_lines_out_as_plain_text_not_markdown_structure() {
         ("```\n1. x\n```", "1. x", "1\\. x"),
         ("```\n---\n```", "---", "\\---"),
         ("```\n  x\n```", "  x", "&#32; x"),
+        (
+            "```\n**bold** `c` [a](b) &amp; <i>\n```",
+            "**bold** `c` [a](b) &amp; <i>",
+            "&#42;&#42;bold&#42;&#42; &#96;c&#96; &#91;a&#93;(b) &#38;amp; &#60;i>",
+        ),
         ("> ```\n> # x\n> ```", "# x", "> \\# x"),
         ("- a\n  ```\n  - b\n  ```", "a\n- b", "- a\n  \\- b"),
     ] {
