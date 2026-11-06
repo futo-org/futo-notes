@@ -46,6 +46,9 @@
         /// The toolbar's lit and dimmed ids, from the engine's selection state.
         let toolbarState = WebEditorToolbarState()
         var toolbarInstalled = false
+        let layoutDelegate = TextFirstLayoutDelegate()
+        var touchHitCheckbox = false
+        var selectionBeforeTouch = NSRange(location: 0, length: 0)
 
         let io = DispatchQueue(label: "futo.textfirst.io", qos: .userInitiated)
         var saveTimer: Timer?
@@ -73,6 +76,7 @@
             storage.setAttributedString(
                 NSAttributedString(string: display, attributes: Self.baseAttributes))
             configureTextView()
+            installTapRecognizer()
             styleFirstScreen()
         }
 
@@ -237,15 +241,18 @@
         /// A key the engine owns. True when it handled the key (including a no-op at the
         /// document's edge), false when UIKit should.
         @discardableResult
-        func paragraphKey(_ key: EditorParagraphKey, range: NSRange? = nil) -> Bool {
+        func paragraphKey(
+            _ key: EditorParagraphKey, range: NSRange? = nil, onlyIfChanged: Bool = false
+        ) -> Bool {
             guard !closed, !engineComposing, textView.markedTextRange == nil else { return false }
             do {
                 if let change = try session.paragraphKeyUtf16(
                     expected: rev, range: Self.range(range ?? textView.selectedRange), key: key)
                 {
                     try accept(change)
+                    return true
                 }
-                return true
+                return !onlyIfChanged
             } catch {
                 recover(error, context: "paragraph key")
                 return true

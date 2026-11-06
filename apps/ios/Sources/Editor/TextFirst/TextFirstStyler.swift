@@ -39,14 +39,29 @@
                 storage.addAttribute(.paragraphStyle, value: paragraph, range: r)
             case .quote(let start, let end, let depth):
                 guard let r = range(start, end, length) else { return }
-                let indent = 14 + CGFloat(max(Int(depth), 1) - 1) * 14
+                block(storage, r).quoteDepth = Int(depth)
+                indent(storage, r)
+                storage.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: r)
+            case .listRow(let start, let end, let depth, let marker, let number, let checked, let first):
+                guard let r = range(start, end, length) else { return }
+                block(storage, r).list = (Int(depth), marker, number, checked)
+                block(storage, r).showsMarker = first
+                indent(storage, r)
+                if marker == .task && checked {
+                    storage.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: r)
+                }
+            case .code(let start, let end):
+                guard let r = range(start, end, length) else { return }
+                block(storage, r).code = true
+                storage.addAttribute(.font, value: mono, range: r)
+            case .divider(let start, let end):
+                guard let r = range(start, end, length) else { return }
+                block(storage, r).divider = true
                 let paragraph = NSMutableParagraphStyle()
-                paragraph.lineSpacing = 4
-                paragraph.firstLineHeadIndent = indent
-                paragraph.headIndent = indent
+                paragraph.minimumLineHeight = 28
                 storage.addAttributes(
-                    [.paragraphStyle: paragraph, .foregroundColor: UIColor.secondaryLabel], range: r)
-            case .code(let start, let end), .metadata(let start, let end):
+                    [.paragraphStyle: paragraph, .foregroundColor: UIColor.clear], range: r)
+            case .metadata(let start, let end):
                 guard let r = range(start, end, length) else { return }
                 storage.addAttributes(
                     [.font: mono, .backgroundColor: UIColor.tertiarySystemFill], range: r)
@@ -70,9 +85,31 @@
                 storage.addAttribute(
                     .foregroundColor, value: noteId == nil ? UIColor.secondaryLabel : UIColor(Theme.primary),
                     range: r)
-            case .listRow, .divider:
-                break
             }
+        }
+
+        /// The one drawing record of this line, shared by every span that touches it.
+        private static func block(_ storage: NSTextStorage, _ r: NSRange) -> TextFirstBlockAttribute {
+            if let existing = storage.attribute(.tfBlock, at: r.location, effectiveRange: nil)
+                as? TextFirstBlockAttribute
+            {
+                return existing
+            }
+            let made = TextFirstBlockAttribute()
+            storage.addAttribute(.tfBlock, value: made, range: r)
+            return made
+        }
+
+        /// Head indent from the line's quote depth and list depth (the markers live in the gutter).
+        private static func indent(_ storage: NSTextStorage, _ r: NSRange) {
+            let b = block(storage, r)
+            var indent = TextFirstMetrics.quoteIndent(depth: b.quoteDepth)
+            if let list = b.list { indent += TextFirstMetrics.listIndent(depth: list.depth) }
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineSpacing = 4
+            paragraph.firstLineHeadIndent = indent
+            paragraph.headIndent = indent
+            storage.addAttribute(.paragraphStyle, value: paragraph, range: r)
         }
 
         private static func restyleFont(

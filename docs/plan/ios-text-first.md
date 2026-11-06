@@ -26,7 +26,7 @@ commit that finishes the last milestone (archive rule).
 |---|---|---|
 | M1 | Port the proof onto the current engine: open, type, save, IME shapes, kill loop, 20k smoke | done |
 | M2 | Toolbar and selection state (Mason's heading/format items), projection styling | done |
-| M3 | Lists, checkboxes, quotes, code | |
+| M3 | Lists, checkboxes, quotes, code | done |
 | M4 | Links and wikilinks, including completion | |
 | M5 | Images | |
 | M6 | Tables | |
@@ -66,6 +66,26 @@ commit that finishes the last milestone (archive rule).
   (it is about Barlow's semibold base).
 - Visual check on the simulator (flag on, keyboard up): heading, bold, italic, code and quote draw,
   Undo/Redo dimmed on a fresh note.
+
+## M3 notes
+
+- Merged `origin/engine/from-android-text-first` (engine lane's final-newline test fixes plus four
+  review fixes): full `just test-ios-native` = 320 tests, passed, 2 known issues (the typed-table
+  row, both ways of asking). !590/the engine branch had not merged to main, so no retarget.
+- Drawing: `TextFirstLayoutFragments.swift` ports the proof's fragments onto the engine's spans.
+  `TextFirstStyler` puts one `TextFirstBlockAttribute` per line (quote depth, list row, code,
+  divider) and head indents (quote + list depth); a layout delegate hands TextKit a fragment that
+  draws bullets (disc/ring/square by depth), ordered numbers from the engine, checkboxes, quote
+  bars, the code-block background and the divider rule. None are characters in the text.
+- A row's later lines (a loose list's blank line) arrive with `first == false` and draw no marker.
+- Checkbox tap: a tap recogniser hit-tests the fragment's checkbox (12 pt margin), calls
+  `blockCommandUtf16(.toggleTask)` at the line, and restores the caret the tap moved. Verified on
+  the simulator with a real tap (Undo lit afterwards). The keyboard still rises, as for any tap
+  on the text view.
+- Tab / Shift-Tab (hardware keyboard): `paragraphKey(.tab/.shiftTab)`; UIKit keeps the key when the
+  engine changes nothing. The toolbar's Indent/Outdent were M2.
+- Not done: RTL list margins, selection highlight over list markers (Android lines, they stay
+  Android-tagged); no spec line moved this milestone.
 
 ## M1 notes
 

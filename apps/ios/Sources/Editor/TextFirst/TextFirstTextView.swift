@@ -37,11 +37,20 @@
         override func paste(_ sender: Any?) { controller?.pasteFromPasteboard() }
 
         override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-            if let key = presses.first?.key, key.keyCode == .keyboardDeleteForward,
-                markedTextRange == nil, selectedRange.length == 0, let controller,
-                controller.paragraphKey(.delete)
-            {
-                return
+            if let key = presses.first?.key, markedTextRange == nil, let controller {
+                // A caret's forward Delete is the engine's; Tab and Shift-Tab indent and outdent
+                // a list item, and anywhere else are UIKit's.
+                if key.keyCode == .keyboardDeleteForward, selectedRange.length == 0,
+                    controller.paragraphKey(.delete)
+                {
+                    return
+                }
+                if key.keyCode == .keyboardTab,
+                    controller.paragraphKey(
+                        key.modifierFlags.contains(.shift) ? .shiftTab : .tab, onlyIfChanged: true)
+                {
+                    return
+                }
             }
             super.pressesBegan(presses, with: event)
         }

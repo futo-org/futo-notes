@@ -1,0 +1,177 @@
+#if FUTO_DEBUG_BUILD
+    import UIKit
+
+    // Bullets, numbers, checkboxes, quote bars, code backgrounds and dividers, drawn by
+    // NSTextLayoutFragment subclasses from the block facts the engine sent. None of these are
+    // characters in the text: the display holds only the words.
+
+    extension NSAttributedString.Key {
+        /// `TextFirstBlockAttribute` on every character of a drawn line (including its newline).
+        static let tfBlock = NSAttributedString.Key("futo.tf.block")
+    }
+
+    /// What the engine said about one line that draws something besides text.
+    final class TextFirstBlockAttribute: NSObject {
+        var quoteDepth = 0
+        var code = false
+        var divider = false
+        var list: (depth: Int, marker: EditorListMarker, number: UInt64?, checked: Bool)?
+        /// False on a row's later lines (a loose list's blank line): they indent but draw no marker.
+        var showsMarker = true
+    }
+
+    enum TextFirstMetrics {
+        static func listIndent(depth: Int) -> CGFloat { 30 + CGFloat(depth) * 24 }
+        static func quoteIndent(depth: Int) -> CGFloat { depth > 0 ? 14 + CGFloat(depth - 1) * 14 : 0 }
+        static let checkboxSide: CGFloat = 18
+    }
+
+    final class TextFirstLayoutFragment: NSTextLayoutFragment {
+        let block: TextFirstBlockAttribute
+        var accent: UIColor = UIColor(Theme.primary)
+
+        init(block: TextFirstBlockAttribute, element: NSTextElement, range: NSTextRange?) {
+            self.block = block
+            super.init(textElement: element, range: range)
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+        override var renderingSurfaceBounds: CGRect {
+            // Gutter art lives left of the text and code backgrounds span the full width.
+            super.renderingSurfaceBounds.union(
+                CGRect(
+                    x: -layoutFragmentFrame.minX - 24, y: 0,
+                    width: max(containerWidth, layoutFragmentFrame.width) + 60,
+                    height: layoutFragmentFrame.height))
+        }
+
+        private var containerWidth: CGFloat {
+            textLayoutManager?.textContainer?.size.width
+                ?? (layoutFragmentFrame.width + layoutFragmentFrame.minX)
+        }
+
+        private var firstLine: CGRect {
+            textLineFragments.first?.typographicBounds ?? CGRect(x: 0, y: 0, width: 0, height: 20)
+        }
+
+        /// The leading edge of the list text, in container coordinates.
+        private var textIndent: CGFloat {
+            guard let list = block.list else { return 0 }
+            return TextFirstMetrics.quoteIndent(depth: block.quoteDepth)
+                + TextFirstMetrics.listIndent(depth: list.depth)
+        }
+
+        /// The checkbox's rect: x in container coordinates, y relative to the fragment.
+        var checkboxRect: CGRect? {
+            guard let list = block.list, block.showsMarker, list.marker == .task else { return nil }
+            let line = firstLine
+            let side = TextFirstMetrics.checkboxSide
+            return CGRect(
+                x: textIndent - side - 8, y: line.minY + (line.height - side) / 2, width: side,
+                height: side)
+        }
+
+        override func draw(at pointIn: CGPoint, in context: CGContext) {
+            let point = CGPoint(x: pointIn.x - layoutFragmentFrame.minX, y: pointIn.y)
+            if block.code {
+                UIColor.tertiarySystemFill.setFill()
+                context.fill(
+                    CGRect(
+                        x: point.x - 4, y: point.y, width: containerWidth + 8,
+                        height: layoutFragmentFrame.height))
+            }
+            if block.divider {
+                let y = point.y + layoutFragmentFrame.height / 2
+                UIColor.opaqueSeparator.setStroke()
+                context.setLineWidth(1)
+                context.move(to: CGPoint(x: point.x, y: y))
+                context.addLine(to: CGPoint(x: point.x + containerWidth, y: y))
+                context.strokePath()
+            }
+            if block.quoteDepth > 0 {
+                UIColor.tertiaryLabel.setFill()
+                for i in 0..<block.quoteDepth {
+                    let x = point.x + 2 + CGFloat(i) * 14
+                    context.fill(CGRect(x: x, y: point.y, width: 3, height: layoutFragmentFrame.height))
+                }
+            }
+            if let list = block.list, block.showsMarker { drawListMarker(list, at: point, in: context) }
+            super.draw(at: pointIn, in: context)
+        }
+
+        private func drawListMarker(
+            _ list: (depth: Int, marker: EditorListMarker, number: UInt64?, checked: Bool),
+            at point: CGPoint, in context: CGContext
+        ) {
+            let line = firstLine
+            switch list.marker {
+            case .task:
+                guard let box = checkboxRect else { return }
+                let r = box.offsetBy(dx: point.x, dy: point.y)
+                let path = UIBezierPath(roundedRect: r, cornerRadius: 4)
+                context.saveGState()
+                if list.checked {
+                    accent.setFill()
+                    path.fill()
+                    UIColor.white.setStroke()
+                    let tick = UIBezierPath()
+                    tick.move(to: CGPoint(x: r.minX + 4.5, y: r.midY + 0.5))
+                    tick.addLine(to: CGPoint(x: r.minX + 7.7, y: r.maxY - 5))
+                    tick.addLine(to: CGPoint(x: r.maxX - 4, y: r.minY + 5))
+                    tick.lineWidth = 2
+                    tick.lineCapStyle = .round
+                    tick.lineJoinStyle = .round
+                    tick.stroke()
+                } else {
+                    UIColor.secondaryLabel.setStroke()
+                    path.lineWidth = 1.5
+                    path.stroke()
+                }
+                context.restoreGState()
+            case .ordered:
+                let font = UIFont.monospacedDigitSystemFont(ofSize: 17, weight: .regular)
+                let text = NSAttributedString(
+                    string: "\(list.number ?? 1).",
+                    attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
+                let size = text.size()
+                text.draw(
+                    at: CGPoint(
+                        x: point.x + textIndent - size.width - 6,
+                        y: point.y + line.minY + (line.height - size.height) / 2))
+            case .bullet:
+                // Disc, ring, square by depth.
+                let d: CGFloat = 6
+                let r = CGRect(
+                    x: point.x + textIndent - 14 - d / 2, y: point.y + line.minY + line.height / 2 - d / 2,
+                    width: d, height: d)
+                UIColor.secondaryLabel.setFill()
+                UIColor.secondaryLabel.setStroke()
+                switch list.depth % 3 {
+                case 0: context.fillEllipse(in: r)
+                case 1:
+                    context.setLineWidth(1.2)
+                    context.strokeEllipse(in: r.insetBy(dx: 0.6, dy: 0.6))
+                default: context.fill(r)
+                }
+            }
+        }
+    }
+
+    /// Hands TextKit a `TextFirstLayoutFragment` for every paragraph that draws something.
+    final class TextFirstLayoutDelegate: NSObject, NSTextLayoutManagerDelegate {
+        func textLayoutManager(
+            _ textLayoutManager: NSTextLayoutManager, textLayoutFragmentFor location: NSTextLocation,
+            in textElement: NSTextElement
+        ) -> NSTextLayoutFragment {
+            if let paragraph = textElement as? NSTextParagraph, paragraph.attributedString.length > 0,
+                let block = paragraph.attributedString.attribute(.tfBlock, at: 0, effectiveRange: nil)
+                    as? TextFirstBlockAttribute
+            {
+                return TextFirstLayoutFragment(
+                    block: block, element: textElement, range: textElement.elementRange)
+            }
+            return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
+        }
+    }
+#endif
