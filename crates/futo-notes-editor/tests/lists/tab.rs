@@ -25,6 +25,9 @@ fn list_tab_is_the_indent_command_and_shift_tab_the_outdent_command() {
             (3, 3),
             "1. a\n2. b\n3. c",
         ),
+        // A new empty item nests under its sibling's text, after a blank line.
+        ("- a\n- ", ParagraphKey::Tab, (2, 2), "- a\n\n  - "),
+        ("- a\n\n  - ", ParagraphKey::ShiftTab, (3, 3), "- a\n\n- "),
         // A selection moves every selected item, as the button does.
         (
             "- a\n- b\n- c",
@@ -79,8 +82,6 @@ fn tab_where_the_indent_command_is_unavailable_leaves_the_note_unchanged() {
         // The first item has no sibling to nest under.
         ("- a\n- b", ParagraphKey::Tab, 1),
         ("1. a\n2. b", ParagraphKey::Tab, 1),
-        // An empty item directly under its sibling's text.
-        ("- a\n- ", ParagraphKey::Tab, 2),
         // The note's last empty root item cannot outdent.
         ("- a\n- ", ParagraphKey::ShiftTab, 2),
         // Tab outside lists and code indents nothing and inserts no tab.

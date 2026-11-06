@@ -94,7 +94,8 @@ pub(super) struct Row {
     selection_work: usize,
     /// The intended row is an unlisted empty paragraph.
     pub exact_blank: bool,
-    /// A blank row the command turned into a new (empty) item.
+    /// An empty item the command wrote (a blank row turned into one, a typed
+    /// bare marker, an indented empty item): it may take a separating blank line.
     pub from_blank: bool,
     /// Start number for an ordered row that begins a list.
     pub start: Option<u64>,
