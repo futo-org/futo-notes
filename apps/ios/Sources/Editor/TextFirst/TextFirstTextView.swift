@@ -1,5 +1,6 @@
 #if FUTO_DEBUG_BUILD
     import UIKit
+    import UIKit.UIGestureRecognizerSubclass
 
     /// The text-first editor's view: a TextKit 2 `UITextView` that holds display text only.
     /// What the engine decides (Enter, a caret's Backspace, undo, the clipboard) is routed to
@@ -31,6 +32,68 @@
         override func layoutSubviews() {
             super.layoutSubviews()
             controller?.images.widthChanged()
+        }
+
+        // MARK: long notes
+        //
+        // TextKit 2 lays out only the viewport and places it from an estimate of the heights above
+        // it. Any layout request far from the viewport re-bases that estimate (a 20,000-line note
+        // is estimated 28% short, and the estimate moves by 100,000 pt as it is refined), and
+        // UIKit's tap handling makes two such requests before it places the caret.
+
+        /// A finger is on the text view (the controller's touch tracker sets it).
+        var fingerIsDown = false
+
+        /// The UTF-16 offsets of the text the viewport lays out: the only text that is on screen.
+        private var viewportOffsets: Range<Int>? {
+            guard let manager = textLayoutManager,
+                let viewport = manager.textViewportLayoutController.viewportRange
+            else { return nil }
+            let start = manager.documentRange.location
+            return manager.offset(
+                from: start, to: viewport.location)..<manager.offset(
+                    from: start, to: viewport.endLocation)
+        }
+
+        /// Where a position outside the viewport would be, as a y outside the visible area:
+        /// negative above the viewport, positive below it, nil when it is in the viewport.
+        private func side(of position: UITextPosition) -> Int? {
+            guard let shown = viewportOffsets else { return nil }
+            let offset = self.offset(from: beginningOfDocument, to: position)
+            return offset < shown.lowerBound ? -1 : offset > shown.upperBound ? 1 : nil
+        }
+
+        /// UIKit's tap handling first probes the origin, to have the document laid out before it
+        /// selects. While the viewport is elsewhere, laying out the first lines re-bases the
+        /// estimate, and the hit test of the same tap then lands past the end of the document and
+        /// puts the caret there. A point above the first line is the start of the document, so
+        /// that probe is answered without a layout.
+        override func closestPosition(to point: CGPoint) -> UITextPosition? {
+            if point.y < textContainerInset.top, let shown = viewportOffsets, shown.lowerBound > 0 {
+                return beginningOfDocument
+            }
+            return super.closestPosition(to: point)
+        }
+
+        /// While a finger is down UIKit also asks where the previous caret was, to see whether
+        /// the touch is on it. That caret is off screen, and laying out around it re-bases the
+        /// estimate again (the view jumps thousands of points). It cannot be under a finger, so
+        /// the answer comes from outside the visible area, without a layout.
+        override func caretRect(for position: UITextPosition) -> CGRect {
+            guard fingerIsDown, let side = side(of: position) else {
+                return super.caretRect(for: position)
+            }
+            return CGRect(
+                x: textContainerInset.left,
+                y: contentOffset.y + (side < 0 ? -bounds.height : 2 * bounds.height),
+                width: 2, height: 20)
+        }
+
+        override func selectionRects(for range: UITextRange) -> [UITextSelectionRect] {
+            if fingerIsDown, let side = side(of: range.start), side == self.side(of: range.end) {
+                return []
+            }
+            return super.selectionRects(for: range)
         }
 
         override func becomeFirstResponder() -> Bool {
@@ -75,6 +138,31 @@
                 }
             }
             super.pressesBegan(presses, with: event)
+        }
+    }
+
+    /// Reports a finger on the text view, from its first touch down to the end of the last, and
+    /// never recognizes anything, so it takes nothing from the recognizers that do the work.
+    final class TextFirstTouchTracker: UIGestureRecognizer {
+        var onChange: (Bool) -> Void = { _ in }
+
+        override init(target: Any?, action: Selector?) {
+            super.init(target: target, action: action)
+            cancelsTouchesInView = false
+            delaysTouchesBegan = false
+            delaysTouchesEnded = false
+        }
+
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+            onChange(true)
+        }
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) { finish() }
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { finish() }
+
+        /// UIKit's own recognizers act inside this same event; the flag drops after them.
+        private func finish() {
+            state = .failed
+            DispatchQueue.main.async { [onChange] in onChange(false) }
         }
     }
 

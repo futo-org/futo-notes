@@ -46,6 +46,9 @@
             tap.delegate = self
             textView.addGestureRecognizer(tap)
             checkboxTap = tap
+            let tracker = TextFirstTouchTracker(target: nil, action: nil)
+            tracker.onChange = { [weak self] down in self?.textView.fingerIsDown = down }
+            textView.addGestureRecognizer(tracker)
         }
 
         func gestureRecognizer(
