@@ -59,6 +59,7 @@ final class EditorToolbarAccessory: FutoKeyboardAccessory<EditorToolbarView> {
     init(
         state: WebEditorToolbarState,
         localization: Localization,
+        hiding: Set<String> = [],
         perform: @escaping (ToolbarItemSpec) -> Void
     ) {
         let toolbarLocalization = EditorToolbarLocalization(localization)
@@ -67,6 +68,7 @@ final class EditorToolbarAccessory: FutoKeyboardAccessory<EditorToolbarView> {
             content: EditorToolbarView(
                 state: state,
                 toolbarLocalization: toolbarLocalization,
+                hiding: hiding,
                 perform: perform
             ))
     }

@@ -178,7 +178,7 @@
                 calls: romaji + [.unmark], source: "**bold日本** x"),
             ShapeRow(
                 name: "ja romaji to kanji, unmark, link end", before: link, caret: 4,
-                calls: romaji + [.unmark], source: "[link](u)日本 x"),
+                calls: romaji + [.unmark], source: "[link日本](u) x"),
             ShapeRow(
                 name: "ja candidate tapped (insertText), bold end", before: bold, caret: 4,
                 calls: [.mark("に"), .mark("にほん"), .mark("日本", whole: true), .insert("日本")],
@@ -186,7 +186,7 @@
             ShapeRow(
                 name: "ja candidate tapped (insertText), link end", before: link, caret: 4,
                 calls: [.mark("に"), .mark("にほん"), .mark("日本", whole: true), .insert("日本")],
-                source: "[link](u)日本 x"),
+                source: "[link日本](u) x"),
             ShapeRow(
                 name: "ja reconvert a committed word at a bold end", before: "**bold日本** x",
                 caret: 6,
@@ -213,7 +213,7 @@
 
         /// 한글 and 하나 (the ㄴ moves to the next syllable), in the three shapes a Korean keyboard uses.
         static func korean(_ before: String, _ inBold: Bool) -> [ShapeRow] {
-            let wrap = { (w: String) in inBold ? "**bold\(w)** x" : "[link](u)\(w) x" }
+            let wrap = { (w: String) in inBold ? "**bold\(w)** x" : "[link\(w)](u) x" }
             let at = inBold ? "bold end" : "link end"
             return [
                 ShapeRow(
@@ -280,7 +280,7 @@
                 calls: [.dictation([" more", " words"])], source: "**bold more words** x"),
             ShapeRow(
                 name: "dictation result, link end", before: link, caret: 4,
-                calls: [.dictation([" more", " words"])], source: "[link](u) more words x"),
+                calls: [.dictation([" more", " words"])], source: "[link more words](u) x"),
             ShapeRow(
                 name: "dictation, placeholder removed first, bold end", before: bold, caret: 4,
                 calls: [.dictationRemoveFirst([" more", " words"])], source: "**bold more words** x"
@@ -288,7 +288,7 @@
             ShapeRow(
                 name: "dictation, placeholder removed first, link end", before: link, caret: 4,
                 calls: [.dictationRemoveFirst([" more", " words"])],
-                source: "[link](u) more words x"),
+                source: "[link more words](u) x"),
             ShapeRow(
                 name: "dictation into a list item", before: "- item", caret: 4,
                 calls: [.dictation([" more"])], source: "- item more"),
@@ -297,7 +297,7 @@
                 calls: [.textPlaceholder(" more")], source: "**bold more** x"),
             ShapeRow(
                 name: "text placeholder, link end", before: link, caret: 4,
-                calls: [.textPlaceholder(" more")], source: "[link](u) more x"),
+                calls: [.textPlaceholder(" more")], source: "[link more](u) x"),
         ]
 
         /// What the keyboard sends with Smart Punctuation on but the view's smart quotes and dashes
@@ -333,11 +333,11 @@
             let h = run.h
             let display = h.display
             let control = TextFirstHarness.trimmed(run.control.text ?? "")
-            // Known failing against the current engine (typing at a link's end lands inside the
-            // link; a typed `|---|` table stays rows of text). The engine lane is checking both
-            // against main and the spec; see docs/plan/ios-text-first.md. Remove once settled.
-            let engineShift = row.name.hasSuffix("link end") || row.name.hasSuffix("is a table")
-            withKnownIssue("engine behavior shift under review", isIntermittent: false) {
+            // Typing at a link's end lands inside the link: the engine's behavior on main
+            // (interpretation-and-input.md). A typed `|---|` table is a table in the engine; the
+            // text view shows rows of text until the table milestone (M6) renders it.
+            let engineShift = row.name.hasSuffix("is a table")
+            withKnownIssue("tables render in M6", isIntermittent: false) {
                 #expect(h.source == row.source, "source")
                 #expect(
                     display == (row.conversion ?? control),

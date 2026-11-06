@@ -46,6 +46,7 @@
                 let start = try mirror.byteToUtf16(byte: change.selection.start)
                 let end = try mirror.byteToUtf16(byte: change.selection.end)
                 setSelection(NSRange(location: Int(start), length: Int(end - start)))
+                syncToolbar()
             } catch {
                 recover(error, context: "selection")
             }

@@ -94,6 +94,7 @@
                     made.onFailure = { _ in
                         store.showTransient(LocalizedMessage("notes.save.failedPending"))
                     }
+                    made.installToolbar(localization: localization)
                     controller = made
                     if let path = ProcessInfo.processInfo.environment["FUTO_TF_STEADY_LOG"] {
                         made.steadyTyper = TextFirstSteadyTyper(controller: made, path: path)

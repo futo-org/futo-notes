@@ -40,6 +40,13 @@
         /// Debug: the kill loop's typist, kept alive with the controller.
         var steadyTyper: TextFirstSteadyTyper?
 
+        /// Display UTF-16 units already styled (the rest of a long note follows in slices).
+        var styledThrough = 0
+        var styleSlicePending = false
+        /// The toolbar's lit and dimmed ids, from the engine's selection state.
+        let toolbarState = WebEditorToolbarState()
+        var toolbarInstalled = false
+
         let io = DispatchQueue(label: "futo.textfirst.io", qos: .userInitiated)
         var saveTimer: Timer?
 
@@ -66,6 +73,7 @@
             storage.setAttributedString(
                 NSAttributedString(string: display, attributes: Self.baseAttributes))
             configureTextView()
+            styleFirstScreen()
         }
 
         private func configureTextView() {
@@ -121,6 +129,9 @@
                 NSRange(
                     location: Int(edit.selectionStart),
                     length: Int(edit.selectionEnd - edit.selectionStart)))
+            adjustStyled(for: edit)
+            restyle(change)
+            syncToolbar()
             markDirty()
             checkDivergence()
         }
@@ -192,6 +203,8 @@
                 storage.setAttributedString(
                     NSAttributedString(string: display, attributes: Self.baseAttributes))
                 applying -= 1
+                styledThrough = 0
+                styleFirstScreen()
                 let selected = textView.selectedRange
                 setSelection(
                     NSRange(

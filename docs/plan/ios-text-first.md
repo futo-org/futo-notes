@@ -55,10 +55,9 @@ Evidence (iOS 27.2 simulator `futo-qa-6`, Debug app, dev-profile Rust unless sta
 - Input-shape suite (`TextFirstInputShapeTests`, 38 rows x delegate-asked and bare UITextInput calls,
   each against a plain `UITextView` control): `just test-ios-native TextFirstInputShapeTests` passes.
   Japanese/Korean marked text, autocorrect, dictation placeholders (U+FFFC never reaches the
-  source), smart punctuation off. The original expectations are kept and the rows marked
-  `withKnownIssue` (the engine lane is checking them against main and the spec; unmark when
-  settled): typing at a link's end lands inside the link text instead of after it (the `link end`
-  rows), and a typed `|---|` table stays rows of text in display instead of one atom.
+  source), smart punctuation off. Typing at a link's end lands inside the link (engine behavior on main, allowed by
+  interpretation-and-input.md:31), so those rows expect that. The typed-`|---|` table row is a known
+  issue until M6: the engine makes it a table, the iOS view shows rows of text.
 - Kill loop (`TextFirstKillLoopTests`, UITest): 10/10. Each run types a digit every 100 ms for
   10 s, then SIGKILL of the app's pid. The file the kill left was always the note plus a prefix of
   the keys, 11-13 keys (about 1.2 s, inside the 2 s max-wait window) not yet saved, and the
@@ -71,7 +70,7 @@ Evidence (iOS 27.2 simulator `futo-qa-6`, Debug app, dev-profile Rust unless sta
   and a layout pass). Recorded, not a gate. Command in the test's header. Dev-profile Rust is far
   slower and is not a measurement.
 - Engine finding (not fixed here): a 20k-line note with ~2,500 separate one-item ordered lists
-  (`1. ordered N` between other blocks) takes 3-8 s per keystroke in the middle, release build (being measured by the engine lane; no Swift workaround)
+  (`1. ordered N` between other blocks) takes 3-8 s per keystroke in the middle, release build (engine lane measured 72-91 ms/keystroke on its own repro and is filing an issue; my repro is a note of 20k lines cycling heading/bold/bullet/plain/quote/`1. ordered N`/Japanese/blank; no Swift workaround)
   (`inline::spelling::spell_with_anchors` via `Projection::edit_in`); the same note without them
   takes under 100 us, and a note of 20k plain paragraphs 35-265 us. Needs an engine ticket (M3/M8).
 - Visual check: with the flag on, `just puppet` reaches the list and the opened note shows display

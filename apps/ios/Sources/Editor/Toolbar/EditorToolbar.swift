@@ -14,6 +14,8 @@ struct EditorToolbarView: View {
     @Environment(\.displayScale) private var displayScale
     @ObservedObject var state: WebEditorToolbarState
     @ObservedObject var toolbarLocalization: EditorToolbarLocalization
+    /// Manifest ids this editor leaves out (the text-first toolbar has no Text control).
+    var hiding: Set<String> = []
     /// Dispatch the tapped item — exec over the bridge, native image picker,
     /// or blur (dismiss).
     let perform: (ToolbarItemSpec) -> Void
@@ -76,7 +78,9 @@ struct EditorToolbarView: View {
                         separator
                     }
                     ForEach(group) { item in
-                        if !item.onlyInContainer || (state.inContainer ?? state.onListLine) {
+                        if !hiding.contains(item.id),
+                            !item.onlyInContainer || (state.inContainer ?? state.onListLine)
+                        {
                             button(for: item).background(buttonEdgeReader)
                         }
                     }

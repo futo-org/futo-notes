@@ -14,6 +14,7 @@ mod find;
 mod host;
 pub use host::{
     EditorDisplayMirror, EditorListMarker, EditorMirrorEdit, EditorMirrorError, EditorStyleSpan,
+    EditorToolbarHighlights,
 };
 mod images;
 mod links;
