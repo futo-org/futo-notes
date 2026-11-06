@@ -25,6 +25,12 @@ pub fn is_remote_image_source(source: &str) -> bool {
     source.starts_with("http://") || source.starts_with("https://") || source.starts_with("data:")
 }
 
+/// A remote source a native shell may fetch for display: `http(s)` only.
+/// `data:` is remote but is never fetched (#330).
+pub fn is_http_image_source(source: &str) -> bool {
+    source.starts_with("http://") || source.starts_with("https://")
+}
+
 /// A note's stored reference to a vault image: an image filename that is not a
 /// remote source. This is what a picker/paste flow writes into source.
 pub fn is_vault_image_reference(reference: &str) -> bool {
@@ -44,5 +50,10 @@ mod tests {
         assert!(is_vault_image_reference("pics/a b.JPG"));
         assert!(!is_vault_image_reference("https://x.test/a.png"));
         assert!(!is_vault_image_reference("note.md"));
+        assert!(is_http_image_source("https://x.test/a.png"));
+        assert!(is_http_image_source("http://x.test/a.png"));
+        assert!(!is_http_image_source("data:image/png;base64,AAAA"));
+        assert!(!is_http_image_source("HTTPS://x.test/a.png"));
+        assert!(!is_http_image_source("a.png"));
     }
 }

@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 pub enum BlockCommand {
     /// Zero selects plain paragraph text; one through six select a heading.
     Heading(u8),
+    /// Text-first toolbar: selecting the common current level restores Text.
+    ToggleHeading(u8),
     Quote,
     Indent,
     Outdent,
@@ -15,6 +17,8 @@ pub enum BlockCommand {
     OrderedList,
     TaskList,
     CodeBlock,
+    /// Text-first toolbar: one fence around all selected physical lines.
+    WrapCodeBlock,
 }
 
 mod clipboard;
@@ -26,10 +30,12 @@ mod fence_tab;
 mod fences;
 mod indent_source;
 mod keys;
+mod line_endings;
 mod list_edit;
 mod list_join;
 mod list_typing;
 mod lists;
+mod literal_typing;
 mod physical_layout;
 mod split;
 mod tables;

@@ -25,7 +25,7 @@ struct RetainedEditorDraftTests {
         try FileManager.default.removeItem(at: obstruction)
         store.flushPendingEditor()
         await store.waitForEditorFlushes()
-        #expect(try await store.read("blocked/note") == "late typed tail")
+        #expect(try await store.read("blocked/note") == "late typed tail\n")
         // A completed one-shot draft is gone and cannot recreate a deleted file.
         try FileManager.default.removeItem(at: root.appendingPathComponent("blocked/note.md"))
         store.rearmBackgroundFlush()

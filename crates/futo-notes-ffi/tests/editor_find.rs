@@ -8,7 +8,11 @@ fn native_find_steps_scans_off_lock_and_never_touches_saves_or_history() {
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
     store
-        .create_note("f".into(), "".into(), "a **bo**ld Bold\r\n\r\nBOLD".into())
+        .create_note(
+            "f".into(),
+            "".into(),
+            "a **bo**ld Bold\r\n\r\nBOLD\r\n".into(),
+        )
         .unwrap();
     let session = store.open_editor("f".into()).unwrap();
 
@@ -51,6 +55,6 @@ fn native_find_steps_scans_off_lock_and_never_touches_saves_or_history() {
     assert!(session.find_scan_request().unwrap().is_none());
     assert_eq!(
         session.source_text().unwrap(),
-        "x a **bo**ld Bold\r\n\r\nBOLD"
+        "x a **bo**ld Bold\r\n\r\nBOLD\r\n"
     );
 }

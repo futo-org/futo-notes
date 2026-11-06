@@ -101,6 +101,7 @@ impl Projection {
         let mut last = self.rows.locate(range.end.0, true);
         match width {
             super::Width::Rows => {}
+            super::Width::Joined => last += 1,
             super::Width::Line => (first, last) = self.whole_lines(first, last),
             super::Width::Paragraph => (first, last) = self.uncut_piece(source, first, last),
         }

@@ -185,7 +185,7 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
         let text = |key: &str| case[key].as_str().unwrap();
         let root = TestRoot::new();
         let store = store(&root);
-        store.create("", "lists", text("source")).unwrap();
+        plant_note(&root, "lists", text("source"));
         {
             let mut s = store.open_editor("lists").unwrap();
             let mut view = text("display").to_owned();
@@ -266,16 +266,18 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
             assert_eq!(store.read("lists").unwrap(), text("source"));
             s.checkpoint().unwrap();
         }
+        // The save appended the note's final line ending, if it had none.
+        let (saved, shown) = saved_forms(text("expected"), text("shown"));
         let mut recovered = store.open_editor("lists").unwrap();
-        assert_eq!(recovered.source_text(), text("expected"));
-        assert_eq!(recovered.display_text(), text("shown"));
+        assert_eq!(recovered.source_text(), saved);
+        assert_eq!(recovered.display_text(), shown);
         assert_items(&recovered, case);
         assert!(recovered.undo(recovered.revision()).unwrap().is_none());
         recovered.checkpoint().unwrap();
-        assert_eq!(store.read("lists").unwrap(), text("expected"));
+        assert_eq!(store.read("lists").unwrap(), saved);
         drop(recovered);
         let fresh = store.open_editor("lists").unwrap();
-        assert_eq!(fresh.source_text(), text("expected"));
+        assert_eq!(fresh.source_text(), saved);
         assert_items(&fresh, case);
     }
 }

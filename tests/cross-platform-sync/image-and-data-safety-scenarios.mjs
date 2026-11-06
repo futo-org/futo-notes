@@ -4,7 +4,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { assert, assertEqual } from './waits-and-assertions.mjs';
+import { assert, assertSavedEqual } from './waits-and-assertions.mjs';
 
 // A real (tiny) PNG. Non-UTF-8 bytes — exactly the kind of content that the
 // old `.md`-only, read_to_string sync pipeline could never carry. We assert
@@ -132,7 +132,7 @@ export async function editVsPeerDeletePreservesEdit(a, b, server) {
     await a.noteExists('contested-edit'),
     "A's edited note must survive the concurrent peer delete",
   );
-  assertEqual(
+  assertSavedEqual(
     await a.readNote('contested-edit'),
     editedBody,
     "A's local edit content must be preserved",
@@ -141,7 +141,7 @@ export async function editVsPeerDeletePreservesEdit(a, b, server) {
   // The preserved edit propagates back to B (edit wins over the delete).
   await b.syncNow();
   assert(await b.noteExists('contested-edit'), "B should receive A's preserved edit");
-  assertEqual(await b.readNote('contested-edit'), editedBody, "B should see A's edit content");
+  assertSavedEqual(await b.readNote('contested-edit'), editedBody, "B should see A's edit content");
 }
 
 export async function distinctSameBasenameSurvivesMoveDedup(a, b, server) {

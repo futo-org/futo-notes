@@ -1,0 +1,96 @@
+use super::*;
+
+#[test]
+fn toolbar_formats_cover_the_whole_selection_and_keep_carried_caret_formats() {
+    use futo_notes_editor::InlineFormat;
+    let mut s = EditorSession::open("**bold** plain");
+    s.select(s.revision(), range(0, 10)).unwrap();
+    assert!(s.toolbar_state().formats.is_empty());
+    s.select(s.revision(), range(0, 4)).unwrap();
+    assert_eq!(s.toolbar_state().formats, vec![InlineFormat::Bold]);
+    s.select(s.revision(), range(10, 10)).unwrap();
+    s.toggle_format(s.revision(), InlineFormat::Italic, &mut |_| Ok(()))
+        .unwrap();
+    assert_eq!(s.toolbar_state().formats, vec![InlineFormat::Italic]);
+}
+
+#[test]
+fn toolbar_selection_reports_common_blocks_refusals_and_history() {
+    let mut s = EditorSession::open("# heading\n\nplain");
+    s.select(s.revision(), range(0, s.display_text().len()))
+        .unwrap();
+    assert_eq!(s.toolbar_state().heading, None);
+    assert!(s.toolbar_state().mixed);
+    assert!(!s.toolbar_state().can_indent);
+    assert!(!s.toolbar_state().can_outdent);
+    assert!(!s.toolbar_state().can_undo);
+    assert!(!s.toolbar_state().can_redo);
+    s.replace(s.revision(), range(0, 0), "x", &mut |_| Ok(()))
+        .unwrap();
+    assert!(s.toolbar_state().can_undo);
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap();
+    assert!(s.toolbar_state().can_redo);
+    let code = EditorSession::open("```\ncode\n```");
+    assert!(code.toolbar_state().code);
+    assert!(!code.toolbar_state().inline_allowed);
+}
+
+#[test]
+fn toolbar_container_eligibility_uses_the_engines_retained_attribution() {
+    let mut list = EditorSession::open("- first\n- second");
+    assert!(!list.toolbar_state().can_indent);
+    assert!(list.toolbar_state().can_outdent);
+    list.select(list.revision(), range(6, 6)).unwrap();
+    assert!(list.toolbar_state().can_indent);
+    assert!(list.toolbar_state().can_outdent);
+    let quoted = EditorSession::open("> quote");
+    assert!(quoted.toolbar_state().can_indent);
+    assert!(quoted.toolbar_state().can_outdent);
+    let code = EditorSession::open("```\n  indented\n```");
+    assert!(code.toolbar_state().can_indent);
+    assert!(code.toolbar_state().can_outdent);
+    let code = EditorSession::open("```\nplain\n```");
+    assert!(code.toolbar_state().can_indent);
+    assert!(!code.toolbar_state().can_outdent);
+}
+
+#[test]
+fn toolbar_keeps_inline_commands_enabled_for_prose_in_a_mixed_code_selection() {
+    let mut session = EditorSession::open("plain\n\n```\ncode\n```");
+    session
+        .select(session.revision(), range(0, session.display_text().len()))
+        .unwrap();
+    assert!(session.toolbar_state().inline_allowed);
+    session.select(session.revision(), range(7, 11)).unwrap();
+    assert!(!session.toolbar_state().inline_allowed);
+}
+
+#[test]
+fn toolbar_caret_keeps_container_eligibility_across_cut_rows() {
+    use futo_notes_editor::ToolbarList;
+    let source = format!(
+        "- root\n{}",
+        (0..2_000)
+            .map(|i| format!("  - nested {i}\n"))
+            .collect::<String>()
+    );
+    let mut session = EditorSession::open(&source);
+    let at = session.display_text().find("nested 1700").unwrap();
+    session.select(session.revision(), range(at, at)).unwrap();
+    let state = session.toolbar_state();
+    assert_eq!(state.list, Some(ToolbarList::Bullet));
+    assert!(state.can_indent);
+    assert!(state.can_outdent);
+    assert_eq!(session.source_text(), source);
+    assert_eq!(session.revision(), Revision(0));
+
+    let source = format!("```\n{}```", "  body\n".repeat(2_000));
+    let mut session = EditorSession::open(&source);
+    session
+        .select(session.revision(), range(7_000, 7_000))
+        .unwrap();
+    let state = session.toolbar_state();
+    assert!(state.code);
+    assert!(state.can_indent);
+    assert!(state.can_outdent);
+}

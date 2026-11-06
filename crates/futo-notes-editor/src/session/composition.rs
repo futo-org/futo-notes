@@ -2,6 +2,9 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
+mod marked;
+pub use marked::MarkedRun;
+
 /// Views draw this overlay without interpreting markdown. Its range always
 /// addresses committed display text, never the provisional string's offsets.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -9,6 +12,11 @@ pub struct Composition {
     pub revision: Revision,
     pub range: DisplayRange,
     pub text: String,
+    /// The inline formats the marked text will have once committed, so a view
+    /// draws it that way while it is still provisional. Characters no run
+    /// covers are plain.
+    #[serde(default)]
+    pub runs: Vec<MarkedRun>,
 }
 
 impl EditorSession {
@@ -26,6 +34,11 @@ impl EditorSession {
     ) -> Result<Composition, EditorError> {
         self.check_revision(expected)?;
         self.validate_range(range)?;
+        let range = if range.start == range.end {
+            self.outside_crlf(range)
+        } else {
+            range
+        };
         let range = self
             .composition
             .as_ref()
@@ -34,6 +47,7 @@ impl EditorSession {
             revision: expected,
             range,
             text: text.into(),
+            runs: self.marked_runs(range, text),
         };
         self.composition = Some(marked.clone());
         Ok(marked)

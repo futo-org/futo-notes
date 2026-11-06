@@ -9,13 +9,15 @@ pub enum ParagraphKey {
     Enter,
     ShiftEnter,
     Backspace,
+    /// Text-first heading-start deletion joins the preceding physical line.
+    BackspaceJoiningHeading,
     Delete,
     Tab,
     ShiftTab,
 }
 
 impl EditorSession {
-    /// Paragraph Enter/Shift+Enter insert one LF. Directional deletion removes
+    /// Paragraph Enter/Shift+Enter insert one line break, CRLF on a CRLF line. Directional deletion removes
     /// the selection or one visible extended grapheme (CRLF is one line break).
     /// Headings, quotes and divider edges route through the shared block owner;
     /// Enter in a table cell takes the table's keys; list and fence keys
@@ -38,16 +40,65 @@ impl EditorSession {
             );
         }
         self.validate_range(range)?;
-        range = self.body_range(range)?;
+        range = self.body_range(self.outside_crlf(range))?;
+        // A line break takes the caret line's spelling, as pasted ones do.
+        if matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter) {
+            let (at, _) = self.projection.source_bounds(range.start.0);
+            if self.line_ending_at(at) == "\r\n" {
+                return self.crlf_enter(expected, range, key, accept);
+            }
+        }
+        self.lf_paragraph_key(expected, range, key, accept)
+    }
+
+    /// `paragraph_key` with every line break the key writes spelled LF.
+    pub(in crate::session) fn lf_paragraph_key(
+        &mut self,
+        expected: Revision,
+        mut range: DisplayRange,
+        mut key: ParagraphKey,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        if key == ParagraphKey::BackspaceJoiningHeading {
+            if let Some(change) = self.heading_join_backspace(expected, range, accept)? {
+                return Ok(Some(change));
+            }
+            key = ParagraphKey::Backspace;
+        }
         if matches!(key, ParagraphKey::Tab | ParagraphKey::ShiftTab) {
-            return self.fence_tab(expected, range, key == ParagraphKey::ShiftTab, accept);
+            let outdent = key == ParagraphKey::ShiftTab;
+            if let Some(change) = self.fence_indent(expected, range, outdent, true, accept)? {
+                return Ok(Some(change));
+            }
+            return self.list_tab(expected, range, outdent, accept);
         }
         if matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter) {
+            // An image selected as one object is not replaced by Enter: the
+            // key acts after it, which is how a caret gets past a last image.
+            if range.start != range.end
+                && self
+                    .projection
+                    .atom_descriptions(range)
+                    .iter()
+                    .any(|atom| atom.kind == crate::AtomKind::Image && atom.range == range)
+            {
+                range.start = range.end;
+            }
+            // So is a code block selected as one object: Enter acts after it.
+            if let Some(fence) = self.selected_fence(range) {
+                if let Some(change) = self.fence_selected_enter(expected, &fence, accept)? {
+                    return Ok(Some(change));
+                }
+                range.start = range.end;
+            }
             let shift = key == ParagraphKey::ShiftEnter;
             if let Some(change) = self.cell_enter(expected, range, shift, accept)? {
                 return Ok(Some(change));
             }
             if let Some(change) = self.fence_conversion(expected, range, "\n", accept)? {
+                return Ok(Some(change));
+            }
+            if let Some(change) = self.fence_enter(expected, range, accept)? {
                 return Ok(Some(change));
             }
         }
@@ -59,7 +110,9 @@ impl EditorSession {
         }
         let stop = |position, direction| self.grapheme_stop(position, direction, false);
         let inserted = match key {
-            ParagraphKey::Tab | ParagraphKey::ShiftTab => unreachable!(),
+            ParagraphKey::Tab | ParagraphKey::ShiftTab | ParagraphKey::BackspaceJoiningHeading => {
+                unreachable!()
+            }
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => "\n",
             ParagraphKey::Backspace | ParagraphKey::Delete => {
                 if range.start == range.end {

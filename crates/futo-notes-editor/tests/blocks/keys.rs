@@ -46,7 +46,7 @@ fn enter_carries_inline_formats_from_the_supplied_range_without_a_selection_echo
             if raw.starts_with('#') {
                 "# __ab__\n__c__"
             } else {
-                "> __ab__\n>\n> __c__"
+                "> __ab__\n> __c__"
             }
         );
     }
@@ -101,7 +101,7 @@ fn enter_before_heading_text_preserves_an_explicit_inline_format_toggle() {
 }
 
 #[test]
-fn enter_at_a_later_physical_quote_line_adds_only_the_paragraph_separator() {
+fn enter_at_a_later_physical_quote_line_adds_only_an_empty_quoted_line_above_it() {
     let mut s = EditorSession::open("> a\r\n> __日__\r\n\r\nneighbor");
     let mut v = ReferenceView::new("a\r\n日\r\n\r\nneighbor");
     s.select(s.revision(), range(3, 3)).unwrap();
@@ -115,9 +115,9 @@ fn enter_at_a_later_physical_quote_line_adds_only_the_paragraph_separator() {
         .unwrap()
         .unwrap(),
     );
-    assert_eq!(s.source_text(), "> a\r\n>\n> __日__\r\n\r\nneighbor");
-    assert_eq!(v.text, "a\r\n\n日\r\n\r\nneighbor");
-    assert_eq!(s.selection(), range(4, 4));
+    assert_eq!(s.source_text(), "> a\r\n> \r\n> __日__\r\n\r\nneighbor");
+    assert_eq!(v.text, "a\r\n\r\n日\r\n\r\nneighbor");
+    assert_eq!(s.selection(), range(5, 5));
     v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), "> a\r\n> __日__\r\n\r\nneighbor");
     assert_eq!(v.text, "a\r\n日\r\n\r\nneighbor");
@@ -128,12 +128,7 @@ fn enter_at_a_later_physical_quote_line_adds_only_the_paragraph_separator() {
 fn heading_and_quote_enter_carry_bold_into_an_empty_continuation() {
     for (raw, expected, shown, entered) in [
         ("# __ab__", "# __ab__\n__c__", "ab\nc", "# __ab__\n"),
-        (
-            "> __ab__",
-            "> __ab__\n>\n> __c__",
-            "ab\n\nc",
-            "> __ab__\n>\n> ",
-        ),
+        ("> __ab__", "> __ab__\n> __c__", "ab\nc", "> __ab__\n> "),
     ] {
         let mut s = EditorSession::open(raw);
         let mut v = ReferenceView::new("ab");
@@ -172,8 +167,8 @@ fn structural_enter_splits_headings_and_continues_or_exits_nested_quotes() {
         ("## ab", "ab", 1, "## a\nb", "a\nb", 2),
         ("## ab", "ab", 2, "## ab\n", "ab\n", 3),
         ("> > ab", "ab", 0, "\n> > ab", "\nab", 1),
-        ("> > ab", "ab", 1, "> > a\n> >\n> > b", "a\n\nb", 3),
-        ("> > ab", "ab", 2, "> > ab\n> >\n> > ", "ab\n\n", 4),
+        ("> > ab", "ab", 1, "> > a\n> > b", "a\nb", 2),
+        ("> > ab", "ab", 2, "> > ab\n> > ", "ab\n", 3),
         ("> > ", "", 0, "> ", "", 0),
         ("> ", "", 0, "", "", 0),
     ] {
@@ -204,7 +199,7 @@ fn empty_quote_paragraph_exit_survives_reopen_at_each_depth() {
         Ok(())
     })
     .unwrap();
-    assert_eq!(s.source_text(), "> > deep\n> >\n> > ");
+    assert_eq!(s.source_text(), "> > deep\n> > ");
     s.paragraph_key(
         s.revision(),
         s.selection(),
@@ -234,15 +229,15 @@ fn structural_splits_keep_inline_styles_and_exact_neighboring_source() {
         (
             "## __ab__\r\nuntouched",
             1,
-            "## __a__\n__b__\r\nuntouched",
-            "a\nb\r\nuntouched",
-            2,
+            "## __a__\r\n__b__\r\nuntouched",
+            "a\r\nb\r\nuntouched",
+            3,
         ),
         (
             "> __ab__\r\n\r\nuntouched",
             1,
-            "> __a__\n>\n> __b__\r\n\r\nuntouched",
-            "a\n\nb\r\n\r\nuntouched",
+            "> __a__\r\n> __b__\r\n\r\nuntouched",
+            "a\r\nb\r\n\r\nuntouched",
             3,
         ),
     ] {
@@ -268,8 +263,9 @@ fn structural_splits_keep_inline_styles_and_exact_neighboring_source() {
         &mut |_| Ok(()),
     )
     .unwrap();
-    assert_eq!(s.source_text(), "__a__\n***\n\n__b__\r\nend");
-    assert_eq!(s.display_text(), "a\n\u{fffc}\n\nb\r\nend");
+    // The divider's lines take the caret line's CRLF.
+    assert_eq!(s.source_text(), "__a__\r\n***\r\n\r\n__b__\r\nend");
+    assert_eq!(s.display_text(), "a\r\n\u{fffc}\r\n\r\nb\r\nend");
 }
 #[test]
 fn selecting_heading_or_quote_text_then_enter_is_one_exact_action() {
@@ -277,8 +273,8 @@ fn selecting_heading_or_quote_text_then_enter_is_one_exact_action() {
         (
             "## __abcd__\r\nend",
             range(1, 3),
-            "## __a__\n__d__\r\nend",
-            "a\nd\r\nend",
+            "## __a__\r\n__d__\r\nend",
+            "a\r\nd\r\nend",
         ),
         ("> abcd", range(0, 2), "\n> cd", "\ncd"),
     ] {
@@ -378,8 +374,8 @@ fn structural_splitting_treats_heading_body_as_inline_content() {
         .unwrap()
         .unwrap(),
     );
-    assert_eq!(s.source_text(), "# \\# \nab\r\nend");
-    assert_eq!(v.text, "# \nab\r\nend");
+    assert_eq!(s.source_text(), "# \\# \r\nab\r\nend");
+    assert_eq!(v.text, "# \r\nab\r\nend");
     v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), "# # ab\r\nend");
 }
@@ -395,8 +391,8 @@ fn structural_split_keeps_fence_like_inline_text_visible() {
         .unwrap()
         .unwrap(),
     );
-    assert_eq!(s.source_text(), "# a \n\\``` b\r\nneighbor");
-    assert_eq!(v.text, "a \n``` b\r\nneighbor");
+    assert_eq!(s.source_text(), "# a \r\n\\``` b\r\nneighbor");
+    assert_eq!(v.text, "a \r\n``` b\r\nneighbor");
     v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), "# a ``` b\r\nneighbor");
 }
@@ -410,17 +406,17 @@ fn setext_enter_maps_the_staged_body_caret_without_exposing_physical_prefixes() 
             "> > 猫🦊\r\n> > e\u{301}\r\n> > ===",
             "猫🦊\r\ne\u{301}",
             9,
-            "> > 猫🦊\r\n> > ===\r\n\n> > e\u{301}",
-            "猫🦊\r\n\ne\u{301}",
-            10,
+            "> > 猫🦊\r\n> > ===\r\n\r\n> > e\u{301}",
+            "猫🦊\r\n\r\ne\u{301}",
+            11,
         ),
         (
             "> > xy\r\n> > z\r\n> > ---",
             "xy\r\nz",
             1,
-            "> > x\r\n> > ---\n> > y\r\n> > z",
-            "x\ny\r\nz",
-            2,
+            "> > x\r\n> > ---\r\n> > y\r\n> > z",
+            "x\r\ny\r\nz",
+            3,
         ),
     ] {
         let mut s = EditorSession::open(raw);
@@ -519,8 +515,11 @@ fn whole_heading_selection_enter_starts_a_paragraph_even_inside_quotes() {
         ("> > ## x", "x", "> > ## \n> > "),
         ("x\n=", "x", "# \n"),
         ("> x\n> =", "x", "> # \n> "),
-        ("> > x\r\n> > y\r\n> > ---", "x\r\ny", "> > ## \n> > "),
+        ("> > x\r\n> > y\r\n> > ---", "x\r\ny", "> > ## \r\n> > "),
     ] {
+        // The new line takes the heading line's ending.
+        let brk = if raw.contains('\r') { "\r\n" } else { "\n" };
+        let after = range(brk.len(), brk.len());
         let mut s = EditorSession::open(raw);
         let mut v = ReferenceView::new(shown);
         let selected = range(0, shown.len());
@@ -545,8 +544,8 @@ fn whole_heading_selection_enter_starts_a_paragraph_even_inside_quotes() {
         );
         assert_eq!(accepts, 1);
         assert_eq!(s.source_text(), expected);
-        assert_eq!(v.text, "\n");
-        assert_eq!(s.selection(), range(1, 1));
+        assert_eq!(v.text, brk);
+        assert_eq!(s.selection(), after);
         assert_eq!(
             s.project(s.revision(), s.selection())
                 .unwrap()
@@ -561,11 +560,11 @@ fn whole_heading_selection_enter_starts_a_paragraph_even_inside_quotes() {
         assert_eq!(s.selection(), selected);
         v.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), expected);
-        assert_eq!(s.selection(), range(1, 1));
+        assert_eq!(s.selection(), after);
         v.apply(
             s.replace(s.revision(), s.selection(), "!", &mut |_| Ok(()))
                 .unwrap(),
         );
-        assert_eq!(v.text, "\n!");
+        assert_eq!(v.text, format!("{brk}!"));
     }
 }

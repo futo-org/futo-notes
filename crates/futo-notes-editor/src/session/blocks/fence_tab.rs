@@ -8,11 +8,12 @@ struct IndentEdit {
 }
 
 impl EditorSession {
-    pub(in crate::session) fn fence_tab(
+    pub(in crate::session) fn fence_indent(
         &mut self,
         expected: Revision,
         range: DisplayRange,
         outdent: bool,
+        insert_at_caret: bool,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let lines = self.projection.block_lines(range);
@@ -26,7 +27,7 @@ impl EditorSession {
         }) {
             return Ok(None);
         }
-        if !outdent && range.start == range.end {
+        if !outdent && range.start == range.end && (insert_at_caret || fence.body.is_empty()) {
             return self.fence_input(expected, range, "  ", crate::InputAction::Isolated, accept);
         }
         let edits: Vec<_> = lines

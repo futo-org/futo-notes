@@ -86,6 +86,7 @@ pub enum EditorParagraphKey {
     Delete,
     Tab,
     ShiftTab,
+    BackspaceJoiningHeading,
 }
 impl From<EditorParagraphKey> for editor::ParagraphKey {
     fn from(value: EditorParagraphKey) -> Self {
@@ -96,6 +97,7 @@ impl From<EditorParagraphKey> for editor::ParagraphKey {
             EditorParagraphKey::Delete => Self::Delete,
             EditorParagraphKey::Tab => Self::Tab,
             EditorParagraphKey::ShiftTab => Self::ShiftTab,
+            EditorParagraphKey::BackspaceJoiningHeading => Self::BackspaceJoiningHeading,
         }
     }
 }
@@ -112,6 +114,8 @@ pub enum EditorBlockCommand {
     TaskList,
     ToggleTask,
     CodeBlock,
+    WrapCodeBlock,
+    ToggleHeading { level: u8 },
 }
 impl From<EditorBlockCommand> for editor::BlockCommand {
     fn from(value: EditorBlockCommand) -> Self {
@@ -126,6 +130,8 @@ impl From<EditorBlockCommand> for editor::BlockCommand {
             EditorBlockCommand::TaskList => Self::TaskList,
             EditorBlockCommand::ToggleTask => Self::ToggleTask,
             EditorBlockCommand::CodeBlock => Self::CodeBlock,
+            EditorBlockCommand::WrapCodeBlock => Self::WrapCodeBlock,
+            EditorBlockCommand::ToggleHeading { level } => Self::ToggleHeading(level),
         }
     }
 }
@@ -383,6 +389,22 @@ pub struct EditorSourceByteRange {
     pub start: u64,
     pub end: u64,
 }
+/// A long note's first screens before its session exists, exactly as that
+/// session will show them: `projection.text` is the display text, and
+/// `tables` the tables starting in it. Read-only; nothing is attached.
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorQuickOpen {
+    pub projection: EditorProjection,
+    pub tables: Vec<super::tables::EditorTableDescription>,
+}
+impl From<editor::QuickOpen> for EditorQuickOpen {
+    fn from(value: editor::QuickOpen) -> Self {
+        Self {
+            projection: value.projection.into(),
+            tables: value.tables.into_iter().map(Into::into).collect(),
+        }
+    }
+}
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorProjection {
     pub revision: u64,
@@ -474,13 +496,33 @@ pub struct EditorComposition {
     pub revision: u64,
     pub range: EditorByteRange,
     pub text: String,
+    /// How to draw the marked text: the formats it will have once committed.
+    pub runs: Vec<EditorMarkedRun>,
+}
+/// A formatted stretch of marked text, in UTF-16 units of `EditorComposition::text`.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct EditorMarkedRun {
+    pub start_utf16: u64,
+    pub end_utf16: u64,
+    pub formats: Vec<EditorInlineFormat>,
 }
 impl From<editor::Composition> for EditorComposition {
     fn from(value: editor::Composition) -> Self {
+        let utf16 = |byte: usize| value.text[..byte].encode_utf16().count() as u64;
+        let runs = value
+            .runs
+            .iter()
+            .map(|run| EditorMarkedRun {
+                start_utf16: utf16(run.start),
+                end_utf16: utf16(run.end),
+                formats: run.formats.iter().copied().map(Into::into).collect(),
+            })
+            .collect();
         Self {
             revision: value.revision.0,
             range: value.range.into(),
             text: value.text,
+            runs,
         }
     }
 }

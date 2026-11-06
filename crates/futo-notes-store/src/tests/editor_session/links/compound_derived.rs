@@ -195,8 +195,10 @@ fn marked_derived_reference_retry_keeps_both_stacks_and_the_live_foreign_seed() 
         editor.checkpoint().unwrap();
         drop(editor);
         let mut recovered = store.open_editor("compound-derived").unwrap();
+        // The save appended the note's final line ending.
+        let saved = format!("{saved}\n");
         assert_eq!(recovered.source_text(), saved);
-        assert_eq!(recovered.display_text(), shown);
+        assert_eq!(recovered.display_text(), format!("{shown}\n"));
         assert_eq!(
             recovered
                 .inspect_link(recovered.revision(), range(word, word + 1))

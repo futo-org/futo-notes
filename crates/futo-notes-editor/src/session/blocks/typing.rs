@@ -23,7 +23,6 @@ impl EditorSession {
         };
         if line.code
             || line.heading > 0
-            || line.quote_depth == 0
             || line.divider
             || !self
                 .source
@@ -34,10 +33,35 @@ impl EditorSession {
         {
             return Ok(None);
         }
-        let Some((separator, copied)) =
-            self.quote_neighbor_separator(line.source.end, line.quote_depth, true)
-        else {
-            return Ok(None);
+        let before = line.quote_depth == 0;
+        let (separator, copied) = if before {
+            let row = self.source.byte_to_line(line.source.start);
+            if row == 0 {
+                return Ok(None);
+            }
+            let previous = self.source.line_to_byte(row - 1);
+            let at = DisplayOffset(self.projection.display_at(previous));
+            if !self
+                .projection
+                .block_lines(DisplayRange { start: at, end: at })
+                .iter()
+                .any(|line| line.quote_depth > 0)
+            {
+                return Ok(None);
+            }
+            let ending = if self.source.line(row - 1).to_string().ends_with("\r\n") {
+                "\r\n"
+            } else {
+                "\n"
+            };
+            (ending.to_owned(), ending.len())
+        } else {
+            let Some(boundary) =
+                self.quote_neighbor_separator(line.source.end, line.quote_depth, true)
+            else {
+                return Ok(None);
+            };
+            boundary
         };
         let change = self.stage_mapped_block_action(
             expected,
@@ -52,15 +76,30 @@ impl EditorSession {
                 let line = staged.projection.block_lines(local).remove(0);
                 let formats = staged.pending_formats.clone();
                 let affinity = staged.affinity;
+                let (at, selection) = if before {
+                    let start = staged.projection.source_bounds(local.start.0).1;
+                    let end = if local.start == local.end {
+                        start
+                    } else {
+                        staged.projection.source_bounds(local.end.0).0
+                    };
+                    (
+                        line.source.start,
+                        BlockSelection::SourceRange(start + separator.len()..end + separator.len()),
+                    )
+                } else {
+                    (line.source.end, BlockSelection::Display(local))
+                };
                 let mut boundary = staged.commit_block_edit(
                     staged.revision(),
-                    line.source.end..line.source.end,
+                    at..at,
                     &separator,
-                    BlockSelection::Display(local),
+                    selection,
                     None,
                     accept,
                 )?;
                 staged.carry_block_state(&mut boundary, formats, affinity);
+                let local = staged.selection();
                 let (mut input, mapping) = staged.replace_action_mapped(
                     staged.revision(),
                     local,
@@ -264,6 +303,9 @@ impl EditorSession {
         if heading.is_none() && !quote && !divider {
             return Ok(None);
         }
+        if (heading.is_some() || quote) && line.list.is_some() {
+            return self.marker_in_item(expected, range, heading.map(str::len), accept);
+        }
         let command = if let Some(hashes) = heading {
             BlockCommand::Heading(hashes.len() as u8)
         } else if quote {
@@ -296,6 +338,97 @@ impl EditorSession {
 
             change.work.link_copied_bytes += removed.work.link_copied_bytes;
             Ok(Some(change))
+        })
+    }
+}
+
+impl EditorSession {
+    /// A keyboard commit such as `- [ ] spinach` into an empty list item reads
+    /// as if typed one character at a time, so its leading list marker
+    /// changes the item's kind, as a paste does; the commit is one Undo step.
+    pub(in crate::session) fn marker_committed_into_empty_item(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        inserted: &str,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let marker = inserted.split_once(' ').map(|(marker, _)| marker);
+        let starts_list = marker.is_some_and(|marker| {
+            matches!(marker, "-" | "+" | "*")
+                || marker.strip_suffix('.').is_some_and(|digits| {
+                    (1..=9).contains(&digits.len()) && digits.bytes().all(|b| b.is_ascii_digit())
+                })
+        });
+        if !starts_list
+            || range.start != range.end
+            || inserted.len() <= 2
+            || inserted.contains(['\r', '\n'])
+        {
+            return Ok(None);
+        }
+        let Some(line) = self.projection.block_lines(range).into_iter().next() else {
+            return Ok(None);
+        };
+        if line.list.is_none()
+            || line.code
+            || line.html
+            || line.content.start != line.content.end
+            || range.start.0 != self.projection.display_at(line.content.start)
+        {
+            return Ok(None);
+        }
+        self.stage_block_action(expected, range, None, accept, |staged, _, accept| {
+            let mut last = None;
+            for ch in inserted.chars() {
+                let mut buffer = [0; 4];
+                last = Some(staged.replace_action(
+                    staged.revision(),
+                    staged.selection(),
+                    ch.encode_utf8(&mut buffer),
+                    crate::InputAction::Typing,
+                    accept,
+                )?);
+            }
+            Ok(last)
+        })
+    }
+
+    /// `## ` or `> ` typed at the start of a list item's text writes a heading
+    /// or quote inside that item, where CommonMark reads it. Where it cannot
+    /// (after a task checkbox) the shortcut declines and the space lands as
+    /// literal text.
+    fn marker_in_item(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        heading: Option<usize>,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let affinity = self.input_affinity(range);
+        self.stage_block_action(expected, range, None, accept, |staged, local, accept| {
+            let line = staged.projection.block_lines(local).remove(0);
+            let (caret, _) = staged.projection.source_selection(local, affinity);
+            let marker = heading.map_or_else(|| "> ".to_owned(), |n| "#".repeat(n) + " ");
+            let at = line.content.start;
+            let end = at + marker.len();
+            // A caret before the item's hidden marker still types into it.
+            let typed = caret.start.source.0.max(at);
+            let change = staged.commit_block_edit(
+                staged.revision(),
+                at..typed,
+                &marker,
+                BlockSelection::Source(end),
+                None,
+                accept,
+            )?;
+            let line = staged.projection.block_lines(staged.selection()).remove(0);
+            let reads = line.list.is_some()
+                && match heading {
+                    Some(n) => usize::from(line.heading) == n,
+                    None => line.quote_depth > 0,
+                };
+            Ok(reads.then_some(change))
         })
     }
 }

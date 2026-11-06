@@ -33,6 +33,9 @@ pub(in crate::inline) struct Marker {
 }
 
 pub(in crate::inline) struct Spelling {
+    /// Whether the input was spelled as literal text, either as asked or
+    /// as the fallback for a delimiter the parser would not read as typed.
+    pub literal: bool,
     pub split_retirement: Option<std::sync::Arc<crate::inline::guarded_words::CodeWordIdentity>>,
     pub typed_inputs: Option<Vec<crate::inline::typed_angle::TypedAngleOrigin>>,
     pub guarded_words: Option<Vec<crate::inline::guarded_words::GuardedWord>>,

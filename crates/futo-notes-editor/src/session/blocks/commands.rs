@@ -15,6 +15,44 @@ impl EditorSession {
         self.block_command(expected, range, command, accept)
     }
 
+    /// Tab and Shift+Tab in a list item run the toolbar's Indent and Outdent
+    /// commands, and do nothing where those buttons are disabled. Outside
+    /// lists and code, Tab is not an indent key.
+    pub(in crate::session) fn list_tab(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        outdent: bool,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let in_list = self
+            .selected_block_lines(range)
+            .first()
+            .is_some_and(|line| {
+                !line.code
+                    && line
+                        .list
+                        .as_ref()
+                        .is_some_and(|list| list.quote_depth == line.quote_depth)
+            });
+        let state = self.toolbar_state_at(range);
+        if !in_list
+            || !(if outdent {
+                state.can_outdent
+            } else {
+                state.can_indent
+            })
+        {
+            return Ok(None);
+        }
+        let command = if outdent {
+            BlockCommand::Outdent
+        } else {
+            BlockCommand::Indent
+        };
+        self.block_command(expected, range, command, accept)
+    }
+
     pub fn block_command(
         &mut self,
         expected: Revision,
@@ -35,11 +73,63 @@ impl EditorSession {
         }
         self.validate_range(range)?;
         range = self.body_range(range)?;
+        // New lines take the caret line's spelling, as Enter's do.
+        if matches!(
+            command,
+            BlockCommand::Divider | BlockCommand::CodeBlock | BlockCommand::WrapCodeBlock
+        ) {
+            let (at, _) = self.projection.source_bounds(range.start.0);
+            if self.line_ending_at(at) == "\r\n" {
+                return self.crlf_block_command(expected, range, command, accept);
+            }
+        }
+        self.lf_block_command(expected, range, command, accept)
+    }
+
+    /// `block_command` on a validated body range, writing LF line breaks.
+    pub(in crate::session) fn lf_block_command(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        command: BlockCommand,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let command = if let BlockCommand::ToggleHeading(level) = command {
+            if !(1..=6).contains(&level) {
+                return Err(EditorError::InvalidRange);
+            }
+            let lines = self.selected_block_lines(range);
+            if !lines.is_empty() && lines.iter().all(|line| line.heading == level) {
+                BlockCommand::Heading(0)
+            } else {
+                BlockCommand::Heading(level)
+            }
+        } else {
+            command
+        };
+        if command == BlockCommand::WrapCodeBlock {
+            return self.wrap_code_block(expected, range, accept);
+        }
         if matches!(command, BlockCommand::Heading(level) if level > 6) {
             return Err(EditorError::InvalidRange);
         }
         if command == BlockCommand::CodeBlock {
             return self.code_block_command(expected, range, accept);
+        }
+        if matches!(command, BlockCommand::Indent | BlockCommand::Outdent)
+            && self
+                .projection
+                .block_lines(range)
+                .iter()
+                .any(|line| line.code)
+        {
+            return self.fence_indent(
+                expected,
+                range,
+                command == BlockCommand::Outdent,
+                false,
+                accept,
+            );
         }
         if command == BlockCommand::ToggleTask {
             return self.toggle_task(expected, range, accept);
@@ -86,6 +176,12 @@ impl EditorSession {
             }
         }
         let lines = self.selected_block_lines(range);
+        // Choosing Quote on text that is already quoted takes one level off.
+        let command = if command == BlockCommand::Quote && all_quoted(&lines) {
+            BlockCommand::Outdent
+        } else {
+            command
+        };
         if matches!(command, BlockCommand::Heading(1..=6) | BlockCommand::Quote)
             && lines.iter().any(|line| {
                 !line.code
@@ -130,13 +226,25 @@ impl EditorSession {
         if !lines.iter().any(|line| changes_block(line, command)) {
             return Ok(None);
         }
-        let boundaries = self.block_command_boundaries(range, &lines, command);
-        if self.projection.has_block_seams_at(range, &boundaries)
+        let (boundaries, inspected) = self.block_command_boundaries(range, &lines, command);
+        let (has_seams, seam_work) = self
+            .projection
+            .has_block_seams_at_with_work(range, &boundaries);
+        let inspected = inspected + seam_work;
+        let counted = |result: Result<Option<ViewChange>, EditorError>| {
+            result.map(|change| {
+                change.map(|mut change| {
+                    change.work.link_metadata_items += inspected;
+                    change
+                })
+            })
+        };
+        if has_seams
             || self
                 .projection
                 .has_multiline_block_code(&self.source, range)
         {
-            return self.stage_block_action(
+            return counted(self.stage_block_action(
                 expected,
                 range,
                 None,
@@ -162,18 +270,18 @@ impl EditorSession {
                     }
                     Ok(Some(change))
                 },
-            );
+            ));
         }
         if command == BlockCommand::Divider {
-            return self.insert_divider(expected, range, lines, accept);
+            return counted(self.insert_divider(expected, range, lines, accept));
         }
         if matches!(
             command,
             BlockCommand::Quote | BlockCommand::Indent | BlockCommand::Outdent
         ) {
-            return self.quote_command(expected, range, command, accept);
+            return counted(self.quote_command(expected, range, command, accept));
         }
-        self.apply_block_prefix_command(expected, range, command, lines, accept)
+        counted(self.apply_block_prefix_command(expected, range, command, lines, accept))
     }
 
     fn block_command_boundaries(
@@ -181,14 +289,18 @@ impl EditorSession {
         range: DisplayRange,
         selected: &[crate::inline::blocks::BlockLine],
         command: BlockCommand,
-    ) -> Vec<usize> {
+    ) -> (Vec<usize>, usize) {
+        let inspected = std::cell::Cell::new(0usize);
         let shape = |line: &crate::inline::blocks::BlockLine| {
             let mut heading = line.heading;
             let mut depth = line.quote_depth;
-            if selected
-                .iter()
-                .any(|selected| selected.source.start == line.source.start)
-                && changes_block(line, command)
+            if changes_block(line, command)
+                && selected
+                    .binary_search_by(|selected| {
+                        inspected.set(inspected.get() + 1);
+                        selected.source.start.cmp(&line.source.start)
+                    })
+                    .is_ok()
             {
                 match command {
                     BlockCommand::Heading(level) => heading = level,
@@ -202,6 +314,8 @@ impl EditorSession {
                     BlockCommand::Outdent => depth -= 1,
                     BlockCommand::Divider
                     | BlockCommand::CodeBlock
+                    | BlockCommand::WrapCodeBlock
+                    | BlockCommand::ToggleHeading(_)
                     | BlockCommand::ToggleTask
                     | BlockCommand::BulletList
                     | BlockCommand::OrderedList
@@ -210,7 +324,8 @@ impl EditorSession {
             }
             (heading, depth)
         };
-        self.projection
+        let boundaries = self
+            .projection
             .line_boundaries(range)
             .into_iter()
             .filter(|&boundary| {
@@ -236,8 +351,29 @@ impl EditorSession {
                     || right_heading > 0
                     || left_depth != right_depth
             })
-            .collect()
+            .collect();
+        (boundaries, inspected.get())
     }
+}
+
+/// Every selected prose line sits in a quote, whatever block it is (paragraph,
+/// heading or list item inside the quote), and at least one is. This is the
+/// toolbar's active Quote state, so choosing Quote then takes a level off and
+/// keeps each block. A quote nested inside a list item is not offered: that
+/// outdent is outside the generic list path.
+fn all_quoted(lines: &[crate::inline::blocks::BlockLine]) -> bool {
+    let mut prose = lines
+        .iter()
+        .filter(|line| !line.code && !line.divider && !line.metadata)
+        .peekable();
+    prose.peek().is_some()
+        && prose.all(|line| {
+            line.quote_depth > 0
+                && line
+                    .list
+                    .as_ref()
+                    .is_none_or(|list| list.quote_depth == line.quote_depth)
+        })
 }
 
 fn changes_block(line: &crate::inline::blocks::BlockLine, command: BlockCommand) -> bool {
@@ -252,6 +388,9 @@ fn changes_block(line: &crate::inline::blocks::BlockLine, command: BlockCommand)
         BlockCommand::Quote => line.quote_depth == 0 || line.heading > 0,
         BlockCommand::Indent | BlockCommand::Outdent => line.quote_depth > 0,
         BlockCommand::Divider | BlockCommand::CodeBlock => true,
+        BlockCommand::WrapCodeBlock | BlockCommand::ToggleHeading(_) => {
+            unreachable!("toolbar commands are resolved before planning")
+        }
         BlockCommand::ToggleTask
         | BlockCommand::BulletList
         | BlockCommand::OrderedList

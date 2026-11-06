@@ -26,5 +26,6 @@ about.
 - [Performance](editor/performance.md)
 - [Saving & rename](editor/saving-and-rename.md)
 - [Portable text-first core _(under development)_](editor/portable-core.md)
+- [Native mobile text-first editor _(iOS/Android)_](editor/mobile.md)
 - [Editor exits — every way an open note ends _(iOS/Android)_](editor/editor-exits.md)
 - [Android — IME](editor/android-ime.md)

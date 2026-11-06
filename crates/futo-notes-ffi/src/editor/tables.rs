@@ -44,6 +44,9 @@ pub struct EditorTableDescription {
     pub rows: Vec<Vec<EditorTableCell>>,
     pub focus: Option<EditorTableFocus>,
     pub controls: Option<EditorTableControls>,
+    /// Display extent of each row's line, header first, and of the delimiter line.
+    pub row_lines: Vec<EditorByteRange>,
+    pub delimiter_line: Option<EditorByteRange>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -157,6 +160,8 @@ impl From<editor::TableDescription> for EditorTableDescription {
                 insert_column_right: controls.insert_column_right,
                 delete_column: controls.delete_column,
             }),
+            row_lines: value.row_lines.into_iter().map(Into::into).collect(),
+            delimiter_line: value.delimiter_line.map(Into::into),
         }
     }
 }
@@ -187,6 +192,22 @@ impl NativeEditorSession {
             Ok(session
                 .inspect_table(Revision(expected), range.try_into()?)?
                 .map(Into::into))
+        })
+    }
+
+    /// Every table starting in `range`, in order: one call where a host would
+    /// otherwise ask `inspect_table` at each block.
+    pub fn inspect_tables(
+        &self,
+        expected: u64,
+        range: EditorByteRange,
+    ) -> Result<Vec<EditorTableDescription>, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            Ok(session
+                .inspect_tables(Revision(expected), range.try_into()?)?
+                .into_iter()
+                .map(Into::into)
+                .collect())
         })
     }
 
