@@ -1,6 +1,17 @@
 use super::*;
 use futo_notes_editor::{PortableSession, SessionToken};
 
+/// An assertion may unwind before the successful end of the test body. Release
+/// the held gate before `thread::scope` joins its worker on either path.
+struct ReleaseGateOnDrop(mpsc::Sender<()>);
+
+impl Drop for ReleaseGateOnDrop {
+    fn drop(&mut self) {
+        // The worker may itself have failed; a destructor must not double-panic.
+        let _ = self.0.send(());
+    }
+}
+
 #[test]
 fn portable_composition_refuses_relink_offer_and_commits_under_retargeted_identity() {
     use futo_notes_editor::{DisplayUtf16Offset, DisplayUtf16Range};
@@ -39,10 +50,10 @@ fn portable_composition_refuses_relink_offer_and_commits_under_retargeted_identi
     let mut view = "[[old]]".to_owned();
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
     assert_eq!(view, "[[old]]日本");
-    assert_eq!(page.draft_text(), "[[old]]日本");
+    assert_eq!(page.draft_text(), "[[old]]日本\n");
     assert_eq!(host.id(), "long name");
     host.checkpoint().unwrap();
-    assert_eq!(store.read("long name").unwrap(), "[[old]]日本");
+    assert_eq!(store.read("long name").unwrap(), "[[old]]日本\n");
     assert_eq!(store.read_existing("old").unwrap(), None);
 }
 
@@ -73,7 +84,7 @@ fn portable_own_relink_is_one_appended_undo_step() {
     let change = relink.change;
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
     assert_eq!(view, "[[long name]]!");
-    assert_eq!(page.draft_text(), "[[long name]]!");
+    assert_eq!(page.draft_text(), "[[long name]]!\n");
     let accepted = host.handle(relink.request.clone());
     assert_eq!(host.handle(relink.request), accepted);
     assert!(page.acknowledge(accepted.clone()).unwrap().is_empty());
@@ -84,14 +95,14 @@ fn portable_own_relink_is_one_appended_undo_step() {
     page.acknowledge(host.handle(undo.request)).unwrap();
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
     assert_eq!(view, "[[old]]!");
-    assert_eq!(page.draft_text(), "[[old]]!");
+    assert_eq!(page.draft_text(), "[[old]]!\n");
     let redo = page.redo(Revision(3)).unwrap().unwrap();
     let change = redo.change;
     page.acknowledge(host.handle(redo.request)).unwrap();
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
     assert_eq!(view, "[[long name]]!");
     host.checkpoint().unwrap();
-    assert_eq!(store.read("long name").unwrap(), "[[long name]]!");
+    assert_eq!(store.read("long name").unwrap(), "[[long name]]!\n");
 }
 
 #[test]
@@ -111,9 +122,9 @@ fn portable_relink_never_advances_the_worker_past_unacknowledged_page_source() {
     let ack = host.handle(pending.request);
     assert!(ack.error.is_none(), "{ack:?}");
     assert!(page.acknowledge(ack).unwrap().is_empty());
-    assert_eq!(page.draft_text(), "[[old]]!");
+    assert_eq!(page.draft_text(), "[[old]]!\n");
     host.checkpoint().unwrap();
-    assert_eq!(store.read("long name").unwrap(), "[[old]]!");
+    assert_eq!(store.read("long name").unwrap(), "[[old]]!\n");
     assert_eq!(store.read_existing("old").unwrap(), None);
 }
 
@@ -121,7 +132,7 @@ fn portable_relink_never_advances_the_worker_past_unacknowledged_page_source() {
 fn worker_append_ack_is_distinct_from_page_completion() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.create("", "plain", "plain").unwrap();
+    plant_note(&root, "plain", "plain");
     let mut host = store
         .open_editor("plain")
         .unwrap()
@@ -143,7 +154,7 @@ fn worker_append_ack_is_distinct_from_page_completion() {
     );
     assert_eq!(store.read("plain").unwrap(), "plain");
     host.checkpoint().unwrap();
-    assert_eq!(store.read("plain").unwrap(), "plain!");
+    assert_eq!(store.read("plain").unwrap(), "plain!\n");
 }
 
 #[test]
@@ -239,7 +250,7 @@ fn foreign_or_conflicting_source_records_never_append_or_apply_twice() {
         "a replayed edit is refused"
     );
     host.checkpoint().unwrap();
-    assert_eq!(store.read("plain").unwrap(), "other");
+    assert_eq!(store.read("plain").unwrap(), "other\n");
 }
 
 #[test]
@@ -347,11 +358,12 @@ fn an_error_ack_pauses_the_page_and_resume_converges_the_worker_to_the_page_sour
 fn input_proceeds_while_another_thread_holds_the_store_gate() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.create("", "plain", "plain").unwrap();
+    store.create("", "plain", "plain\n").unwrap();
     let (mut host, mut page) = host_for(&store, "plain", 152);
     let (held, held_receive) = mpsc::channel();
     let (release, release_receive) = mpsc::channel::<()>();
     std::thread::scope(|scope| {
+        let _release_gate = ReleaseGateOnDrop(release);
         let store = &store;
         scope.spawn(move || {
             // Any store workflow holds the gate; hold it for the whole test body.
@@ -366,8 +378,7 @@ fn input_proceeds_while_another_thread_holds_the_store_gate() {
         page.acknowledge(ack).unwrap();
         let undo = page.undo(Revision(1)).unwrap().unwrap();
         assert!(host.handle(undo.request).error.is_none());
-        assert_eq!(host.snapshot().source, "plain");
-        release.send(()).unwrap();
+        assert_eq!(host.snapshot().source, "plain\n");
     });
 }
 
@@ -375,11 +386,12 @@ fn input_proceeds_while_another_thread_holds_the_store_gate() {
 fn native_session_input_proceeds_while_another_thread_holds_the_store_gate() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.create("", "plain", "plain").unwrap();
+    store.create("", "plain", "plain\n").unwrap();
     let mut editor = store.open_editor("plain").unwrap();
     let (held, held_receive) = mpsc::channel();
     let (release, release_receive) = mpsc::channel::<()>();
     std::thread::scope(|scope| {
+        let _release_gate = ReleaseGateOnDrop(release);
         let store = &store;
         scope.spawn(move || {
             let _gate = store.lock_gate().unwrap();
@@ -390,8 +402,7 @@ fn native_session_input_proceeds_while_another_thread_holds_the_store_gate() {
         editor.replace(Revision(0), range(5, 5), "!").unwrap();
         editor.select_utf16(Revision(1), utf16_at(6)).unwrap();
         editor.undo(Revision(1)).unwrap();
-        assert_eq!(editor.source_text(), "plain");
-        release.send(()).unwrap();
+        assert_eq!(editor.source_text(), "plain\n");
     });
 }
 

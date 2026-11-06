@@ -35,7 +35,7 @@ primitives (path safety, atomic writes, conflict names, the vault mutation guard
 - **`editor_session/`**: store-owned editor attachment, input and debounced markdown saves (500 ms idle, 2 s max wait; no recovery log);
   `save.rs` owns the injected-clock schedule, `checkpoint.rs` the save decision (write, converge,
   recreate or park), `identity.rs` an attached note's rename/relink, `lease.rs` the one-attachment-
-  per-note registry.
+  per-note registry, `quick_open.rs` a long note's read-only first screens before it attaches.
 - **`editor_draft.rs`**: baseline-aware identity changes. A stale editor parks its draft at the
   requested destination instead of overwriting the peer, and does not redirect links away from it.
 - **`vault_migration.rs`**: staged, verified moves of a whole vault to a new root; `vault_migration/`
@@ -50,13 +50,18 @@ primitives (path safety, atomic writes, conflict names, the vault mutation guard
   multi-file rename-and-relink has one decision boundary. A caller that reads, decides, then calls
   back in has created a check-then-act race (AGENTS.md §4, item 6 — one such race resurrected a
   deleted note). If two calls must happen in order, add one workflow here instead.
+- **One exception to the gate: the rename journal.** `futo_notes_core::files::rename_journal::with_rename_journal` and
+  `set_rename_scope` are called by sync under the vault mutation guard only, to bind, claim and
+  acknowledge intents. They touch only the journal file, never note content. Do not add another
+  writer outside the gate; extend the journal's surface instead.
 - **`MutationResult` is the complete post-commit projection.** It carries `upserted` (each with its
   position in the sort order), `removed`, `renamed`, `folders`, the collision-resolved `final_id` /
   `final_folder`, and `warnings`. Shells apply it verbatim. Never leave a shell to reconstruct a
   collision outcome, a backlink rewrite, or a list position — ADR-0001 forbids a shell-side
   comparator or final-id heuristic.
 - **Sort order lives only in `vault.rs`.** Shells splice the engine-reported positions.
-- **The raw save primitives stay private and `flush_draft` is the one save verb**, returning a
+- **The raw save primitives stay private and `flush_draft` (with its merging sibling
+  `flush_draft_merged`) is the save verb**, returning a
   `FlushDisposition` the shells render rather than decide. Read
   `docs/adr/0001-shells-are-projections.md` before touching that surface — it owns the reasoning,
   and its consequences section says what re-exposing a primitive would undo.

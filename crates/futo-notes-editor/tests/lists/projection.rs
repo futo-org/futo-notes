@@ -1,5 +1,59 @@
 use super::*;
 
+/// Chaos lane-1-07: the line Enter leaves a last item for (after the blank line it writes) is
+/// a plain line, so a renderer draws its caret at the margin, not at the item's text indent.
+/// A line straight under an item still continues it: text typed there is lazy.
+#[test]
+fn a_line_after_a_blank_line_at_the_end_of_a_list_is_not_in_the_list() {
+    // (note, a display offset on a line after the blank line)
+    for (raw, at) in [
+        ("- [ ] eggs\n- [ ] lemons (3)\n\n\n", 17),
+        ("1. a\n\n\n\n", 3),
+        ("1. a\n\n\n\n", 4),
+    ] {
+        let s = EditorSession::open(raw);
+        let line = s.project(s.revision(), range(at, at)).unwrap();
+        assert!(
+            line.blocks.iter().all(|b| b.list.is_none()),
+            "{raw:?} at {at}: {:?}",
+            line.blocks
+        );
+    }
+    let s = EditorSession::open("- a\n\n");
+    let lazy = s.project(s.revision(), range(2, 2)).unwrap();
+    assert!(
+        lazy.blocks.iter().any(|b| b.list.is_some()),
+        "{:?}",
+        lazy.blocks
+    );
+}
+
+/// Corpus notes that panicked the engine on open: pulldown-cmark starts a
+/// nested item opened by a tab at the line ending before it, which handed the
+/// item's marker to the previous line (a heading item, a fence's closer).
+#[test]
+fn a_tab_indented_item_under_a_heading_or_fence_item_opens() {
+    for (raw, depth) in [
+        ("- #\n\t-", 2),
+        ("```\n```\n-\n\t```\n\t```\n\t-", 2),
+        ("- # Title\n\t- nested", 2),
+        ("- a\r\n\t- b", 2),
+    ] {
+        let s = EditorSession::open(raw);
+        let display = s.display_text();
+        let at = display.len();
+        let last = s.project(s.revision(), range(at, at)).unwrap();
+        let list = last.blocks.iter().rev().find_map(|b| b.list.as_ref());
+        assert_eq!(
+            list.map(|l| l.depth),
+            Some(depth),
+            "{raw:?}: {:?}",
+            last.blocks
+        );
+        assert_eq!(s.source_text(), raw);
+    }
+}
+
 #[test]
 fn opening_supported_list_spellings_hides_markers_and_retains_lazy_numbers() {
     let raw =
@@ -136,7 +190,8 @@ fn tab_expanded_content_columns_hide_the_complete_owned_continuation_prefix() {
 }
 
 #[test]
-fn nested_navigation_stops_at_visible_graphemes_and_tab_leaves_source_history_untouched() {
+fn nested_navigation_stops_at_visible_graphemes_and_unavailable_tab_leaves_source_history_untouched(
+) {
     let raw = "> - 🦊a\r\n>   - e\u{301}b";
     let mut s = EditorSession::open(raw);
     assert_eq!(s.display_text(), "🦊a\r\ne\u{301}b");
@@ -145,14 +200,16 @@ fn nested_navigation_stops_at_visible_graphemes_and_tab_leaves_source_history_un
         assert_eq!(change.selection, range(at, at));
         assert_eq!(change.revision, Revision(0));
     }
-    for key in [ParagraphKey::Tab, ParagraphKey::ShiftTab] {
-        assert!(s
-            .paragraph_key(Revision(0), range(10, 11), key, &mut |_| panic!(
-                "non-code Tab accepted"
-            ))
-            .unwrap()
-            .is_none());
-    }
+    // The nested item has no sibling to nest under, so Tab (Indent) is a no-op.
+    assert!(s
+        .paragraph_key(
+            Revision(0),
+            range(10, 11),
+            ParagraphKey::Tab,
+            &mut |_| panic!("unavailable Tab accepted")
+        )
+        .unwrap()
+        .is_none());
     assert_eq!(s.source_text(), raw);
     assert_eq!(s.revision(), Revision(0));
     assert!(s

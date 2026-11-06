@@ -360,6 +360,22 @@ fn describe_with_parts(
             content: line.content.clone(),
         });
     }
+    // The parser lets a last item own the blank lines that end the note. Only the first of
+    // them continues the item (text typed there is lazy); a line after a blank line starts
+    // a paragraph, so it is not shown as a list row.
+    let trailing = lines.len()
+        - lines
+            .iter()
+            .rev()
+            .take_while(|line| source[line.source.clone()].trim().is_empty())
+            .count();
+    for line in lines.iter_mut().skip(trailing + 1) {
+        if line.list.as_ref().is_some_and(|list| !list.first) {
+            line.list = None;
+            line.task = None;
+            line.in_list = false;
+        }
+    }
     for (first, last) in setext.into_iter().rev() {
         lines[first].bodies = lines[first..last]
             .iter()

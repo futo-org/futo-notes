@@ -113,7 +113,8 @@
   instead), or **parked** as a conflict
   copy (peer changed; both versions survive, the copy id reported). A dirty
   draft is never silently dropped; a clean editor never flushes, so a genuinely
-  abandoned note is never resurrected. Conflict copies are named by the
+  abandoned note is never resurrected. A clean editor session never parks a conflict copy; it reloads from disk
+  (a peer edit is followed, not parked against). Conflict copies are named by the
   engine's one conflict-naming rule ("<title> (conflict YYYY-MM-DD)", counter
   suffix on a same-day collision), and parking is idempotent — a crash-window
   double-park mints ONE copy. On desktop, a parked disposition adds the

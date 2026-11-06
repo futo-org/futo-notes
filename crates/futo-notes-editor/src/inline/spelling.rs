@@ -2,9 +2,16 @@
 //! against the CommonMark parser before any source is accepted.
 mod boundaries;
 mod pieces;
-use boundaries::{repair_boundaries, repair_literal_boundaries};
+use boundaries::{escape_literal_delimiters, repair_boundaries, repair_literal_boundaries};
+use nesting::swap_emphasis_nesting;
+mod nesting;
+mod reading;
 mod render;
+mod spans;
 pub(super) use pieces::{full_reference_close, Marker, Piece, PieceOrigin, Spelling};
+use reading::{missing_spans, only_delimiters_hidden, spans_still_cover};
+pub(super) use spans::split_block_spans;
+use spans::{repair_code_delimiters, split_paragraph_spans, trim_emphasis_edges};
 mod guarded;
 mod literal_capsules;
 mod literal_urls;
@@ -17,6 +24,26 @@ use crate::{EditorError, InlineFormat};
 use render::render;
 use std::ops::Range;
 pub(super) use url_timing::prepare_url_input;
+
+thread_local! {
+    static ESCAPE_TYPED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While held, planned input writes its typed delimiters as escaped literal
+/// text: the text joins a paragraph its own row cannot verify.
+pub(crate) struct EscapeTypedDelimiters(bool);
+
+impl EscapeTypedDelimiters {
+    pub(crate) fn set() -> Self {
+        Self(ESCAPE_TYPED.with(|slot| slot.replace(true)))
+    }
+}
+
+impl Drop for EscapeTypedDelimiters {
+    fn drop(&mut self) {
+        ESCAPE_TYPED.with(|slot| slot.set(self.0));
+    }
+}
 
 pub(super) fn spell(
     pieces: Vec<Piece>,
@@ -66,6 +93,33 @@ pub(super) fn spell_with_anchors(
         link_metadata_items += 1;
         marker.pending || marker.activate || marker.literal_url
     });
+    // A raw typed delimiter is kept only while the parser reads the row as
+    // typed: existing formatting still covers its text and no visible text
+    // changes beyond delimiters becoming markers. Otherwise it lands as
+    // escaped literal text.
+    let mut literal = literal;
+    let typed_delimiter = pieces[insertion.clone()]
+        .iter()
+        .any(|piece| piece.display.contains(['*', '_', '~', '`']));
+    if !literal && typed_delimiter && ESCAPE_TYPED.with(std::cell::Cell::get) {
+        escape_literal_delimiters(&mut pieces, &markers, insertion.clone());
+        materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
+        link_metadata_items += rendered.link_metadata_items;
+        literal = true;
+    } else if !literal && typed_delimiter {
+        let candidate = Row::candidate(&rendered.text, references, &rendered.winners);
+        parsed += candidate.parsed_source_bytes;
+        link_metadata_items += candidate.reference_work.items;
+        link_copied_bytes += candidate.reference_work.copied;
+        if !only_delimiters_hidden(&expected, &candidate.display)
+            || !spans_still_cover(&rendered, &candidate, &mut link_metadata_items)
+        {
+            escape_literal_delimiters(&mut pieces, &markers, insertion.clone());
+            materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
+            link_metadata_items += rendered.link_metadata_items;
+            literal = true;
+        }
+    }
     if literal || verify_pending || typed.has_literal_proof() {
         let mut candidate = Row::candidate(&rendered.text, references, &rendered.winners);
         parsed += candidate.parsed_source_bytes;
@@ -96,9 +150,14 @@ pub(super) fn spell_with_anchors(
             repair_literal_boundaries(&mut pieces, &rendered, &candidate, &insertion, near_only);
             // A speculative line-start marker must reopen as the literal text
             // the writer still sees. The block shortcut replaces this spelling
-            // only when its final triggering character arrives.
+            // only when its final triggering character arrives. Code shows
+            // its contents verbatim, so a marker typed into it stays as is.
             for piece in &mut pieces[insertion.clone()] {
                 if piece.raw == piece.display
+                    && !piece
+                        .spans
+                        .iter()
+                        .any(|&id| markers[id].kind == SpanKind::Format(InlineFormat::Code))
                     && piece
                         .display
                         .chars()
@@ -162,11 +221,23 @@ pub(super) fn spell_with_anchors(
             link_copied_bytes += candidate.reference_work.copied;
             missing = missing_spans(&rendered, &candidate, &mut link_metadata_items);
         }
+        if swap_emphasis_nesting(&mut pieces, &markers, &missing) {
+            if words.has_owners() {
+                rendered_changed = true;
+            }
+            materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
+            link_metadata_items += rendered.link_metadata_items;
+            candidate = Row::candidate(&rendered.text, references, &rendered.winners);
+            parsed += candidate.parsed_source_bytes;
+            link_metadata_items += candidate.reference_work.items;
+            link_copied_bytes += candidate.reference_work.copied;
+            missing = missing_spans(&rendered, &candidate, &mut link_metadata_items);
+        }
         if candidate.display != expected || !missing.is_empty() {
             // An entity changes CommonMark's delimiter flanking while
             // decoding to the same visible scalar. Repair only the exact
             // neighbor of a marker that the library could no longer pair.
-            repair_boundaries(&mut pieces, &missing);
+            repair_boundaries(&mut pieces, &markers, &missing);
             if words.has_owners() {
                 rendered_changed = true;
             }
@@ -206,6 +277,43 @@ pub(super) fn spell_with_anchors(
             parsed += candidate.parsed_source_bytes;
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;
+            // Last resort: a delimiter the flanking rules cannot keep as
+            // formatting is written as escaped literal text, first where it
+            // was typed, then wherever a literal delimiter in the row now
+            // pairs with something it did not before. Visible text is unchanged.
+            for whole_row in [false, true] {
+                let mut missing = missing_spans(&rendered, &candidate, &mut link_metadata_items);
+                if candidate.display == expected && missing.is_empty() {
+                    break;
+                }
+                let scope = if whole_row {
+                    0..pieces.len()
+                } else {
+                    insertion.clone()
+                };
+                if !escape_literal_delimiters(&mut pieces, &markers, scope) {
+                    continue;
+                }
+                for repaired in [false, true] {
+                    if repaired {
+                        repair_boundaries(&mut pieces, &markers, &missing);
+                    }
+                    materialized +=
+                        render::replace(&mut rendered, &pieces, &markers, insertion.clone());
+                    link_metadata_items += rendered.link_metadata_items;
+                    candidate = Row::candidate(&rendered.text, references, &rendered.winners);
+                    parsed += candidate.parsed_source_bytes;
+                    link_metadata_items += candidate.reference_work.items;
+                    link_copied_bytes += candidate.reference_work.copied;
+                    missing = missing_spans(&rendered, &candidate, &mut link_metadata_items);
+                    if missing.is_empty() {
+                        break;
+                    }
+                }
+                if words.has_owners() {
+                    rendered_changed = true;
+                }
+            }
             if candidate.display != expected
                 || !missing_spans(&rendered, &candidate, &mut link_metadata_items).is_empty()
             {
@@ -294,6 +402,7 @@ pub(super) fn spell_with_anchors(
         .map(|id| guards.owners[id].as_ref().unwrap().clone());
     link_metadata_items += usize::from(split_retirement.is_some());
     Ok(Spelling {
+        literal,
         split_retirement,
         typed_inputs,
         guarded_words,
@@ -313,164 +422,4 @@ pub(super) fn spell_with_anchors(
         link_metadata_items,
         link_copied_bytes,
     })
-}
-
-// Block commands create a real parser boundary even with one source newline.
-// Close before that exact separator and reopen after the following block prefix.
-pub(super) fn split_block_spans(pieces: &mut [Piece], boundaries: &[usize]) {
-    let mut at = 0;
-    for piece in pieces {
-        let end = at + piece.display.len();
-        if (piece.display.ends_with('\n') && boundaries.contains(&end))
-            || (piece.display == "\r" && boundaries.contains(&(end + 1)))
-            || (piece.display.is_empty() && !piece.trailing && boundaries.contains(&at))
-        {
-            piece.spans.clear();
-        }
-        at = end;
-    }
-}
-
-// CommonMark inline spans cannot cross a blank line. Close them before the
-// separator and reopen after it; preserve the separator's exact raw bytes.
-fn split_paragraph_spans(pieces: &mut [Piece]) {
-    let mut start = 0;
-    while start < pieces.len() {
-        if !pieces[start]
-            .display
-            .chars()
-            .all(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n'))
-        {
-            start += 1;
-            continue;
-        }
-        let mut end = start;
-        let mut newlines = 0;
-        while end < pieces.len()
-            && pieces[end]
-                .display
-                .chars()
-                .all(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n'))
-        {
-            newlines += pieces[end]
-                .display
-                .bytes()
-                .filter(|&ch| ch == b'\n')
-                .count();
-            end += 1;
-        }
-        if newlines >= 2 {
-            for piece in &mut pieces[start..end] {
-                piece.spans.clear();
-            }
-        }
-        start = end;
-    }
-}
-
-fn trim_emphasis_edges(pieces: &mut [Piece], markers: &[Marker]) {
-    // Emphasis cannot begin/end in whitespace. Keep such bytes outside the
-    // markers and carry the active formatting separately for the next key.
-    for (id, marker) in markers.iter().enumerate() {
-        if !matches!(
-            marker.kind,
-            SpanKind::Format(InlineFormat::Bold | InlineFormat::Italic | InlineFormat::Strike)
-        ) {
-            continue;
-        }
-        let mut start = 0;
-        while start < pieces.len() {
-            if !pieces[start].spans.contains(&id) {
-                start += 1;
-                continue;
-            }
-            let mut end = start + 1;
-            while end < pieces.len() && pieces[end].spans.contains(&id) {
-                end += 1;
-            }
-            for piece in &mut pieces[start..end] {
-                if !piece.display.chars().all(char::is_whitespace) {
-                    break;
-                }
-                piece.spans.retain(|v| *v != id);
-            }
-            for piece in pieces[start..end].iter_mut().rev() {
-                if !piece.display.chars().all(char::is_whitespace) {
-                    break;
-                }
-                piece.spans.retain(|v| *v != id);
-            }
-            start = end;
-        }
-    }
-}
-
-fn repair_code_delimiters(pieces: &[Piece], markers: &mut [Marker]) {
-    // Code is isolated from markdown. Keep sufficient backticks, and
-    // distinguish delimiter padding from spaces in the visible content.
-    for (id, marker) in markers.iter_mut().enumerate() {
-        if marker.kind != SpanKind::Format(InlineFormat::Code) {
-            continue;
-        }
-        let content: String = pieces
-            .iter()
-            .filter(|p| p.spans.contains(&id))
-            .map(|p| p.raw.as_str())
-            .collect();
-        if content.is_empty() {
-            continue;
-        }
-        let normalized = content.replace("\r\n", " ").replace(['\r', '\n'], " ");
-        let old_width = marker.open.bytes().take_while(|b| *b == b'`').count();
-        let max = content.split(|c| c != '`').map(str::len).max().unwrap_or(0);
-        let width = old_width.max(max + 1);
-        let old_padding = marker.open.len() > old_width || marker.close.len() > old_width;
-        let all_spaces = normalized.chars().all(|c| c == ' ');
-        let pad = !all_spaces
-            && (old_padding
-                || content.starts_with('`')
-                || content.ends_with('`')
-                || (normalized.starts_with(' ') && normalized.ends_with(' ')));
-        if width != old_width || pad != old_padding {
-            let delimiter = "`".repeat(width);
-            marker.open = format!("{delimiter}{}", if pad { " " } else { "" });
-            marker.close = format!("{}{delimiter}", if pad { " " } else { "" });
-        }
-    }
-}
-
-/// Rendered span ids the candidate parse does not reproduce with the same
-/// kind and marker ranges, in rendered order. Candidate spans are indexed by
-/// their marker ranges, so a row of many links costs spans, not their product.
-/// `work` counts each candidate span indexed and each rendered span checked.
-fn missing_spans(rendered: &render::Rendered, candidate: &Row, work: &mut usize) -> Vec<usize> {
-    *work += candidate.spans.len() + rendered.spans.len();
-    let mut found: std::collections::HashMap<_, Vec<&SpanKind>> =
-        std::collections::HashMap::with_capacity(candidate.spans.len());
-    for span in &candidate.spans {
-        found
-            .entry((
-                span.open.start,
-                span.open.end,
-                span.close.start,
-                span.close.end,
-            ))
-            .or_default()
-            .push(&span.kind);
-    }
-    rendered
-        .spans
-        .iter()
-        .filter(|(_, expected)| {
-            !found
-                .get(&(
-                    expected.open.start,
-                    expected.open.end,
-                    expected.close.start,
-                    expected.close.end,
-                ))
-                .is_some_and(|kinds| kinds.iter().any(|kind| **kind == expected.kind))
-        })
-        .map(|(id, _)| *id)
-        .collect()
 }

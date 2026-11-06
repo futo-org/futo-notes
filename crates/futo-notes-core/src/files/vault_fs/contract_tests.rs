@@ -189,6 +189,26 @@ macro_rules! vault_fs_contract {
             }
 
             #[test]
+            fn open_optional_reads_what_read_optional_reads() {
+                use std::io::Read;
+                let root = tempfile::tempdir().unwrap();
+                assert!(vault_fs::open_optional(root.path(), "Work/Plan.md")
+                    .unwrap()
+                    .is_none());
+                assert!(vault_fs::open_optional(root.path(), "Plan.md")
+                    .unwrap()
+                    .is_none());
+                std::fs::write(root.path().join("Plan.md"), "body").unwrap();
+                let mut read = String::new();
+                vault_fs::open_optional(root.path(), "Plan.md")
+                    .unwrap()
+                    .unwrap()
+                    .read_to_string(&mut read)
+                    .unwrap();
+                assert_eq!(read, "body");
+            }
+
+            #[test]
             fn read_optional_is_none_when_the_parent_folder_is_missing() {
                 let root = tempfile::tempdir().unwrap();
                 assert_eq!(

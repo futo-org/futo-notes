@@ -81,13 +81,22 @@ impl EditorSession {
         command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        if self.projection.has_block_seams(range)
+        let (has_seams, inspected) = self.projection.has_block_seams_with_work(range);
+        let counted = |result: Result<Option<ViewChange>, EditorError>| {
+            result.map(|change| {
+                change.map(|mut change| {
+                    change.work.link_metadata_items += inspected;
+                    change
+                })
+            })
+        };
+        if has_seams
             || self
                 .projection
                 .has_multiline_block_code(&self.source, range)
         {
             // Inline marks and code close and reopen at the new block seams first.
-            return self.stage_block_action(
+            return counted(self.stage_block_action(
                 expected,
                 range,
                 None,
@@ -101,9 +110,9 @@ impl EditorSession {
                     }
                     Ok(change)
                 },
-            );
+            ));
         }
-        self.list_rows_command(expected, range, command, accept)
+        counted(self.list_rows_command(expected, range, command, accept))
     }
 
     fn list_rows_command(
@@ -113,7 +122,20 @@ impl EditorSession {
         command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        let (window, mut rows) = self.command_rows(range, command != BlockCommand::Heading(0));
+        let selected = self.selected_list_lines(range);
+        let repeating = !selected.is_empty()
+            && selected.iter().all(|line| {
+                line.list.as_ref().is_some_and(|list| match command {
+                    BlockCommand::BulletList => list.ordinal.is_none() && list.checked.is_none(),
+                    BlockCommand::OrderedList => list.ordinal.is_some() && list.checked.is_none(),
+                    BlockCommand::TaskList => list.checked.is_some(),
+                    _ => false,
+                })
+            });
+        // A repeated kind lifts the selected items; it does not retarget the
+        // complete list. Keep the ordinary neighbor window for that action.
+        let (window, mut rows) =
+            self.command_rows(range, command != BlockCommand::Heading(0) && !repeating);
         let written = rows
             .iter()
             .any(|row| row.selected && (!row.blank || row.before.heading > 0 || row.before.opens));
@@ -268,6 +290,10 @@ impl EditorSession {
         }
         row.body.start = typed;
         row.forced = true;
+        // A typed marker with nothing after it is an empty item, which cannot
+        // interrupt a paragraph: it gets the blank-line repair a list command
+        // gives a blank row.
+        row.from_blank |= row.body.is_empty();
         if let Some(checked) = task {
             if !row.before.opens {
                 return Ok(None);
@@ -314,6 +340,41 @@ impl EditorSession {
         row.pinned = start.is_some() && joined.is_none();
         row.key = joined.map_or(usize::MAX - index, |(_, key)| key);
         row.blank = false;
+        self.commit_rows(expected, range, window, rows, accept)
+    }
+
+    /// A bullet (`start` none) or ordered marker typed into an empty item
+    /// changes that item's kind; a task becomes a plain item. The same kind
+    /// keeps the item in its list, another kind starts its own list.
+    pub(in crate::session::blocks) fn retype_empty_item(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        start: Option<u64>,
+        typed: usize,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let (window, mut rows) = self.command_rows(range, false);
+        let index = rows
+            .iter()
+            .position(|row| row.selected)
+            .ok_or(EditorError::UnrepresentableFormat)?;
+        let row = &mut rows[index];
+        // A caret before the item's hidden marker still types into its body.
+        let typed = typed.max(row.body.start);
+        if !row.before.opens || typed > row.line.end {
+            return Ok(None);
+        }
+        row.body.start = typed;
+        row.forced = true;
+        row.after.checked = None;
+        if start.is_some() != row.before.ordered() {
+            row.after.marker = if start.is_some() { b'.' } else { b'-' };
+            row.after.ordinal = None;
+            row.start = start;
+            row.pinned = start.is_some();
+            row.key = usize::MAX - index;
+        }
         self.commit_rows(expected, range, window, rows, accept)
     }
 }

@@ -57,7 +57,7 @@ fn last_reference_use_visibility_and_selection_survive_history_and_reopen() {
     let store = store(&root);
     let original = "[id]: <https://x.test> 'T'\n\nmiddle\n\n[one][id] end";
     let unlinked = "[id]: <https://x.test> 'T'\n\nmiddle\n\none end";
-    store.create("", "references", original).unwrap();
+    plant_note(&root, "references", original);
     let mut session = store.open_editor("references").unwrap();
     session
         .select_with_affinity(
@@ -94,6 +94,8 @@ fn last_reference_use_visibility_and_selection_survive_history_and_reopen() {
     session.checkpoint().unwrap();
     drop(session);
     let mut recovered = store.open_editor("references").unwrap();
+    // The save appended the note's final line ending.
+    let unlinked = format!("{unlinked}\n");
     assert_eq!(recovered.source_text(), unlinked);
     assert_eq!(recovered.display_text(), unlinked);
     assert!(recovered
@@ -111,7 +113,7 @@ fn nested_reference_composition_and_source_anchored_history_survive_history_and_
     let original = "[id]: /target 'T'\n\npreamble\n\nbuffer\n\n[one][id]\n\nbody\n\ntail";
     let committed = "[id]: /target 'T'\n\npreamble\n\nbuffer\n\n\n\nbody\n\ntail";
     let changed = "[id]: /target 'T'\n\npreamble\n\nbuffer\n\n\n\nBODY\n\ntail";
-    store.create("", "nested-references", original).unwrap();
+    plant_note(&root, "nested-references", original);
     let mut session = store.open_editor("nested-references").unwrap();
     session
         .select_with_affinity(
@@ -152,6 +154,8 @@ fn nested_reference_composition_and_source_anchored_history_survive_history_and_
     session.checkpoint().unwrap();
     drop(session);
     let mut recovered = store.open_editor("nested-references").unwrap();
+    // The save appended the note's final line ending.
+    let changed = format!("{changed}\n");
     assert_eq!(recovered.source_text(), changed);
     assert_eq!(recovered.display_text(), changed);
     recovered.checkpoint().unwrap();

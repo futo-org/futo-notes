@@ -11,7 +11,7 @@ fn active_composition_survives_own_relink_with_exact_source_and_new_identity() {
     assert_eq!(mutation.relinked, ["long name"]);
     assert_eq!(editor.id(), "long name");
     assert!(editor.take_coordinated_changes().unwrap().is_empty());
-    assert_eq!(editor.source_text(), "[[old]]");
+    assert_eq!(editor.source_text(), "[[old]]\n");
     assert_eq!(editor.composition().unwrap().text, "にほん");
     let change = editor
         .commit_composition(Revision(0), Some("日本"))
@@ -20,14 +20,14 @@ fn active_composition_survives_own_relink_with_exact_source_and_new_identity() {
     let mut view = "[[old]]".to_owned();
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
     assert_eq!(view, "[[old]]日本");
-    assert_eq!(editor.source_text(), "[[old]]日本");
+    assert_eq!(editor.source_text(), "[[old]]日本\n");
     assert_eq!(
         editor.checkpoint().unwrap().disposition,
         FlushDisposition::Wrote
     );
-    assert_eq!(store.read("long name").unwrap(), "[[old]]日本");
+    assert_eq!(store.read("long name").unwrap(), "[[old]]日本\n");
     editor.undo(Revision(1)).unwrap().unwrap();
-    assert_eq!(editor.source_text(), "[[old]]");
+    assert_eq!(editor.source_text(), "[[old]]\n");
     assert_eq!(store.read_existing("old").unwrap(), None);
 }
 
@@ -95,7 +95,7 @@ fn implicit_commit_and_paragraph_key_keep_the_separate_history_result() {
             )
             .unwrap()
             .unwrap();
-        assert_eq!(editor.source_text(), "__a日__\n tail\r\n");
+        assert_eq!(editor.source_text(), "__a日__\r\n tail\r\n");
         assert_eq!(editor.revision(), Revision(1));
         editor.undo(Revision(1)).unwrap().unwrap();
         assert_eq!(editor.source_text(), "__a日__ tail\r\n");

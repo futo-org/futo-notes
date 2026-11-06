@@ -174,26 +174,56 @@ impl Projection {
     }
 
     pub(crate) fn has_block_seams(&self, range: DisplayRange) -> bool {
+        self.has_block_seams_with_work(range).0
+    }
+
+    pub(crate) fn has_block_seams_with_work(&self, range: DisplayRange) -> (bool, usize) {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
-        if !(first..=last).any(|index| !self.rows.at(index).0.spans.is_empty()) {
-            return false;
+        let mut work = 0;
+        if !(first..=last).any(|index| {
+            work += 1;
+            !self.rows.at(index).0.spans.is_empty()
+        }) {
+            return (false, work);
         }
-        self.has_block_seams_at(range, &self.line_boundaries(range))
+        let (found, inspected) =
+            self.has_block_seams_at_with_work(range, &self.line_boundaries(range));
+        (found, work + inspected)
     }
 
     pub(crate) fn has_block_seams_at(&self, range: DisplayRange, boundaries: &[usize]) -> bool {
+        self.has_block_seams_at_with_work(range, boundaries).0
+    }
+
+    pub(crate) fn has_block_seams_at_with_work(
+        &self,
+        range: DisplayRange,
+        boundaries: &[usize],
+    ) -> (bool, usize) {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
-        boundaries.iter().copied().any(|boundary| {
-            let (low, high) = self.source_bounds(boundary);
-            (first..=last).any(|index| {
-                let (row, source, _) = self.rows.at(index);
-                row.spans
-                    .iter()
-                    .any(|span| source + span.open.end < low && high < source + span.close.start)
+        let mut work = 0;
+        // Source bounds advance monotonically with these ordered physical
+        // boundaries. For each retained span, only the first boundary strictly
+        // beyond its opener can lie strictly before its closer. Visiting spans
+        // once avoids checking every unrelated row for every physical line.
+        let found = (first..=last).any(|index| {
+            work += 1;
+            let (row, source, _) = self.rows.at(index);
+            row.spans.iter().any(|span| {
+                work += 1;
+                let after_open = boundaries.partition_point(|&boundary| {
+                    work += 1;
+                    self.source_bounds(boundary).0 <= source + span.open.end
+                });
+                boundaries.get(after_open).is_some_and(|&boundary| {
+                    work += 1;
+                    self.source_bounds(boundary).1 < source + span.close.start
+                })
             })
-        })
+        });
+        (found, work)
     }
 
     pub(crate) fn split_block_lines(
@@ -269,6 +299,7 @@ impl Projection {
             retained: Default::default(),
             requires_source_identity: false,
             guarded_words: rendered.take_guards(source_start, source_end),
+            context: source_start..source_end,
             split_retirement: None,
             pending_links: rendered.pending_links,
             activated_links: rendered.activated_links,

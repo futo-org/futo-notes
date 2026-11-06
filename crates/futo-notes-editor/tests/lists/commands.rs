@@ -411,3 +411,61 @@ fn indenting_an_empty_item_under_its_siblings_text_is_refused() {
     .unwrap();
     assert_eq!(s.source_text(), "* item 1\n  * item 2\n    * x");
 }
+
+const REFUSED_INDENT: &str = "* item 1\n  * item 2\n  * ";
+
+/// An empty item whose Indent was refused, caret at its end.
+fn after_refused_indent() -> EditorSession {
+    let mut s = EditorSession::open(REFUSED_INDENT);
+    let end = s.display_text().len();
+    s.select(s.revision(), range(end, end)).unwrap();
+    let revision = s.revision();
+    let refused = s.block_command(revision, range(end, end), BlockCommand::Indent, &mut |_| {
+        panic!("a refused indent accepts nothing")
+    });
+    assert!(matches!(refused, Err(EditorError::UnrepresentableFormat)));
+    assert_eq!(s.source_text(), REFUSED_INDENT);
+    s
+}
+
+#[test]
+fn composition_after_a_refused_indent_writes_the_text_once_at_the_written_depth() {
+    let mut s = after_refused_indent();
+    let end = s.display_text().len();
+    let revision = s.revision();
+    s.compose(revision, range(end, end), "にほん").unwrap();
+    s.compose(revision, range(end, end), "日本").unwrap();
+    assert_eq!(
+        s.source_text(),
+        REFUSED_INDENT,
+        "marked text is provisional"
+    );
+    let change = s
+        .commit_composition(revision, Some("日本語"), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(change.inserted, "日本語");
+    assert_eq!(s.source_text(), "* item 1\n  * item 2\n  * 日本語");
+    let end = s.display_text().len();
+    assert_eq!(s.selection(), range(end, end));
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap();
+    assert_eq!(s.source_text(), REFUSED_INDENT);
+}
+
+#[test]
+fn os_replacement_after_a_refused_indent_writes_the_text_once_and_undoes_cleanly() {
+    let mut s = after_refused_indent();
+    let end = s.display_text().len();
+    s.replace_os(s.revision(), range(end, end), "teh", &[], &mut |_| Ok(()))
+        .unwrap();
+    assert_eq!(s.source_text(), "* item 1\n  * item 2\n  * teh");
+    let (start, end) = (end, s.display_text().len());
+    s.replace_os(s.revision(), range(start, end), "the", &[], &mut |_| Ok(()))
+        .unwrap();
+    assert_eq!(s.source_text(), "* item 1\n  * item 2\n  * the");
+    let end = s.display_text().len();
+    assert_eq!(s.selection(), range(end, end));
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap();
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap();
+    assert_eq!(s.source_text(), REFUSED_INDENT);
+}

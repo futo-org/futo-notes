@@ -23,7 +23,10 @@ use std::ops::Range;
 #[derive(Clone, Copy)]
 pub(crate) enum EditIntent {
     Input(crate::InputAction),
-    Toggle(InlineFormat),
+    /// A selected format toggle. `Some(add)` forces its direction, the one a
+    /// multi-block selection decided for all of its bodies; `None` decides
+    /// from the selected pieces alone.
+    Toggle(InlineFormat, Option<bool>),
 }
 
 /// How far an input's planning context reaches.
@@ -31,6 +34,9 @@ pub(crate) enum EditIntent {
 pub(super) enum Width {
     /// The rows holding the edited range.
     Rows,
+    /// Those rows and the next one, which text typed on the blank line
+    /// ending them joins.
+    Joined,
     /// Those rows widened to whole physical lines past word seams.
     Line,
     /// The complete paragraph or list.
@@ -42,6 +48,8 @@ pub(crate) struct Plan {
     pub split_retirement: Option<std::sync::Arc<super::guarded_words::CodeWordIdentity>>,
     pub retained: SourceCorrespondence,
     pub requires_source_identity: bool,
+    /// The source window the planner read; `range` lies inside it.
+    pub context: Range<usize>,
     pub range: Range<usize>,
     pub delimiters: Vec<Range<usize>>,
     pub pending_links: Vec<Range<usize>>,
@@ -89,7 +97,7 @@ impl Projection {
         intent: EditIntent,
         escape_pipes: bool,
     ) -> Result<Plan, EditorError> {
-        let plan = |width| {
+        let plan = |width, reuse| {
             self.edit_in(
                 source,
                 range,
@@ -99,24 +107,53 @@ impl Projection {
                 intent,
                 escape_pipes,
                 width,
+                reuse,
             )
         };
         // A cut context can be too narrow to plan (or to judge) the input:
         // plan once more against the whole line when a word seam bounds the
         // rows, then against the complete paragraph or list (#314).
         let mut tried = Vec::new();
+        // Text typed on a blank line joins the paragraph below it, whose
+        // delimiters can then pair with the typed text or the row's own. Plan
+        // it with that paragraph first, so delimiters stay raw only while the
+        // joined paragraph reads as typed; when it cannot be planned, a typed
+        // delimiter lands escaped as literal text.
+        let _escape = if matches!(intent, EditIntent::Input(_))
+            && !inserted.is_empty()
+            && self.joins_next_row(range)
+        {
+            match plan(Width::Joined, true) {
+                Ok((plan, true)) => return Ok(spent(plan, tried)),
+                Ok((plan, false)) => tried.push(plan),
+                Err(_) => {}
+            }
+            inserted
+                .contains(['*', '_', '~', '`'])
+                .then(super::spelling::EscapeTypedDelimiters::set)
+        } else {
+            None
+        };
         let mut widths = vec![Width::Rows];
         if self.at_word_seam(range) {
             widths.push(Width::Line);
         }
         for width in widths {
-            match plan(width) {
+            match plan(width, true) {
                 Ok((plan, true)) => return Ok(spent(plan, tried)),
                 Ok((plan, false)) => tried.push(plan),
                 Err(_) => {}
             }
         }
-        let (wide, _) = plan(Width::Paragraph)?;
+        // Carried formats join the span beside them where they can. When that
+        // reading cannot be spelled (a format dropped around trailing
+        // whitespace), the new text opens spans of its own.
+        let (wide, _) = match plan(Width::Paragraph, true) {
+            Err(EditorError::UnrepresentableFormat) if pending.is_some() => {
+                plan(Width::Paragraph, false)?
+            }
+            other => other?,
+        };
         Ok(spent(wide, tried))
     }
 
@@ -131,6 +168,7 @@ impl Projection {
         intent: EditIntent,
         escape_pipes: bool,
         width: Width,
+        reuse: bool,
     ) -> Result<(Plan, bool), EditorError> {
         // Front matter is inert: input within it rejects, and input covering
         // it changes only the body.
@@ -139,9 +177,9 @@ impl Projection {
             return Err(EditorError::InvalidRange);
         }
         range.start.0 = range.start.0.max(body);
-        let toggle = match intent {
-            EditIntent::Toggle(format) => Some(format),
-            _ => None,
+        let (toggle, direction) = match intent {
+            EditIntent::Toggle(format, direction) => (Some(format), direction),
+            _ => (None, None),
         };
         let Context {
             typed_inputs,
@@ -194,9 +232,19 @@ impl Projection {
             right.clone()
         };
         if let Some(formats) = pending {
-            carry_formats(&mut before, &after, &mut markers, &mut active, formats);
+            carry_formats(
+                &mut before,
+                &after,
+                &mut markers,
+                &mut active,
+                formats,
+                reuse,
+            );
         }
-        let joined = if toggle.is_none() {
+        // A pasted span joins the same style beside it; typed text, even a
+        // committed string, lands character for character.
+        let typing = matches!(intent, EditIntent::Input(crate::InputAction::Typing));
+        let joined = if toggle.is_none() && !typing {
             joined_span(inserted, &markers, [&active, &left, &right])
         } else {
             None
@@ -316,7 +364,8 @@ impl Projection {
                         ..self.display_at(line.content.end) - self.display_at(source_start)
                 })
                 .collect();
-            toggle_work = super::toggle::pieces(&mut changed, &mut markers, a..z, format, &opaque);
+            toggle_work =
+                super::toggle::pieces(&mut changed, &mut markers, a..z, format, direction, &opaque);
             if format == InlineFormat::Code {
                 let work = guard_state.enroll(&mut changed, &markers)?;
                 guard_work.items += work.items;
@@ -335,7 +384,8 @@ impl Projection {
                         ..range.start.0,
                 )
                 .chars()
-                .all(|ch| matches!(ch, '#' | '>' | '*' | '_'));
+                // Indentation before a marker still leaves it a block marker.
+                .all(|ch| matches!(ch, '#' | '>' | '*' | '_' | ' ' | '\t'));
         let display_line = self
             .display
             .line_to_byte(self.display.byte_to_line(range.start.0));
@@ -405,6 +455,7 @@ impl Projection {
         let (sealed, seal_parsed) =
             self.sealed_candidate(source, source_start, source_end, &output);
         let caret = rendered.caret;
+        let literal = rendered.literal;
         let (mut retained, mut correspondence_work) =
             SourceCorrespondence::verify(&raw, inserted, &output, rendered.origins, source_start);
         if let Some(word) = angle.source {
@@ -420,6 +471,7 @@ impl Projection {
             .map(|(c, _)| c.len_utf8())
             .sum();
         let plan = Plan {
+            context: source_start..source_end,
             guarded_words,
             split_retirement: rendered.split_retirement,
             retained,

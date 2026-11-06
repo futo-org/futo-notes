@@ -22,7 +22,7 @@ fn flush_draft_projects_every_disposition() {
     assert_eq!(wrote.disposition, FlushDisposition::Wrote);
     let mutation = wrote.mutation.expect("a write projects a mutation");
     assert_eq!(mutation.final_id.as_deref(), Some("note"));
-    assert_eq!(store.read("note".to_owned()).unwrap(), "draft");
+    assert_eq!(store.read("note".to_owned()).unwrap(), "draft\n");
 
     let converged = store
         .flush_draft("note".to_owned(), "stale".to_owned(), "draft".to_owned())
@@ -37,10 +37,10 @@ fn flush_draft_projects_every_disposition() {
         panic!("expected the diverged draft to be parked");
     };
     assert!(parked_id.starts_with("note (conflict "));
-    assert_eq!(store.read(parked_id.clone()).unwrap(), "diverged");
+    assert_eq!(store.read(parked_id.clone()).unwrap(), "diverged\n");
     assert_eq!(
         store.read("note".to_owned()).unwrap(),
-        "draft",
+        "draft\n",
         "diverged note untouched"
     );
     assert!(
@@ -67,5 +67,5 @@ fn flush_draft_projects_every_disposition() {
     let mutation = recreated.mutation.expect("a recreate projects a mutation");
     assert_eq!(mutation.final_id.as_deref(), Some("note"));
     assert_eq!(mutation.upserted[0].position, 0);
-    assert_eq!(store.read("note".to_owned()).unwrap(), "survivor");
+    assert_eq!(store.read("note".to_owned()).unwrap(), "survivor\n");
 }

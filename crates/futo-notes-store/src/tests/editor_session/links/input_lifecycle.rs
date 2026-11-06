@@ -151,8 +151,10 @@ fn mixed_input_preserves_marked_origin_foreign_link_and_both_history_stacks() {
     editor.checkpoint().unwrap();
     drop(editor);
     let mut recovered = store.open_editor("input-lifecycle").unwrap();
+    // The save appended the note's final line ending.
+    let saved = format!("{saved}\n");
     assert_eq!(recovered.source_text(), saved);
-    assert_eq!(recovered.display_text(), expected_text);
+    assert_eq!(recovered.display_text(), format!("{expected_text}\n"));
     assert_eq!(
         recovered
             .project(recovered.revision(), range(0, expected_text.len()))
@@ -240,8 +242,10 @@ fn completed_marked_https_case(input: &str, canonical: &str) {
     editor.checkpoint().unwrap();
     drop(editor);
     let mut recovered = store.open_editor("completed-input").unwrap();
+    // The save appended the note's final line ending, if it had none.
+    let (saved, saved_view) = saved_forms(&saved, &shown);
     assert_eq!(recovered.source_text(), saved);
-    assert_eq!(recovered.display_text(), shown);
+    assert_eq!(recovered.display_text(), saved_view);
     assert_eq!(
         recovered
             .project(recovered.revision(), range(0, shown.len()))

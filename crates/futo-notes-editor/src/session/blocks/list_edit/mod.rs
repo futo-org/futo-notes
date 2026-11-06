@@ -8,6 +8,7 @@ use super::*;
 use crate::inline::ListLine;
 use std::ops::Range;
 
+mod enter;
 mod indent;
 mod ops;
 mod plan;
@@ -89,6 +90,8 @@ pub(super) struct Row {
     /// Owned syntax a canonical prefix cannot respell.
     fixed: bool,
     pub selected: bool,
+    /// Membership comparisons while attributing this physical row.
+    selection_work: usize,
     /// The intended row is an unlisted empty paragraph.
     pub exact_blank: bool,
     /// A blank row the command turned into a new (empty) item.
@@ -182,6 +185,13 @@ impl EditorSession {
                 .list
                 .as_ref()
                 .map_or(usize::MAX - index, |list| list.owner.start);
+            let mut selection_work = 0;
+            let is_selected = selected
+                .binary_search_by(|&at| {
+                    selection_work += 1;
+                    at.cmp(&start)
+                })
+                .is_ok();
             rows.push(Row {
                 line: start..start + text.len(),
                 end: line.source.end,
@@ -196,7 +206,8 @@ impl EditorSession {
                 blank,
                 divider: line.divider,
                 fixed,
-                selected: selected.contains(&start),
+                selected: is_selected,
+                selection_work,
                 exact_blank: false,
                 from_blank: false,
                 start: physical,
@@ -216,7 +227,16 @@ impl EditorSession {
                 .last()
                 .is_none_or(|row| row.end < len || row.line.start < len)
         {
-            rows.push(eof_row(len, rows.len(), selected.contains(&len)));
+            let mut selection_work = 0;
+            let is_selected = selected
+                .binary_search_by(|&at| {
+                    selection_work += 1;
+                    at.cmp(&len)
+                })
+                .is_ok();
+            let mut row = eof_row(len, rows.len(), is_selected);
+            row.selection_work = selection_work;
+            rows.push(row);
         }
         rows
     }
@@ -250,7 +270,10 @@ impl EditorSession {
         for row in rows.iter_mut().filter(|row| row.changed()) {
             row.escapable = escape(&self.source.byte_slice(row.body.clone()).to_string()).is_some();
         }
-        let mut work = EditWork::default();
+        let mut work = EditWork {
+            link_metadata_items: rows.iter().map(|row| row.selection_work).sum(),
+            ..EditWork::default()
+        };
         let Some(plan) = self.verified_plan(expected, &window, &mut rows, &mut work)? else {
             return Ok(None);
         };
@@ -396,6 +419,7 @@ fn eof_row(len: usize, index: usize, selected: bool) -> Row {
         divider: false,
         fixed: false,
         selected,
+        selection_work: 0,
         exact_blank: false,
         from_blank: false,
         start: None,

@@ -3,7 +3,7 @@
  */
 
 import { sleep } from '../lib/mcp-client.mjs';
-import { assert } from './waits-and-assertions.mjs';
+import { assert, sameSavedText } from './waits-and-assertions.mjs';
 
 // ── Hosted sync (Log in with FUTO) ──────────────────────────────
 //
@@ -74,7 +74,7 @@ export async function waitForSyncedNote(client, id, expected, timeoutMs = 60_000
   let last = null;
   while (Date.now() - start < timeoutMs) {
     last = await client.readNote(id).catch(() => null);
-    if (last === expected) return;
+    if (sameSavedText(last, expected)) return;
     await client.syncNow().catch(() => {});
     await sleep(500);
   }

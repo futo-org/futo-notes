@@ -22,6 +22,10 @@ impl Row {
             }),
         )
         .into_offset_iter()
+        .map(|(event, range)| {
+            let range = item_line_start(source, &event, range);
+            (event, range)
+        })
         .collect();
         reference_work.items += callback_items.get();
         reference_work.copied += callback_copied.get();
@@ -440,4 +444,26 @@ fn tail_chain(len: usize, events: &[(Event<'_>, Range<usize>)]) -> Vec<(usize, u
         .take_while(|(index, (.., depth))| index + 1 == *depth)
         .map(|(_, (item, owner, _))| (item, owner))
         .collect()
+}
+
+/// A list or item opened by a tab-indented marker after another item's last
+/// block (an ATX heading, a closed fence) is reported by pulldown-cmark from
+/// the line ending before it. It starts on its own line: from there every
+/// line-based reader attributes it to the line its marker is on.
+fn item_line_start(source: &str, event: &Event<'_>, range: Range<usize>) -> Range<usize> {
+    let item = matches!(
+        event,
+        Event::Start(Tag::List(_) | Tag::Item)
+            | Event::End(pulldown_cmark::TagEnd::List(_) | pulldown_cmark::TagEnd::Item)
+    );
+    let ending = match source.as_bytes().get(range.start) {
+        Some(b'\n') => 1,
+        Some(b'\r') if source.as_bytes().get(range.start + 1) == Some(&b'\n') => 2,
+        _ => 0,
+    };
+    if item && ending > 0 && range.start + ending <= range.end {
+        range.start + ending..range.end
+    } else {
+        range
+    }
 }

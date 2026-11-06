@@ -6,7 +6,7 @@
 
 import {
   assert,
-  assertEqual,
+  assertSavedEqual,
   waitForEditorContent,
   waitForOpenNoteState,
   waitForSaveIdle,
@@ -47,7 +47,7 @@ export async function offlineTitleRenameKeepsIdentityUnderAPeerEdit(a, b, server
     ['B', b],
   ]) {
     assert(!(await client.noteExists(before)), `${label} must not keep or resurrect the old name`);
-    assertEqual(
+    assertSavedEqual(
       await client.readNote(after),
       'Local typing Origin',
       `${label}: the renamed note carries the peer edit`,

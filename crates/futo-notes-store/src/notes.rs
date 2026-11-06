@@ -14,6 +14,41 @@ use crate::{
     MutationResult, NoteRename, Snapshot, VaultFile,
 };
 
+/// Nonempty authored notes end in a line ending; existing blank lines stay exact.
+pub(crate) fn saved_note_source(source: &str) -> std::borrow::Cow<'_, str> {
+    if source.is_empty() || source.ends_with('\n') {
+        std::borrow::Cow::Borrowed(source)
+    } else {
+        let ending = if source.contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        std::borrow::Cow::Owned(format!("{source}{ending}"))
+    }
+}
+
+/// Two sources that save as the same bytes: they differ at most by the final
+/// line ending that saving appends.
+pub(crate) fn same_saved_source(a: &str, b: &str) -> bool {
+    saved_note_source(a) == saved_note_source(b)
+}
+
+/// A saved-form merge spelled for a draft that has no final line ending, so
+/// the editor adopts it without an edit it never made. Only the ending saving
+/// appended is removed: the result still saves as exactly `merged`.
+pub(crate) fn draft_spelling(merged: String, draft: &str) -> String {
+    if saved_note_source(draft) == draft {
+        return merged;
+    }
+    ["\r\n", "\n"]
+        .into_iter()
+        .filter_map(|ending| merged.strip_suffix(ending))
+        .find(|unended| saved_note_source(unended) == merged.as_str())
+        .map(str::to_owned)
+        .unwrap_or(merged)
+}
+
 impl LocalNoteStore {
     pub fn snapshot(&self) -> Snapshot {
         vault::snapshot_with_cache(&self.root, &self.list_cache, self.sort_order())
@@ -163,7 +198,8 @@ impl LocalNoteStore {
     ///
     /// The source filename is the title (M2): only the Markdown extension is
     /// removed, and the normal collision allocator chooses a suffix rather
-    /// than overwriting an existing note. The source file is read-only input.
+    /// than overwriting an existing note. The source file is read-only input,
+    /// and its bytes are copied as they are, with no final line ending added.
     pub fn import_markdown(&self, source: &Path) -> Result<MutationResult, String> {
         if !is_markdown_path(source) {
             return Err("only .md and .markdown files can be imported".to_owned());
@@ -180,7 +216,7 @@ impl LocalNoteStore {
 
         let _gate = self.lock_gate()?;
         let _vault_mutation = vault_mutation_guard()?;
-        let metadata = self.install_new(&make_id("", title), &content, None)?;
+        let metadata = self.install_exact(&make_id("", title), &content, None)?;
         Ok(self.upsert_mutation(metadata))
     }
 

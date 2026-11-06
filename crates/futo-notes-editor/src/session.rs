@@ -17,12 +17,14 @@ mod note_ids;
 mod pending;
 mod staging;
 mod tags;
+mod toolbar;
+pub use toolbar::{ToolbarList, ToolbarState};
 mod transaction;
 mod wikilink_completion;
 use crate::history::{
     HistoryClock, HistoryEntry, HistoryGroup, HistoryInput, MonotonicClock, TypingRun,
 };
-pub use composition::Composition;
+pub use composition::{Composition, MarkedRun};
 pub use find::{FindReport, FindScanRequest, FindScanResult, FindWork};
 pub use paragraphs::ParagraphKey;
 use ropey::Rope;
@@ -164,7 +166,7 @@ impl EditorSession {
     ) -> Result<SelectionChange, EditorError> {
         self.check_revision(expected)?;
         self.validate_range(range)?;
-        let range = self.outside_metadata(range);
+        let range = self.outside_metadata(self.outside_crlf(range));
         if self.composition.is_some() {
             return Ok(SelectionChange {
                 revision: self.revision,
@@ -192,6 +194,32 @@ impl EditorSession {
         self.char_index(range.start)?;
         self.char_index(range.end)?;
         Ok(())
+    }
+
+    /// A CRLF is one line break: a caret between its CR and LF moves before
+    /// the CR, to the end of its line, and a selection grows to cover the whole
+    /// break. Keys and typing there would otherwise split the pair into a bare
+    /// CR line ending or refuse.
+    pub(crate) fn outside_crlf(&self, mut range: DisplayRange) -> DisplayRange {
+        let display = &self.projection.display;
+        let inside = |at: usize| {
+            at > 0
+                && at < display.len_bytes()
+                && display.byte(at - 1) == b'\r'
+                && display.byte(at) == b'\n'
+        };
+        let collapsed = range.start == range.end;
+        if inside(range.start.0) {
+            range.start.0 -= 1;
+        }
+        if inside(range.end.0) {
+            range.end.0 = if collapsed {
+                range.start.0
+            } else {
+                range.end.0 + 1
+            };
+        }
+        range
     }
 
     fn input_affinity(&self, range: DisplayRange) -> Affinity {
@@ -475,13 +503,18 @@ impl EditorSession {
         } else {
             &entry.entries.first().unwrap().before_links
         };
-        change.work.link_metadata_items += self.projection.restore_pending(pending);
-        let (projection, link_work) = self
-            .projection
-            .query_with_work(self.revision, change.projection.range);
-        change.projection = projection;
-        change.work.link_metadata_items += link_work.items;
-        change.work.link_copied_bytes += link_work.copied;
+        let (restore_work, restored) = self.projection.restore_pending_changed(pending);
+        change.work.link_metadata_items += restore_work;
+        // The apply above already queried this range; only restored transient
+        // fields can make that answer stale.
+        if restored {
+            let (projection, link_work) = self
+                .projection
+                .query_with_work(self.revision, change.projection.range);
+            change.projection = projection;
+            change.work.link_metadata_items += link_work.items;
+            change.work.link_copied_bytes += link_work.copied;
+        }
         self.typing = None;
         if redo {
             self.undo.push(entry);

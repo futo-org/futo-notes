@@ -15,6 +15,10 @@ mod commands;
 mod comment_seams;
 #[path = "lists/containers.rs"]
 mod containers;
+#[path = "lists/enter_at_start.rs"]
+mod enter_at_start;
+#[path = "lists/enter_split.rs"]
+mod enter_split;
 #[path = "lists/fixtures.rs"]
 mod fixtures;
 #[path = "lists/input.rs"]
@@ -27,6 +31,8 @@ mod lifting;
 mod mixed_commands;
 #[path = "lists/projection.rs"]
 mod projection;
+#[path = "lists/tab.rs"]
+mod tab;
 
 #[path = "lists/semantic_context.rs"]
 mod semantic_context;
