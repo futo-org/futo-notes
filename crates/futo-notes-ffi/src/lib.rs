@@ -11,6 +11,7 @@ pub use editor::{
 };
 pub use editor::{
     EditorDisplayMirror, EditorListMarker, EditorMirrorEdit, EditorMirrorError, EditorStyleSpan,
+    EditorToolbarHighlights,
 };
 pub use editor::{
     EditorTableAlignment, EditorTableCell, EditorTableCommand, EditorTableControls,

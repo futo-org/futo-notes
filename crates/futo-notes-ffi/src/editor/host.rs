@@ -4,7 +4,7 @@
 use std::sync::{Arc, Mutex};
 
 use futo_notes_editor::host::{
-    plan_styles, DisplayMirror, ListMarker, MirrorEdit, MirrorError, StyleSpec,
+    plan_styles, toolbar_highlights, DisplayMirror, ListMarker, MirrorEdit, MirrorError, StyleSpec,
 };
 use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 
@@ -304,6 +304,26 @@ impl NativeEditorSession {
                 .into_iter()
                 .map(Into::into)
                 .collect())
+        })
+    }
+}
+
+/// Toolbar manifest ids to light and to dim for the current selection.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct EditorToolbarHighlights {
+    pub active: Vec<String>,
+    pub disabled: Vec<String>,
+}
+
+#[uniffi::export]
+impl NativeEditorSession {
+    pub fn toolbar_highlights(&self) -> Result<EditorToolbarHighlights, EditorSessionError> {
+        self.with_session(|session| {
+            let h = toolbar_highlights(&session.toolbar_state());
+            Ok(EditorToolbarHighlights {
+                active: h.active.into_iter().map(String::from).collect(),
+                disabled: h.disabled.into_iter().map(String::from).collect(),
+            })
         })
     }
 }

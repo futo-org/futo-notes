@@ -6,3 +6,6 @@ pub use display_mirror::{DisplayMirror, MirrorEdit, MirrorError};
 
 mod style_plan;
 pub use style_plan::{plan_styles, ListMarker, StyleSpec};
+
+mod toolbar_ids;
+pub use toolbar_ids::{toolbar_highlights, ToolbarHighlights};
