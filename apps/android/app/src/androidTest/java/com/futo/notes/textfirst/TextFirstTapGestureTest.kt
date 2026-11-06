@@ -265,7 +265,7 @@ class TextFirstTapGestureTest {
     @Test
     fun aTapOnAnExternalLinkOpensItAndPlacesNoCaret() = exercise {
         val opened = mutableListOf<String>()
-        view.onOpenUrl = { opened += it }
+        view.onOpenUrl = { opened += it; true }
         view.setSelection(0)
         taps(pointAt("https://example.com"), 1)
         assertEquals(listOf("https://example.com"), opened)
@@ -282,7 +282,7 @@ class TextFirstTapGestureTest {
     @Test
     fun aTapBesideALinkPlacesTheCaretInstead() = exercise {
         val opened = mutableListOf<String>()
-        view.onOpenUrl = { opened += it }
+        view.onOpenUrl = { opened += it; true }
         view.setSelection(0)
         taps(pointAt(" now and"), 1)
         taps(pointAt("end"), 1)
@@ -290,5 +290,16 @@ class TextFirstTapGestureTest {
         val (_, y) = pointAt("https://example.com")
         taps(view.width - 4f to y, 1)
         assertTrue("only a link's own glyphs open it: $opened", opened.isEmpty())
+    }
+
+    @Test
+    fun aLinkTheSystemCannotOpenIsATapOnTextAndPlacesTheCaret() = exercise {
+        val offered = mutableListOf<String>()
+        view.onOpenUrl = { offered += it; false }
+        view.setSelection(0)
+        val link = text.indexOf("https://example.com")
+        taps(pointAt("https://example.com"), 1)
+        assertEquals(listOf("https://example.com"), offered)
+        assertTrue("a refused open leaves the tap to the caret: ${view.selectionStart}", view.selectionStart in link until link + "https://example.com".length)
     }
 }

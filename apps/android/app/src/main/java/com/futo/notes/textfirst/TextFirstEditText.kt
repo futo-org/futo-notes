@@ -36,13 +36,13 @@ internal class TextFirstEditText(
         }
     internal val imePublisher = NativeImePublisher(this)
     var onOpenWikilink: ((String) -> Unit)? = null
-    var onOpenUrl: ((String) -> Unit)? = null
+    var onOpenUrl: ((String) -> Boolean)? = null
     private val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
     private val imageTouch = ImageTouch(this)
     @Volatile override var renderedSelection: Long = Long.MIN_VALUE
         private set
     @Volatile override var selectedObject: Pair<Int, Int>? = null
-    private val linkTouch = ExternalLinkTouch(this, { onOpenUrl?.invoke(it) }, ::nativeTouch)
+    private val linkTouch = ExternalLinkTouch(this, { onOpenUrl?.invoke(it) ?: false }, ::nativeTouch)
     private val lineTouch = LineSelectTouch(this)
     /** The first draw after a keyed update, with where that key's time went. */
     var onFrameDrawn: ((KeyTimings) -> Unit)? = null
