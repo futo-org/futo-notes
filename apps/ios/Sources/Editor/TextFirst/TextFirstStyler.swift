@@ -4,6 +4,7 @@
     /// Draws the engine's style plan onto the text storage. Every span says what the engine
     /// decided (heading level, inline formats, quote depth); nothing here parses Markdown.
     /// Lists, checkboxes, dividers and quote bars are M3; links' taps are M4.
+    @MainActor
     enum TextFirstStyler {
         static let headingSizes: [CGFloat] = [28, 24, 21, 19, 17, 16]
         static var mono: UIFont { .monospacedSystemFont(ofSize: 15, weight: .regular) }

@@ -16,10 +16,11 @@
 
         /// A caret's Backspace is the engine's (it lifts list markers, never deletes only hidden
         /// bytes). A selection's goes to UIKit, so its smart delete (the space beside a deleted
-        /// word) reaches the engine as an ordinary platform edit.
+        /// word) reaches the engine as an ordinary platform edit. At a heading's start the engine joins
+        /// the line up (or demotes a first-line heading); elsewhere it is a plain Backspace.
         override func deleteBackward() {
             guard markedTextRange == nil, selectedRange.length == 0, let controller,
-                controller.paragraphKey(.backspace)
+                controller.paragraphKey(.backspaceJoiningHeading)
             else {
                 super.deleteBackward()
                 return

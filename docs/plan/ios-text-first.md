@@ -25,7 +25,7 @@ commit that finishes the last milestone (archive rule).
 | # | Scope | State |
 |---|---|---|
 | M1 | Port the proof onto the current engine: open, type, save, IME shapes, kill loop, 20k smoke | done |
-| M2 | Toolbar and selection state (Mason's heading/format items) | |
+| M2 | Toolbar and selection state (Mason's heading/format items), projection styling | done |
 | M3 | Lists, checkboxes, quotes, code | |
 | M4 | Links and wikilinks, including completion | |
 | M5 | Images | |
@@ -39,6 +39,33 @@ commit that finishes the last milestone (archive rule).
 | Kotlin | Rust | MR | !564 note |
 |---|---|---|---|
 | `DisplayIndex.kt`, `DisplayMirror.kt` (UTF-16 to UTF-8 conversion of engine changes) | `futo_notes_editor::host::DisplayMirror`, `EditorDisplayMirror` | !589 | posted |
+
+## Engine MRs and !564 notes (M2)
+
+| Kotlin | Rust | MR | !564 note |
+|---|---|---|---|
+| `SpanPlan.kt` (`planSpans`, `splitAtLines`) | `host::plan_styles`, `NativeEditorSession.style_plan` | !592 (stacked on !589) | posted |
+| `toolbarActive` / disabled-id mapping in `TextFirstToolbar.kt`, `EditorEngineCaret.kt` | `host::toolbar_highlights`, `NativeEditorSession.toolbar_highlights` | commit on this branch (needs `ToolbarState`, which is not on main yet; cut an engine MR once `engine/from-android-text-first` lands) | to post with that MR |
+| `ToolbarCommandGate.kt` | not needed on iOS: every command runs synchronously on the main actor, so none is queued or dropped. Revisit if M8 moves the engine off the main thread. | | |
+
+## M2 notes
+
+- `TextFirstStyler` draws the plan: heading sizes with weight, bold/italic/strike/code runs, quote
+  indent and tint, code and front-matter mono, link and wikilink colour. The first 6k UTF-16 units
+  are styled at once, the rest in 12k slices on the main queue; each accepted change restyles its
+  own reparsed window (`change.projection.range`). Lists, checkboxes, dividers, quote bars: M3.
+- Toolbar: the existing manifest view with the Text control hidden; lit/dimmed ids come from the
+  engine (`toolbar_highlights`); taps are a name map onto `toggleFormat`/`blockCommandUtf16`
+  (H1-H3 use `toggleHeading`, Code block `wrapCodeBlock`). Link, camera and image are inert until
+  M4/M5. A collapsed Bold toggle also updates `typingAttributes` so the next character draws bold.
+- Caret Backspace is sent as `backspaceJoiningHeading` (the engine falls back to plain Backspace).
+- Not done: selection affinity from arrow keys (hardware keyboards), toolbar-over-IME timing on
+  a device. Both are checklist items below.
+- Spec: four *(Android text-first editor)* lines moved to `docs/spec/editor/mobile/toolbar.md` and
+  `headings.md` (c2d60c043 on `android-text-first`). The heading-weight line stays Android's
+  (it is about Barlow's semibold base).
+- Visual check on the simulator (flag on, keyboard up): heading, bold, italic, code and quote draw,
+  Undo/Redo dimmed on a fresh note.
 
 ## M1 notes
 
@@ -92,4 +119,6 @@ before the session exists (the text view appears when the session is attached; M
 
 - Dictation (placeholders never reach the file), QuickPath swipe typing, Writing Tools rewrite and
   proofread, third-party keyboards, Apple Pencil Scribble.
+- Toolbar behavior over the real keyboard on a phone, arrow-key caret affinity at format boundaries
+  (hardware keyboard), VoiceOver reading headings.
 - Real-device keystroke timings at 20k lines (the simulator numbers are not phone numbers).
