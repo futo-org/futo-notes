@@ -1,0 +1,3 @@
+# Heading keys
+
+- *(mobile)* Backspace at a heading's visible start removes the preceding blank physical line and retains the heading, or joins its text into the preceding nonblank line using ordinary paragraph deletion. A first-line heading still becomes Text; a join the paragraph engine cannot represent (including immediately after a fenced code block) refuses without changing source or history. The successful action has one exact Undo step. → crates/futo-notes-editor/src/session/blocks/keys.rs `heading_join_backspace`, crates/futo-notes-editor/tests/blocks/heading_join.rs, apps/ios/Sources/Editor/TextFirst/TextFirstTextView.swift, apps/ios/Tests/Editor/TextFirst/TextFirstToolbarStyleTests.swift

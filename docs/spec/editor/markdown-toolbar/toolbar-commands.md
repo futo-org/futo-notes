@@ -86,15 +86,12 @@
   src/features/editor/milkdown/formatState.ts, EditorToolbar.swift,
   EditorToolbar.kt, EmbedToolbar.svelte,
   tests/editor-embed-milkdown-toolbar.spec.ts
-- *(Android text-first editor)* Bold, Italic and Strikethrough light only when the selection carries that format — within one block the whole selection, across blocks every selected inline body (edge whitespace and blank lines aside), so a lit button means a tap removes it; a collapsed caret shows its carried formats. Block controls light only for the common selected block kind, with mixed blocks left unlit. → crates/futo-notes-editor/src/session/toolbar.rs, crates/futo-notes-editor/src/session/formatting.rs `selected_toggle_formats`, apps/android/app/src/main/java/com/futo/notes/textfirst/EditorEngineCaret.kt
-- *(Android text-first editor)* Inline formats and Link are dimmed when the engine disallows inline formatting; Indent, Outdent, Undo and Redo are dimmed when their canonical eligibility or history query says they cannot run. These controls stay visible. → crates/futo-notes-editor/src/session/toolbar.rs, apps/android/app/src/main/java/com/futo/notes/textfirst/EditorEngineCaret.kt, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstToolbar.kt
 - Heading controls offer Text, H1, H2 and H3 explicitly. Choosing a level applies
   that same level to every selected prose block; choosing it again does not cycle.
   Text returns headings to paragraphs. Enclosing quotes keep their nesting.
   Verified in the desktop WebView and Android emulator 2026-09-08. →
   packages/editor/src/toolbar.ts, src/features/editor/milkdown/blockCommands.ts,
   tests/editor-embed-milkdown-toolbar.spec.ts, tests/selection-toolbar.spec.ts
-- *(Android text-first editor)* The toolbar offers H1, H2 and H3 without a separate Text control; choosing the common active heading level again returns the selected headings to paragraphs, retaining enclosing quote depth. → apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstToolbar.kt, crates/futo-notes-editor/src/session/blocks/commands.rs, crates/futo-notes-editor/tests/blocks/toggle.rs
 - Quote toggles: on unquoted lines it applies quote formatting, and on lines
   that are all quoted it takes one quote level off. Indent and Outdent change the nearest list or quote container one level
   at a time; outdenting a top-level quote returns its selected content to the

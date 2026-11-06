@@ -14,3 +14,5 @@ editor. Lines here are *(mobile)*: true on iOS and Android alike.
 The section files under `mobile/` are added as lines move.
 
 - [Clipboard and system text actions](mobile/clipboard.md)
+- [Toolbar state and commands](mobile/toolbar.md)
+- [Heading keys](mobile/headings.md)
