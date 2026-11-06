@@ -48,7 +48,7 @@ are preserved. This optional, non-CI check proves structure; verify workflow beh
 
 The repo rule is that every command goes through `just`, but only the TypeScript side had
 formatting recipes — so Rust changes had no sanctioned way to be formatted or checked.
-rustfmt is pinned by `rust-toolchain.toml` (1.89.0), so both recipes are reproducible
+rustfmt is pinned by `rust-toolchain.toml` (1.99.1), so both recipes are reproducible
 across machines and CI.
 
 ## rust-lint
