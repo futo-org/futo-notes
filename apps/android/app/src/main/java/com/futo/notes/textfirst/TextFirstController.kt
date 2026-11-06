@@ -58,6 +58,8 @@ internal class TextFirstController(
     var onAttachmentChanged: (String) -> Unit = {}
     var onCheckpointed: (FlushDraftResult, String) -> Unit = { _, _ -> }
     var onFailure: (EditorSessionException) -> Unit = {}
+    /** The system clipboard refused a Copy or Cut (too large); the note is unchanged. */
+    var onClipboardRefused: () -> Unit = {}
 
     private val latencyWindow = KeyLatencyWindow()
     private val latencyFlush = Runnable { latencyWindow.flush()?.let { Log.i("TextFirstLatency", it.toString()) } }
@@ -73,6 +75,7 @@ internal class TextFirstController(
             }
         }
         view.onTableCell = { start, end, seq -> engine?.selectDisplayRange(start, end, seq) {} }
+        view.clipboard.onCopyRefused = { onClipboardRefused() }
         MainThreadWatchdog.start()
         view.setOnFocusChangeListener { _, hasFocus -> focused = hasFocus }
         view.onFrameDrawn = { timings ->
@@ -140,7 +143,11 @@ internal class TextFirstController(
     override fun onCell(update: CellUpdate?) {
         if (update == null) { cellView = null; return }
         val e = engine ?: return
-        val field = cellView ?: TableCellEditText(context, e, style).also { cellView = it; view.hideKeyboard() }
+        val field = cellView ?: TableCellEditText(context, e, style).also {
+            it.clipboard.onCopyRefused = { onClipboardRefused() }
+            cellView = it
+            view.hideKeyboard()
+        }
         field.apply(update)
     }
     override fun onCompletion(draft: CompletionDraft?) { completion = draft }

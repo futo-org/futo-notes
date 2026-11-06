@@ -4,6 +4,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputContentInfo
 
@@ -17,13 +20,24 @@ internal class TextFirstClipboard(
     private val engine: () -> EditorEngine?,
 ) {
     var onImageContent: ((Uri, () -> Unit) -> Boolean)? = null
+    /** The system clipboard refused a Copy or Cut; nothing was removed. UI thread. */
+    var onCopyRefused: () -> Unit = {}
+    private val main = Handler(Looper.getMainLooper())
 
     fun handle(id: Int): Boolean {
         val engine = engine() ?: return false
         val clipboard = context.getSystemService(ClipboardManager::class.java)
         when (id) {
             android.R.id.copy, android.R.id.cut -> engine.copy(cut = id == android.R.id.cut) { markdown ->
-                clipboard.setPrimaryClip(ClipData.newPlainText(null, markdown))
+                // A clip over about 1 MB exceeds the binder transaction limit and throws.
+                try {
+                    clipboard.setPrimaryClip(ClipData.newPlainText(null, markdown))
+                    true
+                } catch (e: RuntimeException) {
+                    Log.w("TextFirstClipboard", "clipboard refused ${markdown.length} chars", e)
+                    main.post { onCopyRefused() }
+                    false
+                }
             }
             android.R.id.paste, android.R.id.pasteAsPlainText -> {
                 val clip = clipboard.primaryClip

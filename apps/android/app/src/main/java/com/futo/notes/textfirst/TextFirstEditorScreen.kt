@@ -170,6 +170,7 @@ internal fun TextFirstEditorScreen(
         adoptIdentity(finalId)
     }
     controller.onFailure = { saveFailed = true }
+    controller.onClipboardRefused = { showToast(context, localization.localizedText("editor.android.clipboardTooLarge"), long = true) }
 
     // Open after any leave of this same note has released its attachment.
     LaunchedEffect(initialNoteId) {

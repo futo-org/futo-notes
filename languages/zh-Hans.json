@@ -576,6 +576,7 @@
       },
       "android": {
         "bridgeVersionMismatch": "桥接版本不匹配：编辑器 v{editorVersion}，原生端 v{nativeVersion}",
+        "clipboardTooLarge": "文本过多，无法复制。请少选一些内容后重试。",
         "legacyWebView": {
           "heading": "更新 Android System WebView",
           "body": "编辑器无法在此设备的 WebView 中启动。它需要 Chromium {minimumVersion} 或更高版本；当前版本报告为 Chromium {currentVersion}。WebView 提供程序：{provider}。请从应用商店更新 System WebView，然后重新打开笔记。",

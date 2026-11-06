@@ -139,18 +139,17 @@ internal class EditorEngine(
         session?.pasteMarkdown(rev, mirror.byteRange(mirror.selStart, mirror.selEnd), markdown)?.let(::accept)
     }
 
-    fun copy(cut: Boolean, deliver: (String) -> Unit) = command {
+    /**
+     * [deliver] runs on this thread and says whether the clipboard took the text. A cut
+     * removes the selection only after it did: the system clipboard refuses a large one.
+     */
+    fun copy(cut: Boolean, deliver: (String) -> Boolean) = command {
         if (mirror.overlay != null) commitComposition(null)
         val s = session ?: return@command
         if (mirror.selStart == mirror.selEnd) return@command
-        val markdown = if (cut) {
-            val result = s.cutMarkdown(rev, mirror.byteRange(mirror.selStart, mirror.selEnd))
-            result.change?.let(::accept)
-            result.markdown
-        } else {
-            s.copyMarkdown(rev, mirror.byteRange(mirror.selStart, mirror.selEnd))
-        }
-        ui.post { deliver(markdown) }
+        val range = mirror.byteRange(mirror.selStart, mirror.selEnd)
+        if (!deliver(s.copyMarkdown(rev, range)) || !cut) return@command
+        s.cutMarkdown(rev, range).change?.let(::accept)
     }
 
     fun selectAll() = command { select(0, mirror.text.length, fromView = false, finishTail = false); streamTail(0) }

@@ -323,6 +323,30 @@ class TextFirstStreamingCommandsTest {
         assertEquals("x\n", store.read("n"))
     }
 
+    /** Over the ~1 MB binder limit the clipboard throws; Cut must refuse, not crash or remove. */
+    @Test fun cutTooLargeForTheClipboardKeepsTheNoteAndReportsIt() = exercise((0 until 70_000).joinToString("") { "paragraph $it\n\n" }) {
+        val refused = CountDownLatch(1)
+        ui { controller.onClipboardRefused = { refused.countDown() } }
+        engine.selectAll()
+        barrier()
+        ui { assertTrue(controller.view.clipboard.handle(android.R.id.cut)) }
+        assertTrue("refusal reported", refused.await(20, TimeUnit.SECONDS))
+        barrier()
+        assertEquals(original, source())
+    }
+
+    @Test fun cutCopiesThenRemovesTheSelection() = exercise("alpha beta\n") {
+        engine.handler.post { engine.select(6, 10, false) }
+        barrier()
+        ui { assertTrue(controller.view.clipboard.handle(android.R.id.cut)) }
+        barrier()
+        assertEquals("alpha \n", source())
+        ui {
+            val clip = controller.view.context.getSystemService(android.content.ClipboardManager::class.java).primaryClip!!
+            assertEquals("beta", clip.getItemAt(0).text.toString())
+        }
+    }
+
     @Test fun publishedKeyboardSnapshotKeepsGlobalSelectionAndMarkedCoordinates() = exercise {
         engine.handler.post { engine.select(12_000, 12_003, false); engine.imeSetComposing("marked") }
         barrier()
