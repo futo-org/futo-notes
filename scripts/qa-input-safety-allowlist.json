@@ -1,18 +1,6 @@
 {
   "_comment": "Pinned EXACT lines that name a banned QA-input technique in order to FORBID it, plus the single-checkout deploy steps in the justfile (scripts/check-qa-input-safety.mjs). Matching is rule + exact trimmed line text, so a new occurrence fails even inside an allowlisted file, and a pinned line that disappears fails as stale. Never add an entry to make a fresh instruction green \u2014 these techniques reached the user's production vault once (M24) and killed three peer worktrees' dev stacks once (M25).",
   "allowed": {
-    "AGENTS.md": [
-      {
-        "rule": "cliclick",
-        "line": "- **M24 \u2014 QA input hit the production app.** OS-level input (AppleScript UI scripting, `cliclick`)",
-        "reason": "the named mistake has to name the technique it bans, or it teaches nothing."
-      },
-      {
-        "rule": "process-name-kill",
-        "line": "- **M25 \u2014 Pattern kill across worktrees.** `pkill -f vite` / `pkill -f \"cargo tauri dev\"` reach every",
-        "reason": "the named mistake has to name the technique it bans, or it teaches nothing."
-      }
-    ],
     ".claude/skills/verify/references/desktop.md": [
       {
         "rule": "cliclick",
@@ -64,6 +52,18 @@
         "rule": "cliclick",
         "line": "and never `cliclick`: the process-name lookup they need cannot distinguish a QA",
         "reason": "same list, continuation line."
+      }
+    ],
+    "docs/agents/platform-traps.md": [
+      {
+        "rule": "cliclick",
+        "line": "- **M24 \u2014 QA input hit the production app.** OS-level input (AppleScript UI scripting, `cliclick`)",
+        "reason": "the named mistake has to name the technique it bans, or it teaches nothing."
+      },
+      {
+        "rule": "process-name-kill",
+        "line": "- **M25 \u2014 Pattern kill across worktrees.** `pkill -f vite` / `pkill -f \"cargo tauri dev\"` reach every",
+        "reason": "the named mistake has to name the technique it bans, or it teaches nothing."
       }
     ]
   }
