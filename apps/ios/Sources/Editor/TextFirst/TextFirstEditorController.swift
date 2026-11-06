@@ -48,6 +48,14 @@
         var toolbarInstalled = false
         let layoutDelegate = TextFirstLayoutDelegate()
         let imageRoot: URL
+        /// Each table's sideways scroll, by the display offset its table starts at.
+        var tableScroll: [Int: CGFloat] = [:]
+        var cellEditor: TextFirstCellEditor?
+        var tablePan: UIPanGestureRecognizer?
+        var tablePanRow: (row: NSRange, span: TextFirstTableRowSpan)?
+        var tablePanOrigin: CGFloat = 0
+        /// Called after every accepted engine change (the cell editor follows the engine).
+        var onAccepted: (() -> Void)?
         let imageProtocols: [AnyClass]?
         lazy var images = TextFirstImages(
             controller: self, root: imageRoot, protocols: imageProtocols)
@@ -159,6 +167,7 @@
             refreshCompletion()
             markDirty()
             checkDivergence()
+            onAccepted?()
         }
 
         /// The engine answered a platform edit with no change (a dictation placeholder, an
@@ -311,12 +320,12 @@
 
         // MARK: clipboard (the engine's Markdown, not the display text)
 
-        private func byteRange(_ r: NSRange) throws -> EditorByteRange {
+        func byteRange(_ r: NSRange) throws -> EditorByteRange {
             try session.utf16ToDisplay(expected: rev, range: Self.range(r))
         }
 
-        func copySelection() {
-            let r = textView.selectedRange
+        func copySelection(_ range: NSRange? = nil) {
+            let r = range ?? textView.selectedRange
             guard r.length > 0, !engineComposing else { return }
             do {
                 UIPasteboard.general.string = try session.copyMarkdown(
@@ -324,8 +333,8 @@
             } catch { recover(error, context: "copy") }
         }
 
-        func cutSelection() {
-            let r = textView.selectedRange
+        func cutSelection(_ range: NSRange? = nil) {
+            let r = range ?? textView.selectedRange
             guard r.length > 0, !engineComposing else { return }
             do {
                 let cut = try session.cutMarkdown(expected: rev, range: byteRange(r))
@@ -334,13 +343,13 @@
             } catch { recover(error, context: "cut") }
         }
 
-        func pasteFromPasteboard() {
-            if pasteImageFromPasteboard() { return }
+        func pasteFromPasteboard(_ range: NSRange? = nil) {
+            if range == nil, pasteImageFromPasteboard() { return }
             guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
             finishComposition()
             do {
                 if let change = try session.pasteMarkdown(
-                    expected: rev, range: byteRange(textView.selectedRange), text: text)
+                    expected: rev, range: byteRange(range ?? textView.selectedRange), text: text)
                 {
                     try accept(change)
                 }

@@ -334,10 +334,13 @@
             let display = h.display
             let control = TextFirstHarness.trimmed(run.control.text ?? "")
             // Typing at a link's end lands inside the link: the engine's behavior on main
-            // (interpretation-and-input.md). A typed `|---|` table is a table in the engine; the
-            // text view shows rows of text until the table milestone (M6) renders it.
+            // (interpretation-and-input.md). A typed `|---|` row makes a table in the engine, which
+            // rewrites the rows it normalizes; the plain-UITextView control keeps what was typed, so
+            // the two always differ. The table is drawn as a grid since M6.
             let engineShift = row.name.hasSuffix("is a table")
-            withKnownIssue("tables render in M6", isIntermittent: false) {
+            withKnownIssue(
+                "the engine normalizes a typed table; the control does not", isIntermittent: false
+            ) {
                 #expect(h.source == row.source, "source")
                 #expect(
                     display == (row.conversion ?? control),

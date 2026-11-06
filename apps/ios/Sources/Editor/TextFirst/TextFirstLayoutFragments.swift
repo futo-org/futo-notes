@@ -39,6 +39,8 @@
         weak var host: TextFirstEditorController?
         /// The images of this paragraph: where their glyphs start in it, and the span.
         let imageRuns: [(range: NSRange, span: TextFirstImageSpan)]
+        /// The table rows of this paragraph (one, for a row line).
+        let tableRuns: [(range: NSRange, span: TextFirstTableRowSpan)]
 
         init(
             block: TextFirstBlockAttribute, element: NSTextElement, range: NSTextRange?,
@@ -47,14 +49,19 @@
             self.block = block
             self.host = host
             var runs: [(NSRange, TextFirstImageSpan)] = []
+            var rows: [(NSRange, TextFirstTableRowSpan)] = []
             if let paragraph = element as? NSTextParagraph {
                 let text = paragraph.attributedString
-                text.enumerateAttribute(.tfImage, in: NSRange(location: 0, length: text.length)) {
-                    value, run, _ in
+                let all = NSRange(location: 0, length: text.length)
+                text.enumerateAttribute(.tfImage, in: all) { value, run, _ in
                     if let span = value as? TextFirstImageSpan { runs.append((run, span)) }
+                }
+                text.enumerateAttribute(.tfTable, in: all) { value, run, _ in
+                    if let span = value as? TextFirstTableRowSpan { rows.append((run, span)) }
                 }
             }
             imageRuns = runs
+            tableRuns = rows
             super.init(textElement: element, range: range)
         }
 
@@ -80,6 +87,61 @@
             let size = run.span.size
             return CGRect(
                 x: x, y: line.typographicBounds.minY, width: size.width, height: size.height)
+        }
+
+        /// A table row's grid rect in this fragment's coordinates (x in container coordinates).
+        func tableRect(_ run: (range: NSRange, span: TextFirstTableRowSpan)) -> CGRect? {
+            guard
+                let line = textLineFragments.first(where: {
+                    NSLocationInRange(run.range.location, $0.characterRange)
+                })
+            else { return nil }
+            return CGRect(
+                x: 0, y: line.typographicBounds.minY, width: containerWidth, height: run.span.height
+            )
+        }
+
+        private func drawTables(at point: CGPoint, in context: CGContext) {
+            UIGraphicsPushContext(context)
+            defer { UIGraphicsPopContext() }
+            for run in tableRuns {
+                guard let rect = tableRect(run)?.offsetBy(dx: point.x, dy: point.y) else {
+                    continue
+                }
+                let span = run.span
+                let scroll = MainActor.assumeIsolated { host?.tableScroll[span.tableStart] } ?? 0
+                context.saveGState()
+                context.clip(to: rect)
+                if span.header {
+                    UIColor.tertiarySystemFill.setFill()
+                    context.fill(rect)
+                }
+                let width = TextFirstTableMetrics.cellWidth
+                let pad = TextFirstTableMetrics.padding
+                for column in 0..<span.columns {
+                    let cell = CGRect(
+                        x: rect.minX - scroll + CGFloat(column) * width, y: rect.minY, width: width,
+                        height: rect.height)
+                    if cell.maxX < rect.minX || cell.minX > rect.maxX { continue }
+                    UIColor.separator.setStroke()
+                    context.setLineWidth(1)
+                    context.stroke(cell.insetBy(dx: 0.5, dy: 0.5))
+                    guard let content = span.cell(atColumn: column), !content.text.isEmpty else {
+                        continue
+                    }
+                    let paragraph = NSMutableParagraphStyle()
+                    paragraph.alignment =
+                        content.alignment == .right
+                        ? .right : content.alignment == .center ? .center : .natural
+                    (content.text as NSString).draw(
+                        in: cell.insetBy(dx: pad, dy: pad),
+                        withAttributes: [
+                            .font: TextFirstTableMetrics.font(header: span.header),
+                            .foregroundColor: UIColor.label, .paragraphStyle: paragraph,
+                        ])
+                }
+                context.restoreGState()
+            }
         }
 
         private func drawImages(at point: CGPoint, in context: CGContext) {
@@ -199,6 +261,7 @@
             }
             super.draw(at: pointIn, in: context)
             drawImages(at: point, in: context)
+            drawTables(at: point, in: context)
         }
 
         private func drawListMarker(
@@ -276,12 +339,14 @@
                 let block =
                     text.attribute(.tfBlock, at: 0, effectiveRange: nil) as? TextFirstBlockAttribute
                 var image = false
-                text.enumerateAttribute(
-                    .tfImage, in: NSRange(location: 0, length: text.length), options: []
-                ) { value, _, stop in
-                    if value != nil {
-                        image = true
-                        stop.pointee = true
+                for key in [NSAttributedString.Key.tfImage, .tfTable] {
+                    text.enumerateAttribute(
+                        key, in: NSRange(location: 0, length: text.length), options: []
+                    ) { value, _, stop in
+                        if value != nil {
+                            image = true
+                            stop.pointee = true
+                        }
                     }
                 }
                 if block != nil || image {

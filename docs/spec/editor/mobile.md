@@ -18,3 +18,4 @@ The section files under `mobile/` are added as lines move.
 - [Heading keys](mobile/headings.md)
 - [Lists, checkboxes and links](mobile/lists.md)
 - [Images](mobile/images.md)
+- [Tables](mobile/tables.md)

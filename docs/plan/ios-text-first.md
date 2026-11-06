@@ -29,7 +29,7 @@ commit that finishes the last milestone (archive rule).
 | M3 | Lists, checkboxes, quotes, code | done |
 | M4 | Links and wikilinks, including completion | done |
 | M5 | Images | done |
-| M6 | Tables | |
+| M6 | Tables | done |
 | M7 | Find | |
 | M8 | Long notes: quick open, streaming, Select All | |
 | M9 | Remaining mobile lines and an evidence pass (incl. VoiceOver must read an image's alt text, not its hidden Markdown) | |
@@ -47,6 +47,7 @@ commit that finishes the last milestone (archive rule).
 | `SpanPlan.kt` (`planSpans`, `splitAtLines`) | `host::plan_styles`, `NativeEditorSession.style_plan` | !592 (stacked on !589) | posted |
 | `toolbarActive` / disabled-id mapping in `TextFirstToolbar.kt`, `EditorEngineCaret.kt` | `host::toolbar_highlights`, `NativeEditorSession.toolbar_highlights` | !594 (stacked on !592, merges !590 for `ToolbarState`) | posted |
 | (no Kotlin: engine gap Android shares) caret Backspace/Delete next to an image removes the whole atom | `ParagraphKey::Backspace/Delete` widen to the atom | !595 (from main) | posted |
+| `EditorEngineTables.kt` (`tableSpans`, lookup half of `publishCell`) | `host::plan_tables`, `EditorStyleSpan.TableRow/TableDelimiter`, `NativeEditorSession.cell_view` | !596 (stacked on !593) | to post |
 | `SpanPlan.kt` image branch (`SpanSpec.Image`) | `host::StyleSpec::Image`, `EditorStyleSpan.Image` | !593 (stacked on !592, merges !590 for `is_http_image_source`) | posted |
 | `ToolbarCommandGate.kt` | not needed on iOS: every command runs synchronously on the main actor, so none is queued or dropped. Revisit if M8 moves the engine off the main thread. | | |
 
@@ -156,6 +157,32 @@ commit that finishes the last milestone (archive rule).
   words flowing past, in a list item, a missing file as an alt-text box), and a real tap selected an
   image with the keyboard up. The simulator has no camera and PHPicker is out of process, so the
   picker flows are covered by the unit tests only.
+
+## M6 notes
+
+- Engine: the style plan carries `TableRow` (row line, columns, header, table start, each cell's
+  content range + alignment) and `TableDelimiter`; `cell_view(utf16 selection)` names the focused
+  cell's content range (Android's `publishCell` lookup). !596 stacked on !593.
+- Grid: same hidden-glyph technique as images (0.01 pt clear font, kern = line width - 1 on the first
+  glyph so the row never wraps, min line height = row height); the delimiter line is a 0.01 pt line.
+  `TextFirstLayoutFragment` draws 160 pt columns with borders, a filled semibold header, alignment,
+  clipped to the line, scrolled by one shared offset per table (`tableScroll`, keyed by the table's
+  display start). A horizontal pan that begins on a table scrolls it (the text view's own pan
+  stands down for that drag); a tap on a cell selects its content and opens `TextFirstCellEditor`, a
+  page sheet with a field + Undo + Done. The field never edits itself: shouldChange sends the engine
+  `replace*Utf16` shifted by the cell start, then shows the engine's cell (typing, delete, paste via
+  `paste_markdown`, copy, cut, Return = table Enter, hardware Tab = table Tab, IME via
+  compose/commit). The caret clamp treats a row like an image. Image content is refused when the
+  selection is in a cell (`beginImageInsertion`).
+- Verified on the simulator: a 5-column table with alignment draws and clips at the right edge; a real
+  tap on "Apple" opened the sheet with the cell selected.
+- Not done / checklist: a real horizontal drag on the simulator was not driven (the pan's
+  begin/scroll logic is unit-tested through `scrollTable`); IME composition inside the cell field and
+  VoiceOver on grid cells need a device; the sheet is a plain medium sheet (no Find-in-cell: M7).
+- The typed-`|---|` known issue stays (the engine normalizes the table, the plain control does not);
+  its comment no longer says "M6".
+- Spec: `docs/spec/editor/mobile/tables.md`; Android's tables line stays Android-tagged on that branch
+  until it is moved there too (pushed as a *(mobile)* line, see the commit).
 
 ## M1 notes
 

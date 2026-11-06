@@ -12,6 +12,11 @@
         func beginImageInsertion() -> UInt64? {
             guard !closed else { return nil }
             finishComposition()
+            // A cell holds one line of inline text: image content is refused there, no file written.
+            if (try? session.cellView(expected: rev, selection: Self.range(engineSelection))) != nil
+            {
+                return nil
+            }
             return try? session.imageClaim()
         }
 

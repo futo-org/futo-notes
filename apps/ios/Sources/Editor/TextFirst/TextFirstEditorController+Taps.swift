@@ -46,6 +46,10 @@
             tap.delegate = self
             textView.addGestureRecognizer(tap)
             checkboxTap = tap
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(handleTablePan(_:)))
+            pan.delegate = self
+            textView.addGestureRecognizer(pan)
+            tablePan = pan
         }
 
         func gestureRecognizer(
@@ -58,7 +62,8 @@
             touchHitCheckbox = checkboxFragment(at: p) != nil
             // A touch on a checkbox or a link is that control's alone: the text view does not take
             // focus (no caret, no keyboard), as Android's touch handler consumes it.
-            suppressFocus = touchHitCheckbox || linkTarget(at: p) != nil
+            suppressFocus =
+                touchHitCheckbox || linkTarget(at: p) != nil || tableRowHit(at: p) != nil
             if suppressFocus {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
                     MainActor.assumeIsolated { self?.suppressFocus = false }
@@ -116,7 +121,45 @@
             }
         }
 
+        /// A horizontal drag that starts on a table scrolls all its columns together; any other
+        /// drag is the text view's own.
+        func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+            guard g === tablePan, let pan = g as? UIPanGestureRecognizer else { return true }
+            let v = pan.velocity(in: textView)
+            return abs(v.x) > abs(v.y) && tableRowHit(at: pan.location(in: textView)) != nil
+        }
+
+        @objc func handleTablePan(_ g: UIPanGestureRecognizer) {
+            switch g.state {
+            case .began:
+                // The text view's own scrolling stands down for this drag.
+                textView.panGestureRecognizer.isEnabled = false
+                textView.panGestureRecognizer.isEnabled = true
+                let start = g.location(in: textView)
+                    .applying(
+                        CGAffineTransform(
+                            translationX: -g.translation(in: textView).x,
+                            y: -g.translation(in: textView).y))
+                if let hit = tableRowHit(at: start) {
+                    tablePanRow = (hit.row, hit.span)
+                    tablePanOrigin = tableScroll[hit.span.tableStart] ?? 0
+                }
+            case .changed:
+                guard let (row, span) = tablePanRow else { return }
+                scrollTable(
+                    startingAt: span.tableStart, columns: span.columns,
+                    to: tablePanOrigin - g.translation(in: textView).x, around: row)
+            default:
+                tablePanRow = nil
+            }
+        }
+
         @objc func handleTap(_ g: UITapGestureRecognizer) {
+            if g.state == .ended, let hit = tableCellHit(at: g.location(in: textView)) {
+                suppressFocus = false
+                openCellEditor(hit)
+                return
+            }
             if g.state == .ended, !touchHitCheckbox,
                 let image = imageHit(at: g.location(in: textView))
             {

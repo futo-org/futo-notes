@@ -72,6 +72,14 @@
                 guard let r = range(start, end, length) else { return }
                 images.style(
                     storage, r, destination: destination, alt: alt, vault: vault, remote: remote)
+            case .tableRow(let start, let end, let columns, let header, let tableStart, let cells):
+                guard let r = range(start, end, length) else { return }
+                images.controller?.styleTableRow(
+                    storage, r, columns: Int(columns), header: header, tableStart: Int(tableStart),
+                    cells: cells)
+            case .tableDelimiter(let start, let end):
+                guard let r = range(start, end, length) else { return }
+                images.controller?.styleTableDelimiter(storage, r)
             case .metadata(let start, let end):
                 guard let r = range(start, end, length) else { return }
                 storage.addAttributes(

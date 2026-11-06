@@ -211,10 +211,13 @@
                 var run = NSRange()
                 let paragraph = (storage.string as NSString).paragraphRange(
                     for: NSRange(location: p, length: 0))
-                guard
+                let isAtom =
                     storage.attribute(.tfImage, at: p, longestEffectiveRange: &run, in: paragraph)
-                        is TextFirstImageSpan, p > run.location
-                else { return p }
+                    is TextFirstImageSpan
+                    || storage.attribute(
+                        .tfTable, at: p, longestEffectiveRange: &run, in: paragraph)
+                        is TextFirstTableRowSpan
+                guard isAtom, p > run.location else { return p }
                 if before == run.location, p == run.location + 1 { return NSMaxRange(run) }
                 if before == NSMaxRange(run), p == NSMaxRange(run) - 1 { return run.location }
                 return p - run.location <= NSMaxRange(run) - p ? run.location : NSMaxRange(run)

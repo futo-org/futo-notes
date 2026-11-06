@@ -30,6 +30,7 @@
         override func layoutSubviews() {
             super.layoutSubviews()
             controller?.images.widthChanged()
+            controller?.tablesWidthChanged()
         }
 
         override func becomeFirstResponder() -> Bool {
