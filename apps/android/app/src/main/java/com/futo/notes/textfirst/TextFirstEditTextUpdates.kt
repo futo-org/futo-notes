@@ -44,7 +44,7 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
             beginBatchEdit()
             var t1 = t0
             try {
-                e.withRendererUpdate(update) {
+                e.withRendererUpdate(this, update) {
                     for (edit in update.edits) e.replace(edit.start, edit.end, edit.text)
                     t1 = System.nanoTime()
                     editsEnd = android.os.SystemClock.elapsedRealtimeNanos()

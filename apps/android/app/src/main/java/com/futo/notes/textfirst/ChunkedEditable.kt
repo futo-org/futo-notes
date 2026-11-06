@@ -40,7 +40,7 @@ internal class ChunkedEditable private constructor(private val target: Int, priv
 
     internal val textWatchers = ArrayList<TextWatcher>()
     internal var rendererChange: RendererChange? = null
-    private val spanWatchers = ArrayList<SpanWatcher>()
+    internal val spanWatchers = ArrayList<SpanWatcher>()
     private val watcherFlags = LinkedHashMap<Any, Int>()
     private var filters: Array<InputFilter> = emptyArray()
     /** Spans with SPAN_PRIORITY bits; while there are none, queries skip the priority sort. */

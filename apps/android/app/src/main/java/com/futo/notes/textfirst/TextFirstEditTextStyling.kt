@@ -26,7 +26,7 @@ internal fun TextFirstEditText.applyAppend(update: UiUpdate) {
         reveal.quiet = clipped
         beginBatchEdit()
         try {
-            e.withRendererUpdate(update) {
+            e.withRendererUpdate(this, update) {
                 for (edit in update.edits) e.replace(edit.start, edit.end, edit.text)
                 if (observer != null) editsEnd = android.os.SystemClock.elapsedRealtimeNanos()
                 for (window in update.windows) restyle(e, window)
@@ -149,7 +149,7 @@ internal fun TextFirstEditText.applyStyleSlice(update: UiUpdate) {
     val anchor = if (restoring == null) scrollAnchor() else null
     applying = true
     beginBatchEdit()
-    try { editableText.withRendererUpdate(update) { for (window in update.windows) restyle(editableText, window) } }
+    try { editableText.withRendererUpdate(this, update) { for (window in update.windows) restyle(editableText, window) } }
     finally { endBatchEdit(); applying = false }
     anchor?.let { anchorY(it)?.let { y -> if (y != scrollY) scrollTo(scrollX, y) } }
     onApplyMeasured?.invoke(KeyTimings(0L, update.postedNanos, 0L, began, began, android.os.SystemClock.elapsedRealtimeNanos()), update)

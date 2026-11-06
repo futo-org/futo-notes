@@ -1,6 +1,9 @@
 package com.futo.notes.textfirst
 
 import android.text.Editable
+import android.text.TextPaint
+import android.text.style.CharacterStyle
+import android.widget.TextView
 
 /** One final-coordinate repaint envelope, including the exact old/new text lengths. */
 internal data class RendererChange(val start: Int, val before: Int, val after: Int)
@@ -9,13 +12,23 @@ internal data class RendererChange(val start: Int, val before: Int, val after: I
  * The renderer knows all edits and style windows before touching the attached
  * Editable. Publish them as one coherent change: DynamicLayout then measures
  * final styles once, while native selection/composition spans still notify.
+ *
+ * DynamicLayout reuses a drawn display list per block of lines, and when a
+ * reflow keeps the line count it leaves the blocks below the edit where they
+ * were drawn. A heading toggled to a paragraph keeps its lines but is shorter,
+ * so everything under it would stay at its old screen position while the layout
+ * (and touch, caret and scroll) hold the new one. [view] lets this notice that
+ * and ask for the lines below to be redrawn where they now are.
  */
-internal fun Editable.withRendererUpdate(update: UiUpdate, block: () -> Unit) {
+internal fun Editable.withRendererUpdate(view: TextView, update: UiUpdate, block: () -> Unit) {
     val chunked = this as? ChunkedEditable
     val change = rendererChange(length, update.edits, update.windows)
     if (chunked == null || change == null) { block(); return }
     check(chunked.rendererChange == null) { "Nested renderer update" }
     val oldLength = length
+    val layoutBefore = view.layout
+    val linesBefore = layoutBefore?.lineCount ?: 0
+    val heightBefore = layoutBefore?.height ?: 0
     val watchers = chunked.textWatchers.toTypedArray()
     chunked.rendererChange = change
     var began = false
@@ -40,6 +53,10 @@ internal fun Editable.withRendererUpdate(update: UiUpdate, block: () -> Unit) {
             for (watcher in watchers) try {
                 watcher.onTextChanged(this, landed.start, landed.before, landed.after)
             } catch (error: Throwable) { remember(error) }
+            val layoutAfter = view.layout
+            if (layoutAfter != null && layoutAfter === layoutBefore &&
+                layoutAfter.lineCount == linesBefore && layoutAfter.height != heightBefore
+            ) chunked.redrawFrom(landed.start)
             for (watcher in watchers) try {
                 watcher.afterTextChanged(this)
             } catch (error: Throwable) { remember(error) }
@@ -77,4 +94,19 @@ internal fun rendererChange(length: Int, edits: List<TextEdit>, windows: List<St
     if (start == Int.MAX_VALUE) return null
     require(start in 0..end && end <= finalLength) { "Renderer footprint outside the Editable" }
     return RendererChange(start, end - start - delta, end - start)
+}
+
+/**
+ * Tell the attached TextView that the text from [start] on must be redrawn.
+ * It is told as a change of an appearance span, the one notification that
+ * drops the cached display lists of the lines it covers; a layout reflow
+ * that keeps the line count moves nothing below its own lines (see
+ * [withRendererUpdate]). DynamicLayout ignores it, so nothing is measured again.
+ */
+private fun ChunkedEditable.redrawFrom(start: Int) {
+    for (w in spanWatchers.toTypedArray()) w.onSpanChanged(this, Redraw, start, length, start, length)
+}
+
+private object Redraw : CharacterStyle() {
+    override fun updateDrawState(tp: TextPaint) = Unit
 }
