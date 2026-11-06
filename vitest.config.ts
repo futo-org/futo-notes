@@ -13,7 +13,7 @@ export default defineConfig({
     // One `vitest run` covers the app (this config) and the editor package
     // (its own config), so `just test-unit <path>` reaches either.
     projects: [{ extends: true, test: { name: 'app' } }, 'packages/editor'],
-    env: { VITE_DEV_CRASHLOG_PORT: String(portsFor(__dirname).crashlog) },
+    env: { VITE_DEV_CRASHLOG_PORT: String(portsFor(import.meta.dirname).crashlog) },
     globals: true,
     include: [
       'src/**/*.test.ts',
