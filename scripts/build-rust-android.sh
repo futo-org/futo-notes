@@ -72,7 +72,10 @@ cargo ndk --platform 24 --target "$ABIS" --output-dir "$JNI" \
   build -p futo-notes-ffi --profile "$PROFILE"
 
 echo "==> Building host lib (for binding generation metadata)"
-cargo build -p futo-notes-ffi
+# Same features as the bindgen run below: a plain build resolves `serde` with
+# other features, so each of the two commands dirtied the other and every call
+# recompiled editor, store and ffi twice (~45s of a warm build).
+cargo build -p futo-notes-ffi --features bindgen
 
 echo "==> Generating Kotlin bindings"
 # Host dylib extension differs by OS: macOS .dylib, Linux .so.
