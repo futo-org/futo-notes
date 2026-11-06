@@ -47,7 +47,7 @@ impl EditorSession {
             keep(old_at..start, new_at, &mut runs);
             new_at += start - old_at;
             if !replacement.inserted.is_empty() {
-                let formats = if range == self.selection {
+                let formats = if range == self.selection && range.start == range.end {
                     self.active_formats()
                 } else {
                     let at = DisplayOffset(range.start.0 + start);

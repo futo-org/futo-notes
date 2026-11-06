@@ -560,6 +560,7 @@ fn reconverted_marked_text_keeps_each_unchanged_characters_formats() {
 #[test]
 fn a_reconversion_across_formats_reports_what_its_commit_draws() {
     let mut session = EditorSession::open("a **bc**");
+    session.select(Revision(0), range(0, 4)).unwrap();
     // The changed stretch is the one the commit replaces, so it is formatted
     // like the first character it replaces, not like the whole selection.
     let marked = session.compose(Revision(0), range(0, 4), "a xc").unwrap();
