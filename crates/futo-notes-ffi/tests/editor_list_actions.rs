@@ -88,7 +88,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
         "../../futo-notes-editor/tests/fixtures/heading-quote-commands.json"
     ))
     .unwrap();
-    assert_eq!(headings.len(), 14);
+    assert_eq!(headings.len(), 16);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)

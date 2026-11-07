@@ -175,3 +175,5 @@ Text retirement after a list preserves paragraph ownership for nonempty and
 empty headings and empty quote-off. A necessary blank line maps native ranges;
 a quoted empty paragraph uses the existing hidden-comment separator to keep
 its margin caret and quote ancestry without joining the prior list.
+
+Two selected-ancestor Heading/Quote literals cover quoted task parents and children with CRLF, and an owned child first-text endpoint with its unselected grandchild retained as a list. The heading/quote family now has sixteen cases. Explicit final-block intent lifts selected descendants; the separate Text ancestor literal remains unchanged.

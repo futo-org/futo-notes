@@ -81,18 +81,17 @@ impl EditorSession {
         command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        self.list_command_with_empty_block(expected, range, command, None, accept)
+        self.list_command_with_final_block(expected, range, command, None, accept)
     }
 
-    /// Lift to the requested final block where a zero-body item has no
-    /// independently representable paragraph intermediate. Other rows retain
-    /// the ordinary Text plan and its canonical content protection.
-    pub(in crate::session::blocks) fn list_command_with_empty_block(
+    /// Explicit final blocks lift every selected item. Text keeps its listed
+    /// descendants; zero-body items use the final shape during verification.
+    pub(in crate::session::blocks) fn list_command_with_final_block(
         &mut self,
         expected: Revision,
         range: DisplayRange,
         command: BlockCommand,
-        empty_block: Option<BlockCommand>,
+        final_block: Option<BlockCommand>,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let (has_seams, inspected) = self.projection.has_block_seams_with_work(range);
@@ -121,7 +120,7 @@ impl EditorSession {
                         staged.revision(),
                         local,
                         command,
-                        empty_block,
+                        final_block,
                         accept,
                     )?;
                     if let (Some(change), Some(seams)) = (&mut change, seams) {
@@ -131,7 +130,7 @@ impl EditorSession {
                 },
             ));
         }
-        counted(self.list_rows_command(expected, range, command, empty_block, accept))
+        counted(self.list_rows_command(expected, range, command, final_block, accept))
     }
 
     fn list_rows_command(
@@ -139,7 +138,7 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
         command: BlockCommand,
-        empty_block: Option<BlockCommand>,
+        final_block: Option<BlockCommand>,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let selected = self.selected_list_lines(range);
@@ -196,9 +195,11 @@ impl EditorSession {
                     }
                     continue;
                 }
-                if ancestor.is_some_and(|(above, owner_run)| {
-                    owner_run == run && above != item && row.chain.contains(&Some(above))
-                }) {
+                if final_block.is_none()
+                    && ancestor.is_some_and(|(above, owner_run)| {
+                        owner_run == run && above != item && row.chain.contains(&Some(above))
+                    })
+                {
                     continue;
                 }
                 if !retired.contains(&item) {
@@ -221,7 +222,7 @@ impl EditorSession {
             }
         }
         retire(&mut rows, &retired, true);
-        if let Some(block) = empty_block {
+        if let Some(block) = final_block {
             for row in rows.iter_mut().filter(|row| {
                 row.selected
                     && !row.blank

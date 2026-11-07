@@ -12,5 +12,7 @@
   {"name":"text-heading-after-list-keeps-partial-native-range","source":"- a\n# **bc**","display":"a\nbc","action":"Text","range":[2,3],"expected":"- a\n\n**bc**","shown":"a\n\nbc","resultRange":[3,4],"finalItems":[[null,null]]},
   {"name":"empty-text-after-list-native-crlf","source":"- 👩‍🚀\r\n# ","display":"👩‍🚀\r\n","action":"Text","range":[7,7],"expected":"- 👩‍🚀\r\n\r\n","shown":"👩‍🚀\r\n\r\n","resultRange":[9,9],"finalItems":[[null,null]]},
   {"name":"quoted-empty-text-after-list-keeps-margin-caret","source":"> - a\n> # ","display":"a\n","action":"Text","range":[2,2],"expected":"> - a\n> <!-- -->\n> ","shown":"a\n","resultRange":[2,2],"finalItems":[[null,null]],"itemQuoteDepths":[1]},
-  {"name":"empty-quote-off-after-list-keeps-paragraph","source":"- a\n> ","display":"a\n","action":"Quote","range":[2,2],"expected":"- a\n\n","shown":"a\n\n","resultRange":[3,3],"finalItems":[[null,null]]}
+  {"name":"empty-quote-off-after-list-keeps-paragraph","source":"- a\n> ","display":"a\n","action":"Quote","range":[2,2],"expected":"- a\n\n","shown":"a\n\n","resultRange":[3,3],"finalItems":[[null,null]]},
+  {"name":"selected-quoted-task-parent-child-heading-crlf","source":"> - [ ] a\r\n>   - [x] b","display":"a\r\nb","action":"Heading2","range":[0,4],"expected":"> ## a\r\n> ## b","shown":"a\r\nb","resultRange":[0,4],"finalItems":[],"quoteDepth":1},
+  {"name":"selected-parent-child-quote-keeps-unselected-grandchild","source":"- a\n  - b\n    - c","display":"a\nb\nc","action":"Quote","range":[0,2],"expected":"> a\n> b\n- c","shown":"a\nb\nc","resultRange":[0,2],"finalItems":[[null,null]],"itemDepths":[1]}
 ]
