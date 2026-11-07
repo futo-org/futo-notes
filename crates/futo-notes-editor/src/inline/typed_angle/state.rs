@@ -37,7 +37,7 @@ impl TypedState {
         inserted: &str,
         intent: EditIntent,
     ) -> usize {
-        let EditIntent::Input(action) = intent else {
+        let Some(action) = intent.action() else {
             return 0;
         };
         if range.start == range.end && inserted.is_empty() {

@@ -59,3 +59,45 @@ fn native_block_paste_in_an_empty_fence_stays_literal() {
     assert_eq!(reopened.source_text().unwrap(), expected);
     assert_eq!(reopened.display_text().unwrap(), "# h");
 }
+
+#[test]
+fn native_named_link_paste_maps_visible_caret_and_survives_history_and_reopen() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("linkclip".into(), "".into(), "猫a tail\n".into())
+        .unwrap();
+    let session = store.open_editor("linkclip".into()).unwrap();
+    let at = |start, end| EditorByteRange { start, end };
+    session
+        .select_with_affinity(0, at(4, 4), futo_notes_ffi::EditorAffinity::Forward)
+        .unwrap();
+    let change = session
+        .paste_markdown(0, at(4, 4), "[λ](<https://x.test> 'T')".into())
+        .unwrap()
+        .unwrap();
+    assert_eq!(change.selection, at(6, 6));
+    let expected = "猫a[λ](<https://x.test> 'T') tail\n";
+    assert_eq!(session.source_text().unwrap(), expected);
+    assert_eq!(session.display_text().unwrap(), "猫aλ tail\n");
+    let link = session.inspect_link(1, at(4, 6)).unwrap().unwrap();
+    assert_eq!(link.destination, "https://x.test");
+    assert_eq!(link.title.as_deref(), Some("T"));
+    assert_eq!(session.undo(1).unwrap().unwrap().selection, at(4, 4));
+    assert_eq!(session.source_text().unwrap(), "猫a tail\n");
+    assert_eq!(session.redo(2).unwrap().unwrap().selection, at(6, 6));
+    assert_eq!(session.source_text().unwrap(), expected);
+    session.checkpoint().unwrap();
+    drop(session);
+    let reopened = store.open_editor("linkclip".into()).unwrap();
+    assert_eq!(reopened.source_text().unwrap(), expected);
+    assert_eq!(
+        reopened
+            .inspect_link(0, at(4, 6))
+            .unwrap()
+            .unwrap()
+            .destination,
+        "https://x.test"
+    );
+}

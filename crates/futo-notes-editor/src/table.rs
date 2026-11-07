@@ -32,7 +32,7 @@ pub(crate) struct Splice {
     pub text: String,
 }
 
-fn unescaped_pipes(text: &str, start: usize, end: usize) -> Vec<usize> {
+pub(crate) fn unescaped_pipes(text: &str, start: usize, end: usize) -> Vec<usize> {
     let bytes = text.as_bytes();
     let mut pipes = Vec::new();
     let mut slashes = 0;

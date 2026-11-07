@@ -7,6 +7,7 @@ impl EditorSession {
         range: DisplayRange,
         inserted: &str,
         action: crate::InputAction,
+        intent: crate::inline::EditIntent,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<(ViewChange, InputMapping)>, EditorError> {
         if inserted
@@ -100,11 +101,11 @@ impl EditorSession {
                 )?;
                 staged.carry_block_state(&mut boundary, formats, affinity);
                 let local = staged.selection();
-                let (mut input, mapping) = staged.replace_action_mapped(
+                let (mut input, mapping) = staged.replace_intent_mapped(
                     staged.revision(),
                     local,
                     inserted,
-                    action,
+                    intent,
                     accept,
                 )?;
                 let mapping = mapping.with_source_boundary(&boundary);
@@ -129,6 +130,7 @@ impl EditorSession {
         range: DisplayRange,
         inserted: &str,
         action: crate::InputAction,
+        intent: crate::inline::EditIntent,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         if range.start != range.end || inserted.is_empty() {
@@ -159,11 +161,11 @@ impl EditorSession {
         if range == self.selection {
             staged.pending_formats = self.pending_formats.clone();
         }
-        let input = staged.replace_action(
+        let (input, _) = staged.replace_intent_mapped(
             staged.revision(),
             DisplayRange::default(),
             inserted,
-            action,
+            intent,
             &mut |_| Ok(()),
         )?;
         let raw = staged.source_text();

@@ -222,7 +222,7 @@ impl EditorSession {
             !shape.has_block && !shape.blank_line
         };
         let mut change = if literal {
-            self.replace_action(expected, range, &text, crate::InputAction::Isolated, accept)?
+            self.replace_markdown_action(expected, range, &text, accept)?
         } else {
             self.place_blocks(expected, start, end, &line, &text, &shape, newline, accept)?
         };

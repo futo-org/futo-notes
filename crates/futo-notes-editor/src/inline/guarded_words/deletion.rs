@@ -20,7 +20,7 @@ impl GuardState {
         if self.owners.is_empty()
             || !inserted.is_empty()
             || selected.is_empty()
-            || !matches!(intent, EditIntent::Input(InputAction::Isolated))
+            || intent.action() != Some(InputAction::Isolated)
         {
             return Ok((None, 0));
         }

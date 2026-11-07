@@ -3,6 +3,7 @@
 //! move. The parser remains the authority for interpreting candidate source.
 mod carry;
 mod context;
+mod insertion;
 mod prefixes;
 pub(super) use context::Context;
 mod selection;
@@ -23,6 +24,8 @@ use std::ops::Range;
 #[derive(Clone, Copy)]
 pub(crate) enum EditIntent {
     Input(crate::InputAction),
+    /// Clipboard Markdown is isolated input, with its own parsed inline meaning.
+    Paste,
     /// A selected format toggle. `Some(add)` forces its direction, the one a
     /// multi-block selection decided for all of its bodies; `None` decides
     /// from the selected pieces alone.
@@ -119,21 +122,19 @@ impl Projection {
         // it with that paragraph first, so delimiters stay raw only while the
         // joined paragraph reads as typed; when it cannot be planned, a typed
         // delimiter lands escaped as literal text.
-        let _escape = if matches!(intent, EditIntent::Input(_))
-            && !inserted.is_empty()
-            && self.joins_next_row(range)
-        {
-            match plan(Width::Joined, true) {
-                Ok((plan, true)) => return Ok(spent(plan, tried)),
-                Ok((plan, false)) => tried.push(plan),
-                Err(_) => {}
-            }
-            inserted
-                .contains(['*', '_', '~', '`'])
-                .then(super::spelling::EscapeTypedDelimiters::set)
-        } else {
-            None
-        };
+        let _escape =
+            if intent.action().is_some() && !inserted.is_empty() && self.joins_next_row(range) {
+                match plan(Width::Joined, true) {
+                    Ok((plan, true)) => return Ok(spent(plan, tried)),
+                    Ok((plan, false)) => tried.push(plan),
+                    Err(_) => {}
+                }
+                inserted
+                    .contains(['*', '_', '~', '`'])
+                    .then(super::spelling::EscapeTypedDelimiters::set)
+            } else {
+                None
+            };
         let mut widths = vec![Width::Rows];
         if self.at_word_seam(range) {
             widths.push(Width::Line);
@@ -291,26 +292,19 @@ impl Projection {
         }
         let mut changed = before;
         let insertion_index = changed.len();
-        let pieces = inserted.char_indices().filter(|(at, _)| kept.contains(at));
-        changed.extend(pieces.map(|(offset, ch)| Piece {
-            guard: split_guard.map(|id| super::guarded_words::GuardPart {
-                id,
-                role: super::guarded_words::GuardRole::Inner,
-            }),
-            physical_prefix: false,
-            literal_url: None,
-            raw: if escape_pipes && ch == '|' {
-                "\\|".to_owned()
-            } else {
-                ch.to_string()
+        let pasted = self.append_input(
+            &mut changed,
+            &mut markers,
+            insertion::Input {
+                text: inserted,
+                kept: kept.clone(),
+                spans: &inserted_spans,
+                intent,
+                escape_pipes,
+                split_guard,
             },
-            display: ch.to_string(),
-            spans: inserted_spans.clone(),
-            trailing: false,
-            definition: None,
-            origin: Some(PieceOrigin::Inserted(offset..offset + ch.len_utf8())),
-            timing: false,
-        }));
+        )?;
+        let imported = pasted.semantic;
         let insertion_end = changed.len();
         changed.extend(after);
         if let Some(owner) = deleting_guard {
@@ -337,7 +331,7 @@ impl Projection {
                 if boundary <= a {
                     Some(boundary)
                 } else if boundary >= z {
-                    Some(boundary - (z - a) + kept.len())
+                    Some(boundary - (z - a) + pasted.display_len)
                 } else {
                     None
                 }
@@ -399,7 +393,8 @@ impl Projection {
         };
         let fence = |marker: char| prefix().take(3).filter(|&ch| ch == marker).count() == 3;
         let speculative_fence = (fence('`') || fence('~')) && !prefix().any(char::is_whitespace);
-        let mut literal = inserted.contains(['<', '>'])
+        let mut literal = imported
+            || inserted.contains(['<', '>'])
             || speculative_fence
             || speculative_block
             || toggle.is_some()
@@ -423,7 +418,7 @@ impl Projection {
             insertion_index,
             inserted,
         );
-        let timing = if let EditIntent::Input(action) = intent {
+        let timing = if let Some(action) = intent.action() {
             super::spelling::prepare_url_input(
                 &mut changed,
                 &markers,
@@ -436,7 +431,7 @@ impl Projection {
             Default::default()
         };
         if let Some(value) = timing.literal {
-            literal = value;
+            literal = imported || value;
         }
         let mut rendered = spell(
             changed,
@@ -475,7 +470,7 @@ impl Projection {
             guarded_words,
             split_retirement: rendered.split_retirement,
             retained,
-            requires_source_identity: !literal,
+            requires_source_identity: imported || !literal,
             pending_links: rendered.pending_links,
             activated_links: rendered.activated_links,
             delimiters: rendered.delimiters,
@@ -489,11 +484,13 @@ impl Projection {
                 + timing.materialized
                 + angle.materialized
                 + completion.materialized
+                + pasted.materialized
                 + rendered.materialized,
             parsed: parsed
                 + seal_parsed
                 + timing.work.parsed
                 + guard_work.parsed
+                + pasted.work.parsed
                 + typed_work.parsed,
             link_metadata_items: typed_work.items
                 + guard_work.items
@@ -504,12 +501,14 @@ impl Projection {
                 + rendered.link_metadata_items
                 + angle.work.items
                 + completion.work.items
+                + pasted.work.items
                 + toggle_work,
             link_copied_bytes: typed_work.copied
                 + guard_work.copied
                 + rendered.link_copied_bytes
                 + angle.work.copied
                 + completion.work.copied
+                + pasted.work.copied
                 + timing.work.copied,
         };
         Ok((plan, sealed))

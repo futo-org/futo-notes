@@ -61,7 +61,7 @@ impl GuardState {
         if self.owners.is_empty()
             || !selected.is_empty()
             || inserted.is_empty()
-            || !matches!(intent, EditIntent::Input(crate::InputAction::Isolated))
+            || intent.action() != Some(crate::InputAction::Isolated)
         {
             return Ok((None, 0));
         }
