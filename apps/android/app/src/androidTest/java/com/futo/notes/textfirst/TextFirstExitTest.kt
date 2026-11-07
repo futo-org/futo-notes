@@ -21,6 +21,57 @@ import uniffi.futo_notes_ffi.NoteStore
 
 /** A block can always be left: Enter past a selected image, Quote and Code block as toggles. */
 class TextFirstExitTest {
+    @Test fun undoAfterKeyboardDeletesACellSelectionRestoresItsRange() {
+        for ((label, codePoints, backwards) in listOf(
+            Triple("Item", false, true), Triple("\uD83D\uDE00", true, true), Triple("Item", false, false),
+        )) {
+            val source = "| $label | Owner |\n| --- | --- |\n"
+            session(source) { c ->
+                assertTrue(c.selectDisplayRange(2, 2 + label.length))
+                ime(c, cell = true) {
+                    beginBatchEdit()
+                    val at = if (backwards) label.length else 0
+                    setSelection(at, at)
+                    val length = if (codePoints) 1 else label.length
+                    val before = if (backwards) length else 0
+                    val after = if (backwards) 0 else length
+                    if (codePoints) deleteSurroundingTextInCodePoints(before, after)
+                    else deleteSurroundingText(before, after)
+                    endBatchEdit()
+                }
+                assertEquals("|  | Owner |\n| --- | --- |\n", c.sourceText())
+                c.undo()
+                assertEquals(source, c.sourceText())
+                assertEquals(2, c.view.selectionStart)
+                assertEquals(2 + label.length, c.view.selectionEnd)
+                assertEquals(0, c.cellView!!.selectionStart)
+                assertEquals(label.length, c.cellView!!.selectionEnd)
+                ime(c, cell = true) { commitText("Revised", 1) }
+                assertEquals("| Revised | Owner |\n| --- | --- |\n", c.sourceText())
+                c.undo()
+                assertEquals(source, c.sourceText())
+                assertEquals(0, c.cellView!!.selectionStart)
+                assertEquals(label.length, c.cellView!!.selectionEnd)
+            }
+        }
+    }
+
+    @Test fun aDeferredCellCollapseUsesTheCellsLocalCoordinates() =
+        session("| Item | Owner |\n| --- | --- |\n") { c ->
+            assertTrue(c.selectDisplayRange(2, 4))
+            ime(c, cell = true) { beginBatchEdit(); setSelection(2, 2); endBatchEdit() }
+            assertEquals("| Item | Owner |\n| --- | --- |\n", c.sourceText())
+            assertEquals(4, c.view.selectionStart)
+            assertEquals(4, c.view.selectionEnd)
+            assertEquals(2, c.cellView!!.selectionStart)
+            ime(c, cell = true) { commitText("X", 1) }
+            assertEquals("| ItXem | Owner |\n| --- | --- |\n", c.sourceText())
+            c.undo()
+            assertEquals("| Item | Owner |\n| --- | --- |\n", c.sourceText())
+            assertEquals(4, c.view.selectionStart)
+            assertEquals(2, c.cellView!!.selectionStart)
+        }
+
     @Test fun undoAfterKeyboardDeletesASelectionRestoresItsRange() = session("Meeting") { c ->
         c.select(0, 7)
         ime(c) {
@@ -187,8 +238,8 @@ class TextFirstExitTest {
      * them; calling them on the main thread raced the posted selection and Enter
      * landed at the old caret.
      */
-    private suspend fun ime(c: TextFirstController, call: InputConnection.() -> Unit) {
-        val connection = c.view.onCreateInputConnection(EditorInfo())!!
+    private suspend fun ime(c: TextFirstController, cell: Boolean = false, call: InputConnection.() -> Unit) {
+        val connection = (if (cell) c.cellView!! else c.view).onCreateInputConnection(EditorInfo())!!
         suspendCancellableCoroutine<Unit> { done ->
             connection.handler!!.post { connection.call(); c.view.post { done.resume(Unit) } }
         }

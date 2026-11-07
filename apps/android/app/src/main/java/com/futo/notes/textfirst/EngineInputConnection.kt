@@ -209,16 +209,18 @@ internal open class EngineInputConnection(
         // Enter on a selection makes the keyboard collapse it and delete the
         // selected text first. A selected image or code block takes Enter as an
         // object (the engine acts after it), so that collapse is not passed on.
-        if (!cell && start == end) {
-            val selected = view.selectedObject
-            if (selected != null && selected.first == engine.selStart && selected.second == engine.selEnd && start == selected.second) return true
+        val from = (low + start).coerceIn(low, high)
+        val to = (low + end).coerceIn(low, high)
+        if (start == end) {
+            val selected = if (cell) null else view.selectedObject
+            if (selected != null && selected.first == engine.selStart && selected.second == engine.selEnd && from == selected.second) return true
             if (batch > 0 && engine.mirror.overlay == null && engine.selStart != engine.selEnd &&
-                (start == engine.selStart || start == engine.selEnd)) {
-                collapse = Collapse(engine.seq, engine.rev, engine.selStart, engine.selEnd, start)
+                (from == engine.selStart || from == engine.selEnd)) {
+                collapse = Collapse(engine.seq, engine.rev, engine.selStart, engine.selEnd, from)
                 return true
             }
         }
-        engine.imeSetSelection((low + start).coerceIn(low, high), (low + end).coerceIn(low, high))
+        engine.imeSetSelection(from, to)
         return true
     }
 
