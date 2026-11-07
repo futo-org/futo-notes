@@ -130,6 +130,12 @@ impl EditorSession {
                 body.replace_range(at..at + removed, &inserted);
                 escaped = Some((at, inserted.len() as isize - removed as isize));
             }
+            // A lifted empty item's body excludes its final heading marker;
+            // author that marker as prefix so source-selection mapping hides it.
+            if row.after.heading > 0 && row.body.is_empty() {
+                prefix.push_str(&"#".repeat(row.after.heading as usize));
+                prefix.push(' ');
+            }
             let length = prefix.len();
             prefix.push_str(&body);
             outputs.push(Some(Respelled {

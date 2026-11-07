@@ -36,3 +36,6 @@ mod line_endings;
 
 #[path = "blocks/list_endpoint_commands.rs"]
 mod list_endpoint_commands;
+
+#[path = "blocks/empty_list_commands.rs"]
+mod empty_list_commands;

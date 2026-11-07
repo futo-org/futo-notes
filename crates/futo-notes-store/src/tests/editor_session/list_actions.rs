@@ -169,7 +169,7 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
         "../../../../futo-notes-editor/tests/fixtures/heading-quote-commands.json"
     ))
     .unwrap();
-    assert_eq!(headings.len(), 6);
+    assert_eq!(headings.len(), 10);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)

@@ -215,10 +215,11 @@ impl EditorSession {
                 None,
                 accept,
                 |staged, local, accept| {
-                    let Some(lifted) = staged.block_command(
+                    let Some(lifted) = staged.list_command_with_empty_block(
                         staged.revision(),
                         local,
                         BlockCommand::Heading(0),
+                        Some(command),
                         accept,
                     )?
                     else {

@@ -81,6 +81,20 @@ impl EditorSession {
         command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        self.list_command_with_empty_block(expected, range, command, None, accept)
+    }
+
+    /// Lift to the requested final block where a zero-body item has no
+    /// independently representable paragraph intermediate. Other rows retain
+    /// the ordinary Text plan and its canonical content protection.
+    pub(in crate::session::blocks) fn list_command_with_empty_block(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        command: BlockCommand,
+        empty_block: Option<BlockCommand>,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
         let (has_seams, inspected) = self.projection.has_block_seams_with_work(range);
         let counted = |result: Result<Option<ViewChange>, EditorError>| {
             result.map(|change| {
@@ -103,8 +117,13 @@ impl EditorSession {
                 accept,
                 |staged, local, accept| {
                     let seams = staged.split_inline_block_seams(local, accept)?;
-                    let mut change =
-                        staged.list_rows_command(staged.revision(), local, command, accept)?;
+                    let mut change = staged.list_rows_command(
+                        staged.revision(),
+                        local,
+                        command,
+                        empty_block,
+                        accept,
+                    )?;
                     if let (Some(change), Some(seams)) = (&mut change, seams) {
                         accumulate_planning_work(&mut change.work, seams.work);
                     }
@@ -112,7 +131,7 @@ impl EditorSession {
                 },
             ));
         }
-        counted(self.list_rows_command(expected, range, command, accept))
+        counted(self.list_rows_command(expected, range, command, empty_block, accept))
     }
 
     fn list_rows_command(
@@ -120,6 +139,7 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
         command: BlockCommand,
+        empty_block: Option<BlockCommand>,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let selected = self.selected_list_lines(range);
@@ -201,6 +221,19 @@ impl EditorSession {
             }
         }
         retire(&mut rows, &retired, true);
+        if let Some(block) = empty_block {
+            for row in rows.iter_mut().filter(|row| {
+                row.selected
+                    && row.body.is_empty()
+                    && row.item().is_some_and(|item| retired.contains(&item))
+            }) {
+                match block {
+                    BlockCommand::Heading(level) => row.after.heading = level,
+                    BlockCommand::Quote => row.after.quotes = row.after.quotes.max(1),
+                    _ => return Err(EditorError::InvalidRange),
+                }
+            }
+        }
         for owner in &owners {
             retarget(&mut rows, owner, command);
         }
