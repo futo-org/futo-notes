@@ -179,3 +179,40 @@ fn code_off_does_not_adopt_an_untouched_header_as_a_table() {
             .is_empty());
     }
 }
+
+#[test]
+fn code_command_at_a_saved_body_end_removes_its_own_fence() {
+    for command in [BlockCommand::CodeBlock, BlockCommand::WrapCodeBlock] {
+        let source = "```\ncode\n```\n";
+        let mut session = EditorSession::open(source);
+        let mut view = ReferenceView::new("code");
+        session.select(session.revision(), range(4, 4)).unwrap();
+        view.apply(
+            session
+                .block_command(session.revision(), range(4, 4), command, &mut |_| Ok(()))
+                .unwrap()
+                .expect("the body-end caret belongs to the code"),
+        );
+        assert_eq!(session.source_text(), "code\n");
+        assert_eq!(view.text, "code\n");
+        assert_eq!(session.selection(), range(4, 4));
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), source);
+        assert_eq!(view.text, "code");
+        assert_eq!(session.selection(), range(4, 4));
+        view.apply(
+            session
+                .redo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), "code\n");
+        assert_eq!(view.text, "code\n");
+        assert_eq!(session.selection(), range(4, 4));
+    }
+}

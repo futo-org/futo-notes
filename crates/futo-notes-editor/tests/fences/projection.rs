@@ -189,3 +189,22 @@ fn code_list_marker_prefix_controls_keep_existing_first_and_continuation_roles()
             .all(|block| block.list.as_ref().is_some_and(|list| !list.first)));
     }
 }
+
+#[test]
+fn terminal_fence_rendering_keeps_the_synthetic_eof_record() {
+    for source in [
+        "```\ncode\n```\n".to_string(),
+        format!("```\n{}```\n", "body\n".repeat(2_000)),
+    ] {
+        let session = EditorSession::open(&source);
+        let end = session.display_text().len();
+        let window = range(end, end);
+        let projected = session.project(session.revision(), window).unwrap();
+        assert!(projected.text.is_empty());
+        assert!(projected.blocks.iter().any(|block| block.code));
+        assert!(projected
+            .blocks
+            .iter()
+            .any(|block| !block.code && block.range == window));
+    }
+}

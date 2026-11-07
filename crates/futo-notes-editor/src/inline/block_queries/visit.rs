@@ -90,7 +90,22 @@ impl Projection {
                 a < range.end.0 && range.start.0 < z
             }
         };
+        // Saving a terminal fence adds a synthetic plain EOF line at the
+        // body's last display position. A collapsed input/formatting caret
+        // there belongs to the fence. Rendering still retains both records.
+        let fence_eof_caret = query != BlockLineQuery::Rendering
+            && range.start == range.end
+            && row.blocks.last().is_some_and(|block| {
+                block.source.is_empty() && source + block.source.end == note_end && hits(block)
+            })
+            && row
+                .blocks
+                .iter()
+                .any(|block| block.fence.is_some() && hits(block));
         for (at, block) in row.blocks.iter().enumerate() {
+            if fence_eof_caret && block.source.is_empty() && source + block.source.end == note_end {
+                continue;
+            }
             if block.empty_comment || at == 0 && row.mid_line {
                 continue;
             }

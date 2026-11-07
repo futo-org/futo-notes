@@ -172,12 +172,14 @@ fn a_recomposed_word_takes_the_formats_of_its_first_character_after_a_toggle_off
 #[test]
 fn toolbar_caret_retains_terminal_code_ownership() {
     for source in [
-        "```\ncode\n```",
-        "```\n\n```\n",
-        "> ```\n> code\n> ```\n",
-        "- ```\n  code\n  ```\n",
+        "```\ncode\n```".to_string(),
+        "```\n\n```\n".to_string(),
+        "> ```\n> code\n> ```\n".to_string(),
+        "- ```\n  code\n  ```\n".to_string(),
+        format!("```\n{}```\n", "body\n".repeat(2_000)),
+        format!("```\r\n{}```\r\n", "body\r\n".repeat(2_000)),
     ] {
-        let mut session = EditorSession::open(source);
+        let mut session = EditorSession::open(&source);
         let end = session.display_text().len();
         session.select(session.revision(), range(end, end)).unwrap();
         let state = session.toolbar_state();
