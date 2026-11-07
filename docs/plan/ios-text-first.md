@@ -135,6 +135,47 @@ commit that finishes the last milestone (archive rule).
 - Timings (iOS 27.2 sim futo-qa-6, Debug app, release Rust, `TextFirstLongBenchTests`): see
   `docs/spec/editor/mobile/long-notes.md`; raw logs in `ios-text-first-artifacts/m8/`.
 
+## Architecture review follow-up (leave, checkpoint, identity, contention)
+
+Review of !591 at 06ec72176, checked against the merged M8 code. Verdicts and what changed:
+
+- Failed leave (confirmed): `TextFirstLeaves` gave up after 10 detach attempts and `release()`d, so the
+  controller (the draft: dropping an unclosed session loses its edits) was freed. A leave now never
+  ends on a failure: it keeps the real controller, retries every 2 s, and `claim(id)` hands it back,
+  draft and all, when the note is opened again (the screen shows `TextFirstSaveBanner`: "Couldn't
+  save", Retry save, and Discard edits behind a confirmation). It ends on a durable save, on
+  `discard()`, or when the store retires the draft token (a full reset must not bring a wiped note
+  back). `TextFirstNeverOpened` (M8) ends the leave: nothing was attached. A failed leave after
+  the pop shows the "still pending" toast once; iOS keeps committing after the pop (editor-exits.md),
+  it does not veto Back as Android does (5155fe70f). Catalog keys `notes.save.retry`, `discard`,
+  `discardQuestion`, `discardWarning` are byte-identical to android-text-first's.
+- Coordinated changes (confirmed): drained after both checkpoint outcomes and while the view holds
+  marked text the engine settled (the view shows the engine's text and selection); deferred while
+  an M8 engine job runs and taken by `settleJobs`.
+- Identity (confirmed for the title action, the wikilink self-check and the leave registry; the
+  untouched-new-note delete now also checks it; image destinations refuted: an image goes to the vault root under a bare name and its claim
+  belongs to the attachment, tests pin it across a rename and a park). The editor follows the
+  session's own id (read on the I/O queue after every save attempt, a returned disposition, or the
+  rename mutation), never a name pattern; `TextFirstTitle.rename` acts on that id.
+  Not done: a screen pushed over (wikilink) holds no attachment, so a peer rename meanwhile leaves
+  its `noteId` stale and the re-open bounces back to the list (nothing is lost).
+- Contention (characterized, release-ffi, 20k-line 899 KB note, simulator): the save holds the FFI
+  session mutex and the attachment lock through its filesystem work, so the first main-thread session
+  call after it starts waits for the rest of it. Injected write delay 200 / 600 / 1500 ms: a
+  `revision()` call waited 160 / 565 / 1461 ms. A real save of this note (no injected delay) held the
+  session about 45 ms warm and about 110 ms for the note's first save; a keystroke behind it waited that long. A toolbar command with a caret ran on the main thread and took 560 ms behind
+  a 600 ms save. A save queued behind another workflow's gate hold (a 96 MB write, 117 ms) made a
+  `revision()` call wait 72 ms. M8's engine jobs share the saves' I/O queue and do not set
+  `engineBusy` for a save: a heavy command asked for during a slow save stays off the main thread but
+  input is dropped until the save and the job end (+619 ms for a 600 ms save). Proposed engine MR
+  (not in !591): on the no-divergence path the save snapshots (id, base, source, revision) under
+  the attachment lock, takes the gate and writes without it, then commits by revision (revision
+  moved: base becomes the written bytes and the draft stays dirty); the divergent path (adoption,
+  park) stays under the lock; the FFI session drops the one mutex in front of `StoreEditorSession`,
+  which already shares `Arc<Mutex<Attachment>>`.
+  Measure: `TEST_RUNNER_TEXT_FIRST_CONTENTION_OUT=/tmp/c.txt just test-ios-native TextFirstSaveContentionTests`
+  with a local-only sleep in `vault_fs/unix.rs` `write_temp_and_install` (`FUTO_SLOW_WRITE_MS`).
+
 Milestone notes M1 to M6: [ios-text-first/notes-m1-m6.md](ios-text-first/notes-m1-m6.md).
 
 ## Human checklist (needs a physical iPhone; never blocks a milestone)
