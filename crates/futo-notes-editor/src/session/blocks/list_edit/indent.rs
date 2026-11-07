@@ -15,6 +15,9 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let (window, mut rows) = self.indent_rows(range, command);
+        for row in &mut rows {
+            row.lenient = true;
+        }
         let Some(first) = rows.iter().position(|row| row.selected && !row.code) else {
             return Ok(None);
         };
@@ -60,6 +63,7 @@ impl EditorSession {
                 .find(|&at| {
                     rows[at].before.opens
                         && rows[at].before.depth == depth + 1
+                        && rows[at].before.quotes == rows[item].before.quotes
                         && rows[at].chain.contains(&Some(sibling))
                 })
                 .map(|at| (rows[at].before.marker, rows[at].key))

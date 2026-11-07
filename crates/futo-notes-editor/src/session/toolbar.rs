@@ -69,8 +69,22 @@ impl EditorSession {
                     .is_some_and(|other| other.whole == fence.whole)
             })
         });
+        // Items sharing a line with an item they sit in through a quote are
+        // outside the generic list edit: neither command applies to them or
+        // their quotes.
+        let through_quote = first
+            .and_then(|line| line.list.as_ref())
+            .is_some_and(|list| list.through_quote);
+        // An item whose own line opens a quote (`- > q`) is refused by both.
+        let opens_quote = first.is_some_and(|line| {
+            line.list
+                .as_ref()
+                .is_some_and(|list| list.first && line.quote_depth != list.quote_depth)
+        });
         let can_indent = if lines.iter().any(|line| line.code) {
             same_fence.is_some()
+        } else if opens_quote {
+            false
         } else if let Some(line) = first.filter(|line| {
             line.list
                 .as_ref()
@@ -78,9 +92,9 @@ impl EditorSession {
         }) {
             line.list
                 .as_ref()
-                .is_some_and(|list| list.previous_content_column.is_some())
+                .is_some_and(|list| list.previous_content_column.is_some() && !through_quote)
         } else {
-            lines.iter().any(|line| line.quote_depth > 0)
+            !through_quote && lines.iter().any(|line| line.quote_depth > 0)
         };
         let can_outdent = if lines.iter().any(|line| line.code) {
             same_fence.is_some_and(|fence| {
@@ -90,11 +104,7 @@ impl EditorSession {
                         && self.source.byte_slice(line.content.clone()).bytes().next() == Some(b' ')
                 })
             })
-        } else if first.is_some_and(|line| {
-            line.list
-                .as_ref()
-                .is_some_and(|list| list.first && line.quote_depth != list.quote_depth)
-        }) {
+        } else if opens_quote {
             false
         } else if let Some(line) = first.filter(|line| {
             line.list
@@ -102,14 +112,17 @@ impl EditorSession {
                 .is_some_and(|list| line.quote_depth == list.quote_depth)
         }) {
             let list = line.list.as_ref().unwrap();
-            // Retiring a terminal empty root item cannot preserve an editable
-            // paragraph for its selected source position; the command refuses.
+            // Retiring a terminal empty root item with no line ending after it
+            // cannot preserve an editable paragraph for its selected source
+            // position; the command refuses.
             !(line.content.is_empty()
                 && list.depth == 1
                 && line.quote_depth == 0
-                && line.source.end == self.source.len_bytes())
+                && line.source.end == self.source.len_bytes()
+                && line.source.end == line.content.end)
+                && !through_quote
         } else {
-            lines.iter().any(|line| line.quote_depth > 0)
+            !through_quote && lines.iter().any(|line| line.quote_depth > 0)
         };
         ToolbarState {
             formats: if range.start == range.end {

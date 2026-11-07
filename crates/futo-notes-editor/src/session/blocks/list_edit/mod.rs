@@ -12,6 +12,7 @@ mod enter;
 mod indent;
 mod ops;
 mod plan;
+mod reflow;
 mod repair;
 mod shapes;
 mod verify;
@@ -69,6 +70,8 @@ enum Insert {
     None,
     Blank,
     Comment,
+    /// The closing fence of an unclosed code block above the row.
+    Close,
 }
 
 pub(super) struct Row {
@@ -89,6 +92,11 @@ pub(super) struct Row {
     pub divider: bool,
     /// Owned syntax a canonical prefix cannot respell.
     fixed: bool,
+    /// A block only Indent and Outdent respell line by line (setext, raw
+    /// HTML, multi-line body); every other command refuses it.
+    block: bool,
+    /// Indent and Outdent may also respell a block and close an open fence.
+    pub lenient: bool,
     pub selected: bool,
     /// Membership comparisons while attributing this physical row.
     selection_work: usize,
@@ -143,6 +151,7 @@ impl EditorSession {
             let text = &raw[..raw.len() - ending];
             let start = line.source.start;
             let mut fixed = line.fixed;
+            let block = line.block;
             let quotes = line.list.as_ref().map_or(line.quote_depth, |list| {
                 list.quote_depth.min(line.quote_depth)
             });
@@ -207,6 +216,8 @@ impl EditorSession {
                 blank,
                 divider: line.divider,
                 fixed,
+                block,
+                lenient: false,
                 selected: is_selected,
                 selection_work,
                 exact_blank: false,
@@ -327,7 +338,8 @@ impl EditorSession {
         let mut budget = 8;
         while let Some(at) = bad {
             let mut repaired = false;
-            for option in repairs(rows, at) {
+            let close = self.fence_repair(rows, at);
+            for option in repairs(rows, at).into_iter().chain(close) {
                 if budget == 0 {
                     break;
                 }
@@ -419,6 +431,8 @@ fn eof_row(len: usize, index: usize, selected: bool) -> Row {
         blank: true,
         divider: false,
         fixed: false,
+        block: false,
+        lenient: false,
         selected,
         selection_work: 0,
         exact_blank: false,

@@ -21,9 +21,11 @@ pub(crate) struct ListCommandLine {
     pub code: bool,
     pub list: Option<super::lists::ListLine>,
     pub task: Option<Range<usize>>,
-    /// Syntax a generic list edit cannot respell: setext/multi-line bodies,
-    /// raw HTML, front matter.
+    /// Syntax a generic list edit cannot respell: front matter.
     pub fixed: bool,
+    /// A block whose container prefixes are respelled line by line and whose
+    /// markdown shortcuts never apply: setext/multi-line bodies, raw HTML.
+    pub block: bool,
 }
 
 impl ListCommandLine {
@@ -42,10 +44,10 @@ impl ListCommandLine {
             code: block.code,
             list,
             task: block.task.as_ref().map(shift),
-            fixed: block.bodies.len() > 1
+            fixed: block.metadata,
+            block: block.bodies.len() > 1
                 || block.underline.is_some()
                 || block.html
-                || block.metadata
                 || block.heading_syntax == HeadingSyntax::Setext,
         }
     }

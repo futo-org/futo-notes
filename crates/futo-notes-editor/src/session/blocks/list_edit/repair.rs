@@ -25,6 +25,8 @@ pub(super) fn escape(body: &str) -> Option<(usize, usize, String)> {
 pub(super) enum Repair {
     Escape(usize),
     Insert(usize, Insert),
+    /// A blank line before each of two rows.
+    Separate(usize, usize),
     Alternate(usize),
 }
 
@@ -33,6 +35,10 @@ impl Repair {
         match self {
             Self::Escape(at) => rows[at].escape = true,
             Self::Insert(at, insert) => rows[at].insert = insert,
+            Self::Separate(first, second) => {
+                rows[first].insert = Insert::Blank;
+                rows[second].insert = Insert::Blank;
+            }
             Self::Alternate(end) => {
                 // The whole changed list around `end` takes the other marker.
                 let (depth, key) = (rows[end].after.depth, rows[end].key);
@@ -83,6 +89,19 @@ pub(super) fn repairs(rows: &[Row], at: usize) -> Vec<Repair> {
     if boundary {
         options.push(Repair::Insert(at, Insert::Blank));
     }
+    // A changed row left as paragraph text swallows a bare `-` item below it
+    // as a setext underline: separate the first untouched row after it.
+    if let Some(changed) = (at..rows.len()).find(|&index| rows[index].changed()) {
+        if let Some(next) = (changed + 1..rows.len()).find(|&index| !rows[index].changed()) {
+            if !rows[next].blank && rows[next].insert == Insert::None {
+                options.push(Repair::Insert(next, Insert::Blank));
+                // Both ends of text that lazily joined the item above.
+                if boundary {
+                    options.push(Repair::Separate(at, next));
+                }
+            }
+        }
+    }
     let run = (0..=at)
         .rev()
         .find(|&index| rows[index].changed() && rows[index].after.opens);
@@ -121,4 +140,15 @@ pub(super) fn repairs(rows: &[Row], at: usize) -> Vec<Repair> {
         }
     }
     options
+}
+
+impl EditorSession {
+    /// A code block left open above the first mismatching row swallows it
+    /// (the item that ended the block no longer does): write its closing fence.
+    pub(super) fn fence_repair(&self, rows: &[Row], at: usize) -> Option<Repair> {
+        let swallowed =
+            at > 0 && rows[at].lenient && rows[at - 1].code && rows[at].insert == Insert::None;
+        (swallowed && self.open_fence(rows, at).is_some())
+            .then_some(Repair::Insert(at, Insert::Close))
+    }
 }

@@ -88,11 +88,12 @@ impl EditorSession {
                 outputs.push(self.renumbered(row, parents[index]));
                 continue;
             }
-            if row.fixed && row.list.is_none() && !row.escape && only_quotes(row) {
+            if (row.fixed || row.block) && row.list.is_none() && !row.escape && only_quotes(row) {
                 outputs.push(Some(self.requote_lines(row)));
                 continue;
             }
-            if row.fixed || row.divider && depth != row.before.depth {
+            if row.fixed || (row.block || row.divider && depth != row.before.depth) && !row.lenient
+            {
                 return Err(EditorError::UnrepresentableFormat);
             }
             let (mut prefix, base) = if quotes_same {
@@ -121,6 +122,11 @@ impl EditorSession {
                 }
             } else {
                 stack.clear();
+                // A quote opened inside the item an Outdent left is now a plain
+                // quote. (Other commands keep refusing a lift out of that quote.)
+                if row.lenient {
+                    prefix.push_str(&"> ".repeat(row.after.inner));
+                }
             }
             let mut body = self.source.byte_slice(row.body.clone()).to_string();
             let mut escaped = None;
@@ -129,6 +135,35 @@ impl EditorSession {
                     escape(&body).ok_or(EditorError::UnrepresentableFormat)?;
                 body.replace_range(at..at + removed, &inserted);
                 escaped = Some((at, inserted.len() as isize - removed as isize));
+            } else if row.block && body.contains('\n') {
+                // The later physical lines of a block take the new container.
+                let later = if depth > 0 {
+                    let column = *stack
+                        .get(depth - 1)
+                        .ok_or(EditorError::UnrepresentableFormat)?;
+                    let quote = if quotes_same {
+                        self.source
+                            .byte_slice(row.line.start..row.quote_end)
+                            .to_string()
+                    } else {
+                        "> ".repeat(row.after.quotes)
+                    };
+                    let base = crate::inline::columns(&quote, 0);
+                    format!(
+                        "{quote}{}{}",
+                        " ".repeat(column.saturating_sub(base)),
+                        "> ".repeat(row.after.inner)
+                    )
+                } else {
+                    format!(
+                        "{}{}",
+                        "> ".repeat(row.after.quotes),
+                        "> ".repeat(row.after.inner)
+                    )
+                };
+                let (reflowed, delta, at) = self.reflow(row, &body, &later)?;
+                body = reflowed;
+                escaped = Some((at, delta));
             }
             let length = prefix.len();
             prefix.push_str(&body);
@@ -258,7 +293,22 @@ impl EditorSession {
                     "> ".repeat(row.after.quotes)
                 };
                 let line_ending = self.inserted_ending(rows, row);
-                if row.insert == Insert::Comment {
+                if row.insert == Insert::Close {
+                    let fence = self
+                        .open_fence(rows, index)
+                        .ok_or(EditorError::UnrepresentableFormat)?;
+                    let above = &rows[index - 1];
+                    match &outputs[index - 1] {
+                        Some(out) => text.push_str(&out.text[..out.prefix]),
+                        None => text.push_str(
+                            &self
+                                .source
+                                .byte_slice(above.line.start..above.body.start)
+                                .to_string(),
+                        ),
+                    }
+                    text.push_str(&fence);
+                } else if row.insert == Insert::Comment {
                     text.push_str(&quote);
                     text.push_str("<!-- -->");
                 } else {
