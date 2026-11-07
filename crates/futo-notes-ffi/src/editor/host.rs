@@ -42,6 +42,9 @@ pub struct EditorMirrorEdit {
     /// The resulting selection in the new display.
     pub selection_start: u64,
     pub selection_end: u64,
+    /// How many units earlier the same insertion or deletion could equally have been spelled
+    /// (see `futo_notes_editor::host::MirrorEdit::slack`); pass it to `EditorPendingEdits.record`.
+    pub slack_utf16: u64,
 }
 
 impl From<MirrorEdit> for EditorMirrorEdit {
@@ -52,6 +55,7 @@ impl From<MirrorEdit> for EditorMirrorEdit {
             inserted_utf16: value.inserted_utf16 as u64,
             selection_start: value.selection_start as u64,
             selection_end: value.selection_end as u64,
+            slack_utf16: value.slack as u64,
         }
     }
 }
@@ -128,6 +132,28 @@ impl EditorDisplayMirror {
         Ok(self
             .with(|m| m.apply_change(start, end, &inserted, selection))?
             .into())
+    }
+
+    /// Where a key replays on the engine, at the engine's caret (see
+    /// `futo_notes_editor::host::DisplayMirror::at_caret`): the range the key asked for on the
+    /// frozen view, relative to that view's selection, kept relative to the engine's selection.
+    pub fn at_caret(
+        &self,
+        start: u64,
+        end: u64,
+        view_selection_start: u64,
+        view_selection_end: u64,
+        engine_selection_start: u64,
+        engine_selection_end: u64,
+    ) -> Result<EditorUtf16Range, EditorMirrorError> {
+        let view = (index(start)?, index(end)?);
+        let view_selection = (index(view_selection_start)?, index(view_selection_end)?);
+        let engine_selection = (index(engine_selection_start)?, index(engine_selection_end)?);
+        let (start, end) = self.with(|m| m.at_caret(view, view_selection, engine_selection));
+        Ok(EditorUtf16Range {
+            start: start as u64,
+            end: end as u64,
+        })
     }
 }
 

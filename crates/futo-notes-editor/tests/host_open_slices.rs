@@ -178,6 +178,53 @@ fn queued_edits_map_ranges_the_way_replaying_them_in_order_needs() {
 }
 
 #[test]
+fn a_range_ending_where_an_insertion_was_queued_stays_before_it() {
+    use futo_notes_editor::host::PendingEdits;
+    let mut q = PendingEdits::new();
+    // "x" typed at the frozen caret 5 of "hello"; the view still shows "hello|", so a Backspace
+    // asks for [4, 5): the text before the caret, not the insertion that sits at 5.
+    assert_eq!(q.push(5, 5, 1), (5, 5));
+    assert_eq!(q.push(4, 5, 0), (4, 5));
+    // Its start, or a collapsed range, at the insertion point still goes after it.
+    let mut q = PendingEdits::new();
+    q.record(5, 5, 1);
+    assert_eq!(q.map(5, 5), (6, 6));
+    assert_eq!(q.map(5, 8), (6, 9));
+    assert_eq!(q.map(4, 5), (4, 5));
+    // A deletion's end is not an insertion point: a range ending there follows the deletion.
+    let mut q = PendingEdits::new();
+    assert_eq!(q.push(3, 5, 0), (3, 5));
+    assert_eq!(q.map(2, 5), (2, 3));
+}
+
+#[test]
+fn an_edit_in_a_run_is_recorded_where_the_host_asked_for_it() {
+    use futo_notes_editor::host::PendingEdits;
+    // "a" typed into "aa" is reported at 2 with slack 2: the same text results from an insertion
+    // at 0, 1 or 2. A tap at 1 (between the original a's) is at 2 once the typed "a" is before it.
+    for (near, tap_lands) in [(0, 2), (1, 2), (2, 1), (9, 1)] {
+        let mut q = PendingEdits::new();
+        q.record_near(2, 2, 1, 2, near);
+        assert_eq!(q.map(1, 1), (tap_lands, tap_lands), "asked for {near}");
+    }
+    // Without slack, or for a replacement, the engine's report stands.
+    let mut q = PendingEdits::new();
+    q.record_near(2, 2, 1, 0, 0);
+    let mut plain = PendingEdits::new();
+    plain.record(2, 2, 1);
+    assert_eq!(q, plain);
+    let mut q = PendingEdits::new();
+    q.record_near(2, 3, 1, 2, 0);
+    let mut plain = PendingEdits::new();
+    plain.record(2, 3, 1);
+    assert_eq!(q, plain);
+    // A slack larger than the edit's own position cannot slide it before the text.
+    let mut q = PendingEdits::new();
+    q.record_near(1, 1, 1, 5, 0);
+    assert_eq!(q.map(0, 0), (1, 1));
+}
+
+#[test]
 fn replaying_queued_edits_on_the_engine_text_equals_applying_them_to_the_view_text() {
     use futo_notes_editor::host::PendingEdits;
     // Edits as a user makes them on a view that does not change; the engine replays them mapped.
