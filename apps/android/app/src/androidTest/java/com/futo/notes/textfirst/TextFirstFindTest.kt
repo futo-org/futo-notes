@@ -1,12 +1,15 @@
 package com.futo.notes.textfirst
 
 import android.graphics.Color
+import android.os.SystemClock
+import android.view.KeyEvent
 import android.view.inputmethod.EditorInfo
 import androidx.activity.ComponentActivity
 import androidx.core.content.res.ResourcesCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import com.futo.notes.R
+import com.futo.notes.ui.FindQueryEditText
 import java.io.File
 import java.util.UUID
 import kotlin.coroutines.resume
@@ -123,5 +126,47 @@ class TextFirstFindTest {
         assertEquals("zz$source", c.sourceText())
         c.findClose()
         assertEquals("zz$source", c.sourceText())
+    }
+
+    @Test fun aQueryEnterRequestsOneStepWithItsDirection() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val scenario = ActivityScenario.launch(ComponentActivity::class.java)
+        val steps = mutableListOf<Int>()
+        lateinit var query: FindQueryEditText
+        try {
+            scenario.onActivity { activity ->
+                query = FindQueryEditText(activity).apply {
+                    onStep = { steps += it }
+                    setText("alpha")
+                }
+                activity.setContentView(query)
+                assertTrue(query.requestFocus())
+            }
+            instrumentation.waitForIdleSync()
+            for ((key, meta, direction) in listOf(
+                Triple(KeyEvent.KEYCODE_ENTER, 0, 1),
+                Triple(KeyEvent.KEYCODE_ENTER, KeyEvent.META_SHIFT_ON, -1),
+                Triple(KeyEvent.KEYCODE_NUMPAD_ENTER, 0, 1),
+            )) {
+                scenario.onActivity {
+                    assertTrue("query keeps keyboard focus", query.hasFocus())
+                    steps.clear()
+                }
+                val down = SystemClock.uptimeMillis()
+                instrumentation.sendKeySync(KeyEvent(down, down, KeyEvent.ACTION_DOWN, key, 0, meta))
+                instrumentation.sendKeySync(KeyEvent(down, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, key, 0, meta))
+                instrumentation.waitForIdleSync()
+                scenario.onActivity {
+                    assertEquals("one hardware key pair, key=$key meta=$meta", listOf(direction), steps)
+                }
+            }
+            // A soft keyboard's Search action has no hardware KeyEvent.
+            scenario.onActivity {
+                steps.clear()
+                query.onEditorAction(EditorInfo.IME_ACTION_SEARCH)
+                assertEquals(listOf(1), steps)
+                assertEquals("alpha", query.text.toString())
+            }
+        } finally { scenario.close() }
     }
 }
