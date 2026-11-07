@@ -46,4 +46,42 @@ accept(session.table_command_utf16(revision, below.start, below.end, 'InsertRowB
 assert.equal(session.draft_text().split('\n').length, 6);
 assert.throws(() => session.inspect_table_utf16(revision, 0, 10_000));
 session.free();
+
+// Clearing an edge cell repairs only its outer border; the same cell accepts
+// the next native-unit input and exact history survives the worker boundary.
+const edgeSource = 'Item | Owner\n:--- | ---';
+const edge = new WasmSession(2n, edgeSource, 0n);
+let edgeRevision = 0n;
+const edgeAccept = (applied) => {
+  const { sequence } = JSON.parse(applied).request;
+  edgeRevision += 1n;
+  edge.acknowledge(
+    JSON.stringify({
+      token: 2,
+      sequence,
+      accepted: Number(edgeRevision),
+      paused: false,
+      error: null,
+    }),
+  );
+};
+edge.select_with_affinity(0n, 0, 4, '"Forward"');
+edgeAccept(edge.paragraph_key_utf16(0n, 0, 4, '"Backspace"'));
+assert.equal(edge.draft_text(), '| | Owner\n:--- | ---');
+const clearedCell = JSON.parse(edge.inspect_table(edgeRevision, 2, 2));
+assert.deepEqual(clearedCell.focus, { row: 0, column: 0 });
+const emptyCell = clearedCell.rows[0][0].content;
+assert.equal(emptyCell.start, emptyCell.end);
+edgeAccept(edge.replace_utf16(edgeRevision, emptyCell.start, emptyCell.end, Uint16Array.of(0x58)));
+assert.equal(edge.draft_text(), '| X| Owner\n:--- | ---');
+edgeAccept(edge.undo(edgeRevision));
+assert.equal(edge.draft_text(), '| | Owner\n:--- | ---');
+edgeAccept(edge.undo(edgeRevision));
+assert.equal(edge.draft_text(), edgeSource);
+edgeAccept(edge.redo(edgeRevision));
+assert.equal(edge.draft_text(), '| | Owner\n:--- | ---');
+const reopenedEdge = new WasmSession(3n, edge.draft_text(), 0n);
+assert.deepEqual(JSON.parse(reopenedEdge.inspect_table(0n, 2, 2)).focus, { row: 0, column: 0 });
+reopenedEdge.free();
+edge.free();
 console.log('Compiled WASM tables: inspect, cell paste, row command and Tab key passed.');

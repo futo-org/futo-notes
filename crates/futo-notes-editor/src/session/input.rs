@@ -177,6 +177,11 @@ impl EditorSession {
             crate::inline::EditIntent::Input(action),
             cell.is_some(),
         )?;
+        if let Some(change) = self.input_clearing_table_edge(
+            expected, range, inserted, action, &plan, query_work, accept,
+        )? {
+            return Ok(change);
+        }
         let edit = self.prepare_source(
             expected,
             SourceRange {
