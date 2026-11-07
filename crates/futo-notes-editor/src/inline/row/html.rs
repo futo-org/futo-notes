@@ -100,11 +100,12 @@ impl Row {
                 block
             })
             .collect();
+        let (table_scan, table_read) = crate::table::RowScan::counted(text);
         Some(Self {
             source_len: text.len(),
             pipes: text.contains('|'),
-            table_scan: crate::table::RowScan::new(text),
-            parsed_source_bytes: full.parsed_source_bytes + text.len(),
+            table_scan,
+            parsed_source_bytes: full.parsed_source_bytes + table_read,
             guarded_words: Vec::new(),
             images: Vec::new(),
             wikilinks: Vec::new(),

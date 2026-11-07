@@ -147,14 +147,15 @@ impl super::row::Row {
             source: 0..source.len(),
             content: opener..content_end,
         };
+        let (table_scan, table_read) = crate::table::RowScan::counted(source);
         Self {
             continues: false,
             mid_line: false,
             through: false,
             source_len: source.len(),
             pipes: source.contains('|'),
-            table_scan: crate::table::RowScan::new(source),
-            parsed_source_bytes: source.len() * 2,
+            table_scan,
+            parsed_source_bytes: source.len() + table_read,
             guarded_words: Vec::new(),
             typed_inputs: Vec::new(),
             literal_delimiters: Vec::new(),

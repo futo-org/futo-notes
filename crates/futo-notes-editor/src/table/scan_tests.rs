@@ -69,6 +69,11 @@ fn retained_scan_matches_greedy_layout_at_every_line_and_across_every_line_seam(
         "intro\nItem|Owner\n:---|---\nx|y\n\nplain\n",
         "a\\|b|c\n:---|---\nx|y",
         "a|b\r\n|-|-|\r\nx|y\r\n",
+        "  | a | b | \n | - | - |\n | x | y |\n",
+        "a\\\\|b|c\n-|-|-\nx|y|z",
+        "`a|b`|c\n-|-|-\nx|y|z",
+        "|\n-|-\nx|y",
+        "||\n|-|\nx",
     ];
     for source in cases {
         let facts = RowScan::new(source);
@@ -145,4 +150,75 @@ fn empty_segments_preserve_external_headers_and_plain_word_fragments_do_not_crea
         cut.apply(incoming),
         RowScan::new(source).summary.apply(incoming)
     );
+}
+
+#[test]
+fn interruption_short_circuit_retains_the_original_predicate() {
+    fn original(line: &str) -> bool {
+        let indent = line.len() - line.trim_start_matches(' ').len();
+        if indent > 3 {
+            return false;
+        }
+        let line = line[indent..].trim_end_matches(['\r', '\n']);
+        let first = line.bytes().next().unwrap_or(b' ');
+        let hashes = line.bytes().take_while(|byte| *byte == b'#').count();
+        let marker = matches!(first, b'-' | b'+' | b'*')
+            && matches!(line.as_bytes().get(1), None | Some(b' ' | b'\t'));
+        let digits = line.bytes().take_while(u8::is_ascii_digit).count();
+        let ordered = (1..=9).contains(&digits)
+            && matches!(line.as_bytes().get(digits), Some(b'.' | b')'))
+            && matches!(line.as_bytes().get(digits + 1), None | Some(b' ' | b'\t'));
+        let compact: String = line
+            .chars()
+            .filter(|ch| !matches!(ch, ' ' | '\t'))
+            .collect();
+        let rule = compact.len() >= 3
+            && matches!(first, b'-' | b'*' | b'_')
+            && compact.bytes().all(|byte| byte == first);
+        first == b'>'
+            || ((1..=6).contains(&hashes)
+                && matches!(line.as_bytes().get(hashes), None | Some(b' ' | b'\t')))
+            || line.starts_with("```")
+            || line.starts_with("~~~")
+            || marker
+            || ordered
+            || rule
+    }
+    let bodies = [
+        "",
+        "text",
+        "__word__ rest",
+        "_ _ _",
+        "__é",
+        "-",
+        "+",
+        "*",
+        "- x",
+        "---",
+        "-\t- -",
+        "#",
+        "######",
+        "#######",
+        "####### x",
+        "> x",
+        "```x",
+        "~~~",
+        "123456789.",
+        "123456789) x",
+        "1234567890. x",
+        "1.x",
+        "1.\t",
+        "１. x",
+    ];
+    for indent in ["", " ", "   ", "    ", "\t", " \t"] {
+        for body in bodies {
+            for ending in ["", "\n", "\r\n", "\r\r\n"] {
+                let line = format!("{indent}{body}{ending}");
+                let (actual, read) = super::interrupts_counted(&line);
+                assert_eq!(actual, original(&line), "{line:?}");
+                assert!(read <= line.len());
+            }
+        }
+    }
+    assert!(super::interrupts_counted(&"plain prose ".repeat(1000)).1 < 8);
 }
