@@ -36,7 +36,7 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
     assert_eq!(fences.len(), 23);
     let headings: Vec<Value> =
         serde_json::from_str(include_str!("../fixtures/heading-quote-commands.json")).unwrap();
-    assert_eq!(headings.len(), 5);
+    assert_eq!(headings.len(), 6);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)

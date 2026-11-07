@@ -130,7 +130,7 @@ CRLF entity controls hand-map native UTF-16 ranges: a selected endpoint after
 the first decoded scalar is unit one (byte three), and its new CRLF frame
 moves it to unit three (byte five). Backspace retains its start caret.
 
-Fourteen final mutation literals add nine fence-family cases and five
+Fifteen final mutation literals add nine fence-family cases and six
 `heading-quote-commands.json` cases.
 They preserve a preceding listed paragraph with one necessary blank, authored
 blank/empty/opaque predecessors without new blank normalization, continuation
@@ -164,3 +164,5 @@ an item's own line, crossquote lifting, same-line nested parents, unclosed fence
 lifted item, setext headings) carry `"refused": true`. Their `expected`/`shown` keep the
 historical literals for reference; every consumer instead asserts `UnrepresentableFormat`
 with source and revision unchanged.
+
+The heading first-text-endpoint literal retains the opening command targets through list lifting: selecting `a\nb` through the start of `b` owns both list rows, and the heading reaches both while retaining the original range and one exact Undo step.

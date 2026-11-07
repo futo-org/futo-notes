@@ -204,6 +204,11 @@ impl EditorSession {
                     && (command != BlockCommand::Quote || line.quote_depth == 0)
             })
         {
+            let owns_endpoint = range.start != range.end
+                && lines.last().is_some_and(|line| {
+                    line.list.as_ref().is_some_and(|list| list.first)
+                        && self.projection.display_at(line.content.start) == range.end.0
+                });
             return self.stage_block_action(
                 expected,
                 range,
@@ -228,9 +233,24 @@ impl EditorSession {
                     {
                         return Err(EditorError::UnrepresentableFormat);
                     }
+                    // The opening formatting scope includes a list item's first
+                    // text boundary. Lifting retires that marker, so a fresh
+                    // half-open query would silently lose that target. Reach
+                    // into its unchanged body for planning, then retain the
+                    // user's original selection rather than the planning range.
+                    let mut target = local;
+                    if owns_endpoint {
+                        target.end = DisplayOffset(staged.grapheme_stop(
+                            local.end.0,
+                            crate::CaretDirection::Forward,
+                            false,
+                        )?);
+                    }
+                    let formats = staged.pending_formats.clone();
+                    let affinity = staged.affinity;
                     let Some(mut change) = staged.lf_block_command_toggling(
                         staged.revision(),
-                        local,
+                        target,
                         command,
                         false,
                         accept,
@@ -238,6 +258,17 @@ impl EditorSession {
                     else {
                         return Ok(Some(lifted));
                     };
+                    if target != local {
+                        let selection = DisplayRange {
+                            start: change.selection.start,
+                            end: DisplayOffset(
+                                change.selection.end.0 - (target.end.0 - local.end.0),
+                            ),
+                        };
+                        staged.select_with_affinity(staged.revision(), selection, affinity)?;
+                        change.selection = selection;
+                        staged.carry_block_state(&mut change, formats, affinity);
+                    }
                     accumulate_planning_work(&mut change.work, lifted.work);
                     Ok(Some(change))
                 },
