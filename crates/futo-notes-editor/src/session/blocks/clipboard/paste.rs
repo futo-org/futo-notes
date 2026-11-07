@@ -198,6 +198,11 @@ impl EditorSession {
         let start = self.split_point(range.start).max(line.content);
         let end = self.split_point(range.end).max(start);
         if let PasteTarget::Code = target {
+            // The fence owner keeps pasted delimiters literal by lengthening
+            // the enclosing fence, while retaining its physical prefixes.
+            if let Some(change) = self.fence_paste(expected, range, &text, accept)? {
+                return Ok(Some(change));
+            }
             // Verbatim: each further line repeats the code line's prefix.
             let prefix = line.continuation();
             let out = prefixed(&text, newline, &prefix, prefix.trim_end());

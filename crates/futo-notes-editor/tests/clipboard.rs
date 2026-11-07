@@ -79,6 +79,45 @@ fn paste_keeps_copied_characters_and_places_blocks() {
         // Pasted endings follow the note; code takes text verbatim.
         ("ab\r\ncd", (1, 1), "# T\nz", "a\r\n# T\r\nzb\r\ncd"),
         ("```\nab\n```", (1, 1), "x\n# y", "```\nax\n# yb\n```"),
+        (
+            "```\nab\n```",
+            (1, 1),
+            "x\n```\ny",
+            "````\nax\n```\nyb\n````",
+        ),
+        (
+            "```\narchive\n```",
+            (0, 7),
+            "alpha\n```\nomega\n```",
+            "````\nalpha\n```\nomega\n```\n````",
+        ),
+        (
+            "> ```\n> ab\n> ```",
+            (1, 1),
+            "x\n```\ny",
+            "> ````\n> ax\n> ```\n> yb\n> ````",
+        ),
+        (
+            "- ```\n  ab\n  ```",
+            (1, 1),
+            "x\n```\ny",
+            "- ````\n  ax\n  ```\n  yb\n  ````",
+        ),
+        (
+            "~~~\nab\n~~~",
+            (1, 1),
+            "x\n~~~~\ny",
+            "~~~~~\nax\n~~~~\nyb\n~~~~~",
+        ),
+        ("```\nab", (1, 1), "x\n```\ny", "````\nax\n```\nyb"),
+        (
+            "```\r\nab\r\n```\r\n",
+            (1, 1),
+            "x\n```\ny",
+            "````\r\nax\r\n```\r\nyb\r\n````\r\n",
+        ),
+        ("```\ncode\n\n```", (5, 5), "\n\n", "```\ncode\n\n\n```"),
+        ("    ab", (1, 1), "x\n```\ny", "    ax\n    ```\n    yb"),
         ("    code", (2, 2), "x\n# y", "    cox\n    # yde"),
         (
             "    co\n    de",

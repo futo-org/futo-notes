@@ -128,6 +128,36 @@ impl EditorSession {
         action: crate::InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        self.fence_replacement(expected, range, inserted, action, true, accept)
+    }
+
+    pub(in crate::session) fn fence_paste(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        inserted: &str,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        // Pasted blank lines remain code; only Enter can exit the last line.
+        self.fence_replacement(
+            expected,
+            range,
+            inserted,
+            crate::InputAction::Isolated,
+            false,
+            accept,
+        )
+    }
+
+    fn fence_replacement(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        inserted: &str,
+        action: crate::InputAction,
+        exit_empty_line: bool,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
         let mut lines = self.projection.block_lines(range);
         // A note whose last block is a fence ends with the empty line after
         // its closing line ending; it shares the code's last display position,
@@ -167,8 +197,10 @@ impl EditorSession {
         }) {
             return Ok(None);
         }
-        if let Some(change) = self.fence_exit(expected, range, fence, inserted, accept)? {
-            return Ok(Some(change));
+        if exit_empty_line {
+            if let Some(change) = self.fence_exit(expected, range, fence, inserted, accept)? {
+                return Ok(Some(change));
+            }
         }
         let Some(owned) = fence.input_range(&self.projection, range, &lines, inserted) else {
             // Keep foreign code/prose separators with the strict generic planner.

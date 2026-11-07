@@ -80,8 +80,35 @@ try {
   assert.equal(JSON.parse(session.project(0n, 0, Buffer.byteLength(display))).text, display);
   assert.deepEqual(await reopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
+  const codeSource = '```\narchive\n```';
+  const codeExchange = await start(codeSource);
+  const literalCode = 'alpha\n```\nomega\n```';
+  const fencedSource = '````\n' + literalCode + '\n````';
+  const acceptCode = async (applied) => {
+    const { request } = JSON.parse(applied);
+    session.acknowledge(JSON.stringify(await codeExchange(JSON.stringify(request))));
+  };
+  await acceptCode(session.paste_markdown(0n, 0, 7, literalCode));
+  assert.equal(session.draft_text(), fencedSource);
+  assert.equal(
+    JSON.parse(session.project(1n, 0, Buffer.byteLength(literalCode))).text,
+    literalCode,
+  );
+  await acceptCode(session.undo(1n));
+  assert.equal(session.draft_text(), codeSource);
+  await acceptCode(session.redo(2n));
+  assert.equal(session.draft_text(), fencedSource);
+  assert.deepEqual(await codeExchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+  await stop();
+  await start('--reopen');
+  assert.equal(session.draft_text(), savedSource(fencedSource));
+  assert.equal(
+    JSON.parse(session.project(0n, 0, Buffer.byteLength(literalCode))).text,
+    literalCode,
+  );
+  await stop();
   console.log(
-    'Compiled WASM clipboard: copy, one-action cut, Markdown paste and real store saving passed.',
+    'Compiled WASM clipboard: copy, one-action cut, Markdown paste, literal code fences and real store saving passed.',
   );
 } finally {
   if (session) await stop();
