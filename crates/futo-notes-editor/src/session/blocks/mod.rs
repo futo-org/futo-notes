@@ -43,6 +43,39 @@ pub(super) use tables::CellInput;
 mod transaction;
 mod typing;
 
+/// The heading level every selected content line carries, whatever quote
+/// depth or block kind it sits in. This is the toolbar's heading state and the
+/// toggle's own test for taking the level off.
+pub(in crate::session) fn common_heading(
+    lines: &[&crate::inline::blocks::BlockLine],
+) -> Option<u8> {
+    let first = lines.first()?.heading;
+    lines
+        .iter()
+        .all(|line| line.heading == first)
+        .then_some(first)
+}
+
+/// Every selected prose line sits in a quote, whatever block it is (paragraph,
+/// heading or list item inside the quote), and at least one is. This is the
+/// toolbar's active Quote state and the command's own test, so choosing Quote
+/// then takes a level off and keeps each block. A quote nested inside a list item is not offered: that
+/// outdent is outside the generic list path.
+pub(in crate::session) fn all_quoted(lines: &[&crate::inline::blocks::BlockLine]) -> bool {
+    let mut prose = lines
+        .iter()
+        .filter(|line| !line.code && !line.divider && !line.metadata)
+        .peekable();
+    prose.peek().is_some()
+        && prose.all(|line| {
+            line.quote_depth > 0
+                && line
+                    .list
+                    .as_ref()
+                    .is_none_or(|list| list.quote_depth == line.quote_depth)
+        })
+}
+
 enum BlockSelection {
     Display(DisplayRange),
     Source(usize),

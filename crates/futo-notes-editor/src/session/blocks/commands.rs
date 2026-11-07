@@ -99,8 +99,7 @@ impl EditorSession {
                 return Err(EditorError::InvalidRange);
             }
             let lines = self.selected_block_lines(range);
-            let lines = self.content_block_lines(&lines);
-            if !lines.is_empty() && lines.iter().all(|line| line.heading == level) {
+            if common_heading(&self.content_block_lines(&lines)) == Some(level) {
                 BlockCommand::Heading(0)
             } else {
                 BlockCommand::Heading(level)
@@ -365,26 +364,6 @@ impl EditorSession {
             .collect();
         (boundaries, inspected.get())
     }
-}
-
-/// Every selected prose line sits in a quote, whatever block it is (paragraph,
-/// heading or list item inside the quote), and at least one is. This is the
-/// toolbar's active Quote state, so choosing Quote then takes a level off and
-/// keeps each block. A quote nested inside a list item is not offered: that
-/// outdent is outside the generic list path.
-fn all_quoted(lines: &[&crate::inline::blocks::BlockLine]) -> bool {
-    let mut prose = lines
-        .iter()
-        .filter(|line| !line.code && !line.divider && !line.metadata)
-        .peekable();
-    prose.peek().is_some()
-        && prose.all(|line| {
-            line.quote_depth > 0
-                && line
-                    .list
-                    .as_ref()
-                    .is_none_or(|list| list.quote_depth == line.quote_depth)
-        })
 }
 
 fn changes_block(line: &crate::inline::blocks::BlockLine, command: BlockCommand) -> bool {

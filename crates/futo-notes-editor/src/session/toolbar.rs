@@ -1,4 +1,5 @@
 //! Read-only toolbar state, derived by the canonical editor owner.
+use super::blocks::{all_quoted, common_heading};
 use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,8 +119,8 @@ impl EditorSession {
             } else {
                 self.selected_toggle_formats(range, &lines)
             },
-            heading: common.map(|line| line.heading),
-            quote: !content.is_empty() && content.iter().all(|line| line.quote_depth > 0),
+            heading: common_heading(&content),
+            quote: all_quoted(&content),
             list: content_first
                 .and_then(list_kind)
                 .filter(|kind| content.iter().all(|line| list_kind(line) == Some(*kind))),
