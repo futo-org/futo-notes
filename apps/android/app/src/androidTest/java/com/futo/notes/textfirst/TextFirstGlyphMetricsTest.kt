@@ -5,7 +5,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.text.TextPaint
-import android.text.Selection
 import android.text.style.MetricAffectingSpan
 import androidx.core.content.res.ResourcesCompat
 import androidx.test.platform.app.InstrumentationRegistry
@@ -103,44 +102,24 @@ class TextFirstGlyphMetricsTest {
         }
     }
 
-    @Test fun selectingANumberedLineHighlightsItsRenderedNumber() {
+    @Test fun selectedListMarginFollowsTheMarkerIndentAndDirection() {
         val body = "alpha beta gamma"
-        for (kind in listOf(ListMarker.Ordered, ListMarker.Bullet, ListMarker.Task)) for (depth in 0..1) {
+        for (kind in listOf(ListMarker.Ordered, ListMarker.Bullet, ListMarker.Task)) for (depth in 0..1) for (dir in listOf(1, -1)) {
             val text = ChunkedEditable.from(body + "\n" + TextFirstEditText.END_SENTINEL)
             val marker = TfList(look, depth = depth, marker = kind, number = 12L, checked = false, first = true)
             text.setSpan(marker, 0, body.length + 1, TF_SPAN_FLAGS)
-            fun background(start: Int, end: Int): Int {
-                Selection.setSelection(text, start, end)
-                val bitmap = Bitmap.createBitmap((look.listIndent * 3).toInt(), (look.textSizePx * 1.55f).toInt(), Bitmap.Config.ARGB_8888)
-                bitmap.eraseColor(Color.WHITE)
-                try {
-                    marker.drawLeadingMargin(Canvas(bitmap), TextPaint(), 0, 1, 0, look.textSizePx.toInt(), bitmap.height, text, 0, body.length + 1, true, null)
-                    return bitmap.getPixel((look.listIndent * depth).toInt() + 1, 1)
-                } finally {
-                    bitmap.recycle()
-                }
-            }
-            assertEquals("$kind: a caret does not highlight the marker", Color.WHITE, background(0, 0))
-            assertEquals("$kind: selecting part of a word leaves its marker alone", Color.WHITE, background(2, 5))
-            assertNotEquals("$kind: selecting the whole line highlights its marker", Color.WHITE, background(0, body.length))
-            assertNotEquals("$kind: backward selection also highlights its marker", Color.WHITE, background(body.length, 0))
-
-            // Android already paints the gutter on later selected rows.
-            val later = ChunkedEditable.from("x\n" + body + "\n" + TextFirstEditText.END_SENTINEL)
-            later.setSpan(marker, 2, body.length + 3, TF_SPAN_FLAGS)
-            Selection.setSelection(later, 0, body.length + 2)
             val bitmap = Bitmap.createBitmap((look.listIndent * 3).toInt(), (look.textSizePx * 1.55f).toInt(), Bitmap.Config.ARGB_8888)
+            bitmap.eraseColor(Color.WHITE)
             try {
-                bitmap.eraseColor(Color.WHITE)
+                val edge = if (dir > 0) 0 else bitmap.width
                 val canvas = Canvas(bitmap)
-                canvas.drawColor(look.selectionColor)
-                val x = (look.listIndent * depth).toInt() + 1
-                val nativeColor = bitmap.getPixel(x, 1)
-                marker.drawLeadingMargin(canvas, TextPaint(), 0, 1, 0, look.textSizePx.toInt(), bitmap.height, later, 2, body.length + 3, true, null)
-                assertEquals("$kind: a later selected marker keeps the native highlight color", nativeColor, bitmap.getPixel(x, 1))
-            } finally {
-                bitmap.recycle()
-            }
+                marker.drawSelectedMargin(canvas, edge, dir, 0f, bitmap.height.toFloat())
+                marker.drawLeadingMargin(canvas, TextPaint(), edge, dir, 0, look.textSizePx.toInt(), bitmap.height, text, 0, body.length + 1, true, null)
+                val x = edge + dir * ((look.listIndent * depth).toInt() + 1)
+                assertNotEquals("$kind depth$depth dir$dir: the margin includes its marker", Color.WHITE, bitmap.getPixel(x, 1))
+                val outside = edge + dir * ((look.listIndent * (depth + 1)).toInt() + 3)
+                assertEquals("the body is left to the native selection path", Color.WHITE, bitmap.getPixel(outside, 1))
+            } finally { bitmap.recycle() }
         }
     }
 }

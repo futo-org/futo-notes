@@ -216,6 +216,7 @@ internal class TextFirstEditText(
         if (timings != null) timings.drawStart = android.os.SystemClock.elapsedRealtimeNanos()
         // Under the caret, which the TextView draws before the layout's own drawing.
         drawCodeBackgrounds(canvas)
+        drawListSelection(canvas)
         drawFindMarks(canvas)
         val e = editableText as? ChunkedEditable
         e?.drawWindow = visibleChars()
