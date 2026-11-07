@@ -1,6 +1,7 @@
 //! Canonical retained block/list metadata and physical row queries.
 use super::*;
 mod visit;
+use visit::BlockLineQuery;
 
 impl Projection {
     fn command_line(
@@ -34,7 +35,7 @@ impl Projection {
     /// item or fence ranges here would make a typing refresh walk that region.
     pub(crate) fn caret_block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
         let mut result = Vec::new();
-        self.visit_block_lines(range, true, |block, base, index| {
+        self.visit_block_lines(range, BlockLineQuery::Formatting, |block, base, index| {
             let mut block = block.clone();
             block.shift(base);
             if let Some(list) = &mut block.list {
@@ -192,7 +193,7 @@ impl Projection {
     /// Shifted block lines whose cut list ranges stay row-local: only for
     /// readers of depth, number, check state and first-line role.
     pub(crate) fn view_block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
-        self.collect_block_lines(range, false, |block, base, _| {
+        self.collect_block_lines(range, BlockLineQuery::Rendering, |block, base, _| {
             let mut block = block.clone();
             block.shift(base);
             block
@@ -200,7 +201,7 @@ impl Projection {
     }
 
     pub(crate) fn block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
-        self.collect_block_lines(range, false, |block, base, index| {
+        self.collect_block_lines(range, BlockLineQuery::Visible, |block, base, index| {
             self.fixed_block(block, base, index)
         })
     }
@@ -209,12 +210,14 @@ impl Projection {
     /// is code, without copying any of them.
     pub(crate) fn all_code_lines(&self, range: DisplayRange) -> bool {
         let mut all = true;
-        self.visit_block_lines(range, false, |block, _, _| all &= block.code);
+        self.visit_block_lines(range, BlockLineQuery::Visible, |block, _, _| {
+            all &= block.code
+        });
         all
     }
 
     pub(crate) fn format_block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
-        self.collect_block_lines(range, true, |block, base, index| {
+        self.collect_block_lines(range, BlockLineQuery::Formatting, |block, base, index| {
             self.fixed_block(block, base, index)
         })
     }
@@ -281,7 +284,7 @@ impl Projection {
 
     pub(crate) fn list_command_lines(&self, range: DisplayRange) -> Vec<blocks::ListCommandLine> {
         let mut result = Vec::new();
-        self.visit_block_lines(range, true, |block, base, index| {
+        self.visit_block_lines(range, BlockLineQuery::Formatting, |block, base, index| {
             result.push(self.command_line(block, base, index))
         });
         result
