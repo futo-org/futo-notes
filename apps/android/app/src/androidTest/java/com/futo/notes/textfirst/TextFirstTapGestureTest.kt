@@ -101,6 +101,7 @@ class TextFirstTapGestureTest {
             point: Pair<Float, Float>,
             count: Int,
             drift: FloatArray = floatArrayOf(),
+            duration: Long = 40L,
             afterDown: (tap: Int) -> Unit = {},
         ) {
             clock = maxOf(clock + 1_000L, SystemClock.uptimeMillis())
@@ -109,7 +110,7 @@ class TextFirstTapGestureTest {
                 val path = listOf(MotionEvent.ACTION_DOWN to 0f) + drift.dropLast(1).map { MotionEvent.ACTION_MOVE to it } +
                     (MotionEvent.ACTION_UP to (drift.lastOrNull() ?: 0f))
                 path.forEachIndexed { step, (action, dx) ->
-                    val e = MotionEvent.obtain(down, down + 40L * step / path.lastIndex, action, point.first + dx, point.second, 0)
+                    val e = MotionEvent.obtain(down, down + duration * step / path.lastIndex, action, point.first + dx, point.second, 0)
                     e.source = InputDevice.SOURCE_TOUCHSCREEN
                     try { view.dispatchTouchEvent(e) } finally { e.recycle() }
                     if (action == MotionEvent.ACTION_DOWN) afterDown(it)
@@ -260,6 +261,63 @@ class TextFirstTapGestureTest {
             withTimeout(5_000) { while (selectionMode == null) delay(20) }
             assertEquals("triple tap $sequence keeps the line after native selection mode starts", line, selected())
         }
+    }
+
+    @Test
+    fun aTapOnEachSoftLineOfALinkOpensItAndPlacesNoCaret() {
+        for ((first, last) in listOf("alpha" to "beta", "🧑‍🧒alpha" to "βeta", "אבגד" to "הוזח")) {
+            assertBothLinkEndsOpen("before [$first\n$last](https://example.com) after\n", first, last)
+        }
+    }
+
+    @Test
+    fun aTapOnEachWrappedLineOfALinkOpensItAndPlacesNoCaret() =
+        assertBothLinkEndsOpen("before [${"alpha ".repeat(20)}omega](https://example.com) after\n", "alpha", "omega")
+
+    @Test
+    fun aTapOnAnUnbrokenWrappedLinkOpensItAndPlacesNoCaret() =
+        assertBothLinkEndsOpen("before [alpha${"x".repeat(120)}omega](https://example.com) after\n", "alpha", "omega")
+
+    @Test
+    fun aLongPressOrDragOnAnExternalLinkDoesNotOpenIt() = exercise("before [alpha beta gamma](https://example.com) after\n") {
+        val opened = mutableListOf<String>()
+        view.onOpenUrl = { opened += it; true }
+        taps(pointAt("alpha"), 1, duration = android.view.ViewConfiguration.getLongPressTimeout() + 1L)
+        val slop = android.view.ViewConfiguration.get(view.context).scaledTouchSlop.toFloat()
+        taps(pointAt("alpha"), 1, drift = floatArrayOf(slop + 1f, slop + 2f))
+        assertTrue("holding or dragging external-link glyphs stays text interaction", opened.isEmpty())
+    }
+
+    private fun assertBothLinkEndsOpen(source: String, first: String, last: String) = exercise(source) {
+        assertEquals("the authored fixture already has its canonical final newline", source, controller.sourceText())
+        val opened = mutableListOf<String>()
+        view.onOpenUrl = { opened += it; true }
+        assertTrue("the link has separate first and last visual lines",
+            view.layout.getLineForOffset(text.indexOf(first)) < view.layout.getLineForOffset(text.indexOf(last)))
+        val caret = text.indexOf("after")
+        for (focused in listOf(true, false)) {
+            if (focused) view.requestFocus() else view.clearFocus()
+            view.setSelection(caret)
+            // The last segment is the control: each segment of the same canonical link opens it.
+            for (word in listOf(last, first)) {
+                val calls = opened.size
+                taps(pointAt(word), 1)
+                val links = view.editableText.getSpans(0, view.editableText.length, TfLink::class.java)
+                    .map { "${view.editableText.getSpanStart(it)}..${view.editableText.getSpanEnd(it)}" }
+                val line = view.layout.getLineForOffset(text.indexOf(word))
+                assertEquals("$word focused=$focused links=$links line=$line end=${view.layout.getLineEnd(line)} visible=${view.layout.getLineVisibleEnd(line)} point=${pointAt(word)}", calls + 1, opened.size)
+                assertEquals("https://example.com", opened.last())
+                assertEquals("$word leaves the caret start", caret, view.selectionStart)
+                assertEquals("$word leaves the caret end", caret, view.selectionEnd)
+                assertEquals("$word leaves focus", focused, view.isFocused)
+            }
+        }
+        val calls = opened.size
+        taps(pointAt("before"), 1)
+        val (_, y) = pointAt(first)
+        taps(view.width - 4f to y, 1)
+        assertEquals("the prefix and blank tail are outside the linked glyphs", calls, opened.size)
+        assertEquals(source, controller.sourceText())
     }
 
     @Test

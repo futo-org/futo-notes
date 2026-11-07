@@ -1,8 +1,12 @@
 package com.futo.notes.textfirst
 
+import android.graphics.Path
+import android.graphics.Region
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.floor
 
 /**
  * A short tap on an external link's own glyphs opens it (external-links.md); the blank space past the end of
@@ -16,6 +20,9 @@ internal class ExternalLinkTouch(
     private val cancelNative: (MotionEvent) -> Unit,
 ) {
     private val slop = ViewConfiguration.get(view.context).scaledTouchSlop
+    private val glyphPath = Path()
+    private val glyphRegion = Region()
+    private val lineRegion = Region()
     private var pressed: TfLink? = null
     private var downX = 0f
     private var downY = 0f
@@ -55,14 +62,21 @@ internal class ExternalLinkTouch(
         if (localY < 0 || localY >= layout.height) return null
         val line = layout.getLineForVertical(localY.toInt())
         val lineStart = layout.getLineStart(line)
-        val lineEnd = layout.getLineEnd(line)
+        val lineEnd = layout.getLineVisibleEnd(line)
+        val left = layout.getLineLeft(line)
+        val right = layout.getLineRight(line)
+        if (localX < left || localX > right) return null
+        lineRegion.set(floor(left).toInt(), layout.getLineTop(line), ceil(right).toInt(), layout.getLineBottom(line))
         for (link in text.getSpans(lineStart, lineEnd, TfLink::class.java)) {
             val from = maxOf(text.getSpanStart(link), lineStart)
             val to = minOf(text.getSpanEnd(link), lineEnd)
             if (from >= to) continue
-            val a = layout.getPrimaryHorizontal(from)
-            val b = layout.getPrimaryHorizontal(to)
-            if (localX >= minOf(a, b) && localX <= maxOf(a, b)) return link
+            // Layout resolves wrapped endpoints and bidi runs in their actual line. Its selection
+            // path can also fill a line's blank tail, so clip it to that line's visible extent.
+            glyphPath.reset()
+            layout.getSelectionPath(from, to, glyphPath)
+            glyphRegion.setPath(glyphPath, lineRegion)
+            if (glyphRegion.contains(floor(localX).toInt(), floor(localY).toInt())) return link
         }
         return null
     }
