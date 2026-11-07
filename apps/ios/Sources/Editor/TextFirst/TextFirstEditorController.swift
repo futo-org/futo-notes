@@ -52,6 +52,8 @@
         /// What the engine changed while those replayed, to map the next op's range through.
         let replayed = EditorPendingEdits()
         var replaying = false
+        /// Where the key being replayed asked to act (engine units), for `replayed.record`.
+        var replayNear = 0
         /// Large engine jobs (a toolbar command, the toolbar's state for a huge selection) running
         /// on the engine's queue; while any runs, nothing else may call the engine (it would wait
         /// on the engine's lock, on the main thread).
@@ -201,7 +203,8 @@
             mirrorLength += Int(edit.insertedUtf16) - Int(edit.end - edit.start)
             if replaying {
                 try? replayed.record(
-                    start: edit.start, end: edit.end, insertedUtf16: edit.insertedUtf16)
+                    start: edit.start, end: edit.end, insertedUtf16: edit.insertedUtf16,
+                    slackUtf16: edit.slackUtf16, near: UInt64(replayNear))
             }
             try reconcile(edit, inserted: change.inserted, platform: platform)
             setSelection(

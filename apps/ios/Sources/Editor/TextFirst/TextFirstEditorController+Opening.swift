@@ -10,17 +10,13 @@
     // appends the rest. docs/spec/editor/performance/android-text-first.md.
 
     /// What the user did while the note opened, in the view's own coordinates (the text it showed).
+    /// A key carries the range UIKit asked to replace and the selection the view had: the view
+    /// does not change meanwhile, so every key is asked against the same text, and only their
+    /// offsets from the selection say what each means (Backspace is the unit before the caret).
     enum OpeningOp: Equatable {
-        case replace(range: NSRange, text: String)
-        case key(EditorParagraphKey, range: NSRange)
+        case replace(range: NSRange, text: String, selection: NSRange)
+        case key(EditorParagraphKey, range: NSRange, selection: NSRange)
         case select(NSRange)
-
-        var viewRange: NSRange {
-            switch self {
-            case .replace(let range, _), .key(_, let range): return range
-            case .select(let range): return range
-            }
-        }
     }
 
     /// Why a closed editor never saw its engine session.
@@ -46,10 +42,11 @@
         // MARK: input while opening
 
         func queueWhileOpening(_ range: NSRange, _ text: String) {
+            let selection = textView.selectedRange
             if text == "\n" {
-                openingOps.append(.key(.enter, range: range))
+                openingOps.append(.key(.enter, range: range, selection: selection))
             } else {
-                openingOps.append(.replace(range: range, text: text))
+                openingOps.append(.replace(range: range, text: text, selection: selection))
             }
         }
 
@@ -94,35 +91,56 @@
             scheduleNextSlice()
         }
 
+        /// Keys replay at the engine's caret, in order, as the user's own keys would have landed:
+        /// the frozen view's selection never moved, the engine's did (`DisplayMirror.at_caret`).
+        /// Only taps and selections are mapped, through what the engine changed so far. An edit
+        /// is recorded where the key asked for it, not where the engine's smallest-change report
+        /// puts it inside a run of identical characters.
         private func replay(_ ops: [OpeningOp]) {
             guard !ops.isEmpty else { return }
             replayed.clear()
             replaying = true
             defer { replaying = false }
-            var previous: NSRange?
+            // The engine's selection starts at the view's: a key before any tap acts where the
+            // caret already was.
+            switch ops.first {
+            case .replace(_, _, let selection)?, .key(_, _, let selection)?:
+                if selection != engineSelection { reportSelection(selection) }
+            default: break
+            }
             for op in ops {
-                // A key typed again at the range the view never left goes where the engine's caret
-                // now is (after what the earlier keys made); any other range is mapped through
-                // what the engine changed so far.
-                let viewRange = op.viewRange
-                let target: NSRange
-                if previous == viewRange {
-                    target = engineSelection
-                } else if let mapped = try? replayed.map(
-                    start: UInt64(viewRange.location), end: UInt64(NSMaxRange(viewRange)))
-                {
-                    target = NSRange(
-                        location: Int(mapped.start), length: Int(mapped.end - mapped.start))
-                } else {
-                    target = viewRange
-                }
-                previous = viewRange
                 switch op {
-                case .replace(_, let text): report(target, text, applied: false)
-                case .key(let key, _): paragraphKey(key, range: target)
-                case .select: reportSelection(target)
+                case .select(let range): reportSelection(mapped(range))
+                case .replace(let range, let text, let selection):
+                    let target = atCaret(range, selection)
+                    replayNear = target.location
+                    report(target, text, applied: false)
+                case .key(let key, let range, let selection):
+                    let target = atCaret(range, selection)
+                    replayNear = target.location
+                    paragraphKey(key, range: target)
                 }
             }
+        }
+
+        private func mapped(_ range: NSRange) -> NSRange {
+            guard
+                let mapped = try? replayed.map(
+                    start: UInt64(range.location), end: UInt64(NSMaxRange(range)))
+            else { return range }
+            return NSRange(location: Int(mapped.start), length: Int(mapped.end - mapped.start))
+        }
+
+        private func atCaret(_ range: NSRange, _ selection: NSRange) -> NSRange {
+            guard
+                let target = try? mirror.atCaret(
+                    start: UInt64(range.location), end: UInt64(NSMaxRange(range)),
+                    viewSelectionStart: UInt64(selection.location),
+                    viewSelectionEnd: UInt64(NSMaxRange(selection)),
+                    engineSelectionStart: UInt64(engineSelection.location),
+                    engineSelectionEnd: UInt64(NSMaxRange(engineSelection)))
+            else { return engineSelection }
+            return NSRange(location: Int(target.start), length: Int(target.end - target.start))
         }
 
         /// The engine's open failed: nothing will attach and nothing was ever saved.
