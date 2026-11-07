@@ -324,6 +324,20 @@ internal class TextFirstEditText(
         invalidate()
     }
 
+    // Hardware Enter must reach the engine with its original selection. Gboard
+    // otherwise deletes the selection before forwarding the key, losing the
+    // whole-code-body Enter intent and splitting its Undo action.
+    override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
+        if (engine != null && (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+            return when (event.action) {
+                KeyEvent.ACTION_DOWN -> onKeyDown(keyCode, event)
+                KeyEvent.ACTION_UP -> true
+                else -> super.onKeyPreIme(keyCode, event)
+            }
+        }
+        return super.onKeyPreIme(keyCode, event)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val engine = engine ?: return super.onKeyDown(keyCode, event)
         if (event.isCtrlPressed) {

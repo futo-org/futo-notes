@@ -100,6 +100,53 @@ class TextFirstExitTest {
         assertEquals("```\ncode\n```\n\n", c.sourceText())
     }
 
+    @Test fun enterOnAWholeCodeBodySelectionKeepsItsText() = session("```\ndeploy\n```") { c ->
+        c.select(0, 6)
+        enter(c)
+        assertEquals("```\ndeploy\n```\n\n", c.sourceText())
+    }
+
+    @Test fun hardwareEnterOnAWholeCodeBodySelectionKeepsItsText() = session("```\ndeploy\n```") { c ->
+        c.select(0, 6)
+        hardwareEnter(c)
+        assertEquals("```\ndeploy\n```\n\n", c.sourceText())
+        c.undo()
+        assertEquals("```\ndeploy\n```\n", c.sourceText())
+        assertEquals(0, c.view.selectionStart)
+        assertEquals(6, c.view.selectionEnd)
+    }
+
+    @Test fun softReturnOnAWholeCodeBodySelectionKeepsItsText() = session("```\ndeploy\n```") { c ->
+        c.select(0, 6)
+        ime(c) { commitText("\n", 1) }
+        assertEquals("```\ndeploy\n```\n\n", c.sourceText())
+    }
+
+    @Test fun hardwareEnterReplacesAPartialCodeSelection() = session("```\ndeploy\n```") { c ->
+        c.select(0, 3)
+        hardwareEnter(c)
+        assertEquals("```\n\nloy\n```\n", c.sourceText())
+        c.undo()
+        assertEquals("```\ndeploy\n```\n", c.sourceText())
+        assertEquals(0, c.view.selectionStart)
+        assertEquals(3, c.view.selectionEnd)
+    }
+
+    @Test fun keyboardBackspaceStillDeletesAWholeCodeBodySelection() = session("```\ndeploy\n```") { c ->
+        c.select(0, 6)
+        ime(c) {
+            beginBatchEdit()
+            setSelection(6, 6)
+            deleteSurroundingText(6, 0)
+            endBatchEdit()
+        }
+        assertEquals("```\n\n```\n", c.sourceText())
+        c.undo()
+        assertEquals("```\ndeploy\n```\n", c.sourceText())
+        assertEquals(0, c.view.selectionStart)
+        assertEquals(6, c.view.selectionEnd)
+    }
+
     /** The keyboard answers Enter on a selection by collapsing it and deleting the selected text first. */
     @Test fun enterOnASelectedImageKeepsItAndAddsALineBelow() = session("![](a.png)\n") { c ->
         c.view.selectedObject = 0 to 10
@@ -114,6 +161,26 @@ class TextFirstExitTest {
     }
 
     private suspend fun enter(c: TextFirstController) = ime(c) { sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)) }
+
+    /** Gboard's observed fallback when the view lets a hardware Enter reach the IME. */
+    private suspend fun hardwareEnter(c: TextFirstController) {
+        // Host selection posts to the editor thread; a window key arrives only
+        // after the resulting native selection has been shown.
+        c.sourceText()
+        val event = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)
+        if (!c.view.dispatchKeyEventPreIme(event)) {
+            val end = c.view.selectionEnd
+            val length = end - c.view.selectionStart
+            ime(c) {
+                beginBatchEdit()
+                setSelection(end, end)
+                deleteSurroundingText(length, 0)
+                endBatchEdit()
+                sendKeyEvent(event)
+            }
+        }
+        c.view.dispatchKeyEventPreIme(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+    }
 
     /**
      * Keyboard calls arrive on the connection's handler, as the system delivers
