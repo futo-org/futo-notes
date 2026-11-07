@@ -4,6 +4,7 @@ import uniffi.futo_notes_ffi.EditorByteRange
 import uniffi.futo_notes_ffi.EditorProjection
 import uniffi.futo_notes_ffi.EditorTableAlignment
 import uniffi.futo_notes_ffi.EditorTableDescription
+import uniffi.futo_notes_ffi.EditorTableKey
 import uniffi.futo_notes_ffi.EditorUtf16Range
 
 /** Display coordinates supplied by Rust. Never source coordinates or Markdown fragments. */
@@ -74,6 +75,19 @@ internal fun EditorEngine.finishCellEditing() = command {
     editingCell = false
     cellRange = null
     ui.post { sink.onCell(null) }
+}
+
+/** Tab navigation and row insertion are one canonical table-key outcome. */
+internal fun EditorEngine.tableTab(shift: Boolean): Boolean {
+    val outcome = session?.tableKey(rev, if (shift) EditorTableKey.SHIFT_TAB else EditorTableKey.TAB)
+        ?: return false
+    outcome.edited?.let { accept(it) }
+    outcome.selected?.let {
+        if (streaming && mirror.toUtf16(it.selection.end.toInt()) > tailStart()) finishStreaming()
+        applySelectionChange(it)
+        postUpdate(emptyList(), emptyList())
+    }
+    return true
 }
 
 /** Reinspect after accepted edits/Undo/adoption; composition only shifts the displayed cell end. */

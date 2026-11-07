@@ -1,6 +1,7 @@
 package com.futo.notes.textfirst
 
 import android.graphics.Color
+import android.view.KeyEvent
 import android.view.inputmethod.EditorInfo
 import androidx.activity.ComponentActivity
 import androidx.core.content.res.ResourcesCompat
@@ -64,6 +65,39 @@ class TextFirstTableTest {
                 controller.undo()
                 assertEquals(source, controller.sourceText())
                 val display = controller.view.text.toString()
+                suspend fun cellKey(code: Int, shift: Boolean = false) {
+                    val cellConnection = controller.cellView!!.onCreateInputConnection(EditorInfo())
+                    suspendCancellableCoroutine<Unit> { done -> cellConnection.handler!!.post {
+                        val down = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, code, 0,
+                            if (shift) KeyEvent.META_SHIFT_ON else 0)
+                        cellConnection.sendKeyEvent(down)
+                        cellConnection.sendKeyEvent(KeyEvent.changeAction(down, KeyEvent.ACTION_UP))
+                        done.resume(Unit)
+                    } }
+                    assertEquals(source, controller.sourceText())
+                }
+                val header = display.indexOf("名称")
+                assertTrue(controller.selectDisplayRange(header, header + 2))
+                cellKey(KeyEvent.KEYCODE_TAB)
+                assertEquals("Value", controller.cellView?.text.toString())
+                assertEquals(display.indexOf("Value"), controller.view.selectionStart)
+                assertEquals(display.indexOf("Value") + 5, controller.view.selectionEnd)
+                assertEquals(0, controller.cellView!!.selectionStart)
+                assertEquals(5, controller.cellView!!.selectionEnd)
+                cellKey(KeyEvent.KEYCODE_TAB, shift = true)
+                assertEquals("名称", controller.cellView?.text.toString())
+                cellKey(KeyEvent.KEYCODE_ENTER)
+                assertEquals("café|茶", controller.cellView?.text.toString())
+                assertTrue(controller.selectDisplayRange(header, header + 2))
+                cellKey(KeyEvent.KEYCODE_NUMPAD_ENTER)
+                assertEquals("café|茶", controller.cellView?.text.toString())
+                val doneConnection = controller.cellView!!.onCreateInputConnection(EditorInfo())
+                suspendCancellableCoroutine<Unit> { done -> doneConnection.handler!!.post {
+                    doneConnection.performEditorAction(EditorInfo.IME_ACTION_DONE)
+                    done.resume(Unit)
+                } }
+                assertEquals(source, controller.sourceText())
+                assertNull("Done returns to the note", controller.cellView)
                 val at = display.indexOf("old")
                 assertTrue(controller.selectDisplayRange(at, at + 3))
                 val field = controller.cellView!!

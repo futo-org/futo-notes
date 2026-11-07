@@ -249,9 +249,6 @@ internal open class EngineInputConnection(
         if (cell && !engine.editingCell) return true
         trace("sendKeyEvent(" + "event.action=" + event.action + " " + "event.keyCode=" + event.keyCode + ")")
         if (event.action != KeyEvent.ACTION_DOWN) return true
-        if (cell && event.keyCode in listOf(KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_TAB)) {
-            engine.finishCellEditing(); return true
-        }
         if (cell && event.keyCode == KeyEvent.KEYCODE_DEL && engine.selStart == low && engine.selEnd == low) return true
         if (cell && event.keyCode == KeyEvent.KEYCODE_FORWARD_DEL && engine.selStart == high && engine.selEnd == high) return true
         when (event.keyCode) {

@@ -13,6 +13,7 @@ import uniffi.futo_notes_ffi.EditorByteRange
 import uniffi.futo_notes_ffi.EditorInlineFormat
 import uniffi.futo_notes_ffi.EditorInputAction
 import uniffi.futo_notes_ffi.EditorParagraphKey
+import uniffi.futo_notes_ffi.EditorSelectionChange
 import uniffi.futo_notes_ffi.EditorSessionException
 import uniffi.futo_notes_ffi.EditorUtf16Range
 import uniffi.futo_notes_ffi.EditorViewChange
@@ -342,11 +343,15 @@ internal class EditorEngine(
         }
         if (finishTail && b > tailStart() && streaming) finishStreaming()
         val change = s.selectUtf16(rev, EditorUtf16Range(a.toULong(), b.toULong()))
+        applySelectionChange(change)
+        if (settle || echo || !fromView || mirror.selStart != a || mirror.selEnd != b) postUpdate(emptyList(), emptyList()) else publishSelection()
+        scheduleCaretState()
+    }
+
+    internal fun applySelectionChange(change: EditorSelectionChange) {
         rev = change.revision
         mirror.selStart = mirror.toUtf16(change.selection.start.toInt())
         mirror.selEnd = mirror.toUtf16(change.selection.end.toInt())
-        if (settle || echo || !fromView || mirror.selStart != a || mirror.selEnd != b) postUpdate(emptyList(), emptyList()) else publishSelection()
-        scheduleCaretState()
     }
 
     /** Apply one accepted engine change to its authoritative mirror and bounded view projection. */
