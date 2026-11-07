@@ -30,16 +30,22 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     // A cell is note text, never a form field: no "Autofill" item over its selection menu.
     override fun getAutofillType() = AUTOFILL_TYPE_NONE
     fun apply(update: CellUpdate) {
+        val sameWindow = current?.let { it.start == update.start && it.end == update.end && it.text == update.text } == true
+        val sameText = text.toString() == update.text
         current = update
         applying = true
         try {
-            if (text.toString() != update.text) editableText.replace(0, editableText.length, update.text)
+            if (!sameText) editableText.replace(0, editableText.length, update.text)
             val e = editableText
             e.getSpans(0, e.length, UnderlineSpan::class.java).forEach(e::removeSpan)
             if (update.composingStart >= 0 && update.composingEnd > update.composingStart) {
                 e.setSpan(UnderlineSpan(), update.composingStart, update.composingEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE or Spanned.SPAN_COMPOSING)
             }
-            Selection.setSelection(e, update.selectionStart.coerceIn(0, e.length), update.selectionEnd.coerceIn(0, e.length))
+            val start = update.selectionStart.coerceIn(0, e.length)
+            val end = update.selectionEnd.coerceIn(0, e.length)
+            // An identical normalized echo must not reverse Shift's native anchor/focus.
+            if (!sameWindow || !sameText || minOf(selectionStart, selectionEnd) != minOf(start, end) ||
+                maxOf(selectionStart, selectionEnd) != maxOf(start, end)) Selection.setSelection(e, start, end)
         } finally { applying = false }
     }
     override fun onSelectionChanged(a: Int, b: Int) {
@@ -60,8 +66,19 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     override fun onTextContextMenuItem(id: Int): Boolean = clipboard.handle(id) || super.onTextContextMenuItem(id)
     override fun contextMenuAction(id: Int) { post { onTextContextMenuItem(id) } }
     override fun imageContent(info: android.view.inputmethod.InputContentInfo, flags: Int) = false
-    override fun navigationKey(event: KeyEvent) { post { super.onKeyDown(event.keyCode, event) } }
+    override fun navigationKey(event: KeyEvent) {
+        post {
+            when (event.action) {
+                KeyEvent.ACTION_DOWN -> super.onKeyDown(event.keyCode, event)
+                KeyEvent.ACTION_UP -> super.onKeyUp(event.keyCode, event)
+            }
+        }
+    }
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        // Hardware modifier down/up stay on the same native UI event queue.
+        if (keyCode == KeyEvent.KEYCODE_SHIFT_LEFT || keyCode == KeyEvent.KEYCODE_SHIFT_RIGHT) {
+            return super.onKeyDown(keyCode, event)
+        }
         if (event.isCtrlPressed) {
             when (keyCode) {
                 KeyEvent.KEYCODE_Z -> { if (event.isShiftPressed) editor.redo() else editor.undo(); return true }

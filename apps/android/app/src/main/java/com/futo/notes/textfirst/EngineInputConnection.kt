@@ -289,6 +289,10 @@ internal open class EngineInputConnection(
         flushSelection()
         if (cell && !engine.editingCell) return true
         trace("sendKeyEvent(" + "event.action=" + event.action + " " + "event.keyCode=" + event.keyCode + ")")
+        if (event.keyCode == KeyEvent.KEYCODE_SHIFT_LEFT || event.keyCode == KeyEvent.KEYCODE_SHIFT_RIGHT) {
+            view.navigationKey(event)
+            return true
+        }
         if (event.action != KeyEvent.ACTION_DOWN) return true
         if (cell && event.keyCode == KeyEvent.KEYCODE_DEL && engine.selStart == low && engine.selEnd == low) return true
         if (cell && event.keyCode == KeyEvent.KEYCODE_FORWARD_DEL && engine.selStart == high && engine.selEnd == high) return true

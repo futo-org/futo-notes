@@ -391,7 +391,10 @@ internal class TextFirstEditText(
     override fun navigationKey(event: KeyEvent) {
         post {
             applying = false
-            super.onKeyDown(event.keyCode, event)
+            when (event.action) {
+                KeyEvent.ACTION_DOWN -> super.onKeyDown(event.keyCode, event)
+                KeyEvent.ACTION_UP -> super.onKeyUp(event.keyCode, event)
+            }
         }
     }
 
