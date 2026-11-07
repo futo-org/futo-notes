@@ -56,6 +56,8 @@
         /// on the engine's queue; while any runs, nothing else may call the engine (it would wait
         /// on the engine's lock, on the main thread).
         var engineJobs = 0
+        /// Changes the engine queued for this view that a running job kept the drain from taking.
+        var drainDeferred = false
         /// The edit menu (Cut, Copy, Select All) is showing.
         var menuVisible = false
         /// Select All on a note too long for UIKit to highlight: the engine selects it all while
@@ -283,39 +285,6 @@
             applying += 1
             textView.selectedRange = shown
             applying -= 1
-        }
-
-        /// Throw away the view's text and show the engine's (a failed or refused call left them
-        /// unequal, or the engine changed under us).
-        func reloadFromEngine() {
-            do {
-                let display = try session.displayText()
-                rev = try session.revision()
-                mirror.reset(display: display)
-                mirrorLength = display.utf16.count
-                engineComposing = false
-                pendingEdit = nil
-                applying += 1
-                textView.unmarkText()
-                storage.setAttributedString(
-                    NSAttributedString(string: display, attributes: Self.baseAttributes))
-                applying -= 1
-                styledThrough = 0
-                styleFirstScreen()
-                let selected = textView.selectedRange
-                setSelection(
-                    NSRange(
-                        location: min(selected.location, mirrorLength),
-                        length: min(selected.length, max(0, mirrorLength - selected.location))))
-            } catch {
-                onFailure?(error)
-            }
-        }
-
-        /// A refused engine call. The view may be ahead of the engine, so show the engine's.
-        func recover(_ error: Error, context: String) {
-            print("text-first: \(context) failed: \(error)")
-            reloadFromEngine()
         }
 
         func checkDivergence() {

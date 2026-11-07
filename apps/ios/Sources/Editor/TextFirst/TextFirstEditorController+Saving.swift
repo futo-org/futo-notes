@@ -51,26 +51,48 @@
         }
 
         func saved(_ result: Result<FlushDraftResult?, Error>) {
+            // On either outcome: a checkpoint settles marked text and prepares an outside write's
+            // adoption before the write that may then fail (recovery.md), so the engine's own
+            // changes are waiting either way.
+            drainCoordinatedChanges()
             switch result {
             case .success(let flushed):
-                if let flushed {
-                    dirty = false
-                    onCheckpoint?(flushed)
-                    drainCoordinatedChanges()
-                }
+                if let flushed { onCheckpoint?(flushed) }
             case .failure(let error):
                 onFailure?(error)
             }
+            // What is unsaved is the engine's to say (an adopted merge is not typed text); a
+            // running engine job is not interrupted to ask.
+            if !engineBusy { dirty = (try? session.saveDelay()) != nil }
             armSave()
         }
 
-        /// Own-action changes (a relink after a rename) the Store queued for this session.
+        /// Own-action changes the Store queued for this session: a relink after a rename, and a
+        /// checkpoint's settling of marked text plus the adoption of an outside write.
         func drainCoordinatedChanges() {
-            guard !closed, !engineBusy, !engineComposing else { return }
+            guard !closed else { return }
+            // A running engine job holds the session: take them when it ends (`settleJobs`).
+            guard !engineBusy else {
+                drainDeferred = !opening
+                return
+            }
+            drainDeferred = false
             do {
-                for change in try session.takeCoordinatedChanges() {
+                // While the engine itself holds marked text its revision is the view's; the
+                // changes wait for the save that follows.
+                if try session.composition() != nil { return }
+                let changes = try session.takeCoordinatedChanges()
+                guard let last = changes.last else { return }
+                if engineComposing || textView.markedTextRange != nil {
+                    // The engine ended the composition to settle these: the marked text is real
+                    // text there, so show the engine's text and selection (the view's marked
+                    // range cannot take an incremental edit).
+                    reloadFromEngine(selecting: last.selection)
+                    return
+                }
+                for change in changes {
                     guard change.previousRevision == rev else {
-                        reloadFromEngine()
+                        reloadFromEngine(selecting: last.selection)
                         return
                     }
                     try accept(change)
@@ -97,7 +119,11 @@
             case .success:
                 closed = true
                 images.shutdown()
-            case .failure: armSave()
+            case .failure:
+                // The attachment is still the draft: deliver what the failed save changed in
+                // it, and keep the retry going.
+                drainCoordinatedChanges()
+                armSave()
             }
             return result
         }

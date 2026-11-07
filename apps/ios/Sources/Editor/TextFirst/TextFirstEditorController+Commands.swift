@@ -87,6 +87,7 @@
             {
                 reportSelection(textView.selectedRange)
             }
+            if drainDeferred { drainCoordinatedChanges() }
             startPendingFind()
             armSave()
             scheduleNextSlice()
