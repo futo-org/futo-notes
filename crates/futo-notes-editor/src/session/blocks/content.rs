@@ -20,7 +20,51 @@ pub(super) struct BodySplit {
     pub link_copied_bytes: usize,
 }
 
+pub(super) struct ParagraphSeparator {
+    pub source: String,
+    pub comment: bool,
+}
+
 impl EditorSession {
+    /// A paragraph replacing a block below a list must not become that item's
+    /// lazy continuation. An empty paragraph also needs its own margin caret.
+    pub(super) fn list_paragraph_separator(
+        &self,
+        start: usize,
+        quotes: usize,
+        empty: bool,
+    ) -> Option<ParagraphSeparator> {
+        let row = self.source.byte_to_line(start);
+        let previous = self.source.line_to_byte(row.checked_sub(1)?);
+        if self
+            .source
+            .byte_slice(previous..start)
+            .chars()
+            .all(|ch| matches!(ch, ' ' | '\t' | '>' | '\r' | '\n'))
+        {
+            return None;
+        }
+        let line = self
+            .projection
+            .list_command_lines_in_source(&(previous..start))
+            .pop()?;
+        let list = line.list?;
+        if quotes > list.quote_depth || !empty && (line.heading > 0 || line.code || line.divider) {
+            return None;
+        }
+        let comment = empty && quotes > 0;
+        let quote = "> ".repeat(quotes);
+        Some(ParagraphSeparator {
+            source: format!(
+                "{}{}{}",
+                if comment { &quote } else { quote.trim_end() },
+                if comment { "<!-- -->" } else { "" },
+                self.line_ending_at(start)
+            ),
+            comment,
+        })
+    }
+
     /// Nonempty quote paragraphs can lazily adopt a following lower container.
     /// ATX/rule/code boundaries interrupt that continuation; setext bodies do
     /// not. Retain the next container's exact prefix when separating it.

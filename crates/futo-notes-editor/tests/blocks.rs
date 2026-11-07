@@ -39,3 +39,6 @@ mod list_endpoint_commands;
 
 #[path = "blocks/empty_list_commands.rs"]
 mod empty_list_commands;
+
+#[path = "blocks/empty_text_boundaries.rs"]
+mod empty_text_boundaries;

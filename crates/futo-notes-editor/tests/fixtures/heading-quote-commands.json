@@ -8,5 +8,9 @@
   {"name":"empty-item-final-heading-native-crlf","source":"- 👩‍🚀\r\n- ","display":"👩‍🚀\r\n","action":"Heading2","range":[7,7],"expected":"- 👩‍🚀\r\n## ","shown":"👩‍🚀\r\n","resultRange":[7,7],"finalItems":[[null,null]]},
   {"name":"empty-item-final-quote-caret","source":"- a\n- ","display":"a\n","action":"Quote","range":[2,2],"expected":"- a\n> ","shown":"a\n","resultRange":[2,2],"finalItems":[[null,null]]},
   {"name":"empty-item-final-heading-wide","source":"- **a**\n- ","display":"a\n","action":"Heading2","range":[0,2],"expected":"## **a**\n## ","shown":"a\n","resultRange":[0,2],"finalItems":[]},
-  {"name":"empty-items-final-quote-opening-direction","source":"- \n- ","display":"\n","action":"Quote","range":[0,1],"expected":"> \n> ","shown":"\n","resultRange":[0,1],"finalItems":[]}
+  {"name":"empty-items-final-quote-opening-direction","source":"- \n- ","display":"\n","action":"Quote","range":[0,1],"expected":"> \n> ","shown":"\n","resultRange":[0,1],"finalItems":[]},
+  {"name":"text-heading-after-list-keeps-partial-native-range","source":"- a\n# **bc**","display":"a\nbc","action":"Text","range":[2,3],"expected":"- a\n\n**bc**","shown":"a\n\nbc","resultRange":[3,4],"finalItems":[[null,null]]},
+  {"name":"empty-text-after-list-native-crlf","source":"- 👩‍🚀\r\n# ","display":"👩‍🚀\r\n","action":"Text","range":[7,7],"expected":"- 👩‍🚀\r\n\r\n","shown":"👩‍🚀\r\n\r\n","resultRange":[9,9],"finalItems":[[null,null]]},
+  {"name":"quoted-empty-text-after-list-keeps-margin-caret","source":"> - a\n> # ","display":"a\n","action":"Text","range":[2,2],"expected":"> - a\n> <!-- -->\n> ","shown":"a\n","resultRange":[2,2],"finalItems":[[null,null]],"itemQuoteDepths":[1]},
+  {"name":"empty-quote-off-after-list-keeps-paragraph","source":"- a\n> ","display":"a\n","action":"Quote","range":[2,2],"expected":"- a\n\n","shown":"a\n\n","resultRange":[3,3],"finalItems":[[null,null]]}
 ]

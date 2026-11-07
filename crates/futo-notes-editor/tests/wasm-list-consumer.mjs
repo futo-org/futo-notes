@@ -44,7 +44,7 @@ assert.equal(fences.length, 23);
 const headings = JSON.parse(
   readFileSync(new URL('fixtures/heading-quote-commands.json', import.meta.url)),
 );
-assert.equal(headings.length, 10);
+assert.equal(headings.length, 14);
 const cases = [
   ...original,
   ...shortcuts,

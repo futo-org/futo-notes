@@ -3,6 +3,13 @@ mod prefix_command;
 
 use super::*;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CommandStage {
+    Opening,
+    Resolved,
+    HeadingFrame,
+}
+
 impl EditorSession {
     pub fn block_command_utf16(
         &mut self,
@@ -53,8 +60,36 @@ impl EditorSession {
     pub(in crate::session) fn structural_command(
         &mut self,
         expected: Revision,
+        range: DisplayRange,
+        command: BlockCommand,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.structural_command_staged(expected, range, command, CommandStage::Opening, accept)
+    }
+
+    /// A staged join or code conversion retires only the heading frame;
+    /// its final operation supplies the block intent in the same acceptance.
+    pub(in crate::session::blocks) fn retire_heading_frame(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.structural_command_staged(
+            expected,
+            range,
+            BlockCommand::Heading(0),
+            CommandStage::HeadingFrame,
+            accept,
+        )
+    }
+
+    fn structural_command_staged(
+        &mut self,
+        expected: Revision,
         mut range: DisplayRange,
         command: BlockCommand,
+        stage: CommandStage,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
@@ -64,7 +99,7 @@ impl EditorSession {
                 range,
                 accept,
                 |staged, local, accept| {
-                    staged.structural_command(staged.revision(), local, command, accept)
+                    staged.structural_command_staged(staged.revision(), local, command, stage, accept)
                 },
             );
         }
@@ -80,7 +115,7 @@ impl EditorSession {
                 return self.crlf_block_command(expected, range, command, accept);
             }
         }
-        self.lf_block_command(expected, range, command, accept)
+        self.lf_block_command_toggling(expected, range, command, stage, accept)
     }
 
     /// `block_command` on a validated body range, writing LF line breaks.
@@ -91,17 +126,17 @@ impl EditorSession {
         command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        self.lf_block_command_toggling(expected, range, command, true, accept)
+        self.lf_block_command_toggling(expected, range, command, CommandStage::Opening, accept)
     }
 
-    /// `toggle_quote` is false for a step that carries out a direction already
-    /// chosen on the selection as given, so a staged copy never re-decides it.
+    /// Only the `Opening` stage decides Quote's direction; a staged copy
+    /// carries out the direction already chosen on the selection as given.
     fn lf_block_command_toggling(
         &mut self,
         expected: Revision,
         range: DisplayRange,
         command: BlockCommand,
-        toggle_quote: bool,
+        stage: CommandStage,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let command = if let BlockCommand::ToggleHeading(level) = command {
@@ -180,7 +215,7 @@ impl EditorSession {
         }
         let mut lines = self.selected_block_lines(range);
         // Choosing Quote on text that is already quoted takes one level off.
-        let command = if toggle_quote
+        let command = if stage == CommandStage::Opening
             && command == BlockCommand::Quote
             && all_quoted(&self.content_block_lines(&lines))
         {
@@ -253,7 +288,7 @@ impl EditorSession {
                         staged.revision(),
                         target,
                         command,
-                        false,
+                        CommandStage::Resolved,
                         accept,
                     )?
                     else {
@@ -310,7 +345,11 @@ impl EditorSession {
                         staged.revision(),
                         local,
                         command,
-                        false,
+                        if stage == CommandStage::HeadingFrame {
+                            stage
+                        } else {
+                            CommandStage::Resolved
+                        },
                         accept,
                     )?
                     else {
@@ -335,7 +374,14 @@ impl EditorSession {
         if matches!(command, BlockCommand::Quote | BlockCommand::Outdent) {
             return counted(self.quote_command(expected, range, command, accept));
         }
-        counted(self.apply_block_prefix_command(expected, range, command, lines, accept))
+        counted(self.apply_block_prefix_command(
+            expected,
+            range,
+            command,
+            lines,
+            stage != CommandStage::HeadingFrame,
+            accept,
+        ))
     }
 
     fn block_command_boundaries(

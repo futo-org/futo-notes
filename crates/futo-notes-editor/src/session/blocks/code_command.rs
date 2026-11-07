@@ -26,12 +26,7 @@ impl EditorSession {
                 None,
                 accept,
                 |staged, local, accept| {
-                    let plain = staged.block_command(
-                        staged.revision(),
-                        local,
-                        BlockCommand::Heading(0),
-                        accept,
-                    )?;
+                    let plain = staged.retire_heading_frame(staged.revision(), local, accept)?;
                     let mut converted =
                         staged.code_block_command(staged.revision(), local, accept)?;
                     if let (Some(plain), Some(converted)) = (plain, &mut converted) {
