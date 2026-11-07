@@ -90,11 +90,7 @@ impl EditorSession {
             let row = self
                 .source
                 .line_to_byte(self.source.byte_to_line(line.content.start));
-            self.source
-                .byte_slice(row..line.content.start)
-                .chars()
-                .map(|ch| if matches!(ch, '>' | '\t') { ch } else { ' ' })
-                .collect()
+            fence_continuation_prefix(self.source.byte_slice(row..line.content.start).chars())
         } else {
             "> ".repeat(line.quote_depth)
         };
@@ -239,14 +235,22 @@ impl EditorSession {
                 self.source
                     .byte_slice(line.source.start..line.content.start)
                     .to_string()
+            } else if !fence.body.is_empty()
+                && self.projection.display_at(fence.body.start)
+                    == self.projection.display_at(fence.body.end)
+            {
+                // An empty fence can retain only its authored body prefix.
+                self.source.byte_slice(fence.body.clone()).to_string()
             } else {
-                self.source
-                    .byte_slice(
-                        self.source
-                            .line_to_byte(self.source.byte_to_line(fence.opener.start))
-                            ..fence.opener.start,
-                    )
-                    .to_string()
+                fence_continuation_prefix(
+                    self.source
+                        .byte_slice(
+                            self.source
+                                .line_to_byte(self.source.byte_to_line(fence.opener.start))
+                                ..fence.opener.start,
+                        )
+                        .chars(),
+                )
             };
         let mut input = inserted.replace('\n', &format!("\n{prefix}"));
         if owned.continues_existing_row {
@@ -499,4 +503,11 @@ impl EditorSession {
         change.work.materialized_source_bytes += text.len();
         Ok(Some(change))
     }
+}
+
+/// Continue the opener's containers without repeating a list marker.
+fn fence_continuation_prefix(prefix: impl Iterator<Item = char>) -> String {
+    prefix
+        .map(|ch| if matches!(ch, '>' | '\t') { ch } else { ' ' })
+        .collect()
 }
