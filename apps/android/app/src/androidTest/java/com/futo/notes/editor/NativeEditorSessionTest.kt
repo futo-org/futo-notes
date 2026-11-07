@@ -16,9 +16,9 @@ class NativeEditorSessionTest {
         check(root.mkdirs())
         try {
             NoteStore(root.absolutePath).use { store ->
-                store.createNote("old", "", "[[old]]")
+                store.createNote("old", "", "[[old]]\n")
                 store.openEditor("old").use { session ->
-                    var view = "[[old]]".toByteArray(Charsets.UTF_8)
+                    var view = "[[old]]\n".toByteArray(Charsets.UTF_8)
                     var revision = 0uL
                     fun apply(change: EditorViewChange) {
                         assertEquals(revision, change.previousRevision)
@@ -34,20 +34,20 @@ class NativeEditorSessionTest {
                     assertEquals(1, changes.size)
                     changes.forEach { apply(it) }
                     assertTrue(session.takeCoordinatedChanges().isEmpty())
-                    assertEquals("[[long name]]!", String(view, Charsets.UTF_8))
+                    assertEquals("[[long name]]!\n", String(view, Charsets.UTF_8))
                     // A relink is one ordinary Undo step: Undo restores the old
                     // link text, then the earlier typed "!" undoes as usual.
                     apply(checkNotNull(session.undo(revision)))
-                    assertEquals("[[old]]!", String(view, Charsets.UTF_8))
+                    assertEquals("[[old]]!\n", String(view, Charsets.UTF_8))
                     apply(checkNotNull(session.undo(revision)))
-                    assertEquals("[[old]]", String(view, Charsets.UTF_8))
+                    assertEquals("[[old]]\n", String(view, Charsets.UTF_8))
                     store.delete("long name")
-                    store.createNote("long name", "", "fresh")
+                    store.createNote("long name", "", "fresh\n")
                     try { session.checkpoint(); fail("deleted session checkpoint accepted") }
                     catch (_: EditorSessionException.SessionDeleted) {}
                     session.detach()
                     store.openEditor("long name").use { fresh ->
-                        assertEquals("fresh", fresh.sourceText())
+                        assertEquals("fresh\n", fresh.sourceText())
                         fresh.detach()
                     }
                 }
@@ -70,17 +70,17 @@ class NativeEditorSessionTest {
                         view = view.copyOfRange(0, change.range.start.toInt()) + change.inserted.toByteArray(Charsets.UTF_8) + view.copyOfRange(change.range.end.toInt(), view.size)
                     }
                     apply(session.paragraphKeyUtf16(0uL, EditorUtf16Range(3uL, 3uL), EditorParagraphKey.SHIFT_ENTER))
-                    assertEquals("a😀\nb\r\ntail  \r\n", view.toString(Charsets.UTF_8))
-                    assertEquals("__a😀\nb__\r\ntail  \r\n", session.sourceText())
-                    apply(session.paragraphKeyUtf16(1uL, EditorUtf16Range(4uL, 4uL), EditorParagraphKey.BACKSPACE))
+                    assertEquals("a😀\r\nb\r\ntail  \r\n", view.toString(Charsets.UTF_8))
+                    assertEquals("__a😀\r\nb__\r\ntail  \r\n", session.sourceText())
+                    apply(session.paragraphKeyUtf16(1uL, EditorUtf16Range(5uL, 5uL), EditorParagraphKey.BACKSPACE))
                     assertEquals("a😀b\r\ntail  \r\n", view.toString(Charsets.UTF_8))
                     apply(session.undo(2uL))
-                    assertEquals("__a😀\nb__\r\ntail  \r\n", session.sourceText())
+                    assertEquals("__a😀\r\nb__\r\ntail  \r\n", session.sourceText())
                     session.detach()
                 }
-                assertEquals("__a😀\nb__\r\ntail  \r\n", store.read("lines"))
+                assertEquals("__a😀\r\nb__\r\ntail  \r\n", store.read("lines"))
                 store.openEditor("lines").use { reopened ->
-                    assertEquals("__a😀\nb__\r\ntail  \r\n", reopened.sourceText())
+                    assertEquals("__a😀\r\nb__\r\ntail  \r\n", reopened.sourceText())
                     reopened.detach()
                 }
             }
@@ -93,7 +93,7 @@ class NativeEditorSessionTest {
         check(root.mkdirs())
         try {
             NoteStore(root.absolutePath).use { store ->
-                store.createNote("plain", "", "a")
+                store.createNote("plain", "", "a\n")
                 store.openEditor("plain").use { session ->
                     session.replaceUtf16(0uL, EditorUtf16Range(1uL, 1uL), listOf(33u.toUShort()))
                     try {
@@ -103,7 +103,7 @@ class NativeEditorSessionTest {
                         assertEquals(0uL, error.expected)
                         assertEquals(1uL, error.actual)
                     }
-                    assertEquals("a!", session.sourceText())
+                    assertEquals("a!\n", session.sourceText())
                     session.detach()
                 }
             }
@@ -121,8 +121,8 @@ class NativeEditorSessionTest {
             NoteStore(root.absolutePath).use { store ->
                 assertEquals("probe", store.read("probe"))
                 assertTrue(store.exists("probe"))
-                store.createNote("created", "", "created")
-                assertEquals("created", store.read("created"))
+                store.createNote("created", "", "created\n")
+                assertEquals("created\n", store.read("created"))
                 android.system.Os.symlink(File(root, "probe.md").absolutePath, File(root, "alias.md").absolutePath)
                 try {
                     store.read("alias")
@@ -202,9 +202,9 @@ class NativeEditorSessionTest {
                     assertEquals(listOf(EditorInlineFormat.BOLD), projected.runs.first().formats)
                     inline.detach()
                 }
-                store.createNote("entity", "", "&acE;")
+                store.createNote("entity", "", "&acE;\n")
                 store.openEditor("entity").use { entity ->
-                    assertEquals("∾\u0333", entity.displayText())
+                    assertEquals("∾\u0333\n", entity.displayText())
                     assertEquals(0uL, entity.sourceAt(0uL, EditorDisplayByteOffset(3uL), EditorAffinity.BACKWARD).offset)
                     assertEquals(5uL, entity.sourceAt(0uL, EditorDisplayByteOffset(3uL), EditorAffinity.FORWARD).offset)
                     entity.detach()
@@ -274,13 +274,13 @@ class NativeEditorSessionTest {
                         assertNull(reopened.undo(0uL))
                         reopened.detach()
                     }
-                    store.createNote("echo", "", "__a__")
+                    store.createNote("echo", "", "__a__\n")
                     store.openEditor("echo").use { echo ->
                         echo.selectWithAffinity(0uL, EditorByteRange(1uL, 1uL), EditorAffinity.BACKWARD)
                         echo.replaceUtf16(0uL, EditorUtf16Range(1uL, 1uL), listOf(32u.toUShort()))
                         echo.selectWithAffinity(1uL, EditorByteRange(2uL, 2uL), EditorAffinity.BACKWARD)
                         echo.replaceUtf16Action(1uL, EditorUtf16Range(2uL, 2uL), listOf(98u.toUShort()), EditorInputAction.TYPING)
-                        assertEquals("__a b__", echo.sourceText())
+                        assertEquals("__a b__\n", echo.sourceText())
                         assertEquals(listOf(EditorInlineFormat.BOLD), echo.activeFormats())
                         echo.detach()
                     }

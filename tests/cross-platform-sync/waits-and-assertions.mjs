@@ -17,6 +17,15 @@ export function assertEqual(actual, expected, message) {
 }
 
 /**
+ * The exact bytes the store saves for a body the desktop authored: the body with a
+ * final LF appended unless it already ends in one. Exact, not a tolerance: use it to
+ * state the expected canonical form.
+ */
+export function asSaved(body) {
+  return body.endsWith('\n') ? body : `${body}\n`;
+}
+
+/**
  * `text` without the single final line ending the store appends when it saves
  * an authored note (LF, or CRLF for a CRLF note). Blank lines the author wrote
  * stay exact: only ONE ending is removed.
