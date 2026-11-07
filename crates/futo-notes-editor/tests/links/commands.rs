@@ -1,6 +1,144 @@
 use super::*;
 
 #[test]
+fn edit_link_inside_part_of_a_bold_span_keeps_the_unselected_formatting() {
+    use futo_notes_editor::InlineFormat;
+    let original = "Read **release notes** now";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("Read release notes now");
+    session.select(Revision(0), range(5, 12)).unwrap();
+    view.apply(
+        session
+            .edit_link(
+                Revision(0),
+                range(5, 12),
+                "release",
+                "https://example.test/releases",
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(view.text, "Read release notes now");
+    let projection = session
+        .project(Revision(1), range(0, view.text.len()))
+        .unwrap();
+    assert_eq!(projection.links.len(), 1);
+    assert_eq!(projection.links[0].range, range(5, 12));
+    assert_eq!(
+        projection.links[0].destination,
+        "https://example.test/releases"
+    );
+    for at in 5..18 {
+        assert!(
+            projection.runs.iter().any(|run| run.range.start.0 <= at
+                && at < run.range.end.0
+                && run.formats.contains(&InlineFormat::Bold)),
+            "missing bold at {at}"
+        );
+    }
+    let edited = session.source_text();
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    assert_eq!(session.selection(), range(5, 12));
+    view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), edited);
+    assert_eq!(view.text, "Read release notes now");
+}
+
+#[test]
+fn partial_link_selection_preserves_each_neighboring_inline_span() {
+    for (original, display, label) in [
+        (
+            "Read **release notes** now",
+            "Read release notes now",
+            "notes",
+        ),
+        (
+            "Read *release notes* now",
+            "Read release notes now",
+            "release",
+        ),
+        (
+            "Read ~~release notes~~ now",
+            "Read release notes now",
+            "release",
+        ),
+        (
+            "Read ***release notes*** now",
+            "Read release notes now",
+            "release",
+        ),
+        (
+            "Read **release *notes later*** now",
+            "Read release notes later now",
+            "release notes",
+        ),
+        (
+            "Read **release** *notes later* now",
+            "Read release notes later now",
+            "release notes",
+        ),
+        (
+            "Read `release notes` now",
+            "Read release notes now",
+            "release",
+        ),
+        (
+            "Read **`release notes`** now",
+            "Read release notes now",
+            "release",
+        ),
+    ] {
+        let mut session = EditorSession::open(original);
+        let start = display.find(label).unwrap();
+        let target = range(start, start + label.len());
+        session.select(Revision(0), target).unwrap();
+        let formats = |session: &EditorSession| {
+            let runs = session
+                .project(session.revision(), range(0, display.len()))
+                .unwrap()
+                .runs;
+            (0..display.len())
+                .map(|at| {
+                    runs.iter()
+                        .find(|run| run.range.start.0 <= at && at < run.range.end.0)
+                        .map(|run| run.formats.clone())
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>()
+        };
+        let before = formats(&session);
+        let mut view = ReferenceView::new(display);
+        view.apply(
+            session
+                .edit_link(
+                    Revision(0),
+                    target,
+                    label,
+                    "https://x.test",
+                    &mut |_| Ok(()),
+                )
+                .unwrap_or_else(|e| panic!("{original:?}: {e:?}"))
+                .unwrap(),
+        );
+        assert_eq!(view.text, display, "{original:?}");
+        assert_eq!(formats(&session), before, "{original:?}");
+        let link = session.inspect_link(Revision(1), target).unwrap().unwrap();
+        assert_eq!(link.range, target, "{original:?}");
+        assert_eq!(link.destination, "https://x.test");
+        let edited = session.source_text();
+        assert_eq!(EditorSession::open(&edited).display_text(), display);
+        view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(session.source_text(), original);
+        assert_eq!(session.selection(), target);
+        view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(session.source_text(), edited);
+        assert_eq!(formats(&session), before, "{original:?}");
+    }
+}
+
+#[test]
 fn inspection_reports_one_whole_link_across_nested_marks_and_keeps_same_href_runs_distinct() {
     let source = "[one __two__](https://x.test) gap [three](https://x.test)";
     let session = EditorSession::open(source);
