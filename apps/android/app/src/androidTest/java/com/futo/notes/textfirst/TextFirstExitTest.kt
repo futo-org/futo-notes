@@ -21,6 +21,73 @@ import uniffi.futo_notes_ffi.NoteStore
 
 /** A block can always be left: Enter past a selected image, Quote and Code block as toggles. */
 class TextFirstExitTest {
+    @Test fun undoAfterKeyboardDeletesASelectionRestoresItsRange() = session("Meeting") { c ->
+        c.select(0, 7)
+        ime(c) {
+            beginBatchEdit()
+            setSelection(7, 7)
+            deleteSurroundingText(7, 0)
+            endBatchEdit()
+        }
+        assertEquals("\n", c.sourceText())
+        c.undo()
+        assertEquals("Meeting\n", c.sourceText())
+        assertEquals(0, c.view.selectionStart)
+        assertEquals(7, c.view.selectionEnd)
+    }
+
+    @Test fun batchedCaretCollapseStillAppliesBeforeTyping() = session("Meeting") { c ->
+        c.select(0, 7)
+        ime(c) {
+            beginBatchEdit()
+            setSelection(7, 7)
+            commitText("!", 1)
+            endBatchEdit()
+        }
+        assertEquals("Meeting!\n", c.sourceText())
+        c.undo()
+        assertEquals("Meeting\n", c.sourceText())
+        assertEquals(7, c.view.selectionStart)
+        assertEquals(7, c.view.selectionEnd)
+    }
+
+    @Test fun batchedCaretCollapseWithoutDeletionStillMovesTheCaret() = session("Meeting") { c ->
+        c.select(0, 7)
+        ime(c) { beginBatchEdit(); setSelection(7, 7); endBatchEdit() }
+        assertEquals("Meeting\n", c.sourceText())
+        assertEquals(7, c.view.selectionStart)
+        assertEquals(7, c.view.selectionEnd)
+    }
+
+    @Test fun codePointSelectionDeletionRestoresTheWholeEmojiSelection() = session("a\uD83D\uDE00b") { c ->
+        c.select(1, 3)
+        ime(c) {
+            beginBatchEdit()
+            setSelection(3, 3)
+            deleteSurroundingTextInCodePoints(1, 0)
+            endBatchEdit()
+        }
+        assertEquals("ab\n", c.sourceText())
+        c.undo()
+        assertEquals("a\uD83D\uDE00b\n", c.sourceText())
+        assertEquals(1, c.view.selectionStart)
+        assertEquals(3, c.view.selectionEnd)
+    }
+
+    @Test fun aDifferentDeletionFootprintUsesTheCollapsedCaret() = session("Meeting") { c ->
+        c.select(0, 7)
+        ime(c) {
+            beginBatchEdit()
+            setSelection(7, 7)
+            deleteSurroundingText(1, 0)
+            endBatchEdit()
+        }
+        assertEquals("Meetin\n", c.sourceText())
+        c.undo()
+        assertEquals("Meeting\n", c.sourceText())
+        assertEquals(7, c.view.selectionStart)
+    }
+
     @Test fun quoteButtonTakesTheQuoteOffAQuotedLine() =
         session("> quoted\n") { c -> c.select(2); c.block(EditorBlockCommand.Quote); assertEquals("quoted\n", c.sourceText()) }
 
