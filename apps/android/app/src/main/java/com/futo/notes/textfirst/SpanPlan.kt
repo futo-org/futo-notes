@@ -116,8 +116,19 @@ internal fun planSpans(p: EditorProjection, startUtf16: Int, outside: (Int) -> I
     }
     val out = ArrayList<SpanSpec>(p.runs.size + p.blocks.size + p.atoms.size)
     val codeBodies = p.blocks.filter { it.code && it.range.start < it.range.end }.sortedBy { it.range.start }
+    // Keep canonical first-item metadata from hidden openers when their paint
+    // row is coalesced with the visible body. Only equal descriptors at the
+    // same display point share it; continuation rows retain their own role.
+    val codeMarkers = p.blocks.filter {
+        it.code && it.range.start == it.range.end && it.list?.first == true
+    }.toSet()
     var previous: uniffi.futo_notes_ffi.EditorBlockDescription? = null
-    for (b in p.blocks) {
+    for (block in p.blocks) {
+        val marker = if (block.code && block.list != null) block.copy(
+            range = block.range.copy(end = block.range.start),
+            list = block.list?.copy(first = true),
+        ) else null
+        val b = if (marker in codeMarkers) block.copy(list = marker?.list) else block
         // Hidden fence rows can share the first/last body's display point.
         // They are not extra paragraphs with another code/quote margin.
         if (b.code && b.range.start == b.range.end) {
