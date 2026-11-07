@@ -103,7 +103,8 @@ impl Row {
         Some(Self {
             source_len: text.len(),
             pipes: text.contains('|'),
-            parsed_source_bytes: full.parsed_source_bytes,
+            table_scan: crate::table::RowScan::new(text),
+            parsed_source_bytes: full.parsed_source_bytes + text.len(),
             guarded_words: Vec::new(),
             images: Vec::new(),
             wikilinks: Vec::new(),

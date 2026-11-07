@@ -3,7 +3,13 @@
 //! receive cells and ask for commands. Offsets here are window-relative.
 use std::ops::Range;
 
+mod scan;
+#[cfg(test)]
+mod scan_tests;
 mod types;
+#[cfg(test)]
+use scan::Header;
+pub(crate) use scan::{RowScan, State, Summary};
 pub use types::*;
 
 pub(crate) struct Line {
@@ -59,6 +65,12 @@ pub(crate) fn line_has_cell(line: &str, range: Range<usize>) -> bool {
         .cells
         .iter()
         .any(|cell| cell.start <= range.start && range.end <= cell.end)
+}
+
+/// Canonical shape of one physical row, without a fabricated table window.
+pub(crate) fn row_line(text: &str) -> Line {
+    let end = text.trim_end_matches(['\r', '\n']).len();
+    parse_line(text, 0, end, text.len())
 }
 
 pub(crate) fn pipe_count(text: &str) -> usize {

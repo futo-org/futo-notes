@@ -272,3 +272,140 @@ fn a_compound_clear_keeps_duplicate_entities_and_the_other_cells_link_identity()
     assert_eq!(s.source_text(), source);
     assert_eq!(s.selection(), selected);
 }
+
+#[test]
+fn edge_cell_ownership_survives_mid_run_headers_and_tracks_structural_edits() {
+    for prefix in ["intro\n", "intro | text\nnot a delimiter\n", "# intro\n"] {
+        let source = format!("{prefix}Item | Owner\n:--- | ---\nx | y\n");
+        let mut s = EditorSession::open(&source);
+        let at = s.display_text().find("Item").unwrap();
+        let selected = DisplayRange {
+            start: futo_notes_editor::DisplayOffset(at),
+            end: futo_notes_editor::DisplayOffset(at + 4),
+        };
+        assert!(s.inspect_table(s.revision(), selected).unwrap().is_some());
+        s.select(s.revision(), selected).unwrap();
+        s.paragraph_key(s.revision(), selected, ParagraphKey::Backspace, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            s.source_text(),
+            format!("{prefix}| | Owner\n:--- | ---\nx | y\n")
+        );
+        assert_eq!(
+            s.inspect_table(s.revision(), s.selection())
+                .unwrap()
+                .unwrap()
+                .focus
+                .map(|focus| (focus.row, focus.column)),
+            Some((0, 0))
+        );
+    }
+    // Changing a delimiter removes ownership immediately; Undo restores it.
+    let mut s = EditorSession::open("Item | Owner\n:--- | ---\nx | y\n");
+    let at = s.display_text().find(":---").unwrap();
+    let delimiter = DisplayRange {
+        start: futo_notes_editor::DisplayOffset(at),
+        end: futo_notes_editor::DisplayOffset(at + 4),
+    };
+    s.replace(s.revision(), delimiter, "invalid", &mut |_| Ok(()))
+        .unwrap();
+    assert!(s
+        .inspect_table(s.revision(), DisplayRange::default())
+        .unwrap()
+        .is_none());
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    let table = s
+        .inspect_table(s.revision(), DisplayRange::default())
+        .unwrap()
+        .unwrap();
+    let cell = table.rows[1][0].content;
+    s.select(s.revision(), cell).unwrap();
+    s.paragraph_key(s.revision(), cell, ParagraphKey::Backspace, &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(s.source_text(), "Item | Owner\n:--- | ---\n| | y\n");
+    // A block interruption ends the old table even without a blank line.
+    let source = "Item | Owner\n:--- | ---\nx | y\n# stop\nBody | Tail\n";
+    let mut s = EditorSession::open(source);
+    let at = s.display_text().find("Body").unwrap();
+    let body = DisplayRange {
+        start: futo_notes_editor::DisplayOffset(at),
+        end: futo_notes_editor::DisplayOffset(at + 4),
+    };
+    assert!(s.inspect_table(s.revision(), body).unwrap().is_none());
+    s.replace(s.revision(), body, "", &mut |_| Ok(())).unwrap();
+    assert_eq!(
+        s.source_text(),
+        "Item | Owner\n:--- | ---\nx | y\n# stop\n | Tail\n"
+    );
+}
+
+#[test]
+fn a_distant_later_header_becomes_owner_only_after_the_first_rule_is_invalidated() {
+    let prefix = "h|t\n-|-\n";
+    let source = format!("{prefix}{}c|d|e\n-|-|-\nx|y|z", "a|b\n".repeat(2_000));
+    let mut s = EditorSession::open(&source);
+    let at = s.display_text().rfind('z').unwrap();
+    let target = DisplayRange {
+        start: futo_notes_editor::DisplayOffset(at),
+        end: futo_notes_editor::DisplayOffset(at + 1),
+    };
+    assert!(s
+        .inspect_table(s.revision(), target)
+        .unwrap()
+        .unwrap()
+        .focus
+        .is_none());
+    let rule = DisplayRange {
+        start: futo_notes_editor::DisplayOffset(4),
+        end: futo_notes_editor::DisplayOffset(7),
+    };
+    s.replace(s.revision(), rule, "invalid", &mut |_| Ok(()))
+        .unwrap();
+    let at = s.display_text().rfind('z').unwrap();
+    let selected = DisplayRange {
+        start: futo_notes_editor::DisplayOffset(at),
+        end: futo_notes_editor::DisplayOffset(at + 1),
+    };
+    assert_eq!(
+        s.inspect_table(s.revision(), selected)
+            .unwrap()
+            .unwrap()
+            .focus
+            .unwrap()
+            .column,
+        2
+    );
+    s.select(s.revision(), selected).unwrap();
+    s.paragraph_key(s.revision(), selected, ParagraphKey::Backspace, &mut |_| {
+        Ok(())
+    })
+    .unwrap()
+    .unwrap();
+    assert!(s.source_text().ends_with("x|y||"));
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(s.source_text(), source);
+    let at = s.display_text().rfind('z').unwrap();
+    let target = DisplayRange {
+        start: futo_notes_editor::DisplayOffset(at),
+        end: futo_notes_editor::DisplayOffset(at + 1),
+    };
+    assert!(s
+        .inspect_table(s.revision(), target)
+        .unwrap()
+        .unwrap()
+        .focus
+        .is_none());
+    s.select(s.revision(), target).unwrap();
+    s.paragraph_key(s.revision(), target, ParagraphKey::Backspace, &mut |_| {
+        Ok(())
+    })
+    .unwrap()
+    .unwrap();
+    assert!(s.source_text().ends_with("x|y|"));
+    assert!(!s.source_text().ends_with("x|y||"));
+}
