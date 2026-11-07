@@ -32,6 +32,13 @@ class TextFirstGlyphMetricsTest {
         )
     }
 
+    private fun layOut(view: TextFirstEditText, width: Int, height: Int) {
+        view.layoutParams = android.view.ViewGroup.LayoutParams(width, height)
+        val exact = android.view.View.MeasureSpec.EXACTLY
+        view.measure(android.view.View.MeasureSpec.makeMeasureSpec(width, exact), android.view.View.MeasureSpec.makeMeasureSpec(height, exact))
+        view.layout(0, 0, width, height)
+    }
+
     /** Ink to the right of the text's advance, as a fraction of the font size. */
     private fun overhang(bold: Boolean, italic: Boolean, text: String = "wmvl"): Float {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -127,15 +134,13 @@ class TextFirstGlyphMetricsTest {
     @Test fun orderedMarkerInkSurvivesTheNativeViewClip() = runBlocking(Dispatchers.Main) {
         val images = ImageLoader(context, context.cacheDir)
         try {
-            for (depth in 0..1) for (rtl in listOf(false, true)) for (number in listOf(9L, 10L, 99L, 100L, 999999999L)) {
+            for (depth in listOf(0, 1, 4, 7, 14, 20)) for (rtl in listOf(false, true)) for (number in listOf(9L, 10L, 99L, 100L, 999999999L)) {
                 val view = TextFirstEditText(context, look, images)
                 view.apply(UiUpdate(1, if (rtl) "אבג\n" else "Box\n", emptyList(), 0, 0, -1, -1,
                     listOf(StyleWindow(0, 4, listOf(SpanSpec.ListRow(0, 4, depth, ListMarker.Ordered, number, false, true)))), 0L))
                 val width = look.dp(360f).toInt()
                 val height = look.dp(160f).toInt()
-                val exact = android.view.View.MeasureSpec.EXACTLY
-                view.measure(android.view.View.MeasureSpec.makeMeasureSpec(width, exact), android.view.View.MeasureSpec.makeMeasureSpec(height, exact))
-                view.layout(0, 0, width, height)
+                layOut(view, width, height)
                 val actual = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                 val fullMarker = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                 try {
@@ -183,10 +188,7 @@ class TextFirstGlyphMetricsTest {
             view.apply(UiUpdate(1, body, emptyList(), 0, 0, -1, -1, windows(9), 0L))
             val width = view.totalPaddingLeft + view.totalPaddingRight + kotlin.math.ceil(look.listIndent + view.paint.measureText("Parcel Parcel")).toInt() + 1
             val height = look.dp(500f).toInt()
-            view.layoutParams = android.view.ViewGroup.LayoutParams(width, height)
-            val exact = android.view.View.MeasureSpec.EXACTLY
-            view.measure(android.view.View.MeasureSpec.makeMeasureSpec(width, exact), android.view.View.MeasureSpec.makeMeasureSpec(height, exact))
-            view.layout(0, 0, width, height)
+            layOut(view, width, height)
             val narrowX = view.layout.getPrimaryHorizontal(0)
             val narrowEnd = view.layout.getLineEnd(0)
             view.apply(UiUpdate(2, null, emptyList(), 0, 0, -1, -1, windows(100), 0L))
@@ -197,6 +199,58 @@ class TextFirstGlyphMetricsTest {
             assertEquals(narrowX, view.layout.getPrimaryHorizontal(0), 0f)
             assertEquals(narrowEnd, view.layout.getLineEnd(0))
             assertEquals(body + TextFirstEditText.END_SENTINEL, view.text.toString())
+        } finally { images.shutdown() }
+    }
+
+
+    @Test fun deepListIndentStopsConsumingThePhoneColumn() = runBlocking(Dispatchers.Main) {
+        val images = ImageLoader(context, context.cacheDir)
+        try {
+            for (kind in listOf(ListMarker.Bullet, ListMarker.Ordered, ListMarker.Task)) for (depth in listOf(0, 3, 4, 7, 8, 14, 20)) for (rtl in listOf(false, true)) {
+                val line = if (rtl) "אריזה למשלוח\n" else "Parcel ready\n"
+                val body = line + line
+                val view = TextFirstEditText(context, look, images)
+                view.apply(UiUpdate(1, body, emptyList(), 0, 0, -1, -1,
+                    listOf(StyleWindow(0, body.length, listOf(
+                        SpanSpec.ListRow(0, line.length, depth, kind, 1L, false, true),
+                        SpanSpec.ListRow(line.length, body.length, depth, kind, 1L, false, false),
+                    ))), 0L))
+                val width = look.dp(360f).toInt()
+                val height = look.dp(120f).toInt()
+                layOut(view, width, height)
+                val levels = depth + 1
+                val normal = minOf(levels, 4)
+                val compact = (levels - 4).coerceIn(0, 4)
+                val expected = (look.textSizePx * (normal * 1.4f + compact * 0.7f)).toInt()
+                val at = view.layout.getPrimaryHorizontal(0)
+                val indent = if (rtl) view.layout.width - at else at
+                assertEquals("$kind depth$depth rtl$rtl: bounded native body indent", expected.toFloat(), indent, 0f)
+                assertEquals("$kind depth$depth: a short phrase still fits", line.length, view.layout.getLineEnd(0))
+                assertEquals("physical continuation hangs at the same body column", at, view.layout.getPrimaryHorizontal(line.length), 0f)
+                val y = view.totalPaddingTop + view.layout.getLineTop(0) + 2
+                val lead = look.textSizePx * (normal * 1.4f + compact * 0.7f) - look.listIndent
+                val x = if (rtl) width - view.totalPaddingRight - lead.toInt() - 2 else view.totalPaddingLeft + lead.toInt() + 2
+                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                try {
+                    android.text.Selection.setSelection(view.editableText, 0, line.length)
+                    bitmap.eraseColor(Color.WHITE)
+                    view.draw(Canvas(bitmap))
+                    assertEquals("full row selection includes the bounded marker", androidx.core.graphics.ColorUtils.compositeColors(look.selectionColor, Color.WHITE), bitmap.getPixel(x, y))
+                    android.text.Selection.setSelection(view.editableText, 1)
+                    bitmap.eraseColor(Color.WHITE)
+                    view.draw(Canvas(bitmap))
+                    assertEquals("collapsed caret clears that marker", Color.WHITE, bitmap.getPixel(x, y))
+                } finally { bitmap.recycle() }
+                if (kind == ListMarker.Task) {
+                    val dir = if (rtl) -1 else 1
+                    val edge = view.totalPaddingLeft + at
+                    val center = edge - dir * (look.dp(6f) + look.textSizePx * 0.95f / 2)
+                    val middleY = view.totalPaddingTop + (view.layout.getLineTop(0) + view.layout.getLineBottom(0)) / 2f
+                    assertEquals("the bounded checkbox still hits its task", 0, checkboxAt(view, look, center, middleY))
+                    assertEquals("the first text pixel remains a caret tap", -1, checkboxAt(view, look, edge + dir, middleY))
+                }
+                assertEquals(body + TextFirstEditText.END_SENTINEL, view.text.toString())
+            }
         } finally { images.shutdown() }
     }
 

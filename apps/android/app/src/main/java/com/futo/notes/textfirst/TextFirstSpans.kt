@@ -177,6 +177,10 @@ internal class TfList(
         if (required > look.listIndent) kotlin.math.ceil(required) else look.listIndent
     } else look.listIndent
 
+    // The own marker column supplies level one. Add three full steps and
+    // four half steps, then retain a complete marker at the capped body edge.
+    private val markerLead = look.listIndent * (depth.coerceIn(0, 3) + (depth - 3).coerceIn(0, 4) * 0.5f)
+
     override fun slice(head: Boolean): TfSpan = if (head) this else TfList(look, depth, marker, number, checked, false)
 
     fun sameAs(other: TfList) = depth == other.depth && marker == other.marker && number == other.number && checked == other.checked && first == other.first
@@ -188,11 +192,11 @@ internal class TfList(
         }
     }
 
-    override fun getLeadingMargin(first: Boolean) = (look.listIndent * depth + markerColumn).toInt()
+    override fun getLeadingMargin(first: Boolean) = (markerLead + markerColumn).toInt()
 
     /** Dynamic selection is painted by the view, outside Layout's cached glyph drawing. */
     fun drawSelectedMargin(c: Canvas, x: Int, dir: Int, top: Float, bottom: Float) {
-        val lead = look.listIndent * depth
+        val lead = markerLead
         val unit = markerColumn
         paint.color = look.selectionColor
         paint.style = Paint.Style.FILL
@@ -209,7 +213,7 @@ internal class TfList(
         if (spanned.getSpanStart(this) != start) return
         // Offsets below run from the paragraph's leading edge [x] in direction [dir]:
         // an RTL paragraph's markers sit at its right, beside where its text starts.
-        val lead = look.listIndent * depth
+        val lead = markerLead
         val unit = markerColumn
         paint.color = look.textColor
         paint.textSize = look.textSizePx

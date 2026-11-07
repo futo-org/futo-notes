@@ -42,7 +42,10 @@
   level lists are unchanged; past level eight the levels stop being told apart
   by their left edge, which is the deliberate half of the trade. Measured at
   402x874. → src/features/editor/milkdown/milkdownEditor.css,
-  tests/editor-embed-milkdown-deep-nesting.spec.ts
+  tests/editor-embed-milkdown-deep-nesting.spec.ts,
+  apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstSpans.kt,
+  apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstGlyphMetricsTest.kt
+  `deepListIndentStopsConsumingThePhoneColumn`
 
 - A list item that wraps **hanging-indents** its continuation lines: wrapped
   rows start under the item's text, never back under its marker, while the
