@@ -50,9 +50,9 @@ commit that finishes the last milestone (archive rule).
 | `EditorEngineTables.kt` (`tableSpans`, lookup half of `publishCell`) | `host::plan_tables`, `EditorStyleSpan.TableRow/TableDelimiter`, `NativeEditorSession.cell_view` | !596 (stacked on !593) | to post |
 | `SpanPlan.kt` image branch (`SpanSpec.Image`) | `host::StyleSpec::Image`, `EditorStyleSpan.Image` | !593 (stacked on !592, merges !590 for `is_http_image_source`) | posted |
 | `EditorEngineFind.kt` (`snapshot`: UTF-16 marks, composition suppression, reveal target; `findStep`'s `landed` first-press rule) | `host::plan_find`, `host::FindLanding`, `NativeEditorSession.find_snapshot` / `find_step_landing`, `EditorFindLanding` | !598 (stacked on !589; cherry-picked here because this branch carries the older !589 commit) | posted |
-| `EditorEngineOpening.kt` (`selectWhileOpening`, the queue's range mapping), `RenderWork.map` | `host::PendingEdits`, `EditorPendingEdits` | new engine MR (stacked on !596, merges !590) | to post |
-| `EditorEngineStream.kt` `OpenSlices.sliceEnd` | `DisplayMirror::slice_end`, `begins_with` (the handover's byte-exact prefix test) | same MR | to post |
-| `EditorEngineStorage.kt` `showQuickOpen` (`window(quick.projection, tableSpans(quick.tables))`) | `host::plan_quick_open`, `NoteStore.quick_open_view`, `EditorQuickView` | same MR | to post |
+| `EditorEngineOpening.kt` (`selectWhileOpening`, the queue's range mapping), `RenderWork.map` | `host::PendingEdits`, `EditorPendingEdits` | !603 (stacked on !596, merges !590) | posted |
+| `EditorEngineStream.kt` `OpenSlices.sliceEnd` | `DisplayMirror::slice_end`, `begins_with` (the handover's byte-exact prefix test) | !603 | posted |
+| `EditorEngineStorage.kt` `showQuickOpen` (`window(quick.projection, tableSpans(quick.tables))`) | `host::plan_quick_open`, `NoteStore.quick_open_view`, `EditorQuickView` | !603 | posted |
 | `ToolbarCommandGate.kt` | not needed on iOS for small commands (the main actor runs them whole); large ones now take the engine queue and drop taps meanwhile (see M8 notes): every command runs synchronously on the main actor, so none is queued or dropped. Revisit if M8 moves the engine off the main thread. | | |
 
 ## Decisions log (reversible)
