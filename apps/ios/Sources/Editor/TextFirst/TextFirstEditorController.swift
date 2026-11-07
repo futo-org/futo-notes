@@ -17,7 +17,7 @@
         }
         let mirror: EditorDisplayMirror
         let storage: NSTextStorage
-        private(set) var noteId: String
+        var noteId: String
 
         /// The engine's revision; every call carries it and every accepted change advances it.
         var rev: UInt64
@@ -41,6 +41,11 @@
 
         var onCheckpoint: ((FlushDraftResult) -> Void)?
         var onFailure: ((Error) -> Void)?
+        /// The note this editor is attached to changed (a peer's rename, a parked conflict, this
+        /// screen's own rename); the argument is the engine's id for it.
+        var onIdentityChange: ((String) -> Void)?
+        /// Whether the last save attempt failed (the draft is kept and retried).
+        let saveModel = TextFirstSaveModel()
         var onOpenURL: ((String) -> Void)?
         var onOpenNote: ((String) -> Void)?
         /// Debug: the kill loop's typist, kept alive with the controller.
@@ -185,8 +190,6 @@
             textView.overrideUserInterfaceStyle =
                 theme == "dark" ? .dark : theme == "light" ? .light : .unspecified
         }
-
-        func adoptIdentity(_ id: String) { noteId = id }
 
         // MARK: applying engine output
 

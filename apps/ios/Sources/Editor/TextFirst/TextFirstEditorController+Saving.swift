@@ -41,24 +41,33 @@
             let session = session
             io.async { [weak self] in
                 let result = Result { try save(session) }
+                // The attachment's own id after the attempt: a peer's rename or a park moved it
+                // whether or not the write then succeeded. Read here so the main thread never
+                // waits on the session for it.
+                let identity = try? session.noteId()
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        self?.saved(result)
+                        self?.saved(result, identity: identity)
                         done()
                     }
                 }
             }
         }
 
-        func saved(_ result: Result<FlushDraftResult?, Error>) {
+        func saved(_ result: Result<FlushDraftResult?, Error>, identity: String?) {
             // On either outcome: a checkpoint settles marked text and prepares an outside write's
             // adoption before the write that may then fail (recovery.md), so the engine's own
             // changes are waiting either way.
             drainCoordinatedChanges()
+            if let identity { adoptIdentity(identity) }
             switch result {
             case .success(let flushed):
-                if let flushed { onCheckpoint?(flushed) }
+                if let flushed {
+                    saveModel.failed = false
+                    onCheckpoint?(flushed)
+                }
             case .failure(let error):
+                saveModel.failed = true
                 onFailure?(error)
             }
             // What is unsaved is the engine's to say (an adopted merge is not typed text); a
@@ -100,6 +109,16 @@
             } catch { recover(error, context: "coordinated changes") }
         }
 
+        /// The user chose to lose the unsaved edits: end the attachment without saving. The note
+        /// is free to open again once nothing holds this controller.
+        func discard() {
+            saveTimer?.invalidate()
+            saveTimer = nil
+            if opening { abandonOpening() }
+            closed = true
+            images.shutdown()
+        }
+
         /// Save, then release the attachment. A failed detach leaves the session attached.
         func close() async -> Result<FlushDraftResult, Error> {
             // A leave before the engine landed still applies what was typed, then saves it.
@@ -116,13 +135,16 @@
                 io.async { done.resume(returning: Result { try session.detach() }) }
             }
             switch result {
-            case .success:
+            case .success(let saved):
+                // A save that parked the draft left the attachment on the conflict copy.
+                if case .parkedConflict(let parked) = saved.disposition { adoptIdentity(parked) }
                 closed = true
                 images.shutdown()
             case .failure:
                 // The attachment is still the draft: deliver what the failed save changed in
-                // it, and keep the retry going.
+                // it, follow it if it moved, and keep the retry going.
                 drainCoordinatedChanges()
+                saveModel.failed = true
                 armSave()
             }
             return result
