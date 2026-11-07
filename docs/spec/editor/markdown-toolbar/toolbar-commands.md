@@ -85,6 +85,7 @@
   EditorToolbar.kt, EmbedToolbar.svelte,
   tests/editor-embed-milkdown-toolbar.spec.ts
 - Bold, Italic and Strikethrough light only when the selection carries that format — within one block the whole selection, across blocks every selected inline body (edge whitespace and blank lines aside), so a lit button means a tap removes it; a collapsed caret shows its carried formats. Block controls light only for the common selected block kind, with mixed blocks left unlit. → crates/futo-notes-editor/src/session/toolbar.rs, crates/futo-notes-editor/src/session/formatting.rs `selected_toggle_formats`
+- The H1/H2/H3 and Quote buttons use the same rule as their taps, so a lit button means a tap takes the format off and an unlit one means it applies it. Heading lights when every selected content line carries that level, whatever quote depth or block kind it sits in; Quote lights when every selected prose line is quoted. Blank lines are set aside by both (a caret or selection of only blank lines still reads them), and Quote also sets aside code and divider lines, which it never changes. → crates/futo-notes-editor/src/session/toolbar.rs, crates/futo-notes-editor/src/session/blocks/mod.rs `common_heading`, `all_quoted`, crates/futo-notes-editor/tests/blocks/blank_lines.rs `toolbar_lit_state_matches_what_the_tap_does`
 - Inline formats and Link are dimmed when the engine disallows inline formatting; Indent, Outdent, Undo and Redo are dimmed when their canonical eligibility or history query says they cannot run. These controls stay visible. → crates/futo-notes-editor/src/session/toolbar.rs
 - Heading controls offer Text, H1, H2 and H3 explicitly. Choosing a level applies
   that same level to every selected prose block; choosing it again does not cycle.
@@ -98,7 +99,7 @@
   surrounding document. Verified in the desktop WebView and Android emulator
   2026-09-08. → src/features/editor/milkdown/blockCommands.ts,
   tests/editor-embed-milkdown-toolbar.spec.ts,
-  crates/futo-notes-editor/src/session/blocks/commands.rs `all_quoted`,
+  crates/futo-notes-editor/src/session/blocks/mod.rs `all_quoted`,
   crates/futo-notes-editor/tests/blocks/toggle.rs
 - Bullet, Ordered and Task retain their list toggles and conversions. Converting
   between list kinds preserves nesting; Bullet/Ordered change the enclosing list,
