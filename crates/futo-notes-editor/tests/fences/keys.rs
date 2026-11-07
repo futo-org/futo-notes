@@ -423,6 +423,10 @@ fn a_code_block_ending_a_saved_note_takes_enter_and_typing_at_its_last_line() {
         let mut view = ReferenceView::new("code");
         let caret = range(4, 4);
         session.select(session.revision(), caret).unwrap();
+        let toolbar = session.toolbar_state();
+        assert!(toolbar.code, "{opening:?}: {toolbar:?}");
+        assert!(!toolbar.inline_allowed, "{opening:?}: {toolbar:?}");
+        assert!(!toolbar.mixed, "{opening:?}: {toolbar:?}");
         view.apply(
             session
                 .replace(session.revision(), caret, "x", &mut |_| Ok(()))

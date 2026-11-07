@@ -168,3 +168,60 @@ fn a_recomposed_word_takes_the_formats_of_its_first_character_after_a_toggle_off
         .unwrap();
     assert_eq!(s.source_text(), "**xyz**");
 }
+
+#[test]
+fn toolbar_caret_retains_terminal_code_ownership() {
+    for source in [
+        "```\ncode\n```",
+        "```\n\n```\n",
+        "> ```\n> code\n> ```\n",
+        "- ```\n  code\n  ```\n",
+    ] {
+        let mut session = EditorSession::open(source);
+        let end = session.display_text().len();
+        session.select(session.revision(), range(end, end)).unwrap();
+        let state = session.toolbar_state();
+        assert!(state.code, "{source:?}: {state:?}");
+        assert!(!state.inline_allowed, "{source:?}: {state:?}");
+        assert!(!state.mixed, "{source:?}: {state:?}");
+        assert_eq!(session.source_text(), source);
+        assert_eq!(session.revision(), Revision(0));
+    }
+}
+
+#[test]
+fn toolbar_caret_keeps_genuine_trailing_prose_ownership() {
+    for source in ["```\ncode\n```\n\n", "```\ncode\n```\n\nplain"] {
+        let mut session = EditorSession::open(source);
+        let end = session.display_text().len();
+        session.select(session.revision(), range(end, end)).unwrap();
+        let state = session.toolbar_state();
+        assert!(!state.code, "{source:?}: {state:?}");
+        assert!(state.inline_allowed, "{source:?}: {state:?}");
+        assert!(!state.mixed, "{source:?}: {state:?}");
+        assert_eq!(session.source_text(), source);
+        assert_eq!(session.revision(), Revision(0));
+    }
+}
+
+#[test]
+fn toolbar_caret_format_toggle_remains_a_noop_at_saved_code_end() {
+    use futo_notes_editor::InlineFormat;
+    for source in ["```\ncode\n```\n", "~~~\ncode\n~~~\n"] {
+        let mut session = EditorSession::open(source);
+        session.select(session.revision(), range(4, 4)).unwrap();
+        let mut accepts = 0;
+        assert!(session
+            .toggle_format(session.revision(), InlineFormat::Bold, &mut |_| {
+                accepts += 1;
+                Ok(())
+            })
+            .unwrap()
+            .is_none());
+        assert!(session.toolbar_state().formats.is_empty(), "{source:?}");
+        assert_eq!(accepts, 0);
+        assert_eq!(session.source_text(), source);
+        assert_eq!(session.selection(), range(4, 4));
+        assert_eq!(session.revision(), Revision(0));
+    }
+}
