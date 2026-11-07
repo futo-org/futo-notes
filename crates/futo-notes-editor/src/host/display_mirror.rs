@@ -24,7 +24,15 @@ pub struct MirrorEdit {
     /// The resulting selection, in UTF-16 units of the new display.
     pub selection_start: usize,
     pub selection_end: usize,
+    /// How many UTF-16 units earlier the same edit could equally have been spelled, when it is a
+    /// pure insertion or deletion inside a run the engine's smallest-change report slid to the
+    /// right ("a" typed at the start of "aa" is reported at 2, and could be at 0, 1 or 2): the
+    /// text is the same at `start - slack ..= start`. 0 for any other edit.
+    pub slack: usize,
 }
+
+/// Longest run, in scalars, measured for [`MirrorEdit::slack`]; a longer run is cut here.
+const SLACK_REACH: usize = 1024;
 
 /// The host's copy of the engine's display text, kept in step by applying each
 /// accepted change. The engine speaks display UTF-8 bytes; platform text views
@@ -141,6 +149,56 @@ impl DisplayMirror {
         (head == prefix).then(|| prefix.encode_utf16().count())
     }
 
+    /// [`MirrorEdit::slack`] of the edit that turned `before` into the current rope: `[first,
+    /// last)` scalars replaced by `inserted` scalars. Sliding the edit left by `m` scalars gives
+    /// the same text exactly when, for every step up to `m`, the scalar the edit's new end passes
+    /// equals the one its old end passes.
+    fn slack(&self, before: &Rope, first: usize, last: usize, inserted: usize) -> usize {
+        if first != last && inserted != 0 {
+            return 0;
+        }
+        let mut run = 0;
+        while run < first.min(SLACK_REACH)
+            && self.rope.char(first + inserted - run - 1) == before.char(last - run - 1)
+        {
+            run += 1;
+        }
+        before.char_to_utf16_cu(first) - before.char_to_utf16_cu(first - run)
+    }
+
+    /// Where a key replays on the engine, at the engine's caret: `view` is the range UIKit-style
+    /// input asked to replace on the view's frozen text, `view_selection` the selection that view
+    /// had, `engine_selection` the engine's now (all UTF-16). A key's range is relative to the
+    /// view's selection (a Backspace at a caret asks for the unit before it, typing over a
+    /// selection asks for the selection), so it keeps that offset from the engine's selection:
+    /// the engine's caret has moved on with the keys before it, the frozen view's has not. The
+    /// result is clamped to the text and shrunk to scalar boundaries (a Backspace over an emoji
+    /// asks for two units, but what is before the engine's caret now may be one).
+    pub fn at_caret(
+        &self,
+        view: (usize, usize),
+        view_selection: (usize, usize),
+        engine_selection: (usize, usize),
+    ) -> (usize, usize) {
+        let len = self.utf16_len();
+        let shifted = |at: usize, from: usize, to: usize| {
+            (to as i64 + at as i64 - from as i64).clamp(0, len as i64) as usize
+        };
+        let mut start = shifted(view.0, view_selection.0, engine_selection.0);
+        let mut end = shifted(view.1, view_selection.1, engine_selection.1);
+        while start < end && self.utf16_to_byte(start).is_err() {
+            start += 1;
+        }
+        while end > start && self.utf16_to_byte(end).is_err() {
+            end -= 1;
+        }
+        // An empty range may sit inside a pair (a stale caret): step it back onto the boundary.
+        while end == start && self.utf16_to_byte(start).is_err() {
+            (start, end) = (start - 1, end - 1);
+        }
+        (start, end.max(start))
+    }
+
     /// A selection of the current display, as UTF-16 units.
     pub fn selection_utf16(&self, start: usize, end: usize) -> Result<(usize, usize), MirrorError> {
         if start > end {
@@ -175,6 +233,7 @@ impl DisplayMirror {
                 inserted_utf16: inserted.encode_utf16().count(),
                 selection_start,
                 selection_end,
+                slack: self.slack(&before, first, last, inserted.chars().count()),
             }),
             Err(error) => {
                 self.rope = before;

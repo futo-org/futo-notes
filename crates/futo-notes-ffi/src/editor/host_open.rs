@@ -63,15 +63,21 @@ impl EditorPendingEdits {
         })
     }
 
-    /// Note an edit the engine made while replaying, in the coordinates of the text before it.
+    /// Note an edit the engine made while replaying, in the coordinates of the text before it:
+    /// the `EditorMirrorEdit`, `slack_utf16` its `slack_utf16`, and `near` the start of the range
+    /// it was replayed at (the spelling of an edit inside a run of identical characters nearest
+    /// `near` is the one recorded).
     pub fn record(
         &self,
         start: u64,
         end: u64,
         inserted_utf16: u64,
+        slack_utf16: u64,
+        near: u64,
     ) -> Result<(), EditorMirrorError> {
         let (start, end, inserted) = (index(start)?, index(end)?, index(inserted_utf16)?);
-        self.with(|p| p.record(start, end, inserted));
+        let (slack, near) = (index(slack_utf16)?, index(near)?);
+        self.with(|p| p.record_near(start, end, inserted, slack, near));
         Ok(())
     }
 
