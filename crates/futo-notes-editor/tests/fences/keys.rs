@@ -456,3 +456,97 @@ fn a_code_block_ending_a_saved_note_takes_enter_and_typing_at_its_last_line() {
         assert_eq!(view.text, session.display_text());
     }
 }
+
+#[test]
+fn empty_code_enter_in_a_list_keeps_the_body_inside_its_fence() {
+    for (original, shown, at, expected, display) in [
+        ("- ```\n  \n  ```\n", "", 0, "- ```\n  \n  \n  ```\n", "\n"),
+        ("- ```\n  ```\n", "", 0, "- ```\n  \n  \n  ```\n", "\n"),
+        (
+            "9. ```\n   \n   ```\n",
+            "",
+            0,
+            "9. ```\n   \n   \n   ```\n",
+            "\n",
+        ),
+        (
+            "> - ```\n>   \n>   ```\n",
+            "",
+            0,
+            "> - ```\n>   \n>   \n>   ```\n",
+            "\n",
+        ),
+        (
+            "- p\n  - ```\n    \n    ```\n",
+            "p\n",
+            2,
+            "- p\n  - ```\n    \n    \n    ```\n",
+            "p\n\n",
+        ),
+        (
+            "-\t```\n\t\n\t```\n",
+            "",
+            0,
+            "-\t```\n\t\n\t\n\t```\n",
+            "\n",
+        ),
+        (
+            "> 9. ```lang\r\n>    \r\n>    ```\r\n",
+            "",
+            0,
+            "> 9. ```lang\r\n>    \r\n>    \r\n>    ```\r\n",
+            "\r\n",
+        ),
+        ("> ```\n> \n> ```\n", "", 0, "> ```\n> \n> \n> ```\n", "\n"),
+        (
+            "- ```\n  \n  ```\n  after",
+            "\nafter",
+            0,
+            "- ```\n  \n  \n  ```\n  after",
+            "\n\nafter",
+        ),
+    ] {
+        for key in [ParagraphKey::Enter, ParagraphKey::ShiftEnter] {
+            let mut session = EditorSession::open(original);
+            let mut view = ReferenceView::new(shown);
+            assert_eq!(session.display_text(), shown, "{original:?}");
+            let caret = range(at, at);
+            session.select(session.revision(), caret).unwrap();
+            let mut accepted = 0;
+            view.apply(
+                session
+                    .paragraph_key(session.revision(), caret, key, &mut |_| {
+                        accepted += 1;
+                        Ok(())
+                    })
+                    .unwrap()
+                    .expect("Enter edits the empty code body"),
+            );
+            assert_eq!(session.source_text(), expected, "{original:?} {key:?}");
+            assert_eq!(view.text, display);
+            assert_eq!(session.display_text(), view.text);
+            let after = at + display.len() - shown.len();
+            assert_eq!(session.selection(), range(after, after));
+            assert_eq!(accepted, 1);
+            assert!(session.toolbar_state().code);
+            view.apply(
+                session
+                    .undo(session.revision(), &mut |_| Ok(()))
+                    .unwrap()
+                    .unwrap(),
+            );
+            assert_eq!(session.source_text(), original);
+            assert_eq!(view.text, shown);
+            assert_eq!(session.selection(), caret);
+            view.apply(
+                session
+                    .redo(session.revision(), &mut |_| Ok(()))
+                    .unwrap()
+                    .unwrap(),
+            );
+            assert_eq!(session.source_text(), expected);
+            assert_eq!(view.text, display);
+            assert_eq!(session.selection(), range(after, after));
+        }
+    }
+}
