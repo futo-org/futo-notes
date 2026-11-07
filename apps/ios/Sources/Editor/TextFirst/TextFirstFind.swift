@@ -213,7 +213,7 @@
         /// Input only logs its window in the engine; matches are rebased on read and a rescan of a
         /// snapshot replaces stale ones once typing settles.
         func scheduleFindRefresh() {
-            guard !engineBusy else { return }
+            guard !opening else { return }
             guard find.open, !closed else { return }
             find.refresh?.cancel()
             let work = DispatchWorkItem { [weak self] in
@@ -224,7 +224,12 @@
         }
 
         private func refreshFind() {
-            guard find.open, !closed, !engineBusy, !engineComposing else { return }
+            guard find.open, !closed else { return }
+            // A rescan due during a composition or an engine job waits for it to end.
+            guard !engineBusy, !engineComposing else {
+                scheduleFindRefresh()
+                return
+            }
             do {
                 let report = try session.findReport()
                 if report.stale, !find.scanning, let request = try session.findScanRequest() {

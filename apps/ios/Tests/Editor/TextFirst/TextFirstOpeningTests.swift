@@ -324,5 +324,33 @@
             #expect(weakController == nil)
             #expect(weakView == nil)
         }
+
+        @Test func listRowsCrossingStylingSliceBoundariesKeepTheirMarkers() async throws {
+            var source = "# lists\n\n"
+            for i in 0..<3_000 { source += "- tight item \(i)\n" }
+            source += "\n"
+            for i in 0..<600 { source += "- loose item \(i)\n\n" }
+            let h = TextFirstHarness(source, id: "long")
+            #expect(h.controller.mirrorLength > 3 * 12_000)
+            #expect(await h.until(60) { h.controller.styledThrough >= h.controller.mirrorLength })
+            let text = h.controller.storage.string as NSString
+            var rows = 0
+            var unmarked: [Int] = []
+            text.enumerateSubstrings(
+                in: NSRange(location: 0, length: text.length), options: .byLines
+            ) { line, range, _, _ in
+                guard let line, line.contains(" item ") else { return }
+                rows += 1
+                let block =
+                    h.controller.storage.attribute(
+                        .tfBlock, at: range.location, effectiveRange: nil)
+                    as? TextFirstBlockAttribute
+                if block?.list == nil { unmarked.append(range.location) }
+            }
+            #expect(rows == 3_600)
+            #expect(
+                unmarked.isEmpty,
+                "\(unmarked.count) rows lost their marker, first at \(unmarked.first ?? -1)")
+        }
     }
 #endif

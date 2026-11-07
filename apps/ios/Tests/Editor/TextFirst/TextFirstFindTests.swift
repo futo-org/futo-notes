@@ -76,6 +76,24 @@
             #expect(h.controller.findModel.total == 4)
         }
 
+        @Test func aRescanThatFiresDuringCompositionRunsOnceTheCompositionEnds() async throws {
+            let h = TextFirstHarness(Self.note)
+            h.controller.openFind()
+            h.controller.setFindQuery("bold")
+            h.select(0, 0)
+            h.type("bold ")
+            // The rescan is due in 150 ms; a composition starts first and outlasts it.
+            h.tv.setMarkedText("q", selectedRange: NSRange(location: 1, length: 0))
+            try await Task.sleep(nanoseconds: 500_000_000)
+            // The composition is cancelled: no text change reaches the engine.
+            h.tv.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
+            h.tv.unmarkText()
+            let more = ranges(of: "bold", in: h.controller.storage.string)
+            #expect(more.count == 4)
+            #expect(await h.until { h.controller.find.marks == more })
+            #expect(h.controller.findModel.total == 4)
+        }
+
         @Test func closingClearsMarksAndPutsTheSelectionBack() {
             let h = TextFirstHarness(Self.note)
             h.select(3, 3)

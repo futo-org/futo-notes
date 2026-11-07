@@ -19,6 +19,10 @@
     /// the window to 844x390 (and back) and lays out.
     @Suite @MainActor
     struct TextFirstLongBenchTests {
+        /// `slice` runs only the first-slice test; otherwise the timings and the parts.
+        nonisolated static var slice: Bool {
+            ProcessInfo.processInfo.environment["TEXT_FIRST_BENCH_MODE"] == "slice"
+        }
         nonisolated static var file: String? {
             ProcessInfo.processInfo.environment["TEXT_FIRST_BENCH_FILE"]
         }
@@ -100,7 +104,7 @@
             tv.layoutIfNeeded()
         }
 
-        @Test(.enabled(if: TextFirstLongBenchTests.file != nil))
+        @Test(.enabled(if: TextFirstLongBenchTests.file != nil && !TextFirstLongBenchTests.slice))
         func longNoteTimings() async throws {
             let path = try #require(Self.file)
             let source = try String(contentsOfFile: path, encoding: .utf8)
@@ -214,8 +218,47 @@
             _ = await controller.close()
         }
 
+        /// The first style slice and a keystroke in the middle of the note (a note with a `|` line
+        /// followed by many lines, against the same note without it).
+        @Test(.enabled(if: TextFirstLongBenchTests.file != nil && TextFirstLongBenchTests.slice))
+        func firstSliceAndMiddleKey() async throws {
+            let path = try #require(Self.file)
+            let source = try String(contentsOfFile: path, encoding: .utf8)
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "text-first-slice-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let store = NoteStore(notesRoot: root.path)
+            _ = try store.createNote(title: "big", folder: "", content: source)
+            let session = try store.openEditor(id: "big")
+            let t0 = CACurrentMediaTime()
+            let controller = try TextFirstEditorController(noteId: "big", session: session)
+            let first = CACurrentMediaTime()
+            let tv = controller.textView
+            let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
+            tv.frame = window.bounds
+            window.addSubview(tv)
+            window.isHidden = false
+            let styled = await TextFirstHarness.waitStyled(controller, seconds: 20)
+            let text = tv.text as NSString
+            var offset = 0
+            for _ in 0..<10_000 {
+                offset =
+                    text.range(
+                        of: "\n", range: NSRange(location: offset, length: text.length - offset)
+                    ).upperBound
+            }
+            tv.selectedRange = NSRange(location: offset, length: 0)
+            let k = keys(tv, count: 20)
+            Self.log(
+                "TFSLICE note=\(URL(fileURLWithPath: path).lastPathComponent) first_slice_ms=\(Self.ms(t0, first)) "
+                    + "styled_within_20s=\(styled) middle_key_p50_ms=\(Int(k.p50)) p95_ms=\(Int(k.p95)) max_ms=\(Int(k.max))"
+            )
+            _ = await controller.close()
+        }
+
         /// Where the open's time goes (debugging the numbers above; not a gate).
-        @Test(.enabled(if: TextFirstLongBenchTests.file != nil))
+        @Test(.enabled(if: TextFirstLongBenchTests.file != nil && !TextFirstLongBenchTests.slice))
         func openParts() async throws {
             let path = try #require(Self.file)
             let source = try String(contentsOfFile: path, encoding: .utf8)
