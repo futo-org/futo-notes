@@ -223,3 +223,54 @@ fn large_paste_work_does_not_grow_with_the_note() {
     assert!(large <= small + 64, "small {small}, large {large}");
     assert!(small <= pasted.len() * 8, "small {small}");
 }
+
+#[test]
+fn copied_named_links_paste_as_markdown_with_their_real_destination() {
+    for (original, display, expected, title) in [
+        (
+            "[alpha](<https://x.test>)",
+            "alpha",
+            "[alpha](<https://x.test>)",
+            None,
+        ),
+        (
+            "[alpha\nbeta](<https://x.test>)\n",
+            "alpha\nbeta",
+            "[alpha\nbeta](<https://x.test>)",
+            None,
+        ),
+        (
+            "[alpha\r\nbeta](<https://x.test>)\r\n",
+            "alpha\nbeta",
+            "[alpha\nbeta](<https://x.test>)",
+            None,
+        ),
+        (
+            "[**alpha**](<https://x.test> 'T')",
+            "alpha",
+            "[**alpha**](<https://x.test> 'T')",
+            Some("T"),
+        ),
+    ] {
+        let source = EditorSession::open(original);
+        let copied = source
+            .copy_markdown(Revision(0), range(0, source.display_text().len()))
+            .unwrap();
+        assert_eq!(copied, original);
+        let pasted = paste("", range(0, 0), &copied);
+        assert_eq!(pasted.display_text(), display, "{original:?}");
+        assert_eq!(pasted.source_text(), expected);
+        let projection = pasted
+            .project(pasted.revision(), range(0, display.len()))
+            .unwrap();
+        assert_eq!(projection.links.len(), 1);
+        assert_eq!(projection.links[0].range, range(0, display.len()));
+        assert_eq!(projection.links[0].destination, "https://x.test");
+        assert_eq!(projection.links[0].title.as_deref(), title);
+        if title.is_some() {
+            assert!(projection.runs.iter().any(|run| {
+                run.range == range(0, display.len()) && run.formats.contains(&InlineFormat::Bold)
+            }));
+        }
+    }
+}
