@@ -12,9 +12,11 @@ mod correspondence;
 pub use correspondence::{EditorCorrespondence, EditorCorrespondenceKind};
 mod find;
 mod host;
+mod host_open;
 pub use host::{
     EditorDisplayMirror, EditorListMarker, EditorMirrorEdit, EditorMirrorError, EditorStyleSpan,
 };
+pub use host_open::{EditorPendingEdits, EditorQuickView};
 mod images;
 mod links;
 mod tags;

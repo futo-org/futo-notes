@@ -10,6 +10,9 @@ pub enum MirrorError {
     Reversed,
 }
 
+/// How far past its target a slice may run to reach a blank line, in slices.
+const SLICE_REACH: usize = 10;
+
 /// One engine change in the host's UTF-16 coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MirrorEdit {
@@ -85,6 +88,57 @@ impl DisplayMirror {
         let from = self.utf16_to_byte(start)?;
         let to = self.utf16_to_byte(end)?;
         Ok(self.rope.byte_slice(from..to).to_string())
+    }
+
+    /// Where a render slice starting at `from` ends (UTF-16 units): just after the line before the
+    /// first blank line at or past `chars` units on, else after the next line end, else the end of
+    /// the text. A blank line ends every block that spans lines (a table, a paragraph, an inline
+    /// mark), so a slice never cuts one in two: the engine reports a table only from the slice it
+    /// starts in. A text with no blank line within ten slices keeps whole lines. Always on a
+    /// scalar boundary, never behind `from`'s target by more than a line.
+    pub fn slice_end(&self, from: usize, chars: usize) -> Result<usize, MirrorError> {
+        let len = self.utf16_len();
+        if from > len {
+            return Err(MirrorError::OutOfRange);
+        }
+        let target = from.saturating_add(chars);
+        if target >= len {
+            return Ok(len);
+        }
+        let reach = target.saturating_add(chars.saturating_mul(SLICE_REACH));
+        // A blank line: "\n\n" whose first newline is at or after `target - 1`.
+        let first = self.rope.utf16_cu_to_char(target.saturating_sub(1));
+        let mut unit = self.rope.char_to_utf16_cu(first);
+        let mut previous_newline = false;
+        for c in self.rope.chars_at(first) {
+            if unit > reach {
+                break;
+            }
+            if c == '\n' && previous_newline {
+                // `unit` is the second newline; the slice ends after the first.
+                return Ok(unit);
+            }
+            previous_newline = c == '\n';
+            unit += c.len_utf16();
+        }
+        // No blank line within reach: whole lines, from `target` on.
+        let from_char = self.rope.utf16_cu_to_char(target);
+        let mut unit = self.rope.char_to_utf16_cu(from_char);
+        for c in self.rope.chars_at(from_char) {
+            unit += c.len_utf16();
+            if c == '\n' {
+                return Ok(unit);
+            }
+        }
+        Ok(len)
+    }
+
+    /// Whether the display starts with exactly `prefix` (bytes, not Unicode equivalence); the
+    /// prefix's length in UTF-16 units when it does. A host that showed a long note's first
+    /// screens before its session existed keeps them only when this holds.
+    pub fn begins_with(&self, prefix: &str) -> Option<usize> {
+        let head = self.rope.get_byte_slice(..prefix.len())?;
+        (head == prefix).then(|| prefix.encode_utf16().count())
     }
 
     /// A selection of the current display, as UTF-16 units.
