@@ -17,7 +17,7 @@ const original = JSON.parse(readFileSync(new URL('fixtures/list-actions.json', i
 const shortcuts = JSON.parse(
   readFileSync(new URL('fixtures/list-shortcuts.json', import.meta.url)),
 );
-assert.equal(original.length, 27);
+assert.equal(original.length, 29);
 assert.equal(shortcuts.length, 38);
 const staging = JSON.parse(readFileSync(new URL('fixtures/list-staging.json', import.meta.url)));
 assert.equal(staging.length, 12);

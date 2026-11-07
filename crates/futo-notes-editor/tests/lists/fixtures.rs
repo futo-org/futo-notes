@@ -14,7 +14,7 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
         serde_json::from_str(include_str!("../fixtures/list-actions.json")).unwrap();
     let shortcuts: Vec<Value> =
         serde_json::from_str(include_str!("../fixtures/list-shortcuts.json")).unwrap();
-    assert_eq!(original.len(), 27);
+    assert_eq!(original.len(), 29);
     assert_eq!(shortcuts.len(), 38);
     let staging: Vec<Value> =
         serde_json::from_str(include_str!("../fixtures/list-staging.json")).unwrap();

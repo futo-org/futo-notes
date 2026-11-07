@@ -581,3 +581,18 @@ fn heading_list_enter_controls_keep_the_start_and_literal_task_hash() {
         }
     }
 }
+
+#[test]
+fn heading_list_enter_keeps_its_optional_closer_on_the_left() {
+    for key in [ParagraphKey::Enter, ParagraphKey::ShiftEnter] {
+        heading_list_enter(
+            "- ## ab ##",
+            range(2, 2),
+            key,
+            "- ## ab ##\n- ",
+            "ab\n",
+            3,
+            0,
+        );
+    }
+}

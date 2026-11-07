@@ -26,6 +26,16 @@ pub(super) struct ParagraphSeparator {
 }
 
 impl EditorSession {
+    /// The canonical block's trailing source syntax, excluding its line ending.
+    /// A split keeps this suffix beside the left body it originally closed.
+    pub(super) fn block_line_suffix(&self, line: &BlockLine) -> std::ops::Range<usize> {
+        let mut end = line.source.end;
+        while end > line.content.end && matches!(self.source.byte(end - 1), b'\r' | b'\n') {
+            end -= 1;
+        }
+        line.content.end..end
+    }
+
     /// A paragraph replacing a block below a list must not become that item's
     /// lazy continuation. An empty paragraph also needs its own margin caret.
     pub(super) fn list_paragraph_separator(
