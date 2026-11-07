@@ -39,6 +39,9 @@ impl EditorSession {
             self.projection.format_block_lines(range)
         };
         let first = lines.first();
+        // Blank lines are aside from the selection-wide block state.
+        let content = self.content_block_lines(&lines);
+        let content_first = content.first().copied();
         let list_kind = |line: &crate::inline::blocks::BlockLine| {
             line.list.as_ref().map(|list| {
                 if list.checked.is_some() {
@@ -50,8 +53,8 @@ impl EditorSession {
                 }
             })
         };
-        let common = first.filter(|first| {
-            lines.iter().all(|line| {
+        let common = content_first.filter(|first| {
+            content.iter().all(|line| {
                 (line.heading, line.quote_depth, line.code, list_kind(line))
                     == (
                         first.heading,
@@ -116,10 +119,10 @@ impl EditorSession {
                 self.selected_toggle_formats(range, &lines)
             },
             heading: common.map(|line| line.heading),
-            quote: !lines.is_empty() && lines.iter().all(|line| line.quote_depth > 0),
-            list: first
+            quote: !content.is_empty() && content.iter().all(|line| line.quote_depth > 0),
+            list: content_first
                 .and_then(list_kind)
-                .filter(|kind| lines.iter().all(|line| list_kind(line) == Some(*kind))),
+                .filter(|kind| content.iter().all(|line| list_kind(line) == Some(*kind))),
             code,
             mixed: common.is_none(),
             inline_allowed: lines.iter().any(|line| !line.code && !line.metadata),

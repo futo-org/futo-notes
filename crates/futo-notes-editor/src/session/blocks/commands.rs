@@ -99,6 +99,7 @@ impl EditorSession {
                 return Err(EditorError::InvalidRange);
             }
             let lines = self.selected_block_lines(range);
+            let lines = self.content_block_lines(&lines);
             if !lines.is_empty() && lines.iter().all(|line| line.heading == level) {
                 BlockCommand::Heading(0)
             } else {
@@ -175,13 +176,23 @@ impl EditorSession {
                 return self.indent_list(expected, range, command, accept);
             }
         }
-        let lines = self.selected_block_lines(range);
+        let mut lines = self.selected_block_lines(range);
         // Choosing Quote on text that is already quoted takes one level off.
-        let command = if command == BlockCommand::Quote && all_quoted(&lines) {
-            BlockCommand::Outdent
-        } else {
-            command
-        };
+        let command =
+            if command == BlockCommand::Quote && all_quoted(&self.content_block_lines(&lines)) {
+                BlockCommand::Outdent
+            } else {
+                command
+            };
+        // Blank lines between the lines a heading is set on stay as they are.
+        if matches!(command, BlockCommand::Heading(1..=6)) {
+            let keep: Vec<_> = self
+                .content_block_lines(&lines)
+                .into_iter()
+                .map(|line| line.source.start)
+                .collect();
+            lines.retain(|line| keep.binary_search(&line.source.start).is_ok());
+        }
         if matches!(command, BlockCommand::Heading(1..=6) | BlockCommand::Quote)
             && lines.iter().any(|line| {
                 !line.code
@@ -361,7 +372,7 @@ impl EditorSession {
 /// toolbar's active Quote state, so choosing Quote then takes a level off and
 /// keeps each block. A quote nested inside a list item is not offered: that
 /// outdent is outside the generic list path.
-fn all_quoted(lines: &[crate::inline::blocks::BlockLine]) -> bool {
+fn all_quoted(lines: &[&crate::inline::blocks::BlockLine]) -> bool {
     let mut prose = lines
         .iter()
         .filter(|line| !line.code && !line.divider && !line.metadata)

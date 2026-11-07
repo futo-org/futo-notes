@@ -64,6 +64,41 @@ impl EditorSession {
         self.projection.format_block_lines(range)
     }
 
+    /// A blank line: only spaces or tabs after its container prefixes, outside
+    /// code, front matter and raw HTML, and not an item's own first row.
+    pub(in crate::session) fn is_blank_line(
+        &self,
+        line: &crate::inline::blocks::BlockLine,
+    ) -> bool {
+        !line.code
+            && !line.metadata
+            && !line.html
+            && !line.divider
+            && line.heading == 0
+            && line.list.as_ref().is_none_or(|list| !list.first)
+            && self
+                .source
+                .byte_slice(line.content.clone())
+                .chars()
+                .all(|ch| matches!(ch, ' ' | '\t'))
+    }
+
+    /// The selected lines a block format reads and changes. Blank lines are
+    /// aside, as for inline formats, unless the selection holds nothing else:
+    /// a caret on a blank line still touches it.
+    pub(in crate::session) fn content_block_lines<'a>(
+        &self,
+        lines: &'a [crate::inline::blocks::BlockLine],
+    ) -> Vec<&'a crate::inline::blocks::BlockLine> {
+        if lines.iter().all(|line| self.is_blank_line(line)) {
+            return lines.iter().collect();
+        }
+        lines
+            .iter()
+            .filter(|line| !self.is_blank_line(line))
+            .collect()
+    }
+
     fn selected_list_lines(
         &self,
         range: DisplayRange,

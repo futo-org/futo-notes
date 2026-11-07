@@ -1,0 +1,125 @@
+use super::*;
+
+/// Select the whole display, run `command`, and return the resulting source
+/// plus the toolbar state seen before the tap. Undo must restore the exact
+/// opening bytes and selection.
+fn run(opening: &str, command: BlockCommand) -> (String, ToolbarState) {
+    let mut s = EditorSession::open(opening);
+    let all = range(0, s.display_text().len());
+    s.select(s.revision(), all).unwrap();
+    let before = s.toolbar_state();
+    let changed = s
+        .block_command(s.revision(), all, command, &mut |_| Ok(()))
+        .unwrap();
+    let after = s.source_text();
+    if changed.is_some() {
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    }
+    assert_eq!(
+        s.source_text(),
+        opening,
+        "{opening:?}: undo must restore bytes"
+    );
+    assert_eq!(
+        s.selection(),
+        all,
+        "{opening:?}: undo must restore selection"
+    );
+    (after, before)
+}
+
+/// Blank lines in a selection are neither touched nor converted, by the
+/// heading toggle or by the toolbar state that decides its direction.
+#[test]
+fn heading_toggle_sets_blank_lines_aside() {
+    // (opening, level, source after one tap, heading the toolbar lights before)
+    for (opening, level, expected, lit) in [
+        ("# a\n\n# b\n", 1, "a\n\nb\n", Some(1)),
+        ("## a\n\n## b\n", 2, "a\n\nb\n", Some(2)),
+        ("### a\n\n### b\n", 3, "a\n\nb\n", Some(3)),
+        ("# a\n\n\n# b", 1, "a\n\n\nb", Some(1)),
+        ("a\n\nb\n", 1, "# a\n\n# b\n", Some(0)),
+        ("a\n\nb\n", 3, "### a\n\n### b\n", Some(0)),
+        ("a\n  \nb", 1, "# a\n  \n# b", Some(0)),
+        // Mixed selections: some heading, some text, plus blank lines.
+        ("# a\n\nb\n\n# c\n", 1, "# a\n\n# b\n\n# c\n", None),
+        ("## a\n\n# b", 1, "# a\n\n# b", None),
+        // CRLF keeps every line ending exact.
+        ("# a\r\n\r\n# b\r\n", 1, "a\r\n\r\nb\r\n", Some(1)),
+        ("a\r\n\r\nb\r\n", 2, "## a\r\n\r\n## b\r\n", Some(0)),
+        // Quotes containing blank lines.
+        ("> # a\n>\n> # b\n", 1, "> a\n>\n> b\n", Some(1)),
+        ("> a\n>\n> b\n", 1, "> # a\n>\n> # b\n", Some(0)),
+    ] {
+        let (after, before) = run(opening, BlockCommand::ToggleHeading(level));
+        assert_eq!(after, expected, "{opening:?} H{level}");
+        assert_eq!(before.heading, lit, "{opening:?}: lit heading");
+        assert_eq!(before.mixed, lit.is_none(), "{opening:?}: mixed");
+    }
+}
+
+/// An explicit level or Text over blank lines also leaves them alone.
+#[test]
+fn explicit_heading_commands_skip_blank_lines() {
+    for (opening, command, expected) in [
+        ("a\n\nb\n", BlockCommand::Heading(2), "## a\n\n## b\n"),
+        ("# a\n\n# b\n", BlockCommand::Heading(0), "a\n\nb\n"),
+        ("# a\n\nb\n", BlockCommand::Heading(1), "# a\n\n# b\n"),
+    ] {
+        let (after, _) = run(opening, command);
+        assert_eq!(after, expected, "{opening:?} {command:?}");
+    }
+}
+
+/// A caret on a blank line is that line's own touched line: it still formats.
+#[test]
+fn heading_toggle_on_a_lone_blank_line_formats_it() {
+    let mut s = EditorSession::open("a\n\nb");
+    let caret = range(2, 2);
+    s.select(s.revision(), caret).unwrap();
+    s.block_command(
+        s.revision(),
+        caret,
+        BlockCommand::ToggleHeading(1),
+        &mut |_| Ok(()),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(s.source_text(), "a\n# \nb");
+}
+
+/// The Quote button lights for a selection whose content lines are all
+/// quoted, whatever blank lines sit between them, and its tap then takes the
+/// level off exactly as the lit state promises.
+#[test]
+fn quote_state_and_toggle_set_blank_lines_aside() {
+    for (opening, expected) in [
+        ("> a\n>\n> b\n", "a\n\nb\n"),
+        ("> a\n\n> b\n", "a\n\nb\n"),
+        ("> a\r\n>\r\n> b\r\n", "a\r\n\r\nb\r\n"),
+    ] {
+        let (after, before) = run(opening, BlockCommand::Quote);
+        assert!(before.quote, "{opening:?}: Quote lit");
+        assert_eq!(after, expected, "{opening:?}");
+    }
+}
+
+/// Gaps between list items, fences, front matter and trailing blank lines
+/// are blank lines too: a heading lands on the content around them.
+#[test]
+fn heading_skips_blank_lines_between_other_blocks() {
+    for (opening, expected) in [
+        ("- a\n\n- b\n", "# a\n\n# b\n"),
+        ("a\n\n- b\n\nc", "# a\n\n# b\n\n# c"),
+        ("```\na\n\nb\n```\n\nc", "```\na\n\nb\n```\n\n# c"),
+        (
+            "---\nt: 1\n\nx: 2\n---\n\nc",
+            "---\nt: 1\n\nx: 2\n---\n\n# c",
+        ),
+        ("a\n\n\n", "# a\n\n\n"),
+        ("> a\n\n> b\n", "> # a\n\n> # b\n"),
+    ] {
+        let (after, _) = run(opening, BlockCommand::Heading(1));
+        assert_eq!(after, expected, "{opening:?}");
+    }
+}

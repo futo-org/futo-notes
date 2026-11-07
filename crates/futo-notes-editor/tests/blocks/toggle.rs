@@ -35,7 +35,7 @@ fn android_heading_toolbar_toggles_only_a_common_current_level() {
         ("# title", 1, range(0, 5), "title"),
         ("# title\n", 1, range(0, 6), "title\n"),
         ("> ## one\n> ## two", 2, range(0, 7), "> one\n> two"),
-        ("## one\n\n### two", 2, range(0, 8), "## one\n## \n## two"),
+        ("## one\n\n### two", 2, range(0, 8), "## one\n\n## two"),
         ("title", 3, range(0, 5), "### title"),
     ] {
         let mut s = EditorSession::open(opening);
