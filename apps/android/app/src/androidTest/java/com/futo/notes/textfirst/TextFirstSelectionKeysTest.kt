@@ -4,9 +4,95 @@ import android.view.KeyEvent
 import android.view.inputmethod.EditorInfo
 import org.junit.Assert.*
 import org.junit.Test
+import uniffi.futo_notes_ffi.EditorInlineFormat
 
 /** Native key selection keeps Android's modifier state and anchor/focus. */
 class TextFirstSelectionKeysTest {
+    @Test fun styleSlicesKeepTheNewerNativeSelectionAndResetAppliesCanonicalSelection() =
+        textFirstSession("Label box\n") { c ->
+            c.select(6, 9)
+            assertEquals("Label box\n", c.sourceText())
+            var formatted: UiUpdate? = null
+            c.view.onApplyMeasured = { _, update -> formatted = update }
+            c.format(EditorInlineFormat.BOLD)
+            assertEquals("Label **box**\n", c.sourceText())
+            val windows = checkNotNull(formatted).windows
+            c.select(9)
+            assertEquals("Label **box**\n", c.sourceText())
+            val connection = c.view.onCreateInputConnection(EditorInfo())!!
+            textFirstIme(c, connection = connection) {
+                sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_SHIFT_LEFT))
+                repeat(3) {
+                    sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_LEFT))
+                    sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_LEFT))
+                }
+            }
+            assertEquals("Label **box**\n", c.sourceText())
+            assertEquals(9, c.view.selectionStart)
+            assertEquals(6, c.view.selectionEnd)
+            // A queued style slice has no authority over this newer native selection.
+            c.view.apply(UiUpdate(c.view.appliedSeq, null, emptyList(), 0, 0, -1, -1, windows, 0L, styleOnly = true))
+            assertEquals(9, c.view.selectionStart)
+            assertEquals(6, c.view.selectionEnd)
+            assertEquals("Label **box**\n", c.sourceText())
+            // The renderer also accepts an empty delta at the displayed end.
+            c.view.apply(UiUpdate(c.view.appliedSeq, null, listOf(TextEdit(10, 10, "")), 6, 9, -1, -1, windows, 0L))
+            assertEquals(9, c.view.selectionStart)
+            assertEquals(6, c.view.selectionEnd)
+            // A new renderer context does carry its canonical selection, even at the same bounds.
+            c.view.apply(UiUpdate(c.view.appliedSeq + 1, "Label box\n", emptyList(), 6, 9, -1, -1, windows, 0L))
+            assertEquals(6, c.view.selectionStart)
+            assertEquals(9, c.view.selectionEnd)
+            c.select(3)
+            assertEquals("Label **box**\n", c.sourceText())
+            assertEquals(3, c.view.selectionStart)
+            assertEquals(3, c.view.selectionEnd)
+        }
+
+    @Test fun formattingKeepsTheKeyboardSelectionAnchor() {
+        for ((format, marker) in listOf(EditorInlineFormat.BOLD to "**", EditorInlineFormat.ITALIC to "*",
+            EditorInlineFormat.STRIKE to "~~", EditorInlineFormat.CODE to "`")) {
+            textFirstSession("Label box\n") { c ->
+                c.select(9)
+                assertEquals("Label box\n", c.sourceText())
+                val connection = c.view.onCreateInputConnection(EditorInfo())!!
+                suspend fun key(code: Int, action: Int = KeyEvent.ACTION_DOWN) =
+                    textFirstIme(c, connection = connection) { sendKeyEvent(KeyEvent(action, code)) }
+                key(KeyEvent.KEYCODE_SHIFT_LEFT)
+                repeat(3) { key(KeyEvent.KEYCODE_DPAD_LEFT); key(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.ACTION_UP) }
+                assertEquals("Label box\n", c.sourceText())
+                assertEquals(9, c.view.selectionStart)
+                assertEquals(6, c.view.selectionEnd)
+                var applied: UiUpdate? = null
+                c.view.onApplyMeasured = { _, update -> applied = update }
+                c.format(format)
+                assertEquals("Label ${marker}box$marker\n", c.sourceText())
+                assertEquals("Label box\n" + TextFirstEditText.END_SENTINEL, c.view.text.toString())
+                val context = "$format reset=${applied?.reset != null} edits=${applied?.edits?.size} styleOnly=${applied?.styleOnly}"
+                assertEquals(context, 9, c.view.selectionStart)
+                assertEquals(context, 6, c.view.selectionEnd)
+                key(KeyEvent.KEYCODE_DPAD_LEFT)
+                key(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.ACTION_UP)
+                assertEquals("Label ${marker}box$marker\n", c.sourceText())
+                assertEquals(9, c.view.selectionStart)
+                assertEquals(5, c.view.selectionEnd)
+                key(KeyEvent.KEYCODE_DPAD_RIGHT)
+                key(KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.ACTION_UP)
+                key(KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.ACTION_UP)
+                textFirstIme(c, connection = connection) { commitText("crate", 1) }
+                assertEquals("Label ${marker}crate$marker\n", c.sourceText())
+                assertEquals(11, c.view.selectionStart)
+                assertEquals(11, c.view.selectionEnd)
+                c.undo()
+                assertEquals("Label ${marker}box$marker\n", c.sourceText())
+                assertEquals(6, c.view.selectionStart)
+                assertEquals(9, c.view.selectionEnd)
+                c.undo()
+                assertEquals("Label box\n", c.sourceText())
+            }
+        }
+    }
+
     @Test fun keyboardSelectionModeExtendsAndReleasesInTheNoteAndCell() {
         for ((cell, shift) in listOf(false to KeyEvent.KEYCODE_SHIFT_LEFT, false to KeyEvent.KEYCODE_SHIFT_RIGHT,
             true to KeyEvent.KEYCODE_SHIFT_LEFT, true to KeyEvent.KEYCODE_SHIFT_RIGHT)) {

@@ -27,6 +27,14 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
             restoring = ScrollAnchor(offset, before.intoLine)
         }
     }
+    val nativeStart = selectionStart
+    val nativeEnd = selectionEnd
+    // Renderer notifications can sort Android's anchor/focus even when only
+    // spans change. Rust owns the range; Android retains its direction.
+    val keepDirection = update.reset == null && update.edits.all { it.start == it.end && it.text.isEmpty() } &&
+        nativeStart >= 0 && nativeEnd >= 0 &&
+        minOf(nativeStart, nativeEnd) == minOf(update.selStart, update.selEnd) &&
+        maxOf(nativeStart, nativeEnd) == maxOf(update.selStart, update.selEnd)
     val applyStart = android.os.SystemClock.elapsedRealtimeNanos()
     var editsEnd = applyStart
     applying = true
@@ -70,7 +78,9 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
             }
         }
         val length = (e.length - 1).coerceAtLeast(0)
-        Selection.setSelection(e, update.selStart.coerceIn(0, length), update.selEnd.coerceIn(0, length))
+        Selection.setSelection(e,
+            (if (keepDirection) nativeStart else update.selStart).coerceIn(0, length),
+            (if (keepDirection) nativeEnd else update.selEnd).coerceIn(0, length))
         appliedSeq = update.seq
         if (update.inputUptimeNanos != 0L && (update.reset == null || update.sourceChanged)) {
             pendingTimings = KeyTimings(

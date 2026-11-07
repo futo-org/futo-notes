@@ -147,10 +147,17 @@ internal fun TextFirstEditText.applyStyleSlice(update: UiUpdate) {
     // renderer notification. Correct that change once; the open-note image
     // pin would keep overriding later keyboard navigation and caret reveal.
     val anchor = if (restoring == null) scrollAnchor() else null
+    val start = selectionStart
+    val end = selectionEnd
     applying = true
-    beginBatchEdit()
-    try { editableText.withRendererUpdate(this, update) { for (window in update.windows) restyle(editableText, window) } }
-    finally { endBatchEdit(); applying = false }
+    try {
+        beginBatchEdit()
+        try { editableText.withRendererUpdate(this, update) { for (window in update.windows) restyle(editableText, window) } }
+        finally { endBatchEdit() }
+        // TextView's renderer watcher may normalize a reverse range. This
+        // slice has no selection authority over newer keyboard/touch input.
+        if (start >= 0 && end >= 0) Selection.setSelection(editableText, start, end)
+    } finally { applying = false }
     anchor?.let { anchorY(it)?.let { y -> if (y != scrollY) scrollTo(scrollX, y) } }
     onApplyMeasured?.invoke(KeyTimings(0L, update.postedNanos, 0L, began, began, android.os.SystemClock.elapsedRealtimeNanos()), update)
 }
