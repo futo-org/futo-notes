@@ -41,7 +41,7 @@ class TextFirstCaretTest {
         val store = NoteStore(root.path)
         lateinit var controller: TextFirstController
         try {
-            val sources = listOf("- Dispatch\n- Archive\n- File", "1. Dispatch\n2. Archive\n3. File", "- [ ] Dispatch\n- [ ] Archive\n- [ ] File")
+            val sources = listOf("- Dispatch\n- Archive\n- File", "1. Dispatch\n2. Archive\n3. File", "- [ ] Dispatch\n- [ ] Archive\n- [ ] File", "99. Dispatch\n100. Archive\n101. File")
                 .map { it + "\n\nplain\n".repeat(80) }
             sources.forEachIndexed { i, raw -> store.createNote("n$i", "", raw) }
             withContext(Dispatchers.Main) {

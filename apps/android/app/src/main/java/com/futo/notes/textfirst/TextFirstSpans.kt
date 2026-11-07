@@ -168,6 +168,14 @@ internal class TfList(
     val first: Boolean,
 ) : CharacterStyle(), LeadingMarginSpan, UpdateAppearance, TfSpan {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    // Keep the nesting step; reserve enough of this item's column for its
+    // complete number before TextView clips drawing to the content padding.
+    private val markerColumn = if (marker == ListMarker.Ordered) {
+        paint.textSize = look.textSizePx
+        paint.typeface = look.regular
+        val required = paint.measureText("${number ?: 1}.") + look.dp(5f)
+        if (required > look.listIndent) kotlin.math.ceil(required) else look.listIndent
+    } else look.listIndent
 
     override fun slice(head: Boolean): TfSpan = if (head) this else TfList(look, depth, marker, number, checked, false)
 
@@ -180,12 +188,12 @@ internal class TfList(
         }
     }
 
-    override fun getLeadingMargin(first: Boolean) = (look.listIndent * (depth + 1)).toInt()
+    override fun getLeadingMargin(first: Boolean) = (look.listIndent * depth + markerColumn).toInt()
 
     /** Dynamic selection is painted by the view, outside Layout's cached glyph drawing. */
     fun drawSelectedMargin(c: Canvas, x: Int, dir: Int, top: Float, bottom: Float) {
         val lead = look.listIndent * depth
-        val unit = look.listIndent
+        val unit = markerColumn
         paint.color = look.selectionColor
         paint.style = Paint.Style.FILL
         paint.textSize = look.textSizePx
@@ -202,7 +210,7 @@ internal class TfList(
         // Offsets below run from the paragraph's leading edge [x] in direction [dir]:
         // an RTL paragraph's markers sit at its right, beside where its text starts.
         val lead = look.listIndent * depth
-        val unit = look.listIndent
+        val unit = markerColumn
         paint.color = look.textColor
         paint.textSize = look.textSizePx
         paint.typeface = look.regular

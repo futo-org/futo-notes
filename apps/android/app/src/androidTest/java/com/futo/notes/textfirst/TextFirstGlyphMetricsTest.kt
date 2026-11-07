@@ -122,4 +122,82 @@ class TextFirstGlyphMetricsTest {
             } finally { bitmap.recycle() }
         }
     }
+
+    /** A real TextView clips its Layout to the content padding; direct span drawing does not. */
+    @Test fun orderedMarkerInkSurvivesTheNativeViewClip() = runBlocking(Dispatchers.Main) {
+        val images = ImageLoader(context, context.cacheDir)
+        try {
+            for (depth in 0..1) for (rtl in listOf(false, true)) for (number in listOf(9L, 10L, 99L, 100L, 999999999L)) {
+                val view = TextFirstEditText(context, look, images)
+                view.apply(UiUpdate(1, if (rtl) "אבג\n" else "Box\n", emptyList(), 0, 0, -1, -1,
+                    listOf(StyleWindow(0, 4, listOf(SpanSpec.ListRow(0, 4, depth, ListMarker.Ordered, number, false, true)))), 0L))
+                val width = look.dp(360f).toInt()
+                val height = look.dp(160f).toInt()
+                val exact = android.view.View.MeasureSpec.EXACTLY
+                view.measure(android.view.View.MeasureSpec.makeMeasureSpec(width, exact), android.view.View.MeasureSpec.makeMeasureSpec(height, exact))
+                view.layout(0, 0, width, height)
+                val actual = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                val fullMarker = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                try {
+                    actual.eraseColor(Color.WHITE)
+                    fullMarker.eraseColor(Color.WHITE)
+                    view.draw(Canvas(actual))
+                    val text = view.editableText
+                    val marker = text.getSpans(0, 1, TfList::class.java).single()
+                    val top = view.totalPaddingTop + view.layout.getLineTop(0)
+                    val baseline = view.totalPaddingTop + view.layout.getLineBaseline(0)
+                    val bottom = view.totalPaddingTop + view.layout.getLineBottom(0)
+                    // Same glyph and native font phase, on an unclipped canvas. The
+                    // view must retain all marker ink, including its first digit.
+                    val dir = view.layout.getParagraphDirection(0)
+                    assertEquals(if (rtl) -1 else 1, dir)
+                    val edge = view.totalPaddingLeft + if (rtl) view.layout.width else 0
+                    marker.drawLeadingMargin(Canvas(fullMarker), TextPaint(), edge, dir,
+                        top, baseline, bottom, text, 0, 4, true, view.layout)
+                    val body = view.totalPaddingLeft + view.layout.getPrimaryHorizontal(0).toInt()
+                    val margin = if (rtl) body + 1 until width else 0 until body
+                    var ink = 0
+                    for (y in top until bottom) for (x in margin) {
+                        if (fullMarker.getPixel(x, y) == Color.GRAY) {
+                            ink++
+                            assertEquals("$number. depth$depth rtl$rtl: native View clipped marker ink at $x,$y", Color.GRAY, actual.getPixel(x, y))
+                        }
+                    }
+                    assertTrue("the reference contains the ordered marker", ink > 0)
+                } finally {
+                    actual.recycle()
+                    fullMarker.recycle()
+                }
+            }
+        } finally { images.shutdown() }
+    }
+
+
+    @Test fun numberMetadataAloneReflowsItsHangingContinuation() = runBlocking(Dispatchers.Main) {
+        val images = ImageLoader(context, context.cacheDir)
+        try {
+            val view = TextFirstEditText(context, look, images)
+            val body = "Parcel ".repeat(10) + "\n"
+            fun windows(number: Long) = listOf(StyleWindow(0, body.length,
+                listOf(SpanSpec.ListRow(0, body.length, 0, ListMarker.Ordered, number, false, true))))
+            view.apply(UiUpdate(1, body, emptyList(), 0, 0, -1, -1, windows(9), 0L))
+            val width = view.totalPaddingLeft + view.totalPaddingRight + kotlin.math.ceil(look.listIndent + view.paint.measureText("Parcel Parcel")).toInt() + 1
+            val height = look.dp(500f).toInt()
+            view.layoutParams = android.view.ViewGroup.LayoutParams(width, height)
+            val exact = android.view.View.MeasureSpec.EXACTLY
+            view.measure(android.view.View.MeasureSpec.makeMeasureSpec(width, exact), android.view.View.MeasureSpec.makeMeasureSpec(height, exact))
+            view.layout(0, 0, width, height)
+            val narrowX = view.layout.getPrimaryHorizontal(0)
+            val narrowEnd = view.layout.getLineEnd(0)
+            view.apply(UiUpdate(2, null, emptyList(), 0, 0, -1, -1, windows(100), 0L))
+            assertTrue("a wider number reserves its complete glyphs", view.layout.getPrimaryHorizontal(0) > narrowX)
+            assertTrue("metadata-only width changes reflow the existing Layout", view.layout.getLineEnd(0) < narrowEnd)
+            assertEquals("the wrapped body hangs at the same text column", view.layout.getPrimaryHorizontal(0), view.layout.getPrimaryHorizontal(view.layout.getLineStart(1)), 0f)
+            view.apply(UiUpdate(3, null, emptyList(), 0, 0, -1, -1, windows(9), 0L))
+            assertEquals(narrowX, view.layout.getPrimaryHorizontal(0), 0f)
+            assertEquals(narrowEnd, view.layout.getLineEnd(0))
+            assertEquals(body + TextFirstEditText.END_SENTINEL, view.text.toString())
+        } finally { images.shutdown() }
+    }
+
 }

@@ -157,3 +157,5 @@
   so a chunk that BEGAN with `---` would read a mid-note thematic break as
   front matter. → src/features/editor/milkdown/markdownChunks.ts,
   src/features/editor/milkdown/markdownChunks.test.ts
+
+- *(Android text-first editor)* Ordered list markers reserve room for their complete number and text gap, so wider numbers can give their item a wider text column. Wrapped and continued text hangs at that item's column while retaining the base nesting indentation; number-only style updates reflow the column and restore it when the number narrows. → apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstSpans.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstGlyphMetricsTest.kt `orderedMarkerInkSurvivesTheNativeViewClip`, `numberMetadataAloneReflowsItsHangingContinuation`
