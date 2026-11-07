@@ -138,10 +138,27 @@ impl Projection {
                         }
                     }),
             );
+            // A replacement crossing a fence boundary owns the complete code
+            // structure only when it also owns every visible body scalar. Keeping
+            // the opener alone would hide surviving prose inside an unmatched fence.
+            let mut retired_fences = Vec::new();
             let retired_headings: Vec<_> = row
                 .blocks
                 .iter()
                 .filter(|block| {
+                    if let Some(fence) = block.fence.as_ref().filter(|_| replacement.is_some()) {
+                        link_metadata_items += 1;
+                        let start = self.display_at(row_source + fence.body.start);
+                        let end = self.display_at(row_source + fence.body.end);
+                        if fence.closer.is_some()
+                            && range.start.0 <= start
+                            && end <= range.end.0
+                            && (range.start.0 < start || end < range.end.0)
+                            && retired_fences.last() != Some(&fence.whole)
+                        {
+                            retired_fences.push(fence.whole.clone());
+                        }
+                    }
                     let body_start = self.display_at(row_source + block.content.start);
                     let body_end = self.display_at(row_source + block.content.end);
                     // Replacing body text across blocks owns a complete lower
@@ -187,6 +204,17 @@ impl Projection {
             });
             let markers_at = MarkerRanges::new(row);
             for segment in &row.segments {
+                if segment.display.is_empty() {
+                    let at = retired_fences.partition_point(|fence| {
+                        link_metadata_items += 1;
+                        fence.end <= segment.source.start
+                    });
+                    if retired_fences.get(at).is_some_and(|fence| {
+                        fence.start <= segment.source.start && segment.source.end <= fence.end
+                    }) {
+                        continue;
+                    }
+                }
                 while hidden
                     .peek()
                     .is_some_and(|(range, _)| range.end <= segment.source.start)
