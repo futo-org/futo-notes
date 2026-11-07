@@ -42,6 +42,13 @@ internal open class EngineInputConnection(
     private var batch = 0
     private data class Collapse(val seq: Int, val revision: ULong, val start: Int, val end: Int, val at: Int)
     private var collapse: Collapse? = null
+    private data class Replacement(val seq: Int, val revision: ULong, val caret: Int, val start: Int, val end: Int)
+    private var replacement: Replacement? = null
+
+    private fun current(pending: Replacement): Boolean = pending.seq == engine.seq && pending.revision == engine.rev &&
+        pending.caret == engine.selStart && pending.caret == engine.selEnd && engine.mirror.overlay == null
+
+    private fun resetIme() { engine.ui.post { engine.sink.onImeReset() } }
 
     /** Gboard deletes a selection as one batch: collapse to its end, then delete backwards. */
     private fun selectedDeletion(before: Int, after: Int, codePoints: Boolean = false): Boolean {
@@ -57,11 +64,22 @@ internal open class EngineInputConnection(
         return true
     }
 
+    private fun flushSelection() {
+        replacement?.let { pending ->
+            replacement = null
+            if (current(pending)) engine.selectFromView(pending.seq, pending.start, pending.end, force = true)
+            else resetIme()
+        }
+        flushCollapse()
+    }
+
     private fun flushCollapse() {
         val pending = collapse ?: return
         collapse = null
         engine.selectFromView(pending.seq, pending.at, pending.at, force = true)
     }
+    private val selectionStart: Int get() = replacement?.takeIf(::current)?.start ?: engine.selStart
+    private val selectionEnd: Int get() = replacement?.takeIf(::current)?.end ?: engine.selEnd
     private val low: Int get() = if (cell) engine.cellRange?.first ?: engine.selStart else 0
     private val high: Int get() = if (cell) engine.cellRange?.last ?: engine.selEnd else engine.text.length
 
@@ -79,7 +97,7 @@ internal open class EngineInputConnection(
         require(n >= 0)
         trace("getTextBeforeCursor(" + "n=" + n + ")")
         val text = engine.text
-        val end = engine.selStart.coerceIn(0, text.length)
+        val end = selectionStart.coerceIn(0, text.length)
         return imeTextBefore(text, end, low, n)
     }
 
@@ -87,22 +105,22 @@ internal open class EngineInputConnection(
         flushCollapse()
         require(n >= 0)
         val text = engine.text
-        val start = engine.selEnd.coerceIn(0, text.length)
+        val start = selectionEnd.coerceIn(0, text.length)
         return imeTextAfter(text, start, high, n)
     }
 
     override fun getSelectedText(flags: Int): CharSequence? {
         flushCollapse()
         val text = engine.text
-        if (engine.selStart == engine.selEnd) return null
-        if (engine.selEnd - engine.selStart > IME_SELECTED_CHARS) return null
-        return text.substring(engine.selStart.coerceIn(0, text.length), engine.selEnd.coerceIn(0, text.length))
+        if (selectionStart == selectionEnd) return null
+        if (selectionEnd - selectionStart > IME_SELECTED_CHARS) return null
+        return text.substring(selectionStart.coerceIn(0, text.length), selectionEnd.coerceIn(0, text.length))
     }
 
     override fun getCursorCapsMode(reqModes: Int): Int {
         flushCollapse()
-        return if (cell) TextUtils.getCapsMode(engine.text.subSequence(low, high), (engine.selStart - low).coerceIn(0, high - low), reqModes)
-        else TextUtils.getCapsMode(engine.text, engine.selStart.coerceIn(0, engine.text.length), reqModes)
+        return if (cell) TextUtils.getCapsMode(engine.text.subSequence(low, high), (selectionStart - low).coerceIn(0, high - low), reqModes)
+        else TextUtils.getCapsMode(engine.text, selectionStart.coerceIn(0, engine.text.length), reqModes)
     }
 
     override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? {
@@ -121,13 +139,13 @@ internal open class EngineInputConnection(
 
     protected fun contextWindow(before: Int, after: Int): ImeContextWindow? {
         flushCollapse()
-        return ImeContextWindow.capture(engine.text, engine.selStart, engine.selEnd, low, high, before, after)
+        return ImeContextWindow.capture(engine.text, selectionStart, selectionEnd, low, high, before, after)
     }
 
     override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
         if (cell && !engine.editingCell) return true
         if (selectedDeletion(beforeLength, afterLength)) return true
-        flushCollapse()
+        flushSelection()
         trace("deleteSurroundingText(" + "beforeLength=" + beforeLength + " " + "afterLength=" + afterLength + ")")
         engine.imeDeleteSurrounding(minOf(beforeLength, engine.selStart - low), minOf(afterLength, high - engine.selEnd))
         return true
@@ -136,7 +154,7 @@ internal open class EngineInputConnection(
     override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean {
         if (cell && !engine.editingCell) return true
         if (selectedDeletion(beforeLength, afterLength, codePoints = true)) return true
-        flushCollapse()
+        flushSelection()
         trace("deleteSurroundingTextInCodePoints(" + "beforeLength=" + beforeLength + " " + "afterLength=" + afterLength + ")")
         val text = engine.text
         var before = 0
@@ -158,7 +176,7 @@ internal open class EngineInputConnection(
     }
 
     override fun setComposingText(text: CharSequence, newCursorPosition: Int): Boolean {
-        flushCollapse()
+        flushSelection()
         if (cell && !engine.editingCell) return true
         trace("setComposingText(" + "textLength=" + text.length + " " + "newCursorPosition=" + newCursorPosition + ")")
         engine.imeSetComposing(text.toString())
@@ -166,7 +184,7 @@ internal open class EngineInputConnection(
     }
 
     override fun setComposingRegion(start: Int, end: Int): Boolean {
-        flushCollapse()
+        flushSelection()
         if (cell && !engine.editingCell) return true
         trace("setComposingRegion(" + "start=" + start + " " + "end=" + end + ")")
         engine.imeSetComposingRegion((low + start).coerceIn(low, high), (low + end).coerceIn(low, high))
@@ -174,14 +192,26 @@ internal open class EngineInputConnection(
     }
 
     override fun finishComposingText(): Boolean {
-        flushCollapse()
+        flushSelection()
         trace("finishComposingText(" + "" + ")")
         engine.imeFinishComposing()
         return true
     }
 
     override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
-        flushCollapse()
+        val pending = replacement
+        if (pending != null && (!current(pending) || (cell && !engine.editingCell))) {
+            replacement = null
+            resetIme()
+            return true
+        }
+        if (pending != null && text.toString() != "\n") {
+            replacement = null
+            trace("commitText(" + "textLength=" + text.length + " " + "newCursorPosition=" + newCursorPosition + ")")
+            engine.imeReplace(pending.start, pending.end, text.toString())
+            return true
+        }
+        flushSelection()
         if (cell && !engine.editingCell) return true
         trace("commitText(" + "textLength=" + text.length + " " + "newCursorPosition=" + newCursorPosition + ")")
         engine.imeCommit(text.toString())
@@ -189,7 +219,7 @@ internal open class EngineInputConnection(
     }
 
     override fun commitCompletion(text: CompletionInfo): Boolean {
-        flushCollapse()
+        flushSelection()
         if (cell && !engine.editingCell) return true
         text.text?.let { engine.imeCommit(it.toString()) }
         return true
@@ -198,7 +228,12 @@ internal open class EngineInputConnection(
     override fun commitCorrection(correctionInfo: CorrectionInfo?): Boolean = true
 
     override fun setSelection(start: Int, end: Int): Boolean {
-        flushCollapse()
+        val from = (low + start).coerceIn(low, high)
+        val to = (low + end).coerceIn(low, high)
+        // The IME may echo the range it just read. Keep it provisional; a
+        // stale pending range still fails the generation checks at commit/end.
+        replacement?.let { if (it.start == minOf(from, to) && it.end == maxOf(from, to)) return true }
+        flushSelection()
         if (cell && !engine.editingCell) return true
         trace("setSelection(" + "start=" + start + " " + "end=" + end + ")")
         if (!cell) {
@@ -209,8 +244,14 @@ internal open class EngineInputConnection(
         // Enter on a selection makes the keyboard collapse it and delete the
         // selected text first. A selected image or code block takes Enter as an
         // object (the engine acts after it), so that collapse is not passed on.
-        val from = (low + start).coerceIn(low, high)
-        val to = (low + end).coerceIn(low, high)
+        // Gboard temporarily selects the corrected text inside a batch. Keep
+        // the user's opening caret in the engine until the paired commit; all
+        // other writes and selection-only batches flush it as normal selection.
+        // Reads observe this range without making it the history opening range.
+        if (batch > 0 && from != to && engine.selStart == engine.selEnd && engine.mirror.overlay == null) {
+            replacement = Replacement(engine.seq, engine.rev, engine.selStart, minOf(from, to), maxOf(from, to))
+            return true
+        }
         if (start == end) {
             val selected = if (cell) null else view.selectedObject
             if (selected != null && selected.first == engine.selStart && selected.second == engine.selEnd && from == selected.second) return true
@@ -225,14 +266,14 @@ internal open class EngineInputConnection(
     }
 
     override fun performEditorAction(editorAction: Int): Boolean {
-        flushCollapse()
+        flushSelection()
         trace("performEditorAction(" + "editorAction=" + editorAction + ")")
         if (cell) engine.finishCellEditing() else engine.key(EditorParagraphKey.ENTER)
         return true
     }
 
     override fun performContextMenuAction(id: Int): Boolean {
-        flushCollapse()
+        flushSelection()
         view.contextMenuAction(id)
         return true
     }
@@ -240,12 +281,12 @@ internal open class EngineInputConnection(
     override fun beginBatchEdit(): Boolean { batch += 1; return true }
     override fun endBatchEdit(): Boolean {
         batch = maxOf(0, batch - 1)
-        if (batch == 0) flushCollapse()
+        if (batch == 0) flushSelection()
         return batch > 0
     }
 
     override fun sendKeyEvent(event: KeyEvent): Boolean {
-        flushCollapse()
+        flushSelection()
         if (cell && !engine.editingCell) return true
         trace("sendKeyEvent(" + "event.action=" + event.action + " " + "event.keyCode=" + event.keyCode + ")")
         if (event.action != KeyEvent.ACTION_DOWN) return true
@@ -272,7 +313,7 @@ internal open class EngineInputConnection(
     override fun reportFullscreenMode(enabled: Boolean): Boolean = true
     override fun performPrivateCommand(action: String?, data: Bundle?): Boolean = false
     override fun requestCursorUpdates(cursorUpdateMode: Int): Boolean = false
-    override fun closeConnection() { flushCollapse(); engine.imeFinishComposing() }
+    override fun closeConnection() { flushSelection(); engine.imeFinishComposing() }
     override fun commitContent(inputContentInfo: InputContentInfo, flags: Int, opts: Bundle?): Boolean = view.imageContent(inputContentInfo, flags)
 
 }

@@ -27,6 +27,14 @@ internal fun EditorEngine.imeCommit(value: String) = input {
     }
 }
 
+/** A keyboard correction addresses a range without changing its opening history selection. */
+internal fun EditorEngine.imeReplace(start: Int, end: Int, value: String) = input {
+    val s = session ?: return@input
+    val change = s.replaceOsUtf16(rev, EditorUtf16Range(start.toULong(), end.toULong()), units(value), emptyList())
+    if (change != null) accept(change)
+    else select(end, end, fromView = false) // An unchanged replacement still ends at its addressed range.
+}
+
 internal fun EditorEngine.imeSetComposing(value: String) = input {
     val s = session ?: return@input
     val o = mirror.overlay

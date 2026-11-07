@@ -21,6 +21,152 @@ import uniffi.futo_notes_ffi.NoteStore
 
 /** A block can always be left: Enter past a selected image, Quote and Code block as toggles. */
 class TextFirstExitTest {
+    @Test fun undoAfterKeyboardPeriodRestoresTheOpeningCaret() = session("Pack ") { c ->
+        c.select(5)
+        ime(c) {
+            // Gboard's observed double-space correction uses two nested batches.
+            beginBatchEdit()
+            beginBatchEdit()
+            finishComposingText()
+            setSelection(4, 5)
+            commitText(". ", 1)
+            endBatchEdit()
+            endBatchEdit()
+        }
+        assertEquals("Pack. \n", c.sourceText())
+        c.undo()
+        assertEquals("Pack \n", c.sourceText())
+        assertEquals(5, c.view.selectionStart)
+        assertEquals(5, c.view.selectionEnd)
+        ime(c) { commitText("now", 1) }
+        assertEquals("Pack now\n", c.sourceText())
+    }
+
+    @Test fun keyboardReplacementSelectionIsOrdinaryOutsideItsPairedCommit() {
+        for (kind in listOf("unbatched", "selection-only")) session("Pack ") { c ->
+            c.select(5)
+            ime(c) {
+                if (kind != "unbatched") { beginBatchEdit(); beginBatchEdit() }
+                setSelection(4, 5)
+                if (kind == "selection-only") { endBatchEdit(); endBatchEdit() }
+                commitText(". ", 1)
+            }
+            assertEquals("Pack. \n", c.sourceText())
+            c.undo()
+            assertEquals("Pack \n", c.sourceText())
+            assertEquals("$kind start", 4, c.view.selectionStart)
+            assertEquals("$kind end", 5, c.view.selectionEnd)
+        }
+    }
+
+    @Test fun readingTheKeyboardReplacementRangeKeepsTheOpeningCaret() = session("Pack more") { c ->
+        c.select(5)
+        ime(c) {
+            beginBatchEdit()
+            beginBatchEdit()
+            finishComposingText()
+            setSelection(4, 5)
+            assertEquals(" ", getSelectedText(0).toString())
+            assertEquals("Pack", getTextBeforeCursor(20, 0).toString())
+            assertEquals("more\n", getTextAfterCursor(20, 0).toString())
+            val extracted = getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)!!
+            assertEquals(4, extracted.selectionStart)
+            assertEquals(5, extracted.selectionEnd)
+            getCursorCapsMode(android.text.TextUtils.CAP_MODE_SENTENCES)
+            commitText(". ", 1)
+            endBatchEdit()
+            endBatchEdit()
+        }
+        assertEquals("Pack. more\n", c.sourceText())
+        c.undo()
+        assertEquals("Pack more\n", c.sourceText())
+        assertEquals(5, c.view.selectionStart)
+        assertEquals(5, c.view.selectionEnd)
+        ime(c) { commitText("now ", 1) }
+        assertEquals("Pack now more\n", c.sourceText())
+    }
+
+    @Test fun echoingTheKeyboardReplacementRangeKeepsTheOpeningCaret() = session("Pack ") { c ->
+        c.select(5)
+        ime(c) {
+            beginBatchEdit()
+            beginBatchEdit()
+            finishComposingText()
+            setSelection(4, 5)
+            val extracted = getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)!!
+            assertEquals(4, extracted.selectionStart)
+            assertEquals(5, extracted.selectionEnd)
+            setSelection(4, 5)
+            commitText(". ", 1)
+            endBatchEdit()
+            endBatchEdit()
+        }
+        assertEquals("Pack. \n", c.sourceText())
+        c.undo()
+        assertEquals("Pack \n", c.sourceText())
+        assertEquals(5, c.view.selectionStart)
+        assertEquals(5, c.view.selectionEnd)
+    }
+
+    @Test fun aKeyboardCorrectionUsesCellLocalCoordinatesAndKeepsTheOpeningCaret() =
+        session("| Pack more | Owner |\n| --- | --- |\n") { c ->
+            assertTrue(c.selectDisplayRange(7))
+            ime(c, cell = true) {
+                beginBatchEdit()
+                finishComposingText()
+                setSelection(4, 5)
+                commitText(". ", 1)
+                endBatchEdit()
+            }
+            assertEquals("| Pack. more | Owner |\n| --- | --- |\n", c.sourceText())
+            c.undo()
+            assertEquals("| Pack more | Owner |\n| --- | --- |\n", c.sourceText())
+            assertEquals(7, c.view.selectionStart)
+            assertEquals(7, c.view.selectionEnd)
+            assertEquals(5, c.cellView!!.selectionStart)
+            assertEquals(5, c.cellView!!.selectionEnd)
+        }
+
+    @Test fun anUnchangedKeyboardCorrectionMovesTheCaretWithoutHistory() = session("Pack more") { c ->
+        c.select(9)
+        ime(c) {
+            beginBatchEdit()
+            setSelection(4, 0)
+            commitText("Pack", 1)
+            endBatchEdit()
+        }
+        assertEquals("Pack more\n", c.sourceText())
+        assertEquals(4, c.view.selectionStart)
+        assertEquals(4, c.view.selectionEnd)
+        c.undo()
+        assertEquals("Pack more\n", c.sourceText())
+        assertEquals(4, c.view.selectionStart)
+    }
+
+    @Test fun aStaleKeyboardReplacementCannotOverwriteAnInterveningEditOrSelection() {
+        for (edit in listOf(true, false)) session("Pack ") { c ->
+            c.select(5)
+            ime(c) {
+                beginBatchEdit()
+                setSelection(4, 5)
+                // A view/toolbar action may arrive between the keyboard's calls.
+                val engine = c.view.engine!!
+                if (edit) engine.imeCommit("X") else engine.imeSetSelection(0, 0)
+                commitText(". ", 1)
+                endBatchEdit()
+            }
+            assertEquals(if (edit) "Pack X\n" else "Pack \n", c.sourceText())
+            assertEquals(if (edit) 6 else 0, c.view.selectionStart)
+            assertEquals(c.view.selectionStart, c.view.selectionEnd)
+            if (edit) {
+                c.undo()
+                assertEquals("Pack \n", c.sourceText())
+                assertEquals(5, c.view.selectionStart)
+                assertEquals(5, c.view.selectionEnd)
+            }
+        }
+    }
+
     @Test fun undoAfterKeyboardDeletesACellSelectionRestoresItsRange() {
         for ((label, codePoints, backwards) in listOf(
             Triple("Item", false, true), Triple("\uD83D\uDE00", true, true), Triple("Item", false, false),
