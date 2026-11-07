@@ -1,38 +1,65 @@
 // Partial emphasis selection through compiled WASM, history, and the real store.
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { savedSource } from '../../wasm-saved-source.mjs';
 
 export async function partialLink(start, stop, current, timingVaults) {
-  const partialVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-partial-link-'));
-  timingVaults.push(partialVault);
-  const partialSource = 'Read **release notes** now';
-  const partialDisplay = 'Read release notes now';
-  const partialExchange = await start(partialSource, partialVault);
-  let session = current();
-  session.select_with_affinity(0n, 5, 12, '"Forward"');
-  const partial = JSON.parse(session.edit_link(0n, 5, 12, 'release', 'https://x.test'));
-  const partialAck = await partialExchange(JSON.stringify(partial.request));
-  assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(partialAck))), []);
-  assert.equal(JSON.parse(session.project(1n, 0, 22)).text, partialDisplay);
-  assert.equal(JSON.parse(session.inspect_link(1n, 5, 12)).destination, 'https://x.test');
-  const partialEdited = session.draft_text();
-  assert.equal(partialEdited, 'Read **[release](<https://x.test>) notes** now');
-  const partialUndo = JSON.parse(session.undo(1n));
-  const partialUndoAck = await partialExchange(JSON.stringify(partialUndo.request));
-  assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(partialUndoAck))), []);
-  assert.equal(session.draft_text(), partialSource);
-  assert.deepEqual(partialUndo.change.selection, { start: 5, end: 12 });
-  const partialRedo = JSON.parse(session.redo(2n));
-  const partialRedoAck = await partialExchange(JSON.stringify(partialRedo.request));
-  assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(partialRedoAck))), []);
-  await stop();
-  const partialReopened = await start('--reopen', partialVault);
-  session = current();
-  assert.equal(session.draft_text(), savedSource(partialEdited));
-  assert.equal(JSON.parse(session.inspect_link(0n, 5, 12)).destination, 'https://x.test');
-  assert.deepEqual(await partialReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
-  await stop();
+  const cases = [
+    {
+      source: 'Read **release notes** now',
+      display: 'Read release notes now',
+      from: 5,
+      to: 12,
+      label: 'release',
+      edited: 'Read **[release](<https://x.test>) notes** now',
+    },
+    {
+      source: 'alpha\nbeta',
+      display: 'alpha\nbeta',
+      from: 0,
+      to: 9,
+      label: 'alpha\nbet',
+      edited: '[alpha\nbet](<https://x.test>)a',
+    },
+    {
+      source: 'alpha\r\nbeta',
+      display: 'alpha\r\nbeta',
+      from: 0,
+      to: 10,
+      label: 'alpha\r\nbet',
+      edited: '[alpha\r\nbet](<https://x.test>)a',
+    },
+  ];
+  for (const { source, display, from, to, label, edited } of cases) {
+    const vault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-partial-link-'));
+    timingVaults.push(vault);
+    const exchange = await start(source, vault);
+    let session = current();
+    session.select_with_affinity(0n, from, to, '\"Forward\"');
+    const accept = async (request) => {
+      const applied = JSON.parse(request);
+      const ack = await exchange(JSON.stringify(applied.request));
+      assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(ack))), []);
+      return applied.change;
+    };
+    await accept(session.edit_link(0n, from, to, label, 'https://x.test'));
+    assert.equal(JSON.parse(session.project(1n, 0, Buffer.byteLength(display))).text, display);
+    assert.equal(JSON.parse(session.inspect_link(1n, from, to)).destination, 'https://x.test');
+    assert.equal(session.draft_text(), edited);
+    const undo = await accept(session.undo(1n));
+    assert.equal(session.draft_text(), source);
+    assert.deepEqual(undo.selection, { start: from, end: to });
+    await accept(session.redo(2n));
+    assert.equal(session.draft_text(), edited);
+    await stop();
+    const reopened = await start('--reopen', vault);
+    session = current();
+    assert.equal(session.draft_text(), savedSource(edited));
+    assert.equal(JSON.parse(session.inspect_link(0n, from, to)).destination, 'https://x.test');
+    assert.deepEqual(await reopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+    await stop();
+  }
 }
