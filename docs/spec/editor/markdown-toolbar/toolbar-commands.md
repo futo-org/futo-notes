@@ -34,8 +34,6 @@
   tests/editor-embed-milkdown-toolbar.spec.ts,
   crates/futo-notes-editor/src/session/blocks/code_command.rs `code_toggle_off`,
   crates/futo-notes-editor/tests/fences/commands.rs
-  > **Gap (parity):** the Milkdown toolbar's Code block and Quote are still
-  > one-way; only the text-first editor toggles them (2026-11-04).
 - Link opens the SAME shared URL prompt the desktop selection toolbar and the
   `/` menu's Link item do (`linkPrompt/`), floated over the caret/selection
   inside the WebView — never a native SwiftUI/Compose dialog. The prompt stays
@@ -86,6 +84,8 @@
   src/features/editor/milkdown/formatState.ts, EditorToolbar.swift,
   EditorToolbar.kt, EmbedToolbar.svelte,
   tests/editor-embed-milkdown-toolbar.spec.ts
+- Bold, Italic and Strikethrough light only when the selection carries that format — within one block the whole selection, across blocks every selected inline body (edge whitespace and blank lines aside), so a lit button means a tap removes it; a collapsed caret shows its carried formats. Block controls light only for the common selected block kind, with mixed blocks left unlit. → crates/futo-notes-editor/src/session/toolbar.rs, crates/futo-notes-editor/src/session/formatting.rs `selected_toggle_formats`
+- Inline formats and Link are dimmed when the engine disallows inline formatting; Indent, Outdent, Undo and Redo are dimmed when their canonical eligibility or history query says they cannot run. These controls stay visible. → crates/futo-notes-editor/src/session/toolbar.rs
 - Heading controls offer Text, H1, H2 and H3 explicitly. Choosing a level applies
   that same level to every selected prose block; choosing it again does not cycle.
   Text returns headings to paragraphs. Enclosing quotes keep their nesting.
@@ -143,4 +143,4 @@
   The one `*` a save writes is the second of two adjacent lists ("Markdown house
   style"). → packages/editor/src/markdown/,
   tests/editor-embed-milkdown-toolbar.spec.ts
-- Indent on an EMPTY list item is refused like any other Indent with no preceding sibling to nest under: nothing is held as pending indentation, so later typing, composition or an OS replace never retroactively indents the item. This supersedes the earlier held-indent behavior (main 8d0d8eb41; the Android text-first editor's leftover redraw state was removed). → crates/futo-notes-editor/tests/lists.rs (70 passing 2026-11-03; evidence `spec-318-artifacts/321/lists.log`)
+- Indent on an EMPTY list item is refused like any other Indent with no preceding sibling to nest under: nothing is held as pending indentation, so later typing, composition or an OS replace never retroactively indents the item. This supersedes the earlier held-indent behavior (main 8d0d8eb41). → crates/futo-notes-editor/tests/lists.rs (70 passing 2026-11-03; evidence `spec-318-artifacts/321/lists.log`)

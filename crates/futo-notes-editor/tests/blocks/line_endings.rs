@@ -74,3 +74,19 @@ fn block_commands_write_the_caret_lines_crlf() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// A selection survives the CRLF respelling of a code-block command: both
+/// endpoints move, as they do on an LF note.
+#[test]
+fn code_commands_keep_a_selection_range_in_a_crlf_note() {
+    for command in [BlockCommand::CodeBlock, BlockCommand::WrapCodeBlock] {
+        let mut session = EditorSession::open("ab\r\ncd\r\n");
+        let selected = range(0, 2);
+        session.select(session.revision(), selected).unwrap();
+        session
+            .block_command(session.revision(), selected, command, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(session.selection(), selected, "{command:?}");
+    }
+}

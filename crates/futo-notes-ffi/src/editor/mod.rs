@@ -11,6 +11,11 @@ mod contract;
 mod correspondence;
 pub use correspondence::{EditorCorrespondence, EditorCorrespondenceKind};
 mod find;
+mod host;
+pub use host::{
+    EditorDisplayMirror, EditorFindLanding, EditorFindSnapshot, EditorFindStep, EditorListMarker,
+    EditorMirrorEdit, EditorMirrorError, EditorStyleSpan,
+};
 mod images;
 #[cfg(any(target_os = "android", test))]
 mod jni_keys;
@@ -19,7 +24,7 @@ mod tags;
 mod toolbar;
 pub use contract::*;
 pub use find::{editor_find_scan, EditorFindReport, EditorFindScanRequest, EditorFindScanResult};
-pub use toolbar::{EditorToolbarList, EditorToolbarState};
+pub use toolbar::{EditorToolbarList, EditorToolbarSnapshot};
 mod tables;
 pub use tables::*;
 

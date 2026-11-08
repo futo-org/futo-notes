@@ -263,7 +263,8 @@ fn editor_rename_preserves_peer_changes_and_parks_the_draft() {
     assert_eq!(store.read("Original").unwrap(), "peer edit\n");
     let final_id = mutation.final_id.unwrap();
     assert!(final_id.starts_with("Renamed (conflict "));
-    assert_eq!(store.read(&final_id).unwrap(), "my draft");
+    // A parked copy is an authored write too: it ends in a line ending.
+    assert_eq!(store.read(&final_id).unwrap(), "my draft\n");
     assert!(mutation.renamed.is_empty());
 }
 

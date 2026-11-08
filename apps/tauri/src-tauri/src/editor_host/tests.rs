@@ -46,24 +46,27 @@ fn exchange(
 
 #[test]
 fn close_saves_accepted_edits_and_reopening_reads_them() {
-    let (root, store) = vault("ab");
+    let (root, store) = vault("ab\n");
     let hosts = EditorHostState::default();
     let (opened, mut page) = open(&hosts, &store);
-    assert_eq!(opened.snapshot.source, "ab");
+    assert_eq!(opened.snapshot.source, "ab\n");
     assert_eq!(opened.note_ids, ["plain"]);
     let edit = page.replace(Revision(0), at(2), "c").unwrap().request;
     let ack = exchange(&hosts, opened.token, &mut page, edit);
     assert_eq!((ack.accepted, ack.error), (Revision(1), None));
     // Accepting an edit writes nothing; the save timer or close does.
-    assert_eq!(store.read_existing("plain").unwrap().as_deref(), Some("ab"));
+    assert_eq!(
+        store.read_existing("plain").unwrap().as_deref(),
+        Some("ab\n")
+    );
 
     hosts.close(opened.token).unwrap();
     assert_eq!(
         store.read_existing("plain").unwrap().as_deref(),
-        Some("abc")
+        Some("abc\n")
     );
     let (reopened, _) = open(&hosts, &store);
-    assert_eq!(reopened.snapshot.source, "abc");
+    assert_eq!(reopened.snapshot.source, "abc\n");
     assert_ne!(reopened.token, opened.token);
     hosts.close_all();
     assert!(!root.join(".futo-editor-recovery").exists());
@@ -72,7 +75,7 @@ fn close_saves_accepted_edits_and_reopening_reads_them() {
 
 #[test]
 fn checkpoint_saves_now_and_failed_close_keeps_the_note_attached() {
-    let (root, store) = vault("ab");
+    let (root, store) = vault("ab\n");
     let hosts = EditorHostState::default();
     let (opened, mut page) = open(&hosts, &store);
     let edit = page.replace(Revision(0), at(2), "c").unwrap().request;
@@ -80,7 +83,7 @@ fn checkpoint_saves_now_and_failed_close_keeps_the_note_attached() {
     hosts.checkpoint(opened.token).unwrap();
     assert_eq!(
         store.read_existing("plain").unwrap().as_deref(),
-        Some("abc")
+        Some("abc\n")
     );
 
     // A directory where the note file belongs makes the next save fail.
@@ -99,14 +102,14 @@ fn checkpoint_saves_now_and_failed_close_keeps_the_note_attached() {
     hosts.close(opened.token).unwrap();
     assert_eq!(
         store.read_existing("plain").unwrap().as_deref(),
-        Some("abcde")
+        Some("abcde\n")
     );
     std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn stale_tokens_are_refused_and_close_releases_the_lease() {
-    let (root, store) = vault("ab");
+    let (root, store) = vault("ab\n");
     let hosts = EditorHostState::default();
     let (first, mut page) = open(&hosts, &store);
     // A second store handle cannot attach while the host holds the lease.
@@ -140,7 +143,7 @@ fn stale_tokens_are_refused_and_close_releases_the_lease() {
 
 #[test]
 fn legacy_save_is_refused_while_attached() {
-    let (root, store) = vault("ab");
+    let (root, store) = vault("ab\n");
     let hosts = EditorHostState::default();
     let (opened, mut page) = open(&hosts, &store);
     let edit = page.replace(Revision(0), at(2), "c").unwrap().request;
@@ -161,7 +164,7 @@ fn legacy_save_is_refused_while_attached() {
 
 #[test]
 fn worker_saves_when_the_timer_fires_and_reports_it() {
-    let (root, store) = vault("ab");
+    let (root, store) = vault("ab\n");
     let hosts = EditorHostState::default();
     let (saved_tx, saved) = mpsc::channel();
     let opened = hosts
@@ -178,7 +181,7 @@ fn worker_saves_when_the_timer_fires_and_reports_it() {
     assert!(event.result.is_some());
     assert_eq!(
         store.read_existing("plain").unwrap().as_deref(),
-        Some("abc")
+        Some("abc\n")
     );
     // Clean now: the timer does not fire again.
     assert!(saved.recv_timeout(Duration::from_millis(700)).is_err());

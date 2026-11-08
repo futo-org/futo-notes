@@ -9,6 +9,8 @@ import { conflictCopiesOf } from './peer-edit-copy-scenarios.mjs';
 import {
   assert,
   assertEqual,
+  assertSavedEqual,
+  sameSavedText,
   waitForEditorContent,
   waitForOpenNoteState,
   waitForSaveIdle,
@@ -104,10 +106,10 @@ async function relinkOfTheOpenNote(b, variant) {
 
   await rename();
   const onDisk = await b.readNote(hub);
-  assertEqual(onDisk, after, `[${variant}] the rename relinks the open note on disk`);
+  assertSavedEqual(onDisk, after, `[${variant}] the rename relinks the open note on disk`);
   let adopted = false;
   for (let i = 0; i < 30 && !adopted; i += 1) {
-    adopted = (await b.getOpenNoteState()).editorContent === after;
+    adopted = sameSavedText((await b.getOpenNoteState()).editorContent, after);
     if (!adopted) await sleep(100);
   }
   await b.focusEditor();
@@ -146,10 +148,14 @@ async function titleRenameRelinkingItsOwnLink(b) {
   await b.setTitle(diary);
   await b.flushSave();
   await waitForOpenNoteState(b, 'follow the title rename', (state) => state.originalId === diary);
-  assertEqual(await b.readNote(diary), `back to [[${diary}]]`, 'the rename relinks the self-link');
+  assertSavedEqual(
+    await b.readNote(diary),
+    `back to [[${diary}]]`,
+    'the rename relinks the self-link',
+  );
   let adopted = false;
   for (let i = 0; i < 30 && !adopted; i += 1) {
-    adopted = (await b.getOpenNoteState()).editorContent === `back to [[${diary}]]`;
+    adopted = sameSavedText((await b.getOpenNoteState()).editorContent, `back to [[${diary}]]`);
     if (!adopted) await sleep(100);
   }
   await b.typeInEditor(' typed word');

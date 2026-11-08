@@ -63,7 +63,7 @@ async fn offline_title_rename_keeps_identity_and_concurrent_peer_edit() {
             !root.join(&old_file).exists()
                 && !state.object_map.contains_key(&old_file)
                 && state.object_map.get(&new_file).is_some_and(|entry| entry.object_id == original_object_id)
-                && matches!(new_body.as_deref(), Ok("Local typing Origin"))
+                && matches!(new_body.as_deref(), Ok("Local typing Origin\n"))
                 && reports_rename(summary)
                 && summary.failures.is_empty(),
             "{label}: expected one original object at the renamed path with the peer edit and explicit rename; original={original_object_id}, old={:?}, new={:?}, body={new_body:?}, summary={summary:?}",
@@ -141,7 +141,7 @@ async fn repeated_offline_renames_with_an_edit_arrive_as_one_object() {
         );
         assert_eq!(
             std::fs::read_to_string(root.join(format!("{last}.md"))).unwrap(),
-            "Edited between renames",
+            "Edited between renames\n",
             "{label}"
         );
         assert!(
@@ -243,7 +243,7 @@ async fn a_peer_rename_retargets_an_attached_dirty_editor() {
         .expect("project the cycle");
 
     assert_eq!(editor.id(), new_id);
-    assert_eq!(editor.source_text(), "Local typing Origin");
+    assert_eq!(editor.source_text(), "Local typing Origin\n");
     let saved = editor.checkpoint().expect("save");
     assert_eq!(
         saved.mutation.unwrap().final_id.as_deref(),
@@ -266,7 +266,7 @@ async fn a_peer_rename_retargets_an_attached_dirty_editor() {
         assert!(!root.join(format!("{old_id}.md")).exists());
         assert_eq!(
             std::fs::read_to_string(root.join(format!("{new_id}.md"))).unwrap(),
-            "Local typing Origin"
+            "Local typing Origin\n"
         );
     }
     common::cleanup(&va);
