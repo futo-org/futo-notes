@@ -45,6 +45,9 @@ pub struct EditorMirrorEdit {
     /// The resulting selection in the new display.
     pub selection_start: u64,
     pub selection_end: u64,
+    /// How many units earlier the same insertion or deletion could equally have been spelled
+    /// (see `futo_notes_editor::host::MirrorEdit::slack`); pass it to `EditorPendingEdits.record`.
+    pub slack_utf16: u64,
 }
 
 impl From<MirrorEdit> for EditorMirrorEdit {
@@ -55,6 +58,7 @@ impl From<MirrorEdit> for EditorMirrorEdit {
             inserted_utf16: value.inserted_utf16 as u64,
             selection_start: value.selection_start as u64,
             selection_end: value.selection_end as u64,
+            slack_utf16: value.slack as u64,
         }
     }
 }
@@ -117,6 +121,20 @@ impl EditorDisplayMirror {
         Ok(self.with(|m| m.slice_utf16(start, end))?)
     }
 
+    /// Where a render slice starting at UTF-16 unit `from` ends: after the line before the first
+    /// blank line `chars` units on (so no block is cut in two), else after the next line end, else
+    /// the end. Always on a scalar boundary.
+    pub fn slice_end(&self, from: u64, chars: u64) -> Result<u64, EditorMirrorError> {
+        let (from, chars) = (index(from)?, index(chars)?);
+        Ok(self.with(|m| m.slice_end(from, chars))? as u64)
+    }
+
+    /// The UTF-16 length of `prefix` when the display starts with exactly those bytes, else nil:
+    /// whether a long note's quick first screens stand as the start of the whole open.
+    pub fn begins_with(&self, prefix: String) -> Option<u64> {
+        self.with(|m| m.begins_with(&prefix)).map(|n| n as u64)
+    }
+
     /// Apply `EditorViewChange { range, inserted, selection }`.
     pub fn apply_change(
         &self,
@@ -131,6 +149,32 @@ impl EditorDisplayMirror {
         Ok(self
             .with(|m| m.apply_change(start, end, &inserted, selection))?
             .into())
+    }
+
+    /// Where a key replays on the engine, at the engine's caret (see
+    /// `futo_notes_editor::host::DisplayMirror::at_caret`): the range the key asked for on the
+    /// frozen view, relative to that view's selection, kept relative to the engine's selection;
+    /// a deletion (`deleted`: the frozen text it removes) tied to the selection is the engine's
+    /// own: one grapheme from its caret, a word for more than one.
+    pub fn at_caret(
+        &self,
+        start: u64,
+        end: u64,
+        view_selection_start: u64,
+        view_selection_end: u64,
+        engine_selection_start: u64,
+        engine_selection_end: u64,
+        deleted: Option<String>,
+    ) -> Result<EditorUtf16Range, EditorMirrorError> {
+        let view = (index(start)?, index(end)?);
+        let view_selection = (index(view_selection_start)?, index(view_selection_end)?);
+        let engine_selection = (index(engine_selection_start)?, index(engine_selection_end)?);
+        let (start, end) =
+            self.with(|m| m.at_caret(view, view_selection, engine_selection, deleted.as_deref()));
+        Ok(EditorUtf16Range {
+            start: start as u64,
+            end: end as u64,
+        })
     }
 }
 

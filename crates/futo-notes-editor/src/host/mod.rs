@@ -7,6 +7,12 @@ pub use display_mirror::{DisplayMirror, MirrorEdit, MirrorError};
 mod find_plan;
 pub use find_plan::{plan_find, FindLanding, FindSnapshot, FindStepPlan};
 
+mod pending_edits;
+pub use pending_edits::PendingEdits;
+
+mod quick_plan;
+pub use quick_plan::plan_quick_open;
+
 mod style_plan;
 pub use style_plan::{plan_styles, ListMarker, StyleSpec, TableCellSpan};
 
