@@ -55,6 +55,18 @@ commit that finishes the last milestone (archive rule).
 | `EditorEngineStorage.kt` `showQuickOpen` (`window(quick.projection, tableSpans(quick.tables))`) | `host::plan_quick_open`, `NoteStore.quick_open_view`, `EditorQuickView` | !603 | posted |
 | `ToolbarCommandGate.kt` | not needed on iOS for small commands (the main actor runs them whole); large ones now take the engine queue and drop taps meanwhile (see M8 notes): every command runs synchronously on the main actor, so none is queued or dropped. Revisit if M8 moves the engine off the main thread. | | |
 
+## Integration 2026-11-08 (branch ios-text-first)
+
+Merged: `ios-tf/leave-identity` (ff2eed5b5), `origin/main` (engine !589, !592, !595), engine fixes !597
+(`carried-formats-os-replace`), !599 (`indent-empty-list-item`), !596 (`host-table-spans`, incl. !602), !600
+(`heading-toggle-blank-lines` d4b267815). Host files are main's / the engine branches' versions plus the
+iOS-only additions of !594 (toolbar), !598 (find) and !603 (open slices, older round-1 copy; its round-2 fixes are
+still in the engine lane); `quick_plan.rs` and `host_open_slices.rs` pass `plan_tables` the whole display as its
+window (new signature from !596). Swift follow-ups for windowed tables: restyle continues from a line past the
+window when its grid state differs; cell ranges come from the row's place plus `rowOffset`; body rows reuse the
+table key of the row above. Known: a paragraph line directly above a table re-slices the rest of the note on each
+keystroke there.
+
 ## Decisions log (reversible)
 
 - 2026-11-06, orchestrator: a table cell edits in place, not in a sheet. `TextFirstCellEditor` is a
