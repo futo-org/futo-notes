@@ -241,6 +241,9 @@ impl EditorSession {
         };
         let mut out: Vec<String> = Vec::new();
         let mut section: Vec<String> = Vec::new();
+        if body_rows == 0 && opener_prefix > 0 {
+            out.push(opener[..opener_prefix].to_owned());
+        }
         let flush = |section: &mut Vec<String>, out: &mut Vec<String>| {
             if !section.is_empty() {
                 out.push(if out.is_empty() {
@@ -288,7 +291,8 @@ impl EditorSession {
             flush(&mut section, &mut out);
         }
         let mut output = out.join(eol);
-        if !out.is_empty() {
+        // A frame with no body row retires its ending with its delimiters.
+        if !out.is_empty() && body_rows > 0 {
             output.push_str(&tail);
         }
         if output == region {
