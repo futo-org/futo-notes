@@ -283,11 +283,11 @@
             cellEditor?.finish()
             finishComposition()
             revealCell(hit.cell, in: hit.span, row: hit.row)
-            selectInCell(hit.cell.range)
+            selectInCell(hit.range)
             let editor = TextFirstCellEditor(controller: self)
             cellEditor = editor
             editor.install()
-            if let frame = cellFrame(start: hit.cell.range.location) {
+            if let frame = cellFrame(start: hit.range.location) {
                 textView.scrollRectToVisible(frame.insetBy(dx: 0, dy: -60), animated: false)
             }
         }
