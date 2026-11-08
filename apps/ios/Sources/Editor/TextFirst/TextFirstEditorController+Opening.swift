@@ -13,8 +13,9 @@
     /// A key carries the range UIKit asked to replace and the selection the view had: the view
     /// does not change meanwhile, so every key is asked against the same text, and only their
     /// offsets from the selection say what each means (Backspace is the unit before the caret).
+    /// A deletion also carries the frozen text it removes (how many characters it asked for).
     enum OpeningOp: Equatable {
-        case replace(range: NSRange, text: String, selection: NSRange)
+        case replace(range: NSRange, text: String, selection: NSRange, deleted: String)
         case key(EditorParagraphKey, range: NSRange, selection: NSRange)
         case select(NSRange)
     }
@@ -46,8 +47,40 @@
             if text == "\n" {
                 openingOps.append(.key(.enter, range: range, selection: selection))
             } else {
-                openingOps.append(.replace(range: range, text: text, selection: selection))
+                let frozen = storage.string as NSString
+                let deleted =
+                    text.isEmpty && NSMaxRange(range) <= frozen.length
+                    ? frozen.substring(with: range) : ""
+                openingOps.append(
+                    .replace(range: range, text: text, selection: selection, deleted: deleted))
             }
+        }
+
+        // MARK: composition while opening
+
+        /// A keyboard's composition cannot be replayed step by step, and the view must not change:
+        /// the latest marked string waits with the selection it began at, and becomes ordinary
+        /// committed text (one queued replacement) when the keyboard commits it.
+        func holdMarkedWhileOpening(_ text: String?) {
+            guard let text, !text.isEmpty else {
+                openingMarked = nil
+                return
+            }
+            openingMarked = (text, openingMarked?.selection ?? textView.selectedRange)
+        }
+
+        /// The composition ended with its marked string (`unmarkText`, or the open landing).
+        func commitMarkedWhileOpening() {
+            guard let held = openingMarked else { return }
+            openingMarked = nil
+            queueWhileOpening(held.selection, held.text)
+        }
+
+        /// Text inserted while a composition is held replaces it (a pinyin candidate).
+        func insertWhileOpening(_ text: String) {
+            let start = openingMarked?.selection ?? textView.selectedRange
+            openingMarked = nil
+            queueWhileOpening(start, text)
         }
 
         /// A Backspace or forward Delete the keyboard made on the frozen view: the selection, or
@@ -88,6 +121,7 @@
             mirror.reset(display: full)
             mirrorLength = Int(mirror.utf16Len())
             quickView = nil
+            commitMarkedWhileOpening()
             let ops = openingOps
             openingOps = []
             if mirror.beginsWith(prefix: quickText) != nil, shown == quickText.utf16.count {
@@ -123,19 +157,19 @@
             // The engine's selection starts at the view's: a key before any tap acts where the
             // caret already was.
             switch ops.first {
-            case .replace(_, _, let selection)?, .key(_, _, let selection)?:
+            case .replace(_, _, let selection, _)?, .key(_, _, let selection)?:
                 if selection != engineSelection { reportSelection(selection) }
             default: break
             }
             for op in ops {
                 switch op {
                 case .select(let range): reportSelection(mapped(range))
-                case .replace(let range, let text, let selection):
-                    let target = atCaret(range, selection, deletes: text.isEmpty)
+                case .replace(let range, let text, let selection, let deleted):
+                    let target = atCaret(range, selection, deleted: text.isEmpty ? deleted : nil)
                     replayNear = target.location
                     report(target, text, applied: false)
                 case .key(let key, let range, let selection):
-                    let target = atCaret(range, selection, deletes: false)
+                    let target = atCaret(range, selection, deleted: nil)
                     replayNear = target.location
                     paragraphKey(key, range: target)
                 }
@@ -150,14 +184,14 @@
             return NSRange(location: Int(mapped.start), length: Int(mapped.end - mapped.start))
         }
 
-        private func atCaret(_ range: NSRange, _ selection: NSRange, deletes: Bool) -> NSRange {
+        private func atCaret(_ range: NSRange, _ selection: NSRange, deleted: String?) -> NSRange {
             guard
                 let target = try? mirror.atCaret(
                     start: UInt64(range.location), end: UInt64(NSMaxRange(range)),
                     viewSelectionStart: UInt64(selection.location),
                     viewSelectionEnd: UInt64(NSMaxRange(selection)),
                     engineSelectionStart: UInt64(engineSelection.location),
-                    engineSelectionEnd: UInt64(NSMaxRange(engineSelection)), deletes: deletes)
+                    engineSelectionEnd: UInt64(NSMaxRange(engineSelection)), deleted: deleted)
             else { return engineSelection }
             return NSRange(location: Int(target.start), length: Int(target.end - target.start))
         }
@@ -166,6 +200,7 @@
         func abandonOpening() {
             closed = true
             openingOps = []
+            openingMarked = nil
             images.shutdown()
         }
 

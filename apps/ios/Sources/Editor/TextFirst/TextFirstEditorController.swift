@@ -49,6 +49,9 @@
         var quickView: EditorQuickView?
         /// Input the opening view took, replayed on the engine once it lands, in order.
         var openingOps: [OpeningOp] = []
+        /// A composition (marked text) the opening view was given and has not committed: its
+        /// latest string and the selection it began at. The view itself is never changed.
+        var openingMarked: (text: String, selection: NSRange)?
         /// What the engine changed while those replayed, to map the next op's range through.
         let replayed = EditorPendingEdits()
         var replaying = false

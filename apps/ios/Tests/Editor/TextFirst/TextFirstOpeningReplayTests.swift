@@ -142,7 +142,7 @@
             typed(o, hasPrefix: "hello YX\n\nSection 0")
         }
 
-        @Test func anAutocorrectAndMarkedTextWhileOpeningNeverChangeTheFrozenView() throws {
+        @Test func anAutocorrectWhileOpeningNeverChangesTheFrozenViewAndReplays() throws {
             let o = try Opening("teh\n\n" + Self.note())
             let shown = o.tv.text
             let range = try #require(
@@ -150,11 +150,80 @@
                     from: o.tv.position(from: o.tv.beginningOfDocument, offset: 0)!,
                     to: o.tv.position(from: o.tv.beginningOfDocument, offset: 3)!))
             o.tv.replace(range, withText: "the")
-            o.tv.setMarkedText("ka", selectedRange: NSRange(location: 2, length: 0))
             #expect(o.tv.text == shown)
-            #expect(o.tv.markedTextRange == nil)
             try o.land()
             typed(o, hasPrefix: "the\n\nSection 0")
+        }
+
+        // MARK: composition (marked text) while opening
+
+        /// A view with "hello" and the caret after it, still opening.
+        private func composing() throws -> Opening {
+            let o = try Opening("hello\n\n" + Self.note())
+            o.tv.selectedRange = NSRange(location: 5, length: 0)
+            return o
+        }
+
+        @Test func aCompositionCommittedByUnmarkTextWhileOpeningIsKept() throws {
+            let o = try composing()
+            let shown = o.tv.text
+            for step in ["\u{304B}", "\u{304B}\u{306A}", "\u{4EEE}\u{540D}"] {
+                o.tv.setMarkedText(
+                    step, selectedRange: NSRange(location: step.utf16.count, length: 0))
+            }
+            o.tv.unmarkText()
+            #expect(o.tv.text == shown)
+            try o.land()
+            typed(o, hasPrefix: "hello\u{4EEE}\u{540D}\n\nSection 0")
+        }
+
+        @Test func aCompositionCommittedByInsertTextWhileOpeningIsReplacedNotDoubled() throws {
+            let o = try composing()
+            o.tv.setMarkedText("ni", selectedRange: NSRange(location: 2, length: 0))
+            o.tv.insertText("\u{4F60}")
+            try o.land()
+            typed(o, hasPrefix: "hello\u{4F60}\n\nSection 0")
+        }
+
+        @Test func aCancelledCompositionWhileOpeningLeavesNothing() throws {
+            let o = try composing()
+            o.tv.setMarkedText("ka", selectedRange: NSRange(location: 2, length: 0))
+            o.tv.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
+            o.tv.unmarkText()
+            #expect(o.controller.openingOps.isEmpty)
+            try o.land()
+            typed(o, hasPrefix: "hello\n\nSection 0")
+        }
+
+        @Test func aCompositionStillOpenWhenTheEngineLandsIsCommitted() throws {
+            let o = try composing()
+            o.tv.setMarkedText("\u{4EEE}\u{540D}", selectedRange: NSRange(location: 2, length: 0))
+            try o.land()
+            typed(o, hasPrefix: "hello\u{4EEE}\u{540D}\n\nSection 0")
+            #expect(o.controller.openingMarked == nil)
+        }
+
+        @Test func aCompositionThenKeysKeepsEveryKeyInOrder() throws {
+            let o = try composing()
+            o.tv.insertText("a")
+            o.tv.setMarkedText("\u{4EEE}\u{540D}", selectedRange: NSRange(location: 2, length: 0))
+            o.tv.unmarkText()
+            o.tv.insertText("b")
+            try o.land()
+            typed(o, hasPrefix: "helloa\u{4EEE}\u{540D}b\n\nSection 0")
+        }
+
+        // MARK: a delete of more than one character
+
+        @Test func aWordSizedDeleteWhileOpeningDeletesTheWordBeforeTheEnginesCaret() throws {
+            let o = try Opening("hello world\n\n" + Self.note())
+            o.tv.selectedRange = NSRange(location: 11, length: 0)
+            o.tv.insertText("s")
+            // The keyboard asks the delegate for the word before its (frozen) caret.
+            _ = o.tv.delegate?.textView?(
+                o.tv, shouldChangeTextIn: NSRange(location: 6, length: 5), replacementText: "")
+            try o.land()
+            typed(o, hasPrefix: "hello \n\nSection 0")
         }
     }
 #endif

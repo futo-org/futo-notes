@@ -104,10 +104,10 @@
 
         // While the engine has not landed UIKit must never change the frozen view: a keyboard's
         // text, an autocorrect's replacement and a Return all reach the queue instead, and marked
-        // text (a composition cannot be replayed) is not started.
+        // text is held until the keyboard commits it.
         override func insertText(_ text: String) {
             if let controller, controller.opening {
-                controller.queueWhileOpening(selectedRange, text)
+                controller.insertWhileOpening(text)
                 return
             }
             super.insertText(text)
@@ -125,7 +125,10 @@
         }
 
         override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
-            if controller?.opening == true { return }
+            if let controller, controller.opening {
+                controller.holdMarkedWhileOpening(markedText)
+                return
+            }
             super.setMarkedText(markedText, selectedRange: selectedRange)
         }
 
@@ -135,6 +138,10 @@
         }
 
         override func unmarkText() {
+            if let controller, controller.opening {
+                controller.commitMarkedWhileOpening()
+                return
+            }
             super.unmarkText()
             controller?.platformUnmarked()
         }
