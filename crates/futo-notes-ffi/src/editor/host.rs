@@ -229,6 +229,14 @@ pub enum EditorStyleSpan {
         start: u64,
         end: u64,
     },
+    Image {
+        start: u64,
+        end: u64,
+        destination: String,
+        alt: String,
+        vault: bool,
+        remote: bool,
+    },
 }
 
 impl From<StyleSpec> for EditorStyleSpan {
@@ -312,6 +320,21 @@ impl From<StyleSpec> for EditorStyleSpan {
             StyleSpec::Divider { start, end } => Self::Divider {
                 start: u(start),
                 end: u(end),
+            },
+            StyleSpec::Image {
+                start,
+                end,
+                destination,
+                alt,
+                vault,
+                remote,
+            } => Self::Image {
+                start: u(start),
+                end: u(end),
+                destination,
+                alt,
+                vault,
+                remote,
             },
         }
     }
