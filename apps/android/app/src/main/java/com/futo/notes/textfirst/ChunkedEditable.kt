@@ -26,7 +26,8 @@ import android.text.style.LineBackgroundSpan
  * query skips chunks that hold no span of the asked-for kind. Watchers that
  * TextView and its layout attach live outside the chunks and hear only what
  * actually happened: the replaced range, and spans explicitly set or
- * removed — never spans that merely moved with the text.
+ * removed. Only the two native Selection tokens report automatic movement;
+ * renderer spans that merely moved with the text stay silent.
  *
  * A span that does cross chunks (something the platform sets, or a
  * multi-line paste) merges the chunks it touches, so correctness never
@@ -282,6 +283,7 @@ internal class ChunkedEditable private constructor(private val target: Int, priv
         val before = en - st
         val after = text.length
         if (before == 0 && after == 0) return this
+        val selection = if (rendererChange == null) ChunkedSelectionNotifications(this) else null
         val watchers = if (rendererChange == null) textWatchers.toTypedArray() else emptyArray()
         for (w in watchers) w.beforeTextChanged(this, st, before, after)
         var first = chunkAt(st)
@@ -327,6 +329,7 @@ internal class ChunkedEditable private constructor(private val target: Int, priv
         }
         for (w in watchers) w.onTextChanged(this, st, before, after)
         for (w in watchers) w.afterTextChanged(this)
+        selection?.afterReplace(st + after)
         return this
     }
 

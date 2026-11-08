@@ -30,6 +30,8 @@ internal fun Editable.withRendererUpdate(view: TextView, update: UiUpdate, block
     val linesBefore = layoutBefore?.lineCount ?: 0
     val heightBefore = layoutBefore?.height ?: 0
     val watchers = chunked.textWatchers.toTypedArray()
+    val selection = if (update.edits.any { it.start != it.end || it.text.isNotEmpty() })
+        ChunkedSelectionNotifications(chunked) else null
     chunked.rendererChange = change
     var began = false
     var primary: Throwable? = null
@@ -60,6 +62,8 @@ internal fun Editable.withRendererUpdate(view: TextView, update: UiUpdate, block
             for (watcher in watchers) try {
                 watcher.afterTextChanged(this)
             } catch (error: Throwable) { remember(error) }
+            try { selection?.afterReplace(landed.start + landed.after) }
+            catch (error: Throwable) { remember(error) }
             completionError?.let { error ->
                 val original = primary
                 if (original == null) throw error

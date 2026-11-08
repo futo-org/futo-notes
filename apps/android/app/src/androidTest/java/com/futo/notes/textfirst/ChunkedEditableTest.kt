@@ -1,6 +1,9 @@
 package com.futo.notes.textfirst
 
+import android.text.Editable
+import android.text.Selection
 import android.text.Spannable
+import android.text.SpanWatcher
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
@@ -19,6 +22,58 @@ import org.junit.Test
  * SpannableStringBuilder, and every query must agree.
  */
 class ChunkedEditableTest {
+    @Test fun nativeSelectionMovesDoNotBroadcastShiftedRendererSpans() {
+        val source = "line\n".repeat(1_500) + TextFirstEditText.END_SENTINEL
+        val text = ChunkedEditable.from(source, target = 40, max = 80)
+        repeat(1_500) { line -> text.setSpan(UnderlineSpan(), line * 5, line * 5 + 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
+        Selection.setSelection(text, source.length - 1)
+        val changed = mutableListOf<Any>()
+        text.setSpan(object : SpanWatcher {
+            override fun onSpanAdded(text: Spannable, what: Any, start: Int, end: Int) = Unit
+            override fun onSpanRemoved(text: Spannable, what: Any, start: Int, end: Int) = Unit
+            override fun onSpanChanged(text: Spannable, what: Any, oldStart: Int, oldEnd: Int, start: Int, end: Int) {
+                changed += what
+            }
+        }, 0, text.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+        text.replace(0, 0, "pack")
+        assertEquals(listOf(Selection.SELECTION_START, Selection.SELECTION_END), changed)
+        assertEquals(source.length + 3, Selection.getSelectionStart(text))
+        assertEquals(1_500, text.getSpans(0, text.length, UnderlineSpan::class.java).size)
+    }
+
+    @Test fun typingMovesSelectionSpansWithThePlatformNotifications() {
+        fun changes(text: Editable, caret: Int, from: Int, to: Int, value: String, expected: Int): List<String> {
+            Selection.setSelection(text, caret)
+            val changes = mutableListOf<String>()
+            text.setSpan(object : SpanWatcher {
+                override fun onSpanAdded(text: Spannable, what: Any, start: Int, end: Int) = Unit
+                override fun onSpanRemoved(text: Spannable, what: Any, start: Int, end: Int) = Unit
+                override fun onSpanChanged(text: Spannable, what: Any, oldStart: Int, oldEnd: Int, start: Int, end: Int) {
+                    val name = when (what) {
+                        Selection.SELECTION_START -> "anchor"
+                        Selection.SELECTION_END -> "focus"
+                        else -> return
+                    }
+                    changes += "$name $oldStart..$oldEnd -> $start..$end"
+                }
+            }, 0, text.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+            text.replace(from, to, value)
+            assertEquals(expected, Selection.getSelectionStart(text))
+            assertEquals(expected, Selection.getSelectionEnd(text))
+            return changes
+        }
+        fun compare(source: String, caret: Int, from: Int, to: Int, value: String, expected: Int) {
+            val reference = changes(SpannableStringBuilder(source), caret, from, to, value, expected)
+            assertEquals("the platform emits only moved selection spans", if (caret == expected) 0 else 2, reference.size)
+            assertEquals(reference, changes(ChunkedEditable.from(source, target = 4, max = 8), caret, from, to, value, expected))
+        }
+        val sentinel = TextFirstEditText.END_SENTINEL
+        compare(sentinel, 0, 0, 0, "pack", 4)
+        compare("one\ntwo\nthree\n" + sentinel, 13, 0, 0, "pack", 17)
+        compare("pack" + sentinel, 4, 0, 4, "", 0)
+        compare("one\ntwo\n" + sentinel, 0, 4, 7, "pack", 0)
+    }
+
     private var lastOp = ""
     private var prior: Map<Any, String> = emptyMap()
 

@@ -18,6 +18,39 @@ import org.junit.Test
 
 /** The attached renderer must publish final text and styles together, rather than one reflow per span. */
 class TextFirstBulkUpdateTest {
+    @Test fun implicitSelectionMovesFollowFinalRendererCallbacksInWatcherPriorityOrder() = exercise {
+        Selection.setSelection(view.editableText, 4)
+        val source = "packold\n"
+        val events = mutableListOf<String>()
+        fun watch(name: String, priority: Int) {
+            val watcher = object : TextWatcher, SpanWatcher {
+                override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) { events += "$name before" }
+                override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) { events += "$name changed" }
+                override fun afterTextChanged(s: Editable) { events += "$name after" }
+                override fun onSpanAdded(text: Spannable, what: Any, start: Int, end: Int) = Unit
+                override fun onSpanRemoved(text: Spannable, what: Any, start: Int, end: Int) = Unit
+                override fun onSpanChanged(text: Spannable, what: Any, oldStart: Int, oldEnd: Int, start: Int, end: Int) {
+                    val token = when (what) {
+                        Selection.SELECTION_START -> "anchor"
+                        Selection.SELECTION_END -> "focus"
+                        else -> return
+                    }
+                    assertEquals(source + TextFirstEditText.END_SENTINEL, text.toString())
+                    assertTrue(text.getSpans(0, 4, TfInline::class.java).single().bold)
+                    events += "$name $token"
+                }
+            }
+            view.editableText.setSpan(watcher, 0, view.length(), Spanned.SPAN_INCLUSIVE_INCLUSIVE or
+                (priority shl Spanned.SPAN_PRIORITY_SHIFT))
+        }
+        watch("low", 1)
+        watch("high", 9)
+        view.apply(update(2, listOf(TextEdit(0, 0, "pa"), TextEdit(2, 2, "ck")),
+            listOf(SpanSpec.Inline(0, 4, true, false, false, false)), source.length, 8, 8))
+        assertEquals(listOf("high before", "low before", "high changed", "low changed", "high after", "low after",
+            "high anchor", "low anchor", "high focus", "low focus"), events)
+    }
+
     @Test fun bulkTextAndStylesPublishOneFinalChangeInsteadOfPerSpanNotifications() = exercise {
         val source = lines(256)
         val watcher = observe()
@@ -82,8 +115,11 @@ class TextFirstBulkUpdateTest {
     }
 
     @Test fun aCompletionWatcherFailureStillFinishesOtherNativeObservers() = exercise {
+        Selection.setSelection(view.editableText, 4)
         val first = IllegalStateException("change watcher")
+        val second = IllegalArgumentException("selection watcher")
         val failing = observe(Watcher(failChanged = first))
+        val selectionFailure = observe(Watcher(failSelection = second))
         val later = observe()
         val source = lines(8)
         val thrown = assertThrows(IllegalStateException::class.java) {
@@ -91,8 +127,12 @@ class TextFirstBulkUpdateTest {
         }
         assertSame(first, thrown)
         assertEquals(1, failing.after)
+        assertEquals(1, selectionFailure.after)
         assertEquals(1, later.after)
         assertEquals(listOf(8), later.styledAtChange)
+        assertTrue(first.suppressed.contains(second))
+        assertTrue(later.selectionStartEvents > 0)
+        assertTrue(later.selectionEndEvents > 0)
     }
 
     @Test fun aPartialRendererFailureStaysPrimaryWhileLayoutObserversFinish() = exercise {
@@ -166,7 +206,7 @@ class TextFirstBulkUpdateTest {
         assertEquals(source + TextFirstEditText.END_SENTINEL, view.text.toString())
     }
 
-    private class Watcher(val failBefore: Throwable? = null, val failChanged: Throwable? = null) : TextWatcher, SpanWatcher {
+    private class Watcher(val failBefore: Throwable? = null, val failChanged: Throwable? = null, val failSelection: Throwable? = null) : TextWatcher, SpanWatcher {
         val before = mutableListOf<Triple<Int, Int, Int>>()
         val changed = mutableListOf<Triple<Int, Int, Int>>()
         val styledAtChange = mutableListOf<Int>()
@@ -188,6 +228,7 @@ class TextFirstBulkUpdateTest {
             if (what is TfSpan) rendererEvents++
             if (what === Selection.SELECTION_START) selectionStartEvents++
             if (what === Selection.SELECTION_END) selectionEndEvents++
+            if (what === Selection.SELECTION_START || what === Selection.SELECTION_END) failSelection?.let { throw it }
             if (text.getSpanFlags(what) and Spanned.SPAN_COMPOSING != 0) compositionEvents++
         }
         override fun onSpanAdded(text: Spannable, what: Any, start: Int, end: Int) = event(text, what)

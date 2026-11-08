@@ -8,6 +8,38 @@ import uniffi.futo_notes_ffi.EditorInlineFormat
 
 /** Native key selection keeps Android's modifier state and anchor/focus. */
 class TextFirstSelectionKeysTest {
+    @Test fun firstKeyboardSelectionKeepsItsAnchorAfterTypingIntoANewNote() =
+        textFirstSession("") { c ->
+            c.view.isFocusableInTouchMode = true
+            c.view.showKeyboard()
+            assertTrue(c.view.isAttachedToWindow)
+            assertTrue(c.view.isFocused)
+            assertTrue(c.view.hasWindowFocus())
+            assertNotNull(c.view.layout)
+            val connection = c.view.onCreateInputConnection(EditorInfo())!!
+            // A new note is focused automatically. Do not prime its native
+            // selection controller with a body tap or an explicit selection.
+            textFirstIme(c, connection = connection) { commitText("pack", 1) }
+            assertEquals("pack", c.sourceText())
+            assertEquals(4, c.view.selectionStart)
+            assertEquals(4, c.view.selectionEnd)
+            textFirstIme(c, connection = connection) {
+                sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_SHIFT_LEFT))
+                sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_LEFT))
+                sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_LEFT))
+            }
+            assertEquals("pack", c.sourceText())
+            assertEquals(4, c.view.selectionStart)
+            assertEquals(3, c.view.selectionEnd)
+            textFirstIme(c, connection = connection) {
+                sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_LEFT))
+                sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_LEFT))
+            }
+            assertEquals("pack", c.sourceText())
+            assertEquals(4, c.view.selectionStart)
+            assertEquals(2, c.view.selectionEnd)
+        }
+
     @Test fun styleSlicesKeepTheNewerNativeSelectionAndResetAppliesCanonicalSelection() =
         textFirstSession("Label box\n") { c ->
             c.select(6, 9)
