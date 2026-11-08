@@ -1,5 +1,7 @@
 use ropey::Rope;
 
+use crate::{CaretDirection, EditorSession};
+
 /// Why a coordinate was refused; the mirror is unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MirrorError {
@@ -168,18 +170,28 @@ impl DisplayMirror {
 
     /// Where a key replays on the engine, at the engine's caret: `view` is the range UIKit-style
     /// input asked to replace on the view's frozen text, `view_selection` the selection that view
-    /// had, `engine_selection` the engine's now (all UTF-16). A key's range is relative to the
-    /// view's selection (a Backspace at a caret asks for the unit before it, typing over a
-    /// selection asks for the selection), so it keeps that offset from the engine's selection:
-    /// the engine's caret has moved on with the keys before it, the frozen view's has not. The
-    /// result is clamped to the text and shrunk to scalar boundaries (a Backspace over an emoji
-    /// asks for two units, but what is before the engine's caret now may be one).
+    /// had, `engine_selection` the engine's now (all UTF-16), `deletes` whether the key's text is
+    /// empty. The frozen view's selection never moved; the engine's moved on with the keys before
+    /// this one, so the two cannot share widths.
+    ///
+    /// A deletion tied to the selection (Backspace or forward delete at a caret, or over the
+    /// selected range) is the engine's own: the selection when the engine has one, else one
+    /// extended grapheme before (after, for a forward delete) the engine's caret, never the width
+    /// the view saw. A delete longer than one character (a word delete) replays as one character.
+    /// Any other key keeps its offset from the view's selection, clamped to the text and shrunk
+    /// to scalar boundaries.
     pub fn at_caret(
         &self,
         view: (usize, usize),
         view_selection: (usize, usize),
         engine_selection: (usize, usize),
+        deletes: bool,
     ) -> (usize, usize) {
+        if deletes {
+            if let Some(range) = self.selection_delete(view, view_selection, engine_selection) {
+                return range;
+            }
+        }
         let len = self.utf16_len();
         let shifted = |at: usize, from: usize, to: usize| {
             (to as i64 + at as i64 - from as i64).clamp(0, len as i64) as usize
@@ -197,6 +209,43 @@ impl DisplayMirror {
             (start, end) = (start - 1, end - 1);
         }
         (start, end.max(start))
+    }
+
+    /// The engine's range for a key deletion tied to the view's selection, if `view` is one.
+    fn selection_delete(
+        &self,
+        view: (usize, usize),
+        view_selection: (usize, usize),
+        engine_selection: (usize, usize),
+    ) -> Option<(usize, usize)> {
+        let collapsed = view_selection.0 == view_selection.1;
+        let backward = view.0 < view.1
+            && if collapsed {
+                view.1 == view_selection.1
+            } else {
+                view == view_selection
+            };
+        let forward = collapsed && view.0 < view.1 && view.0 == view_selection.0;
+        if !backward && !forward {
+            return None;
+        }
+        if engine_selection.0 != engine_selection.1 {
+            return Some(engine_selection);
+        }
+        let caret = engine_selection.0;
+        let direction = if backward {
+            CaretDirection::Backward
+        } else {
+            CaretDirection::Forward
+        };
+        let byte = self.utf16_to_byte(caret).ok()?;
+        let stop = EditorSession::grapheme_stop_in(&self.rope, byte, direction, false).ok()?;
+        let other = self.byte_to_utf16(stop).ok()?;
+        Some(if backward {
+            (other, caret)
+        } else {
+            (caret, other)
+        })
     }
 
     /// A selection of the current display, as UTF-16 units.

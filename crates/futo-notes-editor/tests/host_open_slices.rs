@@ -191,6 +191,12 @@ fn a_range_ending_where_an_insertion_was_queued_stays_before_it() {
     assert_eq!(q.map(5, 5), (6, 6));
     assert_eq!(q.map(5, 8), (6, 9));
     assert_eq!(q.map(4, 5), (4, 5));
+    // A caret stays a caret: a tap at or inside a replacement is not a selection of it.
+    let mut q = PendingEdits::new();
+    q.record(6, 11, 1);
+    assert_eq!(q.map(6, 6), (6, 6));
+    assert_eq!(q.map(8, 8), (6, 6));
+    assert_eq!(q.map(11, 11), (7, 7));
     // A deletion's end is not an insertion point: a range ending there follows the deletion.
     let mut q = PendingEdits::new();
     assert_eq!(q.push(3, 5, 0), (3, 5));
