@@ -50,6 +50,25 @@
             }
         }
 
+        /// A Backspace or forward Delete the keyboard made on the frozen view: the selection, or
+        /// the character beside the caret as UIKit would delete it. The engine decides what
+        /// goes when it replays this (`DisplayMirror.at_caret`).
+        func queueDeleteWhileOpening(forward: Bool) {
+            let selected = textView.selectedRange
+            let text = storage.string as NSString
+            var range = selected
+            if selected.length == 0 {
+                if forward, selected.location < text.length {
+                    range = text.rangeOfComposedCharacterSequence(at: selected.location)
+                } else if !forward, selected.location > 0 {
+                    range = text.rangeOfComposedCharacterSequence(at: selected.location - 1)
+                } else {
+                    return
+                }
+            }
+            queueWhileOpening(range, "")
+        }
+
         func queueSelectionWhileOpening(_ range: NSRange) {
             if case .select = openingOps.last { openingOps.removeLast() }
             openingOps.append(.select(range))
@@ -112,11 +131,11 @@
                 switch op {
                 case .select(let range): reportSelection(mapped(range))
                 case .replace(let range, let text, let selection):
-                    let target = atCaret(range, selection)
+                    let target = atCaret(range, selection, deletes: text.isEmpty)
                     replayNear = target.location
                     report(target, text, applied: false)
                 case .key(let key, let range, let selection):
-                    let target = atCaret(range, selection)
+                    let target = atCaret(range, selection, deletes: false)
                     replayNear = target.location
                     paragraphKey(key, range: target)
                 }
@@ -131,14 +150,14 @@
             return NSRange(location: Int(mapped.start), length: Int(mapped.end - mapped.start))
         }
 
-        private func atCaret(_ range: NSRange, _ selection: NSRange) -> NSRange {
+        private func atCaret(_ range: NSRange, _ selection: NSRange, deletes: Bool) -> NSRange {
             guard
                 let target = try? mirror.atCaret(
                     start: UInt64(range.location), end: UInt64(NSMaxRange(range)),
                     viewSelectionStart: UInt64(selection.location),
                     viewSelectionEnd: UInt64(NSMaxRange(selection)),
                     engineSelectionStart: UInt64(engineSelection.location),
-                    engineSelectionEnd: UInt64(NSMaxRange(engineSelection)))
+                    engineSelectionEnd: UInt64(NSMaxRange(engineSelection)), deletes: deletes)
             else { return engineSelection }
             return NSRange(location: Int(target.start), length: Int(target.end - target.start))
         }

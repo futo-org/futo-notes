@@ -59,7 +59,9 @@
         func scrollViewDidScroll(_ scrollView: UIScrollView) { viewportMoved() }
 
         func textViewDidChange(_ textView: UITextView) {
-            guard applying == 0, !closed else { return }
+            // While opening, the view is never changed (its keys are queued); a change that got
+            // here anyway cannot be reported to a session that does not exist.
+            guard applying == 0, !closed, !opening else { return }
             platformChanged()
         }
 

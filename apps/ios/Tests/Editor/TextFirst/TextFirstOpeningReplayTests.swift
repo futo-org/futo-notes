@@ -5,93 +5,156 @@
 
     @testable import FutoNotesNative
 
-    /// Keys typed while a long note opens replay at the engine's caret, in order, as they would
-    /// have landed on an editor that opened whole; only taps are mapped through earlier edits.
+    /// Keys typed while a long note opens take UIKit's real key path (`insertText`,
+    /// `deleteBackward`, `replace`): the frozen view never changes, the keys wait, and they replay
+    /// at the engine's caret in order, as they would have landed on an editor that opened whole.
+    /// Only taps are mapped through earlier edits.
     extension TextFirstOpeningTests {
-        /// A Backspace the way UIKit asks the delegate for it (the unit before the caret) on a view
-        /// that takes no change.
-        private func backspace(_ tv: UITextView) {
-            let caret = tv.selectedRange.location
-            _ = tv.delegate?.textView?(
-                tv, shouldChangeTextIn: NSRange(location: caret - 1, length: 1),
-                replacementText: "")
-        }
-
         /// The keys `act` makes on a view whose engine has not landed equal the same keys on an
-        /// editor that opened whole: same display, same source, same caret.
+        /// editor that opened whole: same display, same source, same caret. The view is unchanged
+        /// until the engine lands.
         private func expectOpeningMatchesWhole(
-            _ source: String, caret: Int, _ act: (UITextView, (String) -> Void, () -> Void) -> Void
-        ) throws {
+            _ source: String, select: NSRange, _ act: (UITextView) -> Void
+        ) throws -> Opening {
             let o = try Opening(source)
-            o.tv.selectedRange = NSRange(location: caret, length: 0)
-            act(o.tv, { o.type($0) }, { self.backspace(o.tv) })
+            o.tv.selectedRange = select
+            let shown = o.tv.text
+            act(o.tv)
+            #expect(o.tv.text == shown, "UIKit changed the frozen view")
             try o.land()
             let h = TextFirstHarness(source, id: "long")
-            h.tv.selectedRange = NSRange(location: caret, length: 0)
-            act(h.tv, { h.type($0) }, { h.tv.deleteBackward() })
+            h.tv.selectedRange = select
+            act(h.tv)
             #expect(o.tv.text == h.tv.text)
             #expect(
                 try o.controller.session.sourceText() == (try h.controller.session.sourceText()))
             #expect(o.controller.engineSelection == h.controller.engineSelection)
+            return o
+        }
+
+        private func typed(_ o: Opening, hasPrefix prefix: String) {
+            let text = o.tv.text ?? ""
+            #expect(text.hasPrefix(prefix), "view starts \(text.prefix(40).debugDescription)")
         }
 
         @Test func aTypedKeyThenBackspaceWhileOpeningLeavesTheNoteAsItWas() throws {
-            let source = Self.note()
-            try expectOpeningMatchesWhole(source, caret: 9) { _, type, back in
-                type("x")
-                back()
+            let o = try expectOpeningMatchesWhole(
+                Self.note(), select: NSRange(location: 9, length: 0)
+            ) { tv in
+                tv.insertText("x")
+                tv.deleteBackward()
             }
-            // And the note is what it was (the typed key was deleted, not the character before it).
-            let o = try Opening(source)
-            o.tv.selectedRange = NSRange(location: 9, length: 0)
-            o.type("x")
-            backspace(o.tv)
-            try o.land()
-            #expect((o.tv.text ?? "").hasPrefix("Section 0\n\nBody line 0"))
+            typed(o, hasPrefix: "Section 0\n\nBody line 0")
         }
 
         @Test func eachBackspaceWhileOpeningDeletesOneCharacter() throws {
-            try expectOpeningMatchesWhole(Self.note(), caret: 9) { _, _, back in
-                back()
-                back()
-                back()
+            let o = try expectOpeningMatchesWhole(
+                Self.note(), select: NSRange(location: 9, length: 0)
+            ) { tv in
+                tv.deleteBackward()
+                tv.deleteBackward()
             }
-            let o = try Opening(Self.note())
-            o.tv.selectedRange = NSRange(location: 9, length: 0)
-            backspace(o.tv)
-            backspace(o.tv)
-            try o.land()
-            #expect((o.tv.text ?? "").hasPrefix("Section\n\nBody line 0"))
+            typed(o, hasPrefix: "Section\n\nBody line 0")
         }
 
         @Test func typeBackspaceTypeWhileOpeningKeepsTheLastKey() throws {
-            let source = Self.note()
-            try expectOpeningMatchesWhole(source, caret: 9) { _, type, back in
-                type("x")
-                back()
-                type("y")
+            let o = try expectOpeningMatchesWhole(
+                Self.note(), select: NSRange(location: 9, length: 0)
+            ) { tv in
+                tv.insertText("x")
+                tv.deleteBackward()
+                tv.insertText("y")
             }
-            let o = try Opening(source)
-            o.tv.selectedRange = NSRange(location: 9, length: 0)
-            o.type("x")
-            backspace(o.tv)
-            o.type("y")
-            try o.land()
-            #expect((o.tv.text ?? "").hasPrefix("Section 0y\n\nBody line 0"))
+            typed(o, hasPrefix: "Section 0y\n\nBody line 0")
         }
 
         @Test func keysTypedAtTheStartOfARunOfIdenticalCharactersThenATapLandWhereTheFingerWas()
             throws
         {
             // "aa": type "a" at the start, tap between the original two a's, type "b".
-            let source = "aa\n\n" + Self.note()
-            let o = try Opening(source)
-            o.tv.selectedRange = NSRange(location: 0, length: 0)
-            o.type("a")
+            let o = try Opening("aa\n\n" + Self.note())
+            o.tv.insertText("a")
             o.tv.selectedRange = NSRange(location: 1, length: 0)
-            o.type("b")
+            o.tv.insertText("b")
             try o.land()
-            #expect((o.tv.text ?? "").hasPrefix("aaba\n\nSection 0"))
+            typed(o, hasPrefix: "aaba\n\nSection 0")
+        }
+
+        @Test func aBackspaceAfterTypedLettersBesideAnEmojiDeletesOneLetter() throws {
+            let o = try expectOpeningMatchesWhole(
+                "\u{1F600}\n\n" + Self.note(), select: NSRange(location: 2, length: 0)
+            ) { tv in
+                tv.insertText("b")
+                tv.insertText("a")
+                tv.deleteBackward()
+            }
+            typed(o, hasPrefix: "\u{1F600}b\n\nSection 0")
+        }
+
+        @Test func repeatedBackspacesOverAnEmojiAfterALetterDeleteOneCharacterEach() throws {
+            let o = try expectOpeningMatchesWhole(
+                "ab\u{1F600}\n\n" + Self.note(), select: NSRange(location: 4, length: 0)
+            ) { tv in
+                tv.deleteBackward()
+                tv.deleteBackward()
+            }
+            typed(o, hasPrefix: "a\n\nSection 0")
+        }
+
+        @Test func aTypedEmojiThenBackspaceIsDeleted() throws {
+            let o = try expectOpeningMatchesWhole(
+                "x\n\n" + Self.note(), select: NSRange(location: 1, length: 0)
+            ) { tv in
+                tv.insertText("\u{1F600}")
+                tv.deleteBackward()
+            }
+            typed(o, hasPrefix: "x\n\nSection 0")
+        }
+
+        @Test func aBackspaceOverACrlfAfterTypingLeavesNoLoneCarriageReturn() throws {
+            let source = "ab\r\ncd\r\n\r\n" + Self.note()
+            let o = try expectOpeningMatchesWhole(source, select: NSRange(location: 4, length: 0)) {
+                tv in
+                tv.insertText("x")
+                tv.deleteBackward()
+            }
+            typed(o, hasPrefix: "ab\r\ncd\r\n")
+        }
+
+        @Test func aBackspaceAfterTypingOverASelectionDeletesWhatWasTyped() throws {
+            let o = try expectOpeningMatchesWhole(
+                "hello world\n\n" + Self.note(), select: NSRange(location: 6, length: 5)
+            ) { tv in
+                tv.insertText("X")
+                tv.deleteBackward()
+            }
+            typed(o, hasPrefix: "hello \n\nSection 0")
+        }
+
+        @Test func aTapAtTheStartOfAReplacedSelectionIsACaretNotASelectionOfWhatReplacedIt() throws
+        {
+            let o = try Opening("hello world\n\n" + Self.note())
+            o.tv.selectedRange = NSRange(location: 6, length: 5)
+            o.tv.insertText("X")
+            o.tv.selectedRange = NSRange(location: 6, length: 0)
+            o.tv.insertText("Y")
+            try o.land()
+            typed(o, hasPrefix: "hello YX\n\nSection 0")
+        }
+
+        @Test func anAutocorrectAndMarkedTextWhileOpeningNeverChangeTheFrozenView() throws {
+            let o = try Opening("teh\n\n" + Self.note())
+            let shown = o.tv.text
+            let range = try #require(
+                o.tv.textRange(
+                    from: o.tv.position(from: o.tv.beginningOfDocument, offset: 0)!,
+                    to: o.tv.position(from: o.tv.beginningOfDocument, offset: 3)!))
+            o.tv.replace(range, withText: "the")
+            o.tv.setMarkedText("ka", selectedRange: NSRange(location: 2, length: 0))
+            #expect(o.tv.text == shown)
+            #expect(o.tv.markedTextRange == nil)
+            try o.land()
+            typed(o, hasPrefix: "the\n\nSection 0")
         }
     }
 #endif
