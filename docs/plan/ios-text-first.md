@@ -62,10 +62,12 @@ Merged: `ios-tf/leave-identity` (ff2eed5b5), `origin/main` (engine !589, !592, !
 (`heading-toggle-blank-lines` d4b267815). Host files are main's / the engine branches' versions plus the
 iOS-only additions of !594 (toolbar), !598 (find) and !603 (open slices, older round-1 copy; its round-2 fixes are
 still in the engine lane); `quick_plan.rs` and `host_open_slices.rs` pass `plan_tables` the whole display as its
-window (new signature from !596). Swift follow-ups for windowed tables: restyle continues from a line past the
-window when its grid state differs; cell ranges come from the row's place plus `rowOffset`; body rows reuse the
-table key of the row above. Known: a paragraph line directly above a table re-slices the rest of the note on each
-keystroke there.
+window (new signature from !596). Swift follow-ups for windowed tables (all done; origin/main merged 2026-11-08,
+engine files are main's): restyle continues from a line past the window when its grid state differs (74f3a35b4,
+window-end row fixed in 8cd3f5ab5: a row starting exactly at the window's end is the window's last line); cell
+ranges come from the row's place plus `rowOffset` (74f3a35b4; test strengthened in 8182a140d); body rows reuse the
+table key of the row above (74f3a35b4). Tests: `TextFirstTableTests` (4,000-row tables). Known: a paragraph line
+directly above a table re-slices the rest of the note on each keystroke there.
 
 ## Decisions log (reversible)
 
