@@ -180,6 +180,13 @@ impl EditorSession {
         };
         let closed = fence.closer.is_some();
         let body_rows = rows.len() - 1 - usize::from(closed);
+        let canonical = self.projection.list_command_lines_in_source(&(start..end));
+        let physical = |index: usize| {
+            let at = canonical
+                .binary_search_by_key(&rows[index].0, |line| line.source.start)
+                .expect("a fence row retains canonical block attribution");
+            &canonical[at]
+        };
         let first = lines
             .iter()
             .map(|line| line.source.start)
@@ -195,6 +202,29 @@ impl EditorSession {
             first <= at && at <= last
         };
         let opener = split(rows[0].1).0;
+        let origin = physical(0);
+        let opener_prefix = crate::inline::blocks::container_prefix(
+            &opener,
+            origin.quote_depth,
+            origin.list.as_ref(),
+        )
+        .0;
+        let opens_item = origin.list.as_ref().is_some_and(|list| {
+            list.first && start <= list.marker.start && list.marker.end <= fence.opener.start
+        });
+        let continued_opener = if opens_item && body_rows > 0 {
+            let body = split(rows[1].1).0;
+            let line = physical(1);
+            let prefix = crate::inline::blocks::container_prefix(
+                &body,
+                line.quote_depth,
+                line.list.as_ref(),
+            )
+            .0;
+            format!("{}{}", &body[..prefix], &opener[opener_prefix..])
+        } else {
+            opener.clone()
+        };
         let closer = if closed {
             split(rows[rows.len() - 1].1).0
         } else {
@@ -213,7 +243,11 @@ impl EditorSession {
         let mut section: Vec<String> = Vec::new();
         let flush = |section: &mut Vec<String>, out: &mut Vec<String>| {
             if !section.is_empty() {
-                out.push(opener.clone());
+                out.push(if out.is_empty() {
+                    opener.clone()
+                } else {
+                    continued_opener.clone()
+                });
                 out.append(section);
                 out.push(closer.clone());
             }
@@ -224,23 +258,31 @@ impl EditorSession {
                 flush(&mut section, &mut out);
                 // The row is prose now: its text must not read as Markdown.
                 let row_start = rows[index + 1].0;
-                let content = lines
-                    .iter()
-                    .find(|line| line.source.start == row_start)
-                    .map_or(0, |line| line.content.start - row_start)
-                    .min(text.len());
-                out.push(format!(
-                    "{}{}",
-                    &text[..content],
-                    prose_literal(&text[content..])
-                ));
+                let line = physical(index + 1);
+                let content = (line.content.start - row_start).min(text.len());
+                let container = crate::inline::blocks::container_prefix(
+                    &text,
+                    line.quote_depth,
+                    line.list.as_ref(),
+                )
+                .0;
+                let prefix = if opens_item && out.is_empty() {
+                    &opener[..opener_prefix]
+                } else {
+                    &text[..container]
+                };
+                out.push(format!("{prefix}{}", prose_literal(&text[content..])));
             } else {
                 section.push(text);
             }
         }
         // An unclosed fence keeps its tail open.
         if !closed && !section.is_empty() {
-            out.push(opener.clone());
+            out.push(if out.is_empty() {
+                opener.clone()
+            } else {
+                continued_opener.clone()
+            });
             out.append(&mut section);
         } else {
             flush(&mut section, &mut out);

@@ -263,43 +263,15 @@ fn describe_with_parts(
     let mut prefixes = Vec::new();
     for line in &mut lines {
         let end = line.content.end;
-        let mut start = line.source.start;
-        let (quote_end, mut column, consumed_quotes) =
-            consume_quote_prefix(source.as_bytes(), start, end, line.quote_depth, 0);
-        start = quote_end;
         let attribution = lists.line(line.source.start, end);
         line.task = attribution.task;
         line.list = attribution.list;
-        if let Some(list) = &line.list {
-            if !list.first {
-                while start < end && column < list.content_column {
-                    match source.as_bytes()[start] {
-                        b' ' => column += 1,
-                        b'\t' => column += 4 - column % 4,
-                        _ => break,
-                    }
-                    start += 1;
-                }
-            }
-        }
-        if let Some(list) = &line.list {
-            let remaining = if list.first {
-                let header = line.source.start + list.indent;
-                if header > start {
-                    column = super::columns(&source[start..header], column);
-                    start = header;
-                }
-                // The innermost item already owns every quote before its
-                // header, including quotes crossed by same-line list syntax.
-                line.quote_depth.saturating_sub(list.quote_depth)
-            } else {
-                line.quote_depth.saturating_sub(consumed_quotes)
-            };
-            let (quote_end, quote_column, _) =
-                consume_quote_prefix(source.as_bytes(), start, end, remaining, column);
-            start = quote_end;
-            column = quote_column;
-        }
+        let (prefix, mut column) = container_prefix(
+            &source[line.source.start..end],
+            line.quote_depth,
+            line.list.as_ref(),
+        );
+        let mut start = line.source.start + prefix;
         if let Some(end) = attribution.prefix_end.filter(|&end| end > start) {
             column = super::columns(&source[start..end], column);
             start = end;
@@ -373,6 +345,46 @@ fn describe_with_parts(
     }
     fences(source, events, &mut lines);
     (lines, prefixes)
+}
+
+/// The canonical quote/list prefix, excluding a block's own indentation.
+/// Return its byte end and physical column; opaque body spaces stay outside it.
+pub(crate) fn container_prefix(
+    source: &str,
+    quote_depth: usize,
+    list: Option<&super::lists::ListLine>,
+) -> (usize, usize) {
+    let end = source.len();
+    let (mut start, mut column, consumed_quotes) =
+        consume_quote_prefix(source.as_bytes(), 0, end, quote_depth, 0);
+    if let Some(list) = list {
+        if !list.first {
+            while start < end && column < list.content_column {
+                match source.as_bytes()[start] {
+                    b' ' => column += 1,
+                    b'\t' => column += 4 - column % 4,
+                    _ => break,
+                }
+                start += 1;
+            }
+        }
+        let remaining = if list.first {
+            if list.indent > start {
+                column = super::columns(&source[start..list.indent], column);
+                start = list.indent;
+            }
+            // The innermost item owns quotes before its header, including
+            // quotes crossed by same-line list syntax.
+            quote_depth.saturating_sub(list.quote_depth)
+        } else {
+            quote_depth.saturating_sub(consumed_quotes)
+        };
+        let (quote_end, quote_column, _) =
+            consume_quote_prefix(source.as_bytes(), start, end, remaining, column);
+        start = quote_end;
+        column = quote_column;
+    }
+    (start, column)
 }
 
 /// Consume only the parser-attributed quote levels at this container origin.
