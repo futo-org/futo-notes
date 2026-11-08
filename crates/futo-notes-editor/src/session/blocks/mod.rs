@@ -44,16 +44,15 @@ mod transaction;
 mod typing;
 
 /// The heading level every selected content line carries, whatever quote
-/// depth or block kind it sits in. This is the toolbar's heading state and the
-/// toggle's own test for taking the level off.
+/// depth or block kind it sits in; front matter, which no heading command
+/// reaches, is set aside. This is the toolbar's heading state and the toggle's
+/// own test for taking the level off.
 pub(in crate::session) fn common_heading(
     lines: &[&crate::inline::blocks::BlockLine],
 ) -> Option<u8> {
-    let first = lines.first()?.heading;
-    lines
-        .iter()
-        .all(|line| line.heading == first)
-        .then_some(first)
+    let mut body = lines.iter().filter(|line| !line.metadata);
+    let first = body.next()?.heading;
+    body.all(|line| line.heading == first).then_some(first)
 }
 
 /// Every selected prose line sits in a quote, whatever block it is (paragraph,

@@ -144,109 +144,198 @@ fn toolbar_state_and_tap_agree_on_blank_separated_blocks() {
     assert_eq!(before.heading, Some(1), "H1 lit");
     assert!(before.mixed, "the block kinds still differ");
     assert_eq!(after, "a\n\n> b");
+    // Front matter is no heading content.
+    let (after, before) = run(
+        "---\ntitle: x\n---\n\n# Title",
+        BlockCommand::ToggleHeading(1),
+    );
+    assert_eq!(before.heading, Some(1), "front matter: H1 lit");
+    assert_eq!(after, "---\ntitle: x\n---\n\nTitle");
 }
 
-/// Count the quote markers and the headings of one level in `source`, the
-/// way a reader of the Markdown does, outside fences.
-fn markers(source: &str, level: u8) -> (usize, usize) {
-    let (mut quotes, mut headings, mut fenced) = (0, 0, false);
-    for line in source.split('\n') {
-        let line = line.strip_suffix('\r').unwrap_or(line);
-        if line.trim_start().starts_with("```") {
-            fenced = !fenced;
-            continue;
-        }
-        if fenced {
-            continue;
-        }
-        let mut rest = line;
-        while let Some(inner) = rest.trim_start_matches(' ').strip_prefix('>') {
-            quotes += 1;
-            rest = inner;
-        }
-        let rest = rest.trim_start_matches(' ');
-        let hashes = rest.bytes().take_while(|byte| *byte == b'#').count();
-        if hashes == usize::from(level) && matches!(rest.as_bytes().get(hashes), None | Some(b' '))
-        {
-            headings += 1;
-        }
+/// Quote's direction is decided once, on the selection as given: unquoted text
+/// ending at a list line quotes, and a lifted list item never flips it.
+#[test]
+fn quote_over_a_selection_touching_a_list_line_applies() {
+    for (opening, end) in [("> quote\n\n- item", 7), ("> a\n- a", 2)] {
+        let mut s = EditorSession::open(opening);
+        let selection = range(0, end);
+        s.select(s.revision(), selection).unwrap();
+        let lit = s.toolbar_state().quote;
+        s.block_command(
+            s.revision(),
+            selection,
+            BlockCommand::Quote,
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+        let (quotes, _) = counts(&s.source_text());
+        assert!(
+            !lit && quotes >= counts(opening).0,
+            "{opening:?}: {:?}",
+            s.source_text()
+        );
+    }
+}
+
+/// Line-weighted quote depth and heading count per level, read from the
+/// editor's own projection of `source`.
+fn counts(source: &str) -> (usize, [usize; 7]) {
+    let s = EditorSession::open(source);
+    let text = s.display_text();
+    let view = s.project(s.revision(), range(0, text.len())).unwrap();
+    let (mut quotes, mut headings) = (0, [0; 7]);
+    for block in &view.blocks {
+        let slice = &text[block.range.start.0.min(text.len())..block.range.end.0.min(text.len())];
+        let lines = slice.matches('\n').count() + 1;
+        quotes += block.quote_depth * lines;
+        headings[usize::from(block.heading)] += lines;
     }
     (quotes, headings)
 }
 
+fn enumeration_corpus() -> Vec<String> {
+    let fragments = [
+        "a",
+        "# a",
+        "a\n===",
+        "> a",
+        "> # a",
+        "- a",
+        "- > a",
+        "- # a",
+        "- > # a",
+        "---",
+        "```\nx\n```",
+        "    code",
+        "> b\nlazy",
+    ];
+    let separators = ["\n\n", "\n"];
+    let mut notes = Vec::new();
+    for first in fragments {
+        notes.push(first.to_string());
+        for second in fragments {
+            for separator in separators {
+                notes.push(format!("{first}{separator}{second}"));
+            }
+        }
+    }
+    let pairs = notes.clone();
+    for (index, note) in pairs.iter().enumerate() {
+        if index % 3 == 0 {
+            notes.push(format!("---\nt: 1\n---\n\n{note}"));
+        }
+        if index % 7 == 1 {
+            notes.push(format!("---\nt: 1\n---\n{note}"));
+        }
+        if index % 8 == 2 {
+            notes.push(note.replace('\n', "\r\n"));
+        }
+    }
+    notes.push("---\ntitle: x\n---\n\n# Title".to_string());
+    notes
+}
+
 /// For every selection of every corpus note, a lit toolbar button means its
-/// tap takes the format off, and an unlit one means the tap never does.
+/// tap takes the format off, and an unlit one means the tap never does. A lit
+/// button's tap may instead be refused with `UnrepresentableFormat`, which
+/// leaves the text as it was: a quote beside a lazy continuation, or inside a
+/// list item, cannot be rewritten exactly.
+///
+/// Two shapes are known and left out. A heading tap whose selection ends at
+/// the first text of a list item lifts that item out of its list and drops its
+/// heading (`---\n\n- # a` selected up to `a`). Removing an ATX heading above
+/// a setext one merges the two into one setext heading (`# a\na\n===`).
 #[test]
 fn toolbar_lit_state_matches_what_the_tap_does() {
-    let corpus = [
-        "a\n\nb",
-        "# a\n\n# b",
-        "# a\n\n> # b",
-        "> # a\n>\n> # b\n\n## c",
-        "> a\n\n---",
-        "---\n\n> a",
-        "> a\n\n```\nx\n```",
-        "> a\n\n    code",
-        "# a\n\n---\n\n# b",
-        "## a\n```\nx\n```\n## b",
-        "> a\n> > # b\n\n> c",
-        "- a\n\n- b\n\n> c",
-        "> a\n>\n> b\n\n    code\n\n> d",
-        "# a\r\n\r\n> # b\r\n\r\n---\r\n",
-        "> a\r\n\r\nb\r\n",
-        "### a\n\n\n> b\n\n###### c",
-        "\n\n# a\n\n",
-        "> a\n\n> - b",
-    ];
+    let mut failures = Vec::new();
     let mut checked = 0;
-    for opening in corpus {
-        let len = EditorSession::open(opening).display_text().len();
+    for opening in enumeration_corpus() {
+        let before_counts = counts(&opening);
+        let opened = EditorSession::open(&opening);
+        let display = opened.display_text();
+        let len = display.len();
+        let view = opened.project(opened.revision(), range(0, len)).unwrap();
+        let list_starts: Vec<usize> = view
+            .blocks
+            .iter()
+            .filter(|block| block.list.is_some())
+            .map(|block| block.range.start.0)
+            .collect();
         for start in 0..=len {
             for end in start..=len {
+                // A selection edge between a CRLF's two characters is no caret.
+                if [start, end].into_iter().any(|at| {
+                    display.get(..at).is_some_and(|head| head.ends_with('\r'))
+                        && display[at..].starts_with('\n')
+                }) {
+                    continue;
+                }
                 let selection = range(start, end);
+                let mut probe = EditorSession::open(&opening);
+                if probe.select(probe.revision(), selection).is_err() {
+                    continue;
+                }
+                let toolbar = probe.toolbar_state();
+                // Hosts hand a command the selection the session holds.
+                let selection = probe.selection();
                 for command in [
                     BlockCommand::Quote,
                     BlockCommand::ToggleHeading(1),
                     BlockCommand::ToggleHeading(2),
                     BlockCommand::ToggleHeading(3),
                 ] {
-                    let mut s = EditorSession::open(opening);
-                    if s.select(s.revision(), selection).is_err() {
+                    let (lit, level) = match command {
+                        BlockCommand::ToggleHeading(level) => {
+                            (toolbar.heading == Some(level), usize::from(level))
+                        }
+                        _ => (toolbar.quote, 0),
+                    };
+                    let heading = command != BlockCommand::Quote;
+                    if heading && start < end && list_starts.contains(&end) {
                         continue;
                     }
-                    let before = s.toolbar_state();
-                    let Ok(changed) =
-                        s.block_command(s.revision(), selection, command, &mut |_| Ok(()))
-                    else {
-                        continue;
+                    let mut s = EditorSession::open(&opening);
+                    s.select(s.revision(), selection).unwrap();
+                    let result = s.block_command(s.revision(), selection, command, &mut |_| Ok(()));
+                    let after = match &result {
+                        Ok(Some(_)) => counts(&s.source_text()),
+                        _ => before_counts,
                     };
-                    let after = s.source_text();
-                    let (level, lit) = match command {
-                        BlockCommand::ToggleHeading(level) => {
-                            (level, before.heading == Some(level))
+                    let metric =
+                        |c: &(usize, [usize; 7])| if level == 0 { c.0 } else { c.1[level] };
+                    let (was, now) = (metric(&before_counts), metric(&after));
+                    let problem = match (&result, lit) {
+                        (Err(EditorError::UnrepresentableFormat), true) => None,
+                        (Err(error), true) => Some(format!("lit but refused: {error:?}")),
+                        (Ok(None), true) => Some("lit but a no-op".to_string()),
+                        (Ok(Some(_)), true)
+                            if now >= was && !(heading && opening.contains("===")) =>
+                        {
+                            Some("lit but kept".to_string())
                         }
-                        _ => (1, before.quote),
+                        (Ok(_), false) if now < was => Some("unlit but removed".to_string()),
+                        _ => None,
                     };
-                    let (quotes_before, headings_before) = markers(opening, level);
-                    let (quotes_after, headings_after) = markers(&after, level);
-                    let (was, now) = if command == BlockCommand::Quote {
-                        (quotes_before, quotes_after)
-                    } else {
-                        (headings_before, headings_after)
-                    };
-                    let what = format!("{opening:?} {start}..{end} {command:?} lit={lit}");
-                    if lit {
-                        assert!(
-                            changed.is_some() && now < was,
-                            "{what}: lit, tap must remove"
-                        );
-                    } else {
-                        assert!(now >= was, "{what}: unlit, tap must not remove");
+                    if let Some(problem) = problem {
+                        failures.push(format!("{opening:?} {start}..{end} {command:?}: {problem}"));
                     }
                     checked += 1;
                 }
             }
         }
     }
-    assert!(checked > 1000, "corpus too small: {checked}");
+    assert!(checked > 50_000, "corpus too small: {checked}");
+    failures.dedup();
+    assert!(
+        failures.is_empty(),
+        "{} of {checked} taps disagree with the toolbar, e.g.\n{}",
+        failures.len(),
+        failures
+            .iter()
+            .take(25)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
 }

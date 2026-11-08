@@ -94,6 +94,19 @@ impl EditorSession {
         command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        self.lf_block_command_toggling(expected, range, command, true, accept)
+    }
+
+    /// `toggle_quote` is false for a step that carries out a direction already
+    /// chosen on the selection as given, so a staged copy never re-decides it.
+    fn lf_block_command_toggling(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        command: BlockCommand,
+        toggle_quote: bool,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
         let command = if let BlockCommand::ToggleHeading(level) = command {
             if !(1..=6).contains(&level) {
                 return Err(EditorError::InvalidRange);
@@ -177,12 +190,14 @@ impl EditorSession {
         }
         let mut lines = self.selected_block_lines(range);
         // Choosing Quote on text that is already quoted takes one level off.
-        let command =
-            if command == BlockCommand::Quote && all_quoted(&self.content_block_lines(&lines)) {
-                BlockCommand::Outdent
-            } else {
-                command
-            };
+        let command = if toggle_quote
+            && command == BlockCommand::Quote
+            && all_quoted(&self.content_block_lines(&lines))
+        {
+            BlockCommand::Outdent
+        } else {
+            command
+        };
         // Blank lines between the lines a heading is set on stay as they are.
         if matches!(command, BlockCommand::Heading(1..=6)) {
             let keep: Vec<_> = self
@@ -223,8 +238,13 @@ impl EditorSession {
                     {
                         return Err(EditorError::UnrepresentableFormat);
                     }
-                    let Some(mut change) =
-                        staged.block_command(staged.revision(), local, command, accept)?
+                    let Some(mut change) = staged.lf_block_command_toggling(
+                        staged.revision(),
+                        local,
+                        command,
+                        false,
+                        accept,
+                    )?
                     else {
                         return Ok(Some(lifted));
                     };
@@ -264,8 +284,13 @@ impl EditorSession {
                     let boundaries: Vec<_> =
                         boundaries.iter().map(|boundary| boundary - base).collect();
                     let seams = staged.split_inline_block_seams_at(local, &boundaries, accept)?;
-                    let Some(mut change) =
-                        staged.block_command(staged.revision(), local, command, accept)?
+                    let Some(mut change) = staged.lf_block_command_toggling(
+                        staged.revision(),
+                        local,
+                        command,
+                        false,
+                        accept,
+                    )?
                     else {
                         return Ok(None);
                     };
