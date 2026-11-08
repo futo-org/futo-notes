@@ -5,6 +5,7 @@
 import {
   ANDROID_MATRIX,
   androidDefersFocusedPeerEditUntilBlur,
+  androidDoesNotRewriteARawNote,
   androidKeepsADraftTypedWhileAPeerEditIsDeferred,
   androidReceivesDesktopNoteLive,
   desktopReceivesAndroidEditorEdit,
@@ -310,6 +311,11 @@ export const scenarios = [
   {
     name: 'android defers a focused peer edit until blur',
     fn: androidDefersFocusedPeerEditUntilBlur,
+    matrices: [ANDROID_MATRIX],
+  },
+  {
+    name: 'android does not rewrite a raw note without a final newline',
+    fn: androidDoesNotRewriteARawNote,
     matrices: [ANDROID_MATRIX],
   },
   {
