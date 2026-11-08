@@ -110,3 +110,80 @@ fn indented_code_keeps_its_existing_literal_paste_path() {
     assert_eq!(pasted.display_text(), "x# h\n");
     assert!(pasted.toolbar_state().code);
 }
+
+#[test]
+fn block_paste_retires_an_empty_frame_selected_with_prose() {
+    for (source, selected) in [
+        ("```\n\n```\n\nplain\n", range(0, 8)),
+        ("```\n\n```\n\nplain", range(0, 7)),
+    ] {
+        let pasted = paste(source, selected, "# h", None);
+        assert_eq!(pasted.source_text(), "# h");
+        assert_eq!(pasted.display_text(), "h");
+        assert_eq!(pasted.selection(), range(1, 1));
+        assert!(!pasted.toolbar_state().code);
+        assert_eq!(pasted.toolbar_state().heading, Some(1));
+    }
+}
+
+#[test]
+fn block_paste_retires_a_nonempty_frame_selected_with_prose() {
+    let pasted = paste("```\nx\n```\n\nplain\n", range(0, 9), "# h", None);
+    assert_eq!(pasted.source_text(), "# h");
+    assert_eq!(pasted.display_text(), "h");
+    assert_eq!(pasted.selection(), range(1, 1));
+    assert!(!pasted.toolbar_state().code);
+    assert_eq!(pasted.toolbar_state().heading, Some(1));
+}
+
+#[test]
+fn block_paste_retires_a_complete_selected_frame_after_prose() {
+    for (source, selected) in [
+        ("plain\n\n```\n\n```", range(0, 7)),
+        ("plain\n\n```\nx\n```", range(0, 8)),
+    ] {
+        let pasted = paste(source, selected, "# h", None);
+        assert_eq!(pasted.source_text(), "# h");
+        assert_eq!(pasted.display_text(), "h");
+        assert_eq!(pasted.selection(), range(1, 1));
+    }
+}
+
+#[test]
+fn block_paste_retires_separate_complete_selected_frames() {
+    let source = "```\nx\n```\n\nmiddle\n\n```\ny\n```";
+    let pasted = paste(source, range(0, 12), "# h", None);
+    assert_eq!(pasted.source_text(), "# h");
+    assert_eq!(pasted.display_text(), "h");
+    assert_eq!(pasted.selection(), range(1, 1));
+}
+
+#[test]
+fn selected_frame_paste_keeps_unselected_prose_exact() {
+    for (selected, expected, shown, caret) in [
+        (range(8, 16), "before\n\n# h", "before\n\nh", 9),
+        (range(0, 9), "# h\n\nafter", "h\n\nafter", 1),
+    ] {
+        let pasted = paste("before\n\n```\nx\n```\n\nafter", selected, "# h", None);
+        assert_eq!(pasted.source_text(), expected);
+        assert_eq!(pasted.display_text(), shown);
+        assert_eq!(pasted.selection(), range(caret, caret));
+    }
+}
+
+#[test]
+fn body_only_paste_keeps_its_frame_and_unselected_neighbor_exact() {
+    for (selected, expected) in [
+        (range(0, 1), "```\n# hbc\n```\n\n~~~rs\nneighbour\n~~~"),
+        (range(0, 3), "```\n# h\n```\n\n~~~rs\nneighbour\n~~~"),
+    ] {
+        let pasted = paste(
+            "```\nabc\n```\n\n~~~rs\nneighbour\n~~~",
+            selected,
+            "# h",
+            Some(3),
+        );
+        assert_eq!(pasted.source_text(), expected);
+        assert!(pasted.toolbar_state().code);
+    }
+}
