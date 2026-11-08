@@ -59,3 +59,36 @@ fn mirror_follows_a_live_session_through_typing_and_undo() {
     apply(session.undo(revision.get()).unwrap().unwrap());
     assert_eq!(mirror.text(), session.display_text().unwrap());
 }
+
+#[test]
+fn style_plan_reports_utf16_spans_for_a_byte_window() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("n".into(), "".into(), "日本\n\n## Head **b**\n".into())
+        .unwrap();
+    let session = store.open_editor("n".into()).unwrap();
+    let revision = session.revision().unwrap();
+    let len = session.display_text().unwrap().len() as u64;
+    let spans = session
+        .style_plan(revision, EditorByteRange { start: 0, end: len })
+        .unwrap();
+    assert!(spans.iter().any(|s| matches!(
+        s,
+        EditorStyleSpan::Heading {
+            start: 4,
+            level: 2,
+            ..
+        }
+    )));
+    assert!(spans.iter().any(|s| matches!(
+        s,
+        EditorStyleSpan::Inline {
+            start: 9,
+            end: 10,
+            bold: true,
+            ..
+        }
+    )));
+}
