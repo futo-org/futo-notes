@@ -189,8 +189,12 @@ impl EditorSession {
                 end: range.start,
             })
             .iter()
-            .any(|block| block.code && block.source.contains(&caret))
-        {
+            .any(|block| {
+                // Hidden empty-fence rows own the display caret even when its
+                // source bound lands on the closer. The fence owner validates
+                // the complete supplied range before accepting literal input.
+                block.code && (block.fence.is_some() || block.source.contains(&caret))
+            }) {
             PasteTarget::Code
         } else {
             PasteTarget::Line

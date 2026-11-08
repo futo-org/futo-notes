@@ -29,3 +29,33 @@ fn native_clipboard_copies_cuts_and_pastes_exact_markdown() {
     session.undo(3).unwrap().unwrap();
     assert_eq!(session.source_text().unwrap(), "- ab **cd**\n");
 }
+
+#[test]
+fn native_block_paste_in_an_empty_fence_stays_literal() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    let original = "```\n\n```\n";
+    store
+        .create_note("empty-code".into(), "".into(), original.into())
+        .unwrap();
+    let session = store.open_editor("empty-code".into()).unwrap();
+    let at = |start, end| EditorByteRange { start, end };
+    let change = session
+        .paste_markdown(0, at(0, 0), "# h".into())
+        .unwrap()
+        .unwrap();
+    assert_eq!(change.selection, at(3, 3));
+    let expected = "```\n# h\n```\n";
+    assert_eq!(session.source_text().unwrap(), expected);
+    assert_eq!(session.display_text().unwrap(), "# h");
+    assert!(session.toolbar_state().unwrap().code);
+    assert_eq!(session.undo(1).unwrap().unwrap().selection, at(0, 0));
+    assert_eq!(session.source_text().unwrap(), original);
+    assert_eq!(session.redo(2).unwrap().unwrap().selection, at(3, 3));
+    session.checkpoint().unwrap();
+    drop(session);
+    let reopened = store.open_editor("empty-code".into()).unwrap();
+    assert_eq!(reopened.source_text().unwrap(), expected);
+    assert_eq!(reopened.display_text().unwrap(), "# h");
+}

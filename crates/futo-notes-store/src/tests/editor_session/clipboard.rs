@@ -33,3 +33,28 @@ fn paste_and_cut_survive_rejected_append_recovery_and_checkpoint() {
     recovered.checkpoint().unwrap();
     assert_eq!(store.read("clip").unwrap(), cut);
 }
+
+#[test]
+fn block_paste_in_empty_code_is_literal_through_checkpoint() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let original = "```\n\n```\n";
+    store.create("", "empty-code", original).unwrap();
+    let mut session = store.open_editor("empty-code").unwrap();
+    let change = session
+        .paste_markdown(Revision(0), range(0, 0), "# h")
+        .unwrap()
+        .unwrap();
+    assert_eq!(change.selection, range(3, 3));
+    let expected = "```\n# h\n```\n";
+    assert_eq!(session.source_text(), expected);
+    assert_eq!(session.display_text(), "# h");
+    session.undo(Revision(1)).unwrap().unwrap();
+    assert_eq!(session.source_text(), original);
+    session.redo(Revision(2)).unwrap().unwrap();
+    session.checkpoint().unwrap();
+    drop(session);
+    let reopened = store.open_editor("empty-code").unwrap();
+    assert_eq!(reopened.source_text(), expected);
+    assert_eq!(reopened.display_text(), "# h");
+}

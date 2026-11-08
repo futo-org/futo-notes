@@ -107,6 +107,32 @@ try {
     literalCode,
   );
   await stop();
+  for (const [source, text, expected] of [
+    ['```\n\n```', '# h', '```\n# h\n```'],
+    ['```\n\n```', literalCode, fencedSource],
+  ]) {
+    const emptyExchange = await start(source);
+    const acceptEmpty = async (applied) => {
+      const { change, request } = JSON.parse(applied);
+      session.acknowledge(JSON.stringify(await emptyExchange(JSON.stringify(request))));
+      return change;
+    };
+    const caret = Buffer.byteLength(text);
+    const pasted = await acceptEmpty(session.paste_markdown(0n, 0, 0, text));
+    assert.deepEqual(pasted.selection, { start: caret, end: caret });
+    assert.equal(session.draft_text(), expected);
+    assert.equal(JSON.parse(session.project(1n, 0, caret)).text, text);
+    await acceptEmpty(session.undo(1n));
+    assert.equal(session.draft_text(), source);
+    await acceptEmpty(session.redo(2n));
+    assert.equal(session.draft_text(), expected);
+    assert.deepEqual(await emptyExchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+    await stop();
+    await start('--reopen');
+    assert.equal(session.draft_text(), savedSource(expected));
+    assert.equal(JSON.parse(session.project(0n, 0, caret)).text, text);
+    await stop();
+  }
   console.log(
     'Compiled WASM clipboard: copy, one-action cut, Markdown paste, literal code fences and real store saving passed.',
   );
