@@ -294,9 +294,12 @@ pub fn plan_styles(
     split_at_lines(out, &units, start_utf16)
 }
 
-/// Cut every span at line ends so none crosses a line (a piece keeps its line's `\n`); a list
-/// row's marker stays on its first piece. Atoms stay whole.
+/// Clip every span to the window (a block or run may overlap it, and arrive whole) and cut it at
+/// line ends so none crosses a line; a piece keeps its line's `\n`. A list row's marker stays on
+/// its first piece, and only when the clip left that piece's start alone: a row that began before
+/// the window is already drawn. Atoms stay whole, and only those overlapping the window stay.
 fn split_at_lines(specs: Vec<StyleSpec>, units: &[u16], start_utf16: usize) -> Vec<StyleSpec> {
+    let text_end = start_utf16 + units.len();
     let mut out = Vec::with_capacity(specs.len());
     for spec in specs {
         let (start, end) = spec.range();
@@ -305,16 +308,21 @@ fn split_at_lines(specs: Vec<StyleSpec>, units: &[u16], start_utf16: usize) -> V
             StyleSpec::Wikilink { .. } | StyleSpec::Divider { .. } | StyleSpec::Image { .. }
         );
         if atom || end <= start {
-            out.push(spec);
+            // An atom cannot be cut, but one outside the window (its paragraph overlaps) is not
+            // this window's to style.
+            if end <= start || (start < text_end && end > start_utf16) {
+                out.push(spec);
+            }
             continue;
         }
-        let mut s = start;
-        let mut first = true;
-        while s < end {
-            let line_end = units
-                .get(s.saturating_sub(start_utf16)..)
-                .and_then(|rest| rest.iter().position(|&u| u == 0x0A))
-                .map_or(end, |nl| end.min(s + nl + 1));
+        let (clip_start, clip_end) = (start.max(start_utf16), end.min(text_end));
+        let mut s = clip_start;
+        let mut first = clip_start == start;
+        while s < clip_end {
+            let line_end = units[s - start_utf16..clip_end - start_utf16]
+                .iter()
+                .position(|&u| u == 0x0A)
+                .map_or(clip_end, |nl| s + nl + 1);
             if first && line_end == end {
                 out.push(spec);
                 break;
