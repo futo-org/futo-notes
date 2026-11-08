@@ -205,39 +205,6 @@ class TextFirstTableSceneTest {
         assertEquals(before, view.text.toString())
     }
 
-    @Test
-    fun findPaintsCurrentAndOtherMatchesAboveTheActiveCell() = compose.withTextFirstScreen(
-        "| 🧑‍💻 Name natural words across several lines Name | Owner |\n| - | - |\n| body | tail |\n\n" + "ordinary note text ".repeat(10) + "\n",
-        nativeTheme = tableSceneTheme,
-    ) { view, _ ->
-        val scene = TableCellScene(view, compose.activity) { action -> compose.runOnUiThread(action) }
-        compose.runOnUiThread { view.revealRange(0, 0) }
-        scene.tap(scene.pointAt("Name", 0))
-        compose.waitUntil(10_000) { scene.field()?.isFocused == true && scene.keyboardVisible() && scene.keyboardIdle() }
-        val before = view.text.toString()
-        val strings = Localization.fromGeneratedCatalogs(listOf("en"), "en-US")
-        compose.onNodeWithContentDescription(strings.localizedText("notes.actions.moreAccessibilityLabel")).performClick()
-        compose.onNodeWithText(strings.localizedText("editor.find.open")).performClick()
-        compose.waitUntil(10_000) { scene.queryFocused() && scene.keyboardVisible() && scene.keyboardIdle() }
-        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
-        instrumentation.sendStringSync("Name")
-        val seq = view.appliedSeq
-        instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_ENTER)
-        compose.waitUntil(10_000) { view.appliedSeq > seq }
-        compose.waitForIdle()
-        compose.runOnUiThread {
-            val field = checkNotNull(scene.fieldInWindow())
-            assertTrue("Find marks follow the wrapped native layout", field.layout.lineCount > 1)
-            assertEquals("the match starts after the complete Unicode prefix", field.text.toString().indexOf("Name"), field.selectionStart)
-        }
-        scene.assertFindPaint(current = true, other = true)
-        compose.onNodeWithContentDescription(strings.localizedText("editor.find.close")).performClick()
-        compose.waitUntil(10_000) { !scene.queryFocused() && !scene.keyboardVisible() }
-        compose.waitForIdle()
-        scene.assertFindPaint(current = false, other = false)
-        assertEquals("painting Find changes no note text", before, view.text.toString())
-    }
-
     @Test fun closingPlainNoteFindDismissesTheQueryKeyboard() = findCloseKeyboard(cell = false)
     @Test fun closingCellFindDismissesTheQueryKeyboard() = findCloseKeyboard(cell = true)
     @Test fun closingFindKeepsTheCellsOwnKeyboard() = findCloseKeyboard(cell = true, cellFocus = true)
@@ -261,6 +228,10 @@ class TextFirstTableSceneTest {
         val beforeStep = view.appliedSeq
         instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_ENTER)
         compose.waitUntil(10_000) { view.appliedSeq > beforeStep }
+        if (cell && !cellFocus) {
+            compose.waitForIdle()
+            scene.assertNoFindPaint()
+        }
         if (cellFocus) {
             scene.tap(scene.pointAt("Name", 0))
             compose.waitUntil(10_000) { scene.field()?.isFocused == true && scene.keyboardVisible() && scene.keyboardIdle() }

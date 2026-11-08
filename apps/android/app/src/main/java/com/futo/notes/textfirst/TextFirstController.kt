@@ -143,7 +143,7 @@ internal class TextFirstController(
     override fun onCell(update: CellUpdate?) {
         if (update == null) { cellView = null; return }
         val e = engine ?: return
-        val field = cellView ?: TableCellEditText(context, e, style, view.marks).also {
+        val field = cellView ?: TableCellEditText(context, e, style).also {
             it.clipboard.onCopyRefused = { onClipboardRefused() }
             cellView = it
         }
@@ -154,7 +154,6 @@ internal class TextFirstController(
     override fun onFind(snapshot: FindSnapshot) {
         find = snapshot
         view.setFind(snapshot)
-        cellView?.invalidate()
         snapshot.reveal?.let { (start, end) -> view.post { view.revealRange(start, end) } }
     }
 

@@ -99,7 +99,7 @@ internal class TableCellScene(
         assertTrue("the wrapped caret is reachable in the note viewport", viewport.contains(x.toInt(), y.toInt()))
     }
     /** Inspect the actual window pixels, including the field above the table's cached span. */
-    fun assertFindPaint(current: Boolean, other: Boolean) {
+    fun assertNoFindPaint() {
         lateinit var bitmap: android.graphics.Bitmap
         val copied = java.util.concurrent.CountDownLatch(1)
         var status = -1
@@ -127,10 +127,8 @@ internal class TableCellScene(
                         channelNear(android.graphics.Color.blue(pixel), android.graphics.Color.blue(color))
                 }
             }
-            for ((active, expected) in listOf(true to current, false to other)) {
-                val count = markPixels(active)
-                if (expected) assertTrue("the active cell paints a visible ${if (active) "current" else "ordinary"} Find mark: $count pixels", count > 32)
-                else assertEquals("closing Find removes its ${if (active) "current" else "ordinary"} mark", 0, count)
+            for (active in listOf(true, false)) {
+                assertEquals("the open cell omits ${if (active) "current" else "ordinary"} Find marks", 0, markPixels(active))
             }
         } finally { bitmap.recycle() }
     }

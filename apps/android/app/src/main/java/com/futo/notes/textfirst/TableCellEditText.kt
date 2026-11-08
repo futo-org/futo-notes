@@ -13,7 +13,7 @@ import android.view.inputmethod.InputMethodManager
 import androidx.appcompat.widget.AppCompatEditText
 
 /** A cell-sized native window onto the SAME session as the note. It never edits its Editable itself. */
-internal class TableCellEditText(context: Context, private val editor: EditorEngine, style: TextFirstStyle, private val marks: FindMarks = FindMarks()) :
+internal class TableCellEditText(context: Context, private val editor: EditorEngine, style: TextFirstStyle) :
     AppCompatEditText(context), EngineInputConnection.ViewSide {
     private var applying = false
     private var current: CellUpdate? = null
@@ -41,17 +41,6 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         includeFontPadding = false
         filters = arrayOf(InputFilter { _, _, _, dest, a, b -> if (applying) null else dest.subSequence(a, b) })
         importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO
-    }
-    override fun onDraw(canvas: android.graphics.Canvas) {
-        val target = current
-        val cellLayout = layout
-        if (target != null && cellLayout != null) {
-            val saved = canvas.save()
-            canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
-            marks.drawCell(canvas, cellLayout, target.start, target.end, noteStyle)
-            canvas.restoreToCount(saved)
-        }
-        super.onDraw(canvas)
     }
     override fun isSuggestionsEnabled() = false
     // A cell is note text, never a form field: no "Autofill" item over its selection menu.
