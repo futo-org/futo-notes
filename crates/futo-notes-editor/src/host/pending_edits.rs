@@ -16,7 +16,7 @@ struct Queued {
 /// The host records what the engine actually changed ([`record`](Self::record)), then maps the
 /// next tap through it ([`map`](Self::map)). A position before an edit stays; one at or after
 /// its end moves by what the edit changed; one inside a replaced range goes to its start (a
-/// range's end, to the end of the replacement). Insertion affinity: a range's end that sits
+/// range's end, to the end of the replacement; a caret stays a caret). Insertion affinity: a range's end that sits
 /// where text was inserted stays before it (the Backspace of the character before an insertion
 /// point must not swallow the insertion), while a start there, or a collapsed range, goes after
 /// it (a second typed character lands after the first). Units are the host's (UTF-16).
@@ -51,12 +51,14 @@ impl PendingEdits {
     /// `[start, end)` of the text the user sees, as the engine will hold it when every queued
     /// edit has been applied.
     pub fn map(&self, start: usize, end: usize) -> (usize, usize) {
+        let collapsed = start == end;
         let (mut start, mut end) = (start.min(end), start.max(end));
         for edit in &self.queued {
             start = moved(start, edit, false);
             end = moved(end, edit, true).max(start);
         }
-        (start, end)
+        // A caret stays a caret: a tap at or inside a replacement is not a selection of it.
+        (start, if collapsed { start } else { end })
     }
 
     /// Note an edit the engine made, in the coordinates of the text just before it, at the place

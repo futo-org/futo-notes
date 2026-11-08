@@ -105,15 +105,15 @@ fn slack_is_how_far_left_an_insertion_or_deletion_in_a_run_could_equally_sit() {
 fn a_key_replays_at_the_engines_caret_keeping_its_offset_from_the_views_selection() {
     let m = DisplayMirror::new("hello x");
     // Backspace at the view's caret 5 asks for [4, 5); the engine's caret is at 6 now.
-    assert_eq!(m.at_caret((4, 5), (5, 5), (6, 6)), (5, 6));
+    assert_eq!(m.at_caret((4, 5), (5, 5), (6, 6), false), (5, 6));
     // Typing at a caret, forward delete, and typing over a selection the earlier keys replaced.
-    assert_eq!(m.at_caret((5, 5), (5, 5), (6, 6)), (6, 6));
-    assert_eq!(m.at_caret((5, 6), (5, 5), (2, 2)), (2, 3));
-    assert_eq!(m.at_caret((0, 5), (0, 5), (3, 3)), (3, 3));
-    assert_eq!(m.at_caret((0, 5), (0, 5), (0, 5)), (0, 5));
+    assert_eq!(m.at_caret((5, 5), (5, 5), (6, 6), false), (6, 6));
+    assert_eq!(m.at_caret((5, 6), (5, 5), (2, 2), false), (2, 3));
+    assert_eq!(m.at_caret((0, 5), (0, 5), (3, 3), false), (3, 3));
+    assert_eq!(m.at_caret((0, 5), (0, 5), (0, 5), false), (0, 5));
     // Clamped to the text, never reversed.
-    assert_eq!(m.at_caret((4, 5), (5, 5), (0, 0)), (0, 0));
-    assert_eq!(m.at_caret((5, 7), (5, 5), (6, 6)), (6, 7));
+    assert_eq!(m.at_caret((4, 5), (5, 5), (0, 0), false), (0, 0));
+    assert_eq!(m.at_caret((5, 7), (5, 5), (6, 6), false), (6, 7));
 }
 
 #[test]
@@ -121,10 +121,10 @@ fn a_key_range_shrinks_off_a_split_pair() {
     // "😀x": the view's Backspace over an emoji asked for two units; the engine's caret (3) now
     // follows an "x", so only the "x" is deleted.
     let m = DisplayMirror::new("\u{1F600}x");
-    assert_eq!(m.at_caret((3, 5), (5, 5), (3, 3)), (2, 3));
+    assert_eq!(m.at_caret((3, 5), (5, 5), (3, 3), false), (2, 3));
     // "x😀" with the caret at 1: a two-unit forward delete shrinks to the "x"-free boundary.
     let m = DisplayMirror::new("x\u{1F600}");
-    assert_eq!(m.at_caret((1, 4), (1, 1), (0, 0)), (0, 3));
+    assert_eq!(m.at_caret((1, 4), (1, 1), (0, 0), false), (0, 3));
 }
 
 #[test]
@@ -200,4 +200,34 @@ fn every_spelling_within_the_slack_gives_the_same_text() {
         slid += (edit.slack > 0) as usize;
     }
     assert!(slid > 100, "the generator rarely slid: {slid}");
+}
+
+#[test]
+fn a_deletion_at_a_caret_is_one_grapheme_of_the_engines_text_not_the_views_width() {
+    // The view asked to delete the two units of an emoji before its caret (5); the engine's caret
+    // (3) follows an "x", so one character goes.
+    let m = DisplayMirror::new("\u{1F600}x");
+    assert_eq!(m.at_caret((3, 5), (5, 5), (3, 3), true), (2, 3));
+    // Over an emoji, a CRLF and a family emoji: one grapheme, whatever the view's width.
+    let m = DisplayMirror::new("ab\u{1F600}");
+    assert_eq!(m.at_caret((3, 4), (4, 4), (4, 4), true), (2, 4));
+    let m = DisplayMirror::new("ab\r\ncd");
+    assert_eq!(m.at_caret((3, 4), (4, 4), (4, 4), true), (2, 4));
+    assert_eq!(m.at_caret((1, 2), (2, 2), (2, 2), true), (1, 2));
+    let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    let m = DisplayMirror::new(&format!("a{family}"));
+    let end = m.utf16_len();
+    assert_eq!(m.at_caret((0, 1), (1, 1), (end, end), true), (1, end));
+    // A forward delete is the grapheme after the engine's caret; the ends delete nothing.
+    let m = DisplayMirror::new("a\u{1F600}b");
+    assert_eq!(m.at_caret((1, 2), (1, 1), (1, 1), true), (1, 3));
+    assert_eq!(m.at_caret((0, 1), (1, 1), (0, 0), true), (0, 0));
+    // Over the view's selection: the engine's selection if it has one, else the unit before its caret.
+    assert_eq!(m.at_caret((0, 3), (0, 3), (1, 2), true), (1, 2));
+    assert_eq!(m.at_caret((0, 3), (0, 3), (3, 3), true), (1, 3));
+    // Typing over the same selection is not a delete: it keeps its offset.
+    assert_eq!(m.at_caret((0, 3), (0, 3), (3, 3), false), (3, 3));
+    // A delete not tied to the selection keeps its offset.
+    let m = DisplayMirror::new("abcdef");
+    assert_eq!(m.at_caret((0, 1), (3, 3), (4, 4), true), (1, 2));
 }

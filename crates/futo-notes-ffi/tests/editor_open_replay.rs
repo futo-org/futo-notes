@@ -15,6 +15,7 @@ enum Op {
         text: &'static str,
     },
     Tap(u64),
+    Select(u64, u64),
 }
 
 /// The text the note has once `ops` are replayed on the engine the way a host does it.
@@ -32,8 +33,13 @@ fn replay(body: &str, ops: &[Op]) -> String {
     let mut engine_selection = (0u64, 0u64);
     for op in ops {
         match *op {
-            Op::Tap(at) => {
-                let m = pending.map(at, at).unwrap();
+            Op::Tap(_) | Op::Select(..) => {
+                let (from, to) = match *op {
+                    Op::Tap(at) => (at, at),
+                    Op::Select(from, to) => (from, to),
+                    Op::Key { .. } => unreachable!(),
+                };
+                let m = pending.map(from, to).unwrap();
                 let change = session
                     .select_utf16(
                         rev,
@@ -54,7 +60,8 @@ fn replay(body: &str, ops: &[Op]) -> String {
                 selection,
                 text,
             } => {
-                let target = host_range(&mirror, range, selection, engine_selection);
+                let target =
+                    host_range(&mirror, text.is_empty(), range, selection, engine_selection);
                 let change = session
                     .replace_utf16(
                         rev,
@@ -97,6 +104,7 @@ fn replay(body: &str, ops: &[Op]) -> String {
 
 fn host_range(
     mirror: &EditorDisplayMirror,
+    deletes: bool,
     range: (u64, u64),
     selection: (u64, u64),
     engine_selection: (u64, u64),
@@ -109,6 +117,7 @@ fn host_range(
             selection.1,
             engine_selection.0,
             engine_selection.1,
+            deletes,
         )
         .unwrap();
     (r.start, r.end)
@@ -159,4 +168,156 @@ fn a_tap_after_typing_inside_a_run_of_identical_characters_lands_where_the_finge
         key((1, 1), (1, 1), "b"),
     ];
     assert_eq!(replay("aa", &ops), "aaba");
+}
+
+fn tap(at: u64) -> Op {
+    Op::Tap(at)
+}
+
+fn expect(body: &str, ops: &[Op], want: &str) {
+    assert_eq!(replay(body, ops), want);
+}
+
+// A Backspace is the engine's character before the engine's caret, not the width of the character
+// before the frozen view's caret: the keys before it have moved the one and not the other.
+
+#[test]
+fn backspace_after_typing_beside_an_emoji_deletes_one_typed_character() {
+    // "😀" with the caret after it: b, a, Backspace (the view asks for the emoji's two units).
+    let ops = [
+        Op::Tap(2),
+        key((2, 2), (2, 2), "b"),
+        key((2, 2), (2, 2), "a"),
+        key((0, 2), (2, 2), ""),
+    ];
+    expect("\u{1F600}", &ops, "\u{1F600}b");
+}
+
+#[test]
+fn repeated_backspace_over_an_emoji_after_a_letter_deletes_one_character_each() {
+    let ops = [Op::Tap(4), key((2, 4), (4, 4), ""), key((2, 4), (4, 4), "")];
+    expect("ab\u{1F600}", &ops, "a");
+}
+
+#[test]
+fn backspace_after_a_typed_emoji_deletes_it() {
+    let ops = [
+        Op::Tap(1),
+        key((1, 1), (1, 1), "\u{1F600}"),
+        key((0, 1), (1, 1), ""),
+    ];
+    expect("x", &ops, "x");
+}
+
+#[test]
+fn backspace_over_a_crlf_after_typing_leaves_no_lone_cr() {
+    // "ab\r\ncd", caret at the start of line 2: x, Backspace (the view asks for the CRLF).
+    let ops = [
+        Op::Tap(4),
+        key((4, 4), (4, 4), "x"),
+        key((2, 4), (4, 4), ""),
+    ];
+    expect("ab\r\ncd\r\n", &ops, "ab\r\ncd\r");
+}
+
+#[test]
+fn backspace_after_typing_over_a_selection_deletes_the_typed_text() {
+    let ops = [
+        Op::Select(6, 11),
+        key((6, 11), (6, 11), "X"),
+        key((6, 11), (6, 11), ""),
+    ];
+    expect("hello world", &ops, "hello ");
+}
+
+#[test]
+fn a_tap_at_the_start_of_a_replaced_range_stays_a_caret() {
+    let ops = [
+        Op::Select(6, 11),
+        key((6, 11), (6, 11), "X"),
+        Op::Tap(6),
+        key((6, 6), (6, 6), "Y"),
+    ];
+    expect("hello world", &ops, "hello YX");
+}
+
+/// Random keys against a frozen view, checked against a live document that takes the same keys:
+/// type a character, or Backspace the character before the caret. Every Backspace is asked the
+/// way UIKit asks it: the view's own character before the view's frozen caret, in units.
+#[test]
+fn keys_replayed_after_opening_equal_the_keys_on_a_live_document() {
+    let alphabet = [
+        "a",
+        "a",
+        "b",
+        "\u{1F600}",
+        "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+        "\r\n",
+    ];
+    let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+    let mut next = |n: usize| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed % n as u64) as usize
+    };
+    let units = |elements: &[&str]| {
+        elements
+            .iter()
+            .map(|e| e.encode_utf16().count() as u64)
+            .sum::<u64>()
+    };
+    let mut failures = Vec::new();
+    for _ in 0..600 {
+        let mut view: Vec<&str> = (0..1 + next(6))
+            .map(|_| alphabet[next(alphabet.len())])
+            .collect();
+        view.push("z");
+        let body: String = view.concat();
+        let gap = next(view.len() + 1);
+        let at = units(&view[..gap]);
+        let mut live = view.clone();
+        let mut caret = gap;
+        let mut ops = vec![Op::Tap(at)];
+        let mut typed = Vec::new();
+        for _ in 0..1 + next(6) {
+            if gap > 0 && next(2) == 0 {
+                let before = units(&view[..gap - 1]);
+                ops.push(Op::Key {
+                    range: (before, at),
+                    selection: (at, at),
+                    text: "",
+                });
+                if caret > 0 {
+                    caret -= 1;
+                    live.remove(caret);
+                }
+                typed.push("BS".to_string());
+            } else {
+                let element = ["a", "b", "\u{1F600}"][next(3)];
+                ops.push(Op::Key {
+                    range: (at, at),
+                    selection: (at, at),
+                    text: element,
+                });
+                live.insert(caret, element);
+                caret += 1;
+                typed.push(element.to_string());
+            }
+        }
+        let want = live.concat();
+        let got = replay(&body, &ops);
+        // The engine ends a note with a line ending the model does not have.
+        if got.trim_end_matches(['\r', '\n']) != want.trim_end_matches(['\r', '\n']) {
+            failures.push(format!(
+                "{view:?} caret {gap} keys {typed:?}: got {got:?} want {want:?}"
+            ));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} of 600 failed, first: {:?}",
+        failures.len(),
+        failures.first()
+    );
 }
