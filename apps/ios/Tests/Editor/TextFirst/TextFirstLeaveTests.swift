@@ -10,10 +10,17 @@
     /// The failure is the filesystem's: the vault directory has no write bit.
     @Suite(.serialized) @MainActor
     struct TextFirstLeaveTests {
+        /// Constant fast retries, for the tests that are not about pacing (the pacing and the
+        /// controller's own timer are in TextFirstLeaveOwnershipTests, at production speed).
+        private func hurry(_ nanoseconds: UInt64 = 10_000_000) {
+            TextFirstLeaves.pacing.base = nanoseconds
+            TextFirstLeaves.pacing.cap = nanoseconds
+        }
+
         /// Type, make every write fail, leave, and let far more than the old limit of ten detach
         /// attempts fail.
         private func failingLeave(_ rig: TextFirstVaultRig) async throws {
-            TextFirstLeaves.retryNanoseconds = 10_000_000
+            hurry()
             rig.selectEnd()
             rig.type(" typed")
             rig.blockWrites()
@@ -26,7 +33,7 @@
 
         @Test func aLeaveThatCannotSaveKeepsTheAttachmentAndSavesWhenTheDiskRecovers() async throws
         {
-            defer { TextFirstLeaves.retryNanoseconds = 2_000_000_000 }
+            defer { TextFirstLeaves.pacing = TextFirstLeaves.Pacing() }
             let rig = try await TextFirstVaultRig(body: "keep me")
             defer { rig.tearDown() }
             try await failingLeave(rig)
@@ -45,7 +52,7 @@
         }
 
         @Test func openingTheNoteAgainTakesBackTheSameDraftWithItsSaveError() async throws {
-            defer { TextFirstLeaves.retryNanoseconds = 2_000_000_000 }
+            defer { TextFirstLeaves.pacing = TextFirstLeaves.Pacing() }
             let rig = try await TextFirstVaultRig(body: "keep me")
             defer { rig.tearDown() }
             try await failingLeave(rig)
@@ -64,7 +71,7 @@
         }
 
         @Test func discardingReleasesTheAttachmentWithoutWritingTheDraft() async throws {
-            defer { TextFirstLeaves.retryNanoseconds = 2_000_000_000 }
+            defer { TextFirstLeaves.pacing = TextFirstLeaves.Pacing() }
             let rig = try await TextFirstVaultRig(body: "keep me")
             defer { rig.tearDown() }
             try await failingLeave(rig)
@@ -82,13 +89,13 @@
         /// A peer renames the note while its leave keeps failing: the retained draft is claimed
         /// under the attachment's id, not under the name the screen was opened with.
         @Test func aRetainedLeaveIsClaimedByTheAttachmentsOwnId() async throws {
-            defer { TextFirstLeaves.retryNanoseconds = 2_000_000_000 }
+            defer { TextFirstLeaves.pacing = TextFirstLeaves.Pacing() }
             let rig = try await TextFirstVaultRig(body: "keep me")
             defer { rig.tearDown() }
             try await failingLeave(rig)
             // Slow the retries so the disk can be opened for the peer's rename without the leave
             // slipping its save in.
-            TextFirstLeaves.retryNanoseconds = 3_000_000_000
+            hurry(3_000_000_000)
             try await Task.sleep(nanoseconds: 100_000_000)
             rig.allowWrites()
             try rig.peerRename("note", to: "peer")
@@ -105,28 +112,48 @@
         }
 
         /// A full reset retires every draft: a retained leave must not write one back afterwards.
+        /// Production pacing: with the retry shortened the controller's own timer (2 s, armed by a
+        /// failed detach) never got its turn, and a wiped note came back.
         @Test func aStoreResetEndsARetainedLeaveWithoutWritingTheDraft() async throws {
-            defer { TextFirstLeaves.retryNanoseconds = 2_000_000_000 }
             let rig = try await TextFirstVaultRig(body: "keep me")
             defer { rig.tearDown() }
-            try await failingLeave(rig)
+            rig.selectEnd()
+            rig.type(" typed")
+            rig.blockWrites()
+            TextFirstLeaves.leave(
+                controller: rig.controller, store: rig.store,
+                ownerToken: rig.store.claimDraftOwnership(), discardIfEmpty: false,
+                originalId: rig.controller.noteId)
+            try await Task.sleep(nanoseconds: 400_000_000)
+            #expect(TextFirstLeaves.unsettled == 1)
             rig.store.beginFullReset()
+            #expect(TextFirstLeaves.unsettled == 0)
             rig.allowWrites()
-            #expect(await rig.until { TextFirstLeaves.unsettled == 0 })
-            #expect(rig.disk("note")?.contains("typed") == false)
+            // The wipe itself (what `vault.reset` does to the files).
+            try? FileManager.default.removeItem(at: rig.root.appendingPathComponent("note.md"))
+            #expect(rig.disk("note") == nil)
+            // Past the controller's 2 s retry and the leave's first backoff.
+            try await Task.sleep(nanoseconds: 5_000_000_000)
+            #expect(rig.disk("note") == nil)
+            let files = (try? FileManager.default.contentsOfDirectory(atPath: rig.root.path)) ?? []
+            #expect(!files.contains("note.md"))
         }
 
-        /// A new note left untouched is deleted; one a peer renamed meanwhile is somebody's note.
+        /// A new note left untouched is deleted; one a peer renamed meanwhile is somebody's note,
+        /// and so is the different note a peer then made at the name it vacated (a leave that
+        /// named the screen's old id would delete that one).
         @Test func anUntouchedNewNoteThatAPeerRenamedIsNotDeleted() async throws {
             let rig = try await TextFirstVaultRig(body: "")
             defer { rig.tearDown() }
             try rig.peerRename("note", to: "peer")
+            try rig.peerWrite("note", "somebody else's note\n")
             TextFirstLeaves.leave(
                 controller: rig.controller, store: rig.store,
                 ownerToken: rig.store.claimDraftOwnership(), discardIfEmpty: true,
                 originalId: "note")
             #expect(await rig.until { TextFirstLeaves.unsettled == 0 })
             #expect(rig.disk("peer") != nil)
+            #expect(rig.disk("note") == "somebody else's note\n")
         }
 
         @Test func anUntouchedNewNoteIsDeleted() async throws {
@@ -143,14 +170,14 @@
         /// A long note left while the engine's open is still landing: what was typed is applied,
         /// and when the save then fails the draft is kept like any other.
         @Test func aLeaveDuringTheOpeningKeepsWhatWasTypedWhenTheSaveFails() async throws {
-            defer { TextFirstLeaves.retryNanoseconds = 2_000_000_000 }
+            defer { TextFirstLeaves.pacing = TextFirstLeaves.Pacing() }
             let rig = try await TextFirstVaultRig(
                 body: TextFirstOpeningTests.note(), opening: true)
             defer { rig.tearDown() }
             #expect(rig.controller.opening)
             rig.select(3)
             rig.type("QQ")
-            TextFirstLeaves.retryNanoseconds = 10_000_000
+            hurry()
             rig.blockWrites()
             TextFirstLeaves.leave(
                 controller: rig.controller, store: rig.store,
@@ -170,11 +197,11 @@
 
         /// An open that never lands has nothing to keep: the leave ends instead of retrying.
         @Test func aLeaveOfAnEditorThatNeverOpenedEnds() async throws {
-            defer { TextFirstLeaves.retryNanoseconds = 2_000_000_000 }
+            defer { TextFirstLeaves.pacing = TextFirstLeaves.Pacing() }
             let rig = try await TextFirstVaultRig(
                 body: TextFirstOpeningTests.note(), opening: true, failingOpen: true)
             defer { rig.tearDown() }
-            TextFirstLeaves.retryNanoseconds = 10_000_000
+            hurry()
             TextFirstLeaves.leave(
                 controller: rig.controller, store: rig.store,
                 ownerToken: rig.store.claimDraftOwnership(), discardIfEmpty: false,

@@ -141,14 +141,33 @@ Review of !591 at 06ec72176, checked against the merged M8 code. Verdicts and wh
 
 - Failed leave (confirmed): `TextFirstLeaves` gave up after 10 detach attempts and `release()`d, so the
   controller (the draft: dropping an unclosed session loses its edits) was freed. A leave now never
-  ends on a failure: it keeps the real controller, retries every 2 s, and `claim(id)` hands it back,
-  draft and all, when the note is opened again (the screen shows `TextFirstSaveBanner`: "Couldn't
-  save", Retry save, and Discard edits behind a confirmation). It ends on a durable save, on
-  `discard()`, or when the store retires the draft token (a full reset must not bring a wiped note
-  back). `TextFirstNeverOpened` (M8) ends the leave: nothing was attached. A failed leave after
-  the pop shows the "still pending" toast once; iOS keeps committing after the pop (editor-exits.md),
-  it does not veto Back as Android does (5155fe70f). Catalog keys `notes.save.retry`, `discard`,
-  `discardQuestion`, `discardWarning` are byte-identical to android-text-first's.
+  ends on a failure: it keeps the real controller and `claim(id)` hands it back, draft and all, when
+  the note is opened again (the screen shows `TextFirstSaveBanner`: "Couldn't save", Retry save, and
+  Discard edits behind a confirmation). It ends on a durable save, on `discard()`, or when a full
+  reset retires the draft token (`NotesStore.whenRetired`: the leave stops in the same turn, before
+  the wipe). `TextFirstNeverOpened` (M8) ends the leave: nothing was attached. iOS keeps committing
+  after the pop (editor-exits.md), it does not veto Back as Android does (5155fe70f). Catalog keys
+  `notes.save.retry`, `discard`, `discardQuestion`, `discardWarning` are byte-identical to
+  android-text-first's.
+- One owner of a pending draft (review of the above, 2026-11-06): from `leave` on the registry owns ALL
+  saving. The controller's timer is cancelled and cannot re-arm (`yieldSaving`; `armSave`, `runSave`
+  and `checkpoint` stay off; `close()` no longer re-arms on failure), so each leave has ONE retry loop.
+  Backoff 2 s, 4 s, 8 s ... capped at 60 s (`TextFirstLeaves.Pacing`, injectable). The failure is
+  toasted once per leave by the registry, never through the screen that left (`onFailure` and
+  `onIdentityChange` are cleared at `leave`). Backgrounding (willResignActive, didEnterBackground)
+  attempts every pending leave at once under a `beginBackgroundTask` that ends with the attempt.
+  Handover is atomic: `claim(id, accept:)` stops the loop after its attempt, then the screen mounts the
+  controller inside `accept` (false if that screen was popped again meanwhile, `openTicket`) and only
+  then does the registry release it and the screen's saving resume; a declined draft stays with its leave.
+  Discard and reset fence saves with `TextFirstSaveFence` (closed on the main thread, read on `io`
+  before each save touches the engine): a save queued before the Discard writes nothing. A save already
+  inside the engine's write is ordered before the Discard (like an autosave a moment earlier); against a
+  reset the store gate orders it before the wipe. Not covered: a save that passed the fence read but has
+  not yet taken the gate while the wipe runs (microseconds, against a reset that starts seconds later);
+  closing it for good wants Rust: `LocalNoteStore::reset` terminating the attached sessions under the
+  gate (`terminal` makes a late save report `SessionDeleted`). Not in the draft register, so
+  `unsavedNoteIds` still misses a pending leave (flushing it through `flush_draft` would be refused by the
+  attachment).
 - Coordinated changes (confirmed): drained after both checkpoint outcomes and while the view holds
   marked text the engine settled (the view shows the engine's text and selection); deferred while
   an M8 engine job runs and taken by `settleJobs`.
@@ -156,7 +175,12 @@ Review of !591 at 06ec72176, checked against the merged M8 code. Verdicts and wh
   untouched-new-note delete now also checks it; image destinations refuted: an image goes to the vault root under a bare name and its claim
   belongs to the attachment, tests pin it across a rename and a park). The editor follows the
   session's own id (read on the I/O queue after every save attempt, a returned disposition, or the
-  rename mutation), never a name pattern; `TextFirstTitle.rename` acts on that id.
+  rename mutation), never a name pattern; `TextFirstTitle.rename` acts on that id. An id read on `io`
+  carries the `identityEpoch` it was queued at; a rename's or a park's adoption bumps it, so a read
+  older than the adoption is dropped and the engine is asked again (no stale save moves the editor
+  back to a vacated name). Residual: `TextFirstTitle.rename` reads the id, then renames by it; a peer
+  that moves the attachment and makes a new note at the old name inside that window is renamed instead
+  (the vault rename takes no expected id).
   Not done: a screen pushed over (wikilink) holds no attachment, so a peer rename meanwhile leaves
   its `noteId` stale and the re-open bounces back to the list (nothing is lost).
 - Contention (characterized, release-ffi, 20k-line 899 KB note, simulator): the save holds the FFI

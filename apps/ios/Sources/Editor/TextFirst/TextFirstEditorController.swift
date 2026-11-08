@@ -35,6 +35,14 @@
         var closed = false
         /// Typed since the last save the engine confirmed.
         var dirty = false
+        /// The screen left: the leave registry runs this draft's saves (no timer, no checkpoint of
+        /// its own) until a screen takes the controller back (`resumeSaving`).
+        var savingYielded = false
+        /// Closed by `discard()`: a save queued on `io` before it checks this and writes nothing.
+        let saveFence = TextFirstSaveFence()
+        /// Counts the ids the editor adopted from an engine mutation or disposition (a rename, a
+        /// park). An id read off the session before such an adoption is older than it.
+        var identityEpoch: UInt64 = 0
         /// Debug and tests: compare the view with the engine after every change.
         var verifyDivergence = false
         private(set) var divergences: [String] = []

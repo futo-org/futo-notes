@@ -93,6 +93,42 @@
             _ = await rig.controller.close()
         }
 
+        /// A save's identity, read on the I/O queue before a title rename retargeted the
+        /// attachment, lands on the main thread after the rename adopted its id: it is older than
+        /// the rename and must not move the editor back to the vacated name.
+        @Test func aStaleSaveIdentityDoesNotUndoARename() async throws {
+            let rig = try await TextFirstVaultRig(body: "alpha beta")
+            defer { rig.tearDown() }
+            // What a save queued now would carry: the epoch it was queued at.
+            let queuedAt = rig.controller.identityEpoch
+            let token = rig.store.claimDraftOwnership()
+            let outcome = await TextFirstTitle.rename(
+                to: "typed", controller: rig.controller, store: rig.store, ownerToken: token)
+            #expect(outcome == .renamed("typed"))
+            // The save that read `noteId()` == "note" just before the rename, delivered now.
+            var told: [String] = []
+            rig.controller.onIdentityChange = { told.append($0) }
+            rig.controller.saved(.success(nil), identity: "note", epoch: queuedAt)
+            #expect(rig.controller.noteId == "typed")
+            // The engine is asked again, and says the same.
+            _ = await rig.controller.refreshIdentity()
+            #expect(rig.controller.noteId == (try rig.controller.session.noteId()))
+            #expect(told.isEmpty)
+            _ = await rig.controller.close()
+        }
+
+        /// The other order is unchanged: a save's identity read after a peer's rename moves the
+        /// editor (nothing adopted in between).
+        @Test func aSaveIdentityReadAfterAPeerRenameStillMovesTheEditor() async throws {
+            let rig = try await TextFirstVaultRig(body: "alpha beta")
+            defer { rig.tearDown() }
+            let queuedAt = rig.controller.identityEpoch
+            try rig.peerRename("note", to: "peer")
+            rig.controller.saved(.success(nil), identity: "peer", epoch: queuedAt)
+            #expect(rig.controller.noteId == "peer")
+            _ = await rig.controller.close()
+        }
+
         @Test func theTitleFieldFollowsAnUneditedTitleAndKeepsATypedOne() {
             #expect(TextFirstTitle.fieldText("note", from: "note", to: "peer") == "peer")
             #expect(TextFirstTitle.fieldText("typing", from: "note", to: "peer") == "typing")

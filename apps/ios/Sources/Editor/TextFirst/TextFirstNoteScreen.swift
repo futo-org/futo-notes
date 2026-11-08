@@ -17,6 +17,9 @@
         @State private var ownerToken: UInt64 = 0
         @State private var renameTask: Task<Void, Never>?
         @State private var leaving = false
+        /// Bumped whenever this screen leaves, so an open that was still waiting for a claim can
+        /// tell the screen it started on is gone.
+        @State private var openTicket = 0
         @State private var confirmDiscard = false
         @Binding var navPath: [Route]
 
@@ -137,13 +140,21 @@
         /// beside them (TextFirstEditorController+Opening.swift); a short one opens whole.
         private func open() async {
             guard controller == nil else { return }
+            let ticket = openTicket
             // A leave of this note that could not save still owns its draft: take it back (a leave
             // that is still saving is awaited, and its release is what lets a fresh open attach).
-            if let retained = await TextFirstLeaves.claim(noteId) {
-                show(retained)
+            // If this screen is popped again while the claim waits, it declines the draft and the
+            // leave goes on owning it.
+            let retained = await TextFirstLeaves.claim(noteId) { made in
+                guard ticket == openTicket else { return false }
+                show(made)
+                return true
+            }
+            if let retained {
                 retained.refreshNoteIds()
                 return
             }
+            guard ticket == openTicket else { return }
             let id = noteId
             let opener = Task { try await Self.openSession(store: store, id: id) }
             do {
@@ -222,6 +233,7 @@
         private func leave() {
             guard !leaving else { return }
             leaving = true
+            openTicket += 1
             renameTask?.cancel()
             if PuppetVerbs.shared.openNote == noteId { PuppetVerbs.shared.openNote = nil }
             guard let controller else {
@@ -241,6 +253,7 @@
         private func discardDraft() {
             guard let controller else { return }
             leaving = true
+            openTicket += 1
             renameTask?.cancel()
             self.controller = nil
             controller.discard()
