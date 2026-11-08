@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Typeface
 import android.text.TextPaint
 import android.text.style.MetricAffectingSpan
 import androidx.core.content.res.ResourcesCompat
@@ -39,27 +40,38 @@ class TextFirstGlyphMetricsTest {
         view.layout(0, 0, width, height)
     }
 
-    /** Ink to the right of the text's advance, as a fraction of the font size. */
-    private fun overhang(bold: Boolean, italic: Boolean, text: String = "wmvl"): Float {
+    private class GlyphInk(val advance: Float, val width: Int, val height: Int, val pixels: IntArray, val overhang: Float)
+
+    /** The reference sets its bundled face directly, independently of the renderer span. */
+    private fun ink(bold: Boolean, italic: Boolean, text: String = "wmvl", reference: Typeface? = null, fakeBold: Boolean = false): GlyphInk {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = look.textSizePx
             typeface = look.regular
             color = Color.BLACK
         }
-        TfInline(look, bold, italic, strike = false, code = false).updateMeasureState(paint)
+        if (reference != null) paint.typeface = reference
+        else TfInline(look, bold, italic, strike = false, code = false).updateMeasureState(paint)
+        if (fakeBold) paint.isFakeBoldText = true
         val advance = paint.measureText(text)
         val bitmap = Bitmap.createBitmap((advance + look.textSizePx * 2).toInt(), (look.textSizePx * 2).toInt(), Bitmap.Config.ARGB_8888)
-        bitmap.eraseColor(Color.WHITE)
-        val canvas = Canvas(bitmap)
-        TfInline(look, bold, italic, strike = false, code = false).updateDrawState(paint)
-        canvas.drawText(text, look.textSizePx / 2, look.textSizePx * 1.4f, paint)
-        var right = -1
-        for (x in bitmap.width - 1 downTo 0) {
-            if ((0 until bitmap.height).any { Color.red(bitmap.getPixel(x, it)) < 128 }) { right = x; break }
-        }
-        val overhang = (right + 1 - look.textSizePx / 2 - advance) / look.textSizePx
-        return overhang
+        try {
+            bitmap.eraseColor(Color.WHITE)
+            val canvas = Canvas(bitmap)
+            if (reference == null) TfInline(look, bold, italic, strike = false, code = false).updateDrawState(paint)
+            canvas.drawText(text, look.textSizePx / 2, look.textSizePx * 1.4f, paint)
+            val pixels = IntArray(bitmap.width * bitmap.height)
+            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            var right = -1
+            for (x in bitmap.width - 1 downTo 0) {
+                if ((0 until bitmap.height).any { Color.red(pixels[it * bitmap.width + x]) < 128 }) { right = x; break }
+            }
+            val overhang = (right + 1 - look.textSizePx / 2 - advance) / look.textSizePx
+            return GlyphInk(advance, bitmap.width, bitmap.height, pixels, overhang)
+        } finally { bitmap.recycle() }
     }
+
+    /** Ink to the right of the text's advance, as a fraction of the font size. */
+    private fun overhang(bold: Boolean, italic: Boolean): Float = ink(bold, italic).overhang
 
     /**
      * Italic is the bundled Barlow Italic, never the platform's synthetic slant
@@ -72,9 +84,19 @@ class TextFirstGlyphMetricsTest {
         assertTrue("bold italic reaches ${overhang(true, true) - overhang(true, false)}em past bold", overhang(true, true) - overhang(true, false) < 0.25f)
     }
 
-    /** Bold is a real Barlow Bold, never emboldened on top: its ink ends where its advance does. */
+    /** Bold's advance and ink match the bundled face without synthetic emboldening. */
     @Test fun boldInkEndsAtItsAdvance() {
-        assertEquals(overhang(bold = false, italic = false), overhang(bold = true, italic = false), 0.02f)
+        val reference = ink(bold = true, italic = false, reference = look.bold)
+        fun matches(actual: GlyphInk) {
+            assertEquals("bundled bold advance", reference.advance, actual.advance, 0f)
+            assertEquals(reference.width, actual.width)
+            assertEquals(reference.height, actual.height)
+            assertArrayEquals("bundled bold ink at the same raster phase", reference.pixels, actual.pixels)
+        }
+        matches(ink(bold = true, italic = false))
+        assertThrows(AssertionError::class.java) {
+            matches(ink(bold = true, italic = false, reference = look.bold, fakeBold = true))
+        }
     }
 
     /** Changing the level replaces the heading span after the retained inline spans. */
@@ -124,7 +146,7 @@ class TextFirstGlyphMetricsTest {
                 marker.drawLeadingMargin(canvas, TextPaint(), edge, dir, 0, look.textSizePx.toInt(), bitmap.height, text, 0, body.length + 1, true, null)
                 val x = edge + dir * ((look.listIndent * depth).toInt() + 1)
                 assertNotEquals("$kind depth$depth dir$dir: the margin includes its marker", Color.WHITE, bitmap.getPixel(x, 1))
-                val outside = edge + dir * ((look.listIndent * (depth + 1)).toInt() + 3)
+                val outside = edge + dir * (marker.getLeadingMargin(true) + 3)
                 assertEquals("the body is left to the native selection path", Color.WHITE, bitmap.getPixel(outside, 1))
             } finally { bitmap.recycle() }
         }
