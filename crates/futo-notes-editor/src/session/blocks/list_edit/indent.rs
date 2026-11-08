@@ -4,14 +4,6 @@ use super::shapes::retire;
 use super::*;
 
 impl EditorSession {
-    pub(in crate::session) fn list_indent_representable(
-        empty: bool,
-        previous_blank: bool,
-        joined: bool,
-    ) -> bool {
-        !empty || previous_blank || joined
-    }
-
     /// Indent moves the selected items of the first item's list, with their
     /// descendants, under the previous sibling; Outdent moves them one level
     /// out, and a root item becomes paragraph text.
@@ -75,16 +67,10 @@ impl EditorSession {
             rows[item].chain[depth - 2].map(|parent| (rows[parent].before.marker, rows[parent].key))
         };
         // An empty item cannot open a new sub-list right under its sibling's
-        // text (it cannot interrupt a paragraph); only a blank line, which
-        // loosens the list, could write it, so the indent is refused.
-        if command == BlockCommand::Indent
-            && !Self::list_indent_representable(
-                rows[item].body.is_empty(),
-                rows[item - 1].blank,
-                joined.is_some(),
-            )
-        {
-            return Err(EditorError::UnrepresentableFormat);
+        // text (it cannot interrupt a paragraph): the blank-line repair
+        // separates them, as for a blank row turned into an item.
+        if command == BlockCommand::Indent {
+            rows[item].from_blank |= rows[item].body.is_empty();
         }
         for row in rows.iter_mut() {
             if !row

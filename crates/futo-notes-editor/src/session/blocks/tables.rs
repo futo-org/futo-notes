@@ -9,6 +9,8 @@ use crate::{
 use std::ops::Range;
 
 mod keys;
+#[cfg(test)]
+mod differential;
 
 struct Window {
     base: usize,
@@ -24,6 +26,30 @@ impl Window {
     fn cell_content(&self, row: usize, column: usize) -> Option<Range<usize>> {
         let raw = self.layout.row_line(row).cells.get(column)?;
         Some(self.absolute(Layout::content(&self.text, raw)))
+    }
+}
+
+/// A nonblank run with every table in it, for scans that visit many of its
+/// lines.
+struct Run {
+    base: usize,
+    text: String,
+    layouts: Vec<Layout>,
+}
+
+impl Run {
+    /// Whether source offset `at` lies on a line of the run.
+    fn holds(&self, at: usize) -> bool {
+        self.base <= at && at < self.base + self.text.len()
+    }
+
+    /// The table holding the line at run offset `at`.
+    fn table_at(&self, at: usize) -> Option<&Layout> {
+        let index = self
+            .layouts
+            .partition_point(|layout| layout.lines.last().unwrap().next <= at);
+        let layout = self.layouts.get(index)?;
+        (layout.lines[0].start <= at).then_some(layout)
     }
 }
 
@@ -116,8 +142,10 @@ impl EditorSession {
 
     /// Whether a table can hold source offset `at`: its header line holds a
     /// `|`, so some row from `at` back to the start of its nonblank run does.
-    /// `visits`: rows checked.
-    fn table_possible(&self, at: usize, visits: &mut usize) -> bool {
+    /// `visits`: rows checked. `barren`: an earlier offset of the same scan
+    /// whose walk found no `|` back to its run's start, so reaching a row at
+    /// or before it ends this walk too.
+    fn table_possible(&self, at: usize, barren: Option<usize>, visits: &mut usize) -> bool {
         let rows = &self.projection.rows;
         let mut index = rows.locate(at, false);
         loop {
@@ -125,6 +153,9 @@ impl EditorSession {
             let (row, start, _) = rows.at(index);
             if row.pipes {
                 return true;
+            }
+            if barren.is_some_and(|barren| barren <= at && start <= barren) {
+                return false;
             }
             // A row starting at a word seam continues its predecessor's
             // line, which holds no `|` (word seams never cut such a line):
@@ -155,7 +186,7 @@ impl EditorSession {
         // A list, quote, code or heading line is never a root table's row,
         // and a run without a `|` near enough holds no table: answer from
         // the projection before reading the run.
-        if !self.table_at_root(at) || !self.table_possible(at, read) {
+        if !self.table_at_root(at) || !self.table_possible(at, None, read) {
             return None;
         }
         let (base, text) = self.table_run(at)?;
@@ -285,8 +316,9 @@ impl EditorSession {
         }
     }
 
-    /// Every table whose header line starts in `range`, in order: what a host
-    /// gets by asking `inspect_table` at each block start, in one call.
+    /// Every table a root line in `range` lies in, in order: what a host gets
+    /// by asking `inspect_table` at each block start, in one call. Each
+    /// nonblank run is read once however many of its lines the range holds.
     pub fn inspect_tables(
         &self,
         expected: Revision,
@@ -296,8 +328,12 @@ impl EditorSession {
         self.validate_range(range)?;
         let mut tables: Vec<TableDescription> = Vec::new();
         let mut covered = 0;
+        let mut run: Option<Run> = None;
+        let mut barren = None;
         for line in self.projection.view_block_lines(range) {
             // A list, quote, code or heading line is never a root table row.
+            // This filter is the whole root check: `table_at_root` per line
+            // reads the entire row, quadratic in a heading-dense note.
             if line.code
                 || line.quote_depth > 0
                 || line.list.is_some()
@@ -311,14 +347,37 @@ impl EditorSession {
             if at < covered {
                 continue;
             }
-            let at = DisplayRange {
+            let (start, end) = self.table_source_span(DisplayRange {
                 start: DisplayOffset(at),
                 end: DisplayOffset(at),
-            };
-            if let Some(table) = self.inspect_table(expected, at)? {
-                covered = table.display.end.0;
-                tables.push(table);
+            });
+            if !run.as_ref().is_some_and(|run| run.holds(start)) {
+                run = None;
+                if !self.table_possible(start, barren, &mut 0) {
+                    barren = Some(start);
+                    continue;
+                }
+                let Some((base, text)) = self.table_run(start) else {
+                    continue;
+                };
+                let layouts = Layout::all(&text);
+                run = Some(Run {
+                    base,
+                    text,
+                    layouts,
+                });
             }
+            let run = run.as_ref().unwrap();
+            let Some(layout) = run.table_at(start - run.base) else {
+                continue;
+            };
+            if !self.table_at_root(run.base + layout.lines[0].start) {
+                continue;
+            }
+            let focus = layout.locate(start - run.base..end.saturating_sub(run.base));
+            let table = self.describe_table(run.base, &run.text, layout, focus);
+            covered = table.display.end.0;
+            tables.push(table);
         }
         Ok(tables)
     }
@@ -335,13 +394,28 @@ impl EditorSession {
         let Some((window, focus)) = self.table_target(range) else {
             return Ok(None);
         };
-        let layout = &window.layout;
+        Ok(Some(self.describe_table(
+            window.base,
+            &window.text,
+            &window.layout,
+            focus,
+        )))
+    }
+
+    fn describe_table(
+        &self,
+        base: usize,
+        text: &str,
+        layout: &Layout,
+        focus: Option<(usize, usize)>,
+    ) -> TableDescription {
         let rows = (0..layout.rows())
             .map(|row| {
                 let line = layout.row_line(row);
                 (0..line.cells.len().min(layout.columns))
                     .map(|column| {
-                        let source = window.cell_content(row, column).unwrap();
+                        let content = Layout::content(text, &line.cells[column]);
+                        let source = base + content.start..base + content.end;
                         TableCell {
                             row,
                             column,
@@ -355,16 +429,15 @@ impl EditorSession {
                     .collect()
             })
             .collect();
-        let line_range = |line: &table::Line| {
-            self.display_range(window.base + line.start..window.base + line.end)
-        };
+        let line_range =
+            |line: &table::Line| self.display_range(base + line.start..base + line.end);
         let row_lines = (0..layout.rows())
             .map(|row| line_range(layout.row_line(row)))
             .collect();
         let delimiter_line = Some(line_range(&layout.lines[1]));
-        let first = window.base + layout.lines[0].start;
-        let last = window.base + layout.lines.last().unwrap().end;
-        Ok(Some(TableDescription {
+        let first = base + layout.lines[0].start;
+        let last = base + layout.lines.last().unwrap().end;
+        TableDescription {
             source: SourceRange {
                 start: SourceOffset(first),
                 end: SourceOffset(last),
@@ -377,7 +450,7 @@ impl EditorSession {
             controls: focus.map(|(row, _)| -> TableControls { layout.controls(row) }),
             row_lines,
             delimiter_line,
-        }))
+        }
     }
 
     /// The cell an input edit lies in, when its text could change the grid

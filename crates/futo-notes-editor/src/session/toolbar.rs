@@ -80,7 +80,9 @@ impl EditorSession {
                 .as_ref()
                 .is_some_and(|list| line.quote_depth == list.quote_depth)
         }) {
-            self.toolbar_list_indent_allowed(line)
+            line.list
+                .as_ref()
+                .is_some_and(|list| list.previous_content_column.is_some())
         } else {
             lines.iter().any(|line| line.quote_depth > 0)
         };
@@ -132,35 +134,5 @@ impl EditorSession {
             can_undo: !self.undo.is_empty(),
             can_redo: !self.redo.is_empty(),
         }
-    }
-}
-
-impl EditorSession {
-    fn toolbar_list_indent_allowed(&self, line: &crate::inline::blocks::BlockLine) -> bool {
-        let list = line.list.as_ref().unwrap();
-        if list.previous_content_column.is_none() {
-            return false;
-        }
-        if !line.content.is_empty() {
-            return true;
-        }
-        let index = self.source.byte_to_line(line.source.start);
-        let Some(previous_index) = index.checked_sub(1) else {
-            return false;
-        };
-        let previous_range = self.source.line_to_byte(previous_index)..line.source.start;
-        let previous = self
-            .projection
-            .list_command_lines_in_source(&previous_range);
-        let previous = previous.last();
-        let blank = previous.is_some_and(|row| {
-            row.content.is_empty() && !row.code && row.list.as_ref().is_none_or(|list| !list.first)
-        });
-        let joined = previous
-            .and_then(|row| row.list.as_ref())
-            .is_some_and(|previous| {
-                previous.depth > list.depth && previous.quote_depth == list.quote_depth
-            });
-        Self::list_indent_representable(true, blank, joined)
     }
 }
