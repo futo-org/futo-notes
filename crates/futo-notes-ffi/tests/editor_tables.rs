@@ -1,6 +1,7 @@
 mod support;
 use futo_notes_ffi::{
-    EditorByteRange, EditorTableCommand, EditorTableKey, EditorUtf16Range, NoteStore,
+    EditorByteRange, EditorStyleSpan, EditorTableCommand, EditorTableKey, EditorUtf16Range,
+    NoteStore,
 };
 use support::{path_string, TempTree};
 
@@ -70,4 +71,46 @@ fn native_table_cells_keys_and_commands_recover_exact_source() {
         session.source_text().unwrap(),
         "| ax\\|y |  | b |\r\n| --- | --- | --: |\r\n| c |  | d |\r\n"
     );
+}
+
+/// The host restyles the window an edit reparsed: one keystroke in the middle of a big table
+/// plans the rows near it, not every row of the table.
+#[test]
+fn a_keystroke_in_a_big_table_restyles_only_the_rows_near_it() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    let mut source = String::from("| a | b |\n|:-|-:|\n");
+    for i in 0..2_000 {
+        source.push_str(&format!("| row {i} | b{i} |\n"));
+    }
+    store.create_note("big".into(), "".into(), source).unwrap();
+    let session = store.open_editor("big".into()).unwrap();
+    let display = session.display_text().unwrap();
+    let at = display.find("| row 1000 |").unwrap() + 3;
+    let caret = display[..at].encode_utf16().count() as u64;
+    let change = session
+        .replace_utf16(
+            0,
+            EditorUtf16Range {
+                start: caret,
+                end: caret,
+            },
+            "z".encode_utf16().collect(),
+        )
+        .unwrap();
+    let spans = session
+        .style_plan(change.revision, change.projection.range.clone())
+        .unwrap();
+    let rows = spans
+        .iter()
+        .filter(|span| matches!(span, EditorStyleSpan::TableRow { .. }))
+        .count();
+    assert!(
+        (1..=200).contains(&rows),
+        "{rows} rows planned for one keystroke"
+    );
+    assert!(!spans
+        .iter()
+        .any(|span| matches!(span, EditorStyleSpan::TableDelimiter { .. })));
 }
