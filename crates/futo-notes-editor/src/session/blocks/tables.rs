@@ -9,6 +9,8 @@ use crate::{
 use std::ops::Range;
 
 mod keys;
+#[cfg(test)]
+mod differential;
 
 struct Window {
     base: usize,
@@ -330,6 +332,8 @@ impl EditorSession {
         let mut barren = None;
         for line in self.projection.view_block_lines(range) {
             // A list, quote, code or heading line is never a root table row.
+            // This filter is the whole root check: `table_at_root` per line
+            // reads the entire row, quadratic in a heading-dense note.
             if line.code
                 || line.quote_depth > 0
                 || line.list.is_some()
@@ -347,9 +351,6 @@ impl EditorSession {
                 start: DisplayOffset(at),
                 end: DisplayOffset(at),
             });
-            if !self.table_at_root(start) {
-                continue;
-            }
             if !run.as_ref().is_some_and(|run| run.holds(start)) {
                 run = None;
                 if !self.table_possible(start, barren, &mut 0) {
