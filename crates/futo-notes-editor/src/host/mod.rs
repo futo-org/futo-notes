@@ -9,3 +9,6 @@ pub use find_plan::{plan_find, FindLanding, FindSnapshot, FindStepPlan};
 
 mod style_plan;
 pub use style_plan::{plan_styles, ListMarker, StyleSpec};
+
+mod toolbar_ids;
+pub use toolbar_ids::{toolbar_highlights, ToolbarHighlights};
