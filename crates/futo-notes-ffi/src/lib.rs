@@ -10,8 +10,8 @@ pub use editor::{
     NativeEditorSession,
 };
 pub use editor::{
-    EditorDisplayMirror, EditorFindLanding, EditorFindSnapshot, EditorFindStep, EditorMirrorEdit,
-    EditorMirrorError,
+    EditorDisplayMirror, EditorFindLanding, EditorFindSnapshot, EditorFindStep, EditorListMarker,
+    EditorMirrorEdit, EditorMirrorError, EditorStyleSpan,
 };
 pub use editor::{
     EditorTableAlignment, EditorTableCell, EditorTableCommand, EditorTableControls,

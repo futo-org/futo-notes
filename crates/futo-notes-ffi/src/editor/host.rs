@@ -4,7 +4,8 @@
 use std::sync::{Arc, Mutex};
 
 use futo_notes_editor::host::{
-    plan_find, DisplayMirror, FindLanding, FindSnapshot, FindStepPlan, MirrorEdit, MirrorError,
+    plan_find, plan_styles, DisplayMirror, FindLanding, FindSnapshot, FindStepPlan, ListMarker,
+    MirrorEdit, MirrorError, StyleSpec,
 };
 use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 
@@ -168,6 +169,154 @@ impl From<FindSnapshot> for EditorFindSnapshot {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum EditorListMarker {
+    Bullet,
+    Ordered,
+    Task,
+}
+
+/// One styled stretch of the display in UTF-16 units (see `futo_notes_editor::host::StyleSpec`).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum EditorStyleSpan {
+    Inline {
+        start: u64,
+        end: u64,
+        bold: bool,
+        italic: bool,
+        strike: bool,
+        code: bool,
+    },
+    Heading {
+        start: u64,
+        end: u64,
+        level: u8,
+    },
+    Quote {
+        start: u64,
+        end: u64,
+        depth: u64,
+    },
+    ListRow {
+        start: u64,
+        end: u64,
+        depth: u64,
+        marker: EditorListMarker,
+        number: Option<u64>,
+        checked: bool,
+        first: bool,
+    },
+    Code {
+        start: u64,
+        end: u64,
+    },
+    Metadata {
+        start: u64,
+        end: u64,
+    },
+    Link {
+        start: u64,
+        end: u64,
+        destination: String,
+    },
+    Wikilink {
+        start: u64,
+        end: u64,
+        label: String,
+        note_id: Option<String>,
+    },
+    Divider {
+        start: u64,
+        end: u64,
+    },
+}
+
+impl From<StyleSpec> for EditorStyleSpan {
+    fn from(spec: StyleSpec) -> Self {
+        let u = |v: usize| v as u64;
+        match spec {
+            StyleSpec::Inline {
+                start,
+                end,
+                bold,
+                italic,
+                strike,
+                code,
+            } => Self::Inline {
+                start: u(start),
+                end: u(end),
+                bold,
+                italic,
+                strike,
+                code,
+            },
+            StyleSpec::Heading { start, end, level } => Self::Heading {
+                start: u(start),
+                end: u(end),
+                level,
+            },
+            StyleSpec::Quote { start, end, depth } => Self::Quote {
+                start: u(start),
+                end: u(end),
+                depth: u(depth),
+            },
+            StyleSpec::ListRow {
+                start,
+                end,
+                depth,
+                marker,
+                number,
+                checked,
+                first,
+            } => Self::ListRow {
+                start: u(start),
+                end: u(end),
+                depth: u(depth),
+                marker: match marker {
+                    ListMarker::Bullet => EditorListMarker::Bullet,
+                    ListMarker::Ordered => EditorListMarker::Ordered,
+                    ListMarker::Task => EditorListMarker::Task,
+                },
+                number,
+                checked,
+                first,
+            },
+            StyleSpec::Code { start, end } => Self::Code {
+                start: u(start),
+                end: u(end),
+            },
+            StyleSpec::Metadata { start, end } => Self::Metadata {
+                start: u(start),
+                end: u(end),
+            },
+            StyleSpec::Link {
+                start,
+                end,
+                destination,
+            } => Self::Link {
+                start: u(start),
+                end: u(end),
+                destination,
+            },
+            StyleSpec::Wikilink {
+                start,
+                end,
+                label,
+                note_id,
+            } => Self::Wikilink {
+                start: u(start),
+                end: u(end),
+                label,
+                note_id,
+            },
+            StyleSpec::Divider { start, end } => Self::Divider {
+                start: u(start),
+                end: u(end),
+            },
+        }
+    }
+}
+
 /// Whether a Next/Previous press has already landed on the current match since the query last
 /// changed. One per find bar; `reset` when the query changes or the bar closes.
 #[derive(uniffi::Object, Default)]
@@ -254,6 +403,36 @@ impl NativeEditorSession {
                 report: report.into(),
                 landing: range.map(Into::into),
             })
+        })
+    }
+}
+
+#[uniffi::export]
+impl NativeEditorSession {
+    /// The spans to draw for a display range, in UTF-16 units of the whole display. Hosts call
+    /// this per window instead of converting every projection byte range themselves.
+    pub fn style_plan(
+        &self,
+        expected: u64,
+        range: EditorByteRange,
+    ) -> Result<Vec<EditorStyleSpan>, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            let display: DisplayRange = range.try_into()?;
+            let slice = session.project(Revision(expected), display)?;
+            let mut to_utf16 = |byte: usize| {
+                let at = DisplayRange {
+                    start: DisplayOffset(byte),
+                    end: DisplayOffset(byte),
+                };
+                session
+                    .display_to_utf16(Revision(expected), at)
+                    .map_or(0, |r| r.start.0)
+            };
+            let start = to_utf16(display.start.0);
+            Ok(plan_styles(&slice, start, &mut to_utf16)
+                .into_iter()
+                .map(Into::into)
+                .collect())
         })
     }
 }

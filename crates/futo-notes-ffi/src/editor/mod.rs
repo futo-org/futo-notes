@@ -13,8 +13,8 @@ pub use correspondence::{EditorCorrespondence, EditorCorrespondenceKind};
 mod find;
 mod host;
 pub use host::{
-    EditorDisplayMirror, EditorFindLanding, EditorFindSnapshot, EditorFindStep, EditorMirrorEdit,
-    EditorMirrorError,
+    EditorDisplayMirror, EditorFindLanding, EditorFindSnapshot, EditorFindStep, EditorListMarker,
+    EditorMirrorEdit, EditorMirrorError, EditorStyleSpan,
 };
 mod images;
 mod links;
