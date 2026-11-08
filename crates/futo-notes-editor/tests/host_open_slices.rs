@@ -143,6 +143,7 @@ fn the_quick_plan_is_the_whole_notes_plan_of_the_same_range() {
     let mut whole = plan_styles(&slice, 0, &mut to_utf16);
     whole.extend(plan_tables(
         &session.inspect_tables(session.revision(), range).unwrap(),
+        range,
         &mut to_utf16,
     ));
     let shown_units = quick.display.encode_utf16().count();

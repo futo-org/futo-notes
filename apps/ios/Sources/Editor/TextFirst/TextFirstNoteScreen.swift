@@ -17,6 +17,10 @@
         @State private var ownerToken: UInt64 = 0
         @State private var renameTask: Task<Void, Never>?
         @State private var leaving = false
+        /// Bumped whenever this screen leaves, so an open that was still waiting for a claim can
+        /// tell the screen it started on is gone.
+        @State private var openTicket = 0
+        @State private var confirmDiscard = false
         @Binding var navPath: [Route]
 
         let autoFocus: Bool
@@ -43,6 +47,12 @@
                 .padding(.horizontal, 20)
                 .padding(.top, 4)
                 .padding(.bottom, 6)
+                if let controller {
+                    TextFirstSaveBanner(
+                        model: controller.saveModel, localization: localization,
+                        retry: { controller.checkpoint() },
+                        discard: { confirmDiscard = true })
+                }
                 Group {
                     if let controller {
                         TextFirstEditorRepresentable(
@@ -103,13 +113,24 @@
             .onReceive(store.$localTreeChange) { summary in
                 guard let summary, let controller, !leaving else { return }
                 let change = OpenNoteChange(summary: summary)
-                if change.updatedIds.contains(noteId) || change.deletedIds.contains(noteId)
-                    || change.renamed[noteId] != nil
-                {
+                // The engine has already moved the attachment for a rename pair; the checkpoint
+                // reports where it is (also when its save fails), so the screen follows.
+                if change.affects(noteId) || change.renamed.values.contains(noteId) {
                     controller.checkpoint()
                 }
             }
             .onReceive(store.$notes) { _ in controller?.refreshNoteIds() }
+            .alert(
+                localization.localizedText("notes.save.discardQuestion"),
+                isPresented: $confirmDiscard
+            ) {
+                Button(localization.localizedText("notes.save.discard"), role: .destructive) {
+                    discardDraft()
+                }
+                Button(localization.localizedText("common.actions.cancel"), role: .cancel) {}
+            } message: {
+                Text(localization.localizedText("notes.save.discardWarning"))
+            }
             .onDisappear { leave() }
         }
 
@@ -119,7 +140,21 @@
         /// beside them (TextFirstEditorController+Opening.swift); a short one opens whole.
         private func open() async {
             guard controller == nil else { return }
-            await TextFirstLeaves.awaitLeave(of: noteId)
+            let ticket = openTicket
+            // A leave of this note that could not save still owns its draft: take it back (a leave
+            // that is still saving is awaited, and its release is what lets a fresh open attach).
+            // If this screen is popped again while the claim waits, it declines the draft and the
+            // leave goes on owning it.
+            let retained = await TextFirstLeaves.claim(noteId) { made in
+                guard ticket == openTicket else { return false }
+                show(made)
+                return true
+            }
+            if let retained {
+                retained.refreshNoteIds()
+                return
+            }
+            guard ticket == openTicket else { return }
             let id = noteId
             let opener = Task { try await Self.openSession(store: store, id: id) }
             do {
@@ -152,6 +187,7 @@
             }
         }
 
+        /// Mount a controller (fresh, or the draft a failed leave kept) on this screen.
         private func show(_ made: TextFirstEditorController) {
             made.onCheckpoint = { result in
                 if let mutation = result.mutation { store.applyEditorMutation(mutation) }
@@ -162,10 +198,12 @@
             made.onFailure = { _ in
                 store.showTransient(LocalizedMessage("notes.save.failedPending"))
             }
+            made.onIdentityChange = { id in adopt(id) }
             made.installToolbar(localization: localization)
             made.onOpenNote = { id in
                 if id != noteId { navPath.append(.note(id)) }
             }
+            adopt(made.noteId)
             controller = made
             if autoFocus { made.textView.becomeFirstResponder() }
         }
@@ -185,9 +223,17 @@
             }
         }
 
+        /// The attachment moved (a peer's rename, a parked conflict): the screen is now that note.
+        private func adopt(_ id: String) {
+            guard id != noteId else { return }
+            titleField = TextFirstTitle.fieldText(titleField, from: noteId, to: id)
+            noteId = id
+        }
+
         private func leave() {
             guard !leaving else { return }
             leaving = true
+            openTicket += 1
             renameTask?.cancel()
             if PuppetVerbs.shared.openNote == noteId { PuppetVerbs.shared.openNote = nil }
             guard let controller else {
@@ -196,12 +242,23 @@
             }
             self.controller = nil
             let untouched =
-                autoFocus && noteId == originalId
-                && titleField == splitId(id: originalId).title && !controller.dirty
+                autoFocus && titleField == splitId(id: originalId).title && !controller.dirty
             let token = ownerToken
             TextFirstLeaves.leave(
-                id: noteId, controller: controller, store: store, discardIfEmpty: untouched
-            ) { [store] in store.releaseDraftOwnership(token: token) }
+                controller: controller, store: store, ownerToken: token,
+                discardIfEmpty: untouched, originalId: originalId)
+        }
+
+        /// The user confirmed losing the unsaved edits: end the attachment and go back.
+        private func discardDraft() {
+            guard let controller else { return }
+            leaving = true
+            openTicket += 1
+            renameTask?.cancel()
+            self.controller = nil
+            controller.discard()
+            store.releaseDraftOwnership(token: ownerToken)
+            if !navPath.isEmpty { navPath.removeLast() }
         }
 
         private func checkpointInBackground() {
@@ -222,29 +279,16 @@
             }
         }
 
-        /// Rename to the typed title. A blank, illegal or colliding title keeps the current name
-        /// and is not a failure.
+        /// Rename the attached note to the typed title (see `TextFirstTitle`).
         private func renameTo(_ raw: String) async {
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty,
-                validateTitle(title: trimmed).allSatisfy({ $0.kind == "empty" })
-            else { return }
-            let parts = splitId(id: noteId)
-            let sanitized = sanitizeTitle(title: trimmed)
-            guard sanitized != parts.title else { return }
-            let target = makeId(folder: parts.folder, title: sanitized)
-            let key = collisionKey(id: target)
-            guard
-                !store.notes.contains(where: { $0.id != noteId && collisionKey(id: $0.id) == key })
-            else { return }
-            switch await store.rename(
-                oldId: noteId, newId: target, draft: nil, ownerToken: ownerToken)
+            guard let controller else { return }
+            switch await TextFirstTitle.rename(
+                to: raw, controller: controller, store: store, ownerToken: ownerToken)
             {
-            case .committed(let committed):
-                noteId = committed.id
-                controller?.adoptIdentity(committed.id)
-                if titleField == raw { titleField = splitId(id: committed.id).title }
-                controller?.drainCoordinatedChanges()
+            case .unchanged:
+                break
+            case .renamed(let id):
+                if titleField == raw { titleField = splitId(id: id).title }
             case .failed:
                 store.showTransient(LocalizedMessage("notes.title.renameFailed"))
             }

@@ -55,6 +55,18 @@ commit that finishes the last milestone (archive rule).
 | `EditorEngineStorage.kt` `showQuickOpen` (`window(quick.projection, tableSpans(quick.tables))`) | `host::plan_quick_open`, `NoteStore.quick_open_view`, `EditorQuickView` | !603 | posted |
 | `ToolbarCommandGate.kt` | not needed on iOS for small commands (the main actor runs them whole); large ones now take the engine queue and drop taps meanwhile (see M8 notes): every command runs synchronously on the main actor, so none is queued or dropped. Revisit if M8 moves the engine off the main thread. | | |
 
+## Integration 2026-11-08 (branch ios-text-first)
+
+Merged: `ios-tf/leave-identity` (ff2eed5b5), `origin/main` (engine !589, !592, !595), engine fixes !597
+(`carried-formats-os-replace`), !599 (`indent-empty-list-item`), !596 (`host-table-spans`, incl. !602), !600
+(`heading-toggle-blank-lines` d4b267815). Host files are main's / the engine branches' versions plus the
+iOS-only additions of !594 (toolbar), !598 (find) and !603 (open slices, older round-1 copy; its round-2 fixes are
+still in the engine lane); `quick_plan.rs` and `host_open_slices.rs` pass `plan_tables` the whole display as its
+window (new signature from !596). Swift follow-ups for windowed tables: restyle continues from a line past the
+window when its grid state differs; cell ranges come from the row's place plus `rowOffset`; body rows reuse the
+table key of the row above. Known: a paragraph line directly above a table re-slices the rest of the note on each
+keystroke there.
+
 ## Decisions log (reversible)
 
 - 2026-11-06, orchestrator: a table cell edits in place, not in a sheet. `TextFirstCellEditor` is a
@@ -134,6 +146,71 @@ commit that finishes the last milestone (archive rule).
   doing nothing (Android behaves the same). iOS reschedules the rescan after composition (test added).
 - Timings (iOS 27.2 sim futo-qa-6, Debug app, release Rust, `TextFirstLongBenchTests`): see
   `docs/spec/editor/mobile/long-notes.md`; raw logs in `ios-text-first-artifacts/m8/`.
+
+## Architecture review follow-up (leave, checkpoint, identity, contention)
+
+Review of !591 at 06ec72176, checked against the merged M8 code. Verdicts and what changed:
+
+- Failed leave (confirmed): `TextFirstLeaves` gave up after 10 detach attempts and `release()`d, so the
+  controller (the draft: dropping an unclosed session loses its edits) was freed. A leave now never
+  ends on a failure: it keeps the real controller and `claim(id)` hands it back, draft and all, when
+  the note is opened again (the screen shows `TextFirstSaveBanner`: "Couldn't save", Retry save, and
+  Discard edits behind a confirmation). It ends on a durable save, on `discard()`, or when a full
+  reset retires the draft token (`NotesStore.whenRetired`: the leave stops in the same turn, before
+  the wipe). `TextFirstNeverOpened` (M8) ends the leave: nothing was attached. iOS keeps committing
+  after the pop (editor-exits.md), it does not veto Back as Android does (5155fe70f). Catalog keys
+  `notes.save.retry`, `discard`, `discardQuestion`, `discardWarning` are byte-identical to
+  android-text-first's.
+- One owner of a pending draft (review of the above, 2026-11-06): from `leave` on the registry owns ALL
+  saving. The controller's timer is cancelled and cannot re-arm (`yieldSaving`; `armSave`, `runSave`
+  and `checkpoint` stay off; `close()` no longer re-arms on failure), so each leave has ONE retry loop.
+  Backoff 2 s, 4 s, 8 s ... capped at 60 s (`TextFirstLeaves.Pacing`, injectable). The failure is
+  toasted once per leave by the registry, never through the screen that left (`onFailure` and
+  `onIdentityChange` are cleared at `leave`). Backgrounding (willResignActive, didEnterBackground)
+  attempts every pending leave at once under a `beginBackgroundTask` that ends with the attempt.
+  Handover is atomic: `claim(id, accept:)` stops the loop after its attempt, then the screen mounts the
+  controller inside `accept` (false if that screen was popped again meanwhile, `openTicket`) and only
+  then does the registry release it and the screen's saving resume; a declined draft stays with its leave.
+  Discard and reset fence saves with `TextFirstSaveFence` (closed on the main thread, read on `io`
+  before each save touches the engine): a save queued before the Discard writes nothing. A save already
+  inside the engine's write is ordered before the Discard (like an autosave a moment earlier); against a
+  reset the store gate orders it before the wipe. Not covered: a save that passed the fence read but has
+  not yet taken the gate while the wipe runs (microseconds, against a reset that starts seconds later);
+  closing it for good wants Rust: `LocalNoteStore::reset` terminating the attached sessions under the
+  gate (`terminal` makes a late save report `SessionDeleted`). Not in the draft register, so
+  `unsavedNoteIds` still misses a pending leave (flushing it through `flush_draft` would be refused by the
+  attachment).
+- Coordinated changes (confirmed): drained after both checkpoint outcomes and while the view holds
+  marked text the engine settled (the view shows the engine's text and selection); deferred while
+  an M8 engine job runs and taken by `settleJobs`.
+- Identity (confirmed for the title action, the wikilink self-check and the leave registry; the
+  untouched-new-note delete now also checks it; image destinations refuted: an image goes to the vault root under a bare name and its claim
+  belongs to the attachment, tests pin it across a rename and a park). The editor follows the
+  session's own id (read on the I/O queue after every save attempt, a returned disposition, or the
+  rename mutation), never a name pattern; `TextFirstTitle.rename` acts on that id. An id read on `io`
+  carries the `identityEpoch` it was queued at; a rename's or a park's adoption bumps it, so a read
+  older than the adoption is dropped and the engine is asked again (no stale save moves the editor
+  back to a vacated name). Residual: `TextFirstTitle.rename` reads the id, then renames by it; a peer
+  that moves the attachment and makes a new note at the old name inside that window is renamed instead
+  (the vault rename takes no expected id).
+  Not done: a screen pushed over (wikilink) holds no attachment, so a peer rename meanwhile leaves
+  its `noteId` stale and the re-open bounces back to the list (nothing is lost).
+- Contention (characterized, release-ffi, 20k-line 899 KB note, simulator): the save holds the FFI
+  session mutex and the attachment lock through its filesystem work, so the first main-thread session
+  call after it starts waits for the rest of it. Injected write delay 200 / 600 / 1500 ms: a
+  `revision()` call waited 160 / 565 / 1461 ms. A real save of this note (no injected delay) held the
+  session about 45 ms warm and about 110 ms for the note's first save; a keystroke behind it waited that long. A toolbar command with a caret ran on the main thread and took 560 ms behind
+  a 600 ms save. A save queued behind another workflow's gate hold (a 96 MB write, 117 ms) made a
+  `revision()` call wait 72 ms. M8's engine jobs share the saves' I/O queue and do not set
+  `engineBusy` for a save: a heavy command asked for during a slow save stays off the main thread but
+  input is dropped until the save and the job end (+619 ms for a 600 ms save). Proposed engine MR
+  (not in !591): on the no-divergence path the save snapshots (id, base, source, revision) under
+  the attachment lock, takes the gate and writes without it, then commits by revision (revision
+  moved: base becomes the written bytes and the draft stays dirty); the divergent path (adoption,
+  park) stays under the lock; the FFI session drops the one mutex in front of `StoreEditorSession`,
+  which already shares `Arc<Mutex<Attachment>>`.
+  Measure: `TEST_RUNNER_TEXT_FIRST_CONTENTION_OUT=/tmp/c.txt just test-ios-native TextFirstSaveContentionTests`
+  with a local-only sleep in `vault_fs/unix.rs` `write_temp_and_install` (`FUTO_SLOW_WRITE_MS`).
 
 Milestone notes M1 to M6: [ios-text-first/notes-m1-m6.md](ios-text-first/notes-m1-m6.md).
 

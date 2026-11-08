@@ -94,12 +94,25 @@ impl EditorSession {
         command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        self.lf_block_command_toggling(expected, range, command, true, accept)
+    }
+
+    /// `toggle_quote` is false for a step that carries out a direction already
+    /// chosen on the selection as given, so a staged copy never re-decides it.
+    fn lf_block_command_toggling(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        command: BlockCommand,
+        toggle_quote: bool,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
         let command = if let BlockCommand::ToggleHeading(level) = command {
             if !(1..=6).contains(&level) {
                 return Err(EditorError::InvalidRange);
             }
             let lines = self.selected_block_lines(range);
-            if !lines.is_empty() && lines.iter().all(|line| line.heading == level) {
+            if common_heading(&self.content_block_lines(&lines)) == Some(level) {
                 BlockCommand::Heading(0)
             } else {
                 BlockCommand::Heading(level)
@@ -175,13 +188,25 @@ impl EditorSession {
                 return self.indent_list(expected, range, command, accept);
             }
         }
-        let lines = self.selected_block_lines(range);
+        let mut lines = self.selected_block_lines(range);
         // Choosing Quote on text that is already quoted takes one level off.
-        let command = if command == BlockCommand::Quote && all_quoted(&lines) {
+        let command = if toggle_quote
+            && command == BlockCommand::Quote
+            && all_quoted(&self.content_block_lines(&lines))
+        {
             BlockCommand::Outdent
         } else {
             command
         };
+        // Blank lines between the lines a heading is set on stay as they are.
+        if matches!(command, BlockCommand::Heading(1..=6)) {
+            let keep: Vec<_> = self
+                .content_block_lines(&lines)
+                .into_iter()
+                .map(|line| line.source.start)
+                .collect();
+            lines.retain(|line| keep.binary_search(&line.source.start).is_ok());
+        }
         if matches!(command, BlockCommand::Heading(1..=6) | BlockCommand::Quote)
             && lines.iter().any(|line| {
                 !line.code
@@ -213,8 +238,13 @@ impl EditorSession {
                     {
                         return Err(EditorError::UnrepresentableFormat);
                     }
-                    let Some(mut change) =
-                        staged.block_command(staged.revision(), local, command, accept)?
+                    let Some(mut change) = staged.lf_block_command_toggling(
+                        staged.revision(),
+                        local,
+                        command,
+                        false,
+                        accept,
+                    )?
                     else {
                         return Ok(Some(lifted));
                     };
@@ -254,8 +284,13 @@ impl EditorSession {
                     let boundaries: Vec<_> =
                         boundaries.iter().map(|boundary| boundary - base).collect();
                     let seams = staged.split_inline_block_seams_at(local, &boundaries, accept)?;
-                    let Some(mut change) =
-                        staged.block_command(staged.revision(), local, command, accept)?
+                    let Some(mut change) = staged.lf_block_command_toggling(
+                        staged.revision(),
+                        local,
+                        command,
+                        false,
+                        accept,
+                    )?
                     else {
                         return Ok(None);
                     };
@@ -354,26 +389,6 @@ impl EditorSession {
             .collect();
         (boundaries, inspected.get())
     }
-}
-
-/// Every selected prose line sits in a quote, whatever block it is (paragraph,
-/// heading or list item inside the quote), and at least one is. This is the
-/// toolbar's active Quote state, so choosing Quote then takes a level off and
-/// keeps each block. A quote nested inside a list item is not offered: that
-/// outdent is outside the generic list path.
-fn all_quoted(lines: &[crate::inline::blocks::BlockLine]) -> bool {
-    let mut prose = lines
-        .iter()
-        .filter(|line| !line.code && !line.divider && !line.metadata)
-        .peekable();
-    prose.peek().is_some()
-        && prose.all(|line| {
-            line.quote_depth > 0
-                && line
-                    .list
-                    .as_ref()
-                    .is_none_or(|list| list.quote_depth == line.quote_depth)
-        })
 }
 
 fn changes_block(line: &crate::inline::blocks::BlockLine, command: BlockCommand) -> bool {

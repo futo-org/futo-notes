@@ -81,6 +81,36 @@
                     styledThrough + Int(edit.insertedUtf16) - Int(edit.end - edit.start)))
         }
 
+        /// The engine plans only the table rows an edit's window meets. A line just past the window
+        /// that is a table row where the window's last line is not (or the reverse) was drawn
+        /// under the old table shape: hand the rest of the text back to the slices, from there.
+        /// A plain keystroke never changes the grid state at the window's end, so it stays
+        /// window-sized.
+        private func continueStylingIfTheGridChangesAt(_ to: Int) {
+            let text = storage.string as NSString
+            guard to < text.length, to <= styledThrough else { return }
+            // The window ends at a line start (the line at `to` was not restyled, unless it is a
+            // row the engine planned under its closed-interval rule: then it matches the line
+            // before it) or mid-line (that line is the window's last).
+            let atLineStart =
+                text.paragraphRange(for: NSRange(location: to, length: 0)).location == to
+            let last = text.paragraphRange(
+                for: NSRange(location: atLineStart ? max(0, to - 1) : to, length: 0))
+            guard NSMaxRange(last) < text.length else { return }
+            let next = text.paragraphRange(for: NSRange(location: NSMaxRange(last), length: 0))
+            guard
+                !text.substring(with: next).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return }
+            func inGrid(_ line: NSRange) -> Bool {
+                storage.attribute(.tfTable, at: line.location, effectiveRange: nil) != nil
+                    || storage.attribute(.tfTableDelimiter, at: line.location, effectiveRange: nil)
+                        != nil
+            }
+            guard inGrid(last) != inGrid(next) else { return }
+            styledThrough = min(styledThrough, next.location)
+            scheduleNextSlice()
+        }
+
         /// Restyle the window the engine reparsed for `change`.
         func restyle(_ change: EditorViewChange) {
             guard !closed else { return }
@@ -98,6 +128,7 @@
                 TextFirstStyler.apply(
                     specs, to: storage, window: NSRange(location: from, length: to - from),
                     images: images)
+                continueStylingIfTheGridChangesAt(to)
             } catch {
                 print("text-first: restyle failed: \(error)")
             }

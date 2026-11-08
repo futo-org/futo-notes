@@ -40,6 +40,13 @@
         }
 
         func cell(atColumn column: Int) -> Cell? { cells.first { $0.column == column } }
+
+        /// Where `cell`'s content is now, from its row's current place in the text storage. The
+        /// engine restyles only the rows an edit meets, so rows elsewhere keep their old absolute
+        /// `Cell.range`; `rowOffset` is what stays true.
+        func contentRange(of cell: Cell, row: NSRange) -> NSRange {
+            NSRange(location: row.location + cell.rowOffset, length: cell.range.length)
+        }
     }
 
     enum TextFirstTableMetrics {
@@ -88,8 +95,13 @@
                     alignment: cell.alignment, range: NSRange(location: s, length: e - s),
                     rowOffset: s - range.location)
             }
+            // The engine plans only the rows an edit meets, and `tableStart` is where the table
+            // starts now; rows it did not plan keep their old key. A body row takes the key of
+            // the row above it so a table keeps one key (one sideways scroll). A header, which
+            // every whole-table plan includes, mints it.
+            let key = header ? tableStart : (tableKey(above: range, in: storage) ?? tableStart)
             let span = TextFirstTableRowSpan(
-                columns: columns, header: header, tableStart: tableStart, cells: parts)
+                columns: columns, header: header, tableStart: key, cells: parts)
             storage.addAttributes(
                 [
                     .tfTable: span, .font: TextFirstImageMetrics.hiddenFont,
@@ -97,6 +109,28 @@
                     .backgroundColor: UIColor.clear,
                 ], range: range)
             applyTableGeometry(storage, range, height: span.height)
+        }
+
+        /// The scroll key of the table row before the row at `range`, looking through the
+        /// delimiter line to the header.
+        private func tableKey(above range: NSRange, in storage: NSTextStorage) -> Int? {
+            let text = storage.string as NSString
+            var at = range.location
+            for _ in 0..<2 {
+                guard at > 0 else { return nil }
+                let line = text.paragraphRange(for: NSRange(location: at - 1, length: 0))
+                if let span = storage.attribute(.tfTable, at: line.location, effectiveRange: nil)
+                    as? TextFirstTableRowSpan
+                {
+                    return span.tableStart
+                }
+                guard
+                    storage.attribute(.tfTableDelimiter, at: line.location, effectiveRange: nil)
+                        != nil
+                else { return nil }
+                at = line.location
+            }
+            return nil
         }
 
         func styleTableDelimiter(_ storage: NSTextStorage, _ range: NSRange) {
@@ -144,6 +178,8 @@
             let row: NSRange
             let span: TextFirstTableRowSpan
             let cell: TextFirstTableRowSpan.Cell
+            /// The cell's content in the text storage now.
+            let range: NSRange
         }
 
         /// The row (and its cell) whose drawn grid holds `p`.
@@ -174,16 +210,26 @@
             let scroll = tableScroll[hit.span.tableStart] ?? 0
             let column = Int((hit.local.x + scroll) / TextFirstTableMetrics.cellWidth)
             guard let cell = hit.span.cell(atColumn: column) else { return nil }
-            return TableCellHit(row: hit.row, span: hit.span, cell: cell)
+            return TableCellHit(
+                row: hit.row, span: hit.span, cell: cell,
+                range: hit.span.contentRange(of: cell, row: hit.row))
         }
 
-        /// The span and cell whose content starts at display offset `start`.
+        /// The span and cell whose content starts at display offset `start`, by each row's
+        /// current place (a stored `Cell.range` is stale in rows an edit above did not restyle).
         func tableCell(at start: Int) -> (TextFirstTableRowSpan, TextFirstTableRowSpan.Cell)? {
             // An empty cell's start may be the row's line break, so look one glyph back too.
             for offset in [start, start - 1] where offset >= 0 && offset < storage.length {
-                if let span = storage.attribute(.tfTable, at: offset, effectiveRange: nil)
+                var row = NSRange()
+                // The whole row: the first glyph's kern makes its attribute runs shorter.
+                let line = (storage.string as NSString).paragraphRange(
+                    for: NSRange(location: offset, length: 0))
+                if let span = storage.attribute(
+                    .tfTable, at: offset, longestEffectiveRange: &row, in: line)
                     as? TextFirstTableRowSpan,
-                    let cell = span.cells.first(where: { $0.range.location == start })
+                    let cell = span.cells.first(where: {
+                        span.contentRange(of: $0, row: row).location == start
+                    })
                 {
                     return (span, cell)
                 }
