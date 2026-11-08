@@ -37,3 +37,7 @@ Test the public session with the independent display-only reference view in
 Run `cargo test -p futo-notes-editor -p futo-notes-store -p futo-notes-core`.
 The normal `just check` and existing CI Rust workspace/release gate cover these
 tests. Read `docs/spec/editor/portable-core.md` before changing this surface.
+
+`host/` holds renderer helpers that are not Markdown rules and that every native
+view needs (today `DisplayMirror`: display UTF-8 ⇄ UTF-16 conversion of engine
+changes). UniFFI projection: `crates/futo-notes-ffi/src/editor/host.rs`.

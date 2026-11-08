@@ -37,8 +37,10 @@ just verify-run check  # lint + tests + build sanity, with a retained evidence b
 ```
 
 Working alongside another session? `just wt new <name>` makes a sibling worktree
-with deps installed and a warm Rust cache; `just wt gc` reaps stale ones. `just
-orient` says where you are.
+with deps installed; Rust cache cloning is opt-in with `--clone-target` (or later,
+`just qa-clone-target <worktree>`). Even reflinks walk the cache and create filesystem
+metadata, which can stall the workstation. For reviews, use `--no-install` too when
+local tests are unnecessary. `just wt gc` reaps stale ones; `just orient` says where you are.
 
 If a fresh worktree or SSH shell cannot find Node/just, start with
 `bash scripts/dev-env.sh --install just setup`. Wrap later SSH commands with
