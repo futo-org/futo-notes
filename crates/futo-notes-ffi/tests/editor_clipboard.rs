@@ -101,3 +101,37 @@ fn native_named_link_paste_maps_visible_caret_and_survives_history_and_reopen() 
         "https://x.test"
     );
 }
+
+#[test]
+fn native_block_paste_retires_selected_fence_and_prose() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    let original = "```\n\n```\n\nplain\n";
+    store
+        .create_note("selected-code".into(), "".into(), original.into())
+        .unwrap();
+    let session = store.open_editor("selected-code".into()).unwrap();
+    let at = |start, end| EditorByteRange { start, end };
+    session
+        .select_with_affinity(0, at(0, 8), futo_notes_ffi::EditorAffinity::Forward)
+        .unwrap();
+    let change = session
+        .paste_markdown(0, at(0, 8), "# h".into())
+        .unwrap()
+        .unwrap();
+    assert_eq!(change.selection, at(1, 1));
+    assert_eq!(session.source_text().unwrap(), "# h");
+    assert_eq!(session.display_text().unwrap(), "h");
+    let toolbar = session.toolbar_state().unwrap();
+    assert!(!toolbar.code);
+    assert_eq!(toolbar.heading, Some(1));
+    assert_eq!(session.undo(1).unwrap().unwrap().selection, at(0, 8));
+    assert_eq!(session.source_text().unwrap(), original);
+    assert_eq!(session.redo(2).unwrap().unwrap().selection, at(1, 1));
+    session.checkpoint().unwrap();
+    drop(session);
+    let reopened = store.open_editor("selected-code".into()).unwrap();
+    assert_eq!(reopened.source_text().unwrap(), "# h\n");
+    assert_eq!(reopened.display_text().unwrap(), "h\n");
+}

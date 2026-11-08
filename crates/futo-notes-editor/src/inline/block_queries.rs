@@ -244,42 +244,74 @@ impl Projection {
     /// come from the row where it starts; its body end, frame and closer from
     /// the row where it ends (#314).
     pub(crate) fn fix_fence(&self, index: usize, base: usize, fence: &mut fences::Fence) {
-        let row = self.rows.at(index).0;
+        self.fix_fence_with_work(index, base, fence);
+    }
+
+    pub(crate) fn fix_fence_with_work(
+        &self,
+        index: usize,
+        base: usize,
+        fence: &mut fences::Fence,
+    ) -> usize {
+        let (row, _, _, mut work) = self.rows.at_with_work(index);
         let continued = fence.whole.start == base
             && row.continues
             && row.opener.as_deref().is_some_and(fences::is_opener);
-        let continues_on = fence.closer.is_none()
+        let continues_on = if fence.closer.is_none()
             && fence.whole.end == base + row.source_len
             && index + 1 < self.rows.len()
-            && self.rows.at(index + 1).0.continues
-            && self.rows.at(index + 1).0.opener.is_some();
-        let found = |at: usize, last: bool| {
-            let (row, base, _) = self.rows.at(at);
-            let mut blocks = row.blocks.iter();
-            let block = if last {
-                blocks.rev().find(|block| block.fence.is_some())
-            } else {
-                blocks.find(|block| block.fence.is_some())
-            };
-            let mut fence = block?.fence.clone()?;
-            fence.shift(base);
-            Some(fence)
+        {
+            let (next, _, _, visits) = self.rows.at_with_work(index + 1);
+            work += visits;
+            next.continues && next.opener.is_some()
+        } else {
+            false
         };
+        fn found(projection: &Projection, at: usize, last: bool) -> (Option<fences::Fence>, usize) {
+            let (row, base, _, mut work) = projection.rows.at_with_work(at);
+            let mut scanned = 0;
+            let mut is_fence = |block: &blocks::BlockLine| {
+                scanned += 1;
+                block.fence.is_some()
+            };
+            let index = if last {
+                row.blocks.iter().rposition(&mut is_fence)
+            } else {
+                row.blocks.iter().position(&mut is_fence)
+            };
+            work += scanned;
+            let Some(index) = index else {
+                return (None, work);
+            };
+            let mut fence = row.blocks[index].fence.clone().unwrap();
+            work += fences::Fence::COPY_WORK;
+            fence.shift(base);
+            (Some(fence), work)
+        }
         if continued {
-            if let Some(head) = found(self.rows.block_start(index), true) {
+            let (at, visits) = self.rows.block_start_with_work(index);
+            let (head, read) = found(self, at, true);
+            work += visits + read;
+            if let Some(head) = head {
                 fence.whole.start = head.whole.start;
                 fence.opener = head.opener;
                 fence.body.start = head.body.start;
+                work += 4;
             }
         }
         if continues_on {
-            if let Some(tail) = found(self.rows.block_end(index), false) {
+            let (at, visits) = self.rows.block_end_with_work(index);
+            let (tail, read) = found(self, at, false);
+            work += visits + read;
+            if let Some(tail) = tail {
                 fence.whole.end = tail.whole.end;
                 fence.body.end = tail.body.end;
                 fence.separator = tail.separator;
                 fence.closer = tail.closer;
+                work += 6;
             }
         }
+        work
     }
 
     pub(crate) fn list_command_lines(&self, range: DisplayRange) -> Vec<blocks::ListCommandLine> {

@@ -1,5 +1,5 @@
 //! Fenced clipboard target ownership, through the public session.
-use super::{paste, range};
+use super::{paste, range, EditorSession, Revision};
 
 #[test]
 fn block_paste_in_an_empty_fence_stays_literal() {
@@ -185,5 +185,87 @@ fn body_only_paste_keeps_its_frame_and_unselected_neighbor_exact() {
         );
         assert_eq!(pasted.source_text(), expected);
         assert!(pasted.toolbar_state().code);
+    }
+}
+
+#[test]
+fn selected_frame_paste_keeps_the_opening_carets_line_ending() {
+    let pasted = paste(
+        "```\r\n\r\n```\r\n\r\nplain\r\n",
+        range(0, 11),
+        "# h\nbody",
+        Some(7),
+    );
+    assert_eq!(pasted.source_text(), "# h\r\nbody");
+    assert_eq!(pasted.display_text(), "h\r\nbody");
+}
+
+#[test]
+fn selected_frame_paste_drops_only_one_copied_trailing_ending() {
+    let pasted = paste("```\n\n```\n\nplain\n", range(0, 8), "# h\n\n", Some(2));
+    assert_eq!(pasted.source_text(), "# h\n");
+    assert_eq!(pasted.display_text(), "h\n");
+}
+
+#[test]
+fn selected_frame_paste_keeps_unicode_boundaries_and_payload() {
+    let source = "```\n🧑‍💻\n```\n\nplain\n";
+    let mut session = EditorSession::open(source);
+    session.select(Revision(0), range(0, 19)).unwrap();
+    for invalid in [range(1, 19), range(0, 999), range(19, 0)] {
+        let mut accepted = 0;
+        assert!(session
+            .paste_markdown(Revision(0), invalid, "# h", &mut |_| {
+                accepted += 1;
+                Ok(())
+            })
+            .is_err());
+        assert_eq!(accepted, 0);
+        assert_eq!(session.source_text(), source);
+        assert_eq!(session.selection(), range(0, 19));
+        assert_eq!(session.revision(), Revision(0));
+    }
+    let pasted = paste(source, range(0, 19), "# 猫\nbody", Some(8));
+    assert_eq!(pasted.source_text(), "# 猫\nbody");
+    assert_eq!(pasted.display_text(), "猫\nbody");
+}
+
+#[test]
+fn rejected_selected_frame_paste_retains_source_selection_and_history() {
+    let source = "```\n\n```\n\nplain\n";
+    let mut session = EditorSession::open(source);
+    let selected = range(0, 8);
+    session.select(Revision(0), selected).unwrap();
+    let mut accepted = 0;
+    assert!(session
+        .paste_markdown(Revision(0), selected, "# h", &mut |_| {
+            accepted += 1;
+            Err("rejected append".into())
+        })
+        .is_err());
+    assert_eq!(accepted, 1);
+    assert_eq!(session.source_text(), source);
+    assert_eq!(session.selection(), selected);
+    assert_eq!(session.revision(), Revision(0));
+    assert!(session
+        .undo(Revision(0), &mut |_| Ok(()))
+        .unwrap()
+        .is_none());
+    assert!(session
+        .redo(Revision(0), &mut |_| Ok(()))
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn selected_frame_paste_retires_partitioned_fences_with_exact_endings() {
+    for eol in ["\n", "\r\n"] {
+        let body = format!("x{eol}").repeat(2_000);
+        let source = format!("```{eol}{body}```{eol}{eol}plain{eol}");
+        let shown = format!("{body}{eol}plain{eol}");
+        assert_eq!(EditorSession::open(&source).display_text(), shown);
+        let pasted = paste(&source, range(0, shown.len()), "# h", Some(1));
+        assert_eq!(pasted.source_text(), "# h");
+        assert_eq!(pasted.display_text(), "h");
     }
 }

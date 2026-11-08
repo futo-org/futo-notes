@@ -148,14 +148,9 @@ impl Projection {
                 .filter(|block| {
                     if let Some(fence) = block.fence.as_ref().filter(|_| replacement.is_some()) {
                         link_metadata_items += 1;
-                        let start = self.display_at(row_source + fence.body.start);
-                        let end = self.display_at(row_source + fence.body.end);
-                        if fence.closer.is_some()
-                            && range.start.0 <= start
-                            && end <= range.end.0
-                            && (range.start.0 < start || end < range.end.0)
-                            && retired_fences.last() != Some(&fence.whole)
-                        {
+                        let (retired, work) = fence.retired_by(self, index, row_source, range);
+                        link_metadata_items += work;
+                        if retired && retired_fences.last() != Some(&fence.whole) {
                             retired_fences.push(fence.whole.clone());
                         }
                     }

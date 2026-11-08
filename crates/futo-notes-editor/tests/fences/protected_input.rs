@@ -367,3 +367,49 @@ fn deleting_fully_selected_fences_across_containers_keeps_the_surviving_display(
         assert_eq!(session.selection(), selected);
     }
 }
+
+#[test]
+fn complete_partitioned_frames_retire_for_ordinary_replacement() {
+    for eol in ["\n", "\r\n"] {
+        let original = format!(
+            "```{eol}{}```{eol}{eol}plain{eol}",
+            format!("x{eol}").repeat(2_000)
+        );
+        let shown = format!("{}{eol}plain{eol}", format!("x{eol}").repeat(2_000));
+        for inserted in ["", "x"] {
+            let mut session = EditorSession::open(&original);
+            assert_eq!(session.display_text(), shown);
+            let selected = range(0, shown.len());
+            session.select(session.revision(), selected).unwrap();
+            let mut view = ReferenceView::new(&shown);
+            let mut accepted = 0;
+            let change = session
+                .replace(session.revision(), selected, inserted, &mut |_| {
+                    accepted += 1;
+                    Ok(())
+                })
+                .unwrap();
+            view.apply(change);
+            assert_eq!(accepted, 1);
+            assert_eq!(session.source_text(), inserted);
+            assert_eq!(view.text, inserted);
+            view.apply(
+                session
+                    .undo(session.revision(), &mut |_| Ok(()))
+                    .unwrap()
+                    .unwrap(),
+            );
+            assert_eq!(session.source_text(), original);
+            assert_eq!(session.selection(), selected);
+            assert_eq!(view.text, shown);
+            view.apply(
+                session
+                    .redo(session.revision(), &mut |_| Ok(()))
+                    .unwrap()
+                    .unwrap(),
+            );
+            assert_eq!(session.source_text(), inserted);
+            assert_eq!(view.text, inserted);
+        }
+    }
+}

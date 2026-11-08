@@ -134,6 +134,47 @@ try {
     await stop();
   }
   for (const fixture of [
+    { source: '```\n\n```\n\nplain\n', end: 8, text: '# h', expected: '# h', shown: 'h' },
+    {
+      source: '```\r\n\r\n```\r\n\r\nplain\r\n',
+      end: 11,
+      text: '# h\nbody',
+      expected: '# h\r\nbody',
+      shown: 'h\r\nbody',
+    },
+    {
+      source: '```\n' + 'x\n'.repeat(2000) + '```\n\nplain\n',
+      end: 4007,
+      text: '# h',
+      expected: '# h',
+      shown: 'h',
+    },
+  ]) {
+    const selectedExchange = await start(fixture.source);
+    const acceptSelected = async (applied) => {
+      const { change, request } = JSON.parse(applied);
+      session.acknowledge(JSON.stringify(await selectedExchange(JSON.stringify(request))));
+      return change;
+    };
+    session.select_with_affinity(0n, 0, fixture.end, JSON.stringify('Forward'));
+    const caret = Buffer.byteLength(fixture.shown);
+    const pasted = await acceptSelected(session.paste_markdown(0n, 0, fixture.end, fixture.text));
+    assert.deepEqual(pasted.selection, { start: caret, end: caret });
+    assert.equal(session.draft_text(), fixture.expected);
+    assert.equal(JSON.parse(session.project(1n, 0, caret)).text, fixture.shown);
+    const undone = await acceptSelected(session.undo(1n));
+    assert.deepEqual(undone.selection, { start: 0, end: fixture.end });
+    assert.equal(session.draft_text(), fixture.source);
+    await acceptSelected(session.redo(2n));
+    assert.equal(session.draft_text(), fixture.expected);
+    assert.deepEqual(await selectedExchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+    await stop();
+    await start('--reopen');
+    assert.equal(session.draft_text(), savedSource(fixture.expected));
+    assert.equal(JSON.parse(session.project(0n, 0, caret)).text, fixture.shown);
+    await stop();
+  }
+  for (const fixture of [
     {
       source: '猫a tail',
       at: 4,
