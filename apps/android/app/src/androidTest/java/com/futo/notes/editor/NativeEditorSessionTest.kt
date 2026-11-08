@@ -70,17 +70,17 @@ class NativeEditorSessionTest {
                         view = view.copyOfRange(0, change.range.start.toInt()) + change.inserted.toByteArray(Charsets.UTF_8) + view.copyOfRange(change.range.end.toInt(), view.size)
                     }
                     apply(session.paragraphKeyUtf16(0uL, EditorUtf16Range(3uL, 3uL), EditorParagraphKey.SHIFT_ENTER))
-                    assertEquals("a😀\nb\r\ntail  \r\n", view.toString(Charsets.UTF_8))
-                    assertEquals("__a😀\nb__\r\ntail  \r\n", session.sourceText())
-                    apply(session.paragraphKeyUtf16(1uL, EditorUtf16Range(4uL, 4uL), EditorParagraphKey.BACKSPACE))
+                    assertEquals("a😀\r\nb\r\ntail  \r\n", view.toString(Charsets.UTF_8))
+                    assertEquals("__a😀\r\nb__\r\ntail  \r\n", session.sourceText())
+                    apply(session.paragraphKeyUtf16(1uL, EditorUtf16Range(5uL, 5uL), EditorParagraphKey.BACKSPACE))
                     assertEquals("a😀b\r\ntail  \r\n", view.toString(Charsets.UTF_8))
                     apply(session.undo(2uL))
-                    assertEquals("__a😀\nb__\r\ntail  \r\n", session.sourceText())
+                    assertEquals("__a😀\r\nb__\r\ntail  \r\n", session.sourceText())
                     session.detach()
                 }
-                assertEquals("__a😀\nb__\r\ntail  \r\n", store.read("lines"))
+                assertEquals("__a😀\r\nb__\r\ntail  \r\n", store.read("lines"))
                 store.openEditor("lines").use { reopened ->
-                    assertEquals("__a😀\nb__\r\ntail  \r\n", reopened.sourceText())
+                    assertEquals("__a😀\r\nb__\r\ntail  \r\n", reopened.sourceText())
                     reopened.detach()
                 }
             }

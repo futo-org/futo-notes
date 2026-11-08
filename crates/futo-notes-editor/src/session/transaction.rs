@@ -218,22 +218,51 @@ impl EditorSession {
                 Affinity::Backward
             };
             staged.select_with_affinity(staged.revision(), local_range, affinity)?;
-            if replacement.range == self.selection {
+            let replaces_selection = replacement.range == self.selection;
+            // Whitespace has no visible format, so a run that turns the space before the caret
+            // into punctuation (a keyboard's double-space period) is typed there and takes the
+            // caret's carried formats. Any other replaced word keeps its own.
+            let replaces_space_at_caret = !replaces_selection
+                && self.selection.start == self.selection.end
+                && replacement.range.end == self.selection.end
+                && self
+                    .projection
+                    .display
+                    .byte_slice(replacement.range.start.0..replacement.range.end.0)
+                    .chars()
+                    .all(char::is_whitespace);
+            let own_formats = staged.pending_formats.clone();
+            if replaces_selection || replaces_space_at_caret {
                 staged.pending_formats = self.pending_formats.clone();
             }
             let references = staged.projection.references.clone();
             let mut edits = Vec::new();
-            let (change, mapping) = staged.replace_action_mapped(
+            let mut accept_edit = |edit: &SourceEdit| {
+                edits.push((edit.previous_revision, edit.range, edit.inserted.len()));
+                transaction.apply(edit.range, &edit.inserted);
+                Ok(())
+            };
+            let mut planned = staged.replace_action_mapped(
                 staged.revision(),
                 local_range,
                 &replacement.inserted,
                 action,
-                &mut |edit| {
-                    edits.push((edit.previous_revision, edit.range, edit.inserted.len()));
-                    transaction.apply(edit.range, &edit.inserted);
-                    Ok(())
-                },
-            )?;
+                &mut accept_edit,
+            );
+            // Carried formats that cannot be spelled around the space leave the run plain, as
+            // the replace would have been without them.
+            if replaces_space_at_caret && matches!(planned, Err(EditorError::UnrepresentableFormat))
+            {
+                staged.pending_formats = own_formats;
+                planned = staged.replace_action_mapped(
+                    staged.revision(),
+                    local_range,
+                    &replacement.inserted,
+                    action,
+                    &mut accept_edit,
+                );
+            }
+            let (change, mapping) = planned?;
             let references_changed = !Arc::ptr_eq(&references, &staged.projection.references);
             link_metadata_items += edits.len();
             for anchor in &mut anchors[2 * index + 2..] {
