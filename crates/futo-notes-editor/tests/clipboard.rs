@@ -44,6 +44,53 @@ fn paste(source: &str, at: DisplayRange, text: &str) -> EditorSession {
 }
 
 #[test]
+fn block_paste_in_an_empty_fence_stays_literal() {
+    for (source, expected) in [
+        ("```\n\n```", "```\n# h\n```"),
+        ("```\n\n```\n", "```\n# h\n```\n"),
+        ("```\n```", "```\n# h\n```"),
+        ("```", "```\n# h"),
+        ("> ```\n> \n> ```", "> ```\n> # h\n> ```"),
+        ("- ```\n  \n  ```", "- ```\n  # h\n  ```"),
+    ] {
+        let pasted = paste(source, range(0, 0), "# h", Some(3));
+        assert_eq!(pasted.source_text(), expected);
+        assert_eq!(pasted.display_text(), "# h");
+        assert!(pasted.toolbar_state().code);
+    }
+}
+
+#[test]
+fn block_paste_at_saved_code_end_stays_literal() {
+    let pasted = paste("```\nx\n```\n", range(1, 1), "# h", Some(4));
+    assert_eq!(pasted.source_text(), "```\nx# h\n```\n");
+    assert_eq!(pasted.display_text(), "x# h");
+    assert!(pasted.toolbar_state().code);
+}
+
+#[test]
+fn block_paste_after_genuine_code_separator_remains_prose() {
+    let pasted = paste("```\nx\n```\n\n", range(3, 3), "# h", Some(4));
+    assert_eq!(pasted.source_text(), "```\nx\n```\n\n# h");
+    assert_eq!(pasted.display_text(), "x\n\nh");
+    assert!(!pasted.toolbar_state().code);
+    assert_eq!(pasted.toolbar_state().heading, Some(1));
+}
+
+#[test]
+fn empty_fence_plain_paste_and_nonempty_fence_block_paste_controls() {
+    for (source, selected, text, expected) in [
+        ("```\n\n```", range(0, 0), "a\nb", "```\na\nb\n```"),
+        ("```\nx\n```\n", range(0, 1), "# h", "```\n# h\n```\n"),
+    ] {
+        let pasted = paste(source, selected, text, Some(3));
+        assert_eq!(pasted.source_text(), expected);
+        assert_eq!(pasted.display_text(), text);
+        assert!(pasted.toolbar_state().code);
+    }
+}
+
+#[test]
 fn paste_keeps_copied_characters_and_places_blocks() {
     // (source, display range, pasted, expected source)
     for (source, (a, b), text, expected) in [
