@@ -97,6 +97,23 @@ fn inspect_tables_is_linear_over_a_pipeless_run() {
     assert!(elapsed.as_millis() < 1_500, "took {elapsed:?}");
 }
 
+/// Headings with no blank line between them keep the whole note in one
+/// projection row. Planning must still be linear: a per-line check that reads
+/// the whole row made 12,000 lines take seconds (30,000 took minutes).
+#[test]
+fn inspect_tables_is_linear_over_headings_without_blank_lines() {
+    let raw = "## Section heading\nfirst line of prose here\nsecond line of prose\n".repeat(4_000);
+    let session = EditorSession::open(&raw);
+    let end = session.display_text().len();
+    let started = std::time::Instant::now();
+    let tables = session
+        .inspect_tables(session.revision(), range(0, end))
+        .unwrap();
+    let elapsed = started.elapsed();
+    assert!(tables.is_empty());
+    assert!(elapsed.as_millis() < 1_500, "took {elapsed:?}");
+}
+
 /// Sharing one read of a run must not change what is found: tables inside a
 /// run that also holds plain lines, a pipe line that is no header, a table cut
 /// short by a block start, and a table ending the note without a newline.
