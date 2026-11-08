@@ -203,7 +203,9 @@ internal class TfList(
         paint.textSize = look.textSizePx
         paint.typeface = look.regular
         val numberStart = if (marker == ListMarker.Ordered) lead + unit - look.dp(5f) - paint.measureText("${number ?: 1}.") else lead
-        val (left, right) = leadingSpan(x, dir, minOf(lead, numberStart), lead + unit)
+        // Layout starts the native body highlight at the integer leading margin.
+        // A fractional gutter end would blend over its first pixel a second time.
+        val (left, right) = leadingSpan(x, dir, minOf(lead, numberStart), getLeadingMargin(true).toFloat())
         c.drawRect(left, top, right, bottom, paint)
     }
 

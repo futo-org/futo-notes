@@ -41,7 +41,7 @@ class TextFirstCaretTest {
         val store = NoteStore(root.path)
         lateinit var controller: TextFirstController
         try {
-            val sources = listOf("- Dispatch\n- Archive\n- File", "1. Dispatch\n2. Archive\n3. File", "- [ ] Dispatch\n- [ ] Archive\n- [ ] File", "99. Dispatch\n100. Archive\n101. File")
+            val sources = listOf("- Dispatch\n- Archive\n- File", "1. Dispatch\n2. Archive\n3. File", "- [ ] Dispatch\n- [ ] Archive\n- [ ] File", "99. Dispatch\n100. Archive\n101. File", "- אבגדהוזח\n- אבגדהוז\n- אבגד")
                 .map { it + "\n\nplain\n".repeat(80) }
             sources.forEachIndexed { i, raw -> store.createNote("n$i", "", raw) }
             withContext(Dispatchers.Main) {
@@ -59,19 +59,25 @@ class TextFirstCaretTest {
                     Selection.setSelection(view.editableText, 0)
                     committedFrame(view)
                     assertTrue("the regression exercises hardware Layout drawing", view.isHardwareAccelerated)
-                    val x = view.totalPaddingLeft + 1
                     val ys = (0..2).map { view.totalPaddingTop + view.layout.getLineTop(it) + view.style.dp(2f).toInt() }
                     suspend fun assertMarkers(start: Int, end: Int, selectedRows: Set<Int>) {
                         val shot = onScreen(view)
                         try {
                             for (row in ys.indices) {
-                                val bodyX = view.totalPaddingLeft + view.layout.getPrimaryHorizontal(view.layout.getLineStart(row)).toInt() + 1
-                                val body = shot.getPixel(bodyX, ys[row])
+                                val dir = view.layout.getParagraphDirection(row)
+                                val bodyEdge = view.totalPaddingLeft + view.layout.getPrimaryHorizontal(view.layout.getLineStart(row)).toInt()
+                                val markerX = view.totalPaddingLeft + if (dir > 0) 1 else view.layout.width - 2
+                                val body = shot.getPixel(bodyEdge + dir * 4, ys[row])
                                 val background = shot.getPixel(1, ys[row])
                                 if (row in selectedRows) assertNotEquals("the native body selection is drawn", background, body)
                                 // Compare one frame: window transitions can change its overall brightness.
                                 val expected = if (row in selectedRows) body else background
-                                assertEquals("${sources[i].substringBefore('\n')}: selection $start..$end, marker row $row", expected, shot.getPixel(x, ys[row]))
+                                assertEquals("${sources[i].substringBefore('\n')}: selection $start..$end, marker row $row", expected, shot.getPixel(markerX, ys[row]))
+                                // The custom gutter meets Layout's integer body edge without
+                                // painting the translucent highlight twice on that boundary.
+                                for (edgeX in bodyEdge - 1..bodyEdge + 1) {
+                                    assertEquals("selection $start..$end, row $row, body edge $edgeX", expected, shot.getPixel(edgeX, ys[row]))
+                                }
                             }
                         } finally { shot.recycle() }
                     }
