@@ -6,10 +6,11 @@
 // a cargo target/ (19 over 100 GB), 7 for branches already merged and 50
 // untouched since July. `just qa-gc` reaps devices, nothing reaped checkouts.
 //
-//   just wt <name> [--branch <b>] [--base origin/main] [--no-install] [--no-target]
+//   just wt <name> [--branch <b>] [--base origin/main] [--no-install]
 //       `just wt new <name>` is also accepted.
-//       sibling checkout ../<repo>-<name>, deps installed, target/ reflink-cloned
-//       from the primary checkout (btrfs / APFS; skipped with a note elsewhere),
+//       sibling checkout ../<repo>-<name>, deps installed, Rust cache starts cold.
+//       Reflinks still walk every file and create metadata; automatic clones
+//       stalled the workstation during MR reviews.
 //       purpose recorded, ports printed.
 //       Remote branches are refreshed; fetched origin/mr-N snapshots are accepted
 //       after checking the remote MR exists. Use a full refs/... base offline.
@@ -28,6 +29,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import process from 'node:process';
 
 import { sweepDevAppStorage } from './lib/dev-app-storage.mjs';
 import { envLines } from './lib/slot.mjs';
@@ -80,7 +82,7 @@ function siblingPath(primary, name) {
   return path.join(path.dirname(primary), `${path.basename(primary)}-${name}`);
 }
 
-/** How to clone target/ cheaply on this platform, or null when it cannot be cheap. */
+/** Copy-on-write clone command, or null on unsupported platforms. */
 function cloneTargetCommand(platform, src, dst) {
   if (platform === 'darwin') return ['cp', ['-Rc', src, dst]];
   if (platform === 'linux') return ['cp', ['-R', '--reflink=always', src, dst]];
@@ -220,10 +222,7 @@ function prepareBase(base, primary) {
 
 function cmdNew(flags) {
   const name = flags._[0];
-  if (!name)
-    die(
-      'usage: just wt new <name> [--branch <b>] [--base origin/main] [--no-install] [--no-target]',
-    );
+  if (!name) die('usage: just wt new <name> [--branch <b>] [--base origin/main] [--no-install]');
   const primary = primaryRoot(process.cwd());
   const dest = siblingPath(primary, name);
   const branch = typeof flags.branch === 'string' ? flags.branch : name;
@@ -255,26 +254,6 @@ function cmdNew(flags) {
     info('pnpm install…');
     const r = spawnSync('pnpm', ['install'], { cwd: dest, stdio: 'inherit' });
     if (r.status !== 0) info('pnpm install failed — run `just install` in the worktree');
-  }
-
-  if (!flags['no-target']) {
-    const src = path.join(primary, 'target');
-    const dst = path.join(dest, 'target');
-    const cmd = cloneTargetCommand(process.platform, src, dst);
-    if (!fs.existsSync(src))
-      info('no target/ in the primary checkout to clone — first cargo build will be cold');
-    else if (!cmd) info(`no cheap clone on ${process.platform} — first cargo build will be cold`);
-    else {
-      info(`cloning target/ (${cmd[0]} ${cmd[1].join(' ')})…`);
-      info('wait for "worktree ready" before building in this checkout');
-      try {
-        cloneTarget(src, dst);
-      } catch (error) {
-        info(
-          `clone skipped (${error.message}) — a full copy would cost real disk, so the first cargo build will be cold`,
-        );
-      }
-    }
   }
 
   process.stdout.write(`${dest}\n`);
