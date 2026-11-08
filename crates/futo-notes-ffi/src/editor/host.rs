@@ -178,6 +178,42 @@ impl EditorDisplayMirror {
     }
 }
 
+/// One find result in UTF-16 units of the host's display, ready to paint (see `host::plan_find`).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct EditorFindSnapshot {
+    pub open: bool,
+    pub query: String,
+    pub total: u64,
+    /// One-based; zero when there is no current match.
+    pub current: u64,
+    pub stale: bool,
+    /// Ascending, non-overlapping; empty while closed, at zero, or composing.
+    pub matches: Vec<EditorUtf16Range>,
+    /// Set only when the call asked for a reveal: the current match, to scroll into view.
+    pub reveal: Option<EditorUtf16Range>,
+}
+
+fn utf16_range((start, end): (usize, usize)) -> EditorUtf16Range {
+    EditorUtf16Range {
+        start: start as u64,
+        end: end as u64,
+    }
+}
+
+impl From<FindSnapshot> for EditorFindSnapshot {
+    fn from(value: FindSnapshot) -> Self {
+        Self {
+            open: value.open,
+            query: value.query,
+            total: value.total as u64,
+            current: value.current as u64,
+            stale: value.stale,
+            matches: value.matches.into_iter().map(utf16_range).collect(),
+            reveal: value.reveal.map(utf16_range),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum EditorListMarker {
     Bullet,
@@ -397,135 +433,6 @@ impl From<StyleSpec> for EditorStyleSpan {
     }
 }
 
-#[uniffi::export]
-impl NativeEditorSession {
-    /// The spans to draw for a display range, in UTF-16 units of the whole display. Hosts call
-    /// this per window instead of converting every projection byte range themselves.
-    pub fn style_plan(
-        &self,
-        expected: u64,
-        range: EditorByteRange,
-    ) -> Result<Vec<EditorStyleSpan>, EditorSessionError> {
-        self.with_revision(expected, |session| {
-            let display: DisplayRange = range.try_into()?;
-            let slice = session.project(Revision(expected), display)?;
-            let mut to_utf16 = |byte: usize| {
-                let at = DisplayRange {
-                    start: DisplayOffset(byte),
-                    end: DisplayOffset(byte),
-                };
-                session
-                    .display_to_utf16(Revision(expected), at)
-                    .map_or(0, |r| r.start.0)
-            };
-            let start = to_utf16(display.start.0);
-            let mut spans = plan_styles(&slice, start, &mut to_utf16);
-            let tables = session.inspect_tables(Revision(expected), display)?;
-            spans.extend(plan_tables(&tables, display, &mut to_utf16));
-            Ok(spans.into_iter().map(Into::into).collect())
-        })
-    }
-
-    /// The table cell holding a selection, for a host's cell editor: the cell's content range
-    /// in UTF-16 units of the whole display (a selection leaving the cell, or outside every
-    /// table, is `None`).
-    pub fn cell_view(
-        &self,
-        expected: u64,
-        selection: EditorUtf16Range,
-    ) -> Result<Option<EditorCellView>, EditorSessionError> {
-        self.with_revision(expected, |session| {
-            let rev = Revision(expected);
-            let range = session.display_from_utf16(rev, selection.try_into()?)?;
-            let Some(table) = session.inspect_table(rev, range)? else {
-                return Ok(None);
-            };
-            let Some(focus) = table.focus else {
-                return Ok(None);
-            };
-            let Some(cell) = table
-                .rows
-                .get(focus.row)
-                .and_then(|row| row.get(focus.column))
-            else {
-                return Ok(None);
-            };
-            let content = session.display_to_utf16(rev, cell.content)?;
-            Ok(Some(EditorCellView {
-                row: focus.row as u32,
-                column: focus.column as u32,
-                start: content.start.0 as u64,
-                end: content.end.0 as u64,
-            }))
-        })
-    }
-}
-
-/// Toolbar manifest ids to light and to dim for the current selection.
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
-pub struct EditorToolbarHighlights {
-    pub active: Vec<String>,
-    pub disabled: Vec<String>,
-}
-
-#[uniffi::export]
-impl NativeEditorSession {
-    pub fn toolbar_highlights(&self) -> Result<EditorToolbarHighlights, EditorSessionError> {
-        self.with_session(|session| {
-            let h = toolbar_highlights(&session.toolbar_state());
-            Ok(EditorToolbarHighlights {
-                active: h.active.into_iter().map(String::from).collect(),
-                disabled: h.disabled.into_iter().map(String::from).collect(),
-            })
-        })
-    }
-}
-
-/// The cell a selection is in (see `NativeEditorSession::cell_view`).
-#[derive(Debug, PartialEq, Eq, uniffi::Record)]
-pub struct EditorCellView {
-    pub row: u32,
-    pub column: u32,
-    pub start: u64,
-    pub end: u64,
-}
-
-/// One find result in UTF-16 units of the host's display, ready to paint (see `host::plan_find`).
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
-pub struct EditorFindSnapshot {
-    pub open: bool,
-    pub query: String,
-    pub total: u64,
-    /// One-based; zero when there is no current match.
-    pub current: u64,
-    pub stale: bool,
-    /// Ascending, non-overlapping; empty while closed, at zero, or composing.
-    pub matches: Vec<EditorUtf16Range>,
-    /// Set only when the call asked for a reveal: the current match, to scroll into view.
-    pub reveal: Option<EditorUtf16Range>,
-}
-
-fn utf16_range((start, end): (usize, usize)) -> EditorUtf16Range {
-    EditorUtf16Range {
-        start: start as u64,
-        end: end as u64,
-    }
-}
-
-impl From<FindSnapshot> for EditorFindSnapshot {
-    fn from(value: FindSnapshot) -> Self {
-        Self {
-            open: value.open,
-            query: value.query,
-            total: value.total as u64,
-            current: value.current as u64,
-            stale: value.stale,
-            matches: value.matches.into_iter().map(utf16_range).collect(),
-            reveal: value.reveal.map(utf16_range),
-        }
-    }
-}
-
 /// Whether a Next/Previous press has already landed on the current match since the query last
 /// changed. One per find bar; `reset` when the query changes or the bar closes.
 #[derive(uniffi::Object, Default)]
@@ -611,6 +518,99 @@ impl NativeEditorSession {
             Ok(EditorFindStep {
                 report: report.into(),
                 landing: range.map(Into::into),
+            })
+        })
+    }
+}
+
+#[uniffi::export]
+impl NativeEditorSession {
+    /// The spans to draw for a display range, in UTF-16 units of the whole display. Hosts call
+    /// this per window instead of converting every projection byte range themselves.
+    pub fn style_plan(
+        &self,
+        expected: u64,
+        range: EditorByteRange,
+    ) -> Result<Vec<EditorStyleSpan>, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            let display: DisplayRange = range.try_into()?;
+            let slice = session.project(Revision(expected), display)?;
+            let mut to_utf16 = |byte: usize| {
+                let at = DisplayRange {
+                    start: DisplayOffset(byte),
+                    end: DisplayOffset(byte),
+                };
+                session
+                    .display_to_utf16(Revision(expected), at)
+                    .map_or(0, |r| r.start.0)
+            };
+            let start = to_utf16(display.start.0);
+            let mut spans = plan_styles(&slice, start, &mut to_utf16);
+            let tables = session.inspect_tables(Revision(expected), display)?;
+            spans.extend(plan_tables(&tables, display, &mut to_utf16));
+            Ok(spans.into_iter().map(Into::into).collect())
+        })
+    }
+
+    /// The table cell holding a selection, for a host's cell editor: the cell's content range
+    /// in UTF-16 units of the whole display (a selection leaving the cell, or outside every
+    /// table, is `None`).
+    pub fn cell_view(
+        &self,
+        expected: u64,
+        selection: EditorUtf16Range,
+    ) -> Result<Option<EditorCellView>, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            let rev = Revision(expected);
+            let range = session.display_from_utf16(rev, selection.try_into()?)?;
+            let Some(table) = session.inspect_table(rev, range)? else {
+                return Ok(None);
+            };
+            let Some(focus) = table.focus else {
+                return Ok(None);
+            };
+            let Some(cell) = table
+                .rows
+                .get(focus.row)
+                .and_then(|row| row.get(focus.column))
+            else {
+                return Ok(None);
+            };
+            let content = session.display_to_utf16(rev, cell.content)?;
+            Ok(Some(EditorCellView {
+                row: focus.row as u32,
+                column: focus.column as u32,
+                start: content.start.0 as u64,
+                end: content.end.0 as u64,
+            }))
+        })
+    }
+}
+
+/// The cell a selection is in (see `NativeEditorSession::cell_view`).
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorCellView {
+    pub row: u32,
+    pub column: u32,
+    pub start: u64,
+    pub end: u64,
+}
+
+/// Toolbar manifest ids to light and to dim for the current selection.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct EditorToolbarHighlights {
+    pub active: Vec<String>,
+    pub disabled: Vec<String>,
+}
+
+#[uniffi::export]
+impl NativeEditorSession {
+    pub fn toolbar_highlights(&self) -> Result<EditorToolbarHighlights, EditorSessionError> {
+        self.with_session(|session| {
+            let h = toolbar_highlights(&session.toolbar_state());
+            Ok(EditorToolbarHighlights {
+                active: h.active.into_iter().map(String::from).collect(),
+                disabled: h.disabled.into_iter().map(String::from).collect(),
             })
         })
     }
