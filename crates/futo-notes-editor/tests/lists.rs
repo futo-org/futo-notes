@@ -21,6 +21,8 @@ mod enter_at_start;
 mod enter_split;
 #[path = "lists/fixtures.rs"]
 mod fixtures;
+#[path = "lists/indent_empty_item.rs"]
+mod indent_empty_item;
 #[path = "lists/input.rs"]
 mod input;
 #[path = "lists/keys.rs"]
