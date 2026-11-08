@@ -166,7 +166,7 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
         "../../../../futo-notes-editor/tests/fixtures/fence-container-commands.json"
     ))
     .unwrap();
-    assert_eq!(fences.len(), 27);
+    assert_eq!(fences.len(), 29);
     let headings: Vec<Value> = serde_json::from_str(include_str!(
         "../../../../futo-notes-editor/tests/fixtures/heading-quote-commands.json"
     ))

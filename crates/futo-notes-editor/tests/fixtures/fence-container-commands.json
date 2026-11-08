@@ -25,5 +25,7 @@
   {"name":"code-off-empty-first-listed-frame-keeps-hidden-padding","source":"- ```\n  \n  ```","display":"","action":"CodeBlock","range":[0,0],"expected":"- ","shown":"","resultRange":[0,0],"finalItems":[[null,null]]},
   {"name":"code-off-quoted-first-row-keeps-one-marker","source":"> - ```lang\r\n>   x\r\n>   y\r\n>   ```","display":"x\r\ny","action":"WrapCodeBlock","range":[0,0],"expected":"> - x\r\n>   ```lang\r\n>   y\r\n>   ```","shown":"x\r\ny","resultRange":[0,0],"quoteDepth":1,"finalItems":[[null,null]]},
   {"name":"code-off-ordered-middle-row-keeps-one-marker","source":"9. ```lang\r\n   x\r\n   y\r\n   z\r\n   ```","display":"x\r\ny\r\nz","action":"CodeBlock","range":[3,3],"expected":"9. ```lang\r\n   x\r\n   ```\r\n   y\r\n   ```lang\r\n   z\r\n   ```","shown":"x\r\ny\r\nz","resultRange":[3,3],"finalItems":[[9,null]]},
-  {"name":"code-off-root-fence-indent-retains-opaque-spaces","source":"  ```\n    x\n  ```","display":"  x","action":"CodeBlock","range":[0,3],"expected":"&#32; x","shown":"  x","resultRange":[0,3],"finalItems":[]}
+  {"name":"code-off-root-fence-indent-retains-opaque-spaces","source":"  ```\n    x\n  ```","display":"  x","action":"CodeBlock","range":[0,3],"expected":"&#32; x","shown":"  x","resultRange":[0,3],"finalItems":[]},
+  {"name":"code-off-two-line-listed-frame-keeps-first-marker","source":"- ```\n  ```","display":"","action":"WrapCodeBlock","range":[0,0],"expected":"- ","shown":"","resultRange":[0,0],"finalItems":[[null,null]]},
+  {"name":"code-off-unclosed-quoted-no-body-retires-frame-ending","source":"> ```\n","display":"","action":"CodeBlock","range":[0,0],"expected":"> ","shown":"","resultRange":[0,0],"quoteDepth":1,"finalItems":[]}
 ]

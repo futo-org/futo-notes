@@ -229,6 +229,7 @@ fn assert_code_off_preserves_body(
         assert_eq!(session.display_text(), display);
         let mut view = ReferenceView::new(display);
         session.select(session.revision(), selected).unwrap();
+        let quoted = session.toolbar_state().quote;
         let mut accepted = 0;
         view.apply(
             session
@@ -244,6 +245,11 @@ fn assert_code_off_preserves_body(
         assert_eq!(session.display_text(), display);
         assert_eq!(session.selection(), selected);
         assert!(!session.toolbar_state().code);
+        assert_eq!(
+            session.toolbar_state().quote,
+            quoted,
+            "{opening:?}: enclosing quote remains"
+        );
         for &at in retained_code {
             assert!(
                 session
@@ -290,6 +296,9 @@ fn assert_code_off_preserves_body(
 fn code_off_keeps_hidden_list_padding_out_of_visible_text() {
     for (opening, display) in [
         ("- ```\n  \n  ```", ""),
+        ("- ```\n  ```", ""),
+        ("- ```\n", ""),
+        ("- ```", ""),
         ("- ```\n  x\n  ```", "x"),
         ("9. ```\n   x\n   ```", "x"),
         ("> - ```\n>   x\n>   ```", "x"),
@@ -302,8 +311,14 @@ fn code_off_keeps_hidden_list_padding_out_of_visible_text() {
 fn code_off_hidden_padding_controls_keep_root_and_quote_text() {
     for (opening, display) in [
         ("```\n\n```", ""),
+        ("```\n```", ""),
+        ("```\n", ""),
+        ("```", ""),
         ("```\nx\n```", "x"),
         ("> ```\n> \n> ```", ""),
+        ("> ```\n> ```", ""),
+        ("> ```\n", ""),
+        ("> ```", ""),
         ("> ```\n> x\n> ```", "x"),
     ] {
         assert_code_off_preserves_body(opening, display, range(0, display.len()), 0, &[]);
