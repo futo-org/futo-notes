@@ -373,26 +373,93 @@ fn leaving_a_list_at_its_end_types_a_separate_paragraph() {
     assert_eq!(s.source_text(), "- C\n- Y\n- ");
 }
 
-#[test]
-fn indenting_an_empty_item_under_its_siblings_text_is_refused() {
-    // `  * item 2\n    * ` would read the empty item as text of item 2; only
-    // a blank line (loosening the list) could write it.
-    let source = "* item 1\n  * item 2\n  * ";
+/// Indent, then Outdent, then Undo of a caret on the last (empty) item of
+/// `source`: the bytes after each and the caret after Indent.
+fn indent_cycle(source: &str) -> (String, DisplayRange, String) {
     let mut s = EditorSession::open(source);
     let end = s.display_text().len();
     s.select(s.revision(), range(end, end)).unwrap();
-    let revision = s.revision();
-    let result = s.block_command(revision, range(end, end), BlockCommand::Indent, &mut |_| {
-        panic!("a refused indent accepts nothing")
-    });
-    assert!(
-        matches!(result, Err(EditorError::UnrepresentableFormat)),
-        "{result:?}"
+    assert!(s.toolbar_state().can_indent, "{source:?}");
+    let mut accepted = 0;
+    s.block_command(
+        s.revision(),
+        range(end, end),
+        BlockCommand::Indent,
+        &mut |_| {
+            accepted += 1;
+            Ok(())
+        },
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(accepted, 1);
+    let (indented, caret) = (s.source_text(), s.selection());
+    assert_eq!(
+        EditorSession::open(&indented).display_text(),
+        s.display_text()
     );
-    assert_eq!(s.source_text(), source);
-    assert_eq!(s.revision(), revision);
+    // The caret stays on the (now nested) empty item.
+    assert!(caret.start == caret.end && caret.end.0 == s.display_text().len());
+    assert!(s.toolbar_state().can_outdent);
+    s.block_command(s.revision(), caret, BlockCommand::Outdent, &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    let outdented = s.source_text();
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap();
+    assert_eq!(s.source_text(), indented, "{source:?}: Undo of Outdent");
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap();
+    assert_eq!(s.source_text(), source, "{source:?}: Undo of Indent");
     assert_eq!(s.selection(), range(end, end));
-    // Once it has text, the same item indents.
+    (indented, caret, outdented)
+}
+
+#[test]
+fn an_empty_item_under_its_siblings_text_indents_after_a_separating_blank_line() {
+    // An empty item cannot interrupt the sibling's paragraph (`- a\n  - ` reads
+    // as a setext heading), so the repair set's blank line separates them.
+    for (source, indented, outdented) in [
+        ("- a\n- ", "- a\n\n  - ", "- a\n\n- "),
+        (
+            "* item 1\n  * item 2\n  * ",
+            "* item 1\n  * item 2\n\n    * ",
+            "* item 1\n  * item 2\n\n  * ",
+        ),
+        // Ordered lists start the new level at 1; the outdent renumbers.
+        ("3. a\n4. ", "3. a\n\n   1. ", "3. a\n\n4. "),
+        // A task item's `[ ] ` is content, so no blank line is needed.
+        ("- [ ] a\n- [ ] ", "- [ ] a\n  - [ ] ", "- [ ] a\n- [ ] "),
+        // The note's line endings are kept in the separator.
+        ("- a\r\n- ", "- a\r\n\r\n  - ", "- a\r\n\r\n- "),
+        ("> - a\n> - ", "> - a\n>\n>   - ", "> - a\n>\n> - "),
+    ] {
+        let (got, _, back) = indent_cycle(source);
+        assert_eq!(got, indented, "{source:?}");
+        assert_eq!(back, outdented, "{source:?} Outdent");
+    }
+}
+
+#[test]
+fn an_empty_item_joins_its_siblings_existing_sub_list_without_a_blank_line() {
+    let (indented, _, outdented) = indent_cycle("- a\n  - b\n- ");
+    assert_eq!(indented, "- a\n  - b\n  - ");
+    assert_eq!(outdented, "- a\n  - b\n- ");
+    let (indented, _, _) = indent_cycle("1. a\n   1. b\n2. ");
+    assert_eq!(indented, "1. a\n   1. b\n   2. ");
+}
+
+#[test]
+fn text_typed_after_indenting_an_empty_item_lands_at_the_written_depth() {
+    let mut s = EditorSession::open("- a\n- ");
+    let end = s.display_text().len();
+    s.select(s.revision(), range(end, end)).unwrap();
+    s.block_command(
+        s.revision(),
+        range(end, end),
+        BlockCommand::Indent,
+        &mut |_| Ok(()),
+    )
+    .unwrap();
+    let end = s.display_text().len();
     s.replace_action(
         s.revision(),
         range(end, end),
@@ -401,71 +468,5 @@ fn indenting_an_empty_item_under_its_siblings_text_is_refused() {
         &mut |_| Ok(()),
     )
     .unwrap();
-    let end = s.display_text().len();
-    s.block_command(
-        s.revision(),
-        range(end, end),
-        BlockCommand::Indent,
-        &mut |_| Ok(()),
-    )
-    .unwrap();
-    assert_eq!(s.source_text(), "* item 1\n  * item 2\n    * x");
-}
-
-const REFUSED_INDENT: &str = "* item 1\n  * item 2\n  * ";
-
-/// An empty item whose Indent was refused, caret at its end.
-fn after_refused_indent() -> EditorSession {
-    let mut s = EditorSession::open(REFUSED_INDENT);
-    let end = s.display_text().len();
-    s.select(s.revision(), range(end, end)).unwrap();
-    let revision = s.revision();
-    let refused = s.block_command(revision, range(end, end), BlockCommand::Indent, &mut |_| {
-        panic!("a refused indent accepts nothing")
-    });
-    assert!(matches!(refused, Err(EditorError::UnrepresentableFormat)));
-    assert_eq!(s.source_text(), REFUSED_INDENT);
-    s
-}
-
-#[test]
-fn composition_after_a_refused_indent_writes_the_text_once_at_the_written_depth() {
-    let mut s = after_refused_indent();
-    let end = s.display_text().len();
-    let revision = s.revision();
-    s.compose(revision, range(end, end), "にほん").unwrap();
-    s.compose(revision, range(end, end), "日本").unwrap();
-    assert_eq!(
-        s.source_text(),
-        REFUSED_INDENT,
-        "marked text is provisional"
-    );
-    let change = s
-        .commit_composition(revision, Some("日本語"), &mut |_| Ok(()))
-        .unwrap()
-        .unwrap();
-    assert_eq!(change.inserted, "日本語");
-    assert_eq!(s.source_text(), "* item 1\n  * item 2\n  * 日本語");
-    let end = s.display_text().len();
-    assert_eq!(s.selection(), range(end, end));
-    s.undo(s.revision(), &mut |_| Ok(())).unwrap();
-    assert_eq!(s.source_text(), REFUSED_INDENT);
-}
-
-#[test]
-fn os_replacement_after_a_refused_indent_writes_the_text_once_and_undoes_cleanly() {
-    let mut s = after_refused_indent();
-    let end = s.display_text().len();
-    s.replace_os(s.revision(), range(end, end), "teh", &[], &mut |_| Ok(()))
-        .unwrap();
-    assert_eq!(s.source_text(), "* item 1\n  * item 2\n  * teh");
-    let (start, end) = (end, s.display_text().len());
-    s.replace_os(s.revision(), range(start, end), "the", &[], &mut |_| Ok(()))
-        .unwrap();
-    assert_eq!(s.source_text(), "* item 1\n  * item 2\n  * the");
-    let end = s.display_text().len();
-    assert_eq!(s.selection(), range(end, end));
-    s.undo(s.revision(), &mut |_| Ok(())).unwrap();
-    s.undo(s.revision(), &mut |_| Ok(())).unwrap();
-    assert_eq!(s.source_text(), REFUSED_INDENT);
+    assert_eq!(s.source_text(), "- a\n\n  - x");
 }

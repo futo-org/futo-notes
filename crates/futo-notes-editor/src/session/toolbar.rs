@@ -1,4 +1,5 @@
 //! Read-only toolbar state, derived by the canonical editor owner.
+use super::blocks::{all_quoted, common_heading};
 use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +40,9 @@ impl EditorSession {
             self.projection.format_block_lines(range)
         };
         let first = lines.first();
+        // Blank lines are aside from the selection-wide block state.
+        let content = self.content_block_lines(&lines);
+        let content_first = content.first().copied();
         let list_kind = |line: &crate::inline::blocks::BlockLine| {
             line.list.as_ref().map(|list| {
                 if list.checked.is_some() {
@@ -50,8 +54,8 @@ impl EditorSession {
                 }
             })
         };
-        let common = first.filter(|first| {
-            lines.iter().all(|line| {
+        let common = content_first.filter(|first| {
+            content.iter().all(|line| {
                 (line.heading, line.quote_depth, line.code, list_kind(line))
                     == (
                         first.heading,
@@ -76,7 +80,9 @@ impl EditorSession {
                 .as_ref()
                 .is_some_and(|list| line.quote_depth == list.quote_depth)
         }) {
-            self.toolbar_list_indent_allowed(line)
+            line.list
+                .as_ref()
+                .is_some_and(|list| list.previous_content_column.is_some())
         } else {
             lines.iter().any(|line| line.quote_depth > 0)
         };
@@ -115,11 +121,11 @@ impl EditorSession {
             } else {
                 self.selected_toggle_formats(range, &lines)
             },
-            heading: common.map(|line| line.heading),
-            quote: !lines.is_empty() && lines.iter().all(|line| line.quote_depth > 0),
-            list: first
+            heading: common_heading(&content),
+            quote: all_quoted(&content),
+            list: content_first
                 .and_then(list_kind)
-                .filter(|kind| lines.iter().all(|line| list_kind(line) == Some(*kind))),
+                .filter(|kind| content.iter().all(|line| list_kind(line) == Some(*kind))),
             code,
             mixed: common.is_none(),
             inline_allowed: lines.iter().any(|line| !line.code && !line.metadata),
@@ -128,35 +134,5 @@ impl EditorSession {
             can_undo: !self.undo.is_empty(),
             can_redo: !self.redo.is_empty(),
         }
-    }
-}
-
-impl EditorSession {
-    fn toolbar_list_indent_allowed(&self, line: &crate::inline::blocks::BlockLine) -> bool {
-        let list = line.list.as_ref().unwrap();
-        if list.previous_content_column.is_none() {
-            return false;
-        }
-        if !line.content.is_empty() {
-            return true;
-        }
-        let index = self.source.byte_to_line(line.source.start);
-        let Some(previous_index) = index.checked_sub(1) else {
-            return false;
-        };
-        let previous_range = self.source.line_to_byte(previous_index)..line.source.start;
-        let previous = self
-            .projection
-            .list_command_lines_in_source(&previous_range);
-        let previous = previous.last();
-        let blank = previous.is_some_and(|row| {
-            row.content.is_empty() && !row.code && row.list.as_ref().is_none_or(|list| !list.first)
-        });
-        let joined = previous
-            .and_then(|row| row.list.as_ref())
-            .is_some_and(|previous| {
-                previous.depth > list.depth && previous.quote_depth == list.quote_depth
-            });
-        Self::list_indent_representable(true, blank, joined)
     }
 }

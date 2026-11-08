@@ -84,7 +84,8 @@
   src/features/editor/milkdown/formatState.ts, EditorToolbar.swift,
   EditorToolbar.kt, EmbedToolbar.svelte,
   tests/editor-embed-milkdown-toolbar.spec.ts
-- Bold, Italic and Strikethrough light only when the selection carries that format — within one block the whole selection, across blocks every selected inline body (edge whitespace and blank lines aside), so a lit button means a tap removes it; a collapsed caret shows its carried formats. Block controls light only for the common selected block kind, with mixed blocks left unlit. → crates/futo-notes-editor/src/session/toolbar.rs, crates/futo-notes-editor/src/session/formatting.rs `selected_toggle_formats`
+- Bold, Italic and Strikethrough light only when the selection carries that format — within one block the whole selection, across blocks every selected inline body (edge whitespace and blank lines aside), so a lit button means a tap removes it; a collapsed caret shows its carried formats. Block controls light only for the common selected block kind, with mixed blocks left unlit, except Heading and Quote, which follow the rule below. → crates/futo-notes-editor/src/session/toolbar.rs, crates/futo-notes-editor/src/session/formatting.rs `selected_toggle_formats`
+- The H1/H2/H3 and Quote buttons use the same rule as their taps, so an unlit button's tap never takes the format off, and a lit button's tap takes it off, or is refused with the text unchanged when the removal cannot be written exactly (a quote beside a lazy continuation or inside a list item). Heading lights when every selected content line carries that level, at any quote depth or block kind, so a selection of mixed block kinds can light it; Quote lights when every selected prose line is quoted. Blank lines and front matter are set aside by both (a caret or a selection of only blank lines still reads them), and Quote also sets aside code and divider lines, which it never changes. Two shapes stay outside this: a heading tap whose selection ends at the first text of a list item lifts that item out of its list and drops its heading while the button is unlit, and removing an ATX heading directly above a setext underline or a `---` divider merges the two. → crates/futo-notes-editor/src/session/toolbar.rs, crates/futo-notes-editor/src/session/blocks/mod.rs `common_heading`, `all_quoted`, crates/futo-notes-editor/tests/blocks/blank_lines.rs `toolbar_lit_state_matches_what_the_tap_does`
 - Inline formats and Link are dimmed when the engine disallows inline formatting; Indent, Outdent, Undo and Redo are dimmed when their canonical eligibility or history query says they cannot run. These controls stay visible. → crates/futo-notes-editor/src/session/toolbar.rs
 - Heading controls offer Text, H1, H2 and H3 explicitly. Choosing a level applies
   that same level to every selected prose block; choosing it again does not cycle.
@@ -98,7 +99,7 @@
   surrounding document. Verified in the desktop WebView and Android emulator
   2026-09-08. → src/features/editor/milkdown/blockCommands.ts,
   tests/editor-embed-milkdown-toolbar.spec.ts,
-  crates/futo-notes-editor/src/session/blocks/commands.rs `all_quoted`,
+  crates/futo-notes-editor/src/session/blocks/mod.rs `all_quoted`,
   crates/futo-notes-editor/tests/blocks/toggle.rs
 - Bullet, Ordered and Task retain their list toggles and conversions. Converting
   between list kinds preserves nesting; Bullet/Ordered change the enclosing list,
@@ -143,4 +144,4 @@
   The one `*` a save writes is the second of two adjacent lists ("Markdown house
   style"). → packages/editor/src/markdown/,
   tests/editor-embed-milkdown-toolbar.spec.ts
-- Indent on an EMPTY list item is refused like any other Indent with no preceding sibling to nest under: nothing is held as pending indentation, so later typing, composition or an OS replace never retroactively indents the item. This supersedes the earlier held-indent behavior (main 8d0d8eb41). → crates/futo-notes-editor/tests/lists.rs (70 passing 2026-11-03; evidence `spec-318-artifacts/321/lists.log`)
+- Indent on an EMPTY list item nests it under its previous sibling like any other item (an empty new item is the common way to start a sub-list: Enter, then Indent), as Apple Notes and Google Docs do; only the first item of a list, with no sibling to nest under, is refused. Outdent returns the nested item one level out. The Rust engine (iOS/Android) writes a separating blank line where CommonMark needs one (`- a\n\n  - `); nothing is held as pending indentation, so later typing, composition or an OS replace never retroactively indents the item. This supersedes the earlier refusal (2026-11-03) and the held-indent behavior before it (main 8d0d8eb41). → crates/futo-notes-editor/tests/lists/commands.rs, crates/futo-notes-editor/tests/inline/toolbar_refusals.rs, src/features/editor/milkdown/blockCommands.ts `changeBlockIndent` (ProseMirror `sinkListItem`; desktop's shipping editor has no emptiness check)

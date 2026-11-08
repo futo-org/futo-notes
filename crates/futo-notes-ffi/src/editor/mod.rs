@@ -14,7 +14,8 @@ mod find;
 mod host;
 mod host_open;
 pub use host::{
-    EditorDisplayMirror, EditorListMarker, EditorMirrorEdit, EditorMirrorError, EditorStyleSpan,
+    EditorDisplayMirror, EditorFindLanding, EditorFindSnapshot, EditorFindStep, EditorListMarker,
+    EditorMirrorEdit, EditorMirrorError, EditorStyleSpan, EditorToolbarHighlights,
 };
 pub use host_open::{EditorPendingEdits, EditorQuickView};
 mod images;
