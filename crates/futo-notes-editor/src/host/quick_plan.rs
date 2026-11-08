@@ -10,11 +10,11 @@ pub fn plan_quick_open(quick: &QuickOpen) -> Vec<StyleSpec> {
     // A block may reach past the shown text; it ends at the cut.
     let mut to_utf16 = |byte: usize| mirror.byte_to_utf16(byte).unwrap_or(end);
     let mut spans = plan_styles(&quick.projection, 0, &mut to_utf16);
-    // The quick view is planned whole: the window is all of its display.
-    let whole = DisplayRange {
+    // The host restyles everything it shows: the window is the whole quick display.
+    let window = DisplayRange {
         start: DisplayOffset(0),
         end: DisplayOffset(quick.display.len()),
     };
-    spans.extend(plan_tables(&quick.tables, whole, &mut to_utf16));
+    spans.extend(plan_tables(&quick.tables, window, &mut to_utf16));
     spans
 }

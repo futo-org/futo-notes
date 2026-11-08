@@ -17,9 +17,9 @@ struct Queued {
 /// next tap through it ([`map`](Self::map)). A position before an edit stays; one at or after
 /// its end moves by what the edit changed; one inside a replaced range goes to its start (a
 /// range's end, to the end of the replacement; a caret stays a caret). Insertion affinity: a range's end that sits
-/// where text was inserted stays before it (the Backspace of the character before an insertion
-/// point must not swallow the insertion), while a start there, or a collapsed range, goes after
-/// it (a second typed character lands after the first). Units are the host's (UTF-16).
+/// where an edit starts stays before it (the Backspace of the character before an insertion
+/// point must not swallow the insertion), while a start at an insertion point goes after it (a
+/// second typed character lands after the first). Units are the host's (UTF-16).
 ///
 /// The engine reports the smallest display change, which inside a run of identical characters is
 /// its rightmost spelling ("a" typed at the start of "aa" is reported at the end). Which spelling
@@ -101,7 +101,7 @@ impl PendingEdits {
 }
 
 fn moved(at: usize, edit: &Queued, is_end: bool) -> usize {
-    if at < edit.start || (is_end && at == edit.start && edit.start == edit.end) {
+    if at < edit.start || (is_end && at == edit.start) {
         at
     } else if at >= edit.end {
         at - (edit.end - edit.start) + edit.inserted
