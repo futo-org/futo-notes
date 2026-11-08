@@ -40,7 +40,7 @@ assert.equal(frames.length, 24);
 const fences = JSON.parse(
   readFileSync(new URL('fixtures/fence-container-commands.json', import.meta.url)),
 );
-assert.equal(fences.length, 23);
+assert.equal(fences.length, 27);
 const headings = JSON.parse(
   readFileSync(new URL('fixtures/heading-quote-commands.json', import.meta.url)),
 );

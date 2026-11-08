@@ -47,6 +47,8 @@ fn action(
                 s.revision(),
                 selected,
                 match command {
+                    "CodeBlock" => BlockCommand::CodeBlock,
+                    "WrapCodeBlock" => BlockCommand::WrapCodeBlock,
                     "Text" => BlockCommand::Heading(0),
                     "Heading2" => BlockCommand::Heading(2),
                     "Quote" => BlockCommand::Quote,
@@ -164,7 +166,7 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
         "../../../../futo-notes-editor/tests/fixtures/fence-container-commands.json"
     ))
     .unwrap();
-    assert_eq!(fences.len(), 23);
+    assert_eq!(fences.len(), 27);
     let headings: Vec<Value> = serde_json::from_str(include_str!(
         "../../../../futo-notes-editor/tests/fixtures/heading-quote-commands.json"
     ))
