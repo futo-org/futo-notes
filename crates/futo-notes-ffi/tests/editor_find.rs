@@ -1,5 +1,8 @@
 mod support;
-use futo_notes_ffi::{editor_find_scan, EditorByteRange, EditorUtf16Range, NoteStore};
+use futo_notes_ffi::{
+    editor_find_scan, EditorByteRange, EditorDisplayMirror, EditorFindLanding, EditorUtf16Range,
+    NoteStore,
+};
 use support::{path_string, TempTree};
 
 #[test]
@@ -57,4 +60,42 @@ fn native_find_steps_scans_off_lock_and_never_touches_saves_or_history() {
         session.source_text().unwrap(),
         "x a **bo**ld Bold\r\n\r\nBOLD\r\n"
     );
+}
+
+#[test]
+fn find_snapshot_and_landing_give_utf16_marks_and_first_press_lands() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("g".into(), "".into(), "日本 **bo**ld bold\n".into())
+        .unwrap();
+    let session = store.open_editor("g".into()).unwrap();
+    let mirror = EditorDisplayMirror::new(session.display_text().unwrap());
+    let landing = EditorFindLanding::new();
+    session.find_set_query(0, "bold".into()).unwrap();
+    let snapshot = session
+        .find_snapshot(0, mirror.clone(), false, true)
+        .unwrap();
+    let range = |start, end| EditorUtf16Range { start, end };
+    assert_eq!(snapshot.matches, vec![range(3, 7), range(8, 12)]);
+    assert_eq!(snapshot.reveal, Some(range(3, 7)));
+    assert!(session
+        .find_snapshot(0, mirror, true, true)
+        .unwrap()
+        .matches
+        .is_empty());
+    let first = session
+        .find_step_landing(0, landing.clone(), true, false)
+        .unwrap();
+    assert_eq!((first.report.current, first.landing.is_some()), (1, true));
+    let second = session
+        .find_step_landing(0, landing.clone(), true, false)
+        .unwrap();
+    assert_eq!(second.report.current, 2);
+    assert!(session
+        .find_step_landing(0, landing, true, true)
+        .unwrap()
+        .landing
+        .is_none());
 }
