@@ -12,6 +12,7 @@ pub(super) fn pieces(
     markers: &mut Vec<Marker>,
     selected: Range<usize>,
     format: InlineFormat,
+    direction: Option<bool>,
     opaque: &[Range<usize>],
 ) -> usize {
     let mut work = 0;
@@ -39,6 +40,8 @@ pub(super) fn pieces(
             })
         });
     work += active_work;
+    // A forced direction (`Some(add)`) overrides the local reading.
+    let all_active = direction.map_or(all_active, |add| !add);
     if format == InlineFormat::Code
         && !all_active
         && markers.iter().any(|marker| {

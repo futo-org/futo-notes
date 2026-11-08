@@ -37,7 +37,7 @@ fn structural_seams_and_raw_composition_keep_exact_source_and_carets() {
             let text = |key: &str| case[key].as_str().unwrap();
             let root = TestRoot::new();
             let store = store(&root);
-            store.create("", "seam", text("source")).unwrap();
+            plant_note(&root, "seam", text("source"));
             {
                 let mut s = store.open_editor("seam").unwrap();
                 let mut view = text("display").to_owned();
@@ -206,16 +206,18 @@ fn structural_seams_and_raw_composition_keep_exact_source_and_carets() {
                 assert_eq!(store.read("seam").unwrap(), text("source"));
                 s.checkpoint().unwrap();
             }
+            // The save appended the note's final line ending, if it had none.
+            let (saved, shown) = saved_forms(text("expectedSource"), text("expectedDisplay"));
             let mut recovered = store.open_editor("seam").unwrap();
-            assert_eq!(recovered.source_text(), text("expectedSource"));
-            assert_eq!(recovered.display_text(), text("expectedDisplay"));
+            assert_eq!(recovered.source_text(), saved);
+            assert_eq!(recovered.display_text(), shown);
             assert!(recovered.undo(recovered.revision()).unwrap().is_none());
             recovered.checkpoint().unwrap();
-            assert_eq!(store.read("seam").unwrap(), text("expectedSource"));
+            assert_eq!(store.read("seam").unwrap(), saved);
             drop(recovered);
             let reopened = store.open_editor("seam").unwrap();
-            assert_eq!(reopened.source_text(), text("expectedSource"));
-            assert_eq!(reopened.display_text(), text("expectedDisplay"));
+            assert_eq!(reopened.source_text(), saved);
+            assert_eq!(reopened.display_text(), shown);
         }
     }
 }

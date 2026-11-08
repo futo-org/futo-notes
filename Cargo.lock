@@ -2029,6 +2029,7 @@ dependencies = [
  "futo-notes-tags",
  "futo-notes-wikilinks",
  "pulldown-cmark",
+ "rayon",
  "ropey",
  "serde",
  "serde_json",

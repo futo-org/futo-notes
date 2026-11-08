@@ -9,7 +9,7 @@ fn create_never_clobbers_a_concurrent_writer_at_the_chosen_id() {
     let store = store(&root);
     store.set_install_window_hook(plant_once(&root, "peer wrote here"));
 
-    let mutation = store.create("", "Note", "my new note").unwrap();
+    let mutation = store.create("", "Note", "my new note\n").unwrap();
     let final_id = mutation.final_id.clone().unwrap();
 
     assert_ne!(
@@ -21,7 +21,7 @@ fn create_never_clobbers_a_concurrent_writer_at_the_chosen_id() {
         "peer wrote here",
         "the concurrent writer's file must not be clobbered"
     );
-    assert_eq!(store.read(&final_id).unwrap(), "my new note");
+    assert_eq!(store.read(&final_id).unwrap(), "my new note\n");
 }
 
 // The create path registers NO watcher suppression (D2, two-strikes redesign):
@@ -36,7 +36,7 @@ fn the_create_path_registers_no_watcher_suppression() {
     let store = LocalNoteStore::with_before_write(root.0.clone(), recorder.clone());
     store.set_install_window_hook(plant_once(&root, "peer"));
 
-    store.create("", "Note", "mine").unwrap(); // forces a collision retry
+    store.create("", "Note", "mine\n").unwrap(); // forces a collision retry
 
     assert!(
         recorder.0.lock().unwrap().is_empty(),
@@ -60,6 +60,19 @@ fn importing_markdown_preserves_the_filename_and_never_clobbers() {
     assert_eq!(store.read("grocery list").unwrap(), "- milk\n");
     assert_eq!(store.read("grocery list-2").unwrap(), "- milk\n");
     assert_eq!(fs::read_to_string(source).unwrap(), "- milk\n");
+}
+
+#[test]
+fn importing_markdown_copies_the_file_byte_for_byte() {
+    let vault = TestRoot::new();
+    let external = TestRoot::new();
+    let source = external.0.join("no ending.md");
+    fs::write(&source, "a\r\nb").unwrap();
+    let store = store(&vault);
+
+    store.import_markdown(&source).unwrap();
+
+    assert_eq!(store.read("no ending").unwrap(), "a\r\nb");
 }
 
 #[test]

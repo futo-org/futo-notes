@@ -232,6 +232,15 @@ export interface Composition {
   revision: number;
   range: DisplayRange;
   text: string;
+  /** The formats the marked text will have once committed; uncovered characters are plain. */
+  runs: MarkedRun[];
+}
+
+/** A formatted stretch of marked text, in UTF-8 byte offsets into `Composition.text`. */
+export interface MarkedRun {
+  start: number;
+  end: number;
+  formats: InlineFormat[];
 }
 
 export interface WikilinkCandidate {

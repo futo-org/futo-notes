@@ -53,6 +53,7 @@ fn tag_line_regex() -> &'static Regex {
 ///      is `\s` (`(?m)^` after a newline is subsumed — `\n` is `\s`);
 ///   2. a name `[a-zA-Z][a-zA-Z0-9_-]{0,49}` (1..=50 chars);
 ///   3. right boundary `(?=$|\s|[.,;:!?)}\]])` (zero-width — not consumed).
+///
 /// `\s` is Unicode White_Space (`char::is_whitespace()`), which is what the
 /// `regex`/`fancy-regex` `\s` resolved to.
 pub fn tag_regex_matches(content: &str) -> Vec<String> {

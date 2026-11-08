@@ -383,26 +383,31 @@ pub(super) fn read(root: &Path, relative: &str) -> Result<Vec<u8>, String> {
 }
 
 pub(super) fn read_optional(root: &Path, relative: &str) -> Result<Option<Vec<u8>>, String> {
+    let Some(mut file) = open_optional(root, relative)? else {
+        return Ok(None);
+    };
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|error| context("read", relative, error))?;
+    Ok(Some(bytes))
+}
+
+pub(super) fn open_optional(root: &Path, relative: &str) -> Result<Option<File>, String> {
     let parent = match open_parent(root, relative, false) {
         Ok(parent) => parent,
         Err(OpenParentError::NotFound(_)) => return Ok(None),
         Err(error) => return Err(error.message()),
     };
-    let file = match openat(
+    match openat(
         &parent.directory,
         &parent.leaf,
         OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
         Mode::empty(),
     ) {
-        Ok(file) => file,
-        Err(rustix::io::Errno::NOENT) => return Ok(None),
-        Err(error) => return Err(context("read", relative, error)),
-    };
-    let mut bytes = Vec::new();
-    File::from(file)
-        .read_to_end(&mut bytes)
-        .map_err(|error| context("read", relative, error))?;
-    Ok(Some(bytes))
+        Ok(file) => Ok(Some(File::from(file))),
+        Err(rustix::io::Errno::NOENT) => Ok(None),
+        Err(error) => Err(context("read", relative, error)),
+    }
 }
 
 // Local operations report the committed filesystem effect even when directory

@@ -102,7 +102,7 @@ pub(crate) struct Row {
     pub tail_chain: Vec<(usize, usize)>,
 }
 
-pub(super) fn parser_options() -> Options {
+pub(crate) fn parser_options() -> Options {
     // GFM footnotes keep `[^x]` and its definition visible literal source
     // rather than a hidden CommonMark reference definition.
     Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_FOOTNOTES

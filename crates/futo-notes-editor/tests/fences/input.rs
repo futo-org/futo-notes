@@ -42,10 +42,10 @@ fn literal_code_input_and_enter_keep_fence_and_neighbors_exact_through_history()
     );
     assert_eq!(
         session.source_text(),
-        "~~~js\r\na\nb\r\n~~~~ \r\n\n__tail__"
+        "~~~js\r\na\r\nb\r\n~~~~ \r\n\n__tail__"
     );
-    assert_eq!(view.text, "a\nb\r\n\ntail");
-    assert_eq!(session.selection(), range(2, 2));
+    assert_eq!(view.text, "a\r\nb\r\n\ntail");
+    assert_eq!(session.selection(), range(3, 3));
 }
 
 #[test]
@@ -198,4 +198,83 @@ fn a_longer_original_closer_is_never_shortened_during_delimiter_repair() {
     );
     assert_eq!(session.source_text(), "````js\n```\na\n``````  ");
     assert_eq!(view.text, "```\na");
+}
+
+#[test]
+fn a_typed_opener_in_a_list_item_keeps_the_fence_and_later_rows_in_the_item() {
+    // The body and closing lines take the item's content column; at column
+    // zero the closer ended the item and opened a fence over its later rows.
+    for (raw, at, expected, shown) in [
+        (
+            "- a\n- \n  more",
+            2,
+            "- a\n- ```q\n  \n  ```\n  more",
+            "a\n\nmore",
+        ),
+        ("1. \n   more", 0, "1. ```q\n   \n   ```\n   more", "\nmore"),
+        (
+            "> - \n>   more",
+            0,
+            "> - ```q\n>   \n>   ```\n>   more",
+            "\nmore",
+        ),
+        (
+            "- a\r\n- \r\n",
+            3,
+            "- a\r\n- ```q\r\n  \r\n  ```\r\n",
+            "a\r\n",
+        ),
+    ] {
+        let mut session = EditorSession::open(raw);
+        let mut view = ReferenceView::new(&session.display_text());
+        session.select(session.revision(), range(at, at)).unwrap();
+        for typed in ["`", "`", "`", "q", " "] {
+            view.apply(
+                session
+                    .replace(session.revision(), session.selection(), typed, &mut |_| {
+                        Ok(())
+                    })
+                    .unwrap(),
+            );
+        }
+        assert_eq!(session.source_text(), expected, "{raw:?}");
+        assert_eq!(view.text, shown, "{raw:?}");
+        assert_eq!(EditorSession::open(expected).display_text(), shown);
+        // The caret is on the empty code line; the opener line is hidden.
+        assert_eq!(session.selection(), range(at, at), "{raw:?}");
+    }
+}
+
+#[test]
+fn a_typed_opener_in_a_table_row_or_task_stays_literal_text() {
+    // Space after ``` at a row's start converted the row into a code block,
+    // turning the rest of the table into code; in a task it left the opener
+    // as text and an empty fence below it.
+    for (raw, after) in [
+        ("| a | b |\n|---|---|\n| c | d |\n", "| c"),
+        ("- [ ] task\n- [ ] \n- [x] done\n", ""),
+    ] {
+        let mut session = EditorSession::open(raw);
+        let mut view = ReferenceView::new(&session.display_text());
+        let at = if after.is_empty() {
+            session.display_text().find("\n\n").unwrap() + 1
+        } else {
+            session.display_text().find(after).unwrap()
+        };
+        session.select(session.revision(), range(at, at)).unwrap();
+        for typed in ["`", "`", "`", "q", " "] {
+            view.apply(
+                session
+                    .replace(session.revision(), session.selection(), typed, &mut |_| {
+                        Ok(())
+                    })
+                    .unwrap(),
+            );
+        }
+        let source = session.source_text();
+        assert!(!source.contains("q\n"), "{source:?}");
+        assert!(view.text.contains("```q "), "{:?}", view.text);
+        assert_eq!(view.text, session.display_text());
+        assert_eq!(EditorSession::open(&source).display_text(), view.text);
+    }
 }

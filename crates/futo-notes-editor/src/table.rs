@@ -1,84 +1,10 @@
 //! GFM table layout over one window of exact source, and the byte splices that
 //! structural commands write. Views never see pipes or the delimiter row; they
 //! receive cells and ask for commands. Offsets here are window-relative.
-use crate::{DisplayRange, SourceRange};
-use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TableAlignment {
-    None,
-    Left,
-    Center,
-    Right,
-}
-
-/// One editable cell. `source` and `content` cover the cell's text without the
-/// padding spaces; an empty cell has an empty range inside its padding.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TableCell {
-    pub row: usize,
-    pub column: usize,
-    pub source: SourceRange,
-    pub content: DisplayRange,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TableFocus {
-    pub row: usize,
-    pub column: usize,
-}
-
-/// Which structural commands apply to the focused cell. Platform controls only
-/// reflect these flags.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TableControls {
-    pub insert_row_above: bool,
-    pub insert_row_below: bool,
-    pub delete_row: bool,
-    pub insert_column_left: bool,
-    pub insert_column_right: bool,
-    pub delete_column: bool,
-}
-
-/// A recognized root-level GFM table. Row 0 is the header; the delimiter row is
-/// never a row. A body row shorter than `columns` lists only the cells it has.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TableDescription {
-    pub source: SourceRange,
-    pub display: DisplayRange,
-    pub columns: usize,
-    pub alignments: Vec<TableAlignment>,
-    pub rows: Vec<Vec<TableCell>>,
-    pub focus: Option<TableFocus>,
-    pub controls: Option<TableControls>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TableKey {
-    Tab,
-    ShiftTab,
-    Enter,
-    ModEnter,
-    ShiftEnter,
-}
-
-/// A key handled inside a table: a selection move or one accepted edit.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TableOutcome {
-    Selected(crate::SelectionChange),
-    Edited(Box<crate::ViewChange>),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TableCommand {
-    InsertRowAbove,
-    InsertRowBelow,
-    DeleteRow,
-    InsertColumnLeft,
-    InsertColumnRight,
-    DeleteColumn,
-}
+mod types;
+pub use types::*;
 
 pub(crate) struct Line {
     pub start: usize,

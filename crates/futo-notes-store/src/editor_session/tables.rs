@@ -17,6 +17,19 @@ impl StoreEditorSession<'_> {
         })
     }
 
+    pub fn inspect_tables(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<Vec<TableDescription>, EditorStoreError> {
+        self.live(|state| {
+            state
+                .engine
+                .inspect_tables(expected, range)
+                .map_err(EditorStoreError::Editor)
+        })
+    }
+
     pub fn table_command(
         &mut self,
         expected: Revision,

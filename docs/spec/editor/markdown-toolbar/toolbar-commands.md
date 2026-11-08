@@ -22,14 +22,18 @@
   EditorToolbar.swift, EditorToolbar.kt, EmbedToolbar.svelte,
   tests/editor-embed-milkdown-toolbar.spec.ts
 - Code block converts the current paragraph(s) into a fenced code block —
-  the same command the `/` menu's Code block item runs. One-way (there is no
-  toolbar command back OUT of a code block; the block-conversion model
-  already refuses both a `code` source and a `code` target for every other
-  button, docs/spec/editor.md "A block-format command never touches a CODE
-  BLOCK" below). Was missing from the manifest entirely — every mobile shell,
-  not only Android — until QA-009. Verified emulator 2026-09-11. →
+  the same command the `/` menu's Code block item runs. It toggles: on lines
+  already inside a code block it takes the touched lines out of the fence as
+  plain text (text that would read as Markdown structure, such as `# x`, `- a`,
+  `> q`, `1. x` or `---`, is kept literal), and the rows above and below keep
+  their fence. Every other block button still
+  leaves a code block alone (docs/spec/editor.md "A block-format command never
+  touches a CODE BLOCK" below). Was missing from the manifest entirely — every
+  mobile shell, not only Android — until QA-009. Verified emulator 2026-09-11. →
   packages/editor/src/toolbar.ts, src/features/editor/milkdown/toolbarExec.ts,
-  tests/editor-embed-milkdown-toolbar.spec.ts
+  tests/editor-embed-milkdown-toolbar.spec.ts,
+  crates/futo-notes-editor/src/session/blocks/code_command.rs `code_toggle_off`,
+  crates/futo-notes-editor/tests/fences/commands.rs
 - Link opens the SAME shared URL prompt the desktop selection toolbar and the
   `/` menu's Link item do (`linkPrompt/`), floated over the caret/selection
   inside the WebView — never a native SwiftUI/Compose dialog. The prompt stays
@@ -80,18 +84,22 @@
   src/features/editor/milkdown/formatState.ts, EditorToolbar.swift,
   EditorToolbar.kt, EmbedToolbar.svelte,
   tests/editor-embed-milkdown-toolbar.spec.ts
+- Bold, Italic and Strikethrough light only when the selection carries that format — within one block the whole selection, across blocks every selected inline body (edge whitespace and blank lines aside), so a lit button means a tap removes it; a collapsed caret shows its carried formats. Block controls light only for the common selected block kind, with mixed blocks left unlit. → crates/futo-notes-editor/src/session/toolbar.rs, crates/futo-notes-editor/src/session/formatting.rs `selected_toggle_formats`
+- Inline formats and Link are dimmed when the engine disallows inline formatting; Indent, Outdent, Undo and Redo are dimmed when their canonical eligibility or history query says they cannot run. These controls stay visible. → crates/futo-notes-editor/src/session/toolbar.rs
 - Heading controls offer Text, H1, H2 and H3 explicitly. Choosing a level applies
   that same level to every selected prose block; choosing it again does not cycle.
   Text returns headings to paragraphs. Enclosing quotes keep their nesting.
   Verified in the desktop WebView and Android emulator 2026-09-08. →
   packages/editor/src/toolbar.ts, src/features/editor/milkdown/blockCommands.ts,
   tests/editor-embed-milkdown-toolbar.spec.ts, tests/selection-toolbar.spec.ts
-- Quote applies quote formatting; pressing it inside a quote does not change its
-  depth. Indent and Outdent change the nearest list or quote container one level
+- Quote toggles: on unquoted lines it applies quote formatting, and on lines
+  that are all quoted it takes one quote level off. Indent and Outdent change the nearest list or quote container one level
   at a time; outdenting a top-level quote returns its selected content to the
   surrounding document. Verified in the desktop WebView and Android emulator
   2026-09-08. → src/features/editor/milkdown/blockCommands.ts,
-  tests/editor-embed-milkdown-toolbar.spec.ts
+  tests/editor-embed-milkdown-toolbar.spec.ts,
+  crates/futo-notes-editor/src/session/blocks/commands.rs `all_quoted`,
+  crates/futo-notes-editor/tests/blocks/toggle.rs
 - Bullet, Ordered and Task retain their list toggles and conversions. Converting
   between list kinds preserves nesting; Bullet/Ordered change the enclosing list,
   while Task changes the selected items. Converting a checked task to another
@@ -135,3 +143,4 @@
   The one `*` a save writes is the second of two adjacent lists ("Markdown house
   style"). → packages/editor/src/markdown/,
   tests/editor-embed-milkdown-toolbar.spec.ts
+- Indent on an EMPTY list item is refused like any other Indent with no preceding sibling to nest under: nothing is held as pending indentation, so later typing, composition or an OS replace never retroactively indents the item. This supersedes the earlier held-indent behavior (main 8d0d8eb41). → crates/futo-notes-editor/tests/lists.rs (70 passing 2026-11-03; evidence `spec-318-artifacts/321/lists.log`)

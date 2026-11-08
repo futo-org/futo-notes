@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
+import { savedSource } from './wasm-saved-source.mjs';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import console from 'node:console';
@@ -178,7 +179,7 @@ for (const item of cases) {
     page = null;
     worker = host(vault, '--reopen');
     const recovered = await worker.next();
-    assert.equal(recovered.source, item.expectedSource);
+    assert.equal(recovered.source, savedSource(item.expectedSource));
     page = WasmSession.restore(JSON.stringify(recovered));
     assert.equal(
       JSON.parse(
@@ -192,7 +193,7 @@ for (const item of cases) {
     page.free();
     page = null;
     worker = host(vault, '--reopen');
-    assert.equal((await worker.next()).source, item.expectedSource);
+    assert.equal((await worker.next()).source, savedSource(item.expectedSource));
   } finally {
     page?.free();
     if (worker) await worker.close();

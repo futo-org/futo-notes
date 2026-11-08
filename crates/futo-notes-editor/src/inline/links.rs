@@ -319,6 +319,7 @@ impl super::Projection {
                 retained: Default::default(),
                 requires_source_identity: false,
                 guarded_words: rendered.take_guards(source_start, source_end),
+                context: source_start..source_end,
                 split_retirement: None,
                 pending_links: rendered.pending_links,
                 activated_links: rendered.activated_links,
@@ -464,7 +465,14 @@ impl super::Projection {
             right
         };
         if let Some(formats) = pending {
-            carry_formats(&mut before, &after, &mut markers, &mut active, formats);
+            carry_formats(
+                &mut before,
+                &after,
+                &mut markers,
+                &mut active,
+                formats,
+                true,
+            );
         }
         let formats = active
             .iter()
@@ -528,6 +536,7 @@ impl super::Projection {
             retained: Default::default(),
             requires_source_identity: false,
             guarded_words: rendered.take_guards(source_start, source_end),
+            context: source_start..source_end,
             split_retirement: None,
             pending_links: rendered.pending_links,
             activated_links: rendered.activated_links,

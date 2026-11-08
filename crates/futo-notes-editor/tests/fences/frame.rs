@@ -167,7 +167,7 @@ fn typed_shortcut_retains_shipping_exact_triple_backtick_grammar() {
 fn open_fence_enter_creates_one_editable_break_and_preserves_its_original_bytes() {
     for (source, shown, at, expected, display) in [
         ("```\na", "a", 1, "```\na\n\n", "a\n"),
-        ("```\na\r\n", "a", 1, "```\na\n\r\n", "a\n"),
+        ("```\na\r\n", "a", 1, "```\na\r\n\r\n", "a\r\n"),
         ("> ~~~\n> a", "a", 1, "> ~~~\n> a\n> \n", "a\n"),
         ("> ~~~", "", 0, "> ~~~\n> \n> \n", "\n"),
     ] {
@@ -187,7 +187,8 @@ fn open_fence_enter_creates_one_editable_break_and_preserves_its_original_bytes(
         );
         assert_eq!(session.source_text(), expected);
         assert_eq!(view.text, display);
-        assert_eq!(session.selection(), range(at + 1, at + 1));
+        let caret = at + display.len() - shown.len();
+        assert_eq!(session.selection(), range(caret, caret));
         assert_eq!(EditorSession::open(expected).display_text(), display);
     }
 }

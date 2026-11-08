@@ -46,7 +46,7 @@ fn withheld_resume_ack_preserves_marking_until_the_same_complete_update_is_retri
         Err(PortableError::Paused)
     );
     assert_eq!(page.composition(), Some(&marked));
-    assert_eq!(page.draft_text(), "a!");
+    assert_eq!(page.draft_text(), "a!\n");
     assert_eq!(view, "a!");
     assert!(page.acknowledge(withheld.clone()).unwrap().is_empty());
     assert!(page.acknowledge(withheld).unwrap().is_empty());
@@ -69,10 +69,13 @@ fn withheld_resume_ack_preserves_marking_until_the_same_complete_update_is_retri
         .unwrap()
         .is_none());
     assert_eq!(view, "a!日本");
-    assert_eq!(page.draft_text(), "a!日本");
+    assert_eq!(page.draft_text(), "a!日本\n");
     assert_eq!(page.status().accepted, Revision(2));
     assert!(page.composition().is_none());
     host.checkpoint().unwrap();
     drop(host);
-    assert_eq!(store.open_editor("plain").unwrap().source_text(), "a!日本");
+    assert_eq!(
+        store.open_editor("plain").unwrap().source_text(),
+        "a!日本\n"
+    );
 }

@@ -295,3 +295,163 @@ fn untouched_lists_kept(before: &str, after: &str, label: &str) {
         }
     }
 }
+
+/// Block markers a typed run may open with, then characters typed after
+/// them, at a line start or anywhere inside existing text.
+const MARKERS: &[&str] = &[
+    "", "- ", "* ", "+ ", "1. ", "3. ", "# ", "## ", "> ", "- [ ] ", "[x] ", "*", "  * ", " - ",
+    ">", "#", "-", "- - ", "> - ", "- > ", "- ## ", "", "", "", "**", "_", "`", "~~",
+];
+const TYPED: &[u8] = b"#>-+1.[] x aabq*_~`*_~` .";
+
+/// Existing inline formatting to type next to and inside.
+const INLINE_PIECES: &[&str] = &[
+    "**bold** and *ital* and ~~strike~~ and `code` and [link](https://x.y) end\n",
+    "_under_ __strong__ ***both*** a*b*c snake_case_word\n",
+    "**two line\nbold** after\n",
+    "text _]_ word\n",
+    "- **item bold** and `code`\n- *it* ~~st~~ [l](u)\n",
+    "> *quoted ital* ~~s~~ `c`\n",
+    "# head **bold** `c`\n",
+    "``double `tick` code`` x\n",
+    "[**bold link**](u) <https://auto.link> x\n",
+    "| a | **b** |\n|---|---|\n| `c` | _d_ |\n",
+    "*a **b** c* ~x~ __a_b__\n",
+    "1. _one_\n2. `two`\n",
+    // A span right after inline code; a quoted blank line above a list item
+    // that cannot interrupt a paragraph.
+    "`x`~-~ and `y`*z*\n",
+    "> x\n> \n> 2. ordered\n",
+];
+
+/// Visible letters in order, except a task shortcut's `x`: typed delimiters
+/// may become hidden formatting markers or stay literal, but no other visible
+/// text may change.
+fn letters_of(text: &str) -> String {
+    text.chars()
+        .filter(|&ch| ch.is_alphabetic() && ch != 'x')
+        .collect()
+}
+
+/// Visible text without inline delimiters, which typing may turn into
+/// hidden markers or keep as literal text.
+fn without_delimiters(text: &str) -> String {
+    text.replace(['*', '_', '~', '`'], "")
+}
+
+#[test]
+fn typed_characters_are_never_refused_and_always_land() {
+    let mut seed =
+        std::env::var("TYPING_SEED").map_or(0x2545_f491_4f6c_dd1du64, |seed| seed.parse().unwrap());
+    let mut next = move |bound: usize| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed % bound.max(1) as u64) as usize
+    };
+    let cases = std::env::var("TYPING_CASES").map_or(1500, |cases| cases.parse().unwrap());
+    for case in 0..cases {
+        let mut original = String::new();
+        for _ in 0..1 + next(3) {
+            original.push_str(match next(2) {
+                0 => PIECES[next(PIECES.len())],
+                _ => INLINE_PIECES[next(INLINE_PIECES.len())],
+            });
+        }
+        let mut session = EditorSession::open(&original);
+        // A random line start, a fresh line after Enter at a line end, or
+        // any point inside the text.
+        let display = session.display_text();
+        let starts: Vec<usize> = std::iter::once(0)
+            .chain(display.match_indices('\n').map(|(at, _)| at + 1))
+            .collect();
+        let mut at = starts[next(starts.len())];
+        let place = next(3);
+        let enter = place == 0;
+        if enter {
+            at = display[at..]
+                .find(['\r', '\n'])
+                .map_or(display.len(), |end| at + end);
+        } else if place == 1 {
+            // Any scalar boundary, including between a CRLF's CR and LF.
+            at = next(display.len() + 1);
+            while !display.is_char_boundary(at) {
+                at -= 1;
+            }
+        }
+        let caret = DisplayRange {
+            start: DisplayOffset(at),
+            end: DisplayOffset(at),
+        };
+        session.select(session.revision(), caret).unwrap();
+        if enter {
+            let _ =
+                session.paragraph_key(session.revision(), caret, ParagraphKey::Enter, &mut |_| {
+                    Ok(())
+                });
+        }
+        let mut input = MARKERS[next(MARKERS.len())].to_owned();
+        for _ in 0..next(8) {
+            input.push(TYPED[next(TYPED.len())] as char);
+        }
+        // A keyboard may commit the whole run as one string.
+        if next(4) == 0 && !input.is_empty() {
+            let label = format!("case {case} committed {input:?} into {original:?}");
+            type_checked(&mut session, &input, &label);
+            continue;
+        }
+        for (index, ch) in input.char_indices() {
+            let label = format!("case {case} typed {:?} into {original:?}", &input[..=index]);
+            type_checked(&mut session, &ch.to_string(), &label);
+        }
+    }
+}
+
+/// Types `typed` over the selection (Enter in a table selects the next cell):
+/// it must be accepted, reopen identically, keep every visible letter and,
+/// after text on its line where nothing typed can be block syntax, change the
+/// visible text only by the typed characters.
+fn type_checked(session: &mut EditorSession, typed: &str, label: &str) {
+    let display = session.display_text();
+    let selection = session.selection();
+    let (start, end) = (selection.start.0, selection.end.0);
+    let line = display[..start].rsplit('\n').next().unwrap();
+    let typed_over = format!("{}{typed}{}", &display[..start], &display[end..]);
+    // A Space after a line's ```word opener may convert it to a code block
+    // whose opener line, language word and the Space are hidden (not in a
+    // heading, table or task, where the opener stays literal text).
+    let converted = line
+        .strip_prefix("```")
+        .filter(|word| typed == " " && !word.contains([' ', '`']))
+        .map(|word| format!("{}{}", &display[..start - word.len()], &display[end..]));
+    // (reading, whether the visible text must match it beyond delimiters):
+    // a conversion can also end the paragraph the line was part of.
+    let readings: Vec<(&String, bool)> = std::iter::once((&typed_over, true))
+        .chain(converted.iter().map(|reading| (reading, false)))
+        .collect();
+    let exact = line.contains(|ch: char| ch.is_alphabetic() && ch != 'x');
+    let label = format!("{label}\nnow {:?} at {selection:?}", session.source_text());
+    session
+        .replace_action(
+            session.revision(),
+            selection,
+            typed,
+            crate::InputAction::Typing,
+            &mut |_| Ok(()),
+        )
+        .unwrap_or_else(|error| panic!("{error:?} {label}"));
+    let label = format!("{label}\ngives {:?}", session.source_text());
+    let now = session.display_text();
+    assert_eq!(
+        now,
+        EditorSession::open(&session.source_text()).display_text(),
+        "{label}"
+    );
+    assert!(
+        readings
+            .iter()
+            .any(|&(reading, whole)| letters_of(&now) == letters_of(reading)
+                && (!exact || !whole || without_delimiters(&now) == without_delimiters(reading))),
+        "{label}\nshows {now:?}\nexpected one of {readings:?}"
+    );
+}

@@ -118,7 +118,8 @@ fn failed_www_closer_and_history_retain_the_exact_origin_pending_handoff() {
     editor.checkpoint().unwrap();
     drop(editor);
     let recovered = store.open_editor("typed-close").unwrap();
-    assert_eq!(recovered.source_text(), closed);
+    // The save appended the note's final line ending.
+    assert_eq!(recovered.source_text(), format!("{closed}\n"));
     // The canonical closed spelling survives, while live pending intent
     // does not cross the raw-source recovery boundary.
     assert_eq!(
@@ -146,14 +147,14 @@ fn recovery_of_an_unfinished_www_word_does_not_restore_its_typing_origin() {
     editor.checkpoint().unwrap();
     drop(editor);
     let mut recovered = store.open_editor("typed-recover").unwrap();
-    assert_eq!(recovered.source_text(), "<www.x.test/path");
+    assert_eq!(recovered.source_text(), "<www.x.test/path\n");
     recovered
         .replace(recovered.revision(), range(16, 16), ">")
         .unwrap();
     recovered
         .replace(recovered.revision(), range(17, 17), " ")
         .unwrap();
-    assert_eq!(recovered.display_text(), "<www.x.test/path> ");
+    assert_eq!(recovered.display_text(), "<www.x.test/path> \n");
     assert!(recovered
         .project(recovered.revision(), range(0, 18))
         .unwrap()

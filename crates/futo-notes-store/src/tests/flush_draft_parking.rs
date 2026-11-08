@@ -57,11 +57,11 @@ fn each_distinct_diverged_draft_gets_its_own_counter_suffixed_copy() {
     );
     assert_eq!(
         store.read(&format!("note (conflict {date})")).unwrap(),
-        "draft one"
+        "draft one\n"
     );
     assert_eq!(
         store.read(&format!("note (conflict {date} 2)")).unwrap(),
-        "draft two"
+        "draft two\n"
     );
 }
 
@@ -88,7 +88,7 @@ fn the_park_guard_ignores_a_similarly_named_note_with_identical_content() {
     );
     assert_eq!(
         store.read(&format!("note (conflict {date})")).unwrap(),
-        "my draft"
+        "my draft\n"
     );
 }
 
@@ -135,12 +135,12 @@ fn flush_draft_recreate_parks_instead_of_shadowing_a_case_colliding_note() {
     };
     assert_eq!(
         store.read("note").unwrap(),
-        "surviving peer",
+        "surviving peer\n",
         "the case-colliding sibling must be untouched"
     );
     assert_eq!(
         store.read(&parked_id).unwrap(),
-        "my draft",
+        "my draft\n",
         "the draft survives as a non-shadowing conflict copy"
     );
 }
@@ -173,10 +173,10 @@ fn flush_draft_park_skips_a_case_colliding_conflict_id() {
         format!("note (conflict {date} 2)"),
         "the park must skip the case-colliding first candidate, not shadow it"
     );
-    assert_eq!(store.read(&parked_id).unwrap(), "my draft");
+    assert_eq!(store.read(&parked_id).unwrap(), "my draft\n");
     assert_eq!(
         store.read(&format!("Note (conflict {date})")).unwrap(),
-        "unrelated copy",
+        "unrelated copy\n",
         "the case-colliding sibling must be untouched"
     );
 }
@@ -198,7 +198,7 @@ fn flush_draft_parks_inside_the_notes_folder() {
             parked_id: expected_copy.clone()
         }
     );
-    assert_eq!(store.read(&expected_copy).unwrap(), "my draft");
+    assert_eq!(store.read(&expected_copy).unwrap(), "my draft\n");
 }
 
 // A writer outside the store's serialization landing on the chosen copy name
@@ -227,6 +227,6 @@ fn flush_draft_never_clobbers_a_concurrent_writer_at_the_parked_name() {
     );
     assert_eq!(
         store.read(&format!("note (conflict {date} 2)")).unwrap(),
-        "my draft"
+        "my draft\n"
     );
 }

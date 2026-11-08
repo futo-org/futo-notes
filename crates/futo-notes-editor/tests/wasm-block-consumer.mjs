@@ -189,11 +189,11 @@ export async function runBlockRegressions() {
   await reviewedBlockRegression(
     '~~~~ c++ info\r\n猫🦊\r\n~~~~~  \r\n\n__tail__',
     'Enter',
-    '~~~~ c++ info\r\n猫\n🦊\r\n~~~~~  \r\n\n__tail__',
+    '~~~~ c++ info\r\n猫\r\n🦊\r\n~~~~~  \r\n\n__tail__',
     '猫🦊\r\n\ntail',
     1,
     1,
-    '猫\n🦊\r\n\ntail',
+    '猫\r\n🦊\r\n\ntail',
     false,
     'c++',
   );
@@ -213,18 +213,18 @@ export async function runBlockRegressions() {
     [
       '> > 猫🦊\r\n> > e\u0301\r\n> > ===',
       'Enter',
-      '> > 猫🦊\r\n> > ===\r\n\n> > e\u0301',
+      '> > 猫🦊\r\n> > ===\r\n\r\n> > e\u0301',
       '猫🦊\r\ne\u0301',
       5,
       5,
-      '猫🦊\r\n\ne\u0301',
+      '猫🦊\r\n\r\ne\u0301',
     ],
     ['> # x', 'Enter', '> # \n> ', 'x', 0, 1, '\n'],
     ['> x\n> =', 'Enter', '> # \n> ', 'x', 0, 1, '\n'],
     ['> x\n> =', 'Delete', '> # ', 'x', 0, 1, ''],
     ['   foo', { Heading: 2 }, '## &#32;  foo', '   foo', 6],
     ['   # foo', { Heading: 0 }, 'foo', 'foo', 0],
-    ['> > ## 猫🦊 ##', 'Quote', '> > 猫🦊', '猫🦊', 0],
+    ['> > ## 猫🦊 ##', 'Quote', '> ## 猫🦊 ##', '猫🦊', 0],
     ['> foo\r\n> bar\r\n> ===', { Heading: 0 }, '> foo\r\n> bar', 'foo\r\nbar', 5],
   ])
     await reviewedBlockRegression(...item);
@@ -257,16 +257,7 @@ export async function runBlockRegressions() {
     ['#x\n=', 'Backspace', '\\#\n=', '#x', 2, 2, '#', false],
     ['## x', 'Space', '## &#32;', 'x', 0, 1, ' ', false],
     ['x\n=', 'Newline', '# \n', 'x', 0, 1, '\n', false],
-    [
-      '> __ab\n> cd__',
-      'Enter',
-      '> __a__\n>\n> __!b__\n> __cd__',
-      'ab\ncd',
-      1,
-      1,
-      'a\n\n!b\ncd',
-      true,
-    ],
+    ['> __ab\n> cd__', 'Enter', '> __a__\n> __!b__\n> __cd__', 'ab\ncd', 1, 1, 'a\n!b\ncd', true],
     [
       '> __ab\n> cd__\n> ===',
       'Enter',

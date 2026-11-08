@@ -35,15 +35,8 @@ impl EditorSession {
 
     /// Endpoints inside front matter move to the body start; a selection
     /// starting at the note's start may still cover all of the metadata.
-    pub(super) fn outside_metadata(&self, mut range: DisplayRange) -> DisplayRange {
-        let body = DisplayOffset(self.projection.body_start());
-        if range.end.0 < body.0 {
-            range.end = body;
-        }
-        if range.start.0 < body.0 && (range.start.0 > 0 || range.end == body) {
-            range.start = body;
-        }
-        range
+    pub(super) fn outside_metadata(&self, range: DisplayRange) -> DisplayRange {
+        self.projection.outside_metadata(range)
     }
 
     /// Command input within front matter rejects; input covering it applies
