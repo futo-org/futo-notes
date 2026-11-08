@@ -73,6 +73,17 @@ impl EditorSession {
                         }
                         _ => unreachable!(),
                     }
+                    // An image is one unit: a caret's deletion that reaches into one removes it whole,
+                    // never leaving the rest of its spelling behind as text.
+                    for atom in self.projection.atom_descriptions(range) {
+                        if atom.kind == crate::AtomKind::Image
+                            && atom.range.start.0 < range.end.0
+                            && atom.range.end.0 > range.start.0
+                        {
+                            range.start = DisplayOffset(range.start.0.min(atom.range.start.0));
+                            range.end = DisplayOffset(range.end.0.max(atom.range.end.0));
+                        }
+                    }
                     // The body start is the boundary when front matter precedes it.
                     if range.start == range.end || range.start.0 < self.projection.body_start() {
                         return Ok(None);

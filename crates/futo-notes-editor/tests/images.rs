@@ -292,3 +292,53 @@ fn stale_claims_and_unwritable_inserts_change_nothing() {
         assert_eq!(editor.source_text(), source);
     }
 }
+
+fn caret_key(source: &str, at: usize, key: ParagraphKey) -> (String, usize) {
+    let mut editor = EditorSession::open(source);
+    let change = editor
+        .paragraph_key(editor.revision(), range(at, at), key, &mut |_| Ok(()))
+        .unwrap();
+    assert!(
+        change.is_some(),
+        "{key:?} at {at} in {source:?} changed nothing"
+    );
+    let after = editor.selection().start.0;
+    (editor.source_text(), after)
+}
+
+#[test]
+fn a_carets_backspace_or_delete_next_to_an_image_removes_it_whole() {
+    let source = "a ![alt](p.png) b";
+    // Display "a ![alt](p.png) b": the image is bytes 2..13.
+    let display = EditorSession::open(source).display_text();
+    let start = display.find('!').unwrap();
+    let end = start + "![alt](p.png)".len();
+    assert_eq!(caret_key(source, end, ParagraphKey::Backspace).0, "a  b");
+    assert_eq!(caret_key(source, start, ParagraphKey::Delete).0, "a  b");
+    // Ordinary text keeps one-grapheme deletion.
+    assert_eq!(
+        caret_key(source, 1, ParagraphKey::Backspace).0,
+        " ![alt](p.png) b"
+    );
+}
+
+#[test]
+fn deleting_an_image_whole_is_one_undo_step() {
+    let mut editor = EditorSession::open("x![](p.png)y");
+    let end = "x![](p.png)".len();
+    editor
+        .paragraph_key(
+            editor.revision(),
+            range(end, end),
+            ParagraphKey::Backspace,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(editor.source_text(), "xy");
+    editor
+        .undo(editor.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(editor.source_text(), "x![](p.png)y");
+}
