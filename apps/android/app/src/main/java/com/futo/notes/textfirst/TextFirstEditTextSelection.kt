@@ -27,10 +27,14 @@ internal fun TextFirstEditText.drawListSelection(canvas: Canvas) {
         var x = if (dir > 0) 0 else l.width
         for (margin in margins) {
             if (margin is TfList && margin.first && e.getSpanStart(margin) == at) {
-                var bodyEnd = e.getSpanEnd(margin)
-                if (bodyEnd == e.length && bodyEnd > at && e[bodyEnd - 1] == TextFirstEditText.END_SENTINEL[0]) bodyEnd--
+                var rowEnd = e.getSpanEnd(margin)
+                if (rowEnd == e.length && rowEnd > at && e[rowEnd - 1] == TextFirstEditText.END_SENTINEL[0]) rowEnd--
+                var bodyEnd = rowEnd
                 while (bodyEnd > at && (e[bodyEnd - 1] == '\n' || e[bodyEnd - 1] == '\r')) bodyEnd--
-                if (start <= at && bodyEnd > at && end >= bodyEnd) {
+                // An empty row has selectable content only in its real newline.
+                val selectedEnd = if (bodyEnd > at) bodyEnd
+                    else if (rowEnd > at && e[rowEnd - 1] == '\n') rowEnd else at
+                if (start <= at && selectedEnd > at && end >= selectedEnd) {
                     if (line == last) {
                         // Match the final native highlight's exclusion of extra line spacing.
                         val path = Path().also { l.getSelectionPath(at, end, it) }

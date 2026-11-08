@@ -114,6 +114,90 @@ class TextFirstCaretTest {
         }
     }
 
+    @SdkSuppress(minSdkVersion = 29)
+    @Test fun emptyListRowsHighlightOnlyTheirSelectedNewline() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "empty-marker-${UUID.randomUUID()}").apply { check(mkdirs()) }
+        val scenario = ActivityScenario.launch(ComponentActivity::class.java)
+        lateinit var controller: TextFirstController
+        try {
+            withContext(Dispatchers.Main) {
+                scenario.onActivity { activity ->
+                    controller = createTextFirstController(activity, { error("renderer fixture never opens a note") }, root)
+                    activity.setContentView(controller.view)
+                }
+                val view = controller.view
+                view.isFocusableInTouchMode = true
+                view.requestFocusFromTouch()
+                var seq = 1
+                for (kind in ListMarker.entries) for (rtl in listOf(false, true)) for (newline in listOf("\n", "\r\n")) {
+                    view.textDirection = if (rtl) android.view.View.TEXT_DIRECTION_RTL else android.view.View.TEXT_DIRECTION_LTR
+                    val label = if (rtl) "אריזה" else "Parcel"
+                    val middle = newline.length
+                    val last = middle + label.length + newline.length
+                    suspend fun install(ending: String) {
+                        val body = newline + label + newline + ending
+                        view.apply(UiUpdate(seq++, body, emptyList(), 0, 0, -1, -1,
+                            listOf(StyleWindow(0, body.length, listOf(
+                                SpanSpec.ListRow(0, middle, 0, kind, 1L, false, true),
+                                SpanSpec.ListRow(middle, last, 0, kind, 2L, false, true),
+                                SpanSpec.ListRow(last, body.length, 0, kind, 3L, false, true),
+                            ))), 0L))
+                        committedFrame(view)
+                        assertTrue(view.isHardwareAccelerated)
+                        assertNull(view.engine)
+                        assertEquals(body + TextFirstEditText.END_SENTINEL, view.text.toString())
+                        assertEquals(last, view.layout.getLineStart(2))
+                        val tail = view.editableText.getSpans(last, view.length(), TfList::class.java)
+                            .single { view.editableText.getSpanStart(it) == last }
+                        assertTrue(tail.first)
+                        assertEquals(kind, tail.marker)
+                        val end = view.editableText.getSpanEnd(tail)
+                        assertEquals(if (ending.isEmpty()) TextFirstEditText.END_SENTINEL else ending,
+                            view.editableText.subSequence(last, end).toString())
+                        for (row in 0..2) assertEquals(if (rtl) -1 else 1, view.layout.getParagraphDirection(row))
+                    }
+                    suspend fun selection(start: Int, end: Int, rows: Set<Int>) {
+                        Selection.setSelection(view.editableText, start, end)
+                        assertEquals(end.coerceAtMost(view.length() - 1), view.selectionEnd)
+                        committedFrame(view)
+                        val shot = onScreen(view)
+                        try {
+                            for (row in 0..2) {
+                                val y = view.totalPaddingTop + view.layout.getLineTop(row) + view.style.dp(2f).toInt()
+                                val dir = view.layout.getParagraphDirection(row)
+                                val edge = view.totalPaddingLeft + view.layout.getPrimaryHorizontal(view.layout.getLineStart(row)).toInt()
+                                val marker = view.totalPaddingLeft + if (dir > 0) 1 else view.layout.width - 2
+                                val background = shot.getPixel(1, y)
+                                val body = shot.getPixel(edge + dir * 4, y)
+                                if (row in rows) assertNotEquals("native empty-row selection exists", background, body)
+                                assertEquals("$kind rtl$rtl selection$start..$end row$row",
+                                    if (row in rows) body else background, shot.getPixel(marker, y))
+                            }
+                        } finally { shot.recycle() }
+                    }
+                    install(newline)
+                    selection(0, middle, setOf(0))
+                    selection(middle, 0, setOf(0))
+                    selection(last, last + newline.length, setOf(2))
+                    selection(last + newline.length, last, setOf(2))
+                    selection(middle, last, setOf(1)) // The following empty row is not selected.
+                    selection(last, last, emptySet())
+                    selection(last + newline.length, last + newline.length, emptySet())
+                    if (newline.length == 2) selection(0, 1, emptySet()) // The LF itself is not selected.
+                    install("")
+                    selection(0, last, setOf(0, 1))
+                    selection(0, view.length(), setOf(0, 1)) // Native selection clamps out the sentinel.
+                    selection(last, last, emptySet())
+                }
+            }
+        } finally {
+            withContext(Dispatchers.Main) { controller.dispose() }
+            scenario.close()
+            root.deleteRecursively()
+        }
+    }
+
     private suspend fun committedFrame(view: android.view.View) {
         try {
             withTimeout(5_000L) {
