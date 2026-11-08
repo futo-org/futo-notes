@@ -254,5 +254,25 @@
             #expect(expected < 4001)
             #expect(await h.until(30) { self.rows(h).count == expected })
         }
+
+        @Test func pipeLinesThatJoinATableAfterTheWindowAreGriddedBySlices() async {
+            // A blank line between a table and 400 more pipe lines; deleting it makes them rows.
+            // The rows are far past the edit's window and were plain text a moment ago.
+            var joined = ""
+            for i in 0..<400 { joined += "| j\(String(format: "%03d", i)) | w |\n" }
+            let h = TextFirstHarness(longTable(400, tail: "\n" + joined))
+            _ = await h.until { h.controller.styledThrough >= h.controller.mirrorLength }
+            let before = rows(h).count
+            let join = (h.controller.storage.string as NSString).range(of: "| j000").location
+            h.select(join, join)
+            h.tv.deleteBackward()
+            let fresh = TextFirstHarness(h.source)
+            _ = await fresh.until {
+                fresh.controller.styledThrough >= fresh.controller.mirrorLength
+            }
+            let expected = rows(fresh).count
+            #expect(expected == before + 400)
+            #expect(await h.until(30) { self.rows(h).count == expected })
+        }
     }
 #endif
