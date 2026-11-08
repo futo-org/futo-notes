@@ -391,14 +391,14 @@ impl NativeEditorSession {
             let start = to_utf16(display.start.0);
             let mut spans = plan_styles(&slice, start, &mut to_utf16);
             let tables = session.inspect_tables(Revision(expected), display)?;
-            spans.extend(plan_tables(&tables, &mut to_utf16));
+            spans.extend(plan_tables(&tables, display, &mut to_utf16));
             Ok(spans.into_iter().map(Into::into).collect())
         })
     }
 
     /// The table cell holding a selection, for a host's cell editor: the cell's content range
-    /// and the selection, both in UTF-16 units of the whole display (a selection leaving the
-    /// cell, or outside every table, is `None`).
+    /// in UTF-16 units of the whole display (a selection leaving the cell, or outside every
+    /// table, is `None`).
     pub fn cell_view(
         &self,
         expected: u64,

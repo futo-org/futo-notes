@@ -1,5 +1,5 @@
 use super::{plan_styles, plan_tables, DisplayMirror, StyleSpec};
-use crate::QuickOpen;
+use crate::{DisplayOffset, DisplayRange, QuickOpen};
 
 /// The spans to draw for a long note's quick first screens, in UTF-16 units of their display
 /// (which is the start of the whole display): the style plan of the projection and its tables,
@@ -10,6 +10,11 @@ pub fn plan_quick_open(quick: &QuickOpen) -> Vec<StyleSpec> {
     // A block may reach past the shown text; it ends at the cut.
     let mut to_utf16 = |byte: usize| mirror.byte_to_utf16(byte).unwrap_or(end);
     let mut spans = plan_styles(&quick.projection, 0, &mut to_utf16);
-    spans.extend(plan_tables(&quick.tables, &mut to_utf16));
+    // The quick view is planned whole: the window is all of its display.
+    let whole = DisplayRange {
+        start: DisplayOffset(0),
+        end: DisplayOffset(quick.display.len()),
+    };
+    spans.extend(plan_tables(&quick.tables, whole, &mut to_utf16));
     spans
 }
