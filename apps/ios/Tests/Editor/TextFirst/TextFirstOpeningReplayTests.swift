@@ -190,7 +190,8 @@
             o.tv.setMarkedText("ka", selectedRange: NSRange(location: 2, length: 0))
             o.tv.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
             o.tv.unmarkText()
-            #expect(o.controller.openingOps.isEmpty)
+            // Only the tap that placed the caret is queued; the cancelled composition left no key.
+            #expect(o.controller.openingOps == [.select(NSRange(location: 5, length: 0))])
             try o.land()
             typed(o, hasPrefix: "hello\n\nSection 0")
         }
