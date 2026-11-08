@@ -195,7 +195,10 @@
         }
 
         @Test func aCellsRangeFollowsItsRowAfterAnEditAboveTheTable() async throws {
-            let h = await settledLongTable()
+            // 3,000 filler lines keep the edit's restyle window clear of the table.
+            let filler = String(repeating: "filler line\n", count: 3000)
+            let h = TextFirstHarness(filler + "\n" + longTable(4000))
+            _ = await h.until { h.controller.styledThrough >= h.controller.mirrorLength }
             h.select(0, 0)
             h.type("zz")
             // Rows far below the edit's window keep their old spans (and stale absolute ranges).
