@@ -1,20 +1,9 @@
 package com.futo.notes.textfirst
 
 import android.os.SystemClock
-import android.view.View
-import android.view.ViewGroup
-import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import androidx.activity.ComponentActivity
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.test.platform.app.InstrumentationRegistry
-import com.futo.notes.NotesStore
-import com.futo.notes.localization.LocalLocalization
-import com.futo.notes.localization.Localization
-import com.futo.notes.ui.theme.FutoNotesTheme
-import java.io.File
-import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.*
@@ -68,44 +57,9 @@ class TextFirstCaretFollowTest {
         }
     }
 
-    private fun exercise(note: String, check: Rig.() -> Unit) {
-        NoteScrollMemory.clear()
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val scratch = File(context.cacheDir, "caret-follow-${UUID.randomUUID()}").apply { check(mkdirs()) }
-        val root = File(scratch, "vault").apply { check(mkdirs()) }
-        File(root, "draft.md").writeText(note)
-        lateinit var store: NotesStore
-        compose.runOnUiThread { store = NotesStore(root, File(scratch, "index")) }
-        compose.waitUntil(15_000) { store.hasBootstrapped }
-        val localization = Localization.fromGeneratedCatalogs(listOf("en"), "en-US")
-        compose.setContent {
-            FutoNotesTheme(darkTheme = false) {
-                CompositionLocalProvider(LocalLocalization provides localization) {
-                    TextFirstEditorScreen(store, "draft", false, false, {}, {}, registerLeave = { {} })
-                }
-            }
-        }
-        lateinit var editor: TextFirstEditText
-        fun find(view: View): TextFirstEditText? = when (view) {
-            is TextFirstEditText -> view
-            is ViewGroup -> (0 until view.childCount).firstNotNullOfOrNull { find(view.getChildAt(it)) }
-            else -> null
-        }
-        compose.waitUntil(15_000) {
-            var ready = false
-            compose.runOnUiThread {
-                find(compose.activity.window.decorView)?.let { if (it.length() > 100) { editor = it; ready = true } }
-            }
-            ready
-        }
-        lateinit var ic: InputConnection
-        compose.runOnUiThread {
-            editor.requestFocus()
-            editor.engine!!.hostSelect(editor.length() - 1, editor.length() - 1)
-            ic = checkNotNull(editor.onCreateInputConnection(EditorInfo()))
-        }
+    private fun exercise(note: String, check: Rig.() -> Unit) = compose.withTextFirstScreen(note) { view, connection ->
         SystemClock.sleep(500)
-        Rig(editor, ic).check()
+        Rig(view, connection).check()
     }
 
     private val longNote = (1..60).joinToString("\n") { "line $it" }

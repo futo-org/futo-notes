@@ -51,31 +51,23 @@ internal class TfTableRow(
             val layout = layouts.getOrNull(column) ?: continue
             val cellSave = canvas.save()
             canvas.translate(left + padding, top + padding)
-            drawMarks(canvas, layout, row.cells[column], start - displayStart)
+            val cell = row.cells[column]
+            val shift = start - displayStart
+            marks.drawCell(canvas, layout, cell.start + shift, cell.end + shift, look)
             layout.draw(canvas)
             canvas.restoreToCount(cellSave)
         }
         canvas.restoreToCount(save)
     }
-    private fun drawMarks(canvas: Canvas, layout: StaticLayout, cell: GridCell, shift: Int) {
-        if (marks.isEmpty) return
-        val from = cell.start + shift
-        val path = android.graphics.Path()
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        marks.visit(from, cell.end + shift) { s, e, current ->
-            val a = (s - from).coerceIn(0, cell.text.length); val b = (e - from).coerceIn(0, cell.text.length)
-            if (b <= a) return@visit
-            path.rewind()
-            layout.getSelectionPath(a, b, path)
-            paint.color = look.findMarkColor(current)
-            canvas.drawPath(path, paint)
-        }
-    }
-    fun cellAt(x: Float): GridCell? = row.cells.getOrNull(((x + scroll.x) / cellWidth).toInt())
+    fun cellAt(x: Float): GridCell? = if (x < 0f || x >= width()) null
+        else row.cells.getOrNull(((x + scroll.x) / cellWidth).toInt())
     /** Scroll the grid so the cell holding [offset] shows; true when it moved. */
     fun revealCell(offset: Int): Boolean {
         val column = row.cells.indexOfFirst { offset in it.start..it.end }
-        if (column < 0) return false
+        return revealColumn(column)
+    }
+    fun revealColumn(column: Int): Boolean {
+        if (column !in row.cells.indices) return false
         val left = column * cellWidth
         val visible = width().toFloat()
         val wanted = when {

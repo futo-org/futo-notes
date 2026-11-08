@@ -24,13 +24,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.res.ResourcesCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -303,7 +303,13 @@ internal fun TextFirstEditorScreen(
         }
     }
 
-    BackHandler { if (find.visible) find.close() else onBack() }
+    BackHandler {
+        when {
+            find.visible -> find.close()
+            controller.cellView != null -> controller.finishCellEditing()
+            else -> onBack()
+        }
+    }
     TextFirstFindVerbs(find, enabled = !leaving)
 
     suspend fun retrySave() {
@@ -398,14 +404,10 @@ internal fun TextFirstEditorScreen(
                 )
             }
             Spacer(Modifier.size(4.dp))
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                AndroidView(factory = { controller.view }, modifier = Modifier.fillMaxSize()
-                    .nativeEditorField(controller),
-                    update = {
-                        it.isEnabled = !images.recovering && !leaving
-                        it.onOpenWikilink = { target -> if (target != noteId) onOpenNote(target) }
-                        it.onOpenUrl = { url -> com.futo.notes.ui.openExternalUrl(context, url) }
-                    })
+            Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+                TextFirstNoteView(controller, enabled = !images.recovering && !leaving,
+                    onOpenWikilink = { target -> if (target != noteId) onOpenNote(target) },
+                    onOpenUrl = { url -> com.futo.notes.ui.openExternalUrl(context, url) })
                 TextFirstOpening(controller)
             }
             if (!leaving && !images.recovering) TextFirstCompletions(controller)
@@ -413,8 +415,6 @@ internal fun TextFirstEditorScreen(
             TextFirstToolbarSlot(controller, onPickImage = images.pick)
         }
     }
-
-    controller.cellView?.let { TextFirstTableCellDialog(controller, it, find.visible) }
 
     if (confirmDiscard) {
         ConfirmDialog(

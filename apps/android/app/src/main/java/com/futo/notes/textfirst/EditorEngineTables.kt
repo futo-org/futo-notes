@@ -11,7 +11,7 @@ import uniffi.futo_notes_ffi.EditorUtf16Range
 internal data class GridCell(val start: Int, val end: Int, val text: String, val alignment: EditorTableAlignment)
 internal data class GridRow(val cells: List<GridCell>, val columns: Int, val header: Boolean, val tableStart: Int)
 internal data class CellUpdate(val start: Int, val end: Int, val text: String, val selectionStart: Int, val selectionEnd: Int,
-    val composingStart: Int, val composingEnd: Int)
+    val composingStart: Int, val composingEnd: Int, val viewSeq: Int, val rowStart: Int, val column: Int)
 
 /** The window's tables as grid spans; Rust finds them all in one call. */
 internal fun EditorEngine.tableSpans(p: EditorProjection): List<SpanSpec> {
@@ -105,11 +105,13 @@ internal fun EditorEngine.publishCell() {
         ui.post { sink.onCell(null) }
         return
     }
+    val selected = checkNotNull(focus)
+    val rowStart = mirror.toUtf16(checkNotNull(table).rowLines[selected.row.toInt()].start.toInt())
     val canonical = s.displayToUtf16(rev, cell.content)
     val start = canonical.start.toInt()
     val end = canonical.end.toInt() + (overlay?.let { it.marked.length - it.original.length } ?: 0)
     cellRange = start..end
     val update = CellUpdate(start, end, mirror.text.substring(start, end), mirror.selStart - start, mirror.selEnd - start,
-        if (overlay != null) overlay.start - start else -1, if (overlay != null) overlay.start - start + overlay.marked.length else -1)
+        if (overlay != null) overlay.start - start else -1, if (overlay != null) overlay.start - start + overlay.marked.length else -1, seq, rowStart, selected.column.toInt())
     ui.post { sink.onCell(update) }
 }

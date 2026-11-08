@@ -92,3 +92,18 @@ private fun lineEndAfter(e: CharSequence, target: Int, limit: Int): Int {
     // Never between the halves of a surrogate pair.
     return if (i in 1 until last && e[i - 1].isHighSurrogate() && e[i].isLowSurrogate()) i - 1 else i
 }
+
+/** Refresh width-sensitive spans after layout; the height-only path stays untouched. */
+internal fun TextFirstEditText.refreshWidthDependentSpans() {
+    val e = editableText ?: return
+    applying = true
+    try {
+        for (atom in e.getSpans(0, e.length, TfAtom::class.java)) {
+            if (atom !is TfImage && atom !is TfDivider && atom !is TfWikilink) continue
+            e.setSpan(atom, e.getSpanStart(atom), e.getSpanEnd(atom), e.getSpanFlags(atom))
+        }
+    } finally {
+        applying = false
+    }
+    requestImageLoads()
+}

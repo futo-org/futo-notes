@@ -1,18 +1,7 @@
 package com.futo.notes.textfirst
 
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.futo.notes.localization.Localization
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.puppet.PuppetVerb
@@ -27,14 +16,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.platform.LocalFocusManager
 import kotlinx.coroutines.CoroutineScope
-import com.futo.notes.ui.theme.FutoTheme
 import kotlinx.coroutines.launch
 
 /** "2 of 5" from the shared catalog; plain "0" with no match. */
 internal fun findLabel(localization: Localization, state: FindSnapshot?): String =
     localization.localizedText("editor.find.matchCount", mapOf("current" to (state?.current ?: 0), "total" to (state?.total ?: 0)))
 
-/** `StepFind` for the note bar and the cell dialog: one direction contract, two targets. */
+/** `StepFind` for the note bar. */
 private fun stepFindVerb(step: suspend (forward: Boolean) -> Unit) = PuppetVerb(
     "StepFind", required = listOf("direction"), integers = listOf("direction"),
     controls = listOf("editor.find.previousMatch", "editor.find.nextMatch"),
@@ -43,33 +31,6 @@ private fun stepFindVerb(step: suspend (forward: Boolean) -> Unit) = PuppetVerb(
     if (direction != 1 && direction != -1) throw PuppetVerbRefusal(400, "direction is 1 (next) or -1 (previous)")
     step(direction == 1)
     mapOf("direction" to direction)
-}
-
-/**
- * Next/previous inside the table cell window: the cell dialog is modal, so the
- * bar below the note cannot be reached while a match is open in a cell.
- */
-@Composable
-internal fun TextFirstFindInCell(controller: TextFirstController) {
-    val localization = LocalLocalization.current
-    val colors = FutoTheme.colors
-    val scope = rememberCoroutineScope()
-    val state = controller.find
-    val enabled = canStepFind(state?.total ?: 0)
-    PuppetVerbScope(modal = true) {
-        if (!enabled) emptyList() else listOf(
-            stepFindVerb { controller.findStep(it) },
-        )
-    }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(findLabel(localization, state), color = colors.textSecondary)
-        IconButton(enabled = enabled, onClick = { scope.launch { controller.findStep(false) } }, modifier = Modifier.size(48.dp)) {
-            Icon(Icons.Filled.KeyboardArrowUp, localization.localizedText("editor.find.previousMatch"), tint = if (enabled) colors.textSecondary else colors.textMuted)
-        }
-        IconButton(enabled = enabled, onClick = { scope.launch { controller.findStep(true) } }, modifier = Modifier.size(48.dp)) {
-            Icon(Icons.Filled.KeyboardArrowDown, localization.localizedText("editor.find.nextMatch"), tint = if (enabled) colors.textSecondary else colors.textMuted)
-        }
-    }
 }
 
 /** The note screen's find bar state: it drives the controller and holds only the typed query. */
@@ -87,8 +48,12 @@ internal class TextFirstFind(private val controller: TextFirstController, privat
     fun step(forward: Boolean) { scope.launch { controller.findStep(forward) } }
 
     fun close() {
-        // Take the find field's keyboard down with the bar unless the note owns it.
-        if (!controller.focused) focus.clearFocus(force = true)
+        // The note and its in-place cell share a window. Keep their input;
+        // otherwise dismiss the query's IME before its native view is removed.
+        if (!controller.view.isFocused && controller.cellView?.isFocused != true) {
+            controller.view.hideKeyboard()
+            focus.clearFocus(force = true)
+        }
         visible = false
         scope.launch { controller.findClose() }
     }

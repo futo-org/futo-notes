@@ -19,7 +19,7 @@ internal class TableGridTouch(
     fun onTouch(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                down = tableAt(event.y)
+                down = view.tableRowAt(event.y)
                 if (down == null) return false
                 x = event.x; y = event.y; moved = false; vertical = false
                 view.parent?.requestDisallowInterceptTouchEvent(true)
@@ -27,11 +27,8 @@ internal class TableGridTouch(
             }
             MotionEvent.ACTION_UP -> {
                 val row = down ?: return false
-                if (!moved) row.cellAt(event.x - view.totalPaddingLeft)?.let { cell ->
-                    // Android shifts spans through edits outside their projection window.
-                    // Carry their canonical cell offsets by that same display displacement.
-                    val shift = view.editableText.getSpanStart(row) - row.displayStart
-                    edit(cell.copy(start = cell.start + shift, end = cell.end + shift))
+                if (!moved) view.tableCellAt(row, event.x)?.let { cell ->
+                    edit(cell)
                 }
                 down = null
                 if (moved && vertical) view.scroll.release()
@@ -66,10 +63,4 @@ internal class TableGridTouch(
         return false
     }
 
-    private fun tableAt(y: Float): TfTableRow? {
-        val layout = view.layout ?: return null
-        val line = layout.getLineForVertical((y - view.totalPaddingTop + view.scrollY).toInt())
-        val at = layout.getLineStart(line)
-        return view.editableText?.getSpans(at, at, TfTableRow::class.java)?.firstOrNull()
-    }
 }

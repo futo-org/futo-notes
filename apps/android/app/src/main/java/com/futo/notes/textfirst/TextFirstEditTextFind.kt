@@ -13,10 +13,10 @@ internal fun TextFirstEditText.setFind(snapshot: FindSnapshot) {
     invalidate()
 }
 
-/** Scroll a match into view: its line vertically, and its column inside a wide grid. */
-internal fun TextFirstEditText.revealRange(start: Int, end: Int) {
-    val l = layout ?: return
-    val e = editableText ?: return
+/** Scroll a note line into view without changing a table's independent horizontal pan. */
+internal fun TextFirstEditText.revealLine(start: Int): Int? {
+    val l = layout ?: return null
+    val e = editableText ?: return null
     restoring = null // the reader asked to go somewhere else
     stopPinning()
     val at = start.coerceIn(0, (e.length - 1).coerceAtLeast(0))
@@ -27,6 +27,14 @@ internal fun TextFirstEditText.revealRange(start: Int, end: Int) {
         val maxScroll = (l.height + totalPaddingTop + totalPaddingBottom - height).coerceAtLeast(0)
         scrollTo(scrollX, (top - viewport / 3).coerceIn(0, maxScroll))
     }
+    invalidate()
+    return at
+}
+
+/** Scroll a match into view: its line vertically, and its column inside a wide grid. */
+internal fun TextFirstEditText.revealRange(start: Int, end: Int) {
+    val at = revealLine(start) ?: return
+    val e = editableText ?: return
     e.getSpans(at, at, TfTableRow::class.java).firstOrNull()?.let { row ->
         val shift = e.getSpanStart(row) - row.displayStart
         if (row.revealCell(at - shift)) redrawTableRows()

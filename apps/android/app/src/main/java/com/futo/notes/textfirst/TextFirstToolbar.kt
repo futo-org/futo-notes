@@ -31,7 +31,7 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
     val scope = rememberCoroutineScope()
     var draft by remember(controller) { mutableStateOf<LinkDraft?>(null) }
     var opening by remember(controller) { mutableStateOf(false) }
-    val visible = controller.focused && WindowInsets.isImeVisible
+    val visible = controller.cellView == null && controller.focused && WindowInsets.isImeVisible
     suspend fun openLink() {
         if (opening || draft != null) return
         opening = true
@@ -43,7 +43,8 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
         )
     }
     val caret = controller.caret
-    if (visible) EditorToolbar(
+    if (controller.cellView != null) TextFirstTableCellControls(controller)
+    else if (visible) EditorToolbar(
         onListLine = caret.list != null,
         inContainer = true,
         // Until the whole open lands the note shows read-only: nothing edits it.

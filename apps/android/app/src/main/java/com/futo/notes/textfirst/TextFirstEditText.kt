@@ -55,6 +55,8 @@ internal class TextFirstEditText(
     internal var pendingTimings: KeyTimings? = null
     private var checkboxDown = -1
     var onTableCell: ((Int, Int, Int) -> Unit)? = null
+    /** The cell host settles against Android's final layout/caret reveal before drawing. */
+    internal var onViewportReady: (() -> Unit)? = null
     /** Paste and keyboard content; its [TextFirstClipboard.onImageContent] owner saves images. */
     val clipboard = TextFirstClipboard(context) { engine }
     private val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, ::invalidateTableScroll)
@@ -211,6 +213,8 @@ internal class TextFirstEditText(
 
     override fun isLayoutRequested(): Boolean = !reveal.ignoringLayout && super.isLayoutRequested()
 
+    override fun onPreDraw(): Boolean = super.onPreDraw().also { onViewportReady?.invoke() }
+
     override fun onDraw(canvas: android.graphics.Canvas) {
         val timings = pendingTimings
         if (timings != null) timings.drawStart = android.os.SystemClock.elapsedRealtimeNanos()
@@ -240,18 +244,7 @@ internal class TextFirstEditText(
         super.onSizeChanged(w, h, oldw, oldh)
         if (h > oldh) clampScrollToNote()
         if (h < oldh && caretWasInView(oldh)) { reveal.again(); bringPointIntoView(selectionEnd) }
-        if (w == oldw) return
-        val e = editableText ?: return
-        applying = true
-        try {
-            for (atom in e.getSpans(0, e.length, TfAtom::class.java)) {
-                if (atom !is TfImage && atom !is TfDivider && atom !is TfWikilink) continue
-                e.setSpan(atom, e.getSpanStart(atom), e.getSpanEnd(atom), e.getSpanFlags(atom))
-            }
-        } finally {
-            applying = false
-        }
-        requestImageLoads()
+        if (w != oldw) refreshWidthDependentSpans()
     }
 
     // ---- view → engine ----

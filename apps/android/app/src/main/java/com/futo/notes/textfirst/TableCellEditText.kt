@@ -13,18 +13,45 @@ import android.view.inputmethod.InputMethodManager
 import androidx.appcompat.widget.AppCompatEditText
 
 /** A cell-sized native window onto the SAME session as the note. It never edits its Editable itself. */
-internal class TableCellEditText(context: Context, private val editor: EditorEngine, style: TextFirstStyle) :
+internal class TableCellEditText(context: Context, private val editor: EditorEngine, style: TextFirstStyle, private val marks: FindMarks = FindMarks()) :
     AppCompatEditText(context), EngineInputConnection.ViewSide {
     private var applying = false
     private var current: CellUpdate? = null
+    /** This field and the painted note must describe the same session and applied frame. */
+    fun placementTarget(note: TextFirstEditText): CellUpdate? = current?.takeIf {
+        note.engine === editor && note.appliedSeq == it.viewSeq
+    }
+    fun applyGeometry(geometry: TableCellGeometry) {
+        typeface = if (geometry.header) noteStyle.semibold else noteStyle.regular
+        gravity = android.view.Gravity.TOP or android.view.Gravity.START
+        textAlignment = when (geometry.alignment) {
+            uniffi.futo_notes_ffi.EditorTableAlignment.RIGHT -> TEXT_ALIGNMENT_TEXT_END
+            uniffi.futo_notes_ffi.EditorTableAlignment.CENTER -> TEXT_ALIGNMENT_CENTER
+            else -> TEXT_ALIGNMENT_TEXT_START
+        }
+    }
+    private val noteStyle = style
     init {
         setTextColor(style.textColor); textSize = style.textSizePx / resources.displayMetrics.scaledDensity
         typeface = style.regular
-        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
         imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI
-        setPadding(style.dp(12f).toInt(), style.dp(12f).toInt(), style.dp(12f).toInt(), style.dp(12f).toInt())
+        setPadding(style.dp(10f).toInt(), style.dp(10f).toInt(), style.dp(10f).toInt(), style.dp(10f).toInt())
+        setBackgroundColor(style.codeBackground)
+        includeFontPadding = false
         filters = arrayOf(InputFilter { _, _, _, dest, a, b -> if (applying) null else dest.subSequence(a, b) })
         importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO
+    }
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        val target = current
+        val cellLayout = layout
+        if (target != null && cellLayout != null) {
+            val saved = canvas.save()
+            canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
+            marks.drawCell(canvas, cellLayout, target.start, target.end, noteStyle)
+            canvas.restoreToCount(saved)
+        }
+        super.onDraw(canvas)
     }
     override fun isSuggestionsEnabled() = false
     // A cell is note text, never a form field: no "Autofill" item over its selection menu.
@@ -58,6 +85,9 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     }
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
         super.onCreateInputConnection(outAttrs)
+        // Android adds this flag for any multiline field. Cell text wraps, but
+        // its explicit Done action still returns to the note; Rust owns Enter.
+        outAttrs.imeOptions = outAttrs.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION.inv()
         outAttrs.initialSelStart = selectionStart; outAttrs.initialSelEnd = selectionEnd
         return engineInputConnection(editor, this, cell = true)
     }

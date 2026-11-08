@@ -42,3 +42,20 @@ internal class FindMarks {
         while (i < s.size && s[i] < to) { paint(s[i], e[i], i == current); i++ }
     }
 }
+
+/** A cell's native Layout owns wrapping and bidi selection geometry in both grid and field. */
+internal fun FindMarks.drawCell(canvas: android.graphics.Canvas, layout: android.text.Layout,
+    from: Int, to: Int, style: TextFirstStyle) {
+    if (isEmpty) return
+    val path = android.graphics.Path()
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    visit(from, to) { start, end, current ->
+        val a = (start - from).coerceIn(0, layout.text.length)
+        val b = (end - from).coerceIn(0, layout.text.length)
+        if (b <= a) return@visit
+        path.rewind()
+        layout.getSelectionPath(a, b, path)
+        paint.color = style.findMarkColor(current)
+        canvas.drawPath(path, paint)
+    }
+}
