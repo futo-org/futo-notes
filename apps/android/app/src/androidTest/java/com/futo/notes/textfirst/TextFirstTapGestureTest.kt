@@ -123,6 +123,42 @@ class TextFirstTapGestureTest {
         fun selected() = text.substring(view.selectionStart, view.selectionEnd)
     }
 
+    @Test fun checkboxTapsStayWithinTheLiveRow() = exercise("") {
+        val raw = "- [ ] Pack"
+        val input = view.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!
+        for (ch in raw) {
+            textFirstIme(controller, connection = input) { commitText(ch.toString(), 1) }
+            controller.sourceText()
+        }
+        assertEquals(raw, controller.sourceText())
+        assertEquals("Pack" + TextFirstEditText.END_SENTINEL, text)
+        withTimeout(5_000) { while (view.layout.getLineEnd(0) != view.length()) delay(20) }
+        val l = view.layout
+        val top = view.totalPaddingTop
+        val edge = view.totalPaddingLeft + l.getParagraphLeft(0)
+        val x = edge - view.style.listIndent / 2
+        val rowY = top + l.height / 2f
+        val below = top + l.height + view.style.dp(150f)
+        assertTrue(below < view.height)
+        taps(x to below, 1)
+        assertEquals("below row", raw, controller.sourceText())
+        taps(x to top - 1f, 1)
+        assertEquals("top padding", raw, controller.sourceText())
+        taps(edge + 1f to rowY, 1)
+        assertEquals(raw, controller.sourceText())
+        taps(x to rowY, 1)
+        assertEquals("- [x] Pack", controller.sourceText())
+        controller.undo()
+        assertEquals(raw, controller.sourceText())
+        controller.select(4)
+        textFirstIme(controller, connection = input) { commitText(" parcel".repeat(20), 1) }
+        val wrapped = controller.sourceText()
+        withTimeout(5_000) { while (view.layout.lineCount < 2) delay(20) }
+        val nextY = top + (view.layout.getLineTop(1) + view.layout.getLineBottom(1)) / 2f
+        taps(x to nextY, 1)
+        assertEquals("wrapped continuation", wrapped, controller.sourceText())
+    }
+
     @Test
     fun aDoubleTapSelectsTheWord() = exercise {
         view.setSelection(0)
