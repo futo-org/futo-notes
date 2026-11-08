@@ -1,4 +1,5 @@
 use ropey::Rope;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{CaretDirection, EditorSession};
 
@@ -170,14 +171,15 @@ impl DisplayMirror {
 
     /// Where a key replays on the engine, at the engine's caret: `view` is the range UIKit-style
     /// input asked to replace on the view's frozen text, `view_selection` the selection that view
-    /// had, `engine_selection` the engine's now (all UTF-16), `deletes` whether the key's text is
-    /// empty. The frozen view's selection never moved; the engine's moved on with the keys before
+    /// had, `engine_selection` the engine's now (all UTF-16), `deleted` the frozen text of `view`
+    /// when the key's text is empty (a deletion), else `None`. The frozen view's selection never moved; the engine's moved on with the keys before
     /// this one, so the two cannot share widths.
     ///
     /// A deletion tied to the selection (Backspace or forward delete at a caret, or over the
     /// selected range) is the engine's own: the selection when the engine has one, else one
     /// extended grapheme before (after, for a forward delete) the engine's caret, never the width
-    /// the view saw. A delete longer than one character (a word delete) replays as one character.
+    /// the view saw. A delete of more than one grapheme at a caret (Option-Backspace) is a word
+    /// delete: the engine's word before (after) its caret on that line, with the spaces between.
     /// Any other key keeps its offset from the view's selection, clamped to the text and shrunk
     /// to scalar boundaries.
     pub fn at_caret(
@@ -185,10 +187,12 @@ impl DisplayMirror {
         view: (usize, usize),
         view_selection: (usize, usize),
         engine_selection: (usize, usize),
-        deletes: bool,
+        deleted: Option<&str>,
     ) -> (usize, usize) {
-        if deletes {
-            if let Some(range) = self.selection_delete(view, view_selection, engine_selection) {
+        if let Some(deleted) = deleted {
+            if let Some(range) =
+                self.selection_delete(view, view_selection, engine_selection, deleted)
+            {
                 return range;
             }
         }
@@ -217,6 +221,7 @@ impl DisplayMirror {
         view: (usize, usize),
         view_selection: (usize, usize),
         engine_selection: (usize, usize),
+        deleted: &str,
     ) -> Option<(usize, usize)> {
         let collapsed = view_selection.0 == view_selection.1;
         let backward = view.0 < view.1
@@ -239,13 +244,53 @@ impl DisplayMirror {
             CaretDirection::Forward
         };
         let byte = self.utf16_to_byte(caret).ok()?;
-        let stop = EditorSession::grapheme_stop_in(&self.rope, byte, direction, false).ok()?;
+        let word = collapsed && deleted.graphemes(true).nth(1).is_some();
+        let stop = match word.then(|| self.word_stop(byte, direction)).flatten() {
+            Some(stop) => stop,
+            None => EditorSession::grapheme_stop_in(&self.rope, byte, direction, false).ok()?,
+        };
         let other = self.byte_to_utf16(stop).ok()?;
         Some(if backward {
             (other, caret)
         } else {
             (caret, other)
         })
+    }
+
+    /// Where a word delete from `byte` ends: the start of the last word (or punctuation run) before
+    /// it on its line, spaces after it included; forward, the end of the first one after it. `None`
+    /// at a line's edge, where the delete is one grapheme (the line break).
+    fn word_stop(&self, byte: usize, direction: CaretDirection) -> Option<usize> {
+        let blank = |segment: &str| segment.chars().all(char::is_whitespace);
+        match direction {
+            CaretDirection::Backward => {
+                let from = self.rope.line_to_byte(self.rope.byte_to_line(byte));
+                let text = self.rope.byte_slice(from..byte).to_string();
+                let segments: Vec<(usize, &str)> = text.split_word_bound_indices().collect();
+                let kept = segments.iter().rposition(|(_, s)| !blank(s));
+                match (segments.is_empty(), kept) {
+                    (true, _) => None,
+                    (false, None) => Some(from),
+                    (false, Some(i)) => Some(from + segments[i].0),
+                }
+            }
+            CaretDirection::Forward => {
+                let line = self.rope.byte_to_line(byte);
+                let to = if line + 1 < self.rope.len_lines() {
+                    self.rope.line_to_byte(line + 1)
+                } else {
+                    self.rope.len_bytes()
+                };
+                let text = self.rope.byte_slice(byte..to).to_string();
+                let text = text.trim_end_matches(['\n', '\r']);
+                let first = text.split_word_bound_indices().find(|(_, s)| !blank(s));
+                match (text.is_empty(), first) {
+                    (true, _) => None,
+                    (false, None) => Some(byte + text.len()),
+                    (false, Some((i, s))) => Some(byte + i + s.len()),
+                }
+            }
+        }
     }
 
     /// A selection of the current display, as UTF-16 units.

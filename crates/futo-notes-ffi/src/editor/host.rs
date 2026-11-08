@@ -151,7 +151,8 @@ impl EditorDisplayMirror {
     /// Where a key replays on the engine, at the engine's caret (see
     /// `futo_notes_editor::host::DisplayMirror::at_caret`): the range the key asked for on the
     /// frozen view, relative to that view's selection, kept relative to the engine's selection;
-    /// a deletion tied to the selection is the engine's own (one grapheme from its caret).
+    /// a deletion (`deleted`: the frozen text it removes) tied to the selection is the engine's
+    /// own: one grapheme from its caret, a word for more than one.
     pub fn at_caret(
         &self,
         start: u64,
@@ -160,13 +161,13 @@ impl EditorDisplayMirror {
         view_selection_end: u64,
         engine_selection_start: u64,
         engine_selection_end: u64,
-        deletes: bool,
+        deleted: Option<String>,
     ) -> Result<EditorUtf16Range, EditorMirrorError> {
         let view = (index(start)?, index(end)?);
         let view_selection = (index(view_selection_start)?, index(view_selection_end)?);
         let engine_selection = (index(engine_selection_start)?, index(engine_selection_end)?);
         let (start, end) =
-            self.with(|m| m.at_caret(view, view_selection, engine_selection, deletes));
+            self.with(|m| m.at_caret(view, view_selection, engine_selection, deleted.as_deref()));
         Ok(EditorUtf16Range {
             start: start as u64,
             end: end as u64,

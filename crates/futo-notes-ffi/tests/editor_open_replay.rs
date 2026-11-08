@@ -60,8 +60,13 @@ fn replay(body: &str, ops: &[Op]) -> String {
                 selection,
                 text,
             } => {
-                let target =
-                    host_range(&mirror, text.is_empty(), range, selection, engine_selection);
+                let target = host_range(
+                    &mirror,
+                    deleted(body, range, text),
+                    range,
+                    selection,
+                    engine_selection,
+                );
                 let change = session
                     .replace_utf16(
                         rev,
@@ -102,9 +107,17 @@ fn replay(body: &str, ops: &[Op]) -> String {
         .to_string()
 }
 
+/// The frozen text a deletion removes (what the host reads from its view), `None` for a key that
+/// types.
+fn deleted(body: &str, range: (u64, u64), text: &str) -> Option<String> {
+    let units: Vec<u16> = body.encode_utf16().collect();
+    let removed = String::from_utf16_lossy(&units[range.0 as usize..range.1 as usize]);
+    text.is_empty().then_some(removed)
+}
+
 fn host_range(
     mirror: &EditorDisplayMirror,
-    deletes: bool,
+    deleted: Option<String>,
     range: (u64, u64),
     selection: (u64, u64),
     engine_selection: (u64, u64),
@@ -117,7 +130,7 @@ fn host_range(
             selection.1,
             engine_selection.0,
             engine_selection.1,
-            deletes,
+            deleted,
         )
         .unwrap();
     (r.start, r.end)
@@ -320,4 +333,27 @@ fn keys_replayed_after_opening_equal_the_keys_on_a_live_document() {
         failures.len(),
         failures.first()
     );
+}
+
+#[test]
+fn a_selection_ending_where_a_queued_replacement_starts_leaves_the_replacement_alone() {
+    // Select "world", type X; select "hello " (it ends where X begins), type Z: "ZX".
+    let ops = [
+        Op::Select(6, 11),
+        key((6, 11), (6, 11), "X"),
+        Op::Select(0, 6),
+        key((0, 6), (0, 6), "Z"),
+    ];
+    expect("hello world", &ops, "ZX");
+}
+
+#[test]
+fn a_word_delete_while_opening_deletes_the_word_before_the_engines_caret() {
+    // "hello world", caret at the end: s, then Option-Backspace (the view asks for "world").
+    let ops = [
+        Op::Tap(11),
+        key((11, 11), (11, 11), "s"),
+        key((6, 11), (11, 11), ""),
+    ];
+    expect("hello world", &ops, "hello ");
 }

@@ -197,6 +197,9 @@ fn a_range_ending_where_an_insertion_was_queued_stays_before_it() {
     assert_eq!(q.map(6, 6), (6, 6));
     assert_eq!(q.map(8, 8), (6, 6));
     assert_eq!(q.map(11, 11), (7, 7));
+    // A range ending where a replacement starts does not take the replacement in.
+    assert_eq!(q.map(0, 6), (0, 6));
+    assert_eq!(q.map(6, 6), (6, 6));
     // A deletion's end is not an insertion point: a range ending there follows the deletion.
     let mut q = PendingEdits::new();
     assert_eq!(q.push(3, 5, 0), (3, 5));
