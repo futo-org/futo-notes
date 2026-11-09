@@ -414,27 +414,21 @@ fn indent_cycle(source: &str) -> (String, DisplayRange, String) {
 }
 
 #[test]
-fn an_empty_item_under_its_siblings_text_indents_after_a_separating_blank_line() {
-    // An empty item cannot interrupt the sibling's paragraph (`- a\n  - ` reads
-    // as a setext heading), so the repair set's blank line separates them.
-    for (source, indented, outdented) in [
-        ("- a\n- ", "- a\n\n  - ", "- a\n\n- "),
-        (
-            "* item 1\n  * item 2\n  * ",
-            "* item 1\n  * item 2\n\n    * ",
-            "* item 1\n  * item 2\n\n  * ",
-        ),
+fn an_empty_item_indents_under_its_siblings_text_with_no_blank_line() {
+    // The parser reads an empty marker indented under a list item as an empty
+    // nested item, not a setext underline, so Indent writes only the indent.
+    for (source, indented) in [
+        ("- a\n- ", "- a\n\t- "),
+        ("* item 1\n  * item 2\n  * ", "* item 1\n  * item 2\n\t* "),
         // Ordered lists start the new level at 1; the outdent renumbers.
-        ("3. a\n4. ", "3. a\n\n   1. ", "3. a\n\n4. "),
-        // A task item's `[ ] ` is content, so no blank line is needed.
-        ("- [ ] a\n- [ ] ", "- [ ] a\n  - [ ] ", "- [ ] a\n- [ ] "),
-        // The note's line endings are kept in the separator.
-        ("- a\r\n- ", "- a\r\n\r\n  - ", "- a\r\n\r\n- "),
-        ("> - a\n> - ", "> - a\n>\n>   - ", "> - a\n>\n> - "),
+        ("3. a\n4. ", "3. a\n\t1. "),
+        ("- [ ] a\n- [ ] ", "- [ ] a\n\t- [ ] "),
+        ("- a\r\n- ", "- a\r\n\t- "),
+        ("> - a\n> - ", "> - a\n> \t- "),
     ] {
         let (got, _, back) = indent_cycle(source);
         assert_eq!(got, indented, "{source:?}");
-        assert_eq!(back, outdented, "{source:?} Outdent");
+        assert_eq!(back, source, "{source:?} Outdent");
     }
 }
 
@@ -468,5 +462,5 @@ fn text_typed_after_indenting_an_empty_item_lands_at_the_written_depth() {
         &mut |_| Ok(()),
     )
     .unwrap();
-    assert_eq!(s.source_text(), "- a\n\n  - x");
+    assert_eq!(s.source_text(), "- a\n\t- x");
 }

@@ -240,17 +240,13 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     assert.equal(text, '😀z日本 b\r\n');
     assert.equal(page.draft_text(), '###### ~~__😀z日本 b__~~\r\n');
     assert.equal(JSON.parse(page.commit_composition_utf16(24n)), null);
-    for (const [revision, command, expected] of [
-      [24n, '"Quote"', '> ~~__😀z日本 b__~~\r\n'],
-      [25n, '"Indent"', '> > ~~__😀z日本 b__~~\r\n'],
-      [26n, '"Outdent"', '> ~~__😀z日本 b__~~\r\n'],
-    ]) {
+    for (const [revision, command, expected] of [[24n, '"Quote"', '> ~~__😀z日本 b__~~\r\n']]) {
       const request = JSON.parse(page.block_command_utf16(revision, 0, 0, command));
       apply(await send(request));
       assert.equal(page.draft_text(), expected);
       assert.equal(text, '😀z日本 b\r\n');
     }
-    const divider = JSON.parse(page.block_command_utf16(27n, 7, 7, '"Divider"'));
+    const divider = JSON.parse(page.block_command_utf16(25n, 7, 7, '"Divider"'));
     const dividerChange = await send(divider);
     apply(dividerChange);
     assert.equal(page.draft_text(), '> ~~__😀z日本 b__~~\r\n> ***\r\n> \r\n');

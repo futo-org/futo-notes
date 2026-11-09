@@ -400,11 +400,48 @@ fn nested_backspace_retires_the_item_into_the_immediate_preceding_container() {
 }
 
 #[test]
-fn ambiguous_empty_nested_marker_remains_a_setext_heading() {
+fn an_empty_marker_indented_under_a_list_item_is_an_empty_nested_item_not_a_setext_underline() {
+    // As in Obsidian (Lezer): inside a list item the marker opens an item; outside
+    // one (`a\n-`) it stays a setext underline.
     let s = EditorSession::open("- a\n  - ");
-    assert_eq!(s.display_text(), "a");
     let p = s.project(s.revision(), range(0, 1)).unwrap();
-    assert_eq!(p.blocks[0].heading, 2);
+    assert_eq!(p.blocks[0].heading, 0);
+    assert_eq!(s.display_text(), "a\n");
+    let s = EditorSession::open("a\n-");
+    assert_eq!(
+        s.project(s.revision(), range(0, 1)).unwrap().blocks[0].heading,
+        2
+    );
+}
+
+#[test]
+fn an_empty_nested_marker_of_every_kind_is_an_item_and_a_numbered_two_is_text() {
+    for source in [
+        "- a\n\t- ",
+        "* a\n  *",
+        "1. a\n   1. ",
+        "1) a\n   1)",
+        "1. a\n   - ",
+        "- a\n  1. ",
+        "- a\n  - [ ] ",
+        "> - a\n>   - ",
+        "- a\r\n  - ",
+        "- a\n  - b\n    - ",
+    ] {
+        let s = EditorSession::open(source);
+        assert!(
+            s.display_text().ends_with('\n'),
+            "{source:?}: {:?}",
+            s.display_text()
+        );
+        assert_eq!(
+            s.project(s.revision(), range(0, 1)).unwrap().blocks[0].heading,
+            0,
+            "{source:?}"
+        );
+    }
+    // A number other than 1 cannot interrupt a paragraph, as in CommonMark.
+    assert_eq!(EditorSession::open("- a\n  2. ").display_text(), "a\n2. ");
 }
 
 #[test]

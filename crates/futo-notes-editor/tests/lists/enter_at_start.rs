@@ -54,7 +54,7 @@ fn enter_at_an_items_text_start_opens_an_empty_item_above() {
 fn enter_at_the_first_items_text_start_under_text_keeps_the_list() {
     for (raw, at, expected) in [
         ("para\n- a", 5, "para\n\n- \n- a"),
-        ("- a\n  - b", 2, "- a\n\n  - \n  - b"),
+        ("- a\n  - b", 2, "- a\n  - \n  - b"),
     ] {
         let mut s = EditorSession::open(raw);
         let selected = range(at, at);

@@ -28,6 +28,7 @@ mod content;
 mod divider;
 mod fence_tab;
 mod fences;
+mod indent_command;
 mod indent_source;
 mod keys;
 mod line_endings;
@@ -73,6 +74,18 @@ pub(in crate::session) fn all_quoted(lines: &[&crate::inline::blocks::BlockLine]
                     .as_ref()
                     .is_none_or(|list| list.quote_depth == line.quote_depth)
         })
+}
+
+/// The list item an Indent or Outdent acts on: the first touched line, when it
+/// is an item's own line or a line of one that is not itself quoted text.
+pub(in crate::session) fn indent_item(
+    lines: &[crate::inline::blocks::BlockLine],
+) -> Option<&crate::inline::ListLine> {
+    let line = lines.first().filter(|line| !line.code)?;
+    line.list.as_ref().filter(|list| {
+        line.quote_depth == list.quote_depth
+            || list.first && line.source.contains(&list.marker.start)
+    })
 }
 
 enum BlockSelection {

@@ -9,8 +9,12 @@ fn range(a: usize, b: usize) -> DisplayRange {
     }
 }
 
+#[path = "lists/command_eligibility.rs"]
+mod command_eligibility;
 #[path = "lists/commands.rs"]
 mod commands;
+#[path = "lists/nesting_examples.rs"]
+mod nesting_examples;
 #[path = "lists/comment_seams.rs"]
 mod comment_seams;
 #[path = "lists/containers.rs"]
