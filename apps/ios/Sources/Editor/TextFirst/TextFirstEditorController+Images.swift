@@ -284,7 +284,7 @@
                 width: width, height: height)
         }
 
-        /// `range` is exactly one image: what a tap on an image selects.
+        /// `range` is exactly one image: what a long-press or drag over an image selects.
         func selectsWholeImage(_ range: NSRange) -> Bool {
             guard range.length > 0, let found = image(endingAt: NSMaxRange(range)) else {
                 return false

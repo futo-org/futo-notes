@@ -5,8 +5,19 @@
 
     @testable import FutoNotesNative
 
-    /// A tap on an image selects it as one object (see `selectImage`); where that selection's
-    /// caret is drawn is the trailing edge of the image, and nothing about the selection changes.
+    /// A plain tap on an image puts a collapsed caret right after it (see `placeCaretAfterImage`);
+    /// a long-press, a drag or select-all still select it as one object, and that selection's
+    /// caret is drawn at the image's trailing edge too.
+    /// A finished tap at a fixed point, fed to the controller's own tap handler.
+    final class FinishedTap: UITapGestureRecognizer {
+        var point = CGPoint.zero
+        override var state: UIGestureRecognizer.State {
+            get { .ended }
+            set {}
+        }
+        override func location(in view: UIView?) -> CGPoint { point }
+    }
+
     @Suite @MainActor
     struct TextFirstImageCaretTests {
         struct Case: CustomTestStringConvertible, Sendable {
@@ -58,11 +69,94 @@
             return (h, range, frame)
         }
 
-        @Test(arguments: cases) func aTappedImagesCaretIsAtItsTrailingEdge(_ c: Case) async throws {
+        enum Spot: String, CaseIterable, Sendable {
+            case centre, left, right
+            func point(in frame: CGRect) -> CGPoint {
+                let x =
+                    switch self {
+                    case .centre: frame.midX
+                    case .left: frame.minX + frame.width * 0.2
+                    case .right: frame.minX + frame.width * 0.8
+                    }
+                return CGPoint(x: x, y: frame.midY)
+            }
+        }
+
+        /// A tap on the image at `spot`, then the main loop until the selection has settled.
+        private func tap(_ h: TextFirstHarness, _ spot: Spot, _ frame: CGRect, after: Int) async {
+            let tap = FinishedTap(target: nil, action: nil)
+            tap.point = spot.point(in: frame)
+            h.controller.handleTap(tap)
+            _ = await h.until(1) { h.tv.selectedRange == NSRange(location: after, length: 0) }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        @Test(arguments: cases, Spot.allCases) func aTapOnAnImagePutsACaretAfterIt(
+            _ c: Case, _ spot: Spot
+        ) async {
+            let (h, range, frame) = await open(c)
+            let end = NSRange(location: NSMaxRange(range), length: 0)
+            await tap(h, spot, frame, after: end.location)
+            #expect(h.tv.selectedRange == end)
+            #expect(h.controller.engineSelection == end)
+            let caret = h.tv.caretRect(for: h.tv.selectedTextRange!.end)
+            #expect(abs(caret.minX - frame.maxX) <= 2, "\(caret) vs \(frame)")
+            #expect(abs(caret.maxY - frame.maxY) <= 1)
+            #expect(h.controller.divergences.isEmpty)
+        }
+
+        @Test(arguments: cases, Spot.allCases) func textTypedAfterATapGoesAfterTheImage(
+            _ c: Case, _ spot: Spot
+        ) async {
+            let (h, range, frame) = await open(c)
+            let before = h.source
+            await tap(h, spot, frame, after: NSMaxRange(range))
+            h.type("x")
+            let spelling = "![](\(c.file))"
+            let expected = (before as NSString).replacingCharacters(
+                in: NSRange(location: NSMaxRange(range), length: 0), with: "x")
+            #expect(h.source == expected, "\(h.source.debugDescription)")
+            #expect(h.source.contains(spelling + "x"))
+            #expect(h.controller.divergences.isEmpty)
+        }
+
+        @Test(arguments: cases, Spot.allCases) func backspaceAfterATapRemovesTheImageInOneEdit(
+            _ c: Case, _ spot: Spot
+        ) async {
+            let (h, range, frame) = await open(c)
+            let before = h.source
+            await tap(h, spot, frame, after: NSMaxRange(range))
+            #expect(h.tv.selectedRange == NSRange(location: NSMaxRange(range), length: 0))
+            h.tv.deleteBackward()
+            #expect(!h.source.contains(c.file), "\(h.source.debugDescription)")
+            h.tv.undoManager?.undo()
+            #expect(h.source == before, "\(h.source.debugDescription)")
+            #expect(h.controller.divergences.isEmpty)
+        }
+
+        @Test(arguments: cases) func aLongPressOrDragStillSelectsTheImageAsAnObject(_ c: Case)
+            async
+        {
+            let (h, range, _) = await open(c)
+            // UIKit's long-press and drag handles land on the image's edges: it stays selected.
+            h.tv.selectedRange = range
+            #expect(h.tv.selectedRange == range)
+            #expect(h.controller.selectsWholeImage(h.tv.selectedRange))
+            #expect(!h.tv.imageCaret.isHidden)
+            // A drag across it and select-all keep it inside the selection.
+            let all = NSRange(location: 0, length: (h.tv.text as NSString).length)
+            h.tv.selectedRange = all
+            #expect(h.tv.selectedRange == all)
+            h.tv.deleteBackward()
+            #expect(!h.source.contains(c.file), "\(h.source.debugDescription)")
+        }
+
+        @Test(arguments: cases) func aSelectedImageCaretIsAtItsTrailingEdge(_ c: Case) async throws
+        {
             let (h, range, frame) = await open(c)
             #expect(h.controller.imageHit(at: CGPoint(x: frame.midX, y: frame.midY)) == range)
             h.tv.selectedRange = range
-            // Where the text goes is as it was: the whole image is selected.
+            // Selected as an object (a long-press, say): the whole image is selected.
             #expect(h.tv.selectedRange == range)
             #expect(h.controller.engineSelection == range)
 
