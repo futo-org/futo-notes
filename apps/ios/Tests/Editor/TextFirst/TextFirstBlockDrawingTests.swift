@@ -39,6 +39,93 @@
             #expect(empty == boxes(), "empty \(empty), typed \(boxes())")
         }
 
+        /// Every list marker sits on the middle of its text's capital letters, whether the row is
+        /// empty or typed into. Measured on the rendered pixels (the marker's ink against the
+        /// text's), so it holds whatever geometry the layout reports.
+        @Test func listMarkersCenterOnTheirTextAndStayPutWhenTypedInto() {
+            let h = TextFirstHarness(
+                "- HI\n\n1. HI\n\n- [ ] HI\n- [x] HI\n\n- HI\n  - HI\n  - [ ] HI\n\n- [ ] \n")
+            let rows = inkCenters(h)
+            #expect(rows.count == 8, "\(rows)")
+            for row in rows where row.text != nil {
+                #expect(abs(row.marker - row.text!) < 0.5, "\(row)")
+            }
+            // Typing into the empty last task moves its box by nothing and lands it on the text.
+            let before = rows.last!
+            let display = h.tv.text as NSString
+            let end = display.length - (display.hasSuffix("\n") ? 1 : 0)
+            h.select(end, end)
+            h.type("H")
+            let after = inkCenters(h).last!
+            #expect(abs(after.marker - before.marker) < 0.01, "\(before) -> \(after)")
+            #expect(abs(after.marker - after.text!) < 0.5, "\(after)")
+        }
+
+        /// Per list row, the vertical center of the ink left of the text (the marker) and of the
+        /// ink right of it (the text), in points.
+        private func inkCenters(_ h: TextFirstHarness) -> [(marker: CGFloat, text: CGFloat?)] {
+            h.tv.tintColor = .clear  // the caret is ink too
+            h.tv.layoutIfNeeded()
+            let scale: CGFloat = 4
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = scale
+            let image = UIGraphicsImageRenderer(size: h.tv.bounds.size, format: format).image { c in
+                UIColor.white.setFill()
+                c.fill(h.tv.bounds)
+                h.tv.drawHierarchy(in: h.tv.bounds, afterScreenUpdates: true)
+            }
+            let cg = image.cgImage!
+            var pixels = [UInt8](repeating: 0, count: cg.width * cg.height * 4)
+            let context = CGContext(
+                data: &pixels, width: cg.width, height: cg.height, bitsPerComponent: 8,
+                bytesPerRow: cg.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+            func isInk(_ x: Int, _ y: Int) -> Bool {
+                let i = (y * cg.width + x) * 4
+                return Int(pixels[i]) + Int(pixels[i + 1]) + Int(pixels[i + 2]) < 3 * 200
+            }
+            func inkCenter(xs: Range<Int>, ys: Range<Int>) -> CGFloat? {
+                let inked = ys.filter { y in xs.contains { isInk($0, y) } }
+                guard let first = inked.first, let last = inked.last else { return nil }
+                return CGFloat(first + last + 1) / 2 / scale
+            }
+            // The rows are the bands of ink across the whole width, top to bottom (the render's
+            // origin is not the text layout's, so no band is predicted from geometry).
+            var bands: [Range<Int>] = []
+            var open: Int?
+            for y in 0..<cg.height {
+                let inked = (0..<cg.width).contains { isInk($0, y) }
+                if inked, open == nil { open = y }
+                if !inked, let from = open {
+                    bands.append(from..<y)
+                    open = nil
+                }
+            }
+            let manager = h.tv.textLayoutManager!
+            let content = manager.textContentManager!
+            var textXs: [Int] = []
+            manager.enumerateTextLayoutFragments(
+                from: manager.documentRange.location, options: [.ensuresLayout]
+            ) { fragment in
+                guard let row = fragment as? TextFirstLayoutFragment, row.block.list != nil,
+                    row.block.showsMarker
+                else { return true }
+                let start = content.offset(
+                    from: manager.documentRange.location, to: fragment.rangeInElement.location)
+                let position = h.tv.position(from: h.tv.beginningOfDocument, offset: start)!
+                textXs.append(Int((h.tv.caretRect(for: position).minX - 1) * scale))
+                return true
+            }
+            #expect(bands.count == textXs.count, "\(bands) ink bands, \(textXs) rows")
+            return zip(bands, textXs).map { band, textX in
+                (
+                    marker: inkCenter(xs: 0..<textX, ys: band) ?? -1,
+                    text: inkCenter(xs: textX..<cg.width, ys: band)
+                )
+            }
+        }
+
         @Test func aBulletCanBeAddedInsideAQuote() {
             let h = TextFirstHarness("> quoted\n> ")
             let at = (h.tv.text as NSString).range(of: "\n").location + 1

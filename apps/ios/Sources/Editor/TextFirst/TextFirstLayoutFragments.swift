@@ -202,19 +202,27 @@
         }
 
         private var firstLine: CGRect {
-            guard let line = textLineFragments.first else {
-                return CGRect(x: 0, y: 0, width: 0, height: 20)
-            }
-            var bounds = line.typographicBounds
-            // TextKit gives an empty paragraph different typographic bounds from a glyph-bearing
-            // one. Center the marker on the font's line height so typing does not move it.
+            textLineFragments.first?.typographicBounds ?? CGRect(x: 0, y: 0, width: 0, height: 20)
+        }
+
+        /// The first line's baseline in the fragment's coordinates. An empty paragraph and a typed
+        /// one place their glyph origin alike, so a marker hung from it does not move when the
+        /// first character arrives.
+        private var firstBaseline: CGFloat {
+            guard let line = textLineFragments.first else { return 16 }
+            return line.typographicBounds.minY + line.glyphOrigin.y
+        }
+
+        /// Where a bullet or box is centered: the middle of the first line's capital letters.
+        var markerCenterY: CGFloat {
             let font =
-                line.attributedString.length > 0
-                ? line.attributedString.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
-                : nil
-            bounds.size.height =
-                (font ?? MainActor.assumeIsolated { TextFirstEditorController.bodyFont }).lineHeight
-            return bounds
+                textLineFragments.first.flatMap { line in
+                    line.attributedString.length > 0
+                        ? line.attributedString.attribute(.font, at: 0, effectiveRange: nil)
+                            as? UIFont
+                        : nil
+                } ?? MainActor.assumeIsolated { TextFirstEditorController.bodyFont }
+            return firstBaseline - font.capHeight / 2
         }
 
         /// Adjacent fragments share pixel edges, so the block reads as one surface even at
@@ -237,11 +245,9 @@
         /// The checkbox's rect: x in container coordinates, y relative to the fragment.
         var checkboxRect: CGRect? {
             guard let list = block.list, block.showsMarker, list.marker == .task else { return nil }
-            let line = firstLine
             let side = TextFirstMetrics.checkboxSide
             return CGRect(
-                x: textIndent - side - 8, y: line.minY + (line.height - side) / 2, width: side,
-                height: side)
+                x: textIndent - side - 8, y: markerCenterY - side / 2, width: side, height: side)
         }
 
         /// The marker's gutter, in the fragment's coordinates, when the selection covers the whole
@@ -294,7 +300,6 @@
             _ list: (depth: Int, marker: EditorListMarker, number: UInt64?, checked: Bool),
             at point: CGPoint, in context: CGContext
         ) {
-            let line = firstLine
             switch list.marker {
             case .task:
                 guard let box = checkboxRect else { return }
@@ -328,13 +333,13 @@
                 text.draw(
                     at: CGPoint(
                         x: point.x + textIndent - size.width - 6,
-                        y: point.y + line.minY + (line.height - size.height) / 2))
+                        y: point.y + firstBaseline - font.ascender))
             case .bullet:
                 // Disc, ring, square by depth.
                 let d: CGFloat = 6
                 let r = CGRect(
                     x: point.x + textIndent - 14 - d / 2,
-                    y: point.y + line.minY + line.height / 2 - d / 2,
+                    y: point.y + markerCenterY - d / 2,
                     width: d, height: d)
                 UIColor.secondaryLabel.setFill()
                 UIColor.secondaryLabel.setStroke()
