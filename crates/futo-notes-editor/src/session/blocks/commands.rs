@@ -99,7 +99,13 @@ impl EditorSession {
                 range,
                 accept,
                 |staged, local, accept| {
-                    staged.structural_command_staged(staged.revision(), local, command, stage, accept)
+                    staged.structural_command_staged(
+                        staged.revision(),
+                        local,
+                        command,
+                        stage,
+                        accept,
+                    )
                 },
             );
         }
