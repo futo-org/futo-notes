@@ -50,13 +50,6 @@ pub fn editor_external_link_url(destination: String) -> Option<String> {
     futo_notes_editor::external_link_url(&destination)
 }
 
-/// The destination to save for what was typed in the link prompt: a schemeless web address gains
-/// `https://`; anything else comes back as typed.
-#[uniffi::export]
-pub fn editor_normalize_link_destination(typed: String) -> String {
-    futo_notes_editor::normalize_link_destination(&typed)
-}
-
 #[uniffi::export]
 impl NativeEditorSession {
     /// The note a tapped schemeless link destination names, or none when it names no note.
@@ -65,6 +58,12 @@ impl NativeEditorSession {
         destination: String,
     ) -> Result<Option<String>, EditorSessionError> {
         self.with_session(|session| Ok(session.resolve_note_link(&destination)?))
+    }
+
+    /// The destination to save for what was typed in the link prompt: one naming an existing
+    /// note comes back as typed; otherwise a schemeless web address gains `https://`.
+    pub fn normalize_link_destination(&self, typed: String) -> Result<String, EditorSessionError> {
+        self.with_session(|session| Ok(session.normalize_link_destination(&typed)?))
     }
 }
 

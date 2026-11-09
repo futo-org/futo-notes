@@ -529,6 +529,13 @@ fn every_window_of_a_mixed_note_matches_the_whole_plan() {
 }
 
 #[test]
+fn every_window_of_a_crlf_note_matches_the_whole_plan() {
+    // Windows ending between a `\r` and its `\n` included.
+    assert_windows_match_the_whole("- 😀\r\n- \r\n- b\r\n");
+    assert_windows_match_the_whole("> q 😀\r\n> \r\n> r\r\n\r\n# h\r\n");
+}
+
+#[test]
 fn a_crlf_line_owns_its_whole_break_so_an_empty_row_has_a_span() {
     // An empty row is only its line break: a span that stops before the `\r` is zero-length, and
     // the host never styles it.

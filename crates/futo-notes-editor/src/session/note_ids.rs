@@ -13,6 +13,13 @@ impl EditorSession {
         crate::link_target::resolve_note_link(destination, current_id, &self.projection.catalog)
     }
 
+    /// The destination to save for what was typed in the link prompt of the note `current_id`: a
+    /// destination naming an existing note stays a note link as typed; otherwise a web-looking
+    /// address gains `https://`.
+    pub fn normalize_link_destination(&self, current_id: &str, typed: &str) -> String {
+        crate::link_target::normalize_link_destination(typed, current_id, &self.projection.catalog)
+    }
+
     /// Install the vault's current note ids. Source, display, selection, history
     /// and any composition are untouched, so this is valid while composing. Work
     /// is proportional to the id list plus the rows holding a link whose last

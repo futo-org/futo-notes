@@ -201,12 +201,19 @@ pub fn plan_styles(
     let text_end = start_utf16 + slice.text.encode_utf16().count();
     let units: Vec<u16> = slice.text.encode_utf16().collect();
     // The block a range ends on owns its line break (`\n` or `\r\n`), so a span reaches the next
-    // line's start. An empty row is only its break: without it the span is zero-length.
+    // line's start. An empty row is only its break: without it the span is zero-length. A `\r`
+    // closing the window, or a block ending just before a window that opens on `\n`, is a `\r\n`
+    // cut by the window (rows end at `\n`, so no block ends before any other lone `\r`): it owns
+    // the pair as the whole plan does.
     let with_break = |end: usize| {
+        if end + 1 == start_utf16 && units.first() == Some(&0x0A) {
+            return end + 2;
+        }
         let at = end.wrapping_sub(start_utf16);
         match (units.get(at), units.get(at.wrapping_add(1))) {
             (Some(0x0A), _) => end + 1,
             (Some(0x0D), Some(0x0A)) => end + 2,
+            (Some(0x0D), None) => end + 1,
             _ => end,
         }
     };

@@ -1,4 +1,5 @@
-//! What a link destination means. The link prompt asks [`normalize_link_destination`] when a
+//! What a link destination means. The link prompt asks [`normalize_link_destination`] (a note
+//! that exists wins, then the web-address heuristic) when a
 //! destination is saved; a tap asks [`external_link_url`] (opens in the system only with an
 //! explicit, allowed scheme) and otherwise [`resolve_note_link`] (a schemeless destination is a
 //! note path, never a web address).
@@ -185,10 +186,23 @@ pub fn external_link_url(destination: &str) -> Option<String> {
         .then(|| destination.to_owned())
 }
 
-/// The destination to save for what the person typed in the link prompt. A schemeless address
-/// that looks like a web address (`www.…`, or a host on a known public TLD, and not ending in
-/// `.md`) gains `https://`; anything else is returned exactly as typed.
-pub fn normalize_link_destination(typed: &str) -> String {
+/// The destination to save for what the person typed in the link prompt, from the note
+/// `current_id`. A destination that names an existing note (the tap's own resolution) stays as
+/// typed, so `logo.ai` or `Projects.dev/todo` never become web addresses; otherwise a schemeless
+/// address that looks like one (`www.…`, or a host on a known public TLD, and not ending in
+/// `.md`) gains `https://`, and anything else is returned exactly as typed.
+pub(crate) fn normalize_link_destination(
+    typed: &str,
+    current_id: &str,
+    catalog: &WikilinkIndex,
+) -> String {
+    if resolve_note_link(typed, current_id, catalog).is_some() {
+        return typed.to_owned();
+    }
+    web_address_destination(typed)
+}
+
+fn web_address_destination(typed: &str) -> String {
     let candidate = typed.trim();
     if candidate.is_empty()
         || candidate
