@@ -229,7 +229,10 @@ fn assert_code_off_preserves_body(
         assert_eq!(session.display_text(), display);
         let mut view = ReferenceView::new(display);
         session.select(session.revision(), selected).unwrap();
-        let quoted = session.toolbar_state().quote;
+        // Quote reads active over prose inside a quote, and code lines are set
+        // aside from that test (Quote never changes them), so the fenced body
+        // reads inactive while it is code and active once its text is quoted.
+        let quoted = opening.starts_with('>');
         let mut accepted = 0;
         view.apply(
             session
