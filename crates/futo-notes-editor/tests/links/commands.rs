@@ -502,3 +502,30 @@ fn edit_link_clearing_the_sole_link_leaves_an_empty_document_with_exact_undo() {
     session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
     assert_eq!(session.source_text(), original);
 }
+
+#[test]
+fn a_link_on_bold_text_keeps_both_semantics() {
+    for destination in ["google.com", "https://google.com"] {
+        let mut s = EditorSession::open("**This editor.** Is beautiful.");
+        s.select(s.revision(), range(0, 4)).unwrap();
+        s.edit_link(s.revision(), range(0, 4), "This", destination, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap();
+        assert!(
+            s.inspect_link(s.revision(), range(0, 4)).unwrap().is_some(),
+            "{}",
+            s.source_text()
+        );
+        assert_eq!(s.display_text(), "This editor. Is beautiful.");
+        assert!(s
+            .toolbar_state()
+            .formats
+            .contains(&futo_notes_editor::InlineFormat::Bold));
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(s.source_text(), "**This editor.** Is beautiful.");
+        s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+        assert!(s.inspect_link(s.revision(), range(0, 4)).unwrap().is_some());
+    }
+}
