@@ -14,6 +14,12 @@ work. Plain-text/Markdown paste, including ordinary single-cell table paste, rem
 required. Tables, shared find, wikilink completion and the 20,000-line
 acceptance targets have not been deferred. → docs/plan/text-first-editor-rebuild-tickets.md
 
+The mobile toolbar shows Indent and Outdent everywhere and greys them out where the engine's
+`can_indent`/`can_outdent` is false (list-indent.md). The shared toolbar manifest still shows them only
+when the caret is in a list or quote (`when: 'inContainer'`, packages/editor/src/toolbar.ts), so
+the manifest and the native toolbars remain to follow this rule.
+→ docs/spec/editor/markdown-toolbar/toolbar-commands.md
+
 Fenced-code interpretation and key intent (#297) are accepted on the integration branch;
 large-fence work bounds, progressive reinterpretation and physical device validation remain
 required. → docs/spec/editor/portable-core/fenced-code.md
@@ -24,9 +30,9 @@ mixed original-format runs, exact owner fragments, copied ordered starts and sam
 empty prefix frames with distinct nearest/full intents. Root fenced-tail promotion
 preserves opaque code and original containment through certified physical edge facts;
 new source queries and canonical code-body overlap queries have measured work controls.
-The pinned multiline quoted-body Outdent, Backspace and full Text observations,
+The pinned multiline quoted-body Backspace and full Text observations,
 representative CRLF/entity cases and separate inner/foreign quote ownership now
-have exact-source/history and measured-work controls. The 218 shared list literals
+have exact-source/history and measured-work controls. The 202 shared list literals
 run through all six consumers, including compiled WASM and synthetic Swift/Kotlin
 FFI/Store tests. Native execution covers arm64 iOS Simulator and an actual x86
 Android process; the remaining shipped native architectures have compilation proof.

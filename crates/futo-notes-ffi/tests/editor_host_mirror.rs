@@ -92,3 +92,23 @@ fn style_plan_reports_utf16_spans_for_a_byte_window() {
         }
     )));
 }
+
+// The slice and prefix helpers a host uses to show a long note's first screens and render the rest.
+#[test]
+fn slices_end_on_blank_lines_and_prefixes_match_byte_for_byte() {
+    let mirror = EditorDisplayMirror::new("one\ntwo\n\nthree \u{1F600}\nfour\n".into());
+    // Target 5 reaches into "two": the slice ends after the line before the blank line (the first newline of it).
+    assert_eq!(mirror.slice_end(0, 5).unwrap(), 8);
+    // The end of the text is the last slice's end; a slice never splits the emoji pair.
+    assert_eq!(mirror.slice_end(0, 10_000).unwrap(), mirror.utf16_len());
+    for from in [0, 9, 10] {
+        let end = mirror.slice_end(from, 3).unwrap();
+        assert!(mirror.utf16_to_byte(end).is_ok(), "{from} -> {end}");
+    }
+    assert_eq!(mirror.begins_with("one\ntwo".into()), Some(7));
+    assert_eq!(mirror.begins_with("One".into()), None);
+    assert_eq!(
+        mirror.begins_with("one\ntwo\n\nthree \u{1F600}\nfour\nmore".into()),
+        None
+    );
+}

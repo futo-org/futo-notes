@@ -33,3 +33,65 @@ fn paste_and_cut_survive_rejected_append_recovery_and_checkpoint() {
     recovered.checkpoint().unwrap();
     assert_eq!(store.read("clip").unwrap(), cut);
 }
+
+#[test]
+fn block_paste_in_empty_code_is_literal_through_checkpoint() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let original = "```\n\n```\n";
+    store.create("", "empty-code", original).unwrap();
+    let mut session = store.open_editor("empty-code").unwrap();
+    let change = session
+        .paste_markdown(Revision(0), range(0, 0), "# h")
+        .unwrap()
+        .unwrap();
+    assert_eq!(change.selection, range(3, 3));
+    let expected = "```\n# h\n```\n";
+    assert_eq!(session.source_text(), expected);
+    assert_eq!(session.display_text(), "# h");
+    session.undo(Revision(1)).unwrap().unwrap();
+    assert_eq!(session.source_text(), original);
+    session.redo(Revision(2)).unwrap().unwrap();
+    session.checkpoint().unwrap();
+    drop(session);
+    let reopened = store.open_editor("empty-code").unwrap();
+    assert_eq!(reopened.source_text(), expected);
+    assert_eq!(reopened.display_text(), "# h");
+}
+
+#[test]
+fn block_paste_retires_selected_code_and_prose_as_one_saved_action() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let original = "```\n\n```\n\nplain\n";
+    store.create("", "selected-code", original).unwrap();
+    let mut session = store.open_editor("selected-code").unwrap();
+    session
+        .select_with_affinity(
+            Revision(0),
+            range(0, 8),
+            futo_notes_editor::Affinity::Forward,
+        )
+        .unwrap();
+    let change = session
+        .paste_markdown(Revision(0), range(0, 8), "# h")
+        .unwrap()
+        .unwrap();
+    assert_eq!(change.selection, range(1, 1));
+    assert_eq!(session.source_text(), "# h");
+    assert_eq!(session.display_text(), "h");
+    assert_eq!(
+        session.undo(Revision(1)).unwrap().unwrap().selection,
+        range(0, 8)
+    );
+    assert_eq!(session.source_text(), original);
+    assert_eq!(
+        session.redo(Revision(2)).unwrap().unwrap().selection,
+        range(1, 1)
+    );
+    session.checkpoint().unwrap();
+    drop(session);
+    let reopened = store.open_editor("selected-code").unwrap();
+    assert_eq!(reopened.source_text(), "# h\n");
+    assert_eq!(reopened.display_text(), "h\n");
+}

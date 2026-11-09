@@ -60,6 +60,8 @@ pub(crate) struct Segment {
 }
 
 pub(crate) struct Row {
+    /// Immutable source facts; metadata-only updates never rewrite them.
+    pub(super) table_scan: crate::table::RowScan,
     pub source_len: usize,
     /// The source holds a `|`, as every table header line does.
     pub pipes: bool,

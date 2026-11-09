@@ -1,4 +1,7 @@
 use ropey::Rope;
+use unicode_segmentation::UnicodeSegmentation;
+
+use crate::{CaretDirection, EditorSession};
 
 /// Why a coordinate was refused; the mirror is unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -9,6 +12,9 @@ pub enum MirrorError {
     /// Start after end.
     Reversed,
 }
+
+/// How far past its target a slice may run to reach a blank line, in slices.
+const SLICE_REACH: usize = 10;
 
 /// One engine change in the host's UTF-16 coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,7 +27,15 @@ pub struct MirrorEdit {
     /// The resulting selection, in UTF-16 units of the new display.
     pub selection_start: usize,
     pub selection_end: usize,
+    /// How many UTF-16 units earlier the same edit could equally have been spelled, when it is a
+    /// pure insertion or deletion inside a run the engine's smallest-change report slid to the
+    /// right ("a" typed at the start of "aa" is reported at 2, and could be at 0, 1 or 2): the
+    /// text is the same at `start - slack ..= start`. 0 for any other edit.
+    pub slack: usize,
 }
+
+/// Longest run, in scalars, measured for [`MirrorEdit::slack`]; a longer run is cut here.
+const SLACK_REACH: usize = 1024;
 
 /// The host's copy of the engine's display text, kept in step by applying each
 /// accepted change. The engine speaks display UTF-8 bytes; platform text views
@@ -87,6 +101,198 @@ impl DisplayMirror {
         Ok(self.rope.byte_slice(from..to).to_string())
     }
 
+    /// Where a render slice starting at `from` ends (UTF-16 units): just after the line before the
+    /// first blank line at or past `chars` units on, else after the next line end, else the end of
+    /// the text. A blank line ends every block that spans lines (a table, a paragraph, an inline
+    /// mark), so a slice never cuts one in two: the engine reports a table only from the slice it
+    /// starts in. A text with no blank line within ten slices keeps whole lines. Always on a
+    /// scalar boundary, never behind `from`'s target by more than a line.
+    pub fn slice_end(&self, from: usize, chars: usize) -> Result<usize, MirrorError> {
+        let len = self.utf16_len();
+        if from > len {
+            return Err(MirrorError::OutOfRange);
+        }
+        let target = from.saturating_add(chars);
+        if target >= len {
+            return Ok(len);
+        }
+        let reach = target.saturating_add(chars.saturating_mul(SLICE_REACH));
+        // A blank line: "\n\n" whose first newline is at or after `target - 1`.
+        let first = self.rope.utf16_cu_to_char(target.saturating_sub(1));
+        let mut unit = self.rope.char_to_utf16_cu(first);
+        let mut previous_newline = false;
+        for c in self.rope.chars_at(first) {
+            if unit > reach {
+                break;
+            }
+            if c == '\n' && previous_newline {
+                // `unit` is the second newline; the slice ends after the first.
+                return Ok(unit);
+            }
+            previous_newline = c == '\n';
+            unit += c.len_utf16();
+        }
+        // No blank line within reach: whole lines, from `target` on.
+        let from_char = self.rope.utf16_cu_to_char(target);
+        let mut unit = self.rope.char_to_utf16_cu(from_char);
+        for c in self.rope.chars_at(from_char) {
+            unit += c.len_utf16();
+            if c == '\n' {
+                return Ok(unit);
+            }
+        }
+        Ok(len)
+    }
+
+    /// Whether the display starts with exactly `prefix` (bytes, not Unicode equivalence); the
+    /// prefix's length in UTF-16 units when it does. A host that showed a long note's first
+    /// screens before its session existed keeps them only when this holds.
+    pub fn begins_with(&self, prefix: &str) -> Option<usize> {
+        let head = self.rope.get_byte_slice(..prefix.len())?;
+        (head == prefix).then(|| prefix.encode_utf16().count())
+    }
+
+    /// [`MirrorEdit::slack`] of the edit that turned `before` into the current rope: `[first,
+    /// last)` scalars replaced by `inserted` scalars. Sliding the edit left by `m` scalars gives
+    /// the same text exactly when, for every step up to `m`, the scalar the edit's new end passes
+    /// equals the one its old end passes.
+    fn slack(&self, before: &Rope, first: usize, last: usize, inserted: usize) -> usize {
+        if first != last && inserted != 0 {
+            return 0;
+        }
+        let mut run = 0;
+        while run < first.min(SLACK_REACH)
+            && self.rope.char(first + inserted - run - 1) == before.char(last - run - 1)
+        {
+            run += 1;
+        }
+        before.char_to_utf16_cu(first) - before.char_to_utf16_cu(first - run)
+    }
+
+    /// Where a key replays on the engine, at the engine's caret: `view` is the range UIKit-style
+    /// input asked to replace on the view's frozen text, `view_selection` the selection that view
+    /// had, `engine_selection` the engine's now (all UTF-16), `deleted` the frozen text of `view`
+    /// when the key's text is empty (a deletion), else `None`. The frozen view's selection never moved; the engine's moved on with the keys before
+    /// this one, so the two cannot share widths.
+    ///
+    /// A deletion tied to the selection (Backspace or forward delete at a caret, or over the
+    /// selected range) is the engine's own: the selection when the engine has one, else one
+    /// extended grapheme before (after, for a forward delete) the engine's caret, never the width
+    /// the view saw. A delete of more than one grapheme at a caret (Option-Backspace) is a word
+    /// delete: the engine's word before (after) its caret on that line, with the spaces between.
+    /// Any other key keeps its offset from the view's selection, clamped to the text and shrunk
+    /// to scalar boundaries.
+    pub fn at_caret(
+        &self,
+        view: (usize, usize),
+        view_selection: (usize, usize),
+        engine_selection: (usize, usize),
+        deleted: Option<&str>,
+    ) -> (usize, usize) {
+        if let Some(deleted) = deleted {
+            if let Some(range) =
+                self.selection_delete(view, view_selection, engine_selection, deleted)
+            {
+                return range;
+            }
+        }
+        let len = self.utf16_len();
+        let shifted = |at: usize, from: usize, to: usize| {
+            (to as i64 + at as i64 - from as i64).clamp(0, len as i64) as usize
+        };
+        let mut start = shifted(view.0, view_selection.0, engine_selection.0);
+        let mut end = shifted(view.1, view_selection.1, engine_selection.1);
+        while start < end && self.utf16_to_byte(start).is_err() {
+            start += 1;
+        }
+        while end > start && self.utf16_to_byte(end).is_err() {
+            end -= 1;
+        }
+        // An empty range may sit inside a pair (a stale caret): step it back onto the boundary.
+        while end == start && self.utf16_to_byte(start).is_err() {
+            (start, end) = (start - 1, end - 1);
+        }
+        (start, end.max(start))
+    }
+
+    /// The engine's range for a key deletion tied to the view's selection, if `view` is one.
+    fn selection_delete(
+        &self,
+        view: (usize, usize),
+        view_selection: (usize, usize),
+        engine_selection: (usize, usize),
+        deleted: &str,
+    ) -> Option<(usize, usize)> {
+        let collapsed = view_selection.0 == view_selection.1;
+        let backward = view.0 < view.1
+            && if collapsed {
+                view.1 == view_selection.1
+            } else {
+                view == view_selection
+            };
+        let forward = collapsed && view.0 < view.1 && view.0 == view_selection.0;
+        if !backward && !forward {
+            return None;
+        }
+        if engine_selection.0 != engine_selection.1 {
+            return Some(engine_selection);
+        }
+        let caret = engine_selection.0;
+        let direction = if backward {
+            CaretDirection::Backward
+        } else {
+            CaretDirection::Forward
+        };
+        let byte = self.utf16_to_byte(caret).ok()?;
+        let word = collapsed && deleted.graphemes(true).nth(1).is_some();
+        let stop = match word.then(|| self.word_stop(byte, direction)).flatten() {
+            Some(stop) => stop,
+            None => EditorSession::grapheme_stop_in(&self.rope, byte, direction, false).ok()?,
+        };
+        let other = self.byte_to_utf16(stop).ok()?;
+        Some(if backward {
+            (other, caret)
+        } else {
+            (caret, other)
+        })
+    }
+
+    /// Where a word delete from `byte` ends: the start of the last word (or punctuation run) before
+    /// it on its line, spaces after it included; forward, the end of the first one after it. `None`
+    /// at a line's edge, where the delete is one grapheme (the line break).
+    fn word_stop(&self, byte: usize, direction: CaretDirection) -> Option<usize> {
+        let blank = |segment: &str| segment.chars().all(char::is_whitespace);
+        match direction {
+            CaretDirection::Backward => {
+                let from = self.rope.line_to_byte(self.rope.byte_to_line(byte));
+                let text = self.rope.byte_slice(from..byte).to_string();
+                let segments: Vec<(usize, &str)> = text.split_word_bound_indices().collect();
+                let kept = segments.iter().rposition(|(_, s)| !blank(s));
+                match (segments.is_empty(), kept) {
+                    (true, _) => None,
+                    (false, None) => Some(from),
+                    (false, Some(i)) => Some(from + segments[i].0),
+                }
+            }
+            CaretDirection::Forward => {
+                let line = self.rope.byte_to_line(byte);
+                let to = if line + 1 < self.rope.len_lines() {
+                    self.rope.line_to_byte(line + 1)
+                } else {
+                    self.rope.len_bytes()
+                };
+                let text = self.rope.byte_slice(byte..to).to_string();
+                let text = text.trim_end_matches(['\n', '\r']);
+                let first = text.split_word_bound_indices().find(|(_, s)| !blank(s));
+                match (text.is_empty(), first) {
+                    (true, _) => None,
+                    (false, None) => Some(byte + text.len()),
+                    (false, Some((i, s))) => Some(byte + i + s.len()),
+                }
+            }
+        }
+    }
+
     /// A selection of the current display, as UTF-16 units.
     pub fn selection_utf16(&self, start: usize, end: usize) -> Result<(usize, usize), MirrorError> {
         if start > end {
@@ -121,6 +327,7 @@ impl DisplayMirror {
                 inserted_utf16: inserted.encode_utf16().count(),
                 selection_start,
                 selection_end,
+                slack: self.slack(&before, first, last, inserted.chars().count()),
             }),
             Err(error) => {
                 self.rope = before;

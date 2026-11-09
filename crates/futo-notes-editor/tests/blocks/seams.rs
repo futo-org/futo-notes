@@ -38,51 +38,31 @@ fn an_existing_heading_level_is_an_exact_noop_before_any_inline_seam_repair() {
 }
 
 #[test]
-fn quote_depth_changes_preserve_inline_spelling_across_owned_heading_soft_lines() {
-    for (raw, shown, indented, outdented) in [
-        (
-            "> __a \n> b__\n> =",
-            "a \nb",
-            "> > __a \n> > b__\n> > =",
-            "__a \nb__\n=",
-        ),
-        (
-            "> __a  \n> b__\n> =",
-            "a  \nb",
-            "> > __a  \n> > b__\n> > =",
-            "__a  \nb__\n=",
-        ),
-        (
-            "> __a\\\n> b__\n> =",
-            "a\\\nb",
-            "> > __a\\\n> > b__\n> > =",
-            "__a\\\nb__\n=",
-        ),
+fn quote_toggle_preserves_inline_spelling_across_owned_heading_soft_lines() {
+    for (raw, shown, outdented) in [
+        ("> __a \n> b__\n> =", "a \nb", "__a \nb__\n="),
+        ("> __a  \n> b__\n> =", "a  \nb", "__a  \nb__\n="),
+        ("> __a\\\n> b__\n> =", "a\\\nb", "__a\\\nb__\n="),
     ] {
-        for (command, expected) in [
-            (BlockCommand::Indent, indented),
-            (BlockCommand::Outdent, outdented),
-        ] {
-            let mut s = EditorSession::open(raw);
-            let mut view = ReferenceView::new(shown);
-            let mut accepts = 0;
-            view.apply(
-                s.block_command(s.revision(), range(0, 0), command, &mut |_| {
-                    accepts += 1;
-                    Ok(())
-                })
-                .unwrap()
-                .unwrap(),
-            );
-            assert_eq!(accepts, 1);
-            assert_eq!(s.source_text(), expected);
-            assert_eq!(view.text, shown);
-            assert_eq!(EditorSession::open(expected).display_text(), shown);
-            view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-            assert_eq!(s.source_text(), raw);
-            view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-            assert_eq!(s.source_text(), expected);
-        }
+        let mut s = EditorSession::open(raw);
+        let mut view = ReferenceView::new(shown);
+        let mut accepts = 0;
+        view.apply(
+            s.block_command(s.revision(), range(0, 0), BlockCommand::Quote, &mut |_| {
+                accepts += 1;
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(accepts, 1);
+        assert_eq!(s.source_text(), outdented);
+        assert_eq!(view.text, shown);
+        assert_eq!(EditorSession::open(outdented).display_text(), shown);
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), outdented);
     }
 }
 
@@ -125,29 +105,6 @@ fn existing_heading_body_soft_lines_are_not_preemptive_enter_or_divider_seams() 
     );
     assert_eq!(s.source_text(), "> ---\n> ");
     assert_eq!(view.text, "\u{fffc}\n");
-}
-
-#[test]
-fn a_real_new_block_seam_preserves_visible_inline_line_end_whitespace() {
-    for (raw, shown, expected) in [
-        ("> __a \n> b__", "a \nb", "> > __a__ \n>\n> __b__"),
-        ("> __a  \n> b__", "a  \nb", "> > __a__  \n>\n> __b__"),
-        ("> __a\\\n> b__", "a\\\nb", "> > __a&#92;__\n>\n> __b__"),
-    ] {
-        let mut s = EditorSession::open(raw);
-        let mut view = ReferenceView::new(shown);
-        view.apply(
-            s.block_command(s.revision(), range(0, 0), BlockCommand::Indent, &mut |_| {
-                Ok(())
-            })
-            .unwrap()
-            .unwrap(),
-        );
-        assert_eq!(s.source_text(), expected);
-        assert_eq!(view.text, shown.replace('\n', "\n\n"));
-        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-        assert_eq!(s.source_text(), raw);
-    }
 }
 
 #[test]
@@ -240,18 +197,12 @@ fn typing_literal_punctuation_after_a_visible_backslash_preserves_both_scalars()
 }
 
 #[test]
-fn whole_paragraph_quote_prefix_changes_leave_unchanged_inline_bodies_verbatim() {
+fn whole_paragraph_quote_toggle_leaves_unchanged_inline_bodies_verbatim() {
     for (raw, shown, command, expected) in [
-        (
-            "> __a \n> b__",
-            "a \nb",
-            BlockCommand::Indent,
-            "> > __a \n> > b__",
-        ),
         (
             "> __a  \n> b__",
             "a  \nb",
-            BlockCommand::Outdent,
+            BlockCommand::Quote,
             "__a  \nb__",
         ),
         (
@@ -263,7 +214,7 @@ fn whole_paragraph_quote_prefix_changes_leave_unchanged_inline_bodies_verbatim()
         (
             "> > __a  \r\n> > b__",
             "a  \r\nb",
-            BlockCommand::Outdent,
+            BlockCommand::Quote,
             "> __a  \r\n> b__",
         ),
     ] {
@@ -286,15 +237,9 @@ fn whole_paragraph_quote_prefix_changes_leave_unchanged_inline_bodies_verbatim()
 }
 
 pub(super) fn indented_empty_quote() -> (EditorSession, ReferenceView) {
-    let mut s = EditorSession::open("> \n> ab\n> ===");
-    let mut view = ReferenceView::new("\nab");
-    view.apply(
-        s.block_command(s.revision(), range(0, 0), BlockCommand::Indent, &mut |_| {
-            Ok(())
-        })
-        .unwrap()
-        .unwrap(),
-    );
+    let mut s = EditorSession::open("> > \n> ab\n> ===");
+    let view = ReferenceView::new("\nab");
+    s.select(s.revision(), range(0, 0)).unwrap();
     assert_eq!(s.source_text(), "> > \n> ab\n> ===");
     assert_eq!(s.selection(), range(0, 0));
     assert_eq!(s.affinity(), Affinity::Forward);
@@ -302,7 +247,7 @@ pub(super) fn indented_empty_quote() -> (EditorSession, ReferenceView) {
 }
 
 #[test]
-fn input_at_the_returned_empty_quote_caret_separates_its_lower_lazy_neighbor() {
+fn input_at_an_empty_nested_quote_caret_separates_its_lower_lazy_neighbor() {
     for os in [false, true] {
         let (mut s, mut view) = indented_empty_quote();
         let before = s.source_text();
@@ -377,7 +322,7 @@ fn marked_empty_quote_input_keeps_raw_preview_and_protects_its_boundary_on_commi
         assert_eq!(marked.text, text);
         assert_eq!(marked.range, range(0, 0));
         assert_eq!(s.source_text(), before);
-        assert_eq!(s.revision(), Revision(1));
+        assert_eq!(s.revision(), Revision(0));
         assert_eq!(
             format!("{}{}", marked.text, view.text),
             format!("{text}\nab")
@@ -392,7 +337,7 @@ fn marked_empty_quote_input_keeps_raw_preview_and_protects_its_boundary_on_commi
         .commit_composition(s.revision(), None, &mut |_| Err("blocked".into()))
         .is_err());
     assert_eq!(s.source_text(), before);
-    assert_eq!(s.revision(), Revision(1));
+    assert_eq!(s.revision(), Revision(0));
     assert_eq!(s.composition().unwrap().text, "日本");
     let mut accepts = 0;
     view.apply(

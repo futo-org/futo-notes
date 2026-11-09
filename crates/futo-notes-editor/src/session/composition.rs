@@ -168,7 +168,7 @@ impl EditorSession {
                         caret = targets[0];
                         Some(change)
                     };
-                    staged.finish_os_selection(caret, change.as_mut());
+                    staged.finish_os_selection(caret, None, change.as_mut());
                     Ok(change)
                 },
             );
@@ -428,7 +428,7 @@ impl EditorSession {
                     caret = targets[0];
                     Some(change)
                 };
-                staged.finish_os_selection(caret, change.as_mut());
+                staged.finish_os_selection(caret, None, change.as_mut());
                 Ok(change)
             },
         )?;

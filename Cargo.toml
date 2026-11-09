@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["vendor"]
 members = [
   "crates/futo-notes-editor",
   "crates/futo-notes-merge",
@@ -17,6 +18,10 @@ members = [
   "apps/tauri/src-tauri",
   "apps/cli",
 ]
+
+# pulldown-cmark with one local change: vendor/pulldown-cmark/PATCH.md.
+[patch.crates-io]
+pulldown-cmark = { path = "vendor/pulldown-cmark" }
 
 # Shipped code logs through `futo_notes_core::log_to_stderr!`: `println!`/`eprintln!`
 # panic once stdout/stderr is gone (the launching terminal closed: EPIPE/EIO) and the

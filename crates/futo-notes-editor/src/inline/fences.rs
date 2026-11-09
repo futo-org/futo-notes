@@ -19,6 +19,32 @@ pub(crate) struct FenceInput {
 }
 
 impl Fence {
+    /// Fixed machine words copied when cloning the retained fence record.
+    pub const COPY_WORK: usize = std::mem::size_of::<Self>() / std::mem::size_of::<usize>();
+
+    /// Complete body ownership plus text outside it retires a closed frame.
+    /// Resolve cut records through the same canonical owner as block queries.
+    pub fn retired_by(
+        &self,
+        projection: &super::Projection,
+        index: usize,
+        source_base: usize,
+        range: crate::DisplayRange,
+    ) -> (bool, usize) {
+        let mut frame = self.clone();
+        frame.shift(source_base);
+        let fixed = projection.fix_fence_with_work(index, source_base, &mut frame);
+        let (start, a) = projection.display_at_with_work(frame.body.start);
+        let (end, z) = projection.display_at_with_work(frame.body.end);
+        (
+            frame.closer.is_some()
+                && range.start.0 <= start
+                && end <= range.end.0
+                && (range.start.0 < start || end < range.end.0),
+            Self::COPY_WORK + fixed + a + z,
+        )
+    }
+
     /// Map only editable code endpoints. A selected physical ending retires
     /// its next row's hidden prefix; a caret or body-only selection does not.
     /// The terminal frame ending and closer never belong to the replacement.
@@ -263,4 +289,33 @@ fn body_start(bodies: &[Range<usize>], line: &Range<usize>) -> Option<usize> {
         return None;
     }
     Some(body.start.max(line.start))
+}
+
+impl super::Projection {
+    /// The same retained frame facts used by ordinary replacement. Inspect
+    /// physical records as well as visible ones: an empty terminal body can
+    /// share the selection's endpoint while its opener remains hidden.
+    pub(crate) fn retires_fence(&self, range: crate::DisplayRange) -> (bool, usize) {
+        if range.start == range.end {
+            return (false, 0);
+        }
+        let (first, a) = self.rows.locate_with_work(range.start.0, true);
+        let (last, z) = self.rows.locate_with_work(range.end.0, true);
+        let mut work = a + z;
+        for index in first..=last {
+            let (row, source, _, visits) = self.rows.at_with_work(index);
+            work += visits;
+            for block in &row.blocks {
+                work += 1;
+                if let Some(fence) = &block.fence {
+                    let (retired, visits) = fence.retired_by(self, index, source, range);
+                    work += visits;
+                    if retired {
+                        return (true, work);
+                    }
+                }
+            }
+        }
+        (false, work)
+    }
 }

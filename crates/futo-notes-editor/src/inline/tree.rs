@@ -2,6 +2,9 @@
 //! paragraph never rewrites the offsets of the paragraphs following it.
 use super::row::Row;
 mod heads;
+mod table_scan;
+#[cfg(test)]
+mod table_scan_tests;
 use heads::heads;
 
 type Link = Option<Box<Node>>;
@@ -16,10 +19,21 @@ pub(crate) struct Node {
     /// Rows in this subtree that are not `through` rows.
     heads: usize,
     wikilinks: u64,
+    table_scan: crate::table::Summary,
 }
 
 impl Node {
     fn update(&mut self) {
+        self.table_scan = self
+            .left
+            .as_ref()
+            .map_or_else(Default::default, |node| node.table_scan)
+            .then(self.row.table_scan.summary)
+            .then(
+                self.right
+                    .as_ref()
+                    .map_or_else(Default::default, |node| node.table_scan),
+            );
         self.wikilinks = [&self.left, &self.right]
             .into_iter()
             .flatten()
@@ -96,6 +110,7 @@ impl Rows {
             let node = Box::new(Node {
                 heads: usize::from(!row.through),
                 wikilinks: row.wikilink_mask,
+                table_scan: row.table_scan.summary,
                 source: row.source_len,
                 display: row.display.len(),
                 row,

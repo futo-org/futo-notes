@@ -66,6 +66,13 @@ impl EditorSession {
             .byte_slice(range.start.0..range.end.0)
             .to_string();
         let replacements = differing_runs(&old, &text, range.start.0);
+        // A replacement that ends at the caret (a keyboard's double-space period turning
+        // the trailing space into ". ", an autocorrected word) is typing, not a caret move:
+        // the carried formats survive it, as they do a Backspace at the caret.
+        let carried = (self.selection.start == self.selection.end
+            && range.end == self.selection.end)
+            .then(|| self.pending_formats.clone())
+            .flatten();
         let (mut change, targets, caret) = if replacements.is_empty() {
             (None, targets.to_vec(), range.end.0)
         } else {
@@ -76,10 +83,15 @@ impl EditorSession {
             let caret = targets.pop().unwrap();
             (Some(change), targets, caret)
         };
-        self.finish_os_selection(caret, change.as_mut());
+        self.finish_os_selection(caret, carried, change.as_mut());
         Ok((change, targets))
     }
-    pub(super) fn finish_os_selection(&mut self, caret: usize, change: Option<&mut ViewChange>) {
+    pub(super) fn finish_os_selection(
+        &mut self,
+        caret: usize,
+        carried: Option<Vec<InlineFormat>>,
+        change: Option<&mut ViewChange>,
+    ) {
         let selection = DisplayRange {
             start: DisplayOffset(caret),
             end: DisplayOffset(caret),
@@ -87,6 +99,9 @@ impl EditorSession {
         if self.selection != selection {
             self.selection = selection;
             self.pending_formats = None;
+        }
+        if carried.is_some() {
+            self.pending_formats = carried;
         }
         self.affinity = Affinity::Backward;
         self.typing = None;

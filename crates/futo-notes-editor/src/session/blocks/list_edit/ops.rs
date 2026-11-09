@@ -381,8 +381,8 @@ impl EditorSession {
 
 impl EditorSession {
     /// Text retires heading syntax; Quote adds a quote to unquoted selected
-    /// rows (a heading becomes quoted text); Indent/Outdent add or remove one
-    /// quote level on quoted rows. Code and divider rows keep their bytes.
+    /// rows (a heading becomes quoted text); Outdent (the Quote toggle and the
+    /// key exits) removes one quote level on quoted rows. Code and divider rows keep their bytes.
     pub(in crate::session::blocks) fn quote_command(
         &mut self,
         expected: Revision,
@@ -402,9 +402,7 @@ impl EditorSession {
                     row.retire_heading();
                     row.after.quotes = quotes.max(1);
                 }
-                BlockCommand::Indent if row.before.inner > 0 => row.after.inner += 1,
                 BlockCommand::Outdent if row.before.inner > 0 => row.after.inner -= 1,
-                BlockCommand::Indent if quotes > 0 => row.after.quotes += 1,
                 BlockCommand::Outdent if quotes > 0 => row.after.quotes -= 1,
                 _ => {}
             }

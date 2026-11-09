@@ -153,7 +153,7 @@ impl EditorSession {
 
 fn replace_number(
     prefix: &mut String,
-    line: &crate::inline::blocks::BlockLine,
+    line: &crate::inline::blocks::ListCommandLine,
     number: u64,
 ) -> Result<(), EditorError> {
     let marker = &line.list.as_ref().unwrap().marker;

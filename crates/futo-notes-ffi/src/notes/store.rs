@@ -59,6 +59,15 @@ impl NoteStore {
             .map(Into::into)
     }
 
+    /// `quick_open_editor` with its spans planned in UTF-16 units (`host::plan_quick_open`).
+    pub fn quick_open_view(&self, id: String) -> Option<crate::EditorQuickView> {
+        self.inner
+            .quick_open_editor(&id)
+            .ok()
+            .flatten()
+            .map(Into::into)
+    }
+
     /// Search startup is best effort so index availability never gates the note snapshot.
     pub fn bootstrap(
         &self,

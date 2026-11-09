@@ -1,8 +1,5 @@
 [
-  {"name":"owned-heading-noop-indent","source":"> __a  \n> b__\n> =","display":"a  \nb","mode":"noop_indent","range":[0,0],"text":"","expectedSource":"> > __a  \n> > b__\n> > =","expectedDisplay":"a  \nb","caret":0,"history":1},
-  {"name":"real-seam-backslash","source":"> __a\\\n> b__","display":"a\\\nb","mode":"indent","range":[0,0],"text":"","expectedSource":"> > __a&#92;__\n>\n> __b__","expectedDisplay":"a\\\n\nb","caret":0,"history":1},
   {"name":"literal-backslash-input","source":"__ab\\c__","display":"ab\\c","mode":"typing","range":[3,3],"text":"!","expectedSource":"__ab&#92;!c__","expectedDisplay":"ab\\!c","caret":4,"history":1},
-  {"name":"returned-empty-quote-os","source":"> \n> ab\n> ===","display":"\nab","mode":"indent_os","range":[0,3],"text":"!\nAC","expectedSource":"> > !\n>\n> AC\n> ===","expectedDisplay":"!\n\nAC","caret":5,"history":2},
   {"name":"multi-run-os","source":"> > \n> ab\n> ===","display":"\nab","mode":"os","range":[0,3],"text":"!\nAC","expectedSource":"> > !\n>\n> AC\n> ===","expectedDisplay":"!\n\nAC","caret":5,"history":1},
   {"name":"unchanged-os-tail","source":"> > \n> ab\n> ===","display":"\nab","mode":"os","range":[0,3],"text":"!\nab","expectedSource":"> > !\n>\n> ab\n> ===","expectedDisplay":"!\n\nab","caret":5,"history":1},
   {"name":"blank-spaces-os","source":"> >  \n> ab\n> ===","display":" \nab","mode":"os","range":[0,4],"text":"! \nAC","expectedSource":"> > ! \n>\n> AC\n> ===","expectedDisplay":"! \n\nAC","caret":6,"history":1},

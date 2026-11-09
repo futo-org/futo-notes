@@ -129,26 +129,18 @@ fn heading_command_targets_only_touched_visible_lines_and_exact_history() {
     }
 }
 #[test]
-fn explicit_quote_choice_replaces_heading_and_indent_changes_one_level() {
+fn explicit_quote_choice_replaces_heading_and_a_second_choice_takes_the_level_off() {
     let mut s = EditorSession::open("## Title ##\r\n\r\nend");
     s.block_command(s.revision(), range(0, 0), BlockCommand::Quote, &mut |_| {
         Ok(())
     })
     .unwrap();
     assert_eq!(s.source_text(), "> Title\r\n\r\nend");
-    s.block_command(s.revision(), range(0, 0), BlockCommand::Indent, &mut |_| {
+    s.block_command(s.revision(), range(0, 0), BlockCommand::Quote, &mut |_| {
         Ok(())
     })
     .unwrap();
-    assert_eq!(s.source_text(), "> > Title\r\n\r\nend");
-    s.block_command(
-        s.revision(),
-        range(0, 0),
-        BlockCommand::Outdent,
-        &mut |_| Ok(()),
-    )
-    .unwrap();
-    assert_eq!(s.source_text(), "> Title\r\n\r\nend");
+    assert_eq!(s.source_text(), "Title\r\n\r\nend");
 }
 
 #[test]
@@ -168,12 +160,9 @@ fn quote_commands_do_not_adopt_neighboring_lazy_lines() {
     v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), "before\r\nA\r\nB\r\nend");
     let mut s = EditorSession::open("> a\n> b\n> c");
-    s.block_command(
-        s.revision(),
-        range(2, 3),
-        BlockCommand::Outdent,
-        &mut |_| Ok(()),
-    )
+    s.block_command(s.revision(), range(2, 3), BlockCommand::Quote, &mut |_| {
+        Ok(())
+    })
     .unwrap();
     assert_eq!(s.source_text(), "> a\n\nb\n> c");
     let p = s.project(s.revision(), range(3, 4)).unwrap();
@@ -183,18 +172,13 @@ fn quote_commands_do_not_adopt_neighboring_lazy_lines() {
 fn commands_on_lazy_quote_lines_retain_the_requested_container_depth() {
     for (command, expected, depth, heading) in [
         (BlockCommand::Heading(3), "> a\n> ### b\n> c", 1, 3),
-        (BlockCommand::Indent, "> a\n> > b\n>\n> c", 2, 0),
-        (BlockCommand::Outdent, "> a\n\nb\n> c", 0, 0),
+        (BlockCommand::Quote, "> a\n\nb\n> c", 0, 0),
     ] {
         let mut s = EditorSession::open("> a\nb\n> c");
         s.block_command(s.revision(), range(2, 3), command, &mut |_| Ok(()))
             .unwrap();
         assert_eq!(s.source_text(), expected, "{command:?}");
-        let point = if command == BlockCommand::Outdent {
-            3
-        } else {
-            2
-        };
+        let point = if command == BlockCommand::Quote { 3 } else { 2 };
         let p = s.project(s.revision(), range(point, point + 1)).unwrap();
         assert_eq!(p.blocks[0].quote_depth, depth);
         assert_eq!(p.blocks[0].heading, heading);
@@ -259,14 +243,7 @@ fn structural_commands_split_inline_runs_only_at_the_new_block_seams() {
         (
             "> __a\n> b__",
             range(2, 3),
-            BlockCommand::Indent,
-            "> __a__\n> > __b__",
-            "a\nb",
-        ),
-        (
-            "> __a\n> b__",
-            range(2, 3),
-            BlockCommand::Outdent,
+            BlockCommand::Quote,
             "> __a__\n\n__b__",
             "a\n\nb",
         ),
@@ -474,21 +451,13 @@ fn text_command_on_each_setext_quote_line_keeps_body_prefixes_and_exact_history(
 }
 
 #[test]
-fn whole_setext_quote_depth_changes_every_owned_prefix_and_exact_history() {
+fn whole_setext_quote_toggle_changes_every_owned_prefix_and_exact_history() {
     for (raw, shown, command, expected, depth) in [
-        ("> x\n> =", "x", BlockCommand::Indent, "> > x\n> > =", 2),
-        ("> x\n> =", "x", BlockCommand::Outdent, "x\n=", 0),
-        (
-            "  > x\r\n  > y\r\n  > ---\r\n",
-            "x\r\ny\r\n",
-            BlockCommand::Indent,
-            "> > x\r\n> > y\r\n> > ---\r\n",
-            2,
-        ),
+        ("> x\n> =", "x", BlockCommand::Quote, "x\n=", 0),
         (
             "> > 猫🦊\r\n> > e\u{301}\r\n> > ===",
             "猫🦊\r\ne\u{301}",
-            BlockCommand::Outdent,
+            BlockCommand::Quote,
             "> 猫🦊\r\n> e\u{301}\r\n> ===",
             1,
         ),

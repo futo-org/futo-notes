@@ -38,14 +38,23 @@ fn toolbar_selection_reports_common_blocks_refusals_and_history() {
 #[test]
 fn toolbar_container_eligibility_uses_the_engines_retained_attribution() {
     let mut list = EditorSession::open("- first\n- second");
+    // The first item has nothing to nest under; a top-level item cannot outdent.
     assert!(!list.toolbar_state().can_indent);
-    assert!(list.toolbar_state().can_outdent);
+    assert!(!list.toolbar_state().can_outdent);
     list.select(list.revision(), range(6, 6)).unwrap();
     assert!(list.toolbar_state().can_indent);
-    assert!(list.toolbar_state().can_outdent);
-    let quoted = EditorSession::open("> quote");
-    assert!(quoted.toolbar_state().can_indent);
-    assert!(quoted.toolbar_state().can_outdent);
+    assert!(!list.toolbar_state().can_outdent);
+    for (at, indent, outdent) in [(3, false, true), (5, true, true)] {
+        let mut nested = EditorSession::open("- a\n  - b\n  - c");
+        nested.select(nested.revision(), range(at, at)).unwrap();
+        assert_eq!(nested.toolbar_state().can_indent, indent, "{at}");
+        assert_eq!(nested.toolbar_state().can_outdent, outdent, "{at}");
+    }
+    // Plain quote lines and paragraphs have no sensible Indent or Outdent.
+    for source in ["> quote", "para", "| a |\n| - |\n| b |"] {
+        let state = EditorSession::open(source).toolbar_state();
+        assert!(!state.can_indent && !state.can_outdent, "{source:?}");
+    }
     let code = EditorSession::open("```\n  indented\n```");
     assert!(code.toolbar_state().can_indent);
     assert!(code.toolbar_state().can_outdent);
@@ -93,4 +102,137 @@ fn toolbar_caret_keeps_container_eligibility_across_cut_rows() {
     assert!(state.code);
     assert!(state.can_indent);
     assert!(state.can_outdent);
+}
+
+#[test]
+fn collapsed_italic_survives_a_keyboards_double_space_period() {
+    use futo_notes_editor::InlineFormat;
+    // UIKit turns the trailing space into a period with one replace of that space (the caret
+    // stays put, a typed space follows), or into ". " with one replace.
+    for (replaced, then_typed, caret) in [(".", " ", 12), (". ", "", 13)] {
+        let mut s = EditorSession::open("");
+        s.toggle_format(s.revision(), InlineFormat::Italic, &mut |_| Ok(()))
+            .unwrap();
+        for (at, typed) in "hello world ".chars().enumerate() {
+            s.replace(s.revision(), range(at, at), &typed.to_string(), &mut |_| {
+                Ok(())
+            })
+            .unwrap();
+        }
+        s.replace_os(s.revision(), range(11, 12), replaced, &[], &mut |_| Ok(()))
+            .unwrap();
+        if !then_typed.is_empty() {
+            s.replace(s.revision(), range(caret, caret), then_typed, &mut |_| {
+                Ok(())
+            })
+            .unwrap();
+        }
+        assert_eq!(s.toolbar_state().formats, vec![InlineFormat::Italic]);
+        s.replace(s.revision(), range(13, 13), "n", &mut |_| Ok(()))
+            .unwrap();
+        assert_eq!(s.source_text(), "*hello world. n*", "{replaced:?}");
+    }
+}
+
+#[test]
+fn a_replaced_word_keeps_its_own_formats_whatever_the_caret_has_toggled() {
+    use futo_notes_editor::InlineFormat::{Bold, Italic};
+    // The carried formats are for the caret after a replace, not for the word it corrects: the
+    // new text takes the formats of the first character it replaces.
+    // (source, caret, toggled, replaced display range, text, expected source)
+    let cases: [(&str, usize, _, _, &str, &str); 5] = [
+        ("**abc**", 3, Bold, (0, 3), "xyz", "**xyz**"),
+        ("abc", 3, Bold, (0, 3), "xyz", "xyz"),
+        ("say abc", 7, Italic, (4, 7), "xyz", "say xyz"),
+        ("x `abc`", 5, Bold, (2, 5), "xyz", "x `xyz`"),
+        ("**abc** z", 3, Bold, (0, 5), "xyz z", "**xyz** z"),
+    ];
+    for (source, caret, format, (start, end), text, expected) in cases {
+        let mut s = EditorSession::open(source);
+        s.select(s.revision(), range(caret, caret)).unwrap();
+        s.toggle_format(s.revision(), format, &mut |_| Ok(()))
+            .unwrap();
+        s.replace_os(s.revision(), range(start, end), text, &[], &mut |_| Ok(()))
+            .unwrap();
+        assert_eq!(s.source_text(), expected, "{source:?} {format:?}");
+    }
+}
+
+#[test]
+fn a_recomposed_word_takes_the_formats_of_its_first_character_after_a_toggle_off() {
+    use futo_notes_editor::InlineFormat::Bold;
+    let mut s = EditorSession::open("");
+    s.toggle_format(s.revision(), Bold, &mut |_| Ok(()))
+        .unwrap();
+    for (at, typed) in "abc".chars().enumerate() {
+        s.replace(s.revision(), range(at, at), &typed.to_string(), &mut |_| {
+            Ok(())
+        })
+        .unwrap();
+    }
+    s.toggle_format(s.revision(), Bold, &mut |_| Ok(()))
+        .unwrap();
+    s.compose(s.revision(), range(0, 3), "abc").unwrap();
+    s.commit_composition(s.revision(), Some("xyz"), &mut |_| Ok(()))
+        .unwrap();
+    assert_eq!(s.source_text(), "**xyz**");
+}
+
+#[test]
+fn toolbar_caret_retains_terminal_code_ownership() {
+    for source in [
+        "```\ncode\n```".to_string(),
+        "```\n\n```\n".to_string(),
+        "> ```\n> code\n> ```\n".to_string(),
+        "- ```\n  code\n  ```\n".to_string(),
+        format!("```\n{}```\n", "body\n".repeat(2_000)),
+        format!("```\r\n{}```\r\n", "body\r\n".repeat(2_000)),
+    ] {
+        let mut session = EditorSession::open(&source);
+        let end = session.display_text().len();
+        session.select(session.revision(), range(end, end)).unwrap();
+        let state = session.toolbar_state();
+        assert!(state.code, "{source:?}: {state:?}");
+        assert!(!state.inline_allowed, "{source:?}: {state:?}");
+        assert!(!state.mixed, "{source:?}: {state:?}");
+        assert_eq!(session.source_text(), source);
+        assert_eq!(session.revision(), Revision(0));
+    }
+}
+
+#[test]
+fn toolbar_caret_keeps_genuine_trailing_prose_ownership() {
+    for source in ["```\ncode\n```\n\n", "```\ncode\n```\n\nplain"] {
+        let mut session = EditorSession::open(source);
+        let end = session.display_text().len();
+        session.select(session.revision(), range(end, end)).unwrap();
+        let state = session.toolbar_state();
+        assert!(!state.code, "{source:?}: {state:?}");
+        assert!(state.inline_allowed, "{source:?}: {state:?}");
+        assert!(!state.mixed, "{source:?}: {state:?}");
+        assert_eq!(session.source_text(), source);
+        assert_eq!(session.revision(), Revision(0));
+    }
+}
+
+#[test]
+fn toolbar_caret_format_toggle_remains_a_noop_at_saved_code_end() {
+    use futo_notes_editor::InlineFormat;
+    for source in ["```\ncode\n```\n", "~~~\ncode\n~~~\n"] {
+        let mut session = EditorSession::open(source);
+        session.select(session.revision(), range(4, 4)).unwrap();
+        let mut accepts = 0;
+        assert!(session
+            .toggle_format(session.revision(), InlineFormat::Bold, &mut |_| {
+                accepts += 1;
+                Ok(())
+            })
+            .unwrap()
+            .is_none());
+        assert!(session.toolbar_state().formats.is_empty(), "{source:?}");
+        assert_eq!(accepts, 0);
+        assert_eq!(session.source_text(), source);
+        assert_eq!(session.selection(), range(4, 4));
+        assert_eq!(session.revision(), Revision(0));
+    }
 }

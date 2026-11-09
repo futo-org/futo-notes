@@ -4,14 +4,6 @@ use super::shapes::retire;
 use super::*;
 
 impl EditorSession {
-    pub(in crate::session) fn list_indent_representable(
-        empty: bool,
-        previous_blank: bool,
-        joined: bool,
-    ) -> bool {
-        !empty || previous_blank || joined
-    }
-
     /// Indent moves the selected items of the first item's list, with their
     /// descendants, under the previous sibling; Outdent moves them one level
     /// out, and a root item becomes paragraph text.
@@ -74,19 +66,14 @@ impl EditorSession {
         } else {
             rows[item].chain[depth - 2].map(|parent| (rows[parent].before.marker, rows[parent].key))
         };
-        // An empty item cannot open a new sub-list right under its sibling's
-        // text (it cannot interrupt a paragraph); only a blank line, which
-        // loosens the list, could write it, so the indent is refused.
-        if command == BlockCommand::Indent
-            && !Self::list_indent_representable(
-                rows[item].body.is_empty(),
-                rows[item - 1].blank,
-                joined.is_some(),
-            )
-        {
-            return Err(EditorError::UnrepresentableFormat);
-        }
         for row in rows.iter_mut() {
+            // Tab-indented lines stay tab-indented; Indent nests with tabs.
+            row.tabs = self
+                .source
+                .byte_slice(row.quote_end.min(row.body.start)..row.body.start)
+                .chars()
+                .take_while(|ch| matches!(ch, ' ' | '\t'))
+                .any(|ch| ch == '\t');
             if !row
                 .chain
                 .iter()
@@ -94,6 +81,7 @@ impl EditorSession {
             {
                 continue;
             }
+            row.tabs |= command == BlockCommand::Indent;
             if command == BlockCommand::Indent {
                 row.after.depth += 1;
             } else {
@@ -101,16 +89,31 @@ impl EditorSession {
             }
         }
         // Outdented items leave their old list: its later items, now nested
-        // under the last moved item, form a new list.
+        // under the last moved item, join that item's own child list when it
+        // has one, else form a new list.
         if command == BlockCommand::Outdent {
             let old = rows[item].key;
             let last = *moved.last().unwrap_or(&item);
+            let children = rows[last + 1..]
+                .iter()
+                .rev()
+                .find(|row| {
+                    row.before.opens
+                        && row.before.depth == depth + 1
+                        && row.chain.contains(&Some(last))
+                })
+                .map(|row| (row.before.marker, row.key));
             let mut first = true;
             for row in rows[last + 1..].iter_mut() {
                 if !row.blank && row.before.depth < depth {
                     break;
                 }
                 if row.before.opens && row.key == old && row.before.depth == depth {
+                    if let Some((marker, key)) = children {
+                        row.after.marker = marker;
+                        row.key = key;
+                        continue;
+                    }
                     row.key = usize::MAX / 2 - last;
                     // The new list of children counts from one.
                     if std::mem::take(&mut first) {

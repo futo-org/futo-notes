@@ -25,35 +25,32 @@ impl EditorSession {
         outdent: bool,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        let in_list = self
-            .selected_block_lines(range)
-            .first()
-            .is_some_and(|line| {
-                !line.code
-                    && line
-                        .list
-                        .as_ref()
-                        .is_some_and(|list| list.quote_depth == line.quote_depth)
-            });
-        let state = self.toolbar_state_at(range);
-        if !in_list
-            || !(if outdent {
-                state.can_outdent
-            } else {
-                state.can_indent
-            })
-        {
+        if indent_item(&self.selected_block_lines(range)).is_none() {
             return Ok(None);
         }
-        let command = if outdent {
-            BlockCommand::Outdent
-        } else {
-            BlockCommand::Indent
-        };
-        self.block_command(expected, range, command, accept)
+        self.indent_command(expected, range, outdent, accept)
     }
 
+    /// Indent and Outdent are the toolbar's list nesting and code tabs
+    /// ([`Self::indent_command`]); every other command respells blocks through
+    /// [`Self::structural_command`].
     pub fn block_command(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        command: BlockCommand,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        match command {
+            BlockCommand::Indent => self.indent_command(expected, range, false, accept),
+            BlockCommand::Outdent => self.indent_command(expected, range, true, accept),
+            _ => self.structural_command(expected, range, command, accept),
+        }
+    }
+
+    /// A key's own lift out of a quote or list (Backspace, Enter on an empty
+    /// quoted line) and the Quote toggle take `Outdent` as one container level.
+    pub(in crate::session) fn structural_command(
         &mut self,
         expected: Revision,
         mut range: DisplayRange,
@@ -67,7 +64,7 @@ impl EditorSession {
                 range,
                 accept,
                 |staged, local, accept| {
-                    staged.block_command(staged.revision(), local, command, accept)
+                    staged.structural_command(staged.revision(), local, command, accept)
                 },
             );
         }
@@ -94,12 +91,25 @@ impl EditorSession {
         command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        self.lf_block_command_toggling(expected, range, command, true, accept)
+    }
+
+    /// `toggle_quote` is false for a step that carries out a direction already
+    /// chosen on the selection as given, so a staged copy never re-decides it.
+    fn lf_block_command_toggling(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        command: BlockCommand,
+        toggle_quote: bool,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
         let command = if let BlockCommand::ToggleHeading(level) = command {
             if !(1..=6).contains(&level) {
                 return Err(EditorError::InvalidRange);
             }
             let lines = self.selected_block_lines(range);
-            if !lines.is_empty() && lines.iter().all(|line| line.heading == level) {
+            if common_heading(&self.content_block_lines(&lines)) == Some(level) {
                 BlockCommand::Heading(0)
             } else {
                 BlockCommand::Heading(level)
@@ -116,20 +126,14 @@ impl EditorSession {
         if command == BlockCommand::CodeBlock {
             return self.code_block_command(expected, range, accept);
         }
-        if matches!(command, BlockCommand::Indent | BlockCommand::Outdent)
+        if command == BlockCommand::Outdent
             && self
                 .projection
                 .block_lines(range)
                 .iter()
                 .any(|line| line.code)
         {
-            return self.fence_indent(
-                expected,
-                range,
-                command == BlockCommand::Outdent,
-                false,
-                accept,
-            );
+            return self.fence_indent(expected, range, true, false, accept);
         }
         if command == BlockCommand::ToggleTask {
             return self.toggle_task(expected, range, accept);
@@ -160,8 +164,8 @@ impl EditorSession {
             // A quote inside a list item is outside the generic list path.
             return Err(EditorError::UnrepresentableFormat);
         }
-        if matches!(command, BlockCommand::Indent | BlockCommand::Outdent) {
-            if self
+        if command == BlockCommand::Outdent
+            && self
                 .selected_block_lines(range)
                 .first()
                 .is_some_and(|line| {
@@ -171,17 +175,28 @@ impl EditorSession {
                             .as_ref()
                             .is_some_and(|list| line.quote_depth == list.quote_depth)
                 })
-            {
-                return self.indent_list(expected, range, command, accept);
-            }
+        {
+            return self.indent_list(expected, range, BlockCommand::Outdent, accept);
         }
-        let lines = self.selected_block_lines(range);
+        let mut lines = self.selected_block_lines(range);
         // Choosing Quote on text that is already quoted takes one level off.
-        let command = if command == BlockCommand::Quote && all_quoted(&lines) {
+        let command = if toggle_quote
+            && command == BlockCommand::Quote
+            && all_quoted(&self.content_block_lines(&lines))
+        {
             BlockCommand::Outdent
         } else {
             command
         };
+        // Blank lines between the lines a heading is set on stay as they are.
+        if matches!(command, BlockCommand::Heading(1..=6)) {
+            let keep: Vec<_> = self
+                .content_block_lines(&lines)
+                .into_iter()
+                .map(|line| line.source.start)
+                .collect();
+            lines.retain(|line| keep.binary_search(&line.source.start).is_ok());
+        }
         if matches!(command, BlockCommand::Heading(1..=6) | BlockCommand::Quote)
             && lines.iter().any(|line| {
                 !line.code
@@ -213,8 +228,13 @@ impl EditorSession {
                     {
                         return Err(EditorError::UnrepresentableFormat);
                     }
-                    let Some(mut change) =
-                        staged.block_command(staged.revision(), local, command, accept)?
+                    let Some(mut change) = staged.lf_block_command_toggling(
+                        staged.revision(),
+                        local,
+                        command,
+                        false,
+                        accept,
+                    )?
                     else {
                         return Ok(Some(lifted));
                     };
@@ -254,8 +274,13 @@ impl EditorSession {
                     let boundaries: Vec<_> =
                         boundaries.iter().map(|boundary| boundary - base).collect();
                     let seams = staged.split_inline_block_seams_at(local, &boundaries, accept)?;
-                    let Some(mut change) =
-                        staged.block_command(staged.revision(), local, command, accept)?
+                    let Some(mut change) = staged.lf_block_command_toggling(
+                        staged.revision(),
+                        local,
+                        command,
+                        false,
+                        accept,
+                    )?
                     else {
                         return Ok(None);
                     };
@@ -275,10 +300,7 @@ impl EditorSession {
         if command == BlockCommand::Divider {
             return counted(self.insert_divider(expected, range, lines, accept));
         }
-        if matches!(
-            command,
-            BlockCommand::Quote | BlockCommand::Indent | BlockCommand::Outdent
-        ) {
+        if matches!(command, BlockCommand::Quote | BlockCommand::Outdent) {
             return counted(self.quote_command(expected, range, command, accept));
         }
         counted(self.apply_block_prefix_command(expected, range, command, lines, accept))
@@ -310,9 +332,9 @@ impl EditorSession {
                             depth = 1;
                         }
                     }
-                    BlockCommand::Indent => depth += 1,
                     BlockCommand::Outdent => depth -= 1,
-                    BlockCommand::Divider
+                    BlockCommand::Indent
+                    | BlockCommand::Divider
                     | BlockCommand::CodeBlock
                     | BlockCommand::WrapCodeBlock
                     | BlockCommand::ToggleHeading(_)
@@ -356,26 +378,6 @@ impl EditorSession {
     }
 }
 
-/// Every selected prose line sits in a quote, whatever block it is (paragraph,
-/// heading or list item inside the quote), and at least one is. This is the
-/// toolbar's active Quote state, so choosing Quote then takes a level off and
-/// keeps each block. A quote nested inside a list item is not offered: that
-/// outdent is outside the generic list path.
-fn all_quoted(lines: &[crate::inline::blocks::BlockLine]) -> bool {
-    let mut prose = lines
-        .iter()
-        .filter(|line| !line.code && !line.divider && !line.metadata)
-        .peekable();
-    prose.peek().is_some()
-        && prose.all(|line| {
-            line.quote_depth > 0
-                && line
-                    .list
-                    .as_ref()
-                    .is_none_or(|list| list.quote_depth == line.quote_depth)
-        })
-}
-
 fn changes_block(line: &crate::inline::blocks::BlockLine, command: BlockCommand) -> bool {
     if line.code {
         return false;
@@ -386,9 +388,9 @@ fn changes_block(line: &crate::inline::blocks::BlockLine, command: BlockCommand)
     match command {
         BlockCommand::Heading(level) => line.heading != level,
         BlockCommand::Quote => line.quote_depth == 0 || line.heading > 0,
-        BlockCommand::Indent | BlockCommand::Outdent => line.quote_depth > 0,
+        BlockCommand::Outdent => line.quote_depth > 0,
         BlockCommand::Divider | BlockCommand::CodeBlock => true,
-        BlockCommand::WrapCodeBlock | BlockCommand::ToggleHeading(_) => {
+        BlockCommand::Indent | BlockCommand::WrapCodeBlock | BlockCommand::ToggleHeading(_) => {
             unreachable!("toolbar commands are resolved before planning")
         }
         BlockCommand::ToggleTask

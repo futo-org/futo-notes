@@ -23,6 +23,7 @@ or the delimiter row.
   or a line break reads the table. Paragraph Enter and Shift+Enter in a cell are the table's
   Enter and Shift+Enter below (a move to the cell below is a selection-only change at the same
   revision). There is no cell-specific input entry point. → crates/futo-notes-editor/src/session/blocks/tables.rs, crates/futo-notes-editor/src/inline/edit.rs
+- Clearing a cell retains its row, column, neighboring cells and carried formats. If a missing outer border would make the cleared cell's separator become a border or remove a pipeless body cell, the engine adds only the necessary border pipes in the same accepted edit and Undo step; the resulting caret remains in the cleared cell. This structural spelling does not change typed-pipe escaping or permit user input across cell boundaries. → crates/futo-notes-editor/src/session/blocks/tables/input.rs, crates/futo-notes-editor/tests/table_cell_structure.rs
 - Tab and Shift+Tab select the next/previous cell's content (Tab in the last cell appends a row;
   Shift+Tab in the first cell is left to the host). Enter selects the cell below, and on the last
   row appends a row and enters the same column. Mod+Enter leaves a blank line and an empty line
