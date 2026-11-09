@@ -236,6 +236,62 @@
             return NSRange(location: a, length: max(0, b - a))
         }
 
+        /// The image whose last glyph is just before `offset`, with the glyph run it covers.
+        private func image(endingAt offset: Int) -> (range: NSRange, span: TextFirstImageSpan)? {
+            guard offset > 0, offset <= storage.length,
+                storage.attribute(.tfImage, at: offset - 1, effectiveRange: nil)
+                    is TextFirstImageSpan
+            else { return nil }
+            var run = NSRange()
+            let paragraph = (storage.string as NSString).paragraphRange(
+                for: NSRange(location: offset - 1, length: 0))
+            guard
+                let span = storage.attribute(
+                    .tfImage, at: offset - 1, longestEffectiveRange: &run, in: paragraph)
+                    as? TextFirstImageSpan,
+                NSMaxRange(run) == offset
+            else { return nil }
+            return (run, span)
+        }
+
+        /// Where a caret just after an image's hidden spelling is drawn: against the image's
+        /// trailing edge, as tall as a line of text and level with the bottom of the image's line,
+        /// where the text typed after it sits. Only the drawing: the position is the one UIKit
+        /// reports. Nil when `offset` is not the end of an image or its line is not laid out.
+        func imageTrailingCaret(at offset: Int, width: CGFloat) -> CGRect? {
+            guard let (run, span) = image(endingAt: offset),
+                let manager = textView.textLayoutManager,
+                let content = manager.textContentManager,
+                let at = content.location(manager.documentRange.location, offsetBy: run.location),
+                let end = content.location(at, offsetBy: 1),
+                let glyph = NSTextRange(location: at, end: end)
+            else { return nil }
+            // After the keyboard moves the viewport the image's line may not be laid out yet.
+            manager.ensureLayout(for: glyph)
+            guard let f = manager.textLayoutFragment(for: at) as? TextFirstLayoutFragment
+            else { return nil }
+            let start = manager.offset(
+                from: manager.documentRange.location, to: f.rangeInElement.location)
+            guard
+                let hit = f.imageRuns.first(where: {
+                    $0.span === span && $0.range.location == run.location - start
+                }), let rect = f.imageRect(hit)
+            else { return nil }
+            let height = min(rect.height, ceil(Self.bodyFont.lineHeight))
+            return CGRect(
+                x: rect.maxX + inset.left,
+                y: rect.maxY - height + f.layoutFragmentFrame.minY + inset.top,
+                width: width, height: height)
+        }
+
+        /// `range` is exactly one image: what a tap on an image selects.
+        func selectsWholeImage(_ range: NSRange) -> Bool {
+            guard range.length > 0, let found = image(endingAt: NSMaxRange(range)) else {
+                return false
+            }
+            return found.range == range
+        }
+
         /// The first visible line and how far into view it was, so an image that grows above
         /// the screen does not push what the reader is looking at.
         struct ScrollAnchor {
