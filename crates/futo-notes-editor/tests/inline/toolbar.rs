@@ -94,3 +94,77 @@ fn toolbar_caret_keeps_container_eligibility_across_cut_rows() {
     assert!(state.can_indent);
     assert!(state.can_outdent);
 }
+
+#[test]
+fn collapsed_italic_survives_a_keyboards_double_space_period() {
+    use futo_notes_editor::InlineFormat;
+    // UIKit turns the trailing space into a period with one replace of that space (the caret
+    // stays put, a typed space follows), or into ". " with one replace.
+    for (replaced, then_typed, caret) in [(".", " ", 12), (". ", "", 13)] {
+        let mut s = EditorSession::open("");
+        s.toggle_format(s.revision(), InlineFormat::Italic, &mut |_| Ok(()))
+            .unwrap();
+        for (at, typed) in "hello world ".chars().enumerate() {
+            s.replace(s.revision(), range(at, at), &typed.to_string(), &mut |_| {
+                Ok(())
+            })
+            .unwrap();
+        }
+        s.replace_os(s.revision(), range(11, 12), replaced, &[], &mut |_| Ok(()))
+            .unwrap();
+        if !then_typed.is_empty() {
+            s.replace(s.revision(), range(caret, caret), then_typed, &mut |_| {
+                Ok(())
+            })
+            .unwrap();
+        }
+        assert_eq!(s.toolbar_state().formats, vec![InlineFormat::Italic]);
+        s.replace(s.revision(), range(13, 13), "n", &mut |_| Ok(()))
+            .unwrap();
+        assert_eq!(s.source_text(), "*hello world. n*", "{replaced:?}");
+    }
+}
+
+#[test]
+fn a_replaced_word_keeps_its_own_formats_whatever_the_caret_has_toggled() {
+    use futo_notes_editor::InlineFormat::{Bold, Italic};
+    // The carried formats are for the caret after a replace, not for the word it corrects: the
+    // new text takes the formats of the first character it replaces.
+    // (source, caret, toggled, replaced display range, text, expected source)
+    let cases: [(&str, usize, _, _, &str, &str); 5] = [
+        ("**abc**", 3, Bold, (0, 3), "xyz", "**xyz**"),
+        ("abc", 3, Bold, (0, 3), "xyz", "xyz"),
+        ("say abc", 7, Italic, (4, 7), "xyz", "say xyz"),
+        ("x `abc`", 5, Bold, (2, 5), "xyz", "x `xyz`"),
+        ("**abc** z", 3, Bold, (0, 5), "xyz z", "**xyz** z"),
+    ];
+    for (source, caret, format, (start, end), text, expected) in cases {
+        let mut s = EditorSession::open(source);
+        s.select(s.revision(), range(caret, caret)).unwrap();
+        s.toggle_format(s.revision(), format, &mut |_| Ok(()))
+            .unwrap();
+        s.replace_os(s.revision(), range(start, end), text, &[], &mut |_| Ok(()))
+            .unwrap();
+        assert_eq!(s.source_text(), expected, "{source:?} {format:?}");
+    }
+}
+
+#[test]
+fn a_recomposed_word_takes_the_formats_of_its_first_character_after_a_toggle_off() {
+    use futo_notes_editor::InlineFormat::Bold;
+    let mut s = EditorSession::open("");
+    s.toggle_format(s.revision(), Bold, &mut |_| Ok(()))
+        .unwrap();
+    for (at, typed) in "abc".chars().enumerate() {
+        s.replace(s.revision(), range(at, at), &typed.to_string(), &mut |_| {
+            Ok(())
+        })
+        .unwrap();
+    }
+    s.toggle_format(s.revision(), Bold, &mut |_| Ok(()))
+        .unwrap();
+    s.compose(s.revision(), range(0, 3), "abc").unwrap();
+    s.commit_composition(s.revision(), Some("xyz"), &mut |_| Ok(()))
+        .unwrap();
+    assert_eq!(s.source_text(), "**xyz**");
+}

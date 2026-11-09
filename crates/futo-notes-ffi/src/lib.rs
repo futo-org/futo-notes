@@ -10,6 +10,11 @@ pub use editor::{
     EditorUtf16Range, EditorUtf16Replacement, EditorViewChange, NativeEditorSession,
 };
 pub use editor::{
+    EditorDisplayMirror, EditorFindLanding, EditorFindSnapshot, EditorFindStep, EditorListMarker,
+    EditorMirrorEdit, EditorMirrorError, EditorPendingEdits, EditorQuickView, EditorStyleSpan,
+    EditorToolbarHighlights,
+};
+pub use editor::{
     EditorTableAlignment, EditorTableCell, EditorTableCommand, EditorTableControls,
     EditorTableDescription, EditorTableFocus, EditorTableKey, EditorTableOutcome,
 };
