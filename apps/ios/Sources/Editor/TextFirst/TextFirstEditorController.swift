@@ -232,6 +232,7 @@
                     length: Int(edit.selectionEnd - edit.selectionStart)))
             adjustStyled(for: edit)
             restyle(change)
+            syncEmptyLineTypingAttributes()
             syncToolbar()
             refreshCompletion()
             markDirty()

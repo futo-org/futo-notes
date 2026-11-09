@@ -71,6 +71,7 @@
             invalidateMarkerHighlights(old: lastDrawnSelection, new: textView.selectedRange)
             lastDrawnSelection = textView.selectedRange
             if assertTrailingTypingAttributes() { invalidateLastParagraph() }
+            syncEmptyLineTypingAttributes()
             if opening {
                 // The keyboard reads the caret at once; the engine takes it when it lands.
                 if applying == 0, !closed { queueSelectionWhileOpening(textView.selectedRange) }
