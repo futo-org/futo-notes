@@ -163,6 +163,17 @@ async function reviewedBlockRegression(
 }
 
 export async function runBlockRegressions() {
+  for (const key of ['Delete', 'Backspace']) {
+    await reviewedBlockRegression(
+      '```\nalpha\n```\n\nomega\n',
+      key,
+      '\n',
+      'alpha\n\nomega\n',
+      0,
+      12,
+      '\n',
+    );
+  }
   await reviewedBlockRegression('ab', 'CodeBlock', '```\nab\n```', 'ab', 0, 0, 'ab', false, null);
   await reviewedBlockRegression(
     '~~~js\nab\n cd\n~~~',

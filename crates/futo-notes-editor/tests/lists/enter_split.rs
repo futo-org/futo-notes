@@ -283,3 +283,178 @@ fn enter_in_formatting_that_crosses_the_caret_line_closes_and_reopens_it() {
         assert_eq!(s.source_text(), raw);
     }
 }
+
+#[test]
+fn enter_after_a_fence_first_item_uses_the_source_owned_list_marker() {
+    for (opening, shown, caret, expected, display, after) in [
+        (
+            "- ```\n  r\n  ```\n  v",
+            "r\nv",
+            3,
+            "- ```\n  r\n  ```\n  v\n- ",
+            "r\nv\n",
+            4,
+        ),
+        (
+            "- a\n  ```\n  r\n  ```\n  v",
+            "a\nr\nv",
+            5,
+            "- a\n  ```\n  r\n  ```\n  v\n- ",
+            "a\nr\nv\n",
+            6,
+        ),
+        (
+            "9. ```\n   r\n   ```\n   v\n1. tail",
+            "r\nv\ntail",
+            3,
+            "9. ```\n   r\n   ```\n   v\n10. \n11. tail",
+            "r\nv\n\ntail",
+            4,
+        ),
+        (
+            "> 9. ```\r\n>    猫\r\n>    ```\r\n>    v\r\n> 1. tail",
+            "猫\r\nv\r\ntail",
+            6,
+            "> 9. ```\r\n>    猫\r\n>    ```\r\n>    v\r\n> 10. \r\n> 11. tail",
+            "猫\r\nv\r\n\r\ntail",
+            8,
+        ),
+        (
+            "- parent\n  - ```\n    r\n    ```\n    v\n  - tail",
+            "parent\nr\nv\ntail",
+            10,
+            "- parent\n  - ```\n    r\n    ```\n    v\n  - \n  - tail",
+            "parent\nr\nv\n\ntail",
+            11,
+        ),
+        (
+            "- ~~~lang\n  r\n  ~~~~~  \n  v",
+            "r\nv",
+            3,
+            "- ~~~lang\n  r\n  ~~~~~  \n  v\n- ",
+            "r\nv\n",
+            4,
+        ),
+        (
+            "9. a\n10. ```\n    r\n    ```\n    v\n11. tail",
+            "a\nr\nv\ntail",
+            1,
+            "9. a\n10. \n11. ```\n    r\n    ```\n    v\n12. tail",
+            "a\n\nr\nv\ntail",
+            2,
+        ),
+    ] {
+        for key in [ParagraphKey::Enter, ParagraphKey::ShiftEnter] {
+            let mut s = EditorSession::open(opening);
+            assert_eq!(s.display_text(), shown, "{opening:?}");
+            let mut view = ReferenceView::new(shown);
+            let selected = range(caret, caret);
+            s.select(s.revision(), selected).unwrap();
+            let mut accepted = 0;
+            view.apply(
+                s.paragraph_key(s.revision(), selected, key, &mut |_| {
+                    accepted += 1;
+                    Ok(())
+                })
+                .unwrap()
+                .expect("Enter after a closed code child must split the item"),
+            );
+            assert_eq!(accepted, 1);
+            assert_eq!(s.source_text(), expected, "{opening:?}");
+            assert_eq!(view.text, display);
+            assert_eq!(s.display_text(), display);
+            assert_eq!(s.selection(), range(after, after));
+            assert_eq!(EditorSession::open(expected).display_text(), display);
+            view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+            assert_eq!(s.source_text(), opening);
+            assert_eq!(view.text, shown);
+            assert_eq!(s.selection(), selected);
+            view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+            assert_eq!(s.source_text(), expected);
+            assert_eq!(view.text, display);
+        }
+    }
+}
+
+#[test]
+fn joining_after_a_fence_first_item_keeps_its_ordered_source_owner() {
+    for (opening, shown, at, expected, display, after) in [
+        (
+            "9. ```\n   r\n   ```\n   v\n1. next\n1. tail",
+            "r\nv\nnext\ntail",
+            4,
+            "9. ```\n   r\n   ```\n   vnext\n10. tail",
+            "r\nvnext\ntail",
+            3,
+        ),
+        (
+            "9. a\n10. b\n11. ```\n    r\n    ```\n    v\n12. tail",
+            "a\nb\nr\nv\ntail",
+            2,
+            "9. ab\n10. ```\n    r\n    ```\n    v\n11. tail",
+            "ab\nr\nv\ntail",
+            1,
+        ),
+    ] {
+        let mut s = EditorSession::open(opening);
+        let mut view = ReferenceView::new(shown);
+        assert_eq!(s.display_text(), view.text);
+        let selected = range(at, at);
+        s.select(s.revision(), selected).unwrap();
+        let mut accepted = 0;
+        view.apply(
+            s.paragraph_key(s.revision(), selected, ParagraphKey::Backspace, &mut |_| {
+                accepted += 1;
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(accepted, 1);
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, display);
+        assert_eq!(s.selection(), range(after, after));
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), opening);
+        assert_eq!(s.selection(), selected);
+    }
+}
+
+#[test]
+fn enter_after_indented_code_retains_its_existing_origin_prefix() {
+    for key in [ParagraphKey::Enter, ParagraphKey::ShiftEnter] {
+        let opening = "-     r\n\n  uv";
+        let expected = "-     r\n\n  u\n-     v";
+        let mut s = EditorSession::open(opening);
+        let mut view = ReferenceView::new("r\n\nuv");
+        assert_eq!(s.display_text(), view.text);
+        let selected = range(4, 4);
+        s.select(s.revision(), selected).unwrap();
+        let mut accepted = 0;
+        view.apply(
+            s.paragraph_key(s.revision(), selected, key, &mut |_| {
+                accepted += 1;
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(accepted, 1);
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, "r\n\nu\nv");
+        assert_eq!(s.selection(), range(5, 5));
+        assert!(s
+            .project(s.revision(), range(5, 6))
+            .unwrap()
+            .blocks
+            .iter()
+            .any(|b| b.code));
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), opening);
+        assert_eq!(view.text, "r\n\nuv");
+        assert_eq!(s.selection(), selected);
+        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, "r\n\nu\nv");
+    }
+}

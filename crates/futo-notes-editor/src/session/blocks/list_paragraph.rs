@@ -71,17 +71,12 @@ impl EditorSession {
         }
         let body = self.split_block_body(&lines, range)?;
         let origin = if list.first {
-            line.clone()
+            crate::inline::blocks::ListCommandLine::from_block(line, 0)
         } else {
-            let start = self
-                .source
-                .line_to_byte(self.source.byte_to_line(list.marker.start));
-            let point = DisplayOffset(self.projection.display_at(start));
+            let index = self.source.byte_to_line(list.marker.start);
+            let start = self.source.line_to_byte(index);
             self.projection
-                .block_lines(DisplayRange {
-                    start: point,
-                    end: point,
-                })
+                .list_command_lines_in_source(&(start..start + self.source.line(index).len_bytes()))
                 .into_iter()
                 .find(|line| {
                     line.list
@@ -93,12 +88,19 @@ impl EditorSession {
         let mut prefix = prefix;
         if list.first {
             if let Some(number) = list.ordinal {
-                replace_number(&mut prefix, line, number)?;
+                replace_number(&mut prefix, &origin, number)?;
             }
         }
+        // A hidden fence opener owns the item marker, but its content range
+        // includes the fence spelling. Only the retained list prefix repeats.
+        let prefix_end = if origin.code && origin.content.is_empty() {
+            origin.source.start + origin.list.as_ref().unwrap().indent
+        } else {
+            origin.content.start
+        };
         let mut continuation = self
             .source
-            .byte_slice(origin.source.start..origin.content.start)
+            .byte_slice(origin.source.start..prefix_end)
             .to_string();
         if let Some(number) = list.ordinal {
             replace_number(&mut continuation, &origin, number + 1)?;
@@ -286,7 +288,7 @@ impl EditorSession {
     fn moved_item_rows(
         &self,
         line: &crate::inline::blocks::BlockLine,
-        origin: &crate::inline::blocks::BlockLine,
+        origin: &crate::inline::blocks::ListCommandLine,
         continuation: &str,
         opens_empty: bool,
     ) -> Result<(RowEdits, String), EditorError> {

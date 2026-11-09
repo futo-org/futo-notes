@@ -133,7 +133,7 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
         "../../../../futo-notes-editor/tests/fixtures/list-shortcuts.json"
     ))
     .unwrap();
-    assert_eq!(original.len(), 24);
+    assert_eq!(original.len(), 27);
     assert_eq!(shortcuts.len(), 38);
     let staging: Vec<Value> = serde_json::from_str(include_str!(
         "../../../../futo-notes-editor/tests/fixtures/list-staging.json"
