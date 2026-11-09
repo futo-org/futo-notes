@@ -240,7 +240,7 @@ impl EditorSession {
             retarget(&mut rows, owner, command);
         }
         let mut previous_created = None;
-        for (index, format) in created {
+        for (index, _) in created {
             let row = &mut rows[index];
             row.pinned = previous_created.is_none_or(|(previous, _)| previous + 1 < index);
             let key = match previous_created {
@@ -256,9 +256,6 @@ impl EditorSession {
             row.retire_heading();
             row.after.depth = 1;
             row.after.opens = true;
-            if format == Format::Quote {
-                row.after.quotes = 0;
-            }
             row.after.marker = if command == BlockCommand::OrderedList {
                 b'.'
             } else {
