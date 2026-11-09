@@ -296,7 +296,12 @@ impl EditorSession {
         let marker = &continuation[quote_end..].trim_start_matches([' ', '\t']);
         let width = marker.bytes().take_while(u8::is_ascii_digit).count().max(1)
             + usize::from(marker.starts_with(|c: char| c.is_ascii_digit()));
-        let padding = marker[width..].bytes().take_while(|&b| b == b' ').count();
+        let padding = marker
+            .get(width..)
+            .unwrap_or_default()
+            .bytes()
+            .take_while(|&b| b == b' ')
+            .count();
         let padding = if opens_empty || !(1..=4).contains(&padding) {
             1
         } else {
