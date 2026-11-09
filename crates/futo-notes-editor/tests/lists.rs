@@ -25,6 +25,8 @@ mod fixtures;
 mod input;
 #[path = "lists/keys.rs"]
 mod keys;
+#[path = "lists/keys_backspace.rs"]
+mod keys_backspace;
 #[path = "lists/lifting.rs"]
 mod lifting;
 #[path = "lists/mixed_commands.rs"]
