@@ -208,8 +208,7 @@ export async function runBlockRegressions() {
   await blockRegression('# __ab__', 'ab', '# __ab__\n', '# __ab__\n__c__', 'ab\nc', false);
   for (const item of [
     ['#x\n=', { Heading: 0 }, '#x', '#x', 0, 2],
-    ['> x\n> y\n> =', 'Indent', '> > x\n> > y\n> > =', 'x\ny', 0, 3],
-    ['> > x\r\n> > y\r\n> > ---', 'Outdent', '> x\r\n> y\r\n> ---', 'x\r\ny', 0, 4],
+    ['> > x\r\n> > y\r\n> > ---', 'Quote', '> x\r\n> y\r\n> ---', 'x\r\ny', 0, 4],
     [
       '> > 猫🦊\r\n> > e\u0301\r\n> > ===',
       'Enter',

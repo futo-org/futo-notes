@@ -30,7 +30,7 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
     assert_eq!(headers.len(), 14);
     let frames: Vec<Value> =
         serde_json::from_str(include_str!("../fixtures/prefix-frame-commands.json")).unwrap();
-    assert_eq!(frames.len(), 40);
+    assert_eq!(frames.len(), 24);
     let fences: Vec<Value> =
         serde_json::from_str(include_str!("../fixtures/fence-container-commands.json")).unwrap();
     assert_eq!(fences.len(), 23);

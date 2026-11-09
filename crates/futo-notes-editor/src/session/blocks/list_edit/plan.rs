@@ -116,7 +116,7 @@ impl EditorSession {
                     let column = *stack
                         .get(depth - 1)
                         .ok_or(EditorError::UnrepresentableFormat)?;
-                    prefix.push_str(&" ".repeat(column.saturating_sub(base)));
+                    push_indent(&mut prefix, base, column, row.tabs);
                     prefix.push_str(&"> ".repeat(row.after.inner));
                 }
             } else {
@@ -163,12 +163,20 @@ impl EditorSession {
                 .get(depth - 2)
                 .ok_or(EditorError::UnrepresentableFormat)?
         };
-        let column = siblings
+        // An item joining a list keeps its first unchanged sibling's marker
+        // column (a tab-spelled one nests at the tab stop in its parent's
+        // window, as a new sub-list does); a different column would nest it
+        // under that sibling or swallow it.
+        let pinned = siblings
             .iter()
             .find(|&&(key, depth, _)| (key, depth) == (row.key, row.after.depth))
             .map(|&(.., column)| column)
-            .filter(|column| (parent..=parent + 3).contains(column))
-            .unwrap_or(parent);
+            .filter(|column| (parent..=parent + 3).contains(column));
+        let column = pinned.unwrap_or(if row.tabs && depth > 1 {
+            parent.next_multiple_of(TAB_STOP)
+        } else {
+            parent
+        });
         if stack.len() + 1 != depth || column < base {
             return Err(EditorError::UnrepresentableFormat);
         }
@@ -185,7 +193,7 @@ impl EditorSession {
         } else {
             (row.after.marker as char).to_string()
         };
-        prefix.push_str(&" ".repeat(column - base));
+        push_indent(prefix, base, column, row.tabs);
         prefix.push_str(&marker);
         let content = column + marker.len();
         let authored = row
@@ -387,4 +395,17 @@ fn sibling_columns(rows: &[Row]) -> Vec<(usize, usize, usize)> {
         }
     }
     siblings
+}
+
+const TAB_STOP: usize = 4;
+
+/// The whitespace from column `from` to column `to` after the quote markers:
+/// a tab for each tab stop passed when `tabs`, spaces for the rest.
+fn push_indent(prefix: &mut String, from: usize, to: usize, tabs: bool) {
+    let mut at = from;
+    while tabs && (at / TAB_STOP + 1) * TAB_STOP <= to {
+        prefix.push('\t');
+        at = (at / TAB_STOP + 1) * TAB_STOP;
+    }
+    prefix.push_str(&" ".repeat(to.saturating_sub(at)));
 }

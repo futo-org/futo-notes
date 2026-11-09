@@ -218,6 +218,64 @@ fn enter_at_a_list_start_opens_an_item_above_and_continuation_enter_splits_the_i
 }
 
 #[test]
+fn list_backspace_lifts_the_first_item_and_selected_enter_is_one_action() {
+    for (raw, selected, key, expected, shown, caret) in [
+        (
+            "* ab\n* cd",
+            range(0, 0),
+            ParagraphKey::Backspace,
+            "ab\n* cd",
+            "ab\ncd",
+            0,
+        ),
+        (
+            "* ab\n* cd",
+            range(1, 4),
+            ParagraphKey::Enter,
+            "* a\n* d",
+            "a\nd",
+            2,
+        ),
+        (
+            "5) ab\n1) cd\n1) tail",
+            range(1, 4),
+            ParagraphKey::Enter,
+            "5) a\n6) d\n7) tail",
+            "a\nd\ntail",
+            2,
+        ),
+        (
+            "- [X] 🦊done",
+            range(0, 0),
+            ParagraphKey::Delete,
+            "- [X] done",
+            "done",
+            0,
+        ),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut view = ReferenceView::new(&s.display_text());
+        s.select(s.revision(), selected).unwrap();
+        let mut accepted = 0;
+        view.apply(
+            s.paragraph_key(s.revision(), selected, key, &mut |_| {
+                accepted += 1;
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(accepted, 1);
+        assert_eq!(s.source_text(), expected, "{raw:?}");
+        assert_eq!(view.text, shown);
+        assert_eq!(s.selection(), range(caret, caret));
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), selected);
+    }
+}
+
+#[test]
 fn maximum_supported_ordered_markers_continue_with_valid_lazy_physical_numbers() {
     let raw = "999999999. a\n1. b";
     let mut s = EditorSession::open(raw);
@@ -308,6 +366,128 @@ fn middle_empty_exit_keeps_the_two_lists_independent_after_fresh_open() {
     assert_eq!(s.selection(), range(2, 2));
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), raw);
+}
+
+#[test]
+fn nested_backspace_retires_the_item_into_the_immediate_preceding_container() {
+    for (raw, shown, caret, expected) in [
+        ("- a\n  - b", "a\nb", 2, "- a\n  b"),
+        ("- a\n  - b\n  - c", "a\nb\nc", 2, "- a\n  b\n  - c"),
+        ("- a\n  - x\n  - b", "a\nx\nb", 4, "- a\n  - x\n    b"),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut view = ReferenceView::new(shown);
+        s.select(s.revision(), range(caret, caret)).unwrap();
+        view.apply(
+            s.paragraph_key(
+                s.revision(),
+                range(caret, caret),
+                ParagraphKey::Backspace,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, shown);
+        assert_eq!(s.selection(), range(caret, caret));
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), range(caret, caret));
+        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+    }
+}
+
+#[test]
+fn an_empty_marker_indented_under_a_list_item_is_an_empty_nested_item_not_a_setext_underline() {
+    // As in Obsidian (Lezer): inside a list item the marker opens an item; outside
+    // one (`a\n-`) it stays a setext underline.
+    let s = EditorSession::open("- a\n  - ");
+    let p = s.project(s.revision(), range(0, 1)).unwrap();
+    assert_eq!(p.blocks[0].heading, 0);
+    assert_eq!(s.display_text(), "a\n");
+    let s = EditorSession::open("a\n-");
+    assert_eq!(
+        s.project(s.revision(), range(0, 1)).unwrap().blocks[0].heading,
+        2
+    );
+}
+
+#[test]
+fn an_empty_nested_marker_of_every_kind_is_an_item_and_a_numbered_two_is_text() {
+    for source in [
+        "- a\n\t- ",
+        "* a\n  *",
+        "1. a\n   1. ",
+        "1) a\n   1)",
+        "1. a\n   - ",
+        "- a\n  1. ",
+        "- a\n  - [ ] ",
+        "> - a\n>   - ",
+        "- a\r\n  - ",
+        "- a\n  - b\n    - ",
+    ] {
+        let s = EditorSession::open(source);
+        assert!(
+            s.display_text().ends_with('\n'),
+            "{source:?}: {:?}",
+            s.display_text()
+        );
+        assert_eq!(
+            s.project(s.revision(), range(0, 1)).unwrap().blocks[0].heading,
+            0,
+            "{source:?}"
+        );
+    }
+    // A number other than 1 cannot interrupt a paragraph, as in CommonMark.
+    assert_eq!(EditorSession::open("- a\n  2. ").display_text(), "a\n2. ");
+}
+
+#[test]
+fn nested_backspace_preserves_outer_quotes_and_a_second_key_joins_the_continuation() {
+    for (raw, shown, at, expected, final_source, final_display) in [
+        ("- a\n  - b", "a\nb", 2, "- a\n  b", "- ab", "ab"),
+        (
+            "> - a\r\n>   - 🦊b",
+            "a\r\n🦊b",
+            3,
+            "> - a\r\n>   🦊b",
+            "> - a🦊b",
+            "a🦊b",
+        ),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut view = ReferenceView::new(shown);
+        let selected = range(at, at);
+        s.select(s.revision(), selected).unwrap();
+        view.apply(
+            s.paragraph_key(s.revision(), selected, ParagraphKey::Backspace, &mut |_| {
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, shown);
+        view.apply(
+            s.paragraph_key(
+                s.revision(),
+                s.selection(),
+                ParagraphKey::Backspace,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), final_source);
+        assert_eq!(view.text, final_display);
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), selected);
+    }
 }
 
 /// Enter on an empty nested item outdents it one level, last or not: the

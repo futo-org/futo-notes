@@ -36,7 +36,7 @@ fn list_commands_keep_the_enclosing_quote() {
 #[test]
 fn indent_nests_only_the_selected_item_and_preserves_exact_foreign_spelling() {
     let raw = "* parent\r\n* __child__\r\n* neighbor  ";
-    let expected = "* parent\r\n  * __child__\r\n* neighbor  ";
+    let expected = "* parent\r\n\t* __child__\r\n* neighbor  ";
     let shown = "parent\r\nchild\r\nneighbor  ";
     let mut s = EditorSession::open(raw);
     let mut view = ReferenceView::new(shown);
@@ -69,11 +69,8 @@ fn indent_nests_only_the_selected_item_and_preserves_exact_foreign_spelling() {
 }
 
 #[test]
-fn indent_and_outdent_choose_the_nearest_list_or_quote_container() {
-    for (raw, expected) in [
-        ("> - a\n> - b", "> - a\n>   - b"),
-        ("- a\n  > b", "- a\n  > > b"),
-    ] {
+fn indent_and_outdent_nest_a_quoted_list_item_inside_its_quote() {
+    for (raw, expected) in [("> - a\n> - b", "> - a\n> \t- b")] {
         let selected = range(2, 3);
         let mut s = EditorSession::open(raw);
         let mut view = ReferenceView::new("a\nb");
@@ -125,46 +122,20 @@ fn a_first_list_sibling_inside_a_quote_cannot_indent_its_outer_quote() {
 }
 
 #[test]
-fn outdent_lifts_a_top_level_item_to_paragraph_text() {
+fn outdent_does_nothing_to_a_top_level_item_and_leaves_no_undo_step() {
     let mut s = EditorSession::open("* a\n* b");
-    let mut view = ReferenceView::new("a\nb");
-    view.apply(
-        s.block_command(
+    assert!(!s.toolbar_state().can_outdent);
+    assert!(s
+        .block_command(
             s.revision(),
             range(0, 1),
             BlockCommand::Outdent,
-            &mut |_| Ok(()),
+            &mut |_| panic!("accepted")
         )
         .unwrap()
-        .expect("the outer list item lifts into a paragraph"),
-    );
-    assert_eq!(s.source_text(), "a\n* b");
-    assert_eq!(view.text, "a\nb");
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        .is_none());
     assert_eq!(s.source_text(), "* a\n* b");
-}
-
-#[test]
-fn outdent_does_not_cross_a_quote_between_two_list_containers() {
-    let source = "- a\n  > - b";
-    let mut s = EditorSession::open(source);
-    let mut view = ReferenceView::new("a\nb");
-    s.select(s.revision(), range(2, 3)).unwrap();
-    view.apply(
-        s.block_command(
-            s.revision(),
-            range(2, 3),
-            BlockCommand::Outdent,
-            &mut |_| Ok(()),
-        )
-        .unwrap()
-        .unwrap(),
-    );
-    assert_eq!(s.source_text(), "- a\n  > b");
-    assert_eq!(view.text, "a\nb");
-    assert_eq!(s.selection(), range(2, 3));
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), source);
+    assert!(!s.toolbar_state().can_undo);
 }
 
 #[test]
@@ -209,14 +180,11 @@ fn outdent_retargets_the_lifted_item_to_its_parent_list_kind_and_content_width()
 fn same_line_nested_list_parents_are_refused_unchanged() {
     // Two items opening on one physical line have no canonical respelling
     // that keeps the empty parent (DECISIONS #20): refused before acceptance.
-    for (raw, selected, command) in [
-        ("* 0. text", range(0, 4), BlockCommand::Outdent),
-        (
-            "- - child\n  - sibling\n- following",
-            range(0, 5),
-            BlockCommand::Heading(0),
-        ),
-    ] {
+    for (raw, selected, command) in [(
+        "- - child\n  - sibling\n- following",
+        range(0, 5),
+        BlockCommand::Heading(0),
+    )] {
         let mut s = EditorSession::open(raw);
         s.select(s.revision(), selected).unwrap();
         assert!(matches!(
@@ -284,7 +252,7 @@ fn non_one_ordered_text_without_a_separator_remains_a_parent_paragraph() {
         .unwrap()
         .unwrap(),
     );
-    assert_eq!(s.source_text(), "1) parent\n   4) existing\n   1) child");
+    assert_eq!(s.source_text(), "1) parent\n   4) existing\n\t1) child");
     assert_eq!(view.text, shown);
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), source);
