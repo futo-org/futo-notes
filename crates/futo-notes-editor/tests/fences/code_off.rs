@@ -216,3 +216,204 @@ fn code_command_at_a_saved_body_end_removes_its_own_fence() {
         assert_eq!(session.selection(), range(4, 4));
     }
 }
+
+fn assert_code_off_preserves_body(
+    opening: &str,
+    display: &str,
+    selected: DisplayRange,
+    markers: usize,
+    retained_code: &[usize],
+) {
+    for command in [BlockCommand::CodeBlock, BlockCommand::WrapCodeBlock] {
+        let mut session = EditorSession::open(opening);
+        assert_eq!(session.display_text(), display);
+        let mut view = ReferenceView::new(display);
+        session.select(session.revision(), selected).unwrap();
+        // Quote reads active over prose inside a quote, and code lines are set
+        // aside from that test (Quote never changes them), so the fenced body
+        // reads inactive while it is code and active once its text is quoted.
+        let quoted = opening.starts_with('>');
+        let mut accepted = 0;
+        view.apply(
+            session
+                .block_command(session.revision(), selected, command, &mut |_| {
+                    accepted += 1;
+                    Ok(())
+                })
+                .unwrap()
+                .expect("Code off changes the fenced body"),
+        );
+        assert_eq!(accepted, 1);
+        assert_eq!(view.text, display, "{opening:?} {command:?}");
+        assert_eq!(session.display_text(), display);
+        assert_eq!(session.selection(), selected);
+        assert!(!session.toolbar_state().code);
+        assert_eq!(
+            session.toolbar_state().quote,
+            quoted,
+            "{opening:?}: enclosing quote remains"
+        );
+        for &at in retained_code {
+            assert!(
+                session
+                    .project(session.revision(), range(at, at))
+                    .unwrap()
+                    .blocks
+                    .iter()
+                    .any(|block| block.code),
+                "{opening:?}: unselected row at{at} stays code"
+            );
+        }
+        let count = session
+            .project(session.revision(), range(0, display.len()))
+            .unwrap()
+            .blocks
+            .iter()
+            .filter(|block| block.list.as_ref().is_some_and(|list| list.first))
+            .count();
+        assert_eq!(count, markers, "{opening:?}: first marker appears once");
+        let converted = session.source_text();
+        assert_eq!(EditorSession::open(&converted).display_text(), display);
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), opening);
+        assert_eq!(view.text, display);
+        assert_eq!(session.selection(), selected);
+        view.apply(
+            session
+                .redo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), converted);
+        assert_eq!(view.text, display);
+        assert_eq!(session.selection(), selected);
+    }
+}
+
+#[test]
+fn code_off_keeps_hidden_list_padding_out_of_visible_text() {
+    for (opening, display) in [
+        ("- ```\n  \n  ```", ""),
+        ("- ```\n  ```", ""),
+        ("- ```\n", ""),
+        ("- ```", ""),
+        ("- ```\n  x\n  ```", "x"),
+        ("9. ```\n   x\n   ```", "x"),
+        ("> - ```\n>   x\n>   ```", "x"),
+    ] {
+        assert_code_off_preserves_body(opening, display, range(0, display.len()), 1, &[]);
+    }
+}
+
+#[test]
+fn code_off_hidden_padding_controls_keep_root_and_quote_text() {
+    for (opening, display) in [
+        ("```\n\n```", ""),
+        ("```\n```", ""),
+        ("```\n", ""),
+        ("```", ""),
+        ("```\nx\n```", "x"),
+        ("> ```\n> \n> ```", ""),
+        ("> ```\n> ```", ""),
+        ("> ```\n", ""),
+        ("> ```", ""),
+        ("> ```\n> x\n> ```", "x"),
+    ] {
+        assert_code_off_preserves_body(opening, display, range(0, display.len()), 0, &[]);
+    }
+}
+
+#[test]
+fn code_off_retires_hidden_fence_indent_but_keeps_opaque_spaces() {
+    for (opening, display) in [
+        ("  ```\n  x\n  ```", "x"),
+        ("  ```\n    x\n  ```", "  x"),
+        ("  ```\n  \n  ```", ""),
+    ] {
+        assert_code_off_preserves_body(opening, display, range(0, display.len()), 0, &[]);
+    }
+}
+
+#[test]
+fn code_off_split_rows_keep_the_container_marker_once() {
+    for (opening, display, carets, markers) in [
+        ("- ```\n  x\n  y\n  z\n  ```", "x\ny\nz", [0, 2, 4], 1),
+        ("9. ```\n   x\n   y\n   z\n   ```", "x\ny\nz", [0, 2, 4], 1),
+        (
+            "> - ```\n>   x\n>   y\n>   z\n>   ```",
+            "x\ny\nz",
+            [0, 2, 4],
+            1,
+        ),
+        (
+            "9. ```lang\r\n   x\r\n   y\r\n   z\r\n   ```",
+            "x\r\ny\r\nz",
+            [0, 3, 6],
+            1,
+        ),
+        ("-\t```\n\tx\n\ty\n\tz\n\t```", "x\ny\nz", [0, 2, 4], 1),
+        (
+            "- parent\n  - ```\n    x\n    y\n    z\n    ```",
+            "parent\nx\ny\nz",
+            [7, 9, 11],
+            2,
+        ),
+    ] {
+        for caret in carets {
+            let retained: Vec<_> = carets.into_iter().filter(|&at| at != caret).collect();
+            assert_code_off_preserves_body(
+                opening,
+                display,
+                range(caret, caret),
+                markers,
+                &retained,
+            );
+        }
+    }
+}
+
+#[test]
+fn code_off_keeps_one_marker_across_partitioned_fence_rows() {
+    for eol in ["\n", "\r\n"] {
+        let row = format!("opaque{eol}");
+        let display = row.repeat(2_000).trim_end_matches(['\r', '\n']).to_owned();
+        let opening = format!(
+            "9. ```lang{eol}   {}{eol}   ```",
+            display.replace(eol, &format!("{eol}   "))
+        );
+        let caret = row.len() * 1_000;
+        assert_code_off_preserves_body(
+            &opening,
+            &display,
+            range(caret, caret),
+            1,
+            &[0, row.len() * 1_999],
+        );
+    }
+}
+
+#[test]
+fn code_off_on_an_empty_frame_keeps_the_line_that_follows_it_separate() {
+    for (raw, expected) in [
+        ("> ```\n> ```\n> next", "> \n> next"),
+        ("> ```\n> ```\nnext", "> \nnext"),
+        ("- ```\n  ```\nnext", "- \nnext"),
+        ("> ```\n> ```\r\nnext", "> \r\nnext"),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let at = range(0, 0);
+        s.select(s.revision(), at).unwrap();
+        s.block_command(s.revision(), at, BlockCommand::CodeBlock, &mut |_| Ok(()))
+            .unwrap()
+            .expect("Code off changes the frame");
+        assert_eq!(s.source_text(), expected, "{raw:?}");
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(s.source_text(), raw, "{raw:?}");
+        assert_eq!(s.selection(), at, "{raw:?}");
+    }
+}

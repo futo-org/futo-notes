@@ -8,6 +8,7 @@ impl EditorSession {
         range: DisplayRange,
         command: BlockCommand,
         lines: Vec<crate::inline::blocks::BlockLine>,
+        paragraph_boundary: bool,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let first = &lines[0];
@@ -21,6 +22,7 @@ impl EditorSession {
         let mut link_copied_bytes = 0;
         let mut materialized = 0;
         let mut folded = Vec::new();
+        let mut separators = Vec::new();
         let mut retained = Vec::<crate::inline::references::RetainedBody>::new();
         for line in lines.iter().rev() {
             if line.code
@@ -51,7 +53,7 @@ impl EditorSession {
             } else {
                 prefix
             };
-            let replacement = match command {
+            let mut replacement = match command {
                 BlockCommand::Heading(level) => format!(
                     "{quote_prefix}{}",
                     if level == 0 {
@@ -62,6 +64,22 @@ impl EditorSession {
                 ),
                 _ => continue,
             };
+            if paragraph_boundary && command == BlockCommand::Heading(0) {
+                if let Some(separator) = self.list_paragraph_separator(
+                    line.source.start,
+                    line.quote_depth,
+                    line.content.is_empty(),
+                ) {
+                    let ending = if separator.source.ends_with("\r\n") {
+                        2
+                    } else {
+                        1
+                    };
+                    separators.push((self.projection.display_at(line.content.start), ending));
+                    materialized += separator.source.len();
+                    replacement.insert_str(0, &separator.source);
+                }
+            }
             changed = true;
             let prior_len = output.len();
             // Changing heading level retires only that line's optional ATX closer.
@@ -149,6 +167,11 @@ impl EditorSession {
                 if original > *start {
                     let within = (original - start).min(shown.len());
                     *endpoint -= within - folded_offset(shown, within);
+                }
+            }
+            for (at, width) in &separators {
+                if original >= *at {
+                    *endpoint += width;
                 }
             }
         }

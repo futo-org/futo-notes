@@ -106,7 +106,7 @@ impl Projection {
             if fence_eof_caret && block.source.is_empty() && source + block.source.end == note_end {
                 continue;
             }
-            if block.empty_comment || at == 0 && row.mid_line {
+            if at == 0 && row.mid_line {
                 continue;
             }
             if joined && at + 1 == row.blocks.len() {

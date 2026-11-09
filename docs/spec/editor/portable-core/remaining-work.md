@@ -32,7 +32,7 @@ preserves opaque code and original containment through certified physical edge f
 new source queries and canonical code-body overlap queries have measured work controls.
 The pinned multiline quoted-body Backspace and full Text observations,
 representative CRLF/entity cases and separate inner/foreign quote ownership now
-have exact-source/history and measured-work controls. The 202 shared list literals
+have exact-source/history and measured-work controls. The 224 shared list literals
 run through all six consumers, including compiled WASM and synthetic Swift/Kotlin
 FFI/Store tests. Native execution covers arm64 iOS Simulator and an actual x86
 Android process; the remaining shipped native architectures have compilation proof.

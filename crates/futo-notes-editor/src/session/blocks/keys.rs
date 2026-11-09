@@ -410,8 +410,7 @@ impl EditorSession {
         // to preserve the established list, quote, code and table join rules.
         // Both changes stay invisible until one protected source acceptance.
         self.stage_block_action(expected, range, None, accept, |staged, local, accept| {
-            let demoted =
-                staged.block_command(staged.revision(), local, BlockCommand::Heading(0), accept)?;
+            let demoted = staged.retire_heading_frame(staged.revision(), local, accept)?;
             let mut joined = staged.paragraph_key(
                 staged.revision(),
                 staged.selection(),

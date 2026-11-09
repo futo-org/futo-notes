@@ -3,6 +3,13 @@ mod prefix_command;
 
 use super::*;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CommandStage {
+    Opening,
+    Resolved,
+    HeadingFrame,
+}
+
 impl EditorSession {
     pub fn block_command_utf16(
         &mut self,
@@ -53,8 +60,36 @@ impl EditorSession {
     pub(in crate::session) fn structural_command(
         &mut self,
         expected: Revision,
+        range: DisplayRange,
+        command: BlockCommand,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.structural_command_staged(expected, range, command, CommandStage::Opening, accept)
+    }
+
+    /// A staged join or code conversion retires only the heading frame;
+    /// its final operation supplies the block intent in the same acceptance.
+    pub(in crate::session::blocks) fn retire_heading_frame(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.structural_command_staged(
+            expected,
+            range,
+            BlockCommand::Heading(0),
+            CommandStage::HeadingFrame,
+            accept,
+        )
+    }
+
+    fn structural_command_staged(
+        &mut self,
+        expected: Revision,
         mut range: DisplayRange,
         command: BlockCommand,
+        stage: CommandStage,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
@@ -64,7 +99,13 @@ impl EditorSession {
                 range,
                 accept,
                 |staged, local, accept| {
-                    staged.structural_command(staged.revision(), local, command, accept)
+                    staged.structural_command_staged(
+                        staged.revision(),
+                        local,
+                        command,
+                        stage,
+                        accept,
+                    )
                 },
             );
         }
@@ -80,7 +121,7 @@ impl EditorSession {
                 return self.crlf_block_command(expected, range, command, accept);
             }
         }
-        self.lf_block_command(expected, range, command, accept)
+        self.lf_block_command_toggling(expected, range, command, stage, accept)
     }
 
     /// `block_command` on a validated body range, writing LF line breaks.
@@ -91,17 +132,17 @@ impl EditorSession {
         command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        self.lf_block_command_toggling(expected, range, command, true, accept)
+        self.lf_block_command_toggling(expected, range, command, CommandStage::Opening, accept)
     }
 
-    /// `toggle_quote` is false for a step that carries out a direction already
-    /// chosen on the selection as given, so a staged copy never re-decides it.
+    /// Only the `Opening` stage decides Quote's direction; a staged copy
+    /// carries out the direction already chosen on the selection as given.
     fn lf_block_command_toggling(
         &mut self,
         expected: Revision,
         range: DisplayRange,
         command: BlockCommand,
-        toggle_quote: bool,
+        stage: CommandStage,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let command = if let BlockCommand::ToggleHeading(level) = command {
@@ -180,7 +221,7 @@ impl EditorSession {
         }
         let mut lines = self.selected_block_lines(range);
         // Choosing Quote on text that is already quoted takes one level off.
-        let command = if toggle_quote
+        let command = if stage == CommandStage::Opening
             && command == BlockCommand::Quote
             && all_quoted(&self.content_block_lines(&lines))
         {
@@ -204,16 +245,22 @@ impl EditorSession {
                     && (command != BlockCommand::Quote || line.quote_depth == 0)
             })
         {
+            let owns_endpoint = range.start != range.end
+                && lines.last().is_some_and(|line| {
+                    line.list.as_ref().is_some_and(|list| list.first)
+                        && self.projection.display_at(line.content.start) == range.end.0
+                });
             return self.stage_block_action(
                 expected,
                 range,
                 None,
                 accept,
                 |staged, local, accept| {
-                    let Some(lifted) = staged.block_command(
+                    let Some(lifted) = staged.list_command_with_final_block(
                         staged.revision(),
                         local,
                         BlockCommand::Heading(0),
+                        Some(command),
                         accept,
                     )?
                     else {
@@ -228,16 +275,47 @@ impl EditorSession {
                     {
                         return Err(EditorError::UnrepresentableFormat);
                     }
+                    // The opening formatting scope includes a list item's first
+                    // text boundary. Lifting retires that marker, so a fresh
+                    // half-open query would silently lose that target. Reach
+                    // into its unchanged body for planning, then retain the
+                    // user's original selection rather than the planning range.
+                    let mut target = local;
+                    // An empty endpoint item has no body to reach into; stepping
+                    // on would cross its line ending into the next item.
+                    let display = &staged.projection.display;
+                    let at_line_end = local.end.0 >= display.len_bytes()
+                        || matches!(display.byte(local.end.0), b'\n' | b'\r');
+                    if owns_endpoint && !at_line_end {
+                        target.end = DisplayOffset(staged.grapheme_stop(
+                            local.end.0,
+                            crate::CaretDirection::Forward,
+                            false,
+                        )?);
+                    }
+                    let formats = staged.pending_formats.clone();
+                    let affinity = staged.affinity;
                     let Some(mut change) = staged.lf_block_command_toggling(
                         staged.revision(),
-                        local,
+                        target,
                         command,
-                        false,
+                        CommandStage::Resolved,
                         accept,
                     )?
                     else {
                         return Ok(Some(lifted));
                     };
+                    if target != local {
+                        let selection = DisplayRange {
+                            start: change.selection.start,
+                            end: DisplayOffset(
+                                change.selection.end.0 - (target.end.0 - local.end.0),
+                            ),
+                        };
+                        staged.select_with_affinity(staged.revision(), selection, affinity)?;
+                        change.selection = selection;
+                        staged.carry_block_state(&mut change, formats, affinity);
+                    }
                     accumulate_planning_work(&mut change.work, lifted.work);
                     Ok(Some(change))
                 },
@@ -278,7 +356,11 @@ impl EditorSession {
                         staged.revision(),
                         local,
                         command,
-                        false,
+                        if stage == CommandStage::HeadingFrame {
+                            stage
+                        } else {
+                            CommandStage::Resolved
+                        },
                         accept,
                     )?
                     else {
@@ -303,7 +385,14 @@ impl EditorSession {
         if matches!(command, BlockCommand::Quote | BlockCommand::Outdent) {
             return counted(self.quote_command(expected, range, command, accept));
         }
-        counted(self.apply_block_prefix_command(expected, range, command, lines, accept))
+        counted(self.apply_block_prefix_command(
+            expected,
+            range,
+            command,
+            lines,
+            stage != CommandStage::HeadingFrame,
+            accept,
+        ))
     }
 
     fn block_command_boundaries(

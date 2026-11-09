@@ -33,3 +33,12 @@ mod heading_join;
 mod blank_lines;
 #[path = "blocks/line_endings.rs"]
 mod line_endings;
+
+#[path = "blocks/list_endpoint_commands.rs"]
+mod list_endpoint_commands;
+
+#[path = "blocks/empty_list_commands.rs"]
+mod empty_list_commands;
+
+#[path = "blocks/empty_text_boundaries.rs"]
+mod empty_text_boundaries;

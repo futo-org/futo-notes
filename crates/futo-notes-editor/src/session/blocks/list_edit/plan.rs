@@ -49,7 +49,7 @@ impl EditorSession {
         let mut outputs = Vec::with_capacity(rows.len());
         for (index, row) in rows.iter().enumerate() {
             let depth = row.after.depth;
-            let quotes_same = row.after.quotes == row.before.quotes;
+            let quotes_same = row.keeps_quote_prefix();
             // A row the command leaves alone, under ancestors it leaves
             // alone, keeps its bytes and columns whatever the rows above it
             // spelled; two items opening on its line hide a column it keeps.
@@ -129,6 +129,12 @@ impl EditorSession {
                     escape(&body).ok_or(EditorError::UnrepresentableFormat)?;
                 body.replace_range(at..at + removed, &inserted);
                 escaped = Some((at, inserted.len() as isize - removed as isize));
+            }
+            // A lifted empty item's body excludes its final heading marker;
+            // author that marker as prefix so source-selection mapping hides it.
+            if row.after.heading > 0 && row.body.is_empty() {
+                prefix.push_str(&"#".repeat(row.after.heading as usize));
+                prefix.push(' ');
             }
             let length = prefix.len();
             prefix.push_str(&body);
@@ -260,18 +266,13 @@ impl EditorSession {
                     .source
                     .byte_slice(row.line.start..row.quote_end)
                     .to_string();
-                let quote = if row.after.quotes == row.before.quotes {
+                let quote = if row.keeps_quote_prefix() {
                     quote
                 } else {
                     "> ".repeat(row.after.quotes)
                 };
                 let line_ending = self.inserted_ending(rows, row);
-                if row.insert == Insert::Comment {
-                    text.push_str(&quote);
-                    text.push_str("<!-- -->");
-                } else {
-                    text.push_str(quote.trim_end());
-                }
+                text.push_str(quote.trim_end());
                 text.push_str(&line_ending);
             }
             let line = span.start + text.len();
