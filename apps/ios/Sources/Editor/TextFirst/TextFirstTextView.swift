@@ -35,8 +35,9 @@
 
         // MARK: image caret
         //
-        // A tap on an image selects it as one object (see `selectImage`), and UIKit draws that as
-        // a bar and a handle on each edge of the image. It is drawn as one caret against the
+        // An image selected as one object (a long-press, a drag, select-all; a plain tap is a
+        // collapsed caret, see `placeCaretAfterImage`) is drawn by UIKit as a bar and a handle on
+        // each edge of the image. It is drawn as one caret against the
         // image's trailing edge instead, which is where the text typed next lands. The selection
         // itself is untouched; `selectionRects` gives UIKit nothing to draw.
 

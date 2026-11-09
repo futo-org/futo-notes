@@ -114,15 +114,16 @@
             return nil
         }
 
-        /// A short tap on an image selects it as one object (its two caret stops, start to end);
-        /// Enter then acts after it, which is how a caret gets past a last image.
-        private func selectImage(_ range: NSRange) {
+        /// A plain tap on an image, anywhere on it, is a collapsed caret right after it (the
+        /// caret is drawn at its trailing edge): typing goes after the image and Backspace removes
+        /// it whole. A long-press, a drag or select-all still select it as one object.
+        private func placeCaretAfterImage(_ range: NSRange) {
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self, !self.closed, NSMaxRange(range) <= self.storage.length else {
                         return
                     }
-                    self.textView.selectedRange = range
+                    self.textView.selectedRange = NSRange(location: NSMaxRange(range), length: 0)
                 }
             }
         }
@@ -175,7 +176,7 @@
             if g.state == .ended, !touchHitCheckbox,
                 let image = imageHit(at: g.location(in: textView))
             {
-                selectImage(image)
+                placeCaretAfterImage(image)
                 return
             }
             if g.state == .ended, !touchHitCheckbox,
