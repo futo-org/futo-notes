@@ -223,11 +223,12 @@
                 let change: EditorViewChange?
                 if let label, !destination.isEmpty {
                     guard !label.isEmpty else { return }
-                    // The engine decides whether what was typed is a web address (saved as
-                    // `https://…`); anything it is unsure of is saved as typed.
+                    // The engine decides what was typed: a note that exists stays a note link;
+                    // otherwise a web address is saved as `https://…`, and anything it is unsure
+                    // of as typed.
                     change = try session.editLink(
                         expected: rev, range: range, label: label,
-                        destination: editorNormalizeLinkDestination(typed: destination))
+                        destination: session.normalizeLinkDestination(typed: destination))
                 } else {
                     change = try session.setLink(expected: rev, range: range, destination: "")
                 }
