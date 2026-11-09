@@ -84,15 +84,7 @@ fn text_retirement_preserves_paragraph_ownership_and_existing_boundaries() {
             4,
             false,
         ),
-        (
-            "> - a\n> # ",
-            "a\n",
-            2,
-            "> - a\n> <!-- -->\n> ",
-            "a\n",
-            2,
-            false,
-        ),
+        ("> - a\n> # ", "a\n", 2, "> - a\n>\n> ", "a\n\n", 3, false),
         (
             "- a\r\n# ",
             "a\r\n",

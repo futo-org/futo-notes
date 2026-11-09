@@ -72,7 +72,6 @@ pub(crate) struct BlockLine {
     pub metadata: bool,
     /// Raw HTML block source; Markdown shortcuts never fire inside it.
     pub html: bool,
-    pub empty_comment: bool,
     /// Nonempty source within an actual paragraph or tight-item inline run.
     pub paragraph_text: bool,
     pub list: Option<super::lists::ListLine>,
@@ -120,11 +119,9 @@ pub(super) fn trailing_syntax(lines: &[BlockLine], range: &Range<usize>) -> bool
     let first = lines.partition_point(|line| line.source.end < range.end);
     let last = lines.partition_point(|line| line.source.start <= range.start);
     first < last
-        && lines[first..last].iter().any(|block| {
-            !block.empty_comment
-                && block.content.end <= range.start
-                && range.end <= block.source.end
-        })
+        && lines[first..last]
+            .iter()
+            .any(|block| block.content.end <= range.start && range.end <= block.source.end)
 }
 
 pub(super) fn describe(
@@ -165,7 +162,6 @@ fn describe_with_parts(
                 code: false,
                 metadata: false,
                 html: false,
-                empty_comment: false,
                 paragraph_text: false,
                 list: None,
                 task: None,
@@ -189,7 +185,6 @@ fn describe_with_parts(
             code: false,
             metadata: false,
             html: false,
-            empty_comment: false,
             paragraph_text: false,
             list: None,
             task: None,
@@ -265,8 +260,6 @@ fn describe_with_parts(
     }
     prose.flush();
     let mut lists = super::lists::describe(source, events);
-    let comments = super::empty_comments::ranges(events);
-    let mut comment = 0;
     let mut prefixes = Vec::new();
     for line in &mut lines {
         let end = line.content.end;
@@ -338,19 +331,6 @@ fn describe_with_parts(
                 }
             }
         }
-        while comments
-            .get(comment)
-            .is_some_and(|range| range.end <= line.source.start)
-        {
-            comment += 1;
-        }
-        line.empty_comment = !line.code
-            && line.list.is_none()
-            && source[line.source.clone()].ends_with('\n')
-            && super::empty_comments::standard(&source[start..line.content.end])
-            && comments.get(comment).is_some_and(|range| {
-                line.source.start <= range.start && range.end <= line.source.end
-            });
         prefixes.push(line.source.start..start);
         line.content.start = start;
         line.paragraph_text =
@@ -362,12 +342,16 @@ fn describe_with_parts(
     }
     // The parser lets a last item own the blank lines that end the note. Only the first of
     // them continues the item (text typed there is lazy); a line after a blank line starts
-    // a paragraph, so it is not shown as a list row.
+    // a paragraph, so it is not shown as a list row. A quoted blank line is blank too.
     let trailing = lines.len()
         - lines
             .iter()
             .rev()
-            .take_while(|line| source[line.source.clone()].trim().is_empty())
+            .take_while(|line| {
+                source[line.source.clone()]
+                    .chars()
+                    .all(|ch| ch == '>' || ch.is_whitespace())
+            })
             .count();
     for line in lines.iter_mut().skip(trailing + 1) {
         if line.list.as_ref().is_some_and(|list| !list.first) {

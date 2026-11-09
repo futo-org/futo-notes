@@ -274,10 +274,6 @@ impl Row {
             }
         }
         for block in &blocks {
-            if block.empty_comment {
-                hidden[block.source.clone()].fill(true);
-                continue;
-            }
             if let Some(fence) = &block.fence {
                 // Retain the terminal boundary of an unmatched container fence.
                 if fence.closer.is_some() || fence.whole.end == source.len() {

@@ -402,8 +402,7 @@ impl Projection {
                     .partition_point(|block| block.source.start < end)
                     .min(kept);
                 for block in row.blocks.get(first..last).unwrap_or_default() {
-                    if !block.empty_comment && begin < block.source.end && block.source.start < end
-                    {
+                    if begin < block.source.end && block.source.start < end {
                         visit(block, source, index);
                     }
                 }

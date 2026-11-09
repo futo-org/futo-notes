@@ -445,14 +445,11 @@ impl EditorSession {
         for row in rows.iter_mut().filter(|row| {
             row.changed() && row.body.is_empty() && row.after.heading == 0 && row.after.depth == 0
         }) {
-            if let Some(separator) =
-                self.list_paragraph_separator(row.line.start, row.after.quotes, true)
+            if self
+                .list_paragraph_separator(row.line.start, row.after.quotes, true)
+                .is_some()
             {
-                row.insert = if separator.comment {
-                    Insert::Comment
-                } else {
-                    Insert::Blank
-                };
+                row.insert = Insert::Blank;
             }
         }
         // A newly quoted empty line keeps a following paragraph out of the

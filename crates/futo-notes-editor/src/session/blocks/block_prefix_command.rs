@@ -70,9 +70,7 @@ impl EditorSession {
                     line.quote_depth,
                     line.content.is_empty(),
                 ) {
-                    let ending = if separator.comment {
-                        0
-                    } else if separator.source.ends_with("\r\n") {
+                    let ending = if separator.source.ends_with("\r\n") {
                         2
                     } else {
                         1

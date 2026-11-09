@@ -22,7 +22,6 @@ pub(super) struct BodySplit {
 
 pub(super) struct ParagraphSeparator {
     pub source: String,
-    pub comment: bool,
 }
 
 impl EditorSession {
@@ -37,7 +36,7 @@ impl EditorSession {
     }
 
     /// A paragraph replacing a block below a list must not become that item's
-    /// lazy continuation. An empty paragraph also needs its own margin caret.
+    /// lazy continuation.
     pub(super) fn list_paragraph_separator(
         &self,
         start: usize,
@@ -62,16 +61,12 @@ impl EditorSession {
         if quotes > list.quote_depth || !empty && (line.heading > 0 || line.code || line.divider) {
             return None;
         }
-        let comment = empty && quotes > 0;
-        let quote = "> ".repeat(quotes);
         Some(ParagraphSeparator {
             source: format!(
-                "{}{}{}",
-                if comment { &quote } else { quote.trim_end() },
-                if comment { "<!-- -->" } else { "" },
+                "{}{}",
+                "> ".repeat(quotes).trim_end(),
                 self.line_ending_at(start)
             ),
-            comment,
         })
     }
 

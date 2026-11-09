@@ -5,7 +5,6 @@ pub(crate) mod blocks;
 mod blocks_paragraph;
 mod edit;
 pub(crate) use edit::{EditIntent, Plan, SourceCorrespondence};
-mod empty_comments;
 pub(crate) mod fences;
 mod find;
 pub(crate) mod front_matter;

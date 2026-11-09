@@ -272,12 +272,7 @@ impl EditorSession {
                     "> ".repeat(row.after.quotes)
                 };
                 let line_ending = self.inserted_ending(rows, row);
-                if row.insert == Insert::Comment {
-                    text.push_str(&quote);
-                    text.push_str("<!-- -->");
-                } else {
-                    text.push_str(quote.trim_end());
-                }
+                text.push_str(quote.trim_end());
                 text.push_str(&line_ending);
             }
             let line = span.start + text.len();

@@ -75,9 +75,6 @@ pub(super) fn repairs(rows: &[Row], at: usize) -> Vec<Repair> {
     if row.changed() && !row.blank && !row.escape && row.escapable {
         options.push(Repair::Escape(at));
     }
-    if row.exact_blank && at + 1 < rows.len() {
-        options.push(Repair::Insert(at + 1, Insert::Comment));
-    }
     let boundary =
         at > 0 && (row.changed() || rows[at - 1].changed()) && row.insert == Insert::None;
     if boundary {
@@ -93,22 +90,6 @@ pub(super) fn repairs(rows: &[Row], at: usize) -> Vec<Repair> {
             .any(|row| !row.changed() && row.after.opens && row.key == rows[end].key)
     }) {
         options.push(Repair::Alternate(end));
-    }
-    if boundary {
-        options.push(Repair::Insert(at, Insert::Comment));
-    }
-    if let Some(end) = run {
-        if end + 1 < rows.len() && rows[end + 1].insert == Insert::None {
-            options.push(Repair::Insert(end + 1, Insert::Comment));
-        }
-        let start = (0..=end)
-            .rev()
-            .take_while(|&index| rows[index].changed() || rows[index].blank)
-            .last()
-            .unwrap_or(end);
-        if start > 0 && rows[start].insert == Insert::None {
-            options.push(Repair::Insert(start, Insert::Comment));
-        }
     }
     // An empty item written by the command breaks the paragraph ABOVE it (an
     // empty item cannot interrupt one, and a `-` reads as a setext

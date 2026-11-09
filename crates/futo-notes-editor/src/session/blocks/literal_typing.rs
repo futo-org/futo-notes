@@ -26,7 +26,7 @@ impl EditorSession {
             .into_iter()
             .next()
             .ok_or(EditorError::UnrepresentableFormat)?;
-        if line.code || line.html || line.metadata {
+        if line.code || line.metadata {
             return Err(EditorError::UnrepresentableFormat);
         }
         let (low, high) = self.projection.source_bounds(range.start.0);
@@ -35,7 +35,9 @@ impl EditorSession {
         } else {
             high.max(line.content.start)
         };
-        let code = self.projection.formats_at(at).contains(&InlineFormat::Code);
+        // Raw HTML shows its source as typed, so text lands there unescaped
+        // even when the line then reads as Markdown.
+        let code = line.html || self.projection.formats_at(at).contains(&InlineFormat::Code);
         let text: String = inserted
             .chars()
             .map(|ch| {
