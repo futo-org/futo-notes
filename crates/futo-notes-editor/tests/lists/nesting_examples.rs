@@ -18,14 +18,14 @@ fn type_text(s: &mut EditorSession, text: &str) {
 #[test]
 fn enter_then_indent_then_typing_lands_in_the_new_nested_item() {
     for (start, nested) in [
-        ("- a", "- a\n\n  - b"),
-        ("* a", "* a\n\n  * b"),
-        ("1. a", "1. a\n\n   1. b"),
+        ("- a", "- a\n  - b"),
+        ("* a", "* a\n  * b"),
+        ("1. a", "1. a\n   1. b"),
         ("- [ ] a", "- [ ] a\n  - [ ] b"),
-        ("- a\n- b", "- a\n- b\n\n  - c"),
-        ("- a\n  - b", "- a\n  - b\n\n    - c"),
-        ("> - a", "> - a\n>\n>   - b"),
-        ("- a\n\t- b", "- a\n\t- b\n\n      - c"),
+        ("- a\n- b", "- a\n- b\n  - c"),
+        ("- a\n  - b", "- a\n  - b\n    - c"),
+        ("> - a", "> - a\n>   - b"),
+        ("- a\n\t- b", "- a\n\t- b\n      - c"),
     ] {
         let mut s = at_end(start);
         let typed = if start.ends_with('b') { "c" } else { "b" };
@@ -327,7 +327,12 @@ fn a_selection_across_an_items_code_block_nests_the_whole_item() {
     let nested = "- a\n  - b\n    ```\n    x\n    ```\n  - c";
     for (source, to, indented, outdented) in [
         (fenced, "c", Some(nested), None),
-        (fenced, "x", Some("- a\n  - b\n    ```\n    x\n    ```\n- c"), None),
+        (
+            fenced,
+            "x",
+            Some("- a\n  - b\n    ```\n    x\n    ```\n- c"),
+            None,
+        ),
         (nested, "c", None, Some(fenced)),
     ] {
         let mut s = EditorSession::open(source);

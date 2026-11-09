@@ -25,8 +25,9 @@ fn list_tab_is_the_indent_command_and_shift_tab_the_outdent_command() {
             (3, 3),
             "1. a\n2. b\n3. c",
         ),
-        // A new empty item nests under its sibling's text, after a blank line.
-        ("- a\n- ", ParagraphKey::Tab, (2, 2), "- a\n\n  - "),
+        // A new empty item nests under its sibling's text.
+        ("- a\n- ", ParagraphKey::Tab, (2, 2), "- a\n  - "),
+        ("- a\n  - ", ParagraphKey::ShiftTab, (2, 2), "- a\n- "),
         ("- a\n\n  - ", ParagraphKey::ShiftTab, (3, 3), "- a\n\n- "),
         // A selection moves every selected item, as the button does.
         (

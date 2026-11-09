@@ -66,12 +66,6 @@ impl EditorSession {
         } else {
             rows[item].chain[depth - 2].map(|parent| (rows[parent].before.marker, rows[parent].key))
         };
-        // An empty item cannot open a new sub-list right under its sibling's
-        // text (it cannot interrupt a paragraph): the blank-line repair
-        // separates them, as for a blank row turned into an item.
-        if command == BlockCommand::Indent {
-            rows[item].from_blank |= rows[item].body.is_empty();
-        }
         for row in rows.iter_mut() {
             if !row
                 .chain
