@@ -43,6 +43,38 @@ pub(super) use tables::CellInput;
 mod transaction;
 mod typing;
 
+/// The heading level every selected content line carries, whatever quote
+/// depth or block kind it sits in; front matter, which no heading command
+/// reaches, is set aside. This is the toolbar's heading state and the toggle's
+/// own test for taking the level off.
+pub(in crate::session) fn common_heading(
+    lines: &[&crate::inline::blocks::BlockLine],
+) -> Option<u8> {
+    let mut body = lines.iter().filter(|line| !line.metadata);
+    let first = body.next()?.heading;
+    body.all(|line| line.heading == first).then_some(first)
+}
+
+/// Every selected prose line sits in a quote, whatever block it is (paragraph,
+/// heading or list item inside the quote), and at least one is. This is the
+/// toolbar's active Quote state and the command's own test, so choosing Quote
+/// then takes a level off and keeps each block. A quote nested inside a list item is not offered: that
+/// outdent is outside the generic list path.
+pub(in crate::session) fn all_quoted(lines: &[&crate::inline::blocks::BlockLine]) -> bool {
+    let mut prose = lines
+        .iter()
+        .filter(|line| !line.code && !line.divider && !line.metadata)
+        .peekable();
+    prose.peek().is_some()
+        && prose.all(|line| {
+            line.quote_depth > 0
+                && line
+                    .list
+                    .as_ref()
+                    .is_none_or(|list| list.quote_depth == line.quote_depth)
+        })
+}
+
 enum BlockSelection {
     Display(DisplayRange),
     Source(usize),
@@ -62,6 +94,41 @@ impl EditorSession {
     /// queries keep their half-open scope. The projection owns this rule once.
     fn selected_block_lines(&self, range: DisplayRange) -> Vec<crate::inline::blocks::BlockLine> {
         self.projection.format_block_lines(range)
+    }
+
+    /// A blank line: only spaces or tabs after its container prefixes, outside
+    /// code, front matter and raw HTML, and not an item's own first row.
+    pub(in crate::session) fn is_blank_line(
+        &self,
+        line: &crate::inline::blocks::BlockLine,
+    ) -> bool {
+        !line.code
+            && !line.metadata
+            && !line.html
+            && !line.divider
+            && line.heading == 0
+            && line.list.as_ref().is_none_or(|list| !list.first)
+            && self
+                .source
+                .byte_slice(line.content.clone())
+                .chars()
+                .all(|ch| matches!(ch, ' ' | '\t'))
+    }
+
+    /// The selected lines a block format reads and changes. Blank lines are
+    /// aside, as for inline formats, unless the selection holds nothing else:
+    /// a caret on a blank line still touches it.
+    pub(in crate::session) fn content_block_lines<'a>(
+        &self,
+        lines: &'a [crate::inline::blocks::BlockLine],
+    ) -> Vec<&'a crate::inline::blocks::BlockLine> {
+        if lines.iter().all(|line| self.is_blank_line(line)) {
+            return lines.iter().collect();
+        }
+        lines
+            .iter()
+            .filter(|line| !self.is_blank_line(line))
+            .collect()
     }
 
     fn selected_list_lines(

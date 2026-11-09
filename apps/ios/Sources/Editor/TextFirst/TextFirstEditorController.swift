@@ -17,7 +17,7 @@
         }
         let mirror: EditorDisplayMirror
         let storage: NSTextStorage
-        private(set) var noteId: String
+        var noteId: String
 
         /// The engine's revision; every call carries it and every accepted change advances it.
         var rev: UInt64
@@ -35,12 +35,25 @@
         var closed = false
         /// Typed since the last save the engine confirmed.
         var dirty = false
+        /// The screen left: the leave registry runs this draft's saves (no timer, no checkpoint of
+        /// its own) until a screen takes the controller back (`resumeSaving`).
+        var savingYielded = false
+        /// Closed by `discard()`: a save queued on `io` before it checks this and writes nothing.
+        let saveFence = TextFirstSaveFence()
+        /// Counts the ids the editor adopted from an engine mutation or disposition (a rename, a
+        /// park). An id read off the session before such an adoption is older than it.
+        var identityEpoch: UInt64 = 0
         /// Debug and tests: compare the view with the engine after every change.
         var verifyDivergence = false
         private(set) var divergences: [String] = []
 
         var onCheckpoint: ((FlushDraftResult) -> Void)?
         var onFailure: ((Error) -> Void)?
+        /// The note this editor is attached to changed (a peer's rename, a parked conflict, this
+        /// screen's own rename); the argument is the engine's id for it.
+        var onIdentityChange: ((String) -> Void)?
+        /// Whether the last save attempt failed (the draft is kept and retried).
+        let saveModel = TextFirstSaveModel()
         var onOpenURL: ((String) -> Void)?
         var onOpenNote: ((String) -> Void)?
         /// Debug: the kill loop's typist, kept alive with the controller.
@@ -49,13 +62,20 @@
         var quickView: EditorQuickView?
         /// Input the opening view took, replayed on the engine once it lands, in order.
         var openingOps: [OpeningOp] = []
+        /// A composition (marked text) the opening view was given and has not committed: its
+        /// latest string and the selection it began at. The view itself is never changed.
+        var openingMarked: (text: String, selection: NSRange)?
         /// What the engine changed while those replayed, to map the next op's range through.
         let replayed = EditorPendingEdits()
         var replaying = false
+        /// Where the key being replayed asked to act (engine units), for `replayed.record`.
+        var replayNear = 0
         /// Large engine jobs (a toolbar command, the toolbar's state for a huge selection) running
         /// on the engine's queue; while any runs, nothing else may call the engine (it would wait
         /// on the engine's lock, on the main thread).
         var engineJobs = 0
+        /// Changes the engine queued for this view that a running job kept the drain from taking.
+        var drainDeferred = false
         /// The edit menu (Cut, Copy, Select All) is showing.
         var menuVisible = false
         /// Select All on a note too long for UIKit to highlight: the engine selects it all while
@@ -184,8 +204,6 @@
                 theme == "dark" ? .dark : theme == "light" ? .light : .unspecified
         }
 
-        func adoptIdentity(_ id: String) { noteId = id }
-
         // MARK: applying engine output
 
         /// Take one accepted engine change: advance the mirror, make the view match it, then
@@ -201,7 +219,8 @@
             mirrorLength += Int(edit.insertedUtf16) - Int(edit.end - edit.start)
             if replaying {
                 try? replayed.record(
-                    start: edit.start, end: edit.end, insertedUtf16: edit.insertedUtf16)
+                    start: edit.start, end: edit.end, insertedUtf16: edit.insertedUtf16,
+                    slackUtf16: edit.slackUtf16, near: UInt64(replayNear))
             }
             try reconcile(edit, inserted: change.inserted, platform: platform)
             setSelection(
@@ -283,39 +302,6 @@
             applying += 1
             textView.selectedRange = shown
             applying -= 1
-        }
-
-        /// Throw away the view's text and show the engine's (a failed or refused call left them
-        /// unequal, or the engine changed under us).
-        func reloadFromEngine() {
-            do {
-                let display = try session.displayText()
-                rev = try session.revision()
-                mirror.reset(display: display)
-                mirrorLength = display.utf16.count
-                engineComposing = false
-                pendingEdit = nil
-                applying += 1
-                textView.unmarkText()
-                storage.setAttributedString(
-                    NSAttributedString(string: display, attributes: Self.baseAttributes))
-                applying -= 1
-                styledThrough = 0
-                styleFirstScreen()
-                let selected = textView.selectedRange
-                setSelection(
-                    NSRange(
-                        location: min(selected.location, mirrorLength),
-                        length: min(selected.length, max(0, mirrorLength - selected.location))))
-            } catch {
-                onFailure?(error)
-            }
-        }
-
-        /// A refused engine call. The view may be ahead of the engine, so show the engine's.
-        func recover(_ error: Error, context: String) {
-            print("text-first: \(context) failed: \(error)")
-            reloadFromEngine()
         }
 
         func checkDivergence() {

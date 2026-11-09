@@ -163,5 +163,116 @@
             h.select(0, 0)
             #expect(h.controller.beginImageInsertion() != nil)
         }
+
+        // MARK: windowed tables (the engine restyles only the rows an edit meets)
+
+        /// `rowCount` body rows `| r000 | v |`, under a header, between a paragraph and a tail.
+        private func longTable(_ rowCount: Int, tail: String = "\nafter\n") -> String {
+            var text = "intro\n\n| head | v |\n| --- | --- |\n"
+            for i in 0..<rowCount { text += "| r\(String(format: "%03d", i)) | v |\n" }
+            return text + tail
+        }
+
+        /// The text a cell's content range names in the storage as it is now.
+        private func text(_ h: TextFirstHarness, _ range: NSRange) -> String {
+            (h.controller.storage.string as NSString).substring(with: range)
+        }
+
+        /// A note long enough that an edit's restyle window does not reach the far rows (the engine
+        /// reparses a few KB around an edit), with every slice already styled.
+        private func settledLongTable(_ rows: Int = 4000) async -> TextFirstHarness {
+            let h = TextFirstHarness(longTable(rows))
+            _ = await h.until { h.controller.styledThrough >= h.controller.mirrorLength }
+            return h
+        }
+
+        /// Type `text` at the start of body row `index`'s first cell.
+        private func typeInRow(_ h: TextFirstHarness, _ index: Int, _ text: String) {
+            let (row, span) = rows(h)[index]
+            let at = NSRange(location: row.location + span.cells[0].rowOffset, length: 0)
+            h.controller.selectInCell(at)
+            h.controller.replaceInCell(range: at, text: text)
+        }
+
+        @Test func aCellsRangeFollowsItsRowAfterAnEditAboveTheTable() async throws {
+            // 3,000 filler lines keep the edit's restyle window clear of the table.
+            let filler = String(repeating: "filler line\n", count: 3000)
+            let h = TextFirstHarness(filler + "\n" + longTable(4000))
+            _ = await h.until { h.controller.styledThrough >= h.controller.mirrorLength }
+            h.select(0, 0)
+            h.type("zz")
+            // Rows far below the edit's window keep their old spans (and stale absolute ranges).
+            let (row, span) = rows(h)[3990]
+            let cell = try #require(span.cells.first)
+            let range = span.contentRange(of: cell, row: row)
+            #expect(text(h, range) == cell.text)
+            #expect(h.controller.tableCell(at: range.location)?.1.text == cell.text)
+            // A tap on that row selects exactly the cell's text.
+            let hit = TextFirstEditorController.TableCellHit(
+                row: row, span: span, cell: cell, range: range)
+            h.controller.openCellEditor(hit)
+            #expect(h.tv.selectedRange == range)
+            #expect(h.controller.divergences.isEmpty)
+        }
+
+        @Test func aCellBelowAnEditInsideALongTableStillSelectsItsOwnText() async throws {
+            let h = await settledLongTable()
+            typeInRow(h, 100, "WW")
+            let after = rows(h)
+            let (row, span) = after[after.count - 1]
+            let cell = try #require(span.cells.first)
+            let range = span.contentRange(of: cell, row: row)
+            #expect(text(h, range) == "r3999")
+            #expect(h.controller.tableCell(at: range.location)?.1.text == "r3999")
+        }
+
+        @Test func restyledBodyRowsKeepTheScrollKeyOfTheRowsAboveThem() async {
+            // 3,000 filler lines keep the header out of the first edit's restyle window.
+            let filler = String(repeating: "filler line\n", count: 3000)
+            let h = TextFirstHarness(filler + "\n" + longTable(4000))
+            _ = await h.until { h.controller.styledThrough >= h.controller.mirrorLength }
+            // An edit above the table moves it; its rows are not restyled and keep their key.
+            h.select(0, 0)
+            h.type("zz")
+            typeInRow(h, 2000, "W")
+            let keys = Set(rows(h).map(\.1.tableStart))
+            #expect(keys.count == 1, "one table scrolls as one: \(keys.count) keys")
+        }
+
+        @Test func rowsThatLeaveATableAfterTheWindowAreRestyledBySlices() async {
+            let h = await settledLongTable()
+            // `> ` before a middle row ends the table there; the rows below the edit's window
+            // were gridded and must stop being so, as in a fresh open of the same text.
+            let (row, _) = rows(h)[2000]
+            h.select(row.location, row.location)
+            h.type("> ")
+            let fresh = TextFirstHarness(h.source)
+            _ = await fresh.until {
+                fresh.controller.styledThrough >= fresh.controller.mirrorLength
+            }
+            let expected = rows(fresh).count
+            #expect(expected < 4001)
+            #expect(await h.until(30) { self.rows(h).count == expected })
+        }
+
+        @Test func pipeLinesThatJoinATableAfterTheWindowAreGriddedBySlices() async {
+            // A blank line between a table and 400 more pipe lines; deleting it makes them rows.
+            // The rows are far past the edit's window and were plain text a moment ago.
+            var joined = ""
+            for i in 0..<400 { joined += "| j\(String(format: "%03d", i)) | w |\n" }
+            let h = TextFirstHarness(longTable(400, tail: "\n" + joined))
+            _ = await h.until { h.controller.styledThrough >= h.controller.mirrorLength }
+            let before = rows(h).count
+            let join = (h.controller.storage.string as NSString).range(of: "| j000").location
+            h.select(join, join)
+            h.tv.deleteBackward()
+            let fresh = TextFirstHarness(h.source)
+            _ = await fresh.until {
+                fresh.controller.styledThrough >= fresh.controller.mirrorLength
+            }
+            let expected = rows(fresh).count
+            #expect(expected == before + 400)
+            #expect(await h.until(30) { self.rows(h).count == expected })
+        }
     }
 #endif

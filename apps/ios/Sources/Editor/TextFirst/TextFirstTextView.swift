@@ -20,6 +20,11 @@
         /// word) reaches the engine as an ordinary platform edit. At a heading's start the engine joins
         /// the line up (or demotes a first-line heading); elsewhere it is a plain Backspace.
         override func deleteBackward() {
+            // The engine has not landed: the view stays as it was shown, and the key waits.
+            if let controller, controller.opening {
+                controller.queueDeleteWhileOpening(forward: false)
+                return
+            }
             guard markedTextRange == nil, selectedRange.length == 0, let controller,
                 controller.paragraphKey(.backspaceJoiningHeading)
             else {
@@ -97,12 +102,46 @@
             return super.selectionRects(for: range)
         }
 
+        // While the engine has not landed UIKit must never change the frozen view: a keyboard's
+        // text, an autocorrect's replacement and a Return all reach the queue instead, and marked
+        // text is held until the keyboard commits it.
+        override func insertText(_ text: String) {
+            if let controller, controller.opening {
+                controller.insertWhileOpening(text)
+                return
+            }
+            super.insertText(text)
+        }
+
+        override func replace(_ range: UITextRange, withText text: String) {
+            if let controller, controller.opening {
+                let start = offset(from: beginningOfDocument, to: range.start)
+                controller.queueWhileOpening(
+                    NSRange(location: start, length: offset(from: range.start, to: range.end)),
+                    text)
+                return
+            }
+            super.replace(range, withText: text)
+        }
+
+        override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+            if let controller, controller.opening {
+                controller.holdMarkedWhileOpening(markedText)
+                return
+            }
+            super.setMarkedText(markedText, selectedRange: selectedRange)
+        }
+
         override func becomeFirstResponder() -> Bool {
             if controller?.suppressFocus == true { return false }
             return super.becomeFirstResponder()
         }
 
         override func unmarkText() {
+            if let controller, controller.opening {
+                controller.commitMarkedWhileOpening()
+                return
+            }
             super.unmarkText()
             controller?.platformUnmarked()
         }
@@ -128,6 +167,10 @@
 
         override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
             if let key = presses.first?.key, markedTextRange == nil, let controller {
+                if controller.opening, key.keyCode == .keyboardDeleteForward {
+                    controller.queueDeleteWhileOpening(forward: true)
+                    return
+                }
                 // A caret's forward Delete is the engine's; Tab and Shift-Tab indent and outdent
                 // a list item, and anywhere else are UIKit's.
                 if key.keyCode == .keyboardDeleteForward, selectedRange.length == 0,

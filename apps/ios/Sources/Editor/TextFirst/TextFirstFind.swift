@@ -261,11 +261,15 @@
             guard match.location <= storage.length else { return }
             if match.location < storage.length {
                 var run = NSRange()
+                let line = (storage.string as NSString).paragraphRange(
+                    for: NSRange(location: match.location, length: 0))
                 if let span = storage.attribute(
-                    .tfTable, at: match.location, effectiveRange: &run) as? TextFirstTableRowSpan,
+                    .tfTable, at: match.location, longestEffectiveRange: &run, in: line)
+                    as? TextFirstTableRowSpan,
                     let cell = span.cells.first(where: {
-                        $0.range.location <= match.location
-                            && match.location <= NSMaxRange($0.range)
+                        let range = span.contentRange(of: $0, row: run)
+                        return range.location <= match.location
+                            && match.location <= NSMaxRange(range)
                     })
                 {
                     revealCell(cell, in: span, row: run)
