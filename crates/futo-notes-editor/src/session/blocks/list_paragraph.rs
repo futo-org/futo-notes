@@ -21,7 +21,7 @@ impl EditorSession {
             if line.list.as_ref().is_some_and(|list| {
                 list.parent_marker_column.is_some() && line.quote_depth == list.quote_depth
             }) {
-                return self.indent_list(expected, range, BlockCommand::Outdent, accept);
+                return self.outdent_list(expected, range, accept);
             }
             // Leaving a list at its last item: a line written straight under it
             // would join that item as a lazy continuation, so a blank line

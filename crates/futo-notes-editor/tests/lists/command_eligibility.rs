@@ -1,366 +1,289 @@
-//! The toolbar's Indent and Outdent state against the commands, on every row
-//! of generated list shapes: a button is lit exactly when its command (and the
-//! Tab key that runs it) applies, and one Undo restores the exact bytes.
+//! Indent and Outdent are line-start whitespace edits on every shape (lists,
+//! quotes, paragraphs, code, tables, raw HTML): Indent is always lit and writes
+//! one tab per touched line; Outdent is lit exactly when a touched line has
+//! leading indentation and removes one level; nothing else changes, and one
+//! Undo restores the exact bytes.
 use super::*;
 
-/// What each template line is prefixed with by one container and one marker.
-struct Spelling {
-    /// The first line's container prefix and the other lines'.
-    first: &'static str,
-    rest: &'static str,
-    marker: &'static str,
-    /// The content column's width after the container prefix.
-    pad: &'static str,
-}
-
-/// A template line: `M` an item marker, `I` an indent to the item's content
-/// column, `N` and `O` a nested and a doubly nested item, `L` a lazy line and
-/// `R` a raw one; the rest of the line is its text.
-fn spell(line: &str, spelling: &Spelling, opened: &mut bool) -> String {
-    let (kind, text) = line.split_at(1);
-    let prefix = if std::mem::replace(opened, true) {
-        spelling.rest
-    } else {
-        spelling.first
-    };
-    match kind {
-        "M" => format!("{prefix}{}{text}", spelling.marker),
-        "I" => format!("{prefix}{}{text}", spelling.pad),
-        "N" => format!("{prefix}{}- {text}", spelling.pad),
-        "O" => format!("{prefix}{}  - {text}", spelling.pad),
-        "L" | "R" => format!("{prefix}{text}"),
-        _ => unreachable!("{line}"),
-    }
-}
-
-/// Item lines after a first item `a`, each a different block the sibling
-/// below has to coexist with (`I` an indented line, `N` and `O` a nested
-/// and a doubly nested item, `L` a lazy line, `R` a blank one).
-const TAILS: [&[&str]; 22] = [
-    &[],
-    &["Ib"],
-    &["Lb"],
-    &["R", "Ib", "Ic"],
-    &["I    indented code"],
-    &["Nsub"],
-    &["Nsub", "I  more"],
-    &["Nsub", "Odeep"],
-    &["N"],
-    &["Nsub", "N"],
-    &["Nsub", "Nsub"],
-    &["N", "N"],
-    &["Nsub", "Odeep", "N"],
-    &["Nsub", "O", "Nsub"],
-    &["I| - | - |", "I| 1 | 2 |"],
-    &["R", "I| h | i |", "I| - | - |", "I| 1 | 2 |"],
-    &["I```", "Ix", "I```"],
-    &["I```", "Ix"],
-    &["I> q"],
-    &["I# h"],
-    &["I<div>"],
-    &["I---", "Ib"],
+/// One line of each block shape the engine reads. (A setext heading's lines are
+/// one block, so Indent and Outdent take them together; see below.)
+const UNITS: [&str; 22] = [
+    "para",
+    "# head",
+    "> quote",
+    "> > deeper",
+    "- a",
+    "1. a",
+    "- [ ] task",
+    "  - nested",
+    "    - deep",
+    "\t- tabbed",
+    "  lazy text",
+    "```\ncode",
+    "~~~\ncode\n~~~",
+    "    code",
+    "\tcode",
+    "| a | b |",
+    "| - | - |",
+    "<div>",
+    "***",
+    "- > quoted in item",
+    "",
+    "   ",
 ];
 
-/// The lines that follow the first item and its tail.
-const AFTERS: [&[&str]; 8] = [
-    &[],
-    &["M"],
-    &["M", "M"],
-    &["Mc"],
-    &["M", "Mc"],
-    &["Mb", "Ix", "M"],
-    &["M", "Ix", "Mc"],
-    &["M", "N"],
-];
-
-fn shapes() -> Vec<String> {
-    let spellings = [
-        Spelling {
-            first: "",
-            rest: "",
-            marker: "- ",
-            pad: "  ",
-        },
-        Spelling {
-            first: "",
-            rest: "",
-            marker: "* ",
-            pad: "  ",
-        },
-        Spelling {
-            first: "",
-            rest: "",
-            marker: "2. ",
-            pad: "   ",
-        },
-        Spelling {
-            first: "",
-            rest: "",
-            marker: "1) ",
-            pad: "   ",
-        },
-        Spelling {
-            first: "",
-            rest: "",
-            marker: "- [ ] ",
-            pad: "  ",
-        },
-        Spelling {
-            first: "> ",
-            rest: "> ",
-            marker: "- ",
-            pad: "  ",
-        },
-        Spelling {
-            first: "> ",
-            rest: "> ",
-            marker: "1. ",
-            pad: "   ",
-        },
-    ];
-    let mut shapes = Vec::new();
-    for (index, spelling) in spellings.iter().enumerate() {
-        for first in ["Ma", "M", "Ma  ", "M| h | i |"] {
-            for tail in TAILS {
-                for after in AFTERS {
-                    // Items opening on a block, bare ones and the quoted containers
-                    // get the short tails only: the matrix would otherwise dwarf
-                    // the suite.
-                    let plain = first == "Ma";
-                    if !plain && tail.len() > 2 || index > 3 && tail.len() > 3 {
-                        continue;
-                    }
-                    let mut opened = false;
-                    let lines: Vec<String> = std::iter::once(&first)
-                        .chain(tail.iter())
-                        .chain(after.iter())
-                        .map(|line| spell(line, spelling, &mut opened))
-                        .collect();
-                    shapes.push(lines.join("\n"));
-                    if index % 2 == 0 {
-                        shapes.push(lines.join("\r\n"));
-                    }
-                    // A trailing line ending, and a paragraph above.
-                    if index % 2 == 1 {
-                        shapes.push(format!("{}\n", lines.join("\n")));
-                    }
-                    if index == 0 {
-                        shapes.push(format!("para\n\n{}", lines.join("\n")));
-                    }
-                }
+fn documents() -> Vec<String> {
+    let mut documents = Vec::new();
+    let tail = &UNITS[..9];
+    for first in UNITS {
+        documents.push(first.to_string());
+        for second in UNITS {
+            documents.push(format!("{first}\n{second}"));
+            for third in tail {
+                documents.push(format!("{first}\n{second}\n{third}"));
             }
         }
     }
-    // A list that starts inside a quote inside an item is outside the generic
-    // list edit: neither button lights anywhere on it.
-    for source in ["- > - a\n  > - ", "- > - a\n  > - c", "- > - \n  >   > q"] {
-        shapes.push(source.to_owned());
-    }
-    shapes.sort();
-    shapes.dedup();
-    shapes
+    // Line-ending and end-of-note variants of a mixed note.
+    let mixed = "- a\n  - b\n\t> c\n```\n  x\n```\n";
+    documents.push(mixed.to_string());
+    documents.push(mixed.replace('\n', "\r\n"));
+    documents.push(mixed.trim_end().to_string());
+    documents
 }
 
-fn carets(source: &str) -> Vec<usize> {
+/// Display selections: each line's caret, then the whole note.
+fn selections(source: &str) -> Vec<(usize, usize)> {
     let display = EditorSession::open(source).display_text();
-    let mut carets = Vec::new();
-    let mut start = 0;
+    let mut selections = Vec::new();
+    let mut at = 0;
     for line in display.split('\n') {
-        carets.push(start + line.trim_end_matches('\r').len());
-        start += line.len() + 1;
+        selections.push((at, at));
+        selections.push((at, at + line.trim_end_matches('\r').len()));
+        at += line.len() + 1;
     }
-    carets.dedup();
-    carets
+    selections.push((0, display.len()));
+    selections.sort();
+    selections.dedup();
+    selections
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Action {
-    Indent,
-    Outdent,
-    Tab,
-    ShiftTab,
-}
-
-/// The state the button shows, and the command's result with the document it
-/// leaves; `None` for the document when the command did not apply.
-fn run(
-    source: &str,
-    caret: usize,
-    action: Action,
-) -> (bool, bool, bool, bool, Result<Option<String>, String>) {
-    let mut s = EditorSession::open(source);
-    s.select(s.revision(), range(caret, caret)).unwrap();
-    let state = s.toolbar_state();
-    let lit = match action {
-        Action::Indent | Action::Tab => state.can_indent,
-        Action::Outdent | Action::ShiftTab => state.can_outdent,
-    };
-    let in_list = state.list.is_some();
-    let result = match action {
-        Action::Indent | Action::Outdent => {
-            let command = if action == Action::Indent {
-                BlockCommand::Indent
-            } else {
-                BlockCommand::Outdent
-            };
-            s.block_command(s.revision(), range(caret, caret), command, &mut |_| Ok(()))
-        }
-        Action::Tab | Action::ShiftTab => {
-            let key = if action == Action::Tab {
-                ParagraphKey::Tab
-            } else {
-                ParagraphKey::ShiftTab
-            };
-            s.paragraph_key(s.revision(), range(caret, caret), key, &mut |_| Ok(()))
-        }
-    };
-    let result = match result {
-        Err(error) => Err(format!("{error:?}")),
-        Ok(None) => Ok(None),
-        Ok(Some(_)) => {
-            let edited = s.source_text();
-            match s.undo(s.revision(), &mut |_| Ok(())) {
-                Ok(Some(_)) if s.source_text() == source => Ok(Some(edited)),
-                other => Err(format!("Undo gave {:?}", other.map(|c| c.is_some()))),
-            }
-        }
-    };
-    (lit, in_list, state.quote, state.code, result)
+/// The note after the command, from the touched lines alone: the lines the
+/// selection reaches (not one it only reaches the start of), each given a tab
+/// or losing a tab, else up to four spaces.
+fn expected(source: &str, from: usize, to: usize, outdent: bool) -> String {
+    let line_start = |at: usize| source[..at].rfind('\n').map_or(0, |index| index + 1);
+    let (first, last) = (line_start(from), line_start(to));
+    // Line starts, including the empty line after a final line ending.
+    let mut starts = vec![0];
+    starts.extend(source.match_indices('\n').map(|(index, _)| index + 1));
+    let mut out = String::new();
+    for (index, &at) in starts.iter().enumerate() {
+        let end = starts.get(index + 1).copied().unwrap_or(source.len());
+        let line = &source[at..end];
+        let touched = first <= at && at <= last && !(at == to && from != to && at != first);
+        out.push_str(&match line {
+            _ if !touched => line.to_owned(),
+            _ if !outdent => format!("\t{line}"),
+            _ => match line.strip_prefix('\t') {
+                Some(rest) => rest.to_owned(),
+                None => line[line.bytes().take(4).take_while(|&b| b == b' ').count()..].to_owned(),
+            },
+        });
+    }
+    out
 }
 
 #[test]
-fn a_lit_indent_or_outdent_is_exactly_a_command_that_applies() {
-    let (mut checked, mut lit_total) = (0, 0);
-    let mut failures: Vec<String> = Vec::new();
-    let mut failed_shapes = std::collections::BTreeSet::new();
-    let mut buckets = std::collections::BTreeMap::new();
-    for source in shapes() {
-        for caret in carets(&source) {
-            let mut indented = None;
-            let mut outdented = None;
-            for action in [
-                Action::Indent,
-                Action::Outdent,
-                Action::Tab,
-                Action::ShiftTab,
-            ] {
-                let (lit, in_list, quoted, code, result) = run(&source, caret, action);
-                // A row outside every list is the quote commands' business.
-                if !in_list {
+fn indent_is_always_lit_and_outdent_exactly_when_a_touched_line_is_indented() {
+    let (mut checked, mut outdented) = (0, 0);
+    for source in documents() {
+        // A fence's own lines are not text lines, so which lines a selection
+        // touches is not a function of its source ends there.
+        let fenced = source.contains("```") || source.contains("~~~");
+        let lines: Vec<&str> = source.split('\n').collect();
+        let line_of = |at: usize| source[..at].matches('\n').count();
+        for (a, b) in selections(&source) {
+            let mut s = EditorSession::open(&source);
+            s.select(s.revision(), range(a, b)).unwrap();
+            let state = s.toolbar_state();
+            // Text the selection reaches sits on the far side of hidden syntax.
+            let source_at = |at, affinity| {
+                s.source_at(s.revision(), DisplayOffset(at), affinity)
+                    .unwrap()
+                    .0
+            };
+            let from = source_at(a, Affinity::Forward);
+            let to = if a == b {
+                from
+            } else {
+                source_at(b, Affinity::Backward).max(from)
+            };
+            let span = line_of(source_at(a, Affinity::Backward))
+                ..=line_of(source_at(b, Affinity::Forward));
+            assert!(state.can_indent, "{source:?} {a}..{b}: Indent dimmed");
+            for outdent in [false, true] {
+                let want = expected(&source, from, to, outdent);
+                let lit = if outdent {
+                    state.can_outdent
+                } else {
+                    state.can_indent
+                };
+                let mut s = EditorSession::open(&source);
+                s.select(s.revision(), range(a, b)).unwrap();
+                let command = if outdent {
+                    BlockCommand::Outdent
+                } else {
+                    BlockCommand::Indent
+                };
+                let mut accepted = 0;
+                let result = s
+                    .block_command(s.revision(), range(a, b), command, &mut |_| {
+                        accepted += 1;
+                        Ok(())
+                    })
+                    .unwrap_or_else(|error| panic!("{source:?} {a}..{b} {command:?}: {error:?}"));
+                let edited = s.source_text();
+                checked += 1;
+                // Lit exactly when the command changes something.
+                assert_eq!(lit, result.is_some(), "{source:?} {a}..{b} {command:?}");
+                assert_eq!(accepted, usize::from(lit));
+                assert_eq!(edited != source, lit, "{source:?} {a}..{b} {command:?}");
+                if !lit {
                     continue;
                 }
-                checked += 1;
-                lit_total += usize::from(lit);
-                // Tab is an indent key on list rows only: not on a quote inside
-                // an item, and a code row's Tab types its own indentation.
-                let tab = matches!(action, Action::Tab | Action::ShiftTab);
-                let applies = matches!(result, Ok(Some(_)));
-                let note = if tab && (quoted || code) {
-                    None
-                } else if lit != applies {
-                    Some(format!("lit {lit} but {result:?}"))
-                } else {
-                    None
+                outdented += usize::from(outdent);
+                // (a), (b): the touched lines gain one tab or lose one level.
+                if !fenced {
+                    assert_eq!(edited, want, "{source:?} {a}..{b} {command:?}");
+                }
+                let after: Vec<&str> = edited.split('\n').collect();
+                assert_eq!(after.len(), lines.len(), "{source:?} {a}..{b}");
+                for (index, (old, new)) in lines.iter().zip(&after).enumerate() {
+                    if old == new {
+                        continue;
+                    }
+                    assert!(span.contains(&index), "{source:?} {a}..{b}: line {index}");
+                    let level = if !outdent {
+                        new.strip_prefix('\t') == Some(old)
+                    } else {
+                        let removed = old.len() - new.len();
+                        old.ends_with(new)
+                            && (removed == 1 && old.starts_with('\t')
+                                || (1..=4).contains(&removed)
+                                    && old[..removed].bytes().all(|b| b == b' '))
+                    };
+                    assert!(level, "{source:?} {a}..{b}: {old:?} -> {new:?}");
+                }
+                // (c) Nothing but leading whitespace changed.
+                let bare = |text: &str| -> Vec<String> {
+                    text.split('\n')
+                        .map(|line| line.trim_start_matches([' ', '\t']).to_owned())
+                        .collect()
                 };
-                // Tab runs the toolbar's command byte for byte.
-                match (action, &result) {
-                    (Action::Indent, Ok(Some(text))) => indented = Some(text.clone()),
-                    (Action::Outdent, Ok(Some(text))) => outdented = Some(text.clone()),
-                    _ => {}
-                }
-                let note = note.or_else(|| match (action, &result) {
-                    (Action::Tab, Ok(Some(text))) if !code && Some(text) != indented.as_ref() => {
-                        Some(format!("Tab {text:?} differs from Indent {indented:?}"))
-                    }
-                    (Action::ShiftTab, Ok(Some(text)))
-                        if !code && Some(text) != outdented.as_ref() =>
-                    {
-                        Some(format!(
-                            "Shift+Tab {text:?} differs from Outdent {outdented:?}"
-                        ))
-                    }
-                    (_, Err(error)) if lit || error.starts_with("Undo") => Some(error.clone()),
-                    _ => None,
-                });
-                if let Some(note) = note {
-                    let kind = format!("{action:?} lit {lit}: {}", note.split(' ').next().unwrap());
-                    *buckets.entry(kind).or_insert(0usize) += 1;
-                    failed_shapes.insert(source.clone());
-                    if failures.len() < 40 {
-                        failures.push(format!("{source:?} caret {caret} {action:?}: {note}"));
-                    }
-                }
+                assert_eq!(bare(&edited), bare(&source), "{source:?} {a}..{b}");
+                // (d) One Undo restores the exact bytes.
+                s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+                assert_eq!(s.source_text(), source, "{source:?} {a}..{b} undo");
             }
         }
     }
     assert!(
-        lit_total > 5000,
-        "the shapes must keep the toolbar lit: {lit_total}"
-    );
-    assert!(
-        failed_shapes.is_empty(),
-        "{} shapes failed over {checked} checks ({lit_total} lit): {buckets:?}; first:\n{}",
-        failed_shapes.len(),
-        failures.join("\n")
+        checked > 10_000 && outdented > 1_000,
+        "{checked} {outdented}"
     );
 }
 
 #[test]
-fn the_repairs_write_the_minimal_separators_and_refuse_nothing_they_light() {
-    for (source, caret, action, expected) in [
-        // A bare `-` below paragraph text would read as a setext underline.
-        ("- a\n- ", 1, Action::Outdent, "a\n\n- "),
-        ("- a\r\n- ", 1, Action::Outdent, "a\r\n\r\n- "),
-        ("> - a\n> - ", 1, Action::Outdent, "> a\n>\n> - "),
-        ("- a\n  - b\n  - ", 2, Action::Outdent, "- a\n- b\n\n  - "),
-        ("- a\n- b\n  x\n- ", 2, Action::Outdent, "- a\n\nb\nx\n\n- "),
-        // An item that is itself a setext heading, a raw HTML block and a
-        // divider move with their lines.
-        ("- a\n  - ", 1, Action::Outdent, "a\n- "),
-        ("- a\n  <div>\n- b", 0, Action::Outdent, "a\n<div>\n\n- b"),
-        ("- a\n  ---\n  b", 0, Action::Outdent, "a\n---\nb"),
-        // An unclosed fence is closed where the item that ended it moves.
+fn indent_and_outdent_spell_the_choices_for_lists_fences_and_tables() {
+    // (note, command, the displayed text the selection starts before and the
+    // text it ends after; "" is the note's start), result.
+    for (raw, command, from, to, expected) in [
+        // A list item takes a tab and nothing else: no marker, number or
+        // blank-line repair, and nothing is refused.
+        ("- a\n- b", BlockCommand::Indent, "b", "b", "- a\n\t- b"),
+        ("1. a\n2. b", BlockCommand::Indent, "b", "b", "1. a\n\t2. b"),
+        ("- a\n- b", BlockCommand::Indent, "a", "a", "\t- a\n- b"),
         (
-            "- a\n  ```\n  x\n- c",
-            0,
-            Action::Outdent,
-            "a\n```\nx\n```\n- c",
+            "- a\n- b\n- c",
+            BlockCommand::Indent,
+            "b",
+            "c",
+            "- a\n\t- b\n\t- c",
+        ),
+        ("- a\n\t- b", BlockCommand::Outdent, "b", "b", "- a\n- b"),
+        ("- a\n   - b", BlockCommand::Outdent, "b", "b", "- a\n- b"),
+        (
+            "- a\n      - b",
+            BlockCommand::Outdent,
+            "b",
+            "b",
+            "- a\n  - b",
+        ),
+        // Plain text and quotes take the tab at the line start.
+        ("para", BlockCommand::Indent, "r", "r", "\tpara"),
+        ("> q", BlockCommand::Indent, "q", "q", "\t> q"),
+        ("> q", BlockCommand::Outdent, "q", "q", "> q"),
+        // A setext heading's lines move together, keeping it a heading.
+        ("text\n===", BlockCommand::Indent, "t", "t", "\ttext\n\t==="),
+        // Code rows and table rows are literal lines.
+        (
+            "```\nx\n```",
+            BlockCommand::Indent,
+            "x",
+            "x",
+            "```\n\tx\n```",
         ),
         (
-            "- a\n  ```\n  x\n- c",
-            4,
-            Action::Indent,
-            "- a\n  ```\n  x\n  ```\n  - c",
+            "```\n\tx\n```",
+            BlockCommand::Outdent,
+            "x",
+            "x",
+            "```\nx\n```",
         ),
+        (
+            "| a |\n| - |",
+            BlockCommand::Indent,
+            "a",
+            "a",
+            "\t| a |\n| - |",
+        ),
+        // CRLF stays as it was, and an empty note takes a tab too.
+        ("a\r\nb", BlockCommand::Indent, "", "b", "\ta\r\n\tb"),
+        ("", BlockCommand::Indent, "", "", "\t"),
     ] {
-        let (lit, _, _, _, result) = run(source, caret, action);
-        assert!(lit, "{source:?} caret {caret}: {action:?} is not lit");
-        assert_eq!(
-            result,
-            Ok(Some(expected.to_owned())),
-            "{source:?} {action:?}"
-        );
+        let mut s = EditorSession::open(raw);
+        let display = s.display_text();
+        let at = |marker: &str| display.find(marker).map_or(0, |at| at + marker.len());
+        let selection = range(at(from) - from.len(), at(to));
+        s.select(s.revision(), selection).unwrap();
+        let state = s.toolbar_state();
+        let lit = if command == BlockCommand::Indent {
+            state.can_indent
+        } else {
+            state.can_outdent
+        };
+        let changed = s
+            .block_command(s.revision(), selection, command, &mut |_| Ok(()))
+            .unwrap()
+            .is_some();
+        assert_eq!(lit, changed, "{raw:?}");
+        assert_eq!(s.source_text(), expected, "{raw:?} {command:?}");
+        if changed {
+            s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+            assert_eq!(s.source_text(), raw, "{raw:?} undo");
+        }
     }
 }
 
 #[test]
-fn items_and_quotes_the_generic_edit_cannot_reach_light_nothing() {
-    // Items sharing a line with the item they sit in through a quote, and an
-    // item whose own line opens a quote.
-    for source in ["- > - a\n  > - ", "- > - a", "- > - \n  >   > q", "- > q"] {
-        for caret in carets(source) {
-            for action in [
-                Action::Indent,
-                Action::Outdent,
-                Action::Tab,
-                Action::ShiftTab,
-            ] {
-                let (lit, _, _, _, result) = run(source, caret, action);
-                assert!(
-                    !lit && !matches!(result, Ok(Some(_))),
-                    "{source:?} caret {caret} {action:?}: lit {lit} {result:?}"
-                );
-            }
-        }
-    }
+fn a_caret_at_the_end_of_a_code_line_leaves_the_closing_fence_alone() {
+    let mut s = EditorSession::open("```\nx\n```");
+    s.select(s.revision(), range(1, 1)).unwrap();
+    s.block_command(s.revision(), range(1, 1), BlockCommand::Indent, &mut |_| {
+        Ok(())
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(s.source_text(), "```\n\tx\n```");
 }

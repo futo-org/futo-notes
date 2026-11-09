@@ -200,13 +200,13 @@ fn nested_navigation_stops_at_visible_graphemes_and_unavailable_tab_leaves_sourc
         assert_eq!(change.selection, range(at, at));
         assert_eq!(change.revision, Revision(0));
     }
-    // The nested item has no sibling to nest under, so Tab (Indent) is a no-op.
+    // The nested item has no leading indentation, so Shift+Tab (Outdent) is a no-op.
     assert!(s
         .paragraph_key(
             Revision(0),
             range(10, 11),
-            ParagraphKey::Tab,
-            &mut |_| panic!("unavailable Tab accepted")
+            ParagraphKey::ShiftTab,
+            &mut |_| panic!("unavailable Shift+Tab accepted")
         )
         .unwrap()
         .is_none());

@@ -303,14 +303,14 @@ fn integrated_fences_keep_list_and_comment_triggers_opaque_at_shifted_origins() 
         );
         assert_eq!(session.source_text(), expected);
     }
-    // A list caret outside code does not acquire fence Tab semantics.
+    // A list caret outside code does not acquire fence Shift+Tab semantics.
     let mut session = EditorSession::open("* body\n\n<!-- -->\n\n```\nopaque\n```");
     assert!(session
         .paragraph_key(
             session.revision(),
             range(1, 1),
-            ParagraphKey::Tab,
-            &mut |_| panic!("noncode Tab")
+            ParagraphKey::ShiftTab,
+            &mut |_| panic!("noncode Shift+Tab")
         )
         .unwrap()
         .is_none());

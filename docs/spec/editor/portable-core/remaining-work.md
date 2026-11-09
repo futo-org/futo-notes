@@ -24,9 +24,9 @@ mixed original-format runs, exact owner fragments, copied ordered starts and sam
 empty prefix frames with distinct nearest/full intents. Root fenced-tail promotion
 preserves opaque code and original containment through certified physical edge facts;
 new source queries and canonical code-body overlap queries have measured work controls.
-The pinned multiline quoted-body Outdent, Backspace and full Text observations,
+The pinned multiline quoted-body Backspace and full Text observations,
 representative CRLF/entity cases and separate inner/foreign quote ownership now
-have exact-source/history and measured-work controls. The 218 shared list literals
+have exact-source/history and measured-work controls. The 191 shared list literals
 run through all six consumers, including compiled WASM and synthetic Swift/Kotlin
 FFI/Store tests. Native execution covers arm64 iOS Simulator and an actual x86
 Android process; the remaining shipped native architectures have compilation proof.

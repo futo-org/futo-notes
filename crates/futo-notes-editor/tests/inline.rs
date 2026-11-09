@@ -521,9 +521,6 @@ mod typed_delimiters;
 #[path = "inline/stacked_formats.rs"]
 mod stacked_formats;
 
-#[path = "inline/toolbar_refusals.rs"]
-mod toolbar_refusals;
-
 #[path = "inline/toolbar.rs"]
 mod toolbar;
 

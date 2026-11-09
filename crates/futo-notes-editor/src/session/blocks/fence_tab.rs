@@ -37,12 +37,13 @@ impl EditorSession {
             })
             .filter_map(|line| {
                 let removed = if outdent {
-                    self.source
-                        .byte_slice(line.content.clone())
-                        .bytes()
-                        .take(2)
-                        .take_while(|&ch| ch == b' ')
-                        .count()
+                    // A tab the Indent button wrote, else up to two spaces.
+                    let lead = self.source.byte_slice(line.content.clone());
+                    if lead.bytes().next() == Some(b'\t') {
+                        1
+                    } else {
+                        lead.bytes().take(2).take_while(|&ch| ch == b' ').count()
+                    }
                 } else {
                     0
                 };

@@ -19,9 +19,6 @@ pub(crate) struct ListLine {
     pub parent_marker_column: Option<usize>,
     pub parent_content_column: Option<usize>,
     pub quote_depth: usize,
-    /// An item containing this one opens on the line this item's list starts
-    /// on, behind a quote: its columns are hidden in that line's prefix.
-    pub through_quote: bool,
 }
 
 impl ListLine {
@@ -183,11 +180,6 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                 let parent = active_items
                     .last()
                     .filter(|&&at| items[at].quote_depth == quote_depth);
-                let through_quote = active_items.last().is_some_and(|&at| {
-                    items[at].through_quote
-                        || items[at].quote_depth != quote_depth
-                            && !source[items[at].item.start..owner.start].contains('\n')
-                });
                 let outer_item =
                     parent.map_or_else(|| range.clone(), |&at| items[at].outer_item.clone());
                 let parent_marker_column = parent.map(|&at| items[at].marker_column);
@@ -212,7 +204,6 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                     parent_marker_column,
                     parent_content_column,
                     quote_depth,
-                    through_quote,
                 });
                 last_child.push(None);
             }

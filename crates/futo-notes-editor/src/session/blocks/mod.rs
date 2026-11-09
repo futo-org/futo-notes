@@ -31,6 +31,7 @@ mod fences;
 mod indent_source;
 mod keys;
 mod line_endings;
+mod line_indent;
 mod list_edit;
 mod list_join;
 mod list_typing;

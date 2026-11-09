@@ -1,8 +1,8 @@
 # Structural seam fixtures
 
-`structural-seams.json` and `fence-physical-rows.json` contain seventy-two hand-worked synthetic public-interface
-regressions for #296 and #297. The original thirty-eight objects remain an exact
-byte prefix. These are source/display/history/caret oracles, not actual
+`structural-seams.json` and `fence-physical-rows.json` contain sixty-nine hand-worked synthetic public-interface
+regressions for #296 and #297. The original thirty-five objects (the thirty-eight less the three Indent-created
+nested-quote seams) remain an exact byte prefix. These are source/display/history/caret oracles, not actual
 OS captures. Ranges and carets use native UTF-16 code units. `history` counts Undo
 steps, which can exceed the accepted source-record count for composition plus
 following input. The editor owner tests retain the original red regressions;
@@ -86,9 +86,9 @@ share one protected acceptance but retain their separate literal Undo groups.
 Store and real-WASM acceptance retain the same rejection/retry/history/recovery
 checks. Native fixture source is not proof that its current native binaries ran.
 
-Thirty-five `nested-containers.json` literals cover explicit nesting/lifting, same-line
-empty parents, physical columns/tabs, nested Backspace/Enter, ancestor-preserving
-retargets and full Text/Heading transitions. Twenty-seven `container-commands.json` literals and fourteen `list-header-commands.json` literals
+Twenty-four `nested-containers.json` literals cover Indent and Outdent as line-start
+tab edits, same-line empty parents, physical columns/tabs, nested Backspace/Enter,
+ancestor-preserving retargets and full Text/Heading transitions. Twenty-seven `container-commands.json` literals and fourteen `list-header-commands.json` literals
 add full list lifting across one/two quotes and selection beginning in an ancestor
 while keeping its descendant listed, bare-quote versus heading/list quote ancestry,
 and independent mixed-format run transitions. Ordered task retargets preserve their
@@ -97,12 +97,12 @@ ordered child lifting copies that start into each newly independent following ow
 Same-line quote/list controls retain empty lifted paragraphs, physical CRLF and quote
 prefixes, raw nonidentity entity atoms and native UTF-16 interior carets. Task-body
 quote/heading punctuation stays literal. Together with the unchanged original seventy-four
-list cases, all six source consumers load 218 cases, including forty
-`prefix-frame-commands.json` literals. These distinguish nearest Outdent and
-registered Backspace from full Text lifting. Unchanged implicit empty parents
+list cases, all six source consumers load 191 cases, including twenty-four
+`prefix-frame-commands.json` literals. These distinguish registered Backspace
+from full Text lifting. Unchanged implicit empty parents
 keep compact source; an action-created parallel paragraph gets a physical frame.
 A newly empty shared bullet header uses the existing alternate-marker policy
-only when its old spelling would become a thematic break. Original seventy-two structural
+only when its old spelling would become a thematic break. Original sixty-nine structural
 seams remain separate and unchanged. `itemDepths` overrides each first item's default
 list depth of one; `itemQuoteDepths` overrides that item's global `quoteDepth` default.
 These are hand-worked source/display/native UTF-16/history literals, not native OS input
@@ -122,8 +122,8 @@ quote owners in LF and CRLF source. A missing physical blank gains one matching
 line ending; an authored gap is retained without duplication. Exact staged
 windows need original complete-item authority independently of physical EOF.
 
-Thirteen multiline paragraph literals extend the prefix-frame family with the
-already-observed Outdent, registered Backspace and full Text transitions.
+Eight multiline paragraph literals extend the prefix-frame family with the
+already-observed registered Backspace and full Text transitions.
 Explicit and lazy body prefixes, outer quotes, wide tabbed headers and CRLF
 remain exact; the action-created empty paragraphs differ by intent. The three
 CRLF entity controls hand-map native UTF-16 ranges: a selected endpoint after
@@ -159,7 +159,7 @@ and exact Undo/Redo; all six consumers use the same literal mutation.
 
 Generic list editing (DECISIONS #20) updated these goldens on 2026-11-01: an edited
 list item may be respelled canonically while every untouched row keeps its bytes, and
-seventy-one cases whose shapes the generic path does not respell (quotes opening inside
+fifty-four cases whose shapes the generic path does not respell (quotes opening inside
 an item's own line, crossquote lifting, same-line nested parents, unclosed fences in a
 lifted item, setext headings) carry `"refused": true`. Their `expected`/`shown` keep the
 historical literals for reference; every consumer instead asserts `UnrepresentableFormat`

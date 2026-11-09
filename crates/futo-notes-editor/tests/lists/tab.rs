@@ -4,36 +4,25 @@ use super::*;
 #[test]
 fn list_tab_is_the_indent_command_and_shift_tab_the_outdent_command() {
     for (raw, key, caret, expected) in [
-        ("- a\n- b", ParagraphKey::Tab, (3, 3), "- a\n  - b"),
-        (
-            "1. a\n2. b\n3. c",
-            ParagraphKey::Tab,
-            (3, 3),
-            "1. a\n   1. b\n2. c",
-        ),
+        ("- a\n- b", ParagraphKey::Tab, (2, 2), "- a\n\t- b"),
+        // The first item takes a tab too: nothing is refused or repaired.
+        ("- a\n- b", ParagraphKey::Tab, (0, 0), "\t- a\n- b"),
+        ("1. a\n2. b", ParagraphKey::Tab, (2, 2), "1. a\n\t2. b"),
         (
             "- [ ] a\n- [x] b",
             ParagraphKey::Tab,
-            (3, 3),
-            "- [ ] a\n  - [x] b",
+            (2, 2),
+            "- [ ] a\n\t- [x] b",
         ),
-        ("> - a\n> - b", ParagraphKey::Tab, (3, 3), "> - a\n>   - b"),
-        ("- a\n  - b", ParagraphKey::ShiftTab, (3, 3), "- a\n- b"),
-        (
-            "1. a\n   1. b\n2. c",
-            ParagraphKey::ShiftTab,
-            (3, 3),
-            "1. a\n2. b\n3. c",
-        ),
-        // A new empty item nests under its sibling's text, after a blank line.
-        ("- a\n- ", ParagraphKey::Tab, (2, 2), "- a\n\n  - "),
-        ("- a\n\n  - ", ParagraphKey::ShiftTab, (3, 3), "- a\n\n- "),
+        ("- a\n- ", ParagraphKey::Tab, (2, 2), "- a\n\t- "),
+        ("- a\n\t- b", ParagraphKey::ShiftTab, (2, 2), "- a\n- b"),
+        ("- a\n  - b", ParagraphKey::ShiftTab, (2, 2), "- a\n- b"),
         // A selection moves every selected item, as the button does.
         (
             "- a\n- b\n- c",
             ParagraphKey::Tab,
             (2, 5),
-            "- a\n  - b\n  - c",
+            "- a\n\t- b\n\t- c",
         ),
     ]
     .map(|(raw, key, (a, b), expected)| (raw, key, range(a, b), expected))
@@ -58,7 +47,7 @@ fn list_tab_is_the_indent_command_and_shift_tab_the_outdent_command() {
         .unwrap();
         assert_eq!(s.source_text(), expected, "{raw:?}");
         assert_eq!(accepted, 1);
-        // The same source the toolbar command writes.
+        // The same source and selection the toolbar command writes.
         let mut button = EditorSession::open(raw);
         let command = if key == ParagraphKey::Tab {
             BlockCommand::Indent
@@ -77,12 +66,10 @@ fn list_tab_is_the_indent_command_and_shift_tab_the_outdent_command() {
 }
 
 #[test]
-fn tab_where_the_indent_command_is_unavailable_leaves_the_note_unchanged() {
+fn tab_where_the_command_changes_nothing_leaves_the_note_unchanged() {
     for (raw, key, caret) in [
-        // The first item has no sibling to nest under.
-        ("- a\n- b", ParagraphKey::Tab, 1),
-        ("1. a\n2. b", ParagraphKey::Tab, 1),
-        // The note's last empty root item cannot outdent.
+        // Outdent has no leading indentation to take.
+        ("- a\n- b", ParagraphKey::ShiftTab, 1),
         ("- a\n- ", ParagraphKey::ShiftTab, 2),
         // Tab outside lists and code indents nothing and inserts no tab.
         ("plain text", ParagraphKey::Tab, 3),
