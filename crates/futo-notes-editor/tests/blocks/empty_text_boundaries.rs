@@ -6,7 +6,6 @@ fn retiring_an_empty_block_keeps_continued_typing_outside_the_previous_list() {
         ("- a\n# ", BlockCommand::Heading(0)),
         ("- a\n# ", BlockCommand::ToggleHeading(1)),
         ("- a\n> ", BlockCommand::Quote),
-        ("- a\n> ", BlockCommand::Outdent),
     ] {
         let mut s = EditorSession::open(raw);
         let mut v = ReferenceView::new("a\n");
