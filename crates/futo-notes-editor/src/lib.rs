@@ -31,7 +31,7 @@ pub use types::{
     ViewChange, WikilinkCandidate, WikilinkCompletion, WikilinkDescription,
 };
 
-pub use link_target::external_link_url;
+pub use link_target::{external_link_url, normalize_link_destination};
 
 pub use quick_open::{
     may_define_reference, quick_open, quick_open_cut, shown_projection, QuickOpen, QUICK_OPEN_BYTES,
