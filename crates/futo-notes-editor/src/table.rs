@@ -7,7 +7,7 @@ mod lines;
 use lines::{
     delimiter, interrupts, interrupts_counted, line_bounds, line_from_pipes, parse_line, PipeScan,
 };
-pub(crate) use lines::{line_has_cell, pipe_count, row_line, Line};
+pub(crate) use lines::{line_has_cell, pipe_count, row_line, unescaped_pipes, Line};
 mod scan;
 #[cfg(test)]
 mod scan_tests;

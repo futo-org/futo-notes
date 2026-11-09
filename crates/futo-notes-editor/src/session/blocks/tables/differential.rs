@@ -61,8 +61,24 @@ impl Rng {
 
 fn cell(rng: &mut Rng) -> String {
     rng.pick(&[
-        "a", "", " ", "word here", "a \\| b", "`x|y`", "`a | b`", "\\\\", "x\\\\|", "**b**",
-        "[[n|alias]]", "😀👩‍👩‍👧", "é", "\\|", "[l](u|v)", "-", ":-", "---",
+        "a",
+        "",
+        " ",
+        "word here",
+        "a \\| b",
+        "`x|y`",
+        "`a | b`",
+        "\\\\",
+        "x\\\\|",
+        "**b**",
+        "[[n|alias]]",
+        "😀👩‍👩‍👧",
+        "é",
+        "\\|",
+        "[l](u|v)",
+        "-",
+        ":-",
+        "---",
     ])
     .to_string()
 }
@@ -106,7 +122,9 @@ fn delim(rng: &mut Rng, cells: usize) -> String {
         if i > 0 {
             s.push('|');
         }
-        s.push_str(rng.pick(&[" - ", "-", " --- ", ":-", " :-: ", "-:", " ---: ", " x ", ""]));
+        s.push_str(rng.pick(&[
+            " - ", "-", " --- ", ":-", " :-: ", "-:", " ---: ", " x ", "",
+        ]));
     }
     if trail {
         s.push('|');
@@ -118,9 +136,14 @@ fn block(rng: &mut Rng, out: &mut Vec<String>) {
     match rng.below(14) {
         0..=3 => {
             let cols = 1 + rng.below(4);
-            let head_cols = if rng.chance(85) { cols } else { 1 + rng.below(4) };
+            let head_cols = if rng.chance(85) {
+                cols
+            } else {
+                1 + rng.below(4)
+            };
             let prefix = if rng.chance(12) {
-                rng.pick(&["> ", "- ", "1. ", "  ", ">> ", "* "]).to_string()
+                rng.pick(&["> ", "- ", "1. ", "  ", ">> ", "* "])
+                    .to_string()
             } else {
                 String::new()
             };
@@ -131,10 +154,39 @@ fn block(rng: &mut Rng, out: &mut Vec<String>) {
                 out.push(format!("{prefix}{}", row(rng, c)));
             }
         }
-        4 => out.push(rng.pick(&["plain text", "a | b", "x|y", "|", "||", "| |", "\\|", "`|`", "text with `a|b` code"]).to_string()),
+        4 => out.push(
+            rng.pick(&[
+                "plain text",
+                "a | b",
+                "x|y",
+                "|",
+                "||",
+                "| |",
+                "\\|",
+                "`|`",
+                "text with `a|b` code",
+            ])
+            .to_string(),
+        ),
         5 => out.push(String::new()),
         6 => out.push(rng.pick(&["", " ", "\t", "  \t"]).to_string()),
-        7 => out.push(rng.pick(&["- item", "- a | b", "1. one | two", "> quote | x", "> plain", "# head | x", "## h", "---", "***", "___", "* | a |", "+ x"]).to_string()),
+        7 => out.push(
+            rng.pick(&[
+                "- item",
+                "- a | b",
+                "1. one | two",
+                "> quote | x",
+                "> plain",
+                "# head | x",
+                "## h",
+                "---",
+                "***",
+                "___",
+                "* | a |",
+                "+ x",
+            ])
+            .to_string(),
+        ),
         8 => {
             let fence = rng.pick(&["```", "~~~", "````"]);
             out.push(format!("{fence}{}", rng.pick(&["", "rust"])));
@@ -149,17 +201,27 @@ fn block(rng: &mut Rng, out: &mut Vec<String>) {
             let mut s = String::new();
             let n = 50 + rng.below(400);
             for i in 0..n {
-                s.push_str(if i % 37 == 5 && rng.chance(50) { "a | b " } else { "word " });
+                s.push_str(if i % 37 == 5 && rng.chance(50) {
+                    "a | b "
+                } else {
+                    "word "
+                });
             }
             out.push(s);
         }
         10 => out.push(format!("    {}", row(rng, 2))),
         11 => {
             for _ in 0..1 + rng.below(4) {
-                out.push(rng.pick(&["para line", "more text", "x | y", "- li", "| a |"]).to_string());
+                out.push(
+                    rng.pick(&["para line", "more text", "x | y", "- li", "| a |"])
+                        .to_string(),
+                );
             }
         }
-        12 => out.push(rng.pick(&["<div>", "</div>", "$$", "[^1]: note | x", "[ref]: http://x"]).to_string()),
+        12 => out.push(
+            rng.pick(&["<div>", "</div>", "$$", "[^1]: note | x", "[ref]: http://x"])
+                .to_string(),
+        ),
         _ => {
             let c = 1 + rng.below(3);
             out.push(row(rng, c));
@@ -171,7 +233,10 @@ fn doc(rng: &mut Rng) -> String {
     let mut lines = Vec::new();
     if rng.chance(15) {
         lines.push("---".to_string());
-        lines.push(rng.pick(&["title: a | b", "tags: [x]", "| a | b |"]).to_string());
+        lines.push(
+            rng.pick(&["title: a | b", "tags: [x]", "| a | b |"])
+                .to_string(),
+        );
         if rng.chance(50) {
             lines.push("| - | - |".to_string());
         }

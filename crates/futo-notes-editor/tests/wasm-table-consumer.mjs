@@ -84,4 +84,21 @@ reopenedEdge.free();
 edge.free();
 session.free();
 
+// Code-off changes roles as well as text: literal table syntax stays prose.
+const literalSource = '```\na | b\n|-|-|\n```';
+const literal = new WasmSession(4n, literalSource, 0n);
+assert.equal(JSON.parse(literal.inspect_table(0n, 0, 0)), null);
+const plain = JSON.parse(literal.block_command_utf16(0n, 0, 11, '"WrapCodeBlock"'));
+assert.equal(plain.change.projection.text, 'a | b\n|-|-|');
+assert.equal(literal.draft_text(), 'a &#124; b\n&#124;-&#124;-&#124;');
+assert.equal(JSON.parse(literal.inspect_table(1n, 0, 0)), null);
+literal.undo(1n);
+assert.equal(literal.draft_text(), literalSource);
+literal.redo(2n);
+assert.equal(JSON.parse(literal.inspect_table(3n, 0, 0)), null);
+const literalReopened = new WasmSession(5n, literal.draft_text(), 0n);
+assert.equal(JSON.parse(literalReopened.inspect_table(0n, 0, 0)), null);
+literalReopened.free();
+literal.free();
+
 console.log('Compiled WASM tables: inspect, cell paste, row command and Tab key passed.');

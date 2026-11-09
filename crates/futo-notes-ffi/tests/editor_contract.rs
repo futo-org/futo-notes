@@ -439,6 +439,27 @@ fn native_toolbar_state_projects_selection_coverage_and_history_in_one_query() {
     );
     assert_eq!(session.source_text().unwrap(), "**bold** plain\n");
     assert_eq!(session.revision().unwrap(), 0);
+    // Saved EOF and a multiscalar native caret retain the same code owner.
+    for (id, body, end) in [("ascii", "code", 4), ("emoji", "🧑‍💻", 5)] {
+        let source = format!("```\n{body}\n```\n");
+        store
+            .create_note(id.into(), "".into(), source.clone())
+            .unwrap();
+        let code = store.open_editor(id.into()).unwrap();
+        code.select_utf16(0, EditorUtf16Range { start: end, end })
+            .unwrap();
+        let state = code.toolbar_state().unwrap();
+        assert!(state.code);
+        assert!(!state.inline_allowed);
+        assert!(!state.mixed);
+        assert!(code
+            .toggle_format(0, EditorInlineFormat::Bold)
+            .unwrap()
+            .is_none());
+        assert!(code.toolbar_state().unwrap().formats.is_empty());
+        assert_eq!(code.source_text().unwrap(), source);
+        assert_eq!(code.revision().unwrap(), 0);
+    }
 }
 
 #[test]

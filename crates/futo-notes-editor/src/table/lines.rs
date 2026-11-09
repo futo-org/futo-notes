@@ -35,7 +35,7 @@ impl PipeScan {
         }
     }
 }
-fn unescaped_pipes(text: &str, start: usize, end: usize) -> Vec<usize> {
+pub(crate) fn unescaped_pipes(text: &str, start: usize, end: usize) -> Vec<usize> {
     let mut scan = PipeScan::default();
     for (at, byte) in text.as_bytes().iter().enumerate().take(end).skip(start) {
         scan.observe(at, char::from(*byte));
