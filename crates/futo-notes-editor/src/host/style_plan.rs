@@ -200,13 +200,14 @@ pub fn plan_styles(
     let mut local = LocalOffsets::new(&slice.text, slice.range.start.0, start_utf16);
     let text_end = start_utf16 + slice.text.encode_utf16().count();
     let units: Vec<u16> = slice.text.encode_utf16().collect();
-    // The block a range ends on owns its line break, so a span reaches the next line's start.
+    // The block a range ends on owns its line break (`\n` or `\r\n`), so a span reaches the next
+    // line's start. An empty row is only its break: without it the span is zero-length.
     let with_break = |end: usize| {
         let at = end.wrapping_sub(start_utf16);
-        if at < units.len() && units[at] == 0x0A {
-            end + 1
-        } else {
-            end
+        match (units.get(at), units.get(at.wrapping_add(1))) {
+            (Some(0x0A), _) => end + 1,
+            (Some(0x0D), Some(0x0A)) => end + 2,
+            _ => end,
         }
     };
     let mut out = Vec::new();

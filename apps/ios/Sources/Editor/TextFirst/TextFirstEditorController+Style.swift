@@ -119,6 +119,61 @@
             scheduleNextSlice()
         }
 
+        /// The empty last line's block, from the plan that reached the end of the note. The layout
+        /// fragment of the last paragraph draws it in the extra line fragment, and the typing
+        /// attributes make that line the height and indent the typed line will be.
+        func setTrailingBlock(_ block: TextFirstBlockAttribute?) {
+            guard block != nil || trailingBlock != nil else { return }
+            let wasSet = trailingBlock != nil
+            trailingBlock = block
+            if block != nil {
+                _ = assertTrailingTypingAttributes()
+            } else if wasSet && caretIsAtEnd {
+                // UIKit offers what the character before the caret has.
+                textView.typingAttributes =
+                    storage.length > 0
+                    ? storage.attributes(at: storage.length - 1, effectiveRange: nil)
+                    : Self.baseAttributes
+            }
+            invalidateLastParagraph()
+        }
+
+        private var caretIsAtEnd: Bool {
+            textView.selectedRange == NSRange(location: storage.length, length: 0)
+        }
+
+        /// UIKit offers the previous line's attributes when the caret lands on the empty last line;
+        /// its layout and the first character follow the block's instead. True when that changed
+        /// the line's shape.
+        @discardableResult
+        func assertTrailingTypingAttributes() -> Bool {
+            guard let block = trailingBlock, caretIsAtEnd else { return false }
+            let wanted = TextFirstStyler.typingAttributes(for: block)
+            let current = textView.typingAttributes
+            let same =
+                (current[.paragraphStyle] as? NSParagraphStyle)
+                == (wanted[.paragraphStyle] as? NSParagraphStyle)
+                && (current[.font] as? UIFont) == (wanted[.font] as? UIFont)
+            textView.typingAttributes = wanted
+            return !same
+        }
+
+        func invalidateLastParagraph() {
+            guard let manager = textView.textLayoutManager,
+                let content = manager.textContentManager
+            else { return }
+            let text = storage.string as NSString
+            let start =
+                text.length == 0
+                ? 0
+                : text.paragraphRange(for: NSRange(location: text.length - 1, length: 0)).location
+            if let from = content.location(manager.documentRange.location, offsetBy: start),
+                let range = NSTextRange(location: from, end: manager.documentRange.endLocation)
+            {
+                manager.invalidateLayout(for: range.isEmpty ? manager.documentRange : range)
+            }
+        }
+
         /// Restyle the window the engine reparsed for `change`.
         func restyle(_ change: EditorViewChange) {
             guard !closed else { return }

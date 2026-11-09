@@ -65,138 +65,21 @@
             super.init(textElement: element, range: range)
         }
 
-        /// An image's rect in this fragment's coordinates (x in container coordinates).
-        func imageRect(_ run: (range: NSRange, span: TextFirstImageSpan)) -> CGRect? {
-            guard
-                let line = textLineFragments.first(where: {
-                    NSLocationInRange(run.range.location, $0.characterRange)
-                })
-            else { return nil }
-            // The line's own x excludes the paragraph's head indent (list, quote).
-            let style =
-                line.attributedString.attribute(
-                    .paragraphStyle,
-                    at: line.characterRange.location - line.characterRange.location,
-                    effectiveRange: nil) as? NSParagraphStyle
-            let indent =
-                (line.characterRange.location == 0 ? style?.firstLineHeadIndent : style?.headIndent)
-                ?? 0
-            let x =
-                line.typographicBounds.minX + indent
-                + line.locationForCharacter(at: run.range.location).x
-            let size = run.span.size
-            return CGRect(
-                x: x, y: line.typographicBounds.minY, width: size.width, height: size.height)
-        }
-
-        /// A table row's grid rect in this fragment's coordinates (x in container coordinates).
-        func tableRect(_ run: (range: NSRange, span: TextFirstTableRowSpan)) -> CGRect? {
-            guard
-                let line = textLineFragments.first(where: {
-                    NSLocationInRange(run.range.location, $0.characterRange)
-                })
-            else { return nil }
-            return CGRect(
-                x: 0, y: line.typographicBounds.minY, width: containerWidth, height: run.span.height
-            )
-        }
-
-        private func drawTables(at point: CGPoint, in context: CGContext) {
-            UIGraphicsPushContext(context)
-            defer { UIGraphicsPopContext() }
-            for run in tableRuns {
-                guard let rect = tableRect(run)?.offsetBy(dx: point.x, dy: point.y) else {
-                    continue
-                }
-                let span = run.span
-                let scroll = MainActor.assumeIsolated { host?.tableScroll[span.tableStart] } ?? 0
-                context.saveGState()
-                context.clip(to: rect)
-                if span.header {
-                    UIColor.tertiarySystemFill.setFill()
-                    context.fill(rect)
-                }
-                let width = TextFirstTableMetrics.cellWidth
-                let pad = TextFirstTableMetrics.padding
-                let marks = tableMarks(for: run)
-                for column in 0..<span.columns {
-                    let cell = CGRect(
-                        x: rect.minX - scroll + CGFloat(column) * width, y: rect.minY, width: width,
-                        height: rect.height)
-                    if cell.maxX < rect.minX || cell.minX > rect.maxX { continue }
-                    for mark in marks where mark.column == column {
-                        TextFirstFindColors.fill(current: mark.current).setFill()
-                        for r in mark.rects {
-                            context.fill(r.offsetBy(dx: cell.minX + pad, dy: cell.minY + pad))
-                        }
-                    }
-                    UIColor.separator.setStroke()
-                    context.setLineWidth(1)
-                    context.stroke(cell.insetBy(dx: 0.5, dy: 0.5))
-                    guard let content = span.cell(atColumn: column), !content.text.isEmpty else {
-                        continue
-                    }
-                    let paragraph = NSMutableParagraphStyle()
-                    paragraph.alignment =
-                        content.alignment == .right
-                        ? .right : content.alignment == .center ? .center : .natural
-                    (content.text as NSString).draw(
-                        in: cell.insetBy(dx: pad, dy: pad),
-                        withAttributes: [
-                            .font: TextFirstTableMetrics.font(header: span.header),
-                            .foregroundColor: UIColor.label, .paragraphStyle: paragraph,
-                        ])
-                }
-                context.restoreGState()
-            }
-        }
-
-        private func drawImages(at point: CGPoint, in context: CGContext) {
-            UIGraphicsPushContext(context)
-            defer { UIGraphicsPopContext() }
-            for run in imageRuns {
-                guard let rect = imageRect(run)?.offsetBy(dx: point.x, dy: point.y) else {
-                    continue
-                }
-                let atom = run.span.atom
-                if let image = atom.image {
-                    image.draw(in: rect)
-                    continue
-                }
-                let path = UIBezierPath(roundedRect: rect, cornerRadius: 6)
-                UIColor.tertiarySystemFill.setFill()
-                path.fill()
-                if atom.failed {
-                    let label = NSAttributedString(
-                        string: atom.alt.isEmpty ? atom.destination : atom.alt,
-                        attributes: [
-                            .font: UIFont.systemFont(ofSize: 13),
-                            .foregroundColor: UIColor.secondaryLabel,
-                        ])
-                    let box = rect.insetBy(dx: 8, dy: 0)
-                    let size = label.boundingRect(
-                        with: CGSize(width: box.width, height: rect.height), options: [],
-                        context: nil)
-                    label.draw(
-                        in: CGRect(
-                            x: box.minX, y: rect.midY - size.height / 2, width: box.width,
-                            height: size.height + 1))
-                }
-            }
-        }
-
         required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
         override var renderingSurfaceBounds: CGRect {
-            // Gutter art lives left of the text and code backgrounds span the full width.
-            super.renderingSurfaceBounds.union(
+            // Gutter art lives left of the text and code backgrounds span the full width. The
+            // empty last line's art may run a line's spacing past the frame TextKit measured.
+            let spill: CGFloat =
+                MainActor.assumeIsolated { host?.trailingBlock } == nil ? 0 : 8
+            return super.renderingSurfaceBounds.union(
                 CGRect(
                     x: -layoutFragmentFrame.minX - 24, y: 0,
                     width: max(containerWidth, layoutFragmentFrame.width) + 60,
-                    height: layoutFragmentFrame.height))
+                    height: layoutFragmentFrame.height + spill))
         }
 
-        private var containerWidth: CGFloat {
+        var containerWidth: CGFloat {
             textLayoutManager?.textContainer?.size.width
                 ?? (layoutFragmentFrame.width + layoutFragmentFrame.minX)
         }
@@ -213,8 +96,18 @@
             return line.typographicBounds.minY + line.glyphOrigin.y
         }
 
-        /// Where a bullet or box is centered: the middle of the first line's capital letters.
-        var markerCenterY: CGFloat {
+        /// A line the block art is drawn against, in the fragment's coordinates: the vertical
+        /// extent the art fills, the baseline a marker hangs from, and the font its capitals come
+        /// from.
+        private struct Row {
+            let top: CGFloat
+            let height: CGFloat
+            let baseline: CGFloat
+            let font: UIFont
+        }
+
+        /// The paragraph's own block, over its first line and the whole fragment.
+        private var ownRow: Row {
             let font =
                 textLineFragments.first.flatMap { line in
                     line.attributedString.length > 0
@@ -222,33 +115,67 @@
                             as? UIFont
                         : nil
                 } ?? MainActor.assumeIsolated { TextFirstEditorController.bodyFont }
-            return firstBaseline - font.capHeight / 2
+            return Row(
+                top: 0, height: layoutFragmentFrame.height, baseline: firstBaseline, font: font)
         }
+
+        /// The empty last line of the note: TextKit lays it out as a zero-length line fragment at
+        /// the end of the last paragraph (or as the only one of an empty note), with no text
+        /// element of its own. It takes the typing attributes' height and indent.
+        private func trailingRow(of trailing: TextFirstBlockAttribute) -> Row? {
+            guard let line = textLineFragments.last, line.characterRange.length == 0 else {
+                return nil
+            }
+            let bounds = line.typographicBounds
+            let font = MainActor.assumeIsolated {
+                trailing.code ? TextFirstStyler.mono : TextFirstEditorController.bodyFont
+            }
+            // Typed below another paragraph, a line of a block that is not a list carries the
+            // paragraph's line spacing above its text (a list's minimum line height already
+            // includes it), and its block art fills it. The first line of a note has none.
+            let spacing =
+                trailing.list == nil && textLineFragments.count > 1
+                ? MainActor.assumeIsolated {
+                    (TextFirstEditorController.baseAttributes[.paragraphStyle]
+                        as? NSParagraphStyle)?.lineSpacing ?? 0
+                } : 0
+            return Row(
+                top: bounds.minY, height: bounds.height + spacing,
+                baseline: bounds.minY + line.glyphOrigin.y, font: font)
+        }
+
+        /// Where a bullet or box is centered: the middle of the row's capital letters.
+        private func markerCenterY(_ row: Row) -> CGFloat { row.baseline - row.font.capHeight / 2 }
 
         /// Adjacent fragments share pixel edges, so the block reads as one surface even at
         /// fractional text baselines. An opaque fill avoids darker overlapping edges.
-        private func decorationRect(at point: CGPoint, x: CGFloat, width: CGFloat) -> CGRect {
+        private func decorationRect(at point: CGPoint, row: Row, x: CGFloat, width: CGFloat)
+            -> CGRect
+        {
             let scale =
                 MainActor.assumeIsolated { host?.textView.traitCollection.displayScale } ?? 2
-            let top = (point.y * scale).rounded(.down) / scale
-            let bottom = ((point.y + layoutFragmentFrame.height) * scale).rounded(.up) / scale
+            let top = ((point.y + row.top) * scale).rounded(.down) / scale
+            let bottom = ((point.y + row.top + row.height) * scale).rounded(.up) / scale
             return CGRect(x: x, y: top, width: width, height: bottom - top)
         }
 
         /// The leading edge of the list text, in container coordinates.
-        private var textIndent: CGFloat {
+        private func textIndent(of block: TextFirstBlockAttribute) -> CGFloat {
             guard let list = block.list else { return 0 }
             return TextFirstMetrics.quoteIndent(depth: block.quoteDepth)
                 + TextFirstMetrics.listIndent(depth: list.depth)
         }
 
-        /// The checkbox's rect: x in container coordinates, y relative to the fragment.
-        var checkboxRect: CGRect? {
+        private func checkboxRect(of block: TextFirstBlockAttribute, row: Row) -> CGRect? {
             guard let list = block.list, block.showsMarker, list.marker == .task else { return nil }
             let side = TextFirstMetrics.checkboxSide
             return CGRect(
-                x: textIndent - side - 8, y: markerCenterY - side / 2, width: side, height: side)
+                x: textIndent(of: block) - side - 8, y: markerCenterY(row) - side / 2, width: side,
+                height: side)
         }
+
+        /// The checkbox's rect: x in container coordinates, y relative to the fragment.
+        var checkboxRect: CGRect? { checkboxRect(of: block, row: ownRow) }
 
         /// The marker's gutter, in the fragment's coordinates, when the selection covers the whole
         /// row (so the highlight reaches the rendered bullet, number or box); nil for a caret or a
@@ -258,14 +185,38 @@
                 MainActor.assumeIsolated({ host.selectionRange(for: self, in: manager) }) != nil
             else { return nil }
             let line = firstLine
-            return CGRect(x: textIndent - 26, y: line.minY, width: 26, height: line.height)
+            return CGRect(
+                x: textIndent(of: block) - 26, y: line.minY, width: 26, height: line.height)
         }
 
         override func draw(at pointIn: CGPoint, in context: CGContext) {
             let point = CGPoint(x: pointIn.x - layoutFragmentFrame.minX, y: pointIn.y)
+            drawBlockArt(block, row: ownRow, at: point, in: context)
+            if let marker = highlightedMarkerRect {
+                (MainActor.assumeIsolated { host?.textView.tintColor } ?? accent)
+                    .withAlphaComponent(0.2).setFill()
+                context.fill(marker.offsetBy(dx: point.x, dy: point.y))
+            }
+            // The empty last line's own block, which no paragraph carries.
+            if let trailing = MainActor.assumeIsolated({ host?.trailingBlock }),
+                let row = trailingRow(of: trailing)
+            {
+                drawBlockArt(trailing, row: row, at: point, in: context)
+            }
+            drawFindMarks(at: point, in: context)
+            super.draw(at: pointIn, in: context)
+            drawImages(at: point, in: context)
+            drawTables(at: point, in: context)
+        }
+
+        /// A block's code background, divider, quote bars and list marker against `row`.
+        private func drawBlockArt(
+            _ block: TextFirstBlockAttribute, row: Row, at point: CGPoint, in context: CGContext
+        ) {
             if block.code {
                 UIColor.secondarySystemBackground.setFill()
-                context.fill(decorationRect(at: point, x: point.x - 4, width: containerWidth + 8))
+                context.fill(
+                    decorationRect(at: point, row: row, x: point.x - 4, width: containerWidth + 8))
             }
             if block.divider {
                 let y = point.y + layoutFragmentFrame.height / 2
@@ -279,30 +230,21 @@
                 UIColor.opaqueSeparator.setFill()
                 for i in 0..<block.quoteDepth {
                     let x = point.x + 2 + CGFloat(i) * 14
-                    context.fill(decorationRect(at: point, x: x, width: 3))
+                    context.fill(decorationRect(at: point, row: row, x: x, width: 3))
                 }
             }
-            if let marker = highlightedMarkerRect {
-                (MainActor.assumeIsolated { host?.textView.tintColor } ?? accent)
-                    .withAlphaComponent(0.2).setFill()
-                context.fill(marker.offsetBy(dx: point.x, dy: point.y))
-            }
             if let list = block.list, block.showsMarker {
-                drawListMarker(list, at: point, in: context)
+                drawListMarker(list, of: block, row: row, at: point, in: context)
             }
-            drawFindMarks(at: point, in: context)
-            super.draw(at: pointIn, in: context)
-            drawImages(at: point, in: context)
-            drawTables(at: point, in: context)
         }
 
         private func drawListMarker(
             _ list: (depth: Int, marker: EditorListMarker, number: UInt64?, checked: Bool),
-            at point: CGPoint, in context: CGContext
+            of block: TextFirstBlockAttribute, row: Row, at point: CGPoint, in context: CGContext
         ) {
             switch list.marker {
             case .task:
-                guard let box = checkboxRect else { return }
+                guard let box = checkboxRect(of: block, row: row) else { return }
                 let r = box.offsetBy(dx: point.x, dy: point.y)
                 let path = UIBezierPath(roundedRect: r, cornerRadius: 4)
                 context.saveGState()
@@ -332,14 +274,14 @@
                 let size = text.size()
                 text.draw(
                     at: CGPoint(
-                        x: point.x + textIndent - size.width - 6,
-                        y: point.y + firstBaseline - font.ascender))
+                        x: point.x + textIndent(of: block) - size.width - 6,
+                        y: point.y + row.baseline - font.ascender))
             case .bullet:
                 // Disc, ring, square by depth.
                 let d: CGFloat = 6
                 let r = CGRect(
-                    x: point.x + textIndent - 14 - d / 2,
-                    y: point.y + markerCenterY - d / 2,
+                    x: point.x + textIndent(of: block) - 14 - d / 2,
+                    y: point.y + markerCenterY(row) - d / 2,
                     width: d, height: d)
                 UIColor.secondaryLabel.setFill()
                 UIColor.secondaryLabel.setStroke()
@@ -363,12 +305,14 @@
             textLayoutFragmentFor location: NSTextLocation,
             in textElement: NSTextElement
         ) -> NSTextLayoutFragment {
-            if let paragraph = textElement as? NSTextParagraph,
-                paragraph.attributedString.length > 0
-            {
+            // An empty paragraph is the whole of an empty note: its line is the empty last line.
+            if let paragraph = textElement as? NSTextParagraph {
                 let text = paragraph.attributedString
                 let block =
-                    text.attribute(.tfBlock, at: 0, effectiveRange: nil) as? TextFirstBlockAttribute
+                    text.length > 0
+                    ? text.attribute(.tfBlock, at: 0, effectiveRange: nil)
+                        as? TextFirstBlockAttribute
+                    : nil
                 // Every paragraph: a find mark can land on any of them, and a fragment already laid
                 // out is not rebuilt when the first mark arrives.
                 return TextFirstLayoutFragment(
