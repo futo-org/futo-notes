@@ -46,11 +46,26 @@
                     let attributes = line.attributedString.attributes(
                         at: candidate, effectiveRange: nil)
                     _ = base
-                    if let url = attributes[.tfLinkURL] as? String { return .url(url) }
+                    if let raw = attributes[.tfLinkURL] as? String,
+                        let target = linkTarget(forDestination: raw)
+                    {
+                        return target
+                    }
                     if let note = attributes[.tfWikilink] as? String { return .note(note) }
                 }
             }
             return nil
+        }
+
+        /// What a link's destination opens, by the engine's rule: an explicit scheme is external, a
+        /// schemeless destination is a note path (a note that exists opens, anything else does
+        /// nothing). The engine is skipped while it is busy; a note path then opens nothing.
+        private func linkTarget(forDestination raw: String) -> TextFirstLinkTarget? {
+            if editorExternalLinkUrl(destination: raw) != nil { return .url(raw) }
+            guard !closed, !engineBusy,
+                let id = try? session.resolveNoteLink(destination: raw)
+            else { return nil }
+            return .note(id)
         }
 
         func open(_ target: TextFirstLinkTarget) {
@@ -67,8 +82,9 @@
             onOpenURL?(safe.absoluteString)
         }
 
-        /// The engine says whether a destination is external (a bare domain gains `https://`; a
-        /// note path or fragment is not), and the ordinary external-open policy guards its scheme.
+        /// The engine says whether a destination is external (only an explicit allowed scheme is;
+        /// a note path, bare domain or fragment is not), and the ordinary external-open policy
+        /// guards its scheme.
         static func externalLinkURL(_ raw: String) -> URL? {
             guard let address = editorExternalLinkUrl(destination: raw),
                 let url = URL(string: address),
@@ -207,8 +223,11 @@
                 let change: EditorViewChange?
                 if let label, !destination.isEmpty {
                     guard !label.isEmpty else { return }
+                    // The engine decides whether what was typed is a web address (saved as
+                    // `https://…`); anything it is unsure of is saved as typed.
                     change = try session.editLink(
-                        expected: rev, range: range, label: label, destination: destination)
+                        expected: rev, range: range, label: label,
+                        destination: editorNormalizeLinkDestination(typed: destination))
                 } else {
                     change = try session.setLink(expected: rev, range: range, destination: "")
                 }

@@ -7,30 +7,50 @@
 
     @Suite @MainActor
     struct TextFirstLinkTests {
-        @Test func aSchemelessAddressOpensAsHttpsAndUnsafeSchemesStayBlocked() {
-            #expect(
-                TextFirstEditorController.externalLinkURL("google.com")?.absoluteString
-                    == "https://google.com")
+        @Test func onlyAnExplicitAllowedSchemeOpensExternally() {
+            for raw in ["https://x", "HTTP://X", "mailto:a@b.c", "tel:5551234", "tel:911"] {
+                #expect(
+                    TextFirstEditorController.externalLinkURL(raw) != nil, "\(raw)")
+            }
             #expect(
                 TextFirstEditorController.externalLinkURL("https://google.com")?.absoluteString
                     == "https://google.com")
-            #expect(TextFirstEditorController.externalLinkURL("javascript:alert(1)") == nil)
-            #expect(TextFirstEditorController.externalLinkURL("file:///etc/passwd") == nil)
-        }
-
-        @Test func aNotePathOrFragmentNeverOpensAsAWebAddress() {
-            for raw in ["other.md", "./a.md", "../b", "notes/x.md", "#heading", "/abs"] {
+            for raw in [
+                "javascript:alert(1)", "file:///etc/passwd", "data:text/html,x",
+                "google.com", "www.x.org/p", "setup.sh", "my.notes", "other.md", "../b", "#h",
+                "/abs", "notes/x.md",
+            ] {
                 #expect(TextFirstEditorController.externalLinkURL(raw) == nil, "\(raw)")
             }
-            #expect(
-                TextFirstEditorController.externalLinkURL("www.x.org/p")?.absoluteString
-                    == "https://www.x.org/p")
-            #expect(
-                TextFirstEditorController.externalLinkURL("mailto:a@b.c")?.absoluteString
-                    == "mailto:a@b.c")
-            #expect(
-                TextFirstEditorController.externalLinkURL("https://x")?.absoluteString
-                    == "https://x")
+        }
+
+        @Test func theLinkPromptAsksTheEngineToSpellTheDestination() throws {
+            for (typed, saved) in [
+                ("google.com", "https://google.com"), ("www.x.org/p", "https://www.x.org/p"),
+                ("setup.sh", "setup.sh"), ("main.rs", "main.rs"), ("my.notes", "my.notes"),
+                ("notes/a.md", "notes/a.md"), ("tel:911", "tel:911"),
+            ] {
+                let h = harness("a site b")
+                let range = try h.controller.session.utf16ToDisplay(
+                    expected: h.controller.rev, range: EditorUtf16Range(start: 2, end: 6))
+                h.controller.commitLink(
+                    revision: h.controller.rev, range: range, label: "site", destination: typed)
+                let link = try h.controller.session.inspectLink(
+                    expected: h.controller.rev, range: range)
+                #expect(link?.destination == saved, "\(typed)")
+            }
+        }
+
+        @Test func aSchemelessLinkTapOpensAnExistingNoteAndNothingElse() {
+            let h = harness(
+                "[alpha](Other.md) [bravo](Missing.md) [charlie](google.com) [delta](#h) "
+                    + "[echo](tel:911) [foxtrot](javascript:x)")
+            #expect(h.controller.linkTarget(at: point(h, inside: "alpha")) == .note("Other"))
+            #expect(h.controller.linkTarget(at: point(h, inside: "bravo")) == nil)
+            #expect(h.controller.linkTarget(at: point(h, inside: "charlie")) == nil)
+            #expect(h.controller.linkTarget(at: point(h, inside: "delta")) == nil)
+            #expect(h.controller.linkTarget(at: point(h, inside: "echo")) == .url("tel:911"))
+            #expect(h.controller.linkTarget(at: point(h, inside: "foxtrot")) == nil)
         }
 
         @Test func aLinkPromptWithSelectedTextFocusesTheDestination() async throws {
