@@ -49,3 +49,6 @@ mod fence_promotion;
 
 #[path = "lists/common_actions.rs"]
 mod common_actions;
+
+#[path = "lists/quote_tab_enter.rs"]
+mod quote_tab_enter;
