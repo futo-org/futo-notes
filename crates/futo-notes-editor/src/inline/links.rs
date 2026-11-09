@@ -3,6 +3,7 @@
 use super::row::LinkMeaning;
 mod angle;
 mod bare;
+mod nesting;
 pub(super) use angle::{complete_typed_angle, finish_angle_word};
 pub(super) use bare::bare_links;
 
@@ -228,19 +229,12 @@ impl super::Projection {
                 open: "[".into(),
                 close: format!("](<{}>)", destination_source(destination)),
             });
-            let mut at = 0;
-            for piece in &mut pieces {
-                let end = at + piece.display.len();
-                if at < z && a < end {
-                    piece
-                        .spans
-                        .retain(|id| !matches!(markers[*id].kind, SpanKind::Link(_)));
-                    if !destination.is_empty() {
-                        piece.spans.insert(0, id);
-                    }
-                }
-                at = end;
-            }
+            link_metadata_items += nesting::replace_selected_links(
+                &mut pieces,
+                &markers,
+                a..z,
+                (!destination.is_empty()).then_some(id),
+            );
         }
         let mut insertion = pieces.len()..pieces.len();
         if let Some(label) = label {

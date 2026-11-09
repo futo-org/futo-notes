@@ -218,3 +218,50 @@ fn native_edit_link_is_atomic_revision_bound_and_durable() {
         "/new"
     );
 }
+
+#[test]
+fn native_unchanged_softline_link_labels_preserve_history_and_saved_line_endings() {
+    for ending in ["\n", "\r\n"] {
+        let tree = TempTree::new();
+        std::fs::create_dir_all(tree.path("vault")).unwrap();
+        let store = NoteStore::new(path_string(&tree.path("vault")));
+        let source = format!("alpha{ending}beta{ending}");
+        store
+            .create_note("links".into(), "".into(), source.clone())
+            .unwrap();
+        let session = store.open_editor("links".into()).unwrap();
+        let label = format!("alpha{ending}bet");
+        let target = EditorByteRange {
+            start: 0,
+            end: label.len() as u64,
+        };
+        session
+            .select_with_affinity(0, target, EditorAffinity::Forward)
+            .unwrap();
+        session
+            .edit_link(0, target, label, "/new".into())
+            .unwrap()
+            .unwrap();
+        let edited = format!("[alpha{ending}bet](</new>)a{ending}");
+        assert_eq!(session.source_text().unwrap(), edited);
+        assert_eq!(session.display_text().unwrap(), source);
+        let undo = session.undo(1).unwrap().unwrap();
+        assert_eq!(undo.selection, target);
+        assert_eq!(session.source_text().unwrap(), source);
+        session.redo(2).unwrap().unwrap();
+        assert_eq!(session.source_text().unwrap(), edited);
+        session.checkpoint().unwrap();
+        drop(session);
+        let reopened = store.open_editor("links".into()).unwrap();
+        assert_eq!(reopened.source_text().unwrap(), edited);
+        assert_eq!(
+            reopened
+                .inspect_link(0, target)
+                .unwrap()
+                .unwrap()
+                .destination,
+            "/new"
+        );
+        assert!(reopened.undo(0).unwrap().is_none());
+    }
+}
