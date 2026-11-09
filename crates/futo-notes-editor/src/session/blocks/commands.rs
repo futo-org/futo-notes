@@ -281,7 +281,12 @@ impl EditorSession {
                     // into its unchanged body for planning, then retain the
                     // user's original selection rather than the planning range.
                     let mut target = local;
-                    if owns_endpoint {
+                    // An empty endpoint item has no body to reach into; stepping
+                    // on would cross its line ending into the next item.
+                    let display = &staged.projection.display;
+                    let at_line_end = local.end.0 >= display.len_bytes()
+                        || matches!(display.byte(local.end.0), b'\n' | b'\r');
+                    if owns_endpoint && !at_line_end {
                         target.end = DisplayOffset(staged.grapheme_stop(
                             local.end.0,
                             crate::CaretDirection::Forward,

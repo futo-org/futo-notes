@@ -239,8 +239,10 @@ impl EditorSession {
         for owner in &owners {
             retarget(&mut rows, owner, command);
         }
-        let mut previous_created = None;
+        let mut previous_created: Option<(usize, usize)> = None;
         for (index, _) in created {
+            let other_marker =
+                previous_created.and_then(|(previous, _)| apart_marker(&rows, previous, index));
             let row = &mut rows[index];
             row.pinned = previous_created.is_none_or(|(previous, _)| previous + 1 < index);
             let key = match previous_created {
@@ -256,11 +258,11 @@ impl EditorSession {
             row.retire_heading();
             row.after.depth = 1;
             row.after.opens = true;
-            row.after.marker = if command == BlockCommand::OrderedList {
+            row.after.marker = other_marker.unwrap_or(if command == BlockCommand::OrderedList {
                 b'.'
             } else {
                 b'-'
-            };
+            });
             row.after.checked = (command == BlockCommand::TaskList).then_some(false);
             row.start = Some(1);
         }

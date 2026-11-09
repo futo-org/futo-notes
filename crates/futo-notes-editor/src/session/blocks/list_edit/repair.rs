@@ -103,3 +103,22 @@ pub(super) fn repairs(rows: &[Row], at: usize) -> Vec<Repair> {
     }
     options
 }
+
+/// Lists that only blank rows of the same quote keep apart would parse as one:
+/// the marker for the created row at `index` that differs from the created row
+/// at `previous` above it. Spelling it so up front spares the verification
+/// repair above, which finds one such list per reparse of the note.
+pub(super) fn apart_marker(rows: &[Row], previous: usize, index: usize) -> Option<u8> {
+    let quotes = rows[index].after.quotes;
+    (previous + 1 < index
+        && rows[previous].after.quotes == quotes
+        && rows[previous + 1..index]
+            .iter()
+            .all(|row| row.blank && row.before.quotes == quotes))
+    .then(|| match rows[previous].after.marker {
+        b'-' => b'+',
+        b'.' => b')',
+        b')' => b'.',
+        _ => b'-',
+    })
+}

@@ -162,3 +162,24 @@ fn a_wider_list_selection_formats_its_empty_item_without_a_text_intermediate() {
         }
     }
 }
+
+#[test]
+fn heading_or_quote_over_an_empty_item_leaves_the_next_item_alone() {
+    let raw = "- a\n- \n- c";
+    for (command, expected) in [
+        (BlockCommand::Heading(2), "## a\n## \n- c"),
+        (BlockCommand::Quote, "> a\n> \n- c"),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let selected = range(0, 2);
+        s.select(s.revision(), selected).unwrap();
+        s.block_command(s.revision(), selected, command, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(s.source_text(), expected, "{command:?}");
+        assert_eq!(s.selection(), selected, "{command:?}");
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(s.source_text(), raw, "{command:?}");
+        assert_eq!(s.selection(), selected, "{command:?}");
+    }
+}

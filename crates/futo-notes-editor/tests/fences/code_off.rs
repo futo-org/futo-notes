@@ -396,3 +396,24 @@ fn code_off_keeps_one_marker_across_partitioned_fence_rows() {
         );
     }
 }
+
+#[test]
+fn code_off_on_an_empty_frame_keeps_the_line_that_follows_it_separate() {
+    for (raw, expected) in [
+        ("> ```\n> ```\n> next", "> \n> next"),
+        ("> ```\n> ```\nnext", "> \nnext"),
+        ("- ```\n  ```\nnext", "- \nnext"),
+        ("> ```\n> ```\r\nnext", "> \r\nnext"),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let at = range(0, 0);
+        s.select(s.revision(), at).unwrap();
+        s.block_command(s.revision(), at, BlockCommand::CodeBlock, &mut |_| Ok(()))
+            .unwrap()
+            .expect("Code off changes the frame");
+        assert_eq!(s.source_text(), expected, "{raw:?}");
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(s.source_text(), raw, "{raw:?}");
+        assert_eq!(s.selection(), at, "{raw:?}");
+    }
+}

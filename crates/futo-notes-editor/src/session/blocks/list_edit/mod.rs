@@ -16,7 +16,7 @@ mod repair;
 mod shapes;
 mod verify;
 use plan::Plan;
-use repair::{escape, repairs};
+use repair::{apart_marker, escape, repairs};
 
 #[cfg(test)]
 mod fuzz_tests;
@@ -78,6 +78,9 @@ pub(super) struct Row {
     body: Range<usize>,
     content: Range<usize>,
     quote_end: usize,
+    /// The parser counts a quote level this row's source does not spell (a
+    /// lazy continuation line), so its source prefix is not its quote shape.
+    lazy_quote: bool,
     pub before: Shape,
     pub after: Shape,
     pub list: Option<ListLine>,
@@ -115,6 +118,11 @@ pub(super) struct Row {
 impl Row {
     pub fn changed(&self) -> bool {
         self.forced || !same_shape(&self.after, &self.before)
+    }
+
+    /// The source quote prefix can be reused as is.
+    fn keeps_quote_prefix(&self) -> bool {
+        self.after.quotes == self.before.quotes && !self.lazy_quote
     }
 
     pub fn item(&self) -> Option<usize> {
@@ -201,6 +209,8 @@ impl EditorSession {
                 body: start + body..start + text.len(),
                 content: line.content.clone(),
                 quote_end: start + quote_end,
+                lazy_quote: quotes > 0
+                    && quote_end == super::indent_source::quote_prefix_end(text, quotes - 1),
                 before: shape.clone(),
                 after: shape,
                 list: line.list,
@@ -442,6 +452,7 @@ fn eof_row(len: usize, index: usize, selected: bool) -> Row {
         body: len..len,
         content: len..len,
         quote_end: len,
+        lazy_quote: false,
         before: shape.clone(),
         after: shape,
         list: None,

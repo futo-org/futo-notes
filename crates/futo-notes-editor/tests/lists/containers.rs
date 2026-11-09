@@ -34,6 +34,63 @@ fn list_commands_keep_the_enclosing_quote() {
 }
 
 #[test]
+fn list_commands_over_a_quote_with_a_lazy_line_keep_the_quote() {
+    for (raw, shown, selected, expected) in [
+        ("> x\nlazy", "x\nlazy", (0, 6), "> - x\n> - lazy"),
+        ("> x\nlazy", "x\nlazy", (3, 3), "> x\n> - lazy"),
+        (
+            "> quoted\nplain",
+            "quoted\nplain",
+            (0, 12),
+            "> - quoted\n> - plain",
+        ),
+        ("> > a\n> b", "a\nb", (0, 3), "> > - a\n> > - b"),
+    ] {
+        let selected = range(selected.0, selected.1);
+        let mut s = EditorSession::open(raw);
+        assert_eq!(s.display_text(), shown);
+        s.select(s.revision(), selected).unwrap();
+        s.block_command(
+            s.revision(),
+            selected,
+            BlockCommand::BulletList,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(s.source_text(), expected, "{raw:?}");
+        assert_eq!(s.display_text(), shown);
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(s.source_text(), raw);
+    }
+}
+
+#[test]
+fn a_long_run_of_blank_separated_quoted_paragraphs_still_takes_a_list_command() {
+    // Each paragraph is its own list, so neighbours alternate their marker;
+    // the first spelling must already do so (repairs are budgeted per action).
+    let raw = "> p\n>\n".repeat(12);
+    let len = EditorSession::open(&raw).display_text().len();
+    for (command, marks) in [
+        (BlockCommand::BulletList, ["- ", "+ "]),
+        (BlockCommand::OrderedList, ["1. ", "1) "]),
+    ] {
+        let mut s = EditorSession::open(&raw);
+        let all = range(0, len);
+        s.select(s.revision(), all).unwrap();
+        s.block_command(s.revision(), all, command, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap();
+        let expected: String = (0..12)
+            .map(|i| format!("> {}p\n>\n", marks[i % 2]))
+            .collect();
+        assert_eq!(s.source_text(), expected, "{command:?}");
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(s.source_text(), raw, "{command:?}");
+    }
+}
+
+#[test]
 fn indent_nests_only_the_selected_item_and_preserves_exact_foreign_spelling() {
     let raw = "* parent\r\n* __child__\r\n* neighbor  ";
     let expected = "* parent\r\n\t* __child__\r\n* neighbor  ";

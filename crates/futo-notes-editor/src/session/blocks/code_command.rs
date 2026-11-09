@@ -291,8 +291,9 @@ impl EditorSession {
             flush(&mut section, &mut out);
         }
         let mut output = out.join(eol);
-        // A frame with no body row retires its ending with its delimiters.
-        if !out.is_empty() && body_rows > 0 {
+        // A frame with no body row retires its ending with its delimiters,
+        // unless a line follows: that line must not join the kept container.
+        if !out.is_empty() && (body_rows > 0 || end < self.source.len_bytes()) {
             output.push_str(&tail);
         }
         if output == region {
