@@ -5,6 +5,7 @@ mod history;
 pub mod host;
 pub use history::{DisplayReplacement, DisplayUtf16Replacement, HistoryClock, InputAction};
 mod inline;
+mod link_target;
 mod movement;
 mod parallel;
 mod portable;
@@ -29,6 +30,8 @@ pub use types::{
     SemanticRun, SourceEdit, SourceOffset, SourceRange, SourceUtf16Offset, SourceUtf16Range,
     ViewChange, WikilinkCandidate, WikilinkCompletion, WikilinkDescription,
 };
+
+pub use link_target::external_link_url;
 
 pub use quick_open::{
     may_define_reference, quick_open, quick_open_cut, shown_projection, QuickOpen, QUICK_OPEN_BYTES,
