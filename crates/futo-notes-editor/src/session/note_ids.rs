@@ -7,6 +7,12 @@ use futo_notes_wikilinks::{note_id_leaf, WikilinkIndex};
 use std::collections::HashSet;
 
 impl EditorSession {
+    /// The note a tapped schemeless link destination names, among the delivered note ids, from
+    /// the folder of `current_id`; `None` when it names no note.
+    pub fn resolve_note_link(&self, current_id: &str, destination: &str) -> Option<String> {
+        crate::link_target::resolve_note_link(destination, current_id, &self.projection.catalog)
+    }
+
     /// Install the vault's current note ids. Source, display, selection, history
     /// and any composition are untouched, so this is valid while composing. Work
     /// is proportional to the id list plus the rows holding a link whose last

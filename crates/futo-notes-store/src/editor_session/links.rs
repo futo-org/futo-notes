@@ -23,6 +23,15 @@ impl StoreEditorSession<'_> {
         Ok(state.engine.update_note_ids(&ids))
     }
 
+    /// The note a tapped schemeless link destination names, from this note's folder, among the
+    /// ids delivered at open, at reset and on `refresh_note_ids`.
+    pub fn resolve_note_link(&self, destination: &str) -> Result<Option<String>, EditorStoreError> {
+        self.live(|state| {
+            let id = state.id.clone();
+            Ok(state.engine.resolve_note_link(&id, destination))
+        })
+    }
+
     pub fn inspect_link(
         &self,
         expected: Revision,
