@@ -6,8 +6,9 @@
     @testable import FutoNotesNative
 
     /// A plain tap on an image puts a collapsed caret right after it (see `placeCaretAfterImage`);
-    /// a long-press, a drag or select-all still select it as one object, and that selection's
-    /// caret is drawn at the image's trailing edge too.
+    /// a long-press, a drag or select-all still select it as one object, and that selection is
+    /// drawn as a selection (never as a caret, which looks like the collapsed one and is replaced
+    /// by the next keystroke).
     /// A finished tap at a fixed point, fed to the controller's own tap handler.
     final class FinishedTap: UITapGestureRecognizer {
         var point = CGPoint.zero
@@ -141,8 +142,6 @@
             // UIKit's long-press and drag handles land on the image's edges: it stays selected.
             h.tv.selectedRange = range
             #expect(h.tv.selectedRange == range)
-            #expect(h.controller.selectsWholeImage(h.tv.selectedRange))
-            #expect(!h.tv.imageCaret.isHidden)
             // A drag across it and select-all keep it inside the selection.
             let all = NSRange(location: 0, length: (h.tv.text as NSString).length)
             h.tv.selectedRange = all
@@ -151,27 +150,22 @@
             #expect(!h.source.contains(c.file), "\(h.source.debugDescription)")
         }
 
-        @Test(arguments: cases) func aSelectedImageCaretIsAtItsTrailingEdge(_ c: Case) async throws
-        {
+        @Test(arguments: cases) func aWholeImageSelectionIsDrawnAsASelection(_ c: Case) async {
             let (h, range, frame) = await open(c)
-            #expect(h.controller.imageHit(at: CGPoint(x: frame.midX, y: frame.midY)) == range)
-            h.tv.selectedRange = range
+            h.tv.selectedRange = NSRange(location: NSMaxRange(range), length: 0)
+            let collapsed = h.tv.caretRect(for: h.tv.selectedTextRange!.end)
+            #expect(abs(collapsed.minX - frame.maxX) <= 2, "\(collapsed) vs \(frame)")
+
             // Selected as an object (a long-press, say): the whole image is selected.
+            h.tv.selectedRange = range
+            h.tv.layoutIfNeeded()
             #expect(h.tv.selectedRange == range)
             #expect(h.controller.engineSelection == range)
-
-            let caret = h.tv.caretRect(for: h.tv.selectedTextRange!.end)
-            #expect(abs(caret.minX - frame.maxX) <= 2, "\(caret) vs \(frame)")
-            #expect(caret.minY >= frame.minY - 0.5 && caret.maxY <= frame.maxY + 0.5)
-            #expect(abs(caret.maxY - frame.maxY) <= 1, "bottom-aligned with the image's line")
-            #expect(caret.height <= ceil(TextFirstEditorController.bodyFont.lineHeight))
-
-            // UIKit's own selection (a bar and a handle on each edge) is not drawn: one caret is.
-            let rects = h.tv.selectionRects(for: h.tv.selectedTextRange!)
-            #expect(rects.isEmpty)
-            let drawn = try #require(h.tv.imageCaret.isHidden ? nil : h.tv.imageCaret.frame)
-            #expect(abs(drawn.minX - frame.maxX) <= 2)
-            #expect(drawn.minY >= frame.minY - 0.5 && drawn.maxY <= frame.maxY + 0.5)
+            // Something is highlighted, over the image: it does not look like the collapsed caret.
+            let rects = h.tv.selectionRects(for: h.tv.selectedTextRange!).map(\.rect)
+            #expect(!rects.isEmpty)
+            let covered = rects.reduce(CGRect.null) { $0.union($1) }
+            #expect(covered.width >= frame.width * 0.9, "\(covered) vs \(frame)")
             #expect(h.controller.divergences.isEmpty)
         }
 
@@ -183,7 +177,6 @@
             let caret = h.tv.caretRect(for: h.tv.selectedTextRange!.end)
             #expect(abs(caret.minX - frame.maxX) <= 2, "\(caret) vs \(frame)")
             #expect(abs(caret.maxY - frame.maxY) <= 1)
-            #expect(h.tv.imageCaret.isHidden)
         }
 
         @Test(arguments: cases) func theCaretLeavesTheImageEdgeOnceTextIsTypedAfterIt(_ c: Case)
@@ -196,7 +189,6 @@
             let at = (h.display as NSString).range(of: "![](\(c.file))x")
             #expect(at.location != NSNotFound, "\(h.display)")
             #expect(h.tv.selectedRange.length == 0)
-            #expect(h.tv.imageCaret.isHidden)
             let caret = h.tv.caretRect(for: h.tv.selectedTextRange!.end)
             let image = (h.display as NSString).range(of: "![](\(c.file))")
             #expect(NSMaxRange(image) + 1 == h.tv.selectedRange.location)
@@ -206,15 +198,23 @@
             #expect(h.controller.divergences.isEmpty)
         }
 
-        @Test func movingTheSelectionAwayFromAnImageRemovesItsCaret() async {
-            let (h, range, _) = await open(Self.cases[3])
-            h.tv.selectedRange = range
-            #expect(!h.tv.imageCaret.isHidden)
-            h.select(0, 0)
-            #expect(h.tv.imageCaret.isHidden)
-            // A partial selection that includes the image is UIKit's own.
-            h.select(0, NSMaxRange(range))
-            #expect(h.tv.imageCaret.isHidden)
+        @Test(arguments: cases) func markedTextAfterATapOnAnImageIsDrawnAsBodyText(
+            _ c: Case
+        ) async throws {
+            let (h, range, frame) = await open(c)
+            await tap(h, .centre, frame, after: NSMaxRange(range))
+            #expect(h.tv.selectedRange == NSRange(location: NSMaxRange(range), length: 0))
+            h.tv.setMarkedText("\u{3042}", selectedRange: NSRange(location: 1, length: 0))
+            let marked = try #require(h.tv.markedTextRange)
+            let at = h.tv.offset(from: h.tv.beginningOfDocument, to: marked.start)
+            let drawn = h.controller.storage.attributes(at: at, effectiveRange: nil)
+            let font = drawn[.font] as? UIFont
+            #expect(font?.pointSize == TextFirstEditorController.bodyFont.pointSize)
+            #expect((drawn[.foregroundColor] as? UIColor) == UIColor.label)
+            #expect(drawn[.kern] == nil)
+            h.tv.unmarkText()
+            #expect(h.source.contains("![](\(c.file))\u{3042}"), "\(h.source.debugDescription)")
+            #expect(h.controller.divergences.isEmpty)
         }
     }
 #endif

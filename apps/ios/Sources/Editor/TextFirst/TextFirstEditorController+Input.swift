@@ -68,11 +68,11 @@
         func textViewDidChangeSelection(_ textView: UITextView) {
             // The touch has placed its caret; what UIKit asks about from here on is on screen.
             self.textView.fingerIsDown = false
-            self.textView.updateImageCaret()
             invalidateMarkerHighlights(old: lastDrawnSelection, new: textView.selectedRange)
             lastDrawnSelection = textView.selectedRange
             if assertTrailingTypingAttributes() { invalidateLastParagraph() }
             syncEmptyLineTypingAttributes()
+            syncImageTypingAttributes()
             if opening {
                 // The keyboard reads the caret at once; the engine takes it when it lands.
                 if applying == 0, !closed { queueSelectionWhileOpening(textView.selectedRange) }

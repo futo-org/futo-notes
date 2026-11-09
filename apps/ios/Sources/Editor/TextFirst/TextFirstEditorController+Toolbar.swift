@@ -45,7 +45,7 @@
             guard textView.selectedRange.length == 0 else { return }
             var attributes = textView.typingAttributes
             // After an image the view offers its hidden glyphs' attributes; text typed there is plain.
-            if attributes[.tfImage] != nil { attributes = Self.baseAttributes }
+            attributes = Self.withoutImageSpelling(attributes)
             let base = (attributes[.font] as? UIFont) ?? Self.bodyFont
             var traits = base.fontDescriptor.symbolicTraits
             if active.contains("bold") {

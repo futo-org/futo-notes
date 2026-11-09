@@ -254,6 +254,33 @@
             return (run, span)
         }
 
+        /// A caret just after an image is offered the hidden spelling's attributes (0.01 pt, clear,
+        /// widened by the image's kern), and UIKit drops the `.tfImage` key from them, so they
+        /// cannot be recognised by it. Marked text (an IME's composition, dictation) is drawn with
+        /// them until it is committed, so it is invisible. The look is the image's, never the text's.
+        func syncImageTypingAttributes() {
+            let caret = textView.selectedRange
+            guard caret.length == 0, image(endingAt: caret.location) != nil else { return }
+            textView.typingAttributes = Self.withoutImageSpelling(textView.typingAttributes)
+        }
+
+        /// `attributes` without what hides an image's spelling; anything else (a toolbar toggle's
+        /// bold, a paragraph's indent) is kept.
+        static func withoutImageSpelling(_ attributes: [NSAttributedString.Key: Any])
+            -> [NSAttributedString.Key: Any]
+        {
+            var plain = attributes
+            if let font = plain[.font] as? UIFont, font.pointSize <= 1 {
+                plain[.font] = bodyFont
+            }
+            if (plain[.foregroundColor] as? UIColor) == UIColor.clear {
+                plain[.foregroundColor] = baseAttributes[.foregroundColor]
+            }
+            plain[.kern] = nil
+            plain[.tfImage] = nil
+            return plain
+        }
+
         /// Where a caret just after an image's hidden spelling is drawn: against the image's
         /// trailing edge, as tall as a line of text and level with the bottom of the image's line,
         /// where the text typed after it sits. Only the drawing: the position is the one UIKit
@@ -282,14 +309,6 @@
                 x: rect.maxX + inset.left,
                 y: rect.maxY - height + f.layoutFragmentFrame.minY + inset.top,
                 width: width, height: height)
-        }
-
-        /// `range` is exactly one image: what a long-press or drag over an image selects.
-        func selectsWholeImage(_ range: NSRange) -> Bool {
-            guard range.length > 0, let found = image(endingAt: NSMaxRange(range)) else {
-                return false
-            }
-            return found.range == range
         }
 
         /// The first visible line and how far into view it was, so an image that grows above

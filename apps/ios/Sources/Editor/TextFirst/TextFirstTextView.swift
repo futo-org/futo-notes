@@ -33,54 +33,8 @@
             }
         }
 
-        // MARK: image caret
-        //
-        // An image selected as one object (a long-press, a drag, select-all; a plain tap is a
-        // collapsed caret, see `placeCaretAfterImage`) is drawn by UIKit as a bar and a handle on
-        // each edge of the image. It is drawn as one caret against the
-        // image's trailing edge instead, which is where the text typed next lands. The selection
-        // itself is untouched; `selectionRects` gives UIKit nothing to draw.
-
-        private(set) lazy var imageCaret: UIView = {
-            let caret = UIView()
-            caret.isUserInteractionEnabled = false
-            caret.isHidden = true
-            addSubview(caret)
-            return caret
-        }()
-
-        /// Show, move or hide the caret for a selection that is exactly one image.
-        func updateImageCaret() {
-            guard isFirstResponder, markedTextRange == nil, let controller,
-                controller.selectsWholeImage(selectedRange),
-                let rect = controller.imageTrailingCaret(
-                    at: NSMaxRange(selectedRange), width: 2)
-            else {
-                if imageCaret.isHidden { return }
-                imageCaret.layer.removeAllAnimations()
-                imageCaret.isHidden = true
-                return
-            }
-            imageCaret.backgroundColor = tintColor
-            imageCaret.layer.cornerRadius = rect.width / 2
-            imageCaret.frame = rect
-            guard imageCaret.isHidden else { return }
-            imageCaret.isHidden = false
-            if !UIAccessibility.isReduceMotionEnabled {
-                // On for half a second, off for half a second; the layer itself stays opaque.
-                let blink = CAKeyframeAnimation(keyPath: "opacity")
-                blink.values = [1, 1, 0, 0]
-                blink.keyTimes = [0, 0.5, 0.5, 1]
-                blink.calculationMode = .discrete
-                blink.duration = 1
-                blink.repeatCount = .infinity
-                imageCaret.layer.add(blink, forKey: "blink")
-            }
-        }
-
         override func layoutSubviews() {
             super.layoutSubviews()
-            updateImageCaret()
             controller?.images.widthChanged()
             controller?.tablesWidthChanged()
             controller?.cellEditor?.reposition()
@@ -150,14 +104,6 @@
             if fingerIsDown, let side = side(of: range.start), side == self.side(of: range.end) {
                 return []
             }
-            if let controller,
-                controller.selectsWholeImage(
-                    NSRange(
-                        location: offset(from: beginningOfDocument, to: range.start),
-                        length: offset(from: range.start, to: range.end)))
-            {
-                return []
-            }
             return super.selectionRects(for: range)
         }
 
@@ -193,15 +139,11 @@
 
         @discardableResult override func becomeFirstResponder() -> Bool {
             if controller?.suppressFocus == true { return false }
-            let became = super.becomeFirstResponder()
-            updateImageCaret()
-            return became
+            return super.becomeFirstResponder()
         }
 
         @discardableResult override func resignFirstResponder() -> Bool {
-            let resigned = super.resignFirstResponder()
-            updateImageCaret()
-            return resigned
+            return super.resignFirstResponder()
         }
 
         override func unmarkText() {
