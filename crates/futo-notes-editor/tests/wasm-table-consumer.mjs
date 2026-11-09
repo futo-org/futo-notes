@@ -45,8 +45,6 @@ const below = cell(1, 0);
 accept(session.table_command_utf16(revision, below.start, below.end, 'InsertRowBelow'));
 assert.equal(session.draft_text().split('\n').length, 6);
 assert.throws(() => session.inspect_table_utf16(revision, 0, 10_000));
-session.free();
-
 // Clearing an edge cell repairs only its outer border; the same cell accepts
 // the next native-unit input and exact history survives the worker boundary.
 const edgeSource = 'Item | Owner\n:--- | ---';
@@ -84,4 +82,6 @@ const reopenedEdge = new WasmSession(3n, edge.draft_text(), 0n);
 assert.deepEqual(JSON.parse(reopenedEdge.inspect_table(0n, 2, 2)).focus, { row: 0, column: 0 });
 reopenedEdge.free();
 edge.free();
+session.free();
+
 console.log('Compiled WASM tables: inspect, cell paste, row command and Tab key passed.');
