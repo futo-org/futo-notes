@@ -87,6 +87,9 @@
 
         /// Display UTF-16 units already styled (the rest of a long note follows in slices).
         var styledThrough = 0
+        /// The block facts of the note's empty last line (nil when its last line has text or no
+        /// block): the extra line fragment has no characters to carry them.
+        var trailingBlock: TextFirstBlockAttribute?
         var styleSlicePending = false
         /// The toolbar's lit and dimmed ids, from the engine's selection state.
         let toolbarState = WebEditorToolbarState()

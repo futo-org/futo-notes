@@ -15,13 +15,65 @@
             images: TextFirstImages
         ) {
             let length = storage.length
-            guard window.location < length else { return }
+            // A window may start at the very end: the note's empty last line has no characters.
+            guard window.location <= length else { return }
             let window = NSRange(
                 location: window.location, length: min(window.length, length - window.location))
-            storage.beginEditing()
-            storage.setAttributes(TextFirstEditorController.baseAttributes, range: window)
-            for spec in specs { apply(spec, to: storage, length: length, images: images) }
-            storage.endEditing()
+            if window.length > 0 {
+                storage.beginEditing()
+                storage.setAttributes(TextFirstEditorController.baseAttributes, range: window)
+                for spec in specs { apply(spec, to: storage, length: length, images: images) }
+                storage.endEditing()
+            }
+            if NSMaxRange(window) == length {
+                images.controller?.setTrailingBlock(trailingBlock(specs, length: length))
+            }
+        }
+
+        /// The block facts of an empty last line. It has no character to carry attributes, and
+        /// TextKit lays it out as the extra line fragment, so the engine's zero-length spans at the
+        /// very end of the note are its only record.
+        private static func trailingBlock(_ specs: [EditorStyleSpan], length: Int)
+            -> TextFirstBlockAttribute?
+        {
+            var block: TextFirstBlockAttribute?
+            func here(_ start: UInt64, _ end: UInt64) -> TextFirstBlockAttribute? {
+                guard Int(start) == length, Int(end) == length else { return nil }
+                block = block ?? TextFirstBlockAttribute()
+                return block
+            }
+            for spec in specs {
+                switch spec {
+                case .quote(let start, let end, let depth):
+                    here(start, end)?.quoteDepth = Int(depth)
+                case .listRow(
+                    let start, let end, let depth, let marker, let number, let checked, let first):
+                    if let b = here(start, end) {
+                        b.list = (Int(depth), marker, number, checked)
+                        b.showsMarker = first
+                    }
+                case .code(let start, let end):
+                    here(start, end)?.code = true
+                default: break
+                }
+            }
+            return block
+        }
+
+        /// What the first character typed on an empty last line is: the paragraph and font its
+        /// block gives it. UIKit lays the extra line out with these, so its height and the caret's
+        /// indent are the typed line's, and the line does not change shape on the first keystroke.
+        static func typingAttributes(for block: TextFirstBlockAttribute) -> [NSAttributedString.Key:
+            Any]
+        {
+            var attributes = TextFirstEditorController.baseAttributes
+            attributes[.tfBlock] = block
+            if block.list != nil || block.quoteDepth > 0 {
+                attributes[.paragraphStyle] = paragraphStyle(for: block)
+            }
+            if block.quoteDepth > 0 { attributes[.foregroundColor] = UIColor.secondaryLabel }
+            if block.code { attributes[.font] = mono }
+            return attributes
         }
 
         private static func range(_ start: UInt64, _ end: UInt64, _ length: Int) -> NSRange? {
@@ -128,7 +180,15 @@
 
         /// Head indent from the line's quote depth and list depth (the markers live in the gutter).
         private static func indent(_ storage: NSTextStorage, _ r: NSRange) {
-            let b = block(storage, r)
+            storage.addAttribute(
+                .paragraphStyle, value: paragraphStyle(for: block(storage, r)), range: r)
+        }
+
+        /// The paragraph style of a quote or list line: its head indent from the quote depth and
+        /// list depth.
+        private static func paragraphStyle(for b: TextFirstBlockAttribute)
+            -> NSMutableParagraphStyle
+        {
             var indent = TextFirstMetrics.quoteIndent(depth: b.quoteDepth)
             if let list = b.list { indent += TextFirstMetrics.listIndent(depth: list.depth) }
             let paragraph = NSMutableParagraphStyle()
@@ -141,7 +201,7 @@
             }
             paragraph.firstLineHeadIndent = indent
             paragraph.headIndent = indent
-            storage.addAttribute(.paragraphStyle, value: paragraph, range: r)
+            return paragraph
         }
 
         private static func restyleFont(
