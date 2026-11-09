@@ -30,11 +30,11 @@ fn backspace_can_empty_a_nested_item_before_a_sibling() {
         .unwrap()
         .expect("delete the next letter");
     }
-    assert_eq!(s.source_text(), "- What about\n\n  - \n  - Elements");
+    assert_eq!(s.source_text(), "- What about\n  - \n  - Elements");
     s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
     assert_eq!(s.source_text(), "- What about\n  - N\n  - Elements");
     s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
-    assert_eq!(s.source_text(), "- What about\n\n  - \n  - Elements");
+    assert_eq!(s.source_text(), "- What about\n  - \n  - Elements");
 }
 
 #[test]
@@ -127,11 +127,11 @@ fn nested_backspace_retires_the_item_into_the_immediate_preceding_container() {
 }
 
 #[test]
-fn ambiguous_empty_nested_marker_remains_a_setext_heading() {
+fn an_empty_nested_marker_under_an_item_is_an_item_not_a_setext_underline() {
     let s = EditorSession::open("- a\n  - ");
-    assert_eq!(s.display_text(), "a");
+    assert_eq!(s.display_text(), "a\n");
     let p = s.project(s.revision(), range(0, 1)).unwrap();
-    assert_eq!(p.blocks[0].heading, 2);
+    assert_eq!(p.blocks[0].heading, 0);
 }
 
 #[test]
