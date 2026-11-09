@@ -527,3 +527,57 @@ fn every_window_of_a_mixed_note_matches_the_whole_plan() {
         "# H 😀 *em* **b** `c`\n\n- abc 😀 def\n  continued 😀 here\n- [x] done [😀](http://x)\n  1. nested\n\n> quote 😀\n> - in quote **x**\n\n```rust\nlet 😀 = 1;\n\nfn a() {}\n```\n\nsee [[known]] and [[nope]]\r\ncrlf **line** 日本\r\n\r\n---\n",
     );
 }
+
+#[test]
+fn every_window_of_a_crlf_note_matches_the_whole_plan() {
+    // Windows ending between a `\r` and its `\n` included.
+    assert_windows_match_the_whole("- 😀\r\n- \r\n- b\r\n");
+    assert_windows_match_the_whole("> q 😀\r\n> \r\n> r\r\n\r\n# h\r\n");
+}
+
+#[test]
+fn a_crlf_line_owns_its_whole_break_so_an_empty_row_has_a_span() {
+    // An empty row is only its line break: a span that stops before the `\r` is zero-length, and
+    // the host never styles it.
+    let (display, spans) = plan("- [ ] a\r\n- [ ] \r\n- [ ] b");
+    assert_eq!(display, "a\r\n\r\nb");
+    let rows: Vec<_> = spans
+        .iter()
+        .filter_map(|s| match s {
+            StyleSpec::ListRow { start, end, .. } => Some((*start, *end)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(rows, vec![(0, 3), (3, 5), (5, 6)]);
+    let (display, spans) = plan("> a\r\n> \r\n> b");
+    assert_eq!(display, "a\r\n\r\nb");
+    let quotes: Vec<_> = spans
+        .iter()
+        .filter_map(|s| match s {
+            StyleSpec::Quote { start, end, .. } => Some((*start, *end)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(quotes, vec![(0, 3), (3, 5), (5, 6)]);
+}
+
+#[test]
+fn an_empty_last_row_is_a_zero_length_span_at_the_end_of_the_display() {
+    // No line break follows it, so it stays zero-length: the host draws it from the span's
+    // marker facts, not its range.
+    let (display, spans) = plan("abc\r\n- [ ] ");
+    assert_eq!(display, "abc\r\n");
+    assert!(spans.iter().any(|s| matches!(
+        s,
+        StyleSpec::ListRow {
+            start: 5,
+            end: 5,
+            marker: ListMarker::Task,
+            first: true,
+            ..
+        }
+    )));
+    let (display, spans) = plan("```\n");
+    assert_eq!(display, "");
+    assert!(spans.contains(&StyleSpec::Code { start: 0, end: 0 }));
+}
