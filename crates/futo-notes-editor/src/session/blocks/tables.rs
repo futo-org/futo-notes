@@ -8,9 +8,10 @@ use crate::{
 };
 use std::ops::Range;
 
+mod input;
+mod keys;
 #[cfg(test)]
 mod differential;
-mod keys;
 
 struct Window {
     base: usize,
