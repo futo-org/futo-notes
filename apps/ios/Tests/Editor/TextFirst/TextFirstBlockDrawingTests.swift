@@ -252,7 +252,7 @@
             let h = TextFirstHarness("- a\n- b\n")
             h.select(3, 3)
             #expect(h.controller.paragraphKey(.tab, onlyIfChanged: true))
-            #expect(h.source.hasPrefix("- a\n  - b"))
+            #expect(h.source.hasPrefix("- a\n\t- b"))
             #expect(block(h, atLineStartingWith: "b")?.list?.depth == 1)
             #expect(h.controller.paragraphKey(.shiftTab, onlyIfChanged: true))
             #expect(h.source.hasPrefix("- a\n- b"))
