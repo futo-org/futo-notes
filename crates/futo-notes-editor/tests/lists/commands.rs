@@ -418,13 +418,13 @@ fn an_empty_item_indents_under_its_siblings_text_with_no_blank_line() {
     // The parser reads an empty marker indented under a list item as an empty
     // nested item, not a setext underline, so Indent writes only the indent.
     for (source, indented) in [
-        ("- a\n- ", "- a\n  - "),
-        ("* item 1\n  * item 2\n  * ", "* item 1\n  * item 2\n    * "),
+        ("- a\n- ", "- a\n\t- "),
+        ("* item 1\n  * item 2\n  * ", "* item 1\n  * item 2\n\t* "),
         // Ordered lists start the new level at 1; the outdent renumbers.
-        ("3. a\n4. ", "3. a\n   1. "),
-        ("- [ ] a\n- [ ] ", "- [ ] a\n  - [ ] "),
-        ("- a\r\n- ", "- a\r\n  - "),
-        ("> - a\n> - ", "> - a\n>   - "),
+        ("3. a\n4. ", "3. a\n\t1. "),
+        ("- [ ] a\n- [ ] ", "- [ ] a\n\t- [ ] "),
+        ("- a\r\n- ", "- a\r\n\t- "),
+        ("> - a\n> - ", "> - a\n> \t- "),
     ] {
         let (got, _, back) = indent_cycle(source);
         assert_eq!(got, indented, "{source:?}");
@@ -462,5 +462,5 @@ fn text_typed_after_indenting_an_empty_item_lands_at_the_written_depth() {
         &mut |_| Ok(()),
     )
     .unwrap();
-    assert_eq!(s.source_text(), "- a\n  - x");
+    assert_eq!(s.source_text(), "- a\n\t- x");
 }

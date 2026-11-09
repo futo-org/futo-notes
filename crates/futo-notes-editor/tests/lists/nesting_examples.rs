@@ -18,14 +18,15 @@ fn type_text(s: &mut EditorSession, text: &str) {
 #[test]
 fn enter_then_indent_then_typing_lands_in_the_new_nested_item() {
     for (start, nested) in [
-        ("- a", "- a\n  - b"),
-        ("* a", "* a\n  * b"),
-        ("1. a", "1. a\n   1. b"),
-        ("- [ ] a", "- [ ] a\n  - [ ] b"),
-        ("- a\n- b", "- a\n- b\n  - c"),
-        ("- a\n  - b", "- a\n  - b\n    - c"),
-        ("> - a", "> - a\n>   - b"),
-        ("- a\n\t- b", "- a\n\t- b\n      - c"),
+        ("- a", "- a\n\t- b"),
+        ("* a", "* a\n\t* b"),
+        ("1. a", "1. a\n\t1. b"),
+        ("- [ ] a", "- [ ] a\n\t- [ ] b"),
+        ("- a\n- b", "- a\n- b\n\t- c"),
+        ("- a\n\t- b", "- a\n\t- b\n\t\t- c"),
+        ("> - a", "> - a\n> \t- b"),
+        // A space-indented parent: the new level is still a tab.
+        ("- a\n  - b", "- a\n  - b\n\t- c"),
     ] {
         let mut s = at_end(start);
         let typed = if start.ends_with('b') { "c" } else { "b" };
@@ -64,17 +65,17 @@ fn enter_then_indent_then_typing_lands_in_the_new_nested_item() {
 #[test]
 fn indent_in_a_quoted_list_puts_the_tab_after_the_quote_markers() {
     for (source, caret, nested, un_nested) in [
-        ("> - a\n> - b", "b", "> - a\n>   - b", "> - a\n> - b"),
+        ("> - a\n> - b", "b", "> - a\n> \t- b", "> - a\n> - b"),
         (
             "> > 1. a\n> > 2. b",
             "b",
-            "> > 1. a\n> >    1. b",
+            "> > 1. a\n> > \t1. b",
             "> > 1. a\n> > 2. b",
         ),
         (
             "> - [ ] a\n> - [ ] b",
             "b",
-            "> - [ ] a\n>   - [ ] b",
+            "> - [ ] a\n> \t- [ ] b",
             "> - [ ] a\n> - [ ] b",
         ),
         ("> - a\n> \t- b", "b", "", "> - a\n> - b"),
@@ -158,15 +159,21 @@ fn nesting_an_ordered_item_renumbers_the_new_sub_list_and_the_siblings_that_rema
     let mut s = EditorSession::open("1. a\n2. b\n3. c\n4. d");
     caret_in(&mut s, "c");
     command(&mut s, BlockCommand::Indent).unwrap();
-    assert_eq!(s.source_text(), "1. a\n2. b\n   1. c\n3. d");
+    assert_eq!(s.source_text(), "1. a\n2. b\n\t1. c\n3. d");
     caret_in(&mut s, "b");
     command(&mut s, BlockCommand::Indent).unwrap();
-    assert_eq!(s.source_text(), "1. a\n   1. b\n      1. c\n2. d");
-    // Un-nesting renumbers the outer list and the children left behind.
-    let mut s = EditorSession::open("1. a\n   1. b\n   2. c\n2. d");
-    caret_in(&mut s, "b");
-    command(&mut s, BlockCommand::Outdent).unwrap();
-    assert_eq!(s.source_text(), "1. a\n2. b\n   1. c\n3. d");
+    assert_eq!(s.source_text(), "1. a\n\t1. b\n\t\t1. c\n2. d");
+    // Un-nesting renumbers the outer list and the children left behind, whether
+    // the lines are indented with tabs or, in an older note, with spaces.
+    for (source, outdented) in [
+        ("1. a\n\t1. b\n\t2. c\n2. d", "1. a\n2. b\n\t1. c\n3. d"),
+        ("1. a\n   1. b\n   2. c\n2. d", "1. a\n2. b\n   1. c\n3. d"),
+    ] {
+        let mut s = EditorSession::open(source);
+        caret_in(&mut s, "b");
+        command(&mut s, BlockCommand::Outdent).unwrap();
+        assert_eq!(s.source_text(), outdented, "{source:?}");
+    }
 }
 
 #[test]
@@ -205,37 +212,35 @@ fn a_caret_after_a_surrogate_pair_keeps_its_utf16_offset_through_indent_and_outd
 fn nested_ordered_lists_nest_to_any_depth_and_mix_with_bullets_and_tasks() {
     // (source, item, source after Indent, the item's list depth after Indent)
     for (source, item, nested, depth) in [
-        ("1. a\n2. b\n3. c", "b", "1. a\n   1. b\n2. c", 2),
-        ("- x\n  1. a\n  2. b", "b", "- x\n  1. a\n     1. b", 3),
-        ("1. x\n   - a\n   - b", "b", "1. x\n   - a\n     - b", 3),
+        ("1. a\n2. b\n3. c", "b", "1. a\n\t1. b\n2. c", 2),
+        ("- x\n\t1. a\n\t2. b", "b", "- x\n\t1. a\n\t\t1. b", 3),
+        ("1. x\n\t- a\n\t- b", "b", "1. x\n\t- a\n\t\t- b", 3),
         (
-            "1. x\n   - [ ] a\n   - [ ] b",
+            "1. x\n\t- [ ] a\n\t- [ ] b",
             "b",
-            "1. x\n   - [ ] a\n     - [ ] b",
+            "1. x\n\t- [ ] a\n\t\t- [ ] b",
             3,
         ),
+        ("1. x\n\t1. a\n\t2. b", "b", "1. x\n\t1. a\n\t\t1. b", 3),
         (
-            "1. x\n   1. a\n   2. b",
+            "- x\n\t- y\n\t\t1. a\n\t\t2. b",
             "b",
-            "1. x\n   1. a\n      1. b",
-            3,
-        ),
-        (
-            "- x\n  - y\n    1. a\n    2. b",
-            "b",
-            "- x\n  - y\n    1. a\n       1. b",
+            "- x\n\t- y\n\t\t1. a\n\t\t\t1. b",
             4,
         ),
+        // An older note's space-indented lines gain a tab only on the moved item.
+        ("- x\n  1. a\n  2. b", "b", "- x\n  1. a\n\t\t1. b", 3),
+        // A number's content column pushes a quoted sub-list a second tab stop out.
         (
             "> 1. a\n> 2. b\n> 3. c",
             "b",
-            "> 1. a\n>    1. b\n> 2. c",
+            "> 1. a\n> \t\t1. b\n> 2. c",
             2,
         ),
         (
-            "> 1. a\n>    1. b\n>    2. c",
+            "> 1. a\n> \t\t1. b\n> \t\t2. c",
             "c",
-            "> 1. a\n>    1. b\n>       1. c",
+            "> 1. a\n> \t\t1. b\n> \t\t\t1. c",
             3,
         ),
     ] {
@@ -278,6 +283,22 @@ fn outdenting_a_nested_ordered_item_rejoins_the_parent_list_and_keeps_its_follow
             "> 1. a\n>    1. b\n>    2. c",
             "b",
             "> 1. a\n> 2. b\n>    1. c",
+        ),
+        // The same with tab-indented lines, CRLF and quotes.
+        (
+            "- a\n\t- b\n\t\t- b1\n\t- c",
+            "b",
+            "- a\n- b\n\t- b1\n\t- c",
+        ),
+        (
+            "1. a\n\t1. b\n\t\t1. b1\n\t2. c",
+            "b",
+            "1. a\n2. b\n\t1. b1\n\t2. c",
+        ),
+        (
+            "> 1. a\r\n> \t\t1. b\r\n> \t\t2. c",
+            "b",
+            "> 1. a\r\n> 2. b\r\n> \t\t1. c",
         ),
         // The item's own children and its followers form one list under it.
         (
@@ -324,13 +345,13 @@ fn a_selection_across_an_items_code_block_nests_the_whole_item() {
         s.select(s.revision(), range(a, b)).unwrap();
     };
     let fenced = "- a\n- b\n  ```\n  x\n  ```\n- c";
-    let nested = "- a\n  - b\n    ```\n    x\n    ```\n  - c";
+    let nested = "- a\n\t- b\n\t  ```\n\t  x\n\t  ```\n\t- c";
     for (source, to, indented, outdented) in [
         (fenced, "c", Some(nested), None),
         (
             fenced,
             "x",
-            Some("- a\n  - b\n    ```\n    x\n    ```\n- c"),
+            Some("- a\n\t- b\n\t  ```\n\t  x\n\t  ```\n- c"),
             None,
         ),
         (nested, "c", None, Some(fenced)),

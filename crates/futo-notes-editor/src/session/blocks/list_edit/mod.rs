@@ -95,7 +95,7 @@ pub(super) struct Row {
     /// The intended row is an unlisted empty paragraph.
     pub exact_blank: bool,
     /// An empty item the command wrote (a blank row turned into one, a typed
-    /// bare marker, an indented empty item): it may take a separating blank line.
+    /// bare marker): it may take a separating blank line.
     pub from_blank: bool,
     /// Start number for an ordered row that begins a list.
     pub start: Option<u64>,
@@ -105,6 +105,9 @@ pub(super) struct Row {
     pub key: usize,
     /// Respell even when the shape is unchanged.
     pub forced: bool,
+    /// A respelled row spells its indentation with tabs (up to the last tab
+    /// stop) rather than spaces: its source did, or Indent moved it.
+    pub tabs: bool,
     escape: bool,
     escapable: bool,
     insert: Insert,
@@ -215,6 +218,7 @@ impl EditorSession {
                 pinned: false,
                 key,
                 forced: false,
+                tabs: false,
                 escape: false,
                 escapable: false,
                 insert: Insert::None,
@@ -427,6 +431,7 @@ fn eof_row(len: usize, index: usize, selected: bool) -> Row {
         pinned: false,
         key: usize::MAX - index,
         forced: false,
+        tabs: false,
         escape: false,
         escapable: false,
         insert: Insert::None,

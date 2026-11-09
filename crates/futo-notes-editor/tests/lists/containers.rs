@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn indent_nests_only_the_selected_item_and_preserves_exact_foreign_spelling() {
     let raw = "* parent\r\n* __child__\r\n* neighbor  ";
-    let expected = "* parent\r\n  * __child__\r\n* neighbor  ";
+    let expected = "* parent\r\n\t* __child__\r\n* neighbor  ";
     let shown = "parent\r\nchild\r\nneighbor  ";
     let mut s = EditorSession::open(raw);
     let mut view = ReferenceView::new(shown);
@@ -37,7 +37,7 @@ fn indent_nests_only_the_selected_item_and_preserves_exact_foreign_spelling() {
 
 #[test]
 fn indent_and_outdent_nest_a_quoted_list_item_inside_its_quote() {
-    for (raw, expected) in [("> - a\n> - b", "> - a\n>   - b")] {
+    for (raw, expected) in [("> - a\n> - b", "> - a\n> \t- b")] {
         let selected = range(2, 3);
         let mut s = EditorSession::open(raw);
         let mut view = ReferenceView::new("a\nb");
@@ -219,7 +219,7 @@ fn non_one_ordered_text_without_a_separator_remains_a_parent_paragraph() {
         .unwrap()
         .unwrap(),
     );
-    assert_eq!(s.source_text(), "1) parent\n   4) existing\n   1) child");
+    assert_eq!(s.source_text(), "1) parent\n   4) existing\n\t1) child");
     assert_eq!(view.text, shown);
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), source);

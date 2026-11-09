@@ -67,6 +67,13 @@ impl EditorSession {
             rows[item].chain[depth - 2].map(|parent| (rows[parent].before.marker, rows[parent].key))
         };
         for row in rows.iter_mut() {
+            // Tab-indented lines stay tab-indented; Indent nests with tabs.
+            row.tabs = self
+                .source
+                .byte_slice(row.quote_end.min(row.body.start)..row.body.start)
+                .chars()
+                .take_while(|ch| matches!(ch, ' ' | '\t'))
+                .any(|ch| ch == '\t');
             if !row
                 .chain
                 .iter()
@@ -74,6 +81,7 @@ impl EditorSession {
             {
                 continue;
             }
+            row.tabs |= command == BlockCommand::Indent;
             if command == BlockCommand::Indent {
                 row.after.depth += 1;
             } else {

@@ -37,24 +37,24 @@ fn indent_at_end(source: &str) -> String {
 #[test]
 fn an_empty_item_under_a_multi_line_sibling_indents_with_no_blank_line() {
     for (source, indented) in [
-        ("- a\n  continuation\n- ", "- a\n  continuation\n  - "),
+        ("- a\n  continuation\n- ", "- a\n  continuation\n\t- "),
         // A lazy continuation line and a hard break are still the sibling's paragraph.
-        ("- a\ncontinuation\n- ", "- a\ncontinuation\n  - "),
-        ("- a  \n  b\n- ", "- a  \n  b\n  - "),
-        ("- a\n\n  b\n  c\n- ", "- a\n\n  b\n  c\n  - "),
+        ("- a\ncontinuation\n- ", "- a\ncontinuation\n\t- "),
+        ("- a  \n  b\n- ", "- a  \n  b\n\t- "),
+        ("- a\n\n  b\n  c\n- ", "- a\n\n  b\n  c\n\t- "),
         (
             "- a\n\n  | h | i |\n  | - | - |\n  | 1 | 2 |\n- ",
-            "- a\n\n  | h | i |\n  | - | - |\n  | 1 | 2 |\n  - ",
+            "- a\n\n  | h | i |\n  | - | - |\n  | 1 | 2 |\n\t- ",
         ),
         (
             "- | h | i |\n  | - | - |\n  | 1 | 2 |\n- ",
-            "- | h | i |\n  | - | - |\n  | 1 | 2 |\n  - ",
+            "- | h | i |\n  | - | - |\n  | 1 | 2 |\n\t- ",
         ),
         // Four spaces after an item's content column are a paragraph continuation, not code.
-        ("- a\n    indented code\n- ", "- a\n    indented code\n  - "),
-        ("> - a\n>   b\n> - ", "> - a\n>   b\n>   - "),
-        ("- a\r\n  b\r\n- ", "- a\r\n  b\r\n  - "),
-        ("1. a\n   b\n2. ", "1. a\n   b\n   1. "),
+        ("- a\n    indented code\n- ", "- a\n    indented code\n\t- "),
+        ("> - a\n>   b\n> - ", "> - a\n>   b\n> \t- "),
+        ("- a\r\n  b\r\n- ", "- a\r\n  b\r\n\t- "),
+        ("1. a\n   b\n2. ", "1. a\n   b\n\t1. "),
     ] {
         assert_eq!(indent_at_end(source), indented, "{source:?}");
     }
