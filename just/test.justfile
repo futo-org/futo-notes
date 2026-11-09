@@ -126,20 +126,17 @@ bench-vault *args:
 remote-sync *flags:
   node scripts/remote-test.mjs "$@" test-cross-platform
 
-# The normal pre-merge umbrella: specs, arch gates, Rust conformance, lint, tests, build.
-check: check-node-modules check-node-version _require-node-modules toolbar-spec-check title-spec-check coin-check arch-gate lint-swift test-rust rust-format-check rust-lint
-  #!/usr/bin/env bash
-  # pipefail: see `build:` above — a failing tsc/vite build must not hide behind `| tail`.
-  set -euo pipefail
-  pnpm run lint
-  pnpm run check:svelte
-  pnpm run format:check
-  pnpm run test:full
-  pnpm exec tsc --noEmit | head -30
-  pnpm run build | tail -20
+# The normal pre-merge umbrella, scoped to what your branch changed vs origin/main (plan printed first).
+# Scope rules: scripts/check-scoped.mjs. `--plan` prints the plan without running it.
+check *flags: check-node-modules check-node-version _require-node-modules toolbar-spec-check title-spec-check coin-check lint-swift
+  node scripts/check-scoped.mjs "$@"
 
-# Maximal pre-push gate: `check` + full Rust workspace + full E2E + cross-platform sync.
-prepush: check test-rust-full
+# Every check whatever changed: specs, arch gates, Rust conformance, lint, tests, build.
+check-full: check-node-modules check-node-version _require-node-modules toolbar-spec-check title-spec-check coin-check lint-swift
+  node scripts/check-scoped.mjs --full
+
+# Maximal pre-push gate: `check-full` + full Rust workspace + full E2E + cross-platform sync.
+prepush: check-full test-rust-full
   #!/usr/bin/env bash
   set -euo pipefail
   # --retries=1 absorbs the local 30s timeout's flakes, not real bugs; see justfile-notes.md.
