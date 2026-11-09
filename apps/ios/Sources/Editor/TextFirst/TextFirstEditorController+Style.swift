@@ -128,14 +128,40 @@
             trailingBlock = block
             if block != nil {
                 _ = assertTrailingTypingAttributes()
-            } else if wasSet && caretIsAtEnd {
-                // UIKit offers what the character before the caret has.
-                textView.typingAttributes =
-                    storage.length > 0
-                    ? storage.attributes(at: storage.length - 1, effectiveRange: nil)
-                    : Self.baseAttributes
+            } else if wasSet {
+                syncEmptyLineTypingAttributes()
             }
             invalidateLastParagraph()
+        }
+
+        /// A caret on an empty line starts the line it types: UIKit offers the previous line's
+        /// attributes there, so a line that has just stopped being a list item or quote (Enter or
+        /// Backspace on its empty marker) would draw its caret, and start its first character, at
+        /// the old head indent. The line's own paragraph style is the one its `\n` carries; the
+        /// note's empty last line has none, and is a plain paragraph unless `trailingBlock` says
+        /// otherwise. Only the block's attributes change, so a toolbar toggle (bold) stays.
+        func syncEmptyLineTypingAttributes() {
+            let caret = textView.selectedRange
+            guard caret.length == 0, !(caret.location == storage.length && trailingBlock != nil)
+            else { return }
+            let text = storage.string as NSString
+            func isBreak(_ i: Int) -> Bool { [10, 13].contains(text.character(at: i)) }
+            guard caret.location == 0 || isBreak(caret.location - 1),
+                caret.location == text.length || isBreak(caret.location)
+            else { return }
+            let line =
+                caret.location == text.length
+                ? Self.baseAttributes
+                : storage.attributes(at: caret.location, effectiveRange: nil)
+            var typing = textView.typingAttributes
+            let style = line[.paragraphStyle] as? NSParagraphStyle
+            guard
+                (typing[.paragraphStyle] as? NSParagraphStyle) != style
+                    || (typing[.tfBlock] != nil && line[.tfBlock] == nil)
+            else { return }
+            typing[.paragraphStyle] = style
+            typing[.tfBlock] = line[.tfBlock]
+            textView.typingAttributes = typing
         }
 
         private var caretIsAtEnd: Bool {
