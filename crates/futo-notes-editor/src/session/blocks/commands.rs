@@ -16,9 +16,8 @@ impl EditorSession {
     }
 
     /// Tab and Shift+Tab in a list item run the toolbar's Indent and Outdent
-    /// commands: one tab at each touched line's start, or one level of leading
-    /// whitespace off (nothing, where Outdent is disabled). Outside lists and
-    /// code, Tab is not an indent key.
+    /// commands, and do nothing where those buttons are disabled. Outside
+    /// lists and code, Tab is not an indent key.
     pub(in crate::session) fn list_tab(
         &mut self,
         expected: Revision,
@@ -26,33 +25,15 @@ impl EditorSession {
         outdent: bool,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        let in_list = self
-            .selected_block_lines(range)
-            .first()
-            .is_some_and(|line| {
-                !line.code
-                    && line
-                        .list
-                        .as_ref()
-                        .is_some_and(|list| list.quote_depth == line.quote_depth)
-            });
-        if !in_list {
+        if indent_item(&self.selected_block_lines(range)).is_none() {
             return Ok(None);
         }
-        self.block_command(
-            expected,
-            range,
-            if outdent {
-                BlockCommand::Outdent
-            } else {
-                BlockCommand::Indent
-            },
-            accept,
-        )
+        self.indent_command(expected, range, outdent, accept)
     }
 
-    /// Indent and Outdent are whitespace edits at line starts; every other
-    /// command respells blocks through [`Self::structural_command`].
+    /// Indent and Outdent are the toolbar's list nesting and code tabs
+    /// ([`Self::indent_command`]); every other command respells blocks through
+    /// [`Self::structural_command`].
     pub fn block_command(
         &mut self,
         expected: Revision,
@@ -61,8 +42,8 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         match command {
-            BlockCommand::Indent => self.indent_lines(expected, range, false, accept),
-            BlockCommand::Outdent => self.indent_lines(expected, range, true, accept),
+            BlockCommand::Indent => self.indent_command(expected, range, false, accept),
+            BlockCommand::Outdent => self.indent_command(expected, range, true, accept),
             _ => self.structural_command(expected, range, command, accept),
         }
     }
@@ -195,7 +176,7 @@ impl EditorSession {
                             .is_some_and(|list| line.quote_depth == list.quote_depth)
                 })
         {
-            return self.outdent_list(expected, range, accept);
+            return self.indent_list(expected, range, BlockCommand::Outdent, accept);
         }
         let mut lines = self.selected_block_lines(range);
         // Choosing Quote on text that is already quoted takes one level off.

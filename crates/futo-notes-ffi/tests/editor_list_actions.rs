@@ -63,7 +63,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
         "../../futo-notes-editor/tests/fixtures/nested-containers.json"
     ))
     .unwrap();
-    assert_eq!(nested.len(), 24);
+    assert_eq!(nested.len(), 35);
     let commands: Vec<Value> = serde_json::from_str(include_str!(
         "../../futo-notes-editor/tests/fixtures/container-commands.json"
     ))

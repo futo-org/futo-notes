@@ -20,11 +20,7 @@ fn state(source: &str, start: usize, end: usize) -> ToolbarState {
 fn a_bold_word_in_a_heading_lights_both_and_dims_what_cannot_run() {
     let h = toolbar_highlights(&state("## **hi** there\n", 0, 2));
     assert_eq!(h.active, vec!["bold", "heading-2"]);
-    assert!(
-        h.disabled.contains(&"undo")
-            && h.disabled.contains(&"outdent")
-            && !h.disabled.contains(&"indent")
-    );
+    assert!(h.disabled.contains(&"undo") && h.disabled.contains(&"indent"));
     assert!(!h.disabled.contains(&"bold"));
 }
 

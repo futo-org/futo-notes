@@ -1,5 +1,5 @@
 //! Read-only toolbar state, derived by the canonical editor owner.
-use super::blocks::{all_quoted, common_heading};
+use super::blocks::{all_quoted, common_heading, indent_item};
 use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +39,7 @@ impl EditorSession {
         } else {
             self.projection.format_block_lines(range)
         };
+        let first = lines.first();
         // Blank lines are aside from the selection-wide block state.
         let content = self.content_block_lines(&lines);
         let content_first = content.first().copied();
@@ -65,6 +66,33 @@ impl EditorSession {
             })
         });
         let code = !lines.is_empty() && lines.iter().all(|line| line.code);
+        let same_fence = first.and_then(|line| line.fence.as_ref()).filter(|fence| {
+            lines.iter().all(|line| {
+                line.fence
+                    .as_ref()
+                    .is_some_and(|other| other.whole == fence.whole)
+            })
+        });
+        // Code lines take a tab; a list item nests under the item above it and
+        // un-nests one level. Nothing else (paragraphs, headings, plain quote
+        // lines, tables) has a sensible Indent or Outdent.
+        let (can_indent, can_outdent) = if lines.iter().any(|line| line.code) {
+            (
+                same_fence.is_some_and(|fence| self.fence_text_lines(&lines, fence, false) > 0),
+                same_fence.is_some_and(|fence| self.fence_text_lines(&lines, fence, true) > 0),
+            )
+        } else if let Some(list) = indent_item(&lines) {
+            // An item opening on its parent's own line (`- - a`) has no
+            // indentation to take off.
+            let own_line = self.source.byte_to_line(list.outer_item.start)
+                != self.source.byte_to_line(list.marker.start);
+            (
+                list.previous_content_column.is_some(),
+                list.depth > 1 && own_line,
+            )
+        } else {
+            (false, false)
+        };
         ToolbarState {
             formats: if range.start == range.end {
                 self.active_formats()
@@ -79,9 +107,8 @@ impl EditorSession {
             code,
             mixed: common.is_none(),
             inline_allowed: lines.iter().any(|line| !line.code && !line.metadata),
-            // Indent writes a tab at any line start; Outdent needs one to take.
-            can_indent: true,
-            can_outdent: self.has_leading_indent(range),
+            can_indent,
+            can_outdent,
             can_undo: !self.undo.is_empty(),
             can_redo: !self.redo.is_empty(),
         }

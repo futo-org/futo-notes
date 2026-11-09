@@ -24,7 +24,7 @@ assert.equal(staging.length, 12);
 const nested = JSON.parse(
   readFileSync(new URL('fixtures/nested-containers.json', import.meta.url)),
 );
-assert.equal(nested.length, 24);
+assert.equal(nested.length, 35);
 const commands = JSON.parse(
   readFileSync(new URL('fixtures/container-commands.json', import.meta.url)),
 );

@@ -9,8 +9,8 @@ use crate::inline::ListLine;
 use std::ops::Range;
 
 mod enter;
+mod indent;
 mod ops;
-mod outdent;
 mod plan;
 mod repair;
 mod shapes;

@@ -13,6 +13,8 @@ fn range(a: usize, b: usize) -> DisplayRange {
 mod command_eligibility;
 #[path = "lists/commands.rs"]
 mod commands;
+#[path = "lists/nesting_examples.rs"]
+mod nesting_examples;
 #[path = "lists/comment_seams.rs"]
 mod comment_seams;
 #[path = "lists/containers.rs"]
@@ -23,6 +25,8 @@ mod enter_at_start;
 mod enter_split;
 #[path = "lists/fixtures.rs"]
 mod fixtures;
+#[path = "lists/indent_empty_item.rs"]
+mod indent_empty_item;
 #[path = "lists/input.rs"]
 mod input;
 #[path = "lists/keys.rs"]

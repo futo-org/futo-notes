@@ -21,7 +21,7 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
     assert_eq!(staging.len(), 12);
     let nested: Vec<Value> =
         serde_json::from_str(include_str!("../fixtures/nested-containers.json")).unwrap();
-    assert_eq!(nested.len(), 24);
+    assert_eq!(nested.len(), 35);
     let commands: Vec<Value> =
         serde_json::from_str(include_str!("../fixtures/container-commands.json")).unwrap();
     assert_eq!(commands.len(), 27);

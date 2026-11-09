@@ -144,7 +144,7 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
         "../../../../futo-notes-editor/tests/fixtures/nested-containers.json"
     ))
     .unwrap();
-    assert_eq!(nested.len(), 24);
+    assert_eq!(nested.len(), 35);
     let commands: Vec<Value> = serde_json::from_str(include_str!(
         "../../../../futo-notes-editor/tests/fixtures/container-commands.json"
     ))

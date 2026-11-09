@@ -1,20 +1,20 @@
-//! A structural Outdent of list items (the Enter and Backspace key exits): the
-//! moved items, their new list, and the scoped window it reads. The toolbar's
-//! Indent and Outdent buttons and Tab keys are plain whitespace edits instead
-//! (`line_indent.rs`).
+//! Indent and Outdent of list items: the moved items, their new list, and
+//! for an Outdent the scoped window it reads.
 use super::shapes::retire;
 use super::*;
 
 impl EditorSession {
-    /// Moves the selected items of the first item's list, with their
-    /// descendants, one level out; a root item becomes paragraph text.
-    pub(in crate::session::blocks) fn outdent_list(
+    /// Indent moves the selected items of the first item's list, with their
+    /// descendants, under the previous sibling; Outdent moves them one level
+    /// out, and a root item becomes paragraph text.
+    pub(in crate::session::blocks) fn indent_list(
         &mut self,
         expected: Revision,
         range: DisplayRange,
+        command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        let (window, mut rows) = self.outdent_rows(range);
+        let (window, mut rows) = self.indent_rows(range, command);
         let Some(first) = rows.iter().position(|row| row.selected && !row.code) else {
             return Ok(None);
         };
@@ -24,11 +24,16 @@ impl EditorSession {
         let item = rows[first]
             .item()
             .ok_or(EditorError::UnrepresentableFormat)?;
+        if command == BlockCommand::Indent && list.previous_content_column.is_none() {
+            return Ok(None);
+        }
         let parent = list
             .depth
             .checked_sub(2)
             .and_then(|at| rows[item].chain[at]);
-        if parent.is_none_or(|parent| rows[parent].before.quotes != rows[item].before.quotes) {
+        if command == BlockCommand::Outdent
+            && parent.is_none_or(|parent| rows[parent].before.quotes != rows[item].before.quotes)
+        {
             retire(&mut rows, &[item], false);
             return self.commit_rows(expected, range, window, rows, accept);
         }
@@ -45,8 +50,28 @@ impl EditorSession {
             .collect();
         // Moved items join the list at their new level and take its marker.
         let depth = list.depth;
-        let joined = rows[item].chain[depth - 2]
-            .map(|parent| (rows[parent].before.marker, rows[parent].key));
+        let joined = if command == BlockCommand::Indent {
+            let sibling = (0..item)
+                .rev()
+                .find(|&at| rows[at].before.opens && rows[at].before.depth == depth)
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            (sibling + 1..item)
+                .rev()
+                .find(|&at| {
+                    rows[at].before.opens
+                        && rows[at].before.depth == depth + 1
+                        && rows[at].chain.contains(&Some(sibling))
+                })
+                .map(|at| (rows[at].before.marker, rows[at].key))
+        } else {
+            rows[item].chain[depth - 2].map(|parent| (rows[parent].before.marker, rows[parent].key))
+        };
+        // An empty item cannot open a new sub-list right under its sibling's
+        // text (it cannot interrupt a paragraph): the blank-line repair
+        // separates them, as for a blank row turned into an item.
+        if command == BlockCommand::Indent {
+            rows[item].from_blank |= rows[item].body.is_empty();
+        }
         for row in rows.iter_mut() {
             if !row
                 .chain
@@ -55,23 +80,29 @@ impl EditorSession {
             {
                 continue;
             }
-            row.after.depth -= 1;
+            if command == BlockCommand::Indent {
+                row.after.depth += 1;
+            } else {
+                row.after.depth -= 1;
+            }
         }
         // Outdented items leave their old list: its later items, now nested
         // under the last moved item, form a new list.
-        let old = rows[item].key;
-        let last = *moved.last().unwrap_or(&item);
-        let mut first = true;
-        for row in rows[last + 1..].iter_mut() {
-            if !row.blank && row.before.depth < depth {
-                break;
-            }
-            if row.before.opens && row.key == old && row.before.depth == depth {
-                row.key = usize::MAX / 2 - last;
-                // The new list of children counts from one.
-                if std::mem::take(&mut first) {
-                    row.start = Some(1);
-                    row.pinned = true;
+        if command == BlockCommand::Outdent {
+            let old = rows[item].key;
+            let last = *moved.last().unwrap_or(&item);
+            let mut first = true;
+            for row in rows[last + 1..].iter_mut() {
+                if !row.blank && row.before.depth < depth {
+                    break;
+                }
+                if row.before.opens && row.key == old && row.before.depth == depth {
+                    row.key = usize::MAX / 2 - last;
+                    // The new list of children counts from one.
+                    if std::mem::take(&mut first) {
+                        row.start = Some(1);
+                        row.pinned = true;
+                    }
                 }
             }
         }
@@ -94,9 +125,12 @@ impl EditorSession {
         self.commit_rows(expected, range, window, rows, accept)
     }
 
-    /// The Outdent's own scoped rows, else the general window's.
-    fn outdent_rows(&self, range: DisplayRange) -> (Range<usize>, Vec<Row>) {
-        let Some(window) = self.outdent_window(range) else {
+    /// An Outdent's own scoped rows, else the general window's.
+    fn indent_rows(&self, range: DisplayRange, command: BlockCommand) -> (Range<usize>, Vec<Row>) {
+        let scoped = (command == BlockCommand::Outdent)
+            .then(|| self.outdent_window(range))
+            .flatten();
+        let Some(window) = scoped else {
             return self.command_rows(range, false);
         };
         let selected: Vec<usize> = self

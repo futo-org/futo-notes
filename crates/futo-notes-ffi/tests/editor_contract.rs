@@ -429,9 +429,7 @@ fn native_toolbar_state_projects_selection_coverage_and_history_in_one_query() {
     let state = session.toolbar_state().unwrap();
     assert!(state.formats.is_empty());
     assert!(!state.can_undo);
-    // Indent is always available; Outdent has no leading whitespace to take.
-    assert!(state.can_indent);
-    assert!(!state.can_outdent);
+    assert!(!state.can_indent);
     session
         .select_utf16(0, EditorUtf16Range { start: 0, end: 4 })
         .unwrap();

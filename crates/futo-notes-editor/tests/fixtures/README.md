@@ -86,9 +86,9 @@ share one protected acceptance but retain their separate literal Undo groups.
 Store and real-WASM acceptance retain the same rejection/retry/history/recovery
 checks. Native fixture source is not proof that its current native binaries ran.
 
-Twenty-four `nested-containers.json` literals cover Indent and Outdent as line-start
-tab edits, same-line empty parents, physical columns/tabs, nested Backspace/Enter,
-ancestor-preserving retargets and full Text/Heading transitions. Twenty-seven `container-commands.json` literals and fourteen `list-header-commands.json` literals
+Thirty-five `nested-containers.json` literals cover explicit nesting/lifting, same-line
+empty parents, physical columns/tabs, nested Backspace/Enter, ancestor-preserving
+retargets and full Text/Heading transitions. Twenty-seven `container-commands.json` literals and fourteen `list-header-commands.json` literals
 add full list lifting across one/two quotes and selection beginning in an ancestor
 while keeping its descendant listed, bare-quote versus heading/list quote ancestry,
 and independent mixed-format run transitions. Ordered task retargets preserve their
@@ -97,7 +97,7 @@ ordered child lifting copies that start into each newly independent following ow
 Same-line quote/list controls retain empty lifted paragraphs, physical CRLF and quote
 prefixes, raw nonidentity entity atoms and native UTF-16 interior carets. Task-body
 quote/heading punctuation stays literal. Together with the unchanged original seventy-four
-list cases, all six source consumers load 191 cases, including twenty-four
+list cases, all six source consumers load 202 cases, including twenty-four
 `prefix-frame-commands.json` literals. These distinguish registered Backspace
 from full Text lifting. Unchanged implicit empty parents
 keep compact source; an action-created parallel paragraph gets a physical frame.
@@ -159,7 +159,7 @@ and exact Undo/Redo; all six consumers use the same literal mutation.
 
 Generic list editing (DECISIONS #20) updated these goldens on 2026-11-01: an edited
 list item may be respelled canonically while every untouched row keeps its bytes, and
-fifty-four cases whose shapes the generic path does not respell (quotes opening inside
+fifty-five cases whose shapes the generic path does not respell (quotes opening inside
 an item's own line, crossquote lifting, same-line nested parents, unclosed fences in a
 lifted item, setext headings) carry `"refused": true`. Their `expected`/`shown` keep the
 historical literals for reference; every consumer instead asserts `UnrepresentableFormat`

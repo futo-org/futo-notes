@@ -48,7 +48,7 @@ with `.mjs` consumers), `crates/futo-notes-store/src/tests/editor_session/` (S),
 | #303, #311 | Rich HTML paste; rendered block movement | n/a | **deferred**, see 7 |
 
 Inherited engine behavior (bytes, Unicode, history, identity, saving) is covered by rows
-#284-#293. The 191 shared list literals run through six consumers (compiled WASM plus
+#284-#293. The 202 shared list literals run through six consumers (compiled WASM plus
 synthetic Swift/Kotlin FFI/Store tests); native execution covers arm64 iOS Simulator and
 an x86 Android process, other native architectures have compilation proof only.
 
