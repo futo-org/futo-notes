@@ -1,5 +1,5 @@
 //! Read-only toolbar state, derived by the canonical editor owner.
-use super::blocks::{all_quoted, common_heading};
+use super::blocks::{all_quoted, common_heading, indent_item};
 use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,47 +73,26 @@ impl EditorSession {
                     .is_some_and(|other| other.whole == fence.whole)
             })
         });
-        let can_indent = if lines.iter().any(|line| line.code) {
-            same_fence.is_some()
-        } else if let Some(line) = first.filter(|line| {
-            line.list
-                .as_ref()
-                .is_some_and(|list| line.quote_depth == list.quote_depth)
-        }) {
-            line.list
-                .as_ref()
-                .is_some_and(|list| list.previous_content_column.is_some())
+        // Code lines take a tab (a selection that starts in an item and crosses
+        // its code block nests the item, code and all); a list item nests under the item above it and
+        // un-nests one level. Nothing else (paragraphs, headings, plain quote
+        // lines, tables) has a sensible Indent or Outdent.
+        let (can_indent, can_outdent) = if first.is_some_and(|line| line.code) {
+            (
+                same_fence.is_some_and(|fence| self.fence_text_lines(&lines, fence, false) > 0),
+                same_fence.is_some_and(|fence| self.fence_text_lines(&lines, fence, true) > 0),
+            )
+        } else if let Some(list) = indent_item(&lines) {
+            // An item opening on its parent's own line (`- - a`) has no
+            // indentation to take off.
+            let own_line = self.source.byte_to_line(list.outer_item.start)
+                != self.source.byte_to_line(list.marker.start);
+            (
+                list.previous_content_column.is_some(),
+                list.depth > 1 && own_line,
+            )
         } else {
-            lines.iter().any(|line| line.quote_depth > 0)
-        };
-        let can_outdent = if lines.iter().any(|line| line.code) {
-            same_fence.is_some_and(|fence| {
-                lines.iter().any(|line| {
-                    fence.body.start <= line.source.start
-                        && line.source.start < fence.body.end
-                        && self.source.byte_slice(line.content.clone()).bytes().next() == Some(b' ')
-                })
-            })
-        } else if first.is_some_and(|line| {
-            line.list
-                .as_ref()
-                .is_some_and(|list| list.first && line.quote_depth != list.quote_depth)
-        }) {
-            false
-        } else if let Some(line) = first.filter(|line| {
-            line.list
-                .as_ref()
-                .is_some_and(|list| line.quote_depth == list.quote_depth)
-        }) {
-            let list = line.list.as_ref().unwrap();
-            // Retiring a terminal empty root item cannot preserve an editable
-            // paragraph for its selected source position; the command refuses.
-            !(line.content.is_empty()
-                && list.depth == 1
-                && line.quote_depth == 0
-                && line.source.end == self.source.len_bytes())
-        } else {
-            lines.iter().any(|line| line.quote_depth > 0)
+            (false, false)
         };
         ToolbarState {
             formats: if range.start == range.end {

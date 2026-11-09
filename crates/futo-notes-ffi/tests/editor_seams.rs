@@ -37,7 +37,7 @@ fn native_structural_seams_and_raw_composition_keep_exact_saves_and_carets() {
     .into_iter()
     .flat_map(|source| serde_json::from_str::<Vec<serde_json::Value>>(source).unwrap())
     .collect();
-    assert_eq!(cases.len(), 72);
+    assert_eq!(cases.len(), 69);
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
         let tree = TempTree::new();
@@ -60,25 +60,6 @@ fn native_structural_seams_and_raw_composition_keep_exact_saves_and_carets() {
         );
         let inserted: Vec<_> = text("text").encode_utf16().collect();
         let mode = text("mode");
-        if mode == "noop_indent" {
-            assert!(s
-                .block_command_utf16(0, range(0, 0), EditorBlockCommand::Heading { level: 1 })
-                .unwrap()
-                .is_none());
-            assert_eq!(s.revision().unwrap(), 0);
-            assert_eq!(s.source_text().unwrap(), text("source"));
-        }
-        if matches!(mode, "indent" | "noop_indent" | "indent_os") {
-            apply(
-                s.block_command_utf16(
-                    s.revision().unwrap(),
-                    range(0, 0),
-                    EditorBlockCommand::Indent,
-                )
-                .unwrap()
-                .unwrap(),
-            );
-        }
         if mode == "composition_commit" {
             for value in ["に", "日本"] {
                 let marked = s
@@ -130,7 +111,7 @@ fn native_structural_seams_and_raw_composition_keep_exact_saves_and_carets() {
                     .unwrap(),
             );
             assert_eq!(s.revision().unwrap(), 1);
-        } else if matches!(mode, "os" | "indent_os") {
+        } else if mode == "os" {
             apply(
                 s.replace_os_utf16(s.revision().unwrap(), selected, inserted, vec![])
                     .unwrap()

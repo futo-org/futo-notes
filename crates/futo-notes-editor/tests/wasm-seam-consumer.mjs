@@ -16,7 +16,7 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 const cases = ['structural-seams', 'fence-physical-rows'].flatMap((name) =>
   JSON.parse(readFileSync(new URL(`fixtures/${name}.json`, import.meta.url))),
 );
-assert.equal(cases.length, 72);
+assert.equal(cases.length, 69);
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
   const worker = spawn(process.argv[3], [vault, source], { stdio: ['pipe', 'pipe', 'inherit'] });
@@ -72,13 +72,6 @@ for (const item of cases) {
         end: Buffer.from(display).subarray(0, delta.selection.end).toString().length,
       };
     };
-    if (item.mode === 'noop_indent') {
-      assert.equal(JSON.parse(page.block_command_utf16(revision, 0, 0, '{"Heading":1}')), null);
-      assert.equal(page.draft_text(), item.source);
-      assert.equal(JSON.parse(page.status()).local, 0);
-    }
-    if (['noop_indent', 'indent', 'indent_os'].includes(item.mode))
-      await apply(page.block_command_utf16(revision, 0, 0, '"Indent"'));
     if (item.mode === 'composition_commit') {
       for (const text of ['に', '日本']) {
         const marked = JSON.parse(page.compose_utf16(revision, ...item.range, units(text)));
@@ -114,7 +107,7 @@ for (const item of cases) {
       );
       await apply(page.replace_os_utf16(revision, ...item.range, units(item.text), '[]'));
       assert.equal(revision, 1n, 'composition + OS input have one protected append');
-    } else if (['os', 'indent_os'].includes(item.mode)) {
+    } else if (item.mode === 'os') {
       await apply(page.replace_os_utf16(revision, ...item.range, units(item.text), '[]'));
     } else if (item.mode === 'typing_sequence') {
       if (item.format)

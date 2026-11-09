@@ -4,20 +4,20 @@ use super::*;
 #[test]
 fn list_tab_is_the_indent_command_and_shift_tab_the_outdent_command() {
     for (raw, key, caret, expected) in [
-        ("- a\n- b", ParagraphKey::Tab, (3, 3), "- a\n  - b"),
+        ("- a\n- b", ParagraphKey::Tab, (3, 3), "- a\n\t- b"),
         (
             "1. a\n2. b\n3. c",
             ParagraphKey::Tab,
             (3, 3),
-            "1. a\n   1. b\n2. c",
+            "1. a\n\t1. b\n2. c",
         ),
         (
             "- [ ] a\n- [x] b",
             ParagraphKey::Tab,
             (3, 3),
-            "- [ ] a\n  - [x] b",
+            "- [ ] a\n\t- [x] b",
         ),
-        ("> - a\n> - b", ParagraphKey::Tab, (3, 3), "> - a\n>   - b"),
+        ("> - a\n> - b", ParagraphKey::Tab, (3, 3), "> - a\n> \t- b"),
         ("- a\n  - b", ParagraphKey::ShiftTab, (3, 3), "- a\n- b"),
         (
             "1. a\n   1. b\n2. c",
@@ -25,15 +25,24 @@ fn list_tab_is_the_indent_command_and_shift_tab_the_outdent_command() {
             (3, 3),
             "1. a\n2. b\n3. c",
         ),
-        // A new empty item nests under its sibling's text, after a blank line.
-        ("- a\n- ", ParagraphKey::Tab, (2, 2), "- a\n\n  - "),
+        // A new empty item nests under its sibling's text.
+        ("- a\n- ", ParagraphKey::Tab, (2, 2), "- a\n\t- "),
+        ("- a\n  - ", ParagraphKey::ShiftTab, (2, 2), "- a\n- "),
         ("- a\n\n  - ", ParagraphKey::ShiftTab, (3, 3), "- a\n\n- "),
         // A selection moves every selected item, as the button does.
         (
             "- a\n- b\n- c",
             ParagraphKey::Tab,
             (2, 5),
-            "- a\n  - b\n  - c",
+            "- a\n\t- b\n\t- c",
+        ),
+        // Outdent takes a tab off tab-indented items and a level of spaces off older ones.
+        ("- a\n\t- b", ParagraphKey::ShiftTab, (3, 3), "- a\n- b"),
+        (
+            "1. a\n\t1. b\n2. c",
+            ParagraphKey::ShiftTab,
+            (3, 3),
+            "1. a\n2. b\n3. c",
         ),
     ]
     .map(|(raw, key, (a, b), expected)| (raw, key, range(a, b), expected))

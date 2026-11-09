@@ -22,13 +22,13 @@ fn toolbar_list_eligibility_matches_known_noops() {
             true,
             false,
         ),
-        ("> - a\n>   b\n> - ", 4, 4, true, true),
+        ("> - a\n>   b\n> - ", 4, 4, true, false),
         ("- a\r\n  b\r\n- ", 6, 6, true, false),
         ("- a\n  - b\n  - ", 4, 4, true, true),
         ("- a\n  - nested\n- ", 9, 9, true, false),
         ("- a\n\n- ", 3, 3, true, false),
-        ("- a\n- \n- b", 2, 2, true, true),
-        ("> - a\n> - ", 2, 2, true, true),
+        ("- a\n- \n- b", 2, 2, true, false),
+        ("> - a\n> - ", 2, 2, true, false),
         ("- ", 0, 0, false, false),
     ] {
         let mut s = EditorSession::open(source);

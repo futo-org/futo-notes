@@ -113,3 +113,86 @@ fn keys_in_a_middle_table_row_do_not_scale_with_the_table() {
         );
     }
 }
+
+// Single-character rows need 2,000 rows to exceed the ordinary partition
+// threshold. Compare 2,000 and 20,000 so both sides measure bounded neighbor
+// work, rather than a whole tiny row against a split paragraph's neighbors.
+#[test]
+fn clearing_one_character_edge_cells_is_bounded_to_the_row() {
+    let cases = [
+        ("first", "x | y\n", 0),
+        ("last", "x | y\n", 4),
+        ("short", "| x\n", 2),
+        ("pipeless", "x\n", 0),
+        ("protected", "| x | y |\n", 2),
+    ];
+    let work = |rows: usize, body: &str, column: usize| {
+        let header = "| a | b |\n| --- | --- |\n";
+        let source = format!("{header}{}", body.repeat(rows));
+        let mut s = EditorSession::open(&source);
+        let at = header.len() + body.len() * (rows / 2) + column;
+        let selected = DisplayRange {
+            start: futo_notes_editor::DisplayOffset(at),
+            end: futo_notes_editor::DisplayOffset(at + 1),
+        };
+        s.select(s.revision(), selected).unwrap();
+        let change = s
+            .paragraph_key(s.revision(), selected, ParagraphKey::Backspace, &mut |_| {
+                Ok(())
+            })
+            .unwrap()
+            .unwrap();
+        let table = s
+            .inspect_table(s.revision(), s.selection())
+            .unwrap()
+            .unwrap();
+        assert!(table.focus.is_some());
+        change.work.materialized_source_bytes
+            + change.work.parsed_source_bytes
+            + change.work.link_metadata_items
+    };
+    let counts: Vec<_> = cases
+        .into_iter()
+        .map(|(name, body, at)| (name, work(2_000, body, at), work(20_000, body, at)))
+        .collect();
+    assert!(
+        counts
+            .iter()
+            .all(|(_, small, large)| *large <= small * 3 / 2 + 1024),
+        "{counts:?}"
+    );
+}
+
+#[test]
+fn clearing_a_plain_line_never_scans_a_long_non_table_prefix() {
+    let work = |rows: usize, body: &str| {
+        let prefix = "ordinary text\n";
+        let source = format!("{prefix}{}", body.repeat(rows));
+        let at = prefix.len() + body.len() * (rows / 2);
+        let mut s = EditorSession::open(&source);
+        let selected = DisplayRange {
+            start: futo_notes_editor::DisplayOffset(at),
+            end: futo_notes_editor::DisplayOffset(at + 1),
+        };
+        s.select(s.revision(), selected).unwrap();
+        let change = s
+            .paragraph_key(s.revision(), selected, ParagraphKey::Backspace, &mut |_| {
+                Ok(())
+            })
+            .unwrap()
+            .unwrap();
+        let mut expected = source;
+        expected.remove(at);
+        assert_eq!(s.source_text(), expected);
+        change.work.materialized_source_bytes
+            + change.work.parsed_source_bytes
+            + change.work.link_metadata_items
+    };
+    for body in ["x | y\n", "x\n"] {
+        let (small, large) = (work(2_000, body), work(20_000, body));
+        assert!(
+            large <= small * 3 / 2 + 1024,
+            "{body:?}: {small} -> {large}"
+        );
+    }
+}

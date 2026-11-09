@@ -182,7 +182,7 @@ impl EditorSession {
             } else {
                 BlockCommand::Outdent
             };
-            return self.block_command(expected, range, command, accept);
+            return self.structural_command(expected, range, command, accept);
         }
         if !matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter) {
             return Ok(None);
@@ -252,7 +252,7 @@ impl EditorSession {
                     )
                     .map(Some);
             }
-            return self.block_command(expected, range, BlockCommand::Outdent, accept);
+            return self.structural_command(expected, range, BlockCommand::Outdent, accept);
         }
         if at_start
             && !line.content.is_empty()

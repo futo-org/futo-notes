@@ -38,14 +38,23 @@ fn toolbar_selection_reports_common_blocks_refusals_and_history() {
 #[test]
 fn toolbar_container_eligibility_uses_the_engines_retained_attribution() {
     let mut list = EditorSession::open("- first\n- second");
+    // The first item has nothing to nest under; a top-level item cannot outdent.
     assert!(!list.toolbar_state().can_indent);
-    assert!(list.toolbar_state().can_outdent);
+    assert!(!list.toolbar_state().can_outdent);
     list.select(list.revision(), range(6, 6)).unwrap();
     assert!(list.toolbar_state().can_indent);
-    assert!(list.toolbar_state().can_outdent);
-    let quoted = EditorSession::open("> quote");
-    assert!(quoted.toolbar_state().can_indent);
-    assert!(quoted.toolbar_state().can_outdent);
+    assert!(!list.toolbar_state().can_outdent);
+    for (at, indent, outdent) in [(3, false, true), (5, true, true)] {
+        let mut nested = EditorSession::open("- a\n  - b\n  - c");
+        nested.select(nested.revision(), range(at, at)).unwrap();
+        assert_eq!(nested.toolbar_state().can_indent, indent, "{at}");
+        assert_eq!(nested.toolbar_state().can_outdent, outdent, "{at}");
+    }
+    // Plain quote lines and paragraphs have no sensible Indent or Outdent.
+    for source in ["> quote", "para", "| a |\n| - |\n| b |"] {
+        let state = EditorSession::open(source).toolbar_state();
+        assert!(!state.can_indent && !state.can_outdent, "{source:?}");
+    }
     let code = EditorSession::open("```\n  indented\n```");
     assert!(code.toolbar_state().can_indent);
     assert!(code.toolbar_state().can_outdent);

@@ -41,7 +41,7 @@ fn tab_and_shift_tab_move_items_through_two_and_three_levels() {
     let source = "- a\n- b\n  - c\n- d\n";
     assert_eq!(
         accepted(source, range(2, 2), command(BlockCommand::Indent)),
-        "- a\n  - b\n    - c\n- d\n"
+        "- a\n\t- b\n\t\t- c\n- d\n"
     );
     assert_eq!(
         accepted(source, range(6, 6), command(BlockCommand::Indent)),
@@ -106,11 +106,11 @@ fn checkbox_toggles_and_paragraphs_convert_to_lists_and_back() {
 fn quoted_lists_indent_and_outdent() {
     assert_eq!(
         accepted("> - a\n> - b\n", range(2, 2), command(BlockCommand::Indent)),
-        "> - a\n>   - b\n"
+        "> - a\n> \t- b\n"
     );
     assert_eq!(
         accepted(
-            "> - a\n>   - b\n",
+            "> - a\n> \t- b\n",
             range(2, 2),
             command(BlockCommand::Outdent)
         ),
