@@ -157,10 +157,11 @@ impl EditorSession {
             .get(column)
             .ok_or(EditorError::UnrepresentableFormat)?;
         let content = Layout::content(&after, raw);
+        // An escaped `\|` passes the cheap gate as a separator, but the cell
+        // keeps its text: this is then an ordinary edit, not a clear.
         if !content.is_empty() {
-            return Err(EditorError::UnrepresentableFormat);
+            return Ok(None);
         }
-        let caret = row.start + content.start;
 
         // Retained padding is transported by the actual ordered splices.
         // Deleted cell text has no retained identity; other cells stay outside
@@ -183,6 +184,15 @@ impl EditorSession {
             new += splice.text.len();
             old = splice.at + splice.remove;
         }
+        // Like a middle cell: after the inserted padding, still inside the cell.
+        let end = input_start + plan.inserted.len();
+        let caret = if !plan.inserted.is_empty()
+            && (row.start + raw.start..=row.start + raw.end).contains(&end)
+        {
+            end
+        } else {
+            row.start + content.start
+        };
         let (retained, correspondence_work) =
             crate::inline::SourceCorrespondence::from_bodies(&bodies)?;
         let edit = self.prepare_source(

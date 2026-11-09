@@ -213,6 +213,43 @@ fn refused_edge_cell_clear_preserves_source_selection_and_history() {
 }
 
 #[test]
+fn an_escaped_pipe_in_an_edge_cell_is_ordinary_text_not_a_separator() {
+    // (source, row, column); the only source `y` is the cell's last display char.
+    let cases = [
+        ("a | b\n--- | ---\nc | x \\| y", 1, 1),
+        ("a | x \\| y\n--- | ---", 0, 1),
+        ("a | b\n--- | ---\nc | x\\|y", 1, 1),
+        ("a | b\n--- | ---\n| c | x \\| y", 1, 1),
+    ];
+    for (source, row, column) in cases {
+        for inserted in ["", " "] {
+            let mut s = EditorSession::open(source);
+            let content = s
+                .inspect_table(s.revision(), DisplayRange::default())
+                .unwrap()
+                .unwrap()
+                .rows[row][column]
+                .content;
+            let y = DisplayRange {
+                start: futo_notes_editor::DisplayOffset(content.end.0 - 1),
+                end: content.end,
+            };
+            s.select(s.revision(), y).unwrap();
+            let result = if inserted.is_empty() {
+                s.paragraph_key(s.revision(), y, ParagraphKey::Backspace, &mut |_| Ok(()))
+                    .map(|_| ())
+            } else {
+                s.replace(s.revision(), y, inserted, &mut |_| Ok(()))
+                    .map(|_| ())
+            };
+            result.unwrap_or_else(|error| panic!("{source:?} + {inserted:?}: {error:?}"));
+            let expected = source.replacen('y', inserted, 1);
+            assert_eq!(s.source_text(), expected, "{source:?} + {inserted:?}");
+        }
+    }
+}
+
+#[test]
 fn a_compound_clear_keeps_duplicate_entities_and_the_other_cells_link_identity() {
     let source =
         "**S&#97;m** | [*Sam*](<https://example.test/owner>)\n:--- | ---\nKeep | S&#97;m\n";
