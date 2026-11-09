@@ -1,4 +1,17 @@
-use futo_notes_editor::{external_link_url, normalize_link_destination};
+use futo_notes_editor::{external_link_url, EditorSession};
+
+/// What the link prompt of note `from` saves for `typed`, in a vault holding `notes`.
+fn save(typed: &str, from: &str, notes: &[&str]) -> String {
+    let mut session = EditorSession::open("");
+    let ids: Vec<String> = notes.iter().map(|id| id.to_string()).collect();
+    let _ = session.update_note_ids(&ids);
+    session.normalize_link_destination(from, typed)
+}
+
+/// With no notes in the vault.
+fn normalize_link_destination(typed: &str) -> String {
+    save(typed, "Start", &[])
+}
 
 #[test]
 fn only_an_explicit_allowed_scheme_opens_on_tap() {
@@ -135,4 +148,58 @@ fn non_ascii_and_odd_input_never_panics() {
     // A non-ASCII TLD is not on the list, so it stays as typed.
     assert_eq!(normalize_link_destination("例え.テスト"), "例え.テスト");
     assert_eq!(external_link_url("bücher.de"), None);
+}
+
+#[test]
+fn a_note_named_like_a_web_address_stays_a_note_link() {
+    // A listed TLD that is also a file extension: the note wins when it exists.
+    assert_eq!(save("logo.ai", "Start", &["logo.ai"]), "logo.ai");
+    assert_eq!(save("logo.ai", "Start", &[]), "https://logo.ai");
+    for (typed, from, notes) in [
+        ("Makefile.in", "Start", &["Makefile.in"][..]),
+        ("Xcode.app", "Start", &["Xcode.app"]),
+        ("Package.info", "Start", &["Package.info"]),
+        ("ChangeLog.de", "Start", &["ChangeLog.de"]),
+        ("score.ly", "Start", &["score.ly"]),
+        ("ideas.today", "Start", &["ideas.today"]),
+        // the same resolution as a tap: from the current folder, `.md` optional, case-folded
+        ("logo.ai", "docs/Start", &["docs/logo.ai"]),
+        ("logo.ai.md", "Start", &["logo.ai"]),
+        ("LOGO.AI", "Start", &["logo.ai"]),
+        ("/docs/logo.ai", "other/Start", &["docs/logo.ai"]),
+    ] {
+        assert_eq!(save(typed, from, notes), typed, "{typed:?} from {from:?}");
+    }
+    // A note elsewhere does not capture the typed name: it is not what a tap would open.
+    assert_eq!(
+        save("logo.ai", "Start", &["docs/logo.ai"]),
+        "https://logo.ai"
+    );
+}
+
+#[test]
+fn a_nested_note_path_with_a_web_looking_folder_stays_a_note_link() {
+    assert_eq!(
+        save("Projects.dev/todo", "Start", &["Projects.dev/todo"]),
+        "Projects.dev/todo"
+    );
+    assert_eq!(
+        save("todo", "Projects.dev/Start", &["Projects.dev/todo"]),
+        "todo"
+    );
+    // No such note: the heuristic applies as before.
+    assert_eq!(
+        save("Projects.dev/todo", "Start", &[]),
+        "https://Projects.dev/todo"
+    );
+}
+
+#[test]
+fn a_real_site_is_still_a_web_address_when_no_such_note_exists() {
+    assert_eq!(save("claude.ai", "Start", &["Other"]), "https://claude.ai");
+    assert_eq!(save("claude.ai", "Start", &[]), "https://claude.ai");
+    assert_eq!(
+        save("www.example.com", "Start", &["example.com"]),
+        "https://www.example.com"
+    );
 }
