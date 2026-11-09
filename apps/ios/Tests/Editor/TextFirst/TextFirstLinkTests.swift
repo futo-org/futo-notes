@@ -18,6 +18,21 @@
             #expect(TextFirstEditorController.externalLinkURL("file:///etc/passwd") == nil)
         }
 
+        @Test func aNotePathOrFragmentNeverOpensAsAWebAddress() {
+            for raw in ["other.md", "./a.md", "../b", "notes/x.md", "#heading", "/abs"] {
+                #expect(TextFirstEditorController.externalLinkURL(raw) == nil, "\(raw)")
+            }
+            #expect(
+                TextFirstEditorController.externalLinkURL("www.x.org/p")?.absoluteString
+                    == "https://www.x.org/p")
+            #expect(
+                TextFirstEditorController.externalLinkURL("mailto:a@b.c")?.absoluteString
+                    == "mailto:a@b.c")
+            #expect(
+                TextFirstEditorController.externalLinkURL("https://x")?.absoluteString
+                    == "https://x")
+        }
+
         @Test func aLinkPromptWithSelectedTextFocusesTheDestination() async throws {
             let h = harness("beautiful")
             let presenter = UIViewController()

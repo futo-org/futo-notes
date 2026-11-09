@@ -43,6 +43,13 @@ impl NativeEditorSession {
     }
 }
 
+/// The address a tapped link destination opens, or none when it is a note path, fragment or
+/// anything else that is not external. A bare domain gains `https://`.
+#[uniffi::export]
+pub fn editor_external_link_url(destination: String) -> Option<String> {
+    futo_notes_editor::external_link_url(&destination)
+}
+
 /// Replacement semantics for only the changed wikilinks, at an unchanged revision.
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorNoteIdChange {

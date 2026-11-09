@@ -67,11 +67,11 @@
             onOpenURL?(safe.absoluteString)
         }
 
-        /// A schemeless address from the link prompt opens as HTTPS. Its source spelling stays
-        /// verbatim, and explicit schemes still go through the ordinary external-open policy.
+        /// The engine says whether a destination is external (a bare domain gains `https://`; a
+        /// note path or fragment is not), and the ordinary external-open policy guards its scheme.
         static func externalLinkURL(_ raw: String) -> URL? {
-            guard let supplied = URL(string: raw),
-                let url = supplied.scheme == nil ? URL(string: "https://" + raw) : supplied,
+            guard let address = editorExternalLinkUrl(destination: raw),
+                let url = URL(string: address),
                 case .openExternally(let safe) = editorNavigationDecision(
                     for: url, isMainFrame: true, permittedFileURL: nil)
             else { return nil }
