@@ -13,6 +13,8 @@ fn range(a: usize, b: usize) -> DisplayRange {
 mod command_eligibility;
 #[path = "lists/commands.rs"]
 mod commands;
+#[path = "lists/nesting_examples.rs"]
+mod nesting_examples;
 #[path = "lists/comment_seams.rs"]
 mod comment_seams;
 #[path = "lists/containers.rs"]
@@ -33,8 +35,6 @@ mod keys;
 mod lifting;
 #[path = "lists/mixed_commands.rs"]
 mod mixed_commands;
-#[path = "lists/nesting_examples.rs"]
-mod nesting_examples;
 #[path = "lists/projection.rs"]
 mod projection;
 #[path = "lists/tab.rs"]
