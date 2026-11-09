@@ -274,12 +274,15 @@ impl EditorSession {
 /// is kept literal as the block commands keep it, and leading whitespace,
 /// which a paragraph drops, is encoded.
 fn prose_literal(text: &str) -> String {
-    // Inline syntax (emphasis, code spans, links, HTML, entities) would change
-    // the display, so those characters are written as numeric entities.
+    // Literal prose must not acquire inline formatting or table structure.
+    // Write those syntax characters as numeric entities.
     let literal: String = text
         .chars()
         .map(|ch| {
-            if matches!(ch, '\\' | '*' | '_' | '~' | '`' | '[' | ']' | '<' | '&') {
+            if matches!(
+                ch,
+                '\\' | '*' | '_' | '~' | '`' | '[' | ']' | '<' | '&' | '|'
+            ) {
                 format!("&#{};", ch as u32)
             } else {
                 ch.to_string()

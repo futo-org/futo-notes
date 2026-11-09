@@ -90,11 +90,7 @@ impl EditorSession {
             let row = self
                 .source
                 .line_to_byte(self.source.byte_to_line(line.content.start));
-            self.source
-                .byte_slice(row..line.content.start)
-                .chars()
-                .map(|ch| if matches!(ch, '>' | '\t') { ch } else { ' ' })
-                .collect()
+            fence_continuation_prefix(self.source.byte_slice(row..line.content.start).chars())
         } else {
             "> ".repeat(line.quote_depth)
         };
@@ -128,14 +124,37 @@ impl EditorSession {
         action: crate::InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        self.fence_replacement(expected, range, inserted, action, true, accept)
+    }
+
+    pub(in crate::session) fn fence_paste(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        inserted: &str,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        // Pasted blank lines remain code; only Enter can exit the last line.
+        self.fence_replacement(
+            expected,
+            range,
+            inserted,
+            crate::InputAction::Isolated,
+            false,
+            accept,
+        )
+    }
+
+    fn fence_replacement(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        inserted: &str,
+        action: crate::InputAction,
+        exit_empty_line: bool,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
         let mut lines = self.projection.block_lines(range);
-        // A note whose last block is a fence ends with the empty line after
-        // its closing line ending; it shares the code's last display position,
-        // where the caret is on the code.
-        let end = self.source.len_bytes();
-        if range.start == range.end && lines.iter().any(|line| line.fence.is_some()) {
-            lines.retain(|line| line.fence.is_some() || line.source != (end..end));
-        }
         if range.start == range.end
             && range == self.selection
             && self.affinity == Affinity::Backward
@@ -167,8 +186,10 @@ impl EditorSession {
         }) {
             return Ok(None);
         }
-        if let Some(change) = self.fence_exit(expected, range, fence, inserted, accept)? {
-            return Ok(Some(change));
+        if exit_empty_line {
+            if let Some(change) = self.fence_exit(expected, range, fence, inserted, accept)? {
+                return Ok(Some(change));
+            }
         }
         let Some(owned) = fence.input_range(&self.projection, range, &lines, inserted) else {
             // Keep foreign code/prose separators with the strict generic planner.
@@ -214,14 +235,22 @@ impl EditorSession {
                 self.source
                     .byte_slice(line.source.start..line.content.start)
                     .to_string()
+            } else if !fence.body.is_empty()
+                && self.projection.display_at(fence.body.start)
+                    == self.projection.display_at(fence.body.end)
+            {
+                // An empty fence can retain only its authored body prefix.
+                self.source.byte_slice(fence.body.clone()).to_string()
             } else {
-                self.source
-                    .byte_slice(
-                        self.source
-                            .line_to_byte(self.source.byte_to_line(fence.opener.start))
-                            ..fence.opener.start,
-                    )
-                    .to_string()
+                fence_continuation_prefix(
+                    self.source
+                        .byte_slice(
+                            self.source
+                                .line_to_byte(self.source.byte_to_line(fence.opener.start))
+                                ..fence.opener.start,
+                        )
+                        .chars(),
+                )
             };
         let mut input = inserted.replace('\n', &format!("\n{prefix}"));
         if owned.continues_existing_row {
@@ -474,4 +503,11 @@ impl EditorSession {
         change.work.materialized_source_bytes += text.len();
         Ok(Some(change))
     }
+}
+
+/// Continue the opener's containers without repeating a list marker.
+fn fence_continuation_prefix(prefix: impl Iterator<Item = char>) -> String {
+    prefix
+        .map(|ch| if matches!(ch, '>' | '\t') { ch } else { ' ' })
+        .collect()
 }

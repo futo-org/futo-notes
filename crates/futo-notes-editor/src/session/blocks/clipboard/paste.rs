@@ -135,33 +135,28 @@ impl PastedShape {
 }
 
 impl EditorSession {
-    /// Plain-text paste read as Markdown: copied characters, edge whitespace and
-    /// soft lines stay exact; blocks take their own lines inside the caret's
-    /// containers; one trailing copied line ending is dropped and pasted line
-    /// endings follow the caret line. The paste is one isolated history action.
-    pub fn paste_markdown(
+    pub(super) fn paste_input(
         &mut self,
         expected: Revision,
         range: DisplayRange,
-        text: &str,
+        input: PasteInput<'_>,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
+        let original = input.text();
         if self.composition().is_some() {
             return self.command_during_composition(
                 expected,
                 range,
                 accept,
-                |staged, local, accept| {
-                    staged.paste_markdown(staged.revision(), local, text, accept)
-                },
+                |staged, local, accept| staged.paste_input(staged.revision(), local, input, accept),
             );
         }
         self.validate_range(range)?;
         let range = self.outside_crlf(range);
         // Inside a table the paste is one cell's text: edge blank lines go and
         // inner line breaks become one space. Across cells it is refused.
-        if let Some(change) = self.paste_in_cell(expected, range, text, accept)? {
+        if let Some(change) = self.paste_in_cell(expected, range, original, accept)? {
             return Ok(Some(change));
         }
         let (low, high) = self.projection.source_bounds(range.start.0);
@@ -171,8 +166,15 @@ impl EditorSession {
         } else {
             high
         };
-        let newline = self.line_ending_at(caret);
-        let text = normalize_paste(text, newline);
+        let normalized;
+        let (text, newline) = match input {
+            PasteInput::Clipboard(text) => {
+                let newline = self.line_ending_at(caret);
+                normalized = normalize_paste(text, newline);
+                (normalized.as_str(), newline)
+            }
+            PasteInput::Normalized { text, newline } => (text, newline),
+        };
         if text.is_empty() {
             if range.start == range.end {
                 return Ok(None);
@@ -180,6 +182,17 @@ impl EditorSession {
             return self
                 .replace_action(expected, range, "", crate::InputAction::Isolated, accept)
                 .map(Some);
+        }
+        let (retires_fence, selection_work) = self.projection.retires_fence(range);
+        if retires_fence {
+            return self.paste_retiring_fence(
+                expected,
+                range,
+                text,
+                newline,
+                selection_work,
+                accept,
+            );
         }
         let line = self.target_line(range.start, caret);
         let target = if self
@@ -189,8 +202,12 @@ impl EditorSession {
                 end: range.start,
             })
             .iter()
-            .any(|block| block.code && block.source.contains(&caret))
-        {
+            .any(|block| {
+                // Hidden empty-fence rows own the display caret even when its
+                // source bound lands on the closer. The fence owner validates
+                // the complete supplied range before accepting literal input.
+                block.code && (block.fence.is_some() || block.source.contains(&caret))
+            }) {
             PasteTarget::Code
         } else {
             PasteTarget::Line
@@ -198,26 +215,34 @@ impl EditorSession {
         let start = self.split_point(range.start).max(line.content);
         let end = self.split_point(range.end).max(start);
         if let PasteTarget::Code = target {
+            // The fence owner keeps pasted delimiters literal by lengthening
+            // the enclosing fence, while retaining its physical prefixes.
+            if let Some(mut change) = self.fence_paste(expected, range, text, accept)? {
+                change.work.link_metadata_items += selection_work;
+                return Ok(Some(change));
+            }
             // Verbatim: each further line repeats the code line's prefix.
             let prefix = line.continuation();
-            let out = prefixed(&text, newline, &prefix, prefix.trim_end());
+            let out = prefixed(text, newline, &prefix, prefix.trim_end());
             let caret = BlockSelection::Source(start + out.len());
-            return self
-                .commit_block_edit(expected, start..end, &out, caret, None, accept)
-                .map(Some);
+            let mut change =
+                self.commit_block_edit(expected, start..end, &out, caret, None, accept)?;
+            change.work.link_metadata_items += selection_work;
+            return Ok(Some(change));
         }
-        let shape = PastedShape::read(&text);
+        let shape = PastedShape::read(text);
         let literal = if !text.contains(newline) {
-            !shape.has_block || shape.code || is_marker(&text)
+            !shape.has_block || shape.code || is_marker(text)
         } else {
             !shape.has_block && !shape.blank_line
         };
         let mut change = if literal {
-            self.replace_action(expected, range, &text, crate::InputAction::Isolated, accept)?
+            self.replace_markdown_action(expected, range, text, accept)?
         } else {
-            self.place_blocks(expected, start, end, &line, &text, &shape, newline, accept)?
+            self.place_blocks(expected, start, end, &line, text, &shape, newline, accept)?
         };
         change.work.parsed_source_bytes += shape.parsed;
+        change.work.link_metadata_items += selection_work;
         Ok(Some(change))
     }
 

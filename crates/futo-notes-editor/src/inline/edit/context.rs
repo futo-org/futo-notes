@@ -1,4 +1,5 @@
 //! Canonical source pieces and spans for one input context.
+mod bounds;
 use super::span_sweep::{Enclosing, MarkerRanges};
 use super::*;
 
@@ -9,85 +10,6 @@ impl Projection {
         range: DisplayRange,
     ) -> Result<Context, crate::EditorError> {
         self.edit_context_for_change(source, range, None, super::Width::Rows)
-    }
-
-    /// A candidate replacing source `start..end` is sealed when it cannot
-    /// pair with syntax in a neighboring row of the same cut paragraph.
-    pub(super) fn sealed_candidate(
-        &self,
-        source: &Rope,
-        start: usize,
-        end: usize,
-        output: &str,
-    ) -> (bool, usize) {
-        let first = self.rows.at(self.rows.locate(start, false)).0;
-        let index = self.rows.locate(end, false);
-        let (following, at, _) = self.rows.at(index);
-        let next = (at == end && end > start)
-            .then(|| self.continued_line(source, index, end))
-            .flatten();
-        let following_row = at == end && end > start;
-        let next_opener = following.opener.as_deref().filter(|_| following_row);
-        // A cut raw HTML or fenced block must still end where its rows say it does.
-        let mut parsed = 0;
-        if following_row && (first.opener.is_some() || next_opener.is_some()) {
-            let opener = first.opener.as_deref().unwrap_or("");
-            let text = format!("{opener}{output}");
-            parsed += text.len();
-            if super::super::row::open_tail(&text) != next_opener {
-                return (false, parsed);
-            }
-        }
-        if !first.continues && next.is_none() {
-            return (true, parsed);
-        }
-        let first_index = self.rows.locate(start, false);
-        let previous = self.previous_tail(source, first_index, start);
-        let outside = super::super::row::Outside {
-            previous: previous.as_deref(),
-            continues: first.continues,
-            first_number: first.first_number(),
-            opener: first.opener.as_deref(),
-            next: next.as_deref(),
-            next_opener: next.as_ref().and(next_opener),
-            followed: end < source.len_bytes(),
-            neutral: neutral_replacement(source, start, end, output),
-            context: first.context.as_deref(),
-            next_context: next
-                .as_ref()
-                .and(following.context.as_deref().filter(|_| following_row)),
-        };
-        let found = super::super::row::partition(output, outside);
-        (
-            !found.widen_back && !found.widen_forward,
-            parsed + output.len(),
-        )
-    }
-
-    /// Rows `first..=last` widened to the blank-separated piece an uncut row
-    /// would hold, never into front matter.
-    fn uncut_piece(&self, source: &Rope, mut first: usize, mut last: usize) -> (usize, usize) {
-        // The blank-separated piece an uncut row would hold.
-        let ends_blank = |index: usize| {
-            let (row, start, _) = self.rows.at(index);
-            let end = start + row.source_len;
-            // The last four bytes, widened back to a character boundary.
-            let from = source.char_to_byte(source.byte_to_char(start.max(end.saturating_sub(4))));
-            let tail = source.byte_slice(from..end).to_string();
-            tail.ends_with("\n\n") || tail.ends_with("\n\r\n") || row.source_len <= 2
-        };
-        while first > 0
-            && !self.rows.at(first - 1).0.metadata
-            && (self.rows.at(first).0.continues || !ends_blank(first - 1))
-        {
-            first -= 1;
-        }
-        while last + 1 < self.rows.len()
-            && (self.rows.at(last + 1).0.continues || !ends_blank(last))
-        {
-            last += 1;
-        }
-        (first, last)
     }
 
     pub(super) fn edit_context_for_change(
@@ -216,10 +138,22 @@ impl Projection {
                         }
                     }),
             );
+            // A replacement crossing a fence boundary owns the complete code
+            // structure only when it also owns every visible body scalar. Keeping
+            // the opener alone would hide surviving prose inside an unmatched fence.
+            let mut retired_fences = Vec::new();
             let retired_headings: Vec<_> = row
                 .blocks
                 .iter()
                 .filter(|block| {
+                    if let Some(fence) = block.fence.as_ref().filter(|_| replacement.is_some()) {
+                        link_metadata_items += 1;
+                        let (retired, work) = fence.retired_by(self, index, row_source, range);
+                        link_metadata_items += work;
+                        if retired && retired_fences.last() != Some(&fence.whole) {
+                            retired_fences.push(fence.whole.clone());
+                        }
+                    }
                     let body_start = self.display_at(row_source + block.content.start);
                     let body_end = self.display_at(row_source + block.content.end);
                     // Replacing body text across blocks owns a complete lower
@@ -265,6 +199,17 @@ impl Projection {
             });
             let markers_at = MarkerRanges::new(row);
             for segment in &row.segments {
+                if segment.display.is_empty() {
+                    let at = retired_fences.partition_point(|fence| {
+                        link_metadata_items += 1;
+                        fence.end <= segment.source.start
+                    });
+                    if retired_fences.get(at).is_some_and(|fence| {
+                        fence.start <= segment.source.start && segment.source.end <= fence.end
+                    }) {
+                        continue;
+                    }
+                }
                 while hidden
                     .peek()
                     .is_some_and(|(range, _)| range.end <= segment.source.start)
