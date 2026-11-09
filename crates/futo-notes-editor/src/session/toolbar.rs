@@ -73,10 +73,11 @@ impl EditorSession {
                     .is_some_and(|other| other.whole == fence.whole)
             })
         });
-        // Code lines take a tab; a list item nests under the item above it and
+        // Code lines take a tab (a selection that starts in an item and crosses
+        // its code block nests the item, code and all); a list item nests under the item above it and
         // un-nests one level. Nothing else (paragraphs, headings, plain quote
         // lines, tables) has a sensible Indent or Outdent.
-        let (can_indent, can_outdent) = if lines.iter().any(|line| line.code) {
+        let (can_indent, can_outdent) = if first.is_some_and(|line| line.code) {
             (
                 same_fence.is_some_and(|fence| self.fence_text_lines(&lines, fence, false) > 0),
                 same_fence.is_some_and(|fence| self.fence_text_lines(&lines, fence, true) > 0),

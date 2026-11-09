@@ -87,16 +87,31 @@ impl EditorSession {
             }
         }
         // Outdented items leave their old list: its later items, now nested
-        // under the last moved item, form a new list.
+        // under the last moved item, join that item's own child list when it
+        // has one, else form a new list.
         if command == BlockCommand::Outdent {
             let old = rows[item].key;
             let last = *moved.last().unwrap_or(&item);
+            let children = rows[last + 1..]
+                .iter()
+                .rev()
+                .find(|row| {
+                    row.before.opens
+                        && row.before.depth == depth + 1
+                        && row.chain.contains(&Some(last))
+                })
+                .map(|row| (row.before.marker, row.key));
             let mut first = true;
             for row in rows[last + 1..].iter_mut() {
                 if !row.blank && row.before.depth < depth {
                     break;
                 }
                 if row.before.opens && row.key == old && row.before.depth == depth {
+                    if let Some((marker, key)) = children {
+                        row.after.marker = marker;
+                        row.key = key;
+                        continue;
+                    }
                     row.key = usize::MAX / 2 - last;
                     // The new list of children counts from one.
                     if std::mem::take(&mut first) {

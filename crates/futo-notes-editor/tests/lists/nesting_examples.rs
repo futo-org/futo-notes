@@ -279,6 +279,22 @@ fn outdenting_a_nested_ordered_item_rejoins_the_parent_list_and_keeps_its_follow
             "b",
             "> 1. a\n> 2. b\n>    1. c",
         ),
+        // The item's own children and its followers form one list under it.
+        (
+            "1. a\n   1. b\n      1. b1\n   2. c",
+            "b",
+            "1. a\n2. b\n   1. b1\n   2. c",
+        ),
+        (
+            "- a\n  - b\n    - b1\n  - c",
+            "b",
+            "- a\n- b\n  - b1\n  - c",
+        ),
+        (
+            "1. a\n   1. b\n      1. b1\n         1. b2\n      2. b3\n   2. c\n      1. c1\n   3. d",
+            "b",
+            "1. a\n2. b\n   1. b1\n      1. b2\n   2. b3\n   3. c\n      1. c1\n   4. d",
+        ),
     ] {
         let mut s = EditorSession::open(source);
         caret_in(&mut s, item);
@@ -295,6 +311,40 @@ fn outdenting_a_nested_ordered_item_rejoins_the_parent_list_and_keeps_its_follow
             .collect();
         let moved = before.iter().position(|(text, _)| text == item).unwrap();
         assert_eq!(depths[moved].1, before[moved].1 - 1, "{source:?}");
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap();
+        assert_eq!(s.source_text(), source);
+    }
+}
+
+#[test]
+fn a_selection_across_an_items_code_block_nests_the_whole_item() {
+    let select = |s: &mut EditorSession, from: &str, to: &str| {
+        let text = s.display_text();
+        let (a, b) = (text.find(from).unwrap(), text.find(to).unwrap() + 1);
+        s.select(s.revision(), range(a, b)).unwrap();
+    };
+    let fenced = "- a\n- b\n  ```\n  x\n  ```\n- c";
+    let nested = "- a\n  - b\n    ```\n    x\n    ```\n  - c";
+    for (source, to, indented, outdented) in [
+        (fenced, "c", Some(nested), None),
+        (fenced, "x", Some("- a\n  - b\n    ```\n    x\n    ```\n- c"), None),
+        (nested, "c", None, Some(fenced)),
+    ] {
+        let mut s = EditorSession::open(source);
+        select(&mut s, "b", to);
+        let state = s.toolbar_state();
+        assert_eq!(
+            (state.can_indent, state.can_outdent),
+            (indented.is_some(), outdented.is_some()),
+            "{source:?}"
+        );
+        let (what, expected) = match (indented, outdented) {
+            (Some(expected), _) => (BlockCommand::Indent, expected),
+            (_, Some(expected)) => (BlockCommand::Outdent, expected),
+            _ => unreachable!(),
+        };
+        command(&mut s, what).unwrap();
+        assert_eq!(s.source_text(), expected, "{source:?} {to:?}");
         s.undo(s.revision(), &mut |_| Ok(())).unwrap();
         assert_eq!(s.source_text(), source);
     }

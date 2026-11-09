@@ -40,8 +40,8 @@ impl EditorSession {
         }
         if self
             .selected_block_lines(range)
-            .iter()
-            .any(|line| line.code)
+            .first()
+            .is_some_and(|line| line.code)
         {
             return self.fence_indent(expected, range, outdent, false, accept);
         }
