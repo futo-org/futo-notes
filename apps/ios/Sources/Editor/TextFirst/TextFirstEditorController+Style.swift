@@ -71,9 +71,12 @@
             }
         }
 
-        /// Keep the styled prefix in step with an edit inside it.
+        /// Keep the styled prefix in step with an edit inside it. An edit that starts exactly where
+        /// the prefix ends (typing or inserting at the end of the note) is inside it too: `restyle`
+        /// styles that window at once, and everything keyed to the prefix (an image's re-layout
+        /// when its bitmap arrives, the table pass) has to reach it.
         func adjustStyled(for edit: EditorMirrorEdit) {
-            guard Int(edit.start) < styledThrough else { return }
+            guard Int(edit.start) <= styledThrough else { return }
             styledThrough = max(
                 Int(edit.start),
                 min(
