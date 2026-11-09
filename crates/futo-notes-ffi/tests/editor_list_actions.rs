@@ -52,7 +52,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
         "../../futo-notes-editor/tests/fixtures/list-shortcuts.json"
     ))
     .unwrap();
-    assert_eq!(original.len(), 27);
+    assert_eq!(original.len(), 29);
     assert_eq!(shortcuts.len(), 38);
     let staging: Vec<Value> = serde_json::from_str(include_str!(
         "../../futo-notes-editor/tests/fixtures/list-staging.json"
@@ -83,12 +83,12 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
         "../../futo-notes-editor/tests/fixtures/fence-container-commands.json"
     ))
     .unwrap();
-    assert_eq!(fences.len(), 23);
+    assert_eq!(fences.len(), 29);
     let headings: Vec<Value> = serde_json::from_str(include_str!(
         "../../futo-notes-editor/tests/fixtures/heading-quote-commands.json"
     ))
     .unwrap();
-    assert_eq!(headings.len(), 5);
+    assert_eq!(headings.len(), 16);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
@@ -146,6 +146,8 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
                 0,
                 selected,
                 match command {
+                    "CodeBlock" => EditorBlockCommand::CodeBlock,
+                    "WrapCodeBlock" => EditorBlockCommand::WrapCodeBlock,
                     "Text" => EditorBlockCommand::Heading { level: 0 },
                     "Heading2" => EditorBlockCommand::Heading { level: 2 },
                     "Quote" => EditorBlockCommand::Quote,

@@ -458,3 +458,141 @@ fn enter_after_indented_code_retains_its_existing_origin_prefix() {
         assert_eq!(view.text, "r\n\nu\nv");
     }
 }
+
+/// One structural key is one acceptance and exact history action, including
+/// the source spelling and the supplied selection on Undo.
+fn heading_list_enter(
+    raw: &str,
+    selected: DisplayRange,
+    key: ParagraphKey,
+    expected: &str,
+    display: &str,
+    after: usize,
+    heading: u8,
+) -> EditorSession {
+    let mut s = EditorSession::open(raw);
+    let opening = s.display_text();
+    let mut view = ReferenceView::new(&opening);
+    s.select(s.revision(), selected).unwrap();
+    let mut accepted = 0;
+    view.apply(
+        s.paragraph_key(s.revision(), selected, key, &mut |_| {
+            accepted += 1;
+            Ok(())
+        })
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(accepted, 1, "{raw:?}");
+    assert_eq!(s.source_text(), expected, "{raw:?}");
+    assert_eq!(view.text, display);
+    assert_eq!(s.display_text(), display);
+    assert_eq!(s.selection(), range(after, after));
+    assert_eq!(s.toolbar_state().heading.unwrap_or(0), heading);
+    assert_eq!(EditorSession::open(expected).display_text(), display);
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.selection(), selected);
+    assert_eq!(view.text, opening);
+    assert!(s.undo(s.revision(), &mut |_| Ok(())).unwrap().is_none());
+    view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(view.text, display);
+    assert_eq!(s.selection(), range(after, after));
+    assert_eq!(s.toolbar_state().heading.unwrap_or(0), heading);
+    s
+}
+
+#[test]
+fn heading_list_enter_starts_the_next_item_without_a_heading() {
+    for (raw, selected, expected, display, after) in [
+        ("- # h", range(1, 1), "- # h\n- ", "h\n", 2),
+        ("- ### ab", range(1, 1), "- ### a\n- b", "a\nb", 2),
+        ("- ## abcd", range(1, 3), "- ## a\n- d", "a\nd", 2),
+        // The caret's physical row is plain; the retained item origin owns H1.
+        ("- # h\n  v", range(3, 3), "- # h\n  v\n- ", "h\nv\n", 4),
+        (
+            "> 9) ## 猫\r\n> 10) tail",
+            range(3, 3),
+            "> 9) ## 猫\r\n> 10) \r\n> 11) tail",
+            "猫\r\n\r\ntail",
+            5,
+        ),
+    ] {
+        for key in [ParagraphKey::Enter, ParagraphKey::ShiftEnter] {
+            heading_list_enter(raw, selected, key, expected, display, after, 0);
+        }
+    }
+}
+
+#[test]
+fn heading_list_enter_carries_inline_marks_into_the_plain_item() {
+    for key in [ParagraphKey::Enter, ParagraphKey::ShiftEnter] {
+        let mut s = heading_list_enter(
+            "- # **ab**",
+            range(2, 2),
+            key,
+            "- # **ab**\n- ",
+            "ab\n",
+            3,
+            0,
+        );
+        assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
+        s.replace(s.revision(), s.selection(), "v", &mut |_| Ok(()))
+            .unwrap();
+        assert_eq!(s.source_text(), "- # **ab**\n- **v**");
+        assert_eq!(s.display_text(), "ab\nv");
+        assert_eq!(s.toolbar_state().heading, Some(0));
+        assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(s.source_text(), "- # **ab**\n- ");
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(s.source_text(), "- # **ab**");
+        assert_eq!(s.selection(), range(2, 2));
+    }
+}
+
+#[test]
+fn heading_list_enter_controls_keep_the_start_and_literal_task_hash() {
+    for (raw, selected, expected, display, after, heading) in [
+        ("- # ", range(0, 0), "# ", "", 0, 1),
+        (
+            "```\nr\n```\n\n- # ",
+            range(3, 3),
+            "```\nr\n```\n\n# ",
+            "r\n\n",
+            3,
+            1,
+        ),
+        ("- # h", range(0, 0), "- \n- # h", "\nh", 1, 1),
+        ("# h", range(1, 1), "# h\n", "h\n", 2, 0),
+        ("- h", range(1, 1), "- h\n- ", "h\n", 2, 0),
+        (
+            "- [x] # h",
+            range(3, 3),
+            "- [x] \\# h\n- [ ] ",
+            "# h\n",
+            4,
+            0,
+        ),
+    ] {
+        for key in [ParagraphKey::Enter, ParagraphKey::ShiftEnter] {
+            heading_list_enter(raw, selected, key, expected, display, after, heading);
+        }
+    }
+}
+
+#[test]
+fn heading_list_enter_keeps_its_optional_closer_on_the_left() {
+    for key in [ParagraphKey::Enter, ParagraphKey::ShiftEnter] {
+        heading_list_enter(
+            "- ## ab ##",
+            range(2, 2),
+            key,
+            "- ## ab ##\n- ",
+            "ab\n",
+            3,
+            0,
+        );
+    }
+}

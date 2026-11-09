@@ -23,6 +23,24 @@ impl StoreEditorSession<'_> {
         Ok(state.engine.update_note_ids(&ids))
     }
 
+    /// The note a tapped schemeless link destination names, from this note's folder, among the
+    /// ids delivered at open, at reset and on `refresh_note_ids`.
+    pub fn resolve_note_link(&self, destination: &str) -> Result<Option<String>, EditorStoreError> {
+        self.live(|state| {
+            let id = state.id.clone();
+            Ok(state.engine.resolve_note_link(&id, destination))
+        })
+    }
+
+    /// The destination to save for what was typed in this note's link prompt: an existing note
+    /// (same resolution as a tap) stays as typed, otherwise a web-looking address gains `https://`.
+    pub fn normalize_link_destination(&self, typed: &str) -> Result<String, EditorStoreError> {
+        self.live(|state| {
+            let id = state.id.clone();
+            Ok(state.engine.normalize_link_destination(&id, typed))
+        })
+    }
+
     pub fn inspect_link(
         &self,
         expected: Revision,

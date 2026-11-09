@@ -43,6 +43,30 @@ impl NativeEditorSession {
     }
 }
 
+/// The address a tapped link destination opens in the system, or none unless it has an explicit
+/// allowed scheme (http, https, mailto, tel, sms). A schemeless destination is a note link.
+#[uniffi::export]
+pub fn editor_external_link_url(destination: String) -> Option<String> {
+    futo_notes_editor::external_link_url(&destination)
+}
+
+#[uniffi::export]
+impl NativeEditorSession {
+    /// The note a tapped schemeless link destination names, or none when it names no note.
+    pub fn resolve_note_link(
+        &self,
+        destination: String,
+    ) -> Result<Option<String>, EditorSessionError> {
+        self.with_session(|session| Ok(session.resolve_note_link(&destination)?))
+    }
+
+    /// The destination to save for what was typed in the link prompt: one naming an existing
+    /// note comes back as typed; otherwise a schemeless web address gains `https://`.
+    pub fn normalize_link_destination(&self, typed: String) -> Result<String, EditorSessionError> {
+        self.with_session(|session| Ok(session.normalize_link_destination(&typed)?))
+    }
+}
+
 /// Replacement semantics for only the changed wikilinks, at an unchanged revision.
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorNoteIdChange {

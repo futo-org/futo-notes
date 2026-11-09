@@ -91,9 +91,9 @@ impl EditorSession {
                 replace_number(&mut prefix, &origin, number)?;
             }
         }
-        // A hidden fence opener owns the item marker, but its content range
-        // includes the fence spelling. Only the retained list prefix repeats.
-        let prefix_end = if origin.code && origin.content.is_empty() {
+        // Repeat the item prefix, excluding a heading's opener or a hidden
+        // fence opener. Plain continuation rows still use their item's origin.
+        let prefix_end = if origin.heading > 0 || origin.code && origin.content.is_empty() {
             origin.source.start + origin.list.as_ref().unwrap().indent
         } else {
             origin.content.start
@@ -118,17 +118,24 @@ impl EditorSession {
         // The item's later rows now follow the new marker and must stay in it.
         let opens_empty = body.right.is_empty() && origin.task.is_none();
         let (moved, blanks) = self.moved_item_rows(line, &origin, &continuation, opens_empty)?;
+        let suffix_range = if line.heading > 0 {
+            self.block_line_suffix(line)
+        } else {
+            line.content.end..line.content.end
+        };
+        let suffix = self.source.byte_slice(suffix_range.clone()).to_string();
         let output = format!(
-            "{left_prefix}{}\n{blanks}{continuation}{}",
+            "{left_prefix}{}{suffix}\n{blanks}{continuation}{}",
             body.left, body.right
         );
         let mut caret = line.source.start
             + left_prefix.len()
             + body.left.len()
+            + suffix.len()
             + 1
             + blanks.len()
             + continuation.len();
-        let mut edits = vec![(line.source.start..line.content.end, output)];
+        let mut edits = vec![(line.source.start..suffix_range.end, output)];
         edits.extend(moved);
         // The split closed and reopened formatting at the caret line's edges;
         // the paragraph's rows above and below it must close and reopen too.
@@ -186,7 +193,7 @@ impl EditorSession {
             accept,
         )?;
         self.carry_block_state(&mut change, body.formats, body.affinity);
-        change.work.materialized_source_bytes += body.materialized;
+        change.work.materialized_source_bytes += body.materialized + suffix.len();
         change.work.parsed_source_bytes += body.parsed;
         Ok(Some(change))
     }

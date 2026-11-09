@@ -99,7 +99,8 @@ fn inlines(projection: &crate::inline::Projection, bodies: &[Range<usize>]) -> V
 
 impl EditorSession {
     /// The first row whose reparsed shape, display or (for an edited row)
-    /// inline semantics differ, if any.
+    /// inline semantics differ, if any. With `merge`, an intended list may
+    /// continue the parsed list above it instead of staying separate.
     pub(super) fn verify_rows(
         &self,
         expected: Revision,
@@ -107,6 +108,7 @@ impl EditorSession {
         rows: &[Row],
         plan: &Plan,
         work: &mut EditWork,
+        merge: bool,
     ) -> Result<Option<usize>, EditorError> {
         let edit = self.prepare_source(
             expected,
@@ -144,7 +146,7 @@ impl EditorSession {
                     .map(|at| &lines[at]);
                 let merged = found
                     .and_then(|candidate| candidate.list.as_ref())
-                    .filter(|_| row.after.opens && !row.blank)
+                    .filter(|_| !merge && row.after.opens && !row.blank)
                     .is_some_and(|list| {
                         // One intended list per parsed list, both ways.
                         // Lists continuing from before a staged window all
@@ -161,7 +163,7 @@ impl EditorSession {
                             }
                         }
                     });
-                if merged || !same_row(row, line, found) {
+                if merged || !same_row(row, line, found, merge) {
                     return Ok(Some(index));
                 }
             }
@@ -208,14 +210,20 @@ fn same_row(
     row: &Row,
     line: usize,
     found: Option<&crate::inline::blocks::ListCommandLine>,
+    merge: bool,
 ) -> bool {
     let Some(candidate) = found else {
         return row.blank;
     };
     if row.blank {
-        return !row.exact_blank || candidate.list.is_none();
+        return merge || !row.exact_blank || candidate.list.is_none();
     }
     let shape = &row.after;
+    // Markdown has no empty paragraph between items: a merged list keeps the
+    // empty row as one of its blank lines.
+    if merge && row.body.is_empty() && shape.depth == 0 && shape.heading == 0 {
+        return candidate.quote_depth == shape.quotes + shape.inner && candidate.code == row.code;
+    }
     candidate.quote_depth == shape.quotes + shape.inner
         && candidate.heading == shape.heading
         && candidate.code == row.code
@@ -224,9 +232,14 @@ fn same_row(
             None => shape.depth == 0,
             Some(list) => {
                 let opens = list.first && list.marker.start >= line;
+                // An untouched item of a merged list takes that list's
+                // numbering; an edited item keeps the number it was given.
+                let renumbered = merge && !row.changed() && list.owner.start < line;
                 list.depth == shape.depth
                     && opens == shape.opens
-                    && (!opens || list.ordinal == shape.ordinal && list.checked == shape.checked)
+                    && (!opens
+                        || (renumbered || list.ordinal == shape.ordinal)
+                            && list.checked == shape.checked)
             }
         }
 }

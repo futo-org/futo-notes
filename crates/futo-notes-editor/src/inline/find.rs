@@ -12,7 +12,7 @@ impl Projection {
         let mut previous: Option<(&super::blocks::BlockLine, usize)> = None;
         for index in 0..self.rows.len() {
             let (row, _, display) = self.rows.at(index);
-            for block in row.blocks.iter().filter(|block| !block.empty_comment) {
+            for block in row.blocks.iter() {
                 if let Some((before, end)) = previous {
                     let joined = before.paragraph_text
                         && block.paragraph_text

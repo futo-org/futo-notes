@@ -96,8 +96,8 @@ existing start, raw delimiter and tab padding while clearing checkbox state. Mix
 ordered child lifting copies that start into each newly independent following owner.
 Same-line quote/list controls retain empty lifted paragraphs, physical CRLF and quote
 prefixes, raw nonidentity entity atoms and native UTF-16 interior carets. Task-body
-quote/heading punctuation stays literal. Together with the unchanged original seventy-four
-list cases, all six source consumers load 202 cases, including twenty-four
+quote/heading punctuation stays literal. Together with the original seventy-nine
+list cases, all six source consumers load 224 cases, including twenty-four
 `prefix-frame-commands.json` literals. These distinguish registered Backspace
 from full Text lifting. Unchanged implicit empty parents
 keep compact source; an action-created parallel paragraph gets a physical frame.
@@ -130,7 +130,7 @@ CRLF entity controls hand-map native UTF-16 ranges: a selected endpoint after
 the first decoded scalar is unit one (byte three), and its new CRLF frame
 moves it to unit three (byte five). Backspace retains its start caret.
 
-Fourteen final mutation literals add nine fence-family cases and five
+Twenty-three final mutation literals add nine fence-family cases and fourteen
 `heading-quote-commands.json` cases.
 They preserve a preceding listed paragraph with one necessary blank, authored
 blank/empty/opaque predecessors without new blank normalization, continuation
@@ -164,3 +164,16 @@ an item's own line, crossquote lifting, same-line nested parents, unclosed fence
 lifted item, setext headings) carry `"refused": true`. Their `expected`/`shown` keep the
 historical literals for reference; every consumer instead asserts `UnrepresentableFormat`
 with source and revision unchanged.
+
+The heading first-text-endpoint literal retains the opening command targets through list lifting: selecting `a\nb` through the start of `b` owns both list rows, and the heading reaches both while retaining the original range and one exact Undo step.
+
+Empty-item Heading/Quote literals retain the final requested row shape while
+nonempty targets use canonical Text lifting. Caret, wider/all-empty selections
+and native UTF-16 CRLF/ZWJ coordinates preserve one exact accepted history group.
+
+Text retirement after a list preserves paragraph ownership for nonempty and
+empty headings and empty quote-off. A necessary blank line maps native ranges;
+a quoted empty paragraph uses the existing hidden-comment separator to keep
+its margin caret and quote ancestry without joining the prior list.
+
+Two selected-ancestor Heading/Quote literals cover quoted task parents and children with CRLF, and an owned child first-text endpoint with its unselected grandchild retained as a list. The heading/quote family now has sixteen cases. Explicit final-block intent lifts selected descendants; the separate Text ancestor literal remains unchanged.

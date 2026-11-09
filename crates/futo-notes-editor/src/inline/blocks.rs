@@ -72,7 +72,6 @@ pub(crate) struct BlockLine {
     pub metadata: bool,
     /// Raw HTML block source; Markdown shortcuts never fire inside it.
     pub html: bool,
-    pub empty_comment: bool,
     /// Nonempty source within an actual paragraph or tight-item inline run.
     pub paragraph_text: bool,
     pub list: Option<super::lists::ListLine>,
@@ -120,11 +119,9 @@ pub(super) fn trailing_syntax(lines: &[BlockLine], range: &Range<usize>) -> bool
     let first = lines.partition_point(|line| line.source.end < range.end);
     let last = lines.partition_point(|line| line.source.start <= range.start);
     first < last
-        && lines[first..last].iter().any(|block| {
-            !block.empty_comment
-                && block.content.end <= range.start
-                && range.end <= block.source.end
-        })
+        && lines[first..last]
+            .iter()
+            .any(|block| block.content.end <= range.start && range.end <= block.source.end)
 }
 
 pub(super) fn describe(
@@ -165,7 +162,6 @@ fn describe_with_parts(
                 code: false,
                 metadata: false,
                 html: false,
-                empty_comment: false,
                 paragraph_text: false,
                 list: None,
                 task: None,
@@ -189,7 +185,6 @@ fn describe_with_parts(
             code: false,
             metadata: false,
             html: false,
-            empty_comment: false,
             paragraph_text: false,
             list: None,
             task: None,
@@ -265,48 +260,18 @@ fn describe_with_parts(
     }
     prose.flush();
     let mut lists = super::lists::describe(source, events);
-    let comments = super::empty_comments::ranges(events);
-    let mut comment = 0;
     let mut prefixes = Vec::new();
     for line in &mut lines {
         let end = line.content.end;
-        let mut start = line.source.start;
-        let (quote_end, mut column, consumed_quotes) =
-            consume_quote_prefix(source.as_bytes(), start, end, line.quote_depth, 0);
-        start = quote_end;
         let attribution = lists.line(line.source.start, end);
         line.task = attribution.task;
         line.list = attribution.list;
-        if let Some(list) = &line.list {
-            if !list.first {
-                while start < end && column < list.content_column {
-                    match source.as_bytes()[start] {
-                        b' ' => column += 1,
-                        b'\t' => column += 4 - column % 4,
-                        _ => break,
-                    }
-                    start += 1;
-                }
-            }
-        }
-        if let Some(list) = &line.list {
-            let remaining = if list.first {
-                let header = line.source.start + list.indent;
-                if header > start {
-                    column = super::columns(&source[start..header], column);
-                    start = header;
-                }
-                // The innermost item already owns every quote before its
-                // header, including quotes crossed by same-line list syntax.
-                line.quote_depth.saturating_sub(list.quote_depth)
-            } else {
-                line.quote_depth.saturating_sub(consumed_quotes)
-            };
-            let (quote_end, quote_column, _) =
-                consume_quote_prefix(source.as_bytes(), start, end, remaining, column);
-            start = quote_end;
-            column = quote_column;
-        }
+        let (prefix, mut column) = container_prefix(
+            &source[line.source.start..end],
+            line.quote_depth,
+            line.list.as_ref(),
+        );
+        let mut start = line.source.start + prefix;
         if let Some(end) = attribution.prefix_end.filter(|&end| end > start) {
             column = super::columns(&source[start..end], column);
             start = end;
@@ -338,19 +303,6 @@ fn describe_with_parts(
                 }
             }
         }
-        while comments
-            .get(comment)
-            .is_some_and(|range| range.end <= line.source.start)
-        {
-            comment += 1;
-        }
-        line.empty_comment = !line.code
-            && line.list.is_none()
-            && source[line.source.clone()].ends_with('\n')
-            && super::empty_comments::standard(&source[start..line.content.end])
-            && comments.get(comment).is_some_and(|range| {
-                line.source.start <= range.start && range.end <= line.source.end
-            });
         prefixes.push(line.source.start..start);
         line.content.start = start;
         line.paragraph_text =
@@ -362,12 +314,16 @@ fn describe_with_parts(
     }
     // The parser lets a last item own the blank lines that end the note. Only the first of
     // them continues the item (text typed there is lazy); a line after a blank line starts
-    // a paragraph, so it is not shown as a list row.
+    // a paragraph, so it is not shown as a list row. A quoted blank line is blank too.
     let trailing = lines.len()
         - lines
             .iter()
             .rev()
-            .take_while(|line| source[line.source.clone()].trim().is_empty())
+            .take_while(|line| {
+                source[line.source.clone()]
+                    .chars()
+                    .all(|ch| ch == '>' || ch.is_whitespace())
+            })
             .count();
     for line in lines.iter_mut().skip(trailing + 1) {
         if line.list.as_ref().is_some_and(|list| !list.first) {
@@ -389,6 +345,46 @@ fn describe_with_parts(
     }
     fences(source, events, &mut lines);
     (lines, prefixes)
+}
+
+/// The canonical quote/list prefix, excluding a block's own indentation.
+/// Return its byte end and physical column; opaque body spaces stay outside it.
+pub(crate) fn container_prefix(
+    source: &str,
+    quote_depth: usize,
+    list: Option<&super::lists::ListLine>,
+) -> (usize, usize) {
+    let end = source.len();
+    let (mut start, mut column, consumed_quotes) =
+        consume_quote_prefix(source.as_bytes(), 0, end, quote_depth, 0);
+    if let Some(list) = list {
+        if !list.first {
+            while start < end && column < list.content_column {
+                match source.as_bytes()[start] {
+                    b' ' => column += 1,
+                    b'\t' => column += 4 - column % 4,
+                    _ => break,
+                }
+                start += 1;
+            }
+        }
+        let remaining = if list.first {
+            if list.indent > start {
+                column = super::columns(&source[start..list.indent], column);
+                start = list.indent;
+            }
+            // The innermost item owns quotes before its header, including
+            // quotes crossed by same-line list syntax.
+            quote_depth.saturating_sub(list.quote_depth)
+        } else {
+            quote_depth.saturating_sub(consumed_quotes)
+        };
+        let (quote_end, quote_column, _) =
+            consume_quote_prefix(source.as_bytes(), start, end, remaining, column);
+        start = quote_end;
+        column = quote_column;
+    }
+    (start, column)
 }
 
 /// Consume only the parser-attributed quote levels at this container origin.

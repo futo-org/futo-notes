@@ -14,7 +14,7 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
         serde_json::from_str(include_str!("../fixtures/list-actions.json")).unwrap();
     let shortcuts: Vec<Value> =
         serde_json::from_str(include_str!("../fixtures/list-shortcuts.json")).unwrap();
-    assert_eq!(original.len(), 27);
+    assert_eq!(original.len(), 29);
     assert_eq!(shortcuts.len(), 38);
     let staging: Vec<Value> =
         serde_json::from_str(include_str!("../fixtures/list-staging.json")).unwrap();
@@ -33,10 +33,10 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
     assert_eq!(frames.len(), 24);
     let fences: Vec<Value> =
         serde_json::from_str(include_str!("../fixtures/fence-container-commands.json")).unwrap();
-    assert_eq!(fences.len(), 23);
+    assert_eq!(fences.len(), 29);
     let headings: Vec<Value> =
         serde_json::from_str(include_str!("../fixtures/heading-quote-commands.json")).unwrap();
-    assert_eq!(headings.len(), 5);
+    assert_eq!(headings.len(), 16);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
@@ -102,6 +102,8 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
                 s.revision(),
                 selected,
                 match command {
+                    "CodeBlock" => BlockCommand::CodeBlock,
+                    "WrapCodeBlock" => BlockCommand::WrapCodeBlock,
                     "Text" => BlockCommand::Heading(0),
                     "Heading2" => BlockCommand::Heading(2),
                     "Quote" => BlockCommand::Quote,

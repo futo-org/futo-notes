@@ -91,7 +91,7 @@ fn empty_item_enter_exits_without_changing_neighboring_items_or_endings() {
             "* a\r\n* \r\n* b",
             "a\r\n\r\nb",
             range(3, 3),
-            "* a\r\n<!-- -->\r\n\r\n* b",
+            "* a\r\n\r\n* b",
             "a\r\n\r\nb",
         ),
         ("> - [ ] ", "", range(0, 0), "> ", ""),
@@ -335,7 +335,9 @@ fn maximum_supported_ordered_markers_continue_with_valid_lazy_physical_numbers()
 }
 
 #[test]
-fn middle_empty_exit_keeps_the_two_lists_independent_after_fresh_open() {
+fn middle_empty_exit_reopens_as_one_loose_list() {
+    // The exit writes no separator into the note, so Markdown reads the two
+    // halves as one loose list: a list command on either half reaches both.
     let raw = "* a\n* \n* b";
     let mut s = EditorSession::open(raw);
     let mut view = ReferenceView::new("a\n\nb");
@@ -360,9 +362,9 @@ fn middle_empty_exit_keeps_the_two_lists_independent_after_fresh_open() {
             .unwrap()
             .unwrap(),
     );
-    assert_eq!(fresh.source_text(), "* a\n<!-- -->\n\n* [ ] b");
+    assert_eq!(fresh.source_text(), "* [ ] a\n\n* [ ] b");
     assert_eq!(reopened_view.text, "a\n\nb");
-    assert_eq!(s.source_text(), "* a\n<!-- -->\n\n* b");
+    assert_eq!(s.source_text(), "* a\n\n* b");
     assert_eq!(s.selection(), range(2, 2));
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), raw);

@@ -81,6 +81,19 @@ impl EditorSession {
         command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        self.list_command_with_final_block(expected, range, command, None, accept)
+    }
+
+    /// Explicit final blocks lift every selected item. Text keeps its listed
+    /// descendants; zero-body items use the final shape during verification.
+    pub(in crate::session::blocks) fn list_command_with_final_block(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        command: BlockCommand,
+        final_block: Option<BlockCommand>,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
         let (has_seams, inspected) = self.projection.has_block_seams_with_work(range);
         let counted = |result: Result<Option<ViewChange>, EditorError>| {
             result.map(|change| {
@@ -103,8 +116,13 @@ impl EditorSession {
                 accept,
                 |staged, local, accept| {
                     let seams = staged.split_inline_block_seams(local, accept)?;
-                    let mut change =
-                        staged.list_rows_command(staged.revision(), local, command, accept)?;
+                    let mut change = staged.list_rows_command(
+                        staged.revision(),
+                        local,
+                        command,
+                        final_block,
+                        accept,
+                    )?;
                     if let (Some(change), Some(seams)) = (&mut change, seams) {
                         accumulate_planning_work(&mut change.work, seams.work);
                     }
@@ -112,7 +130,7 @@ impl EditorSession {
                 },
             ));
         }
-        counted(self.list_rows_command(expected, range, command, accept))
+        counted(self.list_rows_command(expected, range, command, final_block, accept))
     }
 
     fn list_rows_command(
@@ -120,6 +138,7 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
         command: BlockCommand,
+        final_block: Option<BlockCommand>,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let selected = self.selected_list_lines(range);
@@ -176,9 +195,11 @@ impl EditorSession {
                     }
                     continue;
                 }
-                if ancestor.is_some_and(|(above, owner_run)| {
-                    owner_run == run && above != item && row.chain.contains(&Some(above))
-                }) {
+                if final_block.is_none()
+                    && ancestor.is_some_and(|(above, owner_run)| {
+                        owner_run == run && above != item && row.chain.contains(&Some(above))
+                    })
+                {
                     continue;
                 }
                 if !retired.contains(&item) {
@@ -201,11 +222,27 @@ impl EditorSession {
             }
         }
         retire(&mut rows, &retired, true);
+        if let Some(block) = final_block {
+            for row in rows.iter_mut().filter(|row| {
+                row.selected
+                    && !row.blank
+                    && row.body.is_empty()
+                    && row.item().is_some_and(|item| retired.contains(&item))
+            }) {
+                match block {
+                    BlockCommand::Heading(level) => row.after.heading = level,
+                    BlockCommand::Quote => row.after.quotes = row.after.quotes.max(1),
+                    _ => return Err(EditorError::InvalidRange),
+                }
+            }
+        }
         for owner in &owners {
             retarget(&mut rows, owner, command);
         }
-        let mut previous_created = None;
-        for (index, format) in created {
+        let mut previous_created: Option<(usize, usize)> = None;
+        for (index, _) in created {
+            let other_marker =
+                previous_created.and_then(|(previous, _)| apart_marker(&rows, previous, index));
             let row = &mut rows[index];
             row.pinned = previous_created.is_none_or(|(previous, _)| previous + 1 < index);
             let key = match previous_created {
@@ -221,14 +258,11 @@ impl EditorSession {
             row.retire_heading();
             row.after.depth = 1;
             row.after.opens = true;
-            if format == Format::Quote {
-                row.after.quotes = 0;
-            }
-            row.after.marker = if command == BlockCommand::OrderedList {
+            row.after.marker = other_marker.unwrap_or(if command == BlockCommand::OrderedList {
                 b'.'
             } else {
                 b'-'
-            };
+            });
             row.after.checked = (command == BlockCommand::TaskList).then_some(false);
             row.start = Some(1);
         }
@@ -405,6 +439,16 @@ impl EditorSession {
                 BlockCommand::Outdent if row.before.inner > 0 => row.after.inner -= 1,
                 BlockCommand::Outdent if quotes > 0 => row.after.quotes -= 1,
                 _ => {}
+            }
+        }
+        for row in rows.iter_mut().filter(|row| {
+            row.changed() && row.body.is_empty() && row.after.heading == 0 && row.after.depth == 0
+        }) {
+            if self
+                .list_paragraph_separator(row.line.start, row.after.quotes, true)
+                .is_some()
+            {
+                row.insert = Insert::Blank;
             }
         }
         // A newly quoted empty line keeps a following paragraph out of the

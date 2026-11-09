@@ -20,7 +20,56 @@ pub(super) struct BodySplit {
     pub link_copied_bytes: usize,
 }
 
+pub(super) struct ParagraphSeparator {
+    pub source: String,
+}
+
 impl EditorSession {
+    /// The canonical block's trailing source syntax, excluding its line ending.
+    /// A split keeps this suffix beside the left body it originally closed.
+    pub(super) fn block_line_suffix(&self, line: &BlockLine) -> std::ops::Range<usize> {
+        let mut end = line.source.end;
+        while end > line.content.end && matches!(self.source.byte(end - 1), b'\r' | b'\n') {
+            end -= 1;
+        }
+        line.content.end..end
+    }
+
+    /// A paragraph replacing a block below a list must not become that item's
+    /// lazy continuation.
+    pub(super) fn list_paragraph_separator(
+        &self,
+        start: usize,
+        quotes: usize,
+        empty: bool,
+    ) -> Option<ParagraphSeparator> {
+        let row = self.source.byte_to_line(start);
+        let previous = self.source.line_to_byte(row.checked_sub(1)?);
+        if self
+            .source
+            .byte_slice(previous..start)
+            .chars()
+            .all(|ch| matches!(ch, ' ' | '\t' | '>' | '\r' | '\n'))
+        {
+            return None;
+        }
+        let line = self
+            .projection
+            .list_command_lines_in_source(&(previous..start))
+            .pop()?;
+        let list = line.list?;
+        if quotes > list.quote_depth || !empty && (line.heading > 0 || line.code || line.divider) {
+            return None;
+        }
+        Some(ParagraphSeparator {
+            source: format!(
+                "{}{}",
+                "> ".repeat(quotes).trim_end(),
+                self.line_ending_at(start)
+            ),
+        })
+    }
+
     /// Nonempty quote paragraphs can lazily adopt a following lower container.
     /// ATX/rule/code boundaries interrupt that continuation; setext bodies do
     /// not. Retain the next container's exact prefix when separating it.
