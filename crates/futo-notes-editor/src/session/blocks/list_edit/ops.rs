@@ -224,6 +224,7 @@ impl EditorSession {
         if let Some(block) = empty_block {
             for row in rows.iter_mut().filter(|row| {
                 row.selected
+                    && !row.blank
                     && row.body.is_empty()
                     && row.item().is_some_and(|item| retired.contains(&item))
             }) {
