@@ -112,6 +112,46 @@ impl super::super::Projection {
                 marker.close = explicit;
             }
         } else {
+            // Keep the formatting shared by the complete label outside its new link.
+            // Otherwise linking just "This" in "**This editor.**" splits the bold into
+            // "[**This**](url)** editor.**", whose second opener cannot precede a space.
+            let mut at = 0;
+            let mut enclosing: Option<Vec<usize>> = None;
+            let mut outside = std::collections::HashSet::new();
+            for piece in &pieces {
+                link_metadata_items += 1;
+                let end = at + piece.display.len();
+                if !piece.display.is_empty() && (at < a || end > z) {
+                    link_metadata_items += piece.spans.len();
+                    outside.extend(piece.spans.iter().copied());
+                }
+                if at < z && a < end {
+                    let spans: Vec<_> = piece
+                        .spans
+                        .iter()
+                        .copied()
+                        .filter(|id| !matches!(markers[*id].kind, SpanKind::Link(_)))
+                        .collect();
+                    link_metadata_items += piece.spans.len();
+                    match &mut enclosing {
+                        None => enclosing = Some(spans),
+                        Some(shared) => {
+                            link_metadata_items += shared.len().min(spans.len());
+                            let kept = shared
+                                .iter()
+                                .zip(&spans)
+                                .take_while(|(a, b)| a == b)
+                                .count();
+                            shared.truncate(kept);
+                        }
+                    }
+                }
+                at = end;
+            }
+            let nesting = enclosing.map_or(0, |shared| {
+                link_metadata_items += shared.len();
+                shared.iter().take_while(|id| outside.contains(id)).count()
+            });
             let id = markers.len();
             markers.push(Marker {
                 source: None,
@@ -130,7 +170,7 @@ impl super::super::Projection {
                         .spans
                         .retain(|id| !matches!(markers[*id].kind, SpanKind::Link(_)));
                     if !destination.is_empty() {
-                        piece.spans.insert(0, id);
+                        piece.spans.insert(nesting, id);
                     }
                 }
                 at = end;

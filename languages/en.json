@@ -482,6 +482,8 @@
         "editLink": "Edit link"
       },
       "linkPrompt": {
+        "label": "Link text",
+        "remove": "Remove link",
         "placeholder": "Paste or type a link",
         "urlAccessibilityLabel": "Link URL",
         "add": "Add",

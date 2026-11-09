@@ -61,13 +61,21 @@
         }
 
         private func openExternal(_ raw: String) {
-            guard let url = URL(string: raw),
-                case .openExternally(let safe) = editorNavigationDecision(
-                    for: url, isMainFrame: true, permittedFileURL: nil)
-            else { return }
+            guard let safe = Self.externalLinkURL(raw) else { return }
             PuppetVerbs.shared.recordOpen(safe.absoluteString)
             UIApplication.shared.open(safe)
-            onOpenURL?(raw)
+            onOpenURL?(safe.absoluteString)
+        }
+
+        /// A schemeless address from the link prompt opens as HTTPS. Its source spelling stays
+        /// verbatim, and explicit schemes still go through the ordinary external-open policy.
+        static func externalLinkURL(_ raw: String) -> URL? {
+            guard let supplied = URL(string: raw),
+                let url = supplied.scheme == nil ? URL(string: "https://" + raw) : supplied,
+                case .openExternally(let safe) = editorNavigationDecision(
+                    for: url, isMainFrame: true, permittedFileURL: nil)
+            else { return nil }
+            return safe
         }
 
         // MARK: wikilink completion
@@ -181,7 +189,11 @@
                 alert.addAction(
                     UIAlertAction(
                         title: localization.localizedText("common.actions.cancel"), style: .cancel))
-                presenter.present(alert, animated: true)
+                presenter.present(alert, animated: true) {
+                    // The label is already supplied by the selection; start where the user types.
+                    (label.isEmpty ? alert.textFields?.first : alert.textFields?.last)?
+                        .becomeFirstResponder()
+                }
             } catch { recover(error, context: "link prompt") }
         }
 

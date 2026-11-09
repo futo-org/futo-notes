@@ -7,6 +7,50 @@
 
     @Suite @MainActor
     struct TextFirstBlockDrawingTests {
+        @Test func deletingANestedItemCanRemoveItsFirstCharacter() {
+            let h = TextFirstHarness("- What about\n  - Nested\n  - Elements")
+            let at = (h.tv.text as NSString).range(of: "Nested").location
+            h.select(at + 6, at + 6)
+            for _ in 0..<6 { h.tv.deleteBackward() }
+            #expect(!h.display.contains("N"), "\(h.source.debugDescription)")
+            #expect(h.controller.divergences.isEmpty)
+        }
+
+        @Test func anEmptyTaskKeepsItsCheckboxPositionWhenTypedInto() {
+            let h = TextFirstHarness("- [ ] first\n- [ ] \n- [ ] last")
+            let at = (h.tv.text as NSString).range(of: "\n").location + 1
+            func boxes() -> [CGFloat] {
+                h.tv.layoutIfNeeded()
+                let manager = h.tv.textLayoutManager!
+                var centers: [CGFloat] = []
+                manager.enumerateTextLayoutFragments(
+                    from: manager.documentRange.location, options: []
+                ) { fragment in
+                    if let box = (fragment as? TextFirstLayoutFragment)?.checkboxRect {
+                        centers.append(fragment.layoutFragmentFrame.minY + box.midY)
+                    }
+                    return true
+                }
+                return centers
+            }
+            h.select(at, at)
+            let empty = boxes()
+            h.type("G")
+            #expect(empty == boxes(), "empty \(empty), typed \(boxes())")
+        }
+
+        @Test func aBulletCanBeAddedInsideAQuote() {
+            let h = TextFirstHarness("> quoted\n> ")
+            let at = (h.tv.text as NSString).range(of: "\n").location + 1
+            h.select(at, at)
+            h.controller.block(.bulletList)
+            h.type("inside")
+            #expect(h.source.contains("> - inside"), "\(h.source.debugDescription)")
+            #expect(block(h, atLineStartingWith: "inside")?.quoteDepth == 1)
+            #expect(block(h, atLineStartingWith: "inside")?.list?.marker == .bullet)
+            #expect(h.controller.divergences.isEmpty)
+        }
+
         private func block(_ h: TextFirstHarness, atLineStartingWith word: String)
             -> TextFirstBlockAttribute?
         {

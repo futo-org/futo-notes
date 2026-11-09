@@ -132,7 +132,13 @@
             var indent = TextFirstMetrics.quoteIndent(depth: b.quoteDepth)
             if let list = b.list { indent += TextFirstMetrics.listIndent(depth: list.depth) }
             let paragraph = NSMutableParagraphStyle()
-            paragraph.lineSpacing = 4
+            if b.list != nil {
+                // Empty paragraphs omit TextKit's inter-line spacing. Reserve the same line
+                // height for an empty item as a typed one instead of changing its marker baseline.
+                paragraph.minimumLineHeight = TextFirstEditorController.bodyFont.lineHeight + 4
+            } else {
+                paragraph.lineSpacing = 4
+            }
             paragraph.firstLineHeadIndent = indent
             paragraph.headIndent = indent
             storage.addAttribute(.paragraphStyle, value: paragraph, range: r)

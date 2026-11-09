@@ -1,6 +1,39 @@
 use super::*;
 
 #[test]
+fn list_commands_keep_the_enclosing_quote() {
+    for (command, marker) in [
+        (BlockCommand::BulletList, "- "),
+        (BlockCommand::OrderedList, "1. "),
+        (BlockCommand::TaskList, "- [ ] "),
+    ] {
+        for (raw, shown, at, expected) in [
+            ("> quoted", "quoted", 0, format!("> {marker}quoted")),
+            (
+                "> quoted\n> ",
+                "quoted\n",
+                7,
+                if command == BlockCommand::TaskList {
+                    format!("> quoted\n> {marker}")
+                } else {
+                    format!("> quoted\n>\n> {marker}")
+                },
+            ),
+        ] {
+            let mut s = EditorSession::open(raw);
+            assert_eq!(s.display_text(), shown);
+            s.select(s.revision(), range(at, at)).unwrap();
+            s.block_command(s.revision(), range(at, at), command, &mut |_| Ok(()))
+                .unwrap()
+                .unwrap();
+            assert_eq!(s.source_text(), expected);
+            s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+            assert_eq!(s.source_text(), raw);
+        }
+    }
+}
+
+#[test]
 fn indent_nests_only_the_selected_item_and_preserves_exact_foreign_spelling() {
     let raw = "* parent\r\n* __child__\r\n* neighbor  ";
     let expected = "* parent\r\n  * __child__\r\n* neighbor  ";

@@ -60,6 +60,7 @@
                     TextFirstFindBar(model: controller.findModel, controller: controller)
                 }
             }
+            .ignoresSafeArea(.container, edges: .bottom)
             .background(Theme.background)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -110,7 +111,13 @@
                 }
             }
             .onReceive(store.$notes) { _ in controller?.refreshNoteIds() }
-            .onDisappear { leave() }
+            .onDisappear {
+                // A full-screen camera covers this view without navigating away. Retiring the
+                // session there invalidates its image claim and races the re-open on dismissal.
+                if navPath.last != .note(originalId) && navPath.last != .newNote(originalId) {
+                    leave()
+                }
+            }
         }
 
         // MARK: open and leave

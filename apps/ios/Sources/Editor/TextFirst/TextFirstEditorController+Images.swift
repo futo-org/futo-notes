@@ -96,8 +96,12 @@
                 let size = TextFirstImageMetrics.size(of: span.atom, available: room)
                 span.size = size
                 height = max(height, size.height)
+                // The hidden spelling still has a small advance. Reserving the entire image
+                // width in addition to it wraps a full-width photo onto a second, equally tall line.
+                let spelling = (storage.string as NSString).substring(with: run)
                 storage.addAttribute(
-                    .kern, value: size.width, range: NSRange(location: run.location, length: 1))
+                    .kern, value: max(0, size.width - TextFirstImageMetrics.textAdvance(spelling)),
+                    range: NSRange(location: run.location, length: 1))
             }
             guard height > 0 else { return }
             let old =

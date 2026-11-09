@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<!-- Base Info.plist shared by Debug AND Release (project.yml settings.base
 	     INFOPLIST_FILE). With GENERATE_INFOPLIST_FILE=YES, Xcode merges the
 	     auto-generated keys (display name, scene/launch, orientations) ON TOP of

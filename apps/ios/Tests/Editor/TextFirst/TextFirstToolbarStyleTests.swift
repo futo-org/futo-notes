@@ -7,6 +7,15 @@
 
     @Suite @MainActor
     struct TextFirstToolbarStyleTests {
+        @Test func indentControlsStayVisibleInCodeAndPlainText() {
+            for source in ["plain", "```\ncode\n```"] {
+                let h = TextFirstHarness(source)
+                h.controller.installToolbar(localization: Localization.system())
+                h.select(0, 0)
+                #expect(h.controller.toolbarState.inContainer == true)
+            }
+        }
+
         private func tap(_ h: TextFirstHarness, _ id: String) {
             let item = ToolbarSpec.groups.flatMap { $0 }.first { $0.id == id }!
             h.controller.toolbar(item)

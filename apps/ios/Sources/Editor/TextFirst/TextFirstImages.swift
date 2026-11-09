@@ -1,5 +1,6 @@
 #if FUTO_DEBUG_BUILD
     import ImageIO
+    import CoreText
     import UIKit
 
     // Images in the text-first editor. The engine keeps an image's `![alt](destination)` spelling
@@ -49,6 +50,13 @@
         static let loadingHeight: CGFloat = 48
         static let failedHeight: CGFloat = 28
         static let hiddenFont = UIFont.systemFont(ofSize: 0.01)
+
+        static func textAdvance(_ text: String) -> CGFloat {
+            let line = CTLineCreateWithAttributedString(
+                NSAttributedString(
+                    string: text, attributes: [.font: hiddenFont]))
+            return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        }
 
         /// The size an atom is drawn at in `available` points of width.
         static func size(of atom: TextFirstImageAtom, available: CGFloat) -> CGSize {

@@ -2,6 +2,7 @@
     import Foundation
     import Testing
     import UIKit
+    import SwiftUI
 
     @testable import FutoNotesNative
 
@@ -24,6 +25,81 @@
 
     @Suite @MainActor
     struct TextFirstImageTests {
+        @Test func aFullScreenPickerKeepsTheOriginatingEditorAttached() async throws {
+            let h = TextFirstHarness("camera target")
+            _ = await h.controller.close()
+            let store = NotesStore(
+                notesRoot: h.root, searchIndex: h.root.appendingPathComponent("search"))
+            #expect(await h.until { store.hasBootstrapped })
+            let host = UIHostingController(
+                rootView:
+                    TextFirstNoteScreen(
+                        noteId: "note", autoFocus: false, navPath: .constant([.note("note")])
+                    )
+                    .environmentObject(store))
+            let scene = try #require(
+                UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+            let window = UIWindow(windowScene: scene)
+            window.frame = CGRect(x: 0, y: 0, width: 390, height: 700)
+            window.rootViewController = host
+            window.makeKeyAndVisible()
+            window.layoutIfNeeded()
+            host.view.layoutIfNeeded()
+            func editor(in view: UIView) -> TextFirstTextView? {
+                if let tv = view as? TextFirstTextView { return tv }
+                return view.subviews.lazy.compactMap { editor(in: $0) }.first
+            }
+            #expect(await h.until { editor(in: host.view)?.controller != nil })
+            let controller = try #require(editor(in: host.view)?.controller)
+            let claim = try #require(controller.beginImageInsertion())
+            let picker = UIViewController()
+            picker.modalPresentationStyle = .fullScreen
+            await withCheckedContinuation { done in
+                host.present(picker, animated: false) { done.resume() }
+            }
+            #expect(!controller.isClosed)
+            await withCheckedContinuation { done in
+                picker.dismiss(animated: false) { done.resume() }
+            }
+            #expect(
+                await controller.insertImage(
+                    data: TextFirstHarness.png(6, 6), ext: "png", claim: claim))
+            #expect(try controller.session.sourceText().contains("![](image-"))
+            _ = await controller.close()
+            window.isHidden = true
+        }
+
+        @Test func aFullWidthPhotoOccupiesOneVisualLine() async {
+            let h = TextFirstHarness(
+                "![](wide-line.png)\n\nafter",
+                files: ["wide-line.png": TextFirstHarness.png(1800, 2400)])
+            #expect(await h.until { self.lineHeight(h, at: 0) > 400 })
+            h.tv.layoutIfNeeded()
+            let manager = h.tv.textLayoutManager!
+            let fragment = manager.textLayoutFragment(for: manager.documentRange.location)!
+            #expect(
+                fragment.textLineFragments.count == 1,
+                "\(fragment.textLineFragments.map { $0.typographicBounds })")
+            #expect(fragment.layoutFragmentFrame.height < lineHeight(h, at: 0) + 40)
+        }
+
+        @Test func enteringAfterAPhotoDoesNotCarryItsHeightOrKern() async {
+            let h = TextFirstHarness(
+                "![](tall.png)\n", files: ["tall.png": TextFirstHarness.png(900, 1800)])
+            #expect(await h.until { self.lineHeight(h, at: 0) > 400 })
+            h.select(13, 13)
+            h.type("\nafter")
+            let at = (h.tv.text as NSString).range(of: "after").location
+            #expect(at != NSNotFound)
+            if at != NSNotFound {
+                #expect(lineHeight(h, at: at) < 30)
+                #expect(kern(h, at: at) == 0)
+                #expect(
+                    h.controller.storage.attribute(.tfImage, at: at, effectiveRange: nil) == nil)
+            }
+            #expect(h.controller.divergences.isEmpty)
+        }
+
         private func spans(_ h: TextFirstHarness) -> [(NSRange, TextFirstImageSpan)] {
             var out: [(NSRange, TextFirstImageSpan)] = []
             let all = NSRange(location: 0, length: h.controller.storage.length)
@@ -34,7 +110,16 @@
         }
 
         private func kern(_ h: TextFirstHarness, at i: Int) -> CGFloat {
-            h.controller.storage.attribute(.kern, at: i, effectiveRange: nil) as? CGFloat ?? 0
+            var range = NSRange()
+            guard
+                h.controller.storage.attribute(
+                    .tfImage, at: i, longestEffectiveRange: &range,
+                    in: NSRange(location: 0, length: h.controller.storage.length)) != nil
+            else { return 0 }
+            let kern =
+                h.controller.storage.attribute(.kern, at: i, effectiveRange: nil) as? CGFloat ?? 0
+            let spelling = (h.tv.text as NSString).substring(with: range)
+            return kern + TextFirstImageMetrics.textAdvance(spelling)
         }
 
         private func lineHeight(_ h: TextFirstHarness, at i: Int) -> CGFloat {

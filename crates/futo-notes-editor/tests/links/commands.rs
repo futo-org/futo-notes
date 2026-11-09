@@ -1,6 +1,33 @@
 use super::*;
 
 #[test]
+fn a_link_on_bold_text_keeps_both_semantics() {
+    for destination in ["google.com", "https://google.com"] {
+        let mut s = EditorSession::open("**This editor.** Is beautiful.");
+        s.select(s.revision(), range(0, 4)).unwrap();
+        s.edit_link(s.revision(), range(0, 4), "This", destination, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap();
+        assert!(
+            s.inspect_link(s.revision(), range(0, 4)).unwrap().is_some(),
+            "{}",
+            s.source_text()
+        );
+        assert_eq!(s.display_text(), "This editor. Is beautiful.");
+        assert!(s
+            .toolbar_state()
+            .formats
+            .contains(&futo_notes_editor::InlineFormat::Bold));
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(s.source_text(), "**This editor.** Is beautiful.");
+        s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+        assert!(s.inspect_link(s.revision(), range(0, 4)).unwrap().is_some());
+    }
+}
+
+#[test]
 fn inspection_reports_one_whole_link_across_nested_marks_and_keeps_same_href_runs_distinct() {
     let source = "[one __two__](https://x.test) gap [three](https://x.test)";
     let session = EditorSession::open(source);

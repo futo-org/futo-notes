@@ -1,6 +1,5 @@
 use super::super::row::LinkMeaning;
 use super::{bare_links, destination_source};
-
 impl super::super::Projection {
     pub(crate) fn insert_link(
         &self,

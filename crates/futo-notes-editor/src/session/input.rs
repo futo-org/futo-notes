@@ -62,6 +62,15 @@ impl EditorSession {
             && !inserted.is_empty()
             && self.composition.is_none();
         let (mut change, mapping) = match planned {
+            Err(EditorError::UnrepresentableFormat)
+                if inserted.is_empty() && self.composition.is_none() =>
+            {
+                let change = self
+                    .empty_list_body(expected, range, accept)?
+                    .ok_or(EditorError::UnrepresentableFormat)?;
+                let mapping = InputMapping::new(change.range, change.inserted.len());
+                (change, mapping)
+            }
             Err(EditorError::UnrepresentableFormat) if typing => {
                 let escaped = {
                     let _escape = crate::inline::EscapeTypedDelimiters::set();

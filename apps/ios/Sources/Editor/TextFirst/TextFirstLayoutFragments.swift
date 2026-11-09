@@ -202,7 +202,29 @@
         }
 
         private var firstLine: CGRect {
-            textLineFragments.first?.typographicBounds ?? CGRect(x: 0, y: 0, width: 0, height: 20)
+            guard let line = textLineFragments.first else {
+                return CGRect(x: 0, y: 0, width: 0, height: 20)
+            }
+            var bounds = line.typographicBounds
+            // TextKit gives an empty paragraph different typographic bounds from a glyph-bearing
+            // one. Center the marker on the font's line height so typing does not move it.
+            let font =
+                line.attributedString.length > 0
+                ? line.attributedString.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
+                : nil
+            bounds.size.height =
+                (font ?? MainActor.assumeIsolated { TextFirstEditorController.bodyFont }).lineHeight
+            return bounds
+        }
+
+        /// Adjacent fragments share pixel edges, so the block reads as one surface even at
+        /// fractional text baselines. An opaque fill avoids darker overlapping edges.
+        private func decorationRect(at point: CGPoint, x: CGFloat, width: CGFloat) -> CGRect {
+            let scale =
+                MainActor.assumeIsolated { host?.textView.traitCollection.displayScale } ?? 2
+            let top = (point.y * scale).rounded(.down) / scale
+            let bottom = ((point.y + layoutFragmentFrame.height) * scale).rounded(.up) / scale
+            return CGRect(x: x, y: top, width: width, height: bottom - top)
         }
 
         /// The leading edge of the list text, in container coordinates.
@@ -236,11 +258,8 @@
         override func draw(at pointIn: CGPoint, in context: CGContext) {
             let point = CGPoint(x: pointIn.x - layoutFragmentFrame.minX, y: pointIn.y)
             if block.code {
-                UIColor.tertiarySystemFill.setFill()
-                context.fill(
-                    CGRect(
-                        x: point.x - 4, y: point.y, width: containerWidth + 8,
-                        height: layoutFragmentFrame.height))
+                UIColor.secondarySystemBackground.setFill()
+                context.fill(decorationRect(at: point, x: point.x - 4, width: containerWidth + 8))
             }
             if block.divider {
                 let y = point.y + layoutFragmentFrame.height / 2
@@ -251,11 +270,10 @@
                 context.strokePath()
             }
             if block.quoteDepth > 0 {
-                UIColor.tertiaryLabel.setFill()
+                UIColor.opaqueSeparator.setFill()
                 for i in 0..<block.quoteDepth {
                     let x = point.x + 2 + CGFloat(i) * 14
-                    context.fill(
-                        CGRect(x: x, y: point.y, width: 3, height: layoutFragmentFrame.height))
+                    context.fill(decorationRect(at: point, x: x, width: 3))
                 }
             }
             if let marker = highlightedMarkerRect {

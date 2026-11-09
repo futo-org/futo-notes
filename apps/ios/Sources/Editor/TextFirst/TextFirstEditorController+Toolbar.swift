@@ -34,11 +34,9 @@
             let disabled = Set(highlights.disabled)
             if toolbarState.activeFormats != active { toolbarState.activeFormats = active }
             if toolbarState.disabledFormats != disabled { toolbarState.disabledFormats = disabled }
-            // Indent and Outdent show in a list or quote.
-            let inContainer =
-                active.contains("quote") || active.contains("bullet-list")
-                || active.contains("ordered-list") || active.contains("task-list")
-            if toolbarState.inContainer != inContainer { toolbarState.inContainer = inContainer }
+            // Keep the controls in place; the engine dims them where they cannot run (and
+            // enables indentation inside code as well as lists and quotes).
+            if toolbarState.inContainer != true { toolbarState.inContainer = true }
             updateTypingAttributes(active)
         }
 
