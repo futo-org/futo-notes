@@ -96,8 +96,8 @@ existing start, raw delimiter and tab padding while clearing checkbox state. Mix
 ordered child lifting copies that start into each newly independent following owner.
 Same-line quote/list controls retain empty lifted paragraphs, physical CRLF and quote
 prefixes, raw nonidentity entity atoms and native UTF-16 interior carets. Task-body
-quote/heading punctuation stays literal. Together with the unchanged original seventy-four
-list cases, all six source consumers load 202 cases, including twenty-four
+quote/heading punctuation stays literal. Together with the original seventy-nine
+list cases, all six source consumers load 224 cases, including twenty-four
 `prefix-frame-commands.json` literals. These distinguish registered Backspace
 from full Text lifting. Unchanged implicit empty parents
 keep compact source; an action-created parallel paragraph gets a physical frame.
