@@ -155,10 +155,7 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                     *number += 1;
                 }
                 let raw = &source[range.clone()];
-                let indent = raw
-                    .bytes()
-                    .take_while(|b| matches!(b, b' ' | b'\t'))
-                    .count();
+                let indent = marker_offset(raw);
                 let raw = &raw[indent..];
                 let digits = raw.bytes().take_while(u8::is_ascii_digit).count();
                 let width = if digits > 0 { digits + 1 } else { 1 };
@@ -229,6 +226,25 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
         next_item: 0,
         next_prefix: 0,
         next_task: 0,
+    }
+}
+
+/// Where an item's marker starts within its parser range. The range normally
+/// begins at the marker after container indentation, but a tab right after a
+/// quote's `>` is split between the quote and the item, and the parser then
+/// starts the item at that `>`. No marker is `>`, so quote markers are
+/// container spelling to skip.
+fn marker_offset(raw: &str) -> usize {
+    let bytes = raw.as_bytes();
+    let mut at = 0;
+    loop {
+        while matches!(bytes.get(at), Some(b' ' | b'\t')) {
+            at += 1;
+        }
+        if bytes.get(at) != Some(&b'>') {
+            return at;
+        }
+        at += 1;
     }
 }
 
