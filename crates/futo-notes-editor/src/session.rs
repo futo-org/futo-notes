@@ -46,6 +46,9 @@ pub struct EditorSession {
     selection: DisplayRange,
     affinity: Affinity,
     pending_formats: Option<Vec<InlineFormat>>,
+    /// Set while a word replacement ending at the caret is planned as one run: the carried
+    /// formats cover the whole run, not only the letters added after the caret's word.
+    word_takes_carried: bool,
     undo: Vec<HistoryGroup>,
     redo: Vec<HistoryGroup>,
     clock: Arc<dyn HistoryClock>,
@@ -101,6 +104,7 @@ impl EditorSession {
             },
             affinity: Affinity::Forward,
             pending_formats: None,
+            word_takes_carried: false,
             undo: Vec::new(),
             redo: Vec::new(),
             clock,

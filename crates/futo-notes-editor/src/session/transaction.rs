@@ -239,7 +239,7 @@ impl EditorSession {
                     .chars()
                     .all(char::is_whitespace);
             let own_formats = staged.pending_formats.clone();
-            if replaces_selection || replaces_space_at_caret {
+            if replaces_selection || replaces_space_at_caret || self.word_takes_carried {
                 staged.pending_formats = self.pending_formats.clone();
             }
             let references = staged.projection.references.clone();

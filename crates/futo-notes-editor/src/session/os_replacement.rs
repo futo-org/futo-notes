@@ -73,32 +73,110 @@ impl EditorSession {
             && range.end == self.selection.end)
             .then(|| self.pending_formats.clone())
             .flatten();
+        let whole_word = self.word_split_by_carried(range, &replacements, carried.as_deref());
         let (mut change, targets, caret) = if replacements.is_empty() {
             (None, targets.to_vec(), range.end.0)
         } else {
             let mut targets = targets.to_vec();
             targets.push(range.start.0 + text.len());
-            let shown = crate::inline::Expected::Replaced(vec![(
-                range.start.0..range.end.0,
-                text.to_owned(),
-            )]);
-            let (change, mut targets) = self.checked_input(shown, accept, |session, accept| {
-                session.replace_runs(
-                    expected,
+            let shown = || {
+                crate::inline::Expected::Replaced(vec![(
+                    range.start.0..range.end.0,
+                    text.to_owned(),
+                )])
+            };
+            let plan =
+                |session: &mut Self,
+                 runs: &[crate::DisplayReplacement],
+                 whole: bool,
+                 accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>| {
+                    session.word_takes_carried = whole;
+                    let planned = session.checked_input(shown(), accept, |session, accept| {
+                        session.replace_runs(expected, range, text, runs, &targets, action, accept)
+                    });
+                    session.word_takes_carried = false;
+                    planned
+                };
+            // The whole word as one run is checked against the engine rule before it is
+            // accepted (a literal `&amp;` typed under Bold can be misread). A word whose carried
+            // formats cannot be spelled around it (Bold inside a code span), or that would not be
+            // shown as typed, keeps its own formats, as the plain runs plan it.
+            let mut not_shown = false;
+            let planned = if whole_word {
+                let whole = [crate::DisplayReplacement {
                     range,
-                    text,
-                    &replacements,
-                    &targets,
-                    action,
-                    accept,
-                )
-            })?;
+                    inserted: text.to_owned(),
+                }];
+                let before = self.source.to_string();
+                plan(self, &whole, true, &mut |edit| {
+                    let mut after = before.clone();
+                    after.replace_range(edit.range.start.0..edit.range.end.0, &edit.inserted);
+                    if !crate::inline::keeps_blocks(&before, &after, &shown()) {
+                        not_shown = true;
+                        return Err("not as shown".into());
+                    }
+                    accept(edit)
+                })
+            } else {
+                Err(EditorError::UnrepresentableFormat)
+            };
+            let planned = match planned {
+                Err(EditorError::UnrepresentableFormat) => plan(self, &replacements, false, accept),
+                Err(EditorError::Persistence(_)) if not_shown => {
+                    plan(self, &replacements, false, accept)
+                }
+                other => other,
+            };
+            let (change, mut targets) = planned?;
             let caret = targets.pop().unwrap();
             (Some(change), targets, caret)
         };
         self.finish_os_selection(caret, carried, change.as_mut());
         Ok((change, targets))
     }
+
+    /// A completion (`hel` to `hello`) diffs to the letters after the caret, which typing would
+    /// give the carried formats while the word's own letters keep theirs: Bold turned off after
+    /// `hel` would save `**hel**lo`. When the carried formats differ from the word's at the
+    /// caret, the whole word is one run that takes them.
+    fn word_split_by_carried(
+        &self,
+        range: DisplayRange,
+        runs: &[crate::DisplayReplacement],
+        carried: Option<&[InlineFormat]>,
+    ) -> bool {
+        let (Some(carried), [run]) = (carried, runs) else {
+            return false;
+        };
+        let caret = self.selection.end.0;
+        if run.range.start.0 != caret
+            || run.range.end.0 != caret
+            || range.start.0 >= caret
+            || run.inserted.contains(['\n', '\r'])
+        {
+            return false;
+        }
+        let word = self
+            .projection
+            .display
+            .byte_slice(range.start.0..caret)
+            .to_string();
+        if word.ends_with(char::is_whitespace) || word.contains('\n') {
+            return false;
+        }
+        let Ok(source) = self.source_at(self.revision, self.selection.end, Affinity::Backward)
+        else {
+            return false;
+        };
+        let mut word_formats = self.projection.formats_at(source.0);
+        word_formats.sort();
+        word_formats.dedup();
+        let mut carried = carried.to_vec();
+        carried.sort();
+        carried.dedup();
+        word_formats != carried
+    }
+
     /// The text-service runs, as before repairs. Refused, the input is
     /// planned as one run replacing the whole range, as typing over it is,
     /// which a code block's frame repair can keep (`inline::Repair`), but
