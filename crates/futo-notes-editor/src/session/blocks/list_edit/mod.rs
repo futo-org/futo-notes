@@ -19,6 +19,8 @@ use plan::Plan;
 use repair::{apart_marker, escape, repairs};
 
 #[cfg(test)]
+mod cross_block_tests;
+#[cfg(test)]
 mod fuzz_tests;
 
 #[cfg(test)]

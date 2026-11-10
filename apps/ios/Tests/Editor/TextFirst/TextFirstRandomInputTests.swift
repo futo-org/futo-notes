@@ -48,14 +48,39 @@
                     .tool("code-block"), .input(.select(7, 44), .keyboard),
                     .input(.insert("w"), .keyboard), .enter,
                 ]),
+            // Fixed in the engine (a selection across a block boundary keeps the blocks it
+            // leaves; docs/spec/editor/portable-core/interpretation-and-input.md): into a bullet
+            // list whose nested item loses its parent, and into a code block.
             RandomInputRow(
                 name: "typing over a selection from a paragraph into a list",
-                ops: [.input(.select(69, 108), .keyboard), .input(.insert("."), .keyboard)],
-                knownIssue: crossBlock),
+                ops: [.input(.select(69, 108), .keyboard), .input(.insert("."), .keyboard)]),
             RandomInputRow(
                 name: "typing over a selection that ends inside a code block",
-                ops: [.input(.select(71, 176), .keyboard), .input(.insert("d"), .keyboard)],
-                knownIssue: crossBlock),
+                ops: [.input(.select(71, 176), .keyboard), .input(.insert("d"), .keyboard)]),
+            RandomInputRow(
+                name: "Enter over a selection that ends inside a code block",
+                ops: [.input(.select(71, 176), .keyboard), .enter]),
+            RandomInputRow(
+                name: "Backspace over a selection that ends inside a code block",
+                ops: [.input(.select(71, 176), .keyboard), .input(.backspace, .keyboard)]),
+            RandomInputRow(
+                name: "pasting over a selection that ends inside a code block",
+                ops: [.input(.select(71, 176), .keyboard), .paste("plain")]),
+            RandomInputRow(
+                name: "a composition committed over a selection that ends inside a code block",
+                ops: [
+                    .input(.select(71, 176), .keyboard),
+                    .compose(["k", "か"], .unmark, .keyboard),
+                ]),
+            RandomInputRow(
+                name: "cutting a selection that ends inside a code block",
+                ops: [.input(.select(71, 176), .keyboard), .cut]),
+            RandomInputRow(
+                name: "Enter over a selection from a paragraph into a list",
+                ops: [.input(.select(69, 108), .keyboard), .enter]),
+            RandomInputRow(
+                name: "pasting over a selection from a paragraph into a list",
+                ops: [.input(.select(69, 108), .keyboard), .paste("plain")]),
             // Fixed by main's engine (merged into ios-text-first 2026-11-09).
             RandomInputRow(
                 name: "pasting a link after a collapsed Bold at a line start",
@@ -64,10 +89,11 @@
             RandomInputRow(
                 name: "pasting two lines right after a pasted link",
                 ops: [.paste("[l](https://e.x)"), .paste("line1\nline2")]),
+            // Fixed in the engine along with the selections above: the Backspace deletes the
+            // blank line's break, and the block's first line joins it as a quote's does.
             RandomInputRow(
                 name: "Backspace at a code block's first line below a blank line",
-                ops: [.enter, .tool("code-block"), .input(.backspace, .keyboard)],
-                knownIssue: backspace),
+                ops: [.enter, .tool("code-block"), .input(.backspace, .keyboard)]),
             RandomInputRow(
                 name: "Backspace on the line an Enter split out of a link",
                 ops: [
@@ -182,11 +208,11 @@
         }
 
         static let crossBlock =
-            "next-steps 3: replacing a selection that crosses into or out of a code block, or from a heading or paragraph into a list, is refused (UnrepresentableFormat)"
+            "next-steps 3: a selection across blocks is still refused in rare shapes (one that starts or ends inside an inline span such as bold, italic or code, one that leaves a closed code block as the note's last block, Enter that starts in a list or quote); the code block and list shapes are fixed"
         static let paste =
             "next-steps 3: some pastes are refused (a link after a collapsed Bold at a line start or beside a heading's inline spans; two lines after a link)"
         static let backspace =
-            "next-steps 3: Backspace at a caret is refused at a code block's first line below a blank line, and on a line split out of a link"
+            "next-steps 3: Backspace at a caret is refused on a line an Enter split out of a link"
         static let atCaret =
             "next-steps 3: a key, Enter or dictation at a caret is refused (seen in a list item holding a pasted code block or quote, and after a list marker typed over a selection)"
         static let word =

@@ -34,7 +34,7 @@ fn android_heading_join_keeps_existing_structural_neighbor_rules() {
     for (opening, expected) in [
         ("- item\n# title", Some("- itemtitle")),
         ("> quote\n\n# title", Some("> quote\n# title")),
-        ("```\ncode\n```\n# title", None),
+        ("```\ncode\n```\n# title", Some("```\ncodetitle\n```")),
         (
             "| a | b |\n| - | - |\n| c | d |\n\n# title",
             Some("| a | b |\n| - | - |\n| c | d |\n# title"),
