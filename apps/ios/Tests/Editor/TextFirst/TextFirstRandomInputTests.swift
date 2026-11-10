@@ -84,14 +84,17 @@
                 name: "cutting a selection that ends inside a code block",
                 ops: [.input(.select(71, 176), .keyboard), .cut]),
             // A key over a selection goes to the text service's replacement, which keeps a
-            // letter the selection holds ("n" of "note") as a run of its own: here the code
-            // line after the selection's end ("y") stays code (re-check R1 of !634).
+            // letter the selection holds ("e" of "text") as a run of its own; the run after it
+            // ended at the code line's end and took that line's break (re-check R1 of !634).
+            // The ops make R1's note: the suite note (display 246) cut, R1's bytes pasted,
+            // the heading the cut left turned back into text.
             RandomInputRow(
                 name: "typing a letter the selection holds over prose and a code line",
                 ops: [
-                    .input(.select(181, 181), .keyboard), .enter,
-                    .input(.insert("y"), .keyboard),
-                    .input(.select(71, 181), .keyboard), .input(.insert("n"), .keyboard),
+                    .input(.select(0, 246), .keyboard), .cut,
+                    .paste("Some text\n\n```\nlet value = 1\nreturn value\n```\n"),
+                    .input(.select(0, 0), .keyboard), .input(.backspace, .keyboard),
+                    .input(.select(5, 24), .keyboard), .input(.insert("e"), .keyboard),
                 ]),
             // Fixed by main's engine (merged into ios-text-first 2026-11-09).
             RandomInputRow(

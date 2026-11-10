@@ -25,6 +25,9 @@ pub(crate) enum Input {
     /// service keeps as a run of its own.
     Os(&'static str),
     Kept,
+    /// A text service's correction: the selection with `z` after its first
+    /// letter, everything else kept.
+    Fixed,
     /// Two runs (`replace_many`): the range's halves, typed `d` and `e`.
     Many,
 }
@@ -45,7 +48,14 @@ impl Input {
             Input::Type(text) | Input::Paste(text) | Input::Commit(text) | Input::Os(text) => {
                 text.into()
             }
-            Input::Kept => kept(selected).into(),
+            Input::Kept => kept(selected),
+            Input::Fixed => match selected.find(char::is_alphanumeric) {
+                Some(at) => {
+                    let after = at + selected[at..].chars().next().unwrap().len_utf8();
+                    format!("{}z{}", &selected[..after], &selected[after..])
+                }
+                None => format!("z{selected}"),
+            },
             Input::Many => "de".into(),
             Input::Enter => "\n".into(),
             Input::Backspace | Input::Delete => String::new(),
@@ -83,7 +93,7 @@ pub(crate) fn apply(
         Input::Delete => s
             .paragraph_key(rev, at, ParagraphKey::Delete, accept)
             .map(drop),
-        Input::Os(_) | Input::Kept => {
+        Input::Os(_) | Input::Kept | Input::Fixed => {
             let selected = s.display_text()[at.start.0..at.end.0].to_owned();
             let text = input.shown(&selected);
             s.replace_os(rev, at, &text, &[], accept).map(drop)

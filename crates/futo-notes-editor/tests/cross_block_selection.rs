@@ -233,4 +233,14 @@ fn a_text_service_replacement_is_checked_as_one_input() {
         .replace_many(s.revision(), &runs, &mut |_| Ok(()))
         .is_err());
     assert_eq!(s.source_text(), note);
+    // W1: refused runs whose kept text holds formatting (`_fox_`) and blocks
+    // (two task items, a code block) are not replanned as one run, which
+    // would respell them: the correction is refused, as before.
+    let note = "teh **quick** brwon _fox_ jumsp\n- [ ] \n- [ ] ```\n      code\n      ```\n      Heading one\n\n";
+    let text = " fox jumsp\n\n    czode    \n    ";
+    let mut s = EditorSession::open(note);
+    s.select(s.revision(), range(15, 44)).unwrap();
+    let corrected = s.replace_os(s.revision(), range(15, 44), text, &[], &mut |_| Ok(()));
+    assert!(corrected.is_err(), "{:?}", s.source_text());
+    assert_eq!(s.source_text(), note);
 }

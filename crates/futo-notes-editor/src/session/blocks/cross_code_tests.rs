@@ -25,13 +25,16 @@ const PIECES: &[&str] = &[
     "- a\n\t- nested\n\t- n2\n- b\n",
     "2. two\n3. three\n",
     "- [ ] task\n- [x] done\n",
+    // A task item holding a pasted fence, which the text service's runs
+    // cannot plan (next-steps 3).
+    "- [ ] \n- [ ] ```\n      code\n      ```\n",
     "```\r\ncrlf\r\ncode\r\n```\r\n",
     "- crlf\r\n- item\r\n",
     "    indented\n    code\n",
     "plain text here\n",
 ];
 
-const INPUTS: [Input; 11] = [
+const INPUTS: [Input; 12] = [
     Input::Type("d"),
     Input::Type("xy"),
     Input::Paste("pp"),
@@ -42,6 +45,7 @@ const INPUTS: [Input; 11] = [
     Input::Type(" "),
     Input::Os("e"),
     Input::Kept,
+    Input::Fixed,
     Input::Many,
 ];
 

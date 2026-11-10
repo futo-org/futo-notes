@@ -101,7 +101,9 @@ impl EditorSession {
     }
     /// The text-service runs, as before repairs. Refused, the input is
     /// planned as one run replacing the whole range, as typing over it is,
-    /// which a code block's frame repair can keep (`inline::Repair`).
+    /// which a code block's frame repair can keep (`inline::Repair`), but
+    /// only when the text the runs keep is plain text inside one line: one
+    /// run would respell its hidden formatting and blocks.
     #[allow(clippy::too_many_arguments)]
     fn replace_runs(
         &mut self,
@@ -118,7 +120,9 @@ impl EditorSession {
             self.replace_many_with_targets(expected, runs, targets, action, accept)
         };
         match planned {
-            Err(EditorError::UnrepresentableFormat) if crate::inline::Repair::may() => {
+            Err(EditorError::UnrepresentableFormat)
+                if crate::inline::Repair::may() && self.keeps_plain(range, runs) =>
+            {
                 crate::inline::Repair::mark();
                 let whole = crate::DisplayReplacement {
                     range,
@@ -128,6 +132,26 @@ impl EditorSession {
             }
             other => other,
         }
+    }
+
+    /// Whether the stretches of `range` between `runs` are plain text: no
+    /// line break and source spelled as shown.
+    fn keeps_plain(&self, range: DisplayRange, runs: &[crate::DisplayReplacement]) -> bool {
+        let ends = runs.iter().map(|run| (run.range.start.0, run.range.end.0));
+        let mut at = range.start.0;
+        ends.chain([(range.end.0, range.end.0)])
+            .all(|(start, end)| {
+                let kept = self.projection.display.byte_slice(at..start).to_string();
+                let source =
+                    self.projection.source_bounds(at).1..self.projection.source_bounds(start).0;
+                at = end;
+                !kept.contains('\n')
+                    && (kept.is_empty()
+                        || self
+                            .source
+                            .get_byte_slice(source)
+                            .is_some_and(|raw| raw == kept.as_str()))
+            })
     }
 
     pub(super) fn finish_os_selection(
