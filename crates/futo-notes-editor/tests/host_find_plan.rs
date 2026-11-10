@@ -106,3 +106,99 @@ fn a_first_press_with_matches_but_no_current_one_steps_to_one() {
         assert_eq!(stepped.current_range, Some(expected));
     }
 }
+
+const FOUR: &str = "cat\n\ncat\n\ncat\n\ncat\n"; // matches at 0..3, 5..8, 10..13, 15..18
+
+fn range(start: usize, end: usize) -> DisplayRange {
+    DisplayRange {
+        start: DisplayOffset(start),
+        end: DisplayOffset(end),
+    }
+}
+
+/// One press as `NativeEditorSession::find_step_landing` runs it.
+fn press(
+    session: &mut EditorSession,
+    landing: &mut FindLanding,
+    forward: bool,
+) -> Option<DisplayRange> {
+    let rev = session.revision();
+    let plan = landing.plan(false, &session.find_report());
+    let report = if plan == FindStepPlan::Advance {
+        let direction = if forward {
+            CaretDirection::Forward
+        } else {
+            CaretDirection::Backward
+        };
+        session.find_step(rev, direction).unwrap()
+    } else {
+        session.find_report()
+    };
+    landing.landing(plan, &report)
+}
+
+fn edit(session: &mut EditorSession, at: DisplayRange, text: &str) {
+    let rev = session.revision();
+    session.replace(rev, at, text, &mut |_| Ok(())).unwrap();
+}
+
+fn rescan(session: &mut EditorSession) {
+    let request = session.find_scan_request().unwrap();
+    assert!(session.find_apply_scan(&request.run()).is_some());
+}
+
+/// Find open on `FOUR` with two presses taken: the user is on the second match (5..8).
+fn on_the_second_match() -> (EditorSession, FindLanding) {
+    let mut session = EditorSession::open(FOUR);
+    let rev = session.revision();
+    session.find_set_query(rev, "cat").unwrap();
+    let mut landing = FindLanding::default();
+    press(&mut session, &mut landing, true);
+    assert_eq!(press(&mut session, &mut landing, true), Some(range(5, 8)));
+    (session, landing)
+}
+
+#[test]
+fn a_rescan_that_replaces_a_dropped_current_match_is_landed_on_not_stepped_past() {
+    for forward in [true, false] {
+        let (mut session, mut landing) = on_the_second_match();
+        edit(&mut session, range(6, 7), "x");
+        rescan(&mut session);
+        let report = session.find_report();
+        assert_eq!((report.total, report.current), (3, 2), "forward={forward}");
+        // The user was not taken to 10..13 by a press, so either direction lands on it.
+        assert_eq!(
+            press(&mut session, &mut landing, forward),
+            Some(range(10, 13)),
+            "forward={forward}"
+        );
+        // That was the landing: the next press moves on from it.
+        let next = if forward { range(15, 18) } else { range(0, 3) };
+        assert_eq!(press(&mut session, &mut landing, forward), Some(next));
+    }
+}
+
+#[test]
+fn an_edit_that_leaves_the_current_match_in_place_still_advances_after_a_rescan() {
+    let (mut session, mut landing) = on_the_second_match();
+    edit(&mut session, range(4, 4), "z"); // between the first and second match
+    edit(&mut session, range(19, 19), "z"); // after the last
+    rescan(&mut session);
+    let report = session.find_report();
+    assert_eq!((report.total, report.current), (4, 2));
+    assert_eq!(press(&mut session, &mut landing, true), Some(range(11, 14)));
+    assert_eq!(press(&mut session, &mut landing, false), Some(range(6, 9)));
+}
+
+#[test]
+fn undoing_the_dropping_edit_then_rescanning_lands_on_the_restored_match() {
+    let (mut session, mut landing) = on_the_second_match();
+    edit(&mut session, range(6, 7), "x");
+    let rev = session.revision();
+    session.undo(rev, &mut |_| Ok(())).unwrap().unwrap();
+    rescan(&mut session);
+    let report = session.find_report();
+    assert_eq!((report.total, report.current), (4, 2));
+    assert_eq!(press(&mut session, &mut landing, true), Some(range(5, 8)));
+    assert_eq!(press(&mut session, &mut landing, true), Some(range(10, 13)));
+}

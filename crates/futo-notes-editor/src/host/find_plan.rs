@@ -74,6 +74,8 @@ pub enum FindStepPlan {
 #[derive(Debug, Default)]
 pub struct FindLanding {
     landed: bool,
+    /// `FindReport::dropped` when `landed` was last settled.
+    dropped: u64,
 }
 
 impl FindLanding {
@@ -83,10 +85,19 @@ impl FindLanding {
 
     /// `report` is the engine's current find report. Matches with no current one (an edit
     /// dropped it until the next rescan) have nothing to land on, so the press steps to one.
-    pub fn plan(&self, composing: bool, report: &FindReport) -> FindStepPlan {
+    ///
+    /// A press has landed only while the user is on the current match. An edit that dropped it
+    /// (`report.dropped` moved) leaves the user on no match, and a rescan may then choose another
+    /// they were never taken to, so the next press lands on it instead of stepping past it.
+    pub fn plan(&mut self, composing: bool, report: &FindReport) -> FindStepPlan {
         if composing {
-            FindStepPlan::Hold
-        } else if self.landed || (report.total > 0 && report.current_range.is_none()) {
+            return FindStepPlan::Hold;
+        }
+        if self.dropped != report.dropped {
+            self.dropped = report.dropped;
+            self.landed = false;
+        }
+        if self.landed || (report.total > 0 && report.current_range.is_none()) {
             FindStepPlan::Advance
         } else {
             FindStepPlan::Land

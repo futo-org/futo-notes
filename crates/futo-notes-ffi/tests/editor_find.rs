@@ -129,3 +129,38 @@ fn a_first_press_after_an_edit_dropped_the_current_match_steps_to_a_match() {
     let next = session.find_step_landing(1, landing, true, false).unwrap();
     assert_eq!(next.report.current, 2);
 }
+
+#[test]
+fn a_press_after_a_rescan_replaced_the_dropped_current_match_lands_on_it() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("i".into(), "".into(), "cat\n\ncat\n\ncat\n\ncat\n".into())
+        .unwrap();
+    let session = store.open_editor("i".into()).unwrap();
+    let landing = EditorFindLanding::new();
+    session.find_set_query(0, "cat".into()).unwrap();
+    session
+        .find_step_landing(0, landing.clone(), true, false)
+        .unwrap();
+    let second = session
+        .find_step_landing(0, landing.clone(), true, false)
+        .unwrap();
+    assert_eq!(second.landing, Some(EditorByteRange { start: 5, end: 8 }));
+    session
+        .replace_utf16(
+            0,
+            EditorUtf16Range { start: 6, end: 7 },
+            "x".encode_utf16().collect(),
+        )
+        .unwrap();
+    let request = session.find_scan_request().unwrap().unwrap();
+    session
+        .find_apply_scan(editor_find_scan(request).unwrap())
+        .unwrap()
+        .unwrap();
+    // The rescan chose 10..13; no press took the user there, so Next lands on it.
+    let press = session.find_step_landing(1, landing, true, false).unwrap();
+    assert_eq!(press.landing, Some(EditorByteRange { start: 10, end: 13 }));
+}

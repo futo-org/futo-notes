@@ -34,6 +34,11 @@ pub struct FindReport {
     pub reveal: Option<DisplayRange>,
     /// Input arrived since the last scan: totals may lag until a scan applies.
     pub stale: bool,
+    /// How often an edit has dropped the current match (a later scan then chooses another).
+    /// A host compares it across presses to see the current match change without one. Not
+    /// serialized: it is a host-side signal, not part of the portable payload.
+    #[serde(skip)]
+    pub dropped: u64,
 }
 
 /// Owned snapshot a host may scan on any thread. A result is accepted only for
@@ -69,6 +74,8 @@ pub(crate) struct FindState {
     generation: u64,
     matches: Vec<DisplayRange>,
     current: Option<usize>,
+    /// Times an edit dropped the current match, for `FindReport::dropped`.
+    dropped: u64,
     anchor: usize,
     log: Vec<(DisplayRange, usize)>,
     invalid: bool,
@@ -91,7 +98,7 @@ impl FindState {
         if self.log.len() >= REBASE_LOG_LIMIT {
             self.invalid = true;
             self.matches.clear();
-            self.current = None;
+            self.dropped += u64::from(self.current.take().is_some());
             self.log.clear();
         } else {
             self.log.push((range, inserted));
@@ -112,7 +119,10 @@ impl FindState {
             }
             self.current = match self.current {
                 Some(at) if at >= after => Some(at - removed),
-                Some(at) if at >= first => None,
+                Some(at) if at >= first => {
+                    self.dropped += 1;
+                    None
+                }
                 other => other,
             };
             if self.anchor >= end {
@@ -390,6 +400,7 @@ impl EditorSession {
             }),
             reveal,
             stale: self.find.stale(),
+            dropped: self.find.dropped,
         }
     }
 }
