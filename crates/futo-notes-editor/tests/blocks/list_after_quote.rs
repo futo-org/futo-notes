@@ -31,7 +31,13 @@ fn the_first_keystroke_after_a_block_command_next_to_a_quote_adds_no_blank_line(
         ("> abc\n", 4, B, "> abc\n- ", "> abc\n- Z"),
         ("> abc\n", 4, O, "> abc\n1. ", "> abc\n1. Z"),
         ("> abc\n", 4, T, "> abc\n- [ ] ", "> abc\n- [ ] Z"),
-        ("> abc\n> def\n", 8, B, "> abc\n> def\n- ", "> abc\n> def\n- Z"),
+        (
+            "> abc\n> def\n",
+            8,
+            B,
+            "> abc\n> def\n- ",
+            "> abc\n> def\n- Z",
+        ),
         ("> > abc\n", 4, B, "> > abc\n- ", "> > abc\n- Z"),
         ("> abc\r\n", 5, B, "> abc\r\n- ", "> abc\r\n- Z"),
         // Empty line before more text.
@@ -39,11 +45,29 @@ fn the_first_keystroke_after_a_block_command_next_to_a_quote_adds_no_blank_line(
         // Nonempty line right after a quote (lazy line): joins the quote.
         ("> abc\nxyz", 4, B, "> abc\n> - xyz", "> abc\n> - Zxyz"),
         ("> abc\nxyz", 4, O, "> abc\n> 1. xyz", "> abc\n> 1. Zxyz"),
-        ("> abc\nxyz", 4, T, "> abc\n> - [ ] xyz", "> abc\n> - [ ] Zxyz"),
+        (
+            "> abc\nxyz",
+            4,
+            T,
+            "> abc\n> - [ ] xyz",
+            "> abc\n> - [ ] Zxyz",
+        ),
         // Inside a multi-line quote.
-        ("> abc\n> def\n", 5, B, "> abc\n> - def\n", "> abc\n> - dZef\n"),
+        (
+            "> abc\n> def\n",
+            5,
+            B,
+            "> abc\n> - def\n",
+            "> abc\n> - dZef\n",
+        ),
         ("> abc\n> def", 7, O, "> abc\n> 1. def", "> abc\n> 1. defZ"),
-        ("> abc\n> def", 7, T, "> abc\n> - [ ] def", "> abc\n> - [ ] defZ"),
+        (
+            "> abc\n> def",
+            7,
+            T,
+            "> abc\n> - [ ] def",
+            "> abc\n> - [ ] defZ",
+        ),
         // A quoted empty line gets its item inside the quote.
         ("> abc\n> ", 4, T, "> abc\n> - [ ] ", "> abc\n> - [ ] Z"),
         // The reverse: a quote on a list item or the line after a list.
