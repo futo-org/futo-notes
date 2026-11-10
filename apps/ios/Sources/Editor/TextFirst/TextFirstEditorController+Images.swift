@@ -2,8 +2,8 @@
     import UIKit
 
     /// Owns the image atoms of one open note: interned per destination so a restyle finds a
-    /// loaded bitmap, loads them, and writes their geometry (the glyph kern and the paragraph's
-    /// minimum line height) into the text storage.
+    /// loaded bitmap, loads them, and writes their geometry (the glyph kern and the baseline lift
+    /// that makes the image's own line as tall as the image) into the text storage.
     @MainActor
     final class TextFirstImages {
         weak var controller: TextFirstEditorController?
@@ -86,31 +86,26 @@
             request(atom)
         }
 
-        /// Write every image of `r`'s paragraph into its glyphs and line height.
+        /// Write every image of `r`'s paragraph into its glyphs: the kern that gives the hidden
+        /// spelling the image's width, and the baseline lift that makes the image's own line as
+        /// tall as the image. The height is the run's, not the paragraph's, so the text sharing
+        /// the paragraph (before the image, or wrapped after it) keeps ordinary lines.
         func layoutParagraph(_ storage: NSTextStorage, containing r: NSRange) {
             let paragraph = (storage.string as NSString).paragraphRange(for: r)
             let room = available(at: paragraph, in: storage)
-            var height: CGFloat = 0
             storage.enumerateAttribute(.tfImage, in: paragraph) { value, run, _ in
                 guard let span = value as? TextFirstImageSpan else { return }
                 let size = TextFirstImageMetrics.size(of: span.atom, available: room)
                 span.size = size
-                height = max(height, size.height)
                 // The hidden spelling still has a small advance. Reserving the entire image
                 // width in addition to it wraps a full-width photo onto a second, equally tall line.
                 let spelling = (storage.string as NSString).substring(with: run)
-                storage.addAttribute(
-                    .kern, value: max(0, size.width - TextFirstImageMetrics.textAdvance(spelling)),
-                    range: NSRange(location: run.location, length: 1))
+                storage.addAttributes(
+                    [
+                        .kern: max(0, size.width - TextFirstImageMetrics.textAdvance(spelling)),
+                        .baselineOffset: size.height,
+                    ], range: NSRange(location: run.location, length: 1))
             }
-            guard height > 0 else { return }
-            let old =
-                storage.attribute(.paragraphStyle, at: paragraph.location, effectiveRange: nil)
-                as? NSParagraphStyle
-            let style =
-                (old?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
-            style.minimumLineHeight = height
-            storage.addAttribute(.paragraphStyle, value: style, range: paragraph)
         }
 
         // MARK: loading
@@ -277,6 +272,7 @@
                 plain[.foregroundColor] = baseAttributes[.foregroundColor]
             }
             plain[.kern] = nil
+            plain[.baselineOffset] = nil
             plain[.tfImage] = nil
             return plain
         }
