@@ -73,6 +73,8 @@ test:
 check:release-notes:
   stage: test
   needs: []
+  tags:
+    - $LIGHT_RUNNER_TAG
   script:
     - node scripts/release-notes.mjs --tag "$CI_COMMIT_TAG" --check
   rules:
@@ -83,6 +85,8 @@ check:release-notes:
 check:release-notes:mr:
   stage: test
   needs: []
+  tags:
+    - $LIGHT_RUNNER_TAG
   script:
     - node scripts/release-notes.mjs --all
   rules:
@@ -102,6 +106,8 @@ check:release-notes:mr:
 test:audit:
   stage: test
   needs: []
+  tags:
+    - $LIGHT_RUNNER_TAG
   allow_failure: true
   variables:
     CARGO_AUDIT_VERSION: '0.22.2'
@@ -146,6 +152,8 @@ test:audit:
 test:localization-audit:
   stage: test
   needs: []
+  tags:
+    - $LIGHT_RUNNER_TAG
   cache:
     - !reference [.cache-pnpm, cache]
   script:
@@ -178,6 +186,8 @@ test:localization-audit:
 test:puppet-gates:
   stage: test
   needs: []
+  tags:
+    - $LIGHT_RUNNER_TAG
   allow_failure: true
   rules:
     - !reference [.not-scheduled, rules]
