@@ -87,15 +87,16 @@ impl FindLanding {
     /// dropped it until the next rescan) have nothing to land on, so the press steps to one.
     ///
     /// A press has landed only while the user is on the current match. An edit that dropped it
-    /// (`report.dropped` moved) leaves the user on no match, and a rescan may then choose another
-    /// they were never taken to, so the next press lands on it instead of stepping past it.
-    pub fn plan(&mut self, composing: bool, report: &FindReport) -> FindStepPlan {
+    /// (`report.dropped` moved) leaves the user on no match, with or without a rescan after it:
+    /// Next goes to the first match at or after where they were (Land on the rescan's choice,
+    /// which is that match) and Previous to the last one before it (a step back from the choice).
+    pub fn plan(&mut self, composing: bool, forward: bool, report: &FindReport) -> FindStepPlan {
         if composing {
             return FindStepPlan::Hold;
         }
         if self.dropped != report.dropped {
             self.dropped = report.dropped;
-            self.landed = false;
+            self.landed = !forward;
         }
         if self.landed || (report.total > 0 && report.current_range.is_none()) {
             FindStepPlan::Advance
