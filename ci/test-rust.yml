@@ -85,8 +85,6 @@ test:rust:workspace:
         - apps/cli/**/*
         # The CLI reads its text from the catalog at build time.
         - languages/en.json
-        - scripts/lib/sync-server.mjs
-        - scripts/sync-server-pin.json
         - src/features/sync/syncContract.generated.ts
         - scripts/build-rust-android.sh
         - scripts/build-rust-ios.sh
@@ -164,10 +162,6 @@ test:rust:macos:
 test:rust:ffi-android:
   stage: test
   needs: []
-  # A shared-slot runner. The sync suites run alone on the serial runner now,
-  # so this full-tree compile can no longer starve them (pipeline 31084's
-  # "rapid reconnect" flake was that overlap); the project-wide lock and the
-  # needs: ordering that kept the two apart are gone with it.
   tags:
     - $LINUX_RUNNER_TAG
   extends: .ci-android-image
@@ -219,12 +213,6 @@ test:rust:ffi-android:
         - scripts/build-rust-android.sh
         - scripts/ci-android-instrumentation.sh
         - scripts/ci-android-emulator.sh
-        - scripts/ci-android-sync-leg.sh
-        - tests/cross-platform-sync.mjs
-        - tests/cross-platform-sync/**/*
-        - tests/lib/**/*
-        - scripts/sync-server-pin.json
-        - scripts/lib/sync-server.mjs
       when: never
     - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_TAG

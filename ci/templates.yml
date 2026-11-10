@@ -12,7 +12,7 @@
   # kitchensink for 166s on a shared runner). Only our runners allow the
   # override — runner 55 (dind) is locked to allowed_pull_policies [always]
   # and refuses the job — so every job extending this ALSO carries a
-  # futo_notes_debian1 ($LINUX_RUNNER_TAG) or futo_notes_serial tag
+  # futo_notes_debian1 ($LINUX_RUNNER_TAG) tag
   # (premerge-test-parity asserts the pairing).
   image:
     name: gitlab.futo.org:5050/futo-notes/futo-notes/ci/test@sha256:75d071a3a8246e56daa733068bc41b3cce998c007e8d558aa82c72c247903766
@@ -235,20 +235,6 @@
     # Upload even on failure/timeout: a cold compile that dies at the job
     # wall still seeds the cache, so the retry resumes instead of starting
     # cold again (cargo handles partial target/ dirs fine).
-    when: always
-
-# Sync builds deliberately clean and relink the Tauri crate with test hooks.
-# Sharing their target/ archive with workspace tests lets concurrent jobs
-# overwrite one another with incompatible partial trees, so keep a distinct
-# namespace until remote sccache replaces target archives entirely.
-.cache-cargo-sync:
-  cache:
-    # One rolling key written only by main/tags; see .cache-cargo-tauri.
-    key: sync-$CARGO_CACHE_EPOCH-$CI_DEFAULT_BRANCH
-    paths:
-      - .cargo-home/
-      - target/
-    policy: $CARGO_CACHE_POLICY
     when: always
 
 # Native shells (Compose / SwiftUI) build futo-notes-ffi for the Android NDK
