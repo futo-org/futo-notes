@@ -84,12 +84,7 @@ impl EditorSession {
             let start = projection.display_at(line.content.start);
             let end = projection.display_at(line.content.end);
             let (a, z) = (start.max(from), end.min(to));
-            let skip = line.code
-                || line.metadata
-                || line.html
-                || line.divider
-                || line.empty_comment
-                || a >= z;
+            let skip = line.code || line.metadata || line.html || line.divider || a >= z;
             Placed {
                 start,
                 end,

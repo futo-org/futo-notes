@@ -278,3 +278,80 @@ fn a_typed_opener_in_a_table_row_or_task_stays_literal_text() {
         assert_eq!(EditorSession::open(&source).display_text(), view.text);
     }
 }
+
+#[test]
+fn empty_code_multiline_input_keeps_container_prefixes() {
+    for (original, expected) in [
+        ("- ```\n  \n  ```\n", "- ```\n  x\n  y\n  ```\n"),
+        ("- ```\n  ```\n", "- ```\n  x\n  y\n  ```\n"),
+        ("- ```\n", "- ```\n  x\n  y"),
+        ("- ```", "- ```\n  x\n  y"),
+        ("> - ```\n", "> - ```\n>   x\n>   y"),
+        ("9. ~~~lang", "9. ~~~lang\n   x\n   y"),
+        ("-\t```\n\t\n\t```\n", "-\t```\n\tx\n\ty\n\t```\n"),
+        ("> ```\n> \n> ```\n", "> ```\n> x\n> y\n> ```\n"),
+    ] {
+        for paste in [false, true] {
+            let mut session = EditorSession::open(original);
+            let mut view = ReferenceView::new("");
+            assert_eq!(session.display_text(), "", "{original:?}");
+            let caret = range(0, 0);
+            session.select(session.revision(), caret).unwrap();
+            let mut accepted = 0;
+            let mut accept = |_: &SourceEdit| {
+                accepted += 1;
+                Ok(())
+            };
+            let change = if paste {
+                session.paste_markdown(session.revision(), caret, "x\ny", &mut accept)
+            } else {
+                session
+                    .replace(session.revision(), caret, "x\ny", &mut accept)
+                    .map(Some)
+            };
+            view.apply(change.unwrap().expect("input edits the empty code body"));
+            assert_eq!(
+                session.source_text(),
+                expected,
+                "{original:?} paste={paste}"
+            );
+            assert_eq!(view.text, "x\ny");
+            assert_eq!(session.display_text(), view.text);
+            assert_eq!(session.selection(), range(3, 3));
+            assert_eq!(accepted, 1);
+            assert!(session.toolbar_state().code);
+            view.apply(
+                session
+                    .undo(session.revision(), &mut |_| Ok(()))
+                    .unwrap()
+                    .unwrap(),
+            );
+            assert_eq!(session.source_text(), original);
+            assert_eq!(view.text, "");
+            assert_eq!(session.selection(), caret);
+            view.apply(
+                session
+                    .redo(session.revision(), &mut |_| Ok(()))
+                    .unwrap()
+                    .unwrap(),
+            );
+            assert_eq!(session.source_text(), expected);
+            assert_eq!(view.text, "x\ny");
+        }
+    }
+}
+
+#[test]
+fn empty_code_without_a_body_row_keeps_literal_typing_inside_the_list() {
+    let original = "- ```\n";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("");
+    view.apply(
+        session
+            .replace(session.revision(), range(0, 0), "x", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "- ```\n  x");
+    assert_eq!(view.text, "x");
+    assert_eq!(session.selection(), range(1, 1));
+}

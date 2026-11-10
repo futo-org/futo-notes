@@ -52,9 +52,51 @@ impl EditorSession {
         action: crate::InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<(ViewChange, InputMapping), EditorError> {
+        self.replace_intent_mapped(
+            expected,
+            range,
+            inserted,
+            crate::inline::EditIntent::Input(action),
+            accept,
+        )
+    }
+
+    pub(in crate::session) fn replace_markdown_action(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        inserted: &str,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<ViewChange, EditorError> {
+        self.replace_intent_mapped(
+            expected,
+            range,
+            inserted,
+            crate::inline::EditIntent::Paste,
+            accept,
+        )
+        .map(|(change, _)| change)
+    }
+
+    pub(in crate::session) fn replace_intent_mapped(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        inserted: &str,
+        intent: crate::inline::EditIntent,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<(ViewChange, InputMapping), EditorError> {
+        let action = intent.action().ok_or(EditorError::UnrepresentableFormat)?;
         let mut query_work = crate::inline::references::ReferenceWork::default();
-        let planned =
-            self.replace_action_planned(expected, range, inserted, action, accept, &mut query_work);
+        let planned = self.replace_action_planned(
+            expected,
+            range,
+            inserted,
+            action,
+            intent,
+            accept,
+            &mut query_work,
+        );
         // A typed character is never refused: when no spelling of it reads as
         // typed, its delimiters land escaped, and failing that the text lands
         // as literal source.
@@ -79,6 +121,7 @@ impl EditorSession {
                         range,
                         inserted,
                         action,
+                        intent,
                         accept,
                         &mut query_work,
                     )
@@ -107,6 +150,7 @@ impl EditorSession {
         range: DisplayRange,
         inserted: &str,
         action: crate::InputAction,
+        intent: crate::inline::EditIntent,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
         query_work: &mut crate::inline::references::ReferenceWork,
     ) -> Result<(ViewChange, InputMapping), EditorError> {
@@ -156,12 +200,14 @@ impl EditorSession {
                 Err(error) => return Err(error),
             }
         }
-        if let Some(change) = self.input_at_divider(expected, range, inserted, action, accept)? {
+        if let Some(change) =
+            self.input_at_divider(expected, range, inserted, action, intent, accept)?
+        {
             let mapping = InputMapping::new(change.range, change.inserted.len());
             return Ok((change, mapping));
         }
-        if let Some(change) =
-            self.input_before_lazy_quote_neighbor(expected, range, inserted, action, accept)?
+        if let Some(change) = self
+            .input_before_lazy_quote_neighbor(expected, range, inserted, action, intent, accept)?
         {
             return Ok(change);
         }
@@ -183,9 +229,14 @@ impl EditorSession {
             inserted,
             affinity,
             pending,
-            crate::inline::EditIntent::Input(action),
+            intent,
             cell.is_some(),
         )?;
+        if let Some(change) = self.input_clearing_table_edge(
+            expected, range, inserted, action, &plan, query_work, accept,
+        )? {
+            return Ok(change);
+        }
         let edit = self.prepare_source(
             expected,
             SourceRange {

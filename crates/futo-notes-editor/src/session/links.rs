@@ -78,7 +78,7 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
-        if label.is_some_and(|label| label.contains(['\r', '\n', '\0'])) {
+        if label.is_some_and(|label| label.contains('\0')) {
             return Err(EditorError::InvalidText);
         }
         if destination.contains(['\r', '\n', '\0']) {
@@ -107,6 +107,9 @@ impl EditorSession {
                     .to_string()
                     != *label
         });
+        if label.is_some_and(|label| label.contains(['\r', '\n'])) {
+            return Err(EditorError::InvalidText);
+        }
         if label.is_none()
             && (link
                 .as_ref()

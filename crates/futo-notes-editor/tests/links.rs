@@ -11,6 +11,8 @@ fn range(start: usize, end: usize) -> DisplayRange {
 
 #[path = "links/commands.rs"]
 mod commands;
+#[path = "links/labels.rs"]
+mod labels;
 #[path = "links/os_input.rs"]
 mod os_input;
 #[path = "links/pending_metadata.rs"]

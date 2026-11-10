@@ -16,7 +16,7 @@ mod repair;
 mod shapes;
 mod verify;
 use plan::Plan;
-use repair::{escape, repairs};
+use repair::{apart_marker, escape, repairs};
 
 #[cfg(test)]
 mod fuzz_tests;
@@ -68,7 +68,6 @@ enum Insert {
     #[default]
     None,
     Blank,
-    Comment,
 }
 
 pub(super) struct Row {
@@ -79,6 +78,9 @@ pub(super) struct Row {
     body: Range<usize>,
     content: Range<usize>,
     quote_end: usize,
+    /// The parser counts a quote level this row's source does not spell (a
+    /// lazy continuation line), so its source prefix is not its quote shape.
+    lazy_quote: bool,
     pub before: Shape,
     pub after: Shape,
     pub list: Option<ListLine>,
@@ -116,6 +118,11 @@ pub(super) struct Row {
 impl Row {
     pub fn changed(&self) -> bool {
         self.forced || !same_shape(&self.after, &self.before)
+    }
+
+    /// The source quote prefix can be reused as is.
+    fn keeps_quote_prefix(&self) -> bool {
+        self.after.quotes == self.before.quotes && !self.lazy_quote
     }
 
     pub fn item(&self) -> Option<usize> {
@@ -202,6 +209,8 @@ impl EditorSession {
                 body: start + body..start + text.len(),
                 content: line.content.clone(),
                 quote_end: start + quote_end,
+                lazy_quote: quotes > 0
+                    && quote_end == super::indent_source::quote_prefix_end(text, quotes - 1),
                 before: shape.clone(),
                 after: shape,
                 list: line.list,
@@ -305,13 +314,40 @@ impl EditorSession {
     }
 
     /// The first plan that reparses as intended, trying each repair for the
-    /// first mismatching row within a fixed budget; otherwise a refusal.
+    /// first mismatching row within a fixed budget. When no repair keeps lists
+    /// the intent separates apart, the plan may let them merge instead, as
+    /// plain Markdown does; otherwise a refusal.
     fn verified_plan(
         &self,
         expected: Revision,
         window: &Range<usize>,
         rows: &mut [Row],
         work: &mut EditWork,
+    ) -> Result<Option<Plan>, EditorError> {
+        let initial: Vec<_> = rows
+            .iter()
+            .map(|row| (row.escape, row.insert, row.after.marker))
+            .collect();
+        match self.repaired_plan(expected, window, rows, work, false) {
+            Err(EditorError::UnrepresentableFormat) => {
+                for (row, &(escape, insert, marker)) in rows.iter_mut().zip(&initial) {
+                    row.escape = escape;
+                    row.insert = insert;
+                    row.after.marker = marker;
+                }
+                self.repaired_plan(expected, window, rows, work, true)
+            }
+            result => result,
+        }
+    }
+
+    fn repaired_plan(
+        &self,
+        expected: Revision,
+        window: &Range<usize>,
+        rows: &mut [Row],
+        work: &mut EditWork,
+        merge: bool,
     ) -> Result<Option<Plan>, EditorError> {
         // Content columns of the items a window inside a nested list starts in.
         let outer: Vec<usize> =
@@ -327,7 +363,7 @@ impl EditorSession {
         let Some(mut plan) = self.plan_rows(rows, &outer)? else {
             return Ok(None);
         };
-        let mut bad = self.verify_rows(expected, window, rows, &plan, work)?;
+        let mut bad = self.verify_rows(expected, window, rows, &plan, work, merge)?;
         let mut budget = 8;
         while let Some(at) = bad {
             let mut repaired = false;
@@ -342,7 +378,8 @@ impl EditorSession {
                     .collect();
                 option.apply(rows);
                 if let Some(candidate) = self.plan_rows(rows, &outer).ok().flatten() {
-                    let result = self.verify_rows(expected, window, rows, &candidate, work)?;
+                    let result =
+                        self.verify_rows(expected, window, rows, &candidate, work, merge)?;
                     if result.is_none_or(|next| next > at) {
                         (plan, bad, repaired) = (candidate, result, true);
                         break;
@@ -415,6 +452,7 @@ fn eof_row(len: usize, index: usize, selected: bool) -> Row {
         body: len..len,
         content: len..len,
         quote_end: len,
+        lazy_quote: false,
         before: shape.clone(),
         after: shape,
         list: None,

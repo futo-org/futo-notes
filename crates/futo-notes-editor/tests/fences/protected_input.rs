@@ -211,3 +211,205 @@ fn global_os_and_explicit_code_runs_preserve_the_unselected_terminal_frame() {
         assert_eq!(view.text, "head\r\n\r\nab &amp; cd");
     }
 }
+
+#[test]
+fn deleting_code_and_prose_keeps_the_unselected_final_newline() {
+    for ending in ["\n", "", "\r\n"] {
+        for entry in 0..4 {
+            let opening = format!("```\nalpha\n```\n\nomega{ending}");
+            let shown = format!("alpha\n\nomega{ending}");
+            let mut session = EditorSession::open(&opening);
+            let mut view = ReferenceView::new(&shown);
+            assert_eq!(session.display_text(), shown);
+            let selected = range(0, 12);
+            session.select(session.revision(), selected).unwrap();
+            let mut accepted = 0;
+            let mut accept = |_: &SourceEdit| {
+                accepted += 1;
+                Ok(())
+            };
+            let result = match entry {
+                0 => session
+                    .replace(session.revision(), selected, "", &mut accept)
+                    .unwrap(),
+                1 => session
+                    .paragraph_key(
+                        session.revision(),
+                        selected,
+                        ParagraphKey::Backspace,
+                        &mut accept,
+                    )
+                    .unwrap()
+                    .expect("selected Backspace must edit"),
+                2 => session
+                    .replace_os(session.revision(), selected, "", &[], &mut accept)
+                    .unwrap()
+                    .expect("selected OS deletion must edit"),
+                _ => session
+                    .replace_many(
+                        session.revision(),
+                        &[DisplayReplacement {
+                            range: selected,
+                            inserted: "".into(),
+                        }],
+                        &mut accept,
+                    )
+                    .unwrap(),
+            };
+            view.apply(result);
+            assert_eq!(view.text, ending, "ending={ending:?}, entry={entry}");
+            assert_eq!(session.display_text(), ending);
+            assert_eq!(accepted, 1);
+            assert_eq!(session.source_text(), ending);
+            assert_eq!(session.selection(), range(0, 0));
+            view.apply(
+                session
+                    .undo(session.revision(), &mut |_| Ok(()))
+                    .unwrap()
+                    .unwrap(),
+            );
+            assert_eq!(session.source_text(), opening);
+            assert_eq!(session.selection(), selected);
+            let revision = session.revision();
+            assert!(matches!(
+                session.replace(revision, selected, "", &mut |_| Err("append".into())),
+                Err(EditorError::Persistence(_))
+            ));
+            assert_eq!(session.revision(), revision);
+            assert_eq!(session.source_text(), opening);
+            assert_eq!(session.selection(), selected);
+            assert!(session
+                .undo(revision, &mut |_| panic!(
+                    "rejected edit must not enter history"
+                ))
+                .unwrap()
+                .is_none());
+            view.apply(
+                session
+                    .redo(session.revision(), &mut |_| Ok(()))
+                    .unwrap()
+                    .unwrap(),
+            );
+            assert_eq!(view.text, ending);
+            assert_eq!(session.source_text(), ending);
+        }
+    }
+}
+
+#[test]
+fn deleting_fully_selected_fences_across_containers_keeps_the_surviving_display() {
+    for (opening, shown, selected, expected, expected_source) in [
+        (
+            "> ```\n> alpha\n> ```\n\nomega\n",
+            "alpha\n\nomega\n",
+            range(0, 12),
+            "\n",
+            "> \n",
+        ),
+        (
+            "- ```\n  alpha\n  ```\n\nomega\n",
+            "alpha\n\nomega\n",
+            range(0, 12),
+            "\n",
+            "- \n",
+        ),
+        (
+            "head\n\n```\nalpha\n```\n\nomega\n",
+            "head\n\nalpha\n\nomega\n",
+            range(6, 18),
+            "head\n\n\n",
+            "head\n\n\n",
+        ),
+        (
+            "head\n\n```\nalpha\n```\n",
+            "head\n\nalpha",
+            range(0, 11),
+            "",
+            "",
+        ),
+        (
+            "> ```\n>   - remove cache\n> ```\n&#32;   \\# retry&#32;&#32;\nReview quoted change\n",
+            "  - remove cache\n    # retry  \nReview quoted change\n",
+            range(0, 51),
+            "\n",
+            "> \n",
+        ),
+        (
+            "~~~Rust info\r\n猫🦊\r\n~~~~  \r\n\r\nomega\r\n",
+            "猫🦊\r\n\r\nomega\r\n",
+            range(0, 16),
+            "\r\n",
+            "\r\n",
+        ),
+    ] {
+        let mut session = EditorSession::open(opening);
+        assert_eq!(session.display_text(), shown, "opening={opening:?}");
+        let mut view = ReferenceView::new(shown);
+        session.select(session.revision(), selected).unwrap();
+        let change = session
+            .replace(session.revision(), selected, "", &mut |_| Ok(()))
+            .unwrap_or_else(|error| panic!("opening={opening:?}, error={error:?}"));
+        view.apply(change);
+        assert_eq!(session.source_text(), expected_source);
+        assert_eq!(view.text, expected, "opening={opening:?}");
+        assert_eq!(session.display_text(), expected);
+        assert_eq!(
+            EditorSession::open(&session.source_text()).display_text(),
+            expected
+        );
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), opening);
+        assert_eq!(session.selection(), selected);
+    }
+}
+
+#[test]
+fn complete_partitioned_frames_retire_for_ordinary_replacement() {
+    for eol in ["\n", "\r\n"] {
+        let original = format!(
+            "```{eol}{}```{eol}{eol}plain{eol}",
+            format!("x{eol}").repeat(2_000)
+        );
+        let shown = format!("{}{eol}plain{eol}", format!("x{eol}").repeat(2_000));
+        for inserted in ["", "x"] {
+            let mut session = EditorSession::open(&original);
+            assert_eq!(session.display_text(), shown);
+            let selected = range(0, shown.len());
+            session.select(session.revision(), selected).unwrap();
+            let mut view = ReferenceView::new(&shown);
+            let mut accepted = 0;
+            let change = session
+                .replace(session.revision(), selected, inserted, &mut |_| {
+                    accepted += 1;
+                    Ok(())
+                })
+                .unwrap();
+            view.apply(change);
+            assert_eq!(accepted, 1);
+            assert_eq!(session.source_text(), inserted);
+            assert_eq!(view.text, inserted);
+            view.apply(
+                session
+                    .undo(session.revision(), &mut |_| Ok(()))
+                    .unwrap()
+                    .unwrap(),
+            );
+            assert_eq!(session.source_text(), original);
+            assert_eq!(session.selection(), selected);
+            assert_eq!(view.text, shown);
+            view.apply(
+                session
+                    .redo(session.revision(), &mut |_| Ok(()))
+                    .unwrap()
+                    .unwrap(),
+            );
+            assert_eq!(session.source_text(), inserted);
+            assert_eq!(view.text, inserted);
+        }
+    }
+}

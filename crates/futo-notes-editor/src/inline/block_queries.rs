@@ -1,6 +1,7 @@
 //! Canonical retained block/list metadata and physical row queries.
 use super::*;
 mod visit;
+use visit::BlockLineQuery;
 
 impl Projection {
     fn command_line(
@@ -34,7 +35,7 @@ impl Projection {
     /// item or fence ranges here would make a typing refresh walk that region.
     pub(crate) fn caret_block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
         let mut result = Vec::new();
-        self.visit_block_lines(range, true, |block, base, index| {
+        self.visit_block_lines(range, BlockLineQuery::Formatting, |block, base, index| {
             let mut block = block.clone();
             block.shift(base);
             if let Some(list) = &mut block.list {
@@ -192,7 +193,7 @@ impl Projection {
     /// Shifted block lines whose cut list ranges stay row-local: only for
     /// readers of depth, number, check state and first-line role.
     pub(crate) fn view_block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
-        self.collect_block_lines(range, false, |block, base, _| {
+        self.collect_block_lines(range, BlockLineQuery::Rendering, |block, base, _| {
             let mut block = block.clone();
             block.shift(base);
             block
@@ -200,7 +201,7 @@ impl Projection {
     }
 
     pub(crate) fn block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
-        self.collect_block_lines(range, false, |block, base, index| {
+        self.collect_block_lines(range, BlockLineQuery::Visible, |block, base, index| {
             self.fixed_block(block, base, index)
         })
     }
@@ -209,12 +210,14 @@ impl Projection {
     /// is code, without copying any of them.
     pub(crate) fn all_code_lines(&self, range: DisplayRange) -> bool {
         let mut all = true;
-        self.visit_block_lines(range, false, |block, _, _| all &= block.code);
+        self.visit_block_lines(range, BlockLineQuery::Visible, |block, _, _| {
+            all &= block.code
+        });
         all
     }
 
     pub(crate) fn format_block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
-        self.collect_block_lines(range, true, |block, base, index| {
+        self.collect_block_lines(range, BlockLineQuery::Formatting, |block, base, index| {
             self.fixed_block(block, base, index)
         })
     }
@@ -241,47 +244,79 @@ impl Projection {
     /// come from the row where it starts; its body end, frame and closer from
     /// the row where it ends (#314).
     pub(crate) fn fix_fence(&self, index: usize, base: usize, fence: &mut fences::Fence) {
-        let row = self.rows.at(index).0;
+        self.fix_fence_with_work(index, base, fence);
+    }
+
+    pub(crate) fn fix_fence_with_work(
+        &self,
+        index: usize,
+        base: usize,
+        fence: &mut fences::Fence,
+    ) -> usize {
+        let (row, _, _, mut work) = self.rows.at_with_work(index);
         let continued = fence.whole.start == base
             && row.continues
             && row.opener.as_deref().is_some_and(fences::is_opener);
-        let continues_on = fence.closer.is_none()
+        let continues_on = if fence.closer.is_none()
             && fence.whole.end == base + row.source_len
             && index + 1 < self.rows.len()
-            && self.rows.at(index + 1).0.continues
-            && self.rows.at(index + 1).0.opener.is_some();
-        let found = |at: usize, last: bool| {
-            let (row, base, _) = self.rows.at(at);
-            let mut blocks = row.blocks.iter();
-            let block = if last {
-                blocks.rev().find(|block| block.fence.is_some())
-            } else {
-                blocks.find(|block| block.fence.is_some())
-            };
-            let mut fence = block?.fence.clone()?;
-            fence.shift(base);
-            Some(fence)
+        {
+            let (next, _, _, visits) = self.rows.at_with_work(index + 1);
+            work += visits;
+            next.continues && next.opener.is_some()
+        } else {
+            false
         };
+        fn found(projection: &Projection, at: usize, last: bool) -> (Option<fences::Fence>, usize) {
+            let (row, base, _, mut work) = projection.rows.at_with_work(at);
+            let mut scanned = 0;
+            let mut is_fence = |block: &blocks::BlockLine| {
+                scanned += 1;
+                block.fence.is_some()
+            };
+            let index = if last {
+                row.blocks.iter().rposition(&mut is_fence)
+            } else {
+                row.blocks.iter().position(&mut is_fence)
+            };
+            work += scanned;
+            let Some(index) = index else {
+                return (None, work);
+            };
+            let mut fence = row.blocks[index].fence.clone().unwrap();
+            work += fences::Fence::COPY_WORK;
+            fence.shift(base);
+            (Some(fence), work)
+        }
         if continued {
-            if let Some(head) = found(self.rows.block_start(index), true) {
+            let (at, visits) = self.rows.block_start_with_work(index);
+            let (head, read) = found(self, at, true);
+            work += visits + read;
+            if let Some(head) = head {
                 fence.whole.start = head.whole.start;
                 fence.opener = head.opener;
                 fence.body.start = head.body.start;
+                work += 4;
             }
         }
         if continues_on {
-            if let Some(tail) = found(self.rows.block_end(index), false) {
+            let (at, visits) = self.rows.block_end_with_work(index);
+            let (tail, read) = found(self, at, false);
+            work += visits + read;
+            if let Some(tail) = tail {
                 fence.whole.end = tail.whole.end;
                 fence.body.end = tail.body.end;
                 fence.separator = tail.separator;
                 fence.closer = tail.closer;
+                work += 6;
             }
         }
+        work
     }
 
     pub(crate) fn list_command_lines(&self, range: DisplayRange) -> Vec<blocks::ListCommandLine> {
         let mut result = Vec::new();
-        self.visit_block_lines(range, true, |block, base, index| {
+        self.visit_block_lines(range, BlockLineQuery::Formatting, |block, base, index| {
             result.push(self.command_line(block, base, index))
         });
         result
@@ -367,8 +402,7 @@ impl Projection {
                     .partition_point(|block| block.source.start < end)
                     .min(kept);
                 for block in row.blocks.get(first..last).unwrap_or_default() {
-                    if !block.empty_comment && begin < block.source.end && block.source.start < end
-                    {
+                    if begin < block.source.end && block.source.start < end {
                         visit(block, source, index);
                     }
                 }

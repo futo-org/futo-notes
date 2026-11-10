@@ -80,8 +80,156 @@ try {
   assert.equal(JSON.parse(session.project(0n, 0, Buffer.byteLength(display))).text, display);
   assert.deepEqual(await reopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
+  const codeSource = '```\narchive\n```';
+  const codeExchange = await start(codeSource);
+  const literalCode = 'alpha\n```\nomega\n```';
+  const fencedSource = '````\n' + literalCode + '\n````';
+  const acceptCode = async (applied) => {
+    const { request } = JSON.parse(applied);
+    session.acknowledge(JSON.stringify(await codeExchange(JSON.stringify(request))));
+  };
+  await acceptCode(session.paste_markdown(0n, 0, 7, literalCode));
+  assert.equal(session.draft_text(), fencedSource);
+  assert.equal(
+    JSON.parse(session.project(1n, 0, Buffer.byteLength(literalCode))).text,
+    literalCode,
+  );
+  await acceptCode(session.undo(1n));
+  assert.equal(session.draft_text(), codeSource);
+  await acceptCode(session.redo(2n));
+  assert.equal(session.draft_text(), fencedSource);
+  assert.deepEqual(await codeExchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+  await stop();
+  await start('--reopen');
+  assert.equal(session.draft_text(), savedSource(fencedSource));
+  assert.equal(
+    JSON.parse(session.project(0n, 0, Buffer.byteLength(literalCode))).text,
+    literalCode,
+  );
+  await stop();
+  for (const [source, text, expected] of [
+    ['```\n\n```', '# h', '```\n# h\n```'],
+    ['```\n\n```', literalCode, fencedSource],
+  ]) {
+    const emptyExchange = await start(source);
+    const acceptEmpty = async (applied) => {
+      const { change, request } = JSON.parse(applied);
+      session.acknowledge(JSON.stringify(await emptyExchange(JSON.stringify(request))));
+      return change;
+    };
+    const caret = Buffer.byteLength(text);
+    const pasted = await acceptEmpty(session.paste_markdown(0n, 0, 0, text));
+    assert.deepEqual(pasted.selection, { start: caret, end: caret });
+    assert.equal(session.draft_text(), expected);
+    assert.equal(JSON.parse(session.project(1n, 0, caret)).text, text);
+    await acceptEmpty(session.undo(1n));
+    assert.equal(session.draft_text(), source);
+    await acceptEmpty(session.redo(2n));
+    assert.equal(session.draft_text(), expected);
+    assert.deepEqual(await emptyExchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+    await stop();
+    await start('--reopen');
+    assert.equal(session.draft_text(), savedSource(expected));
+    assert.equal(JSON.parse(session.project(0n, 0, caret)).text, text);
+    await stop();
+  }
+  for (const fixture of [
+    { source: '```\n\n```\n\nplain\n', end: 8, text: '# h', expected: '# h', shown: 'h' },
+    {
+      source: '```\r\n\r\n```\r\n\r\nplain\r\n',
+      end: 11,
+      text: '# h\nbody',
+      expected: '# h\r\nbody',
+      shown: 'h\r\nbody',
+    },
+    {
+      source: '```\n' + 'x\n'.repeat(2000) + '```\n\nplain\n',
+      end: 4007,
+      text: '# h',
+      expected: '# h',
+      shown: 'h',
+    },
+  ]) {
+    const selectedExchange = await start(fixture.source);
+    const acceptSelected = async (applied) => {
+      const { change, request } = JSON.parse(applied);
+      session.acknowledge(JSON.stringify(await selectedExchange(JSON.stringify(request))));
+      return change;
+    };
+    session.select_with_affinity(0n, 0, fixture.end, JSON.stringify('Forward'));
+    const caret = Buffer.byteLength(fixture.shown);
+    const pasted = await acceptSelected(session.paste_markdown(0n, 0, fixture.end, fixture.text));
+    assert.deepEqual(pasted.selection, { start: caret, end: caret });
+    assert.equal(session.draft_text(), fixture.expected);
+    assert.equal(JSON.parse(session.project(1n, 0, caret)).text, fixture.shown);
+    const undone = await acceptSelected(session.undo(1n));
+    assert.deepEqual(undone.selection, { start: 0, end: fixture.end });
+    assert.equal(session.draft_text(), fixture.source);
+    await acceptSelected(session.redo(2n));
+    assert.equal(session.draft_text(), fixture.expected);
+    assert.deepEqual(await selectedExchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+    await stop();
+    await start('--reopen');
+    assert.equal(session.draft_text(), savedSource(fixture.expected));
+    assert.equal(JSON.parse(session.project(0n, 0, caret)).text, fixture.shown);
+    await stop();
+  }
+  for (const fixture of [
+    {
+      source: '猫a tail',
+      at: 4,
+      text: "[λ](<https://x.test> 'T')",
+      expected: "猫a[λ](<https://x.test> 'T') tail",
+      display: '猫aλ tail',
+      caret: 6,
+      label: [4, 6],
+      title: 'T',
+    },
+    {
+      source: 'tail',
+      at: 0,
+      text: '[alpha\nbeta](<https://x.test>)',
+      expected: '[alpha\nbeta](<https://x.test>)tail',
+      display: 'alpha\nbetatail',
+      caret: 10,
+      label: [0, 10],
+      title: null,
+    },
+  ]) {
+    const linkExchange = await start(fixture.source);
+    const acceptLink = async (applied) => {
+      const { change, request } = JSON.parse(applied);
+      session.acknowledge(JSON.stringify(await linkExchange(JSON.stringify(request))));
+      return change;
+    };
+    session.select_with_affinity(0n, fixture.at, fixture.at, JSON.stringify('Forward'));
+    const pastedLink = await acceptLink(
+      session.paste_markdown(0n, fixture.at, fixture.at, fixture.text),
+    );
+    assert.deepEqual(pastedLink.selection, { start: fixture.caret, end: fixture.caret });
+    assert.equal(session.draft_text(), fixture.expected);
+    const projection = JSON.parse(session.project(1n, 0, Buffer.byteLength(fixture.display)));
+    assert.equal(projection.text, fixture.display);
+    assert.equal(projection.links.length, 1);
+    assert.deepEqual(projection.links[0].range, { start: fixture.label[0], end: fixture.label[1] });
+    assert.equal(projection.links[0].destination, 'https://x.test');
+    assert.equal(projection.links[0].title, fixture.title);
+    const undoneLink = await acceptLink(session.undo(1n));
+    assert.deepEqual(undoneLink.selection, { start: fixture.at, end: fixture.at });
+    assert.equal(session.draft_text(), fixture.source);
+    const redoneLink = await acceptLink(session.redo(2n));
+    assert.deepEqual(redoneLink.selection, { start: fixture.caret, end: fixture.caret });
+    assert.equal(session.draft_text(), fixture.expected);
+    assert.deepEqual(await linkExchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+    await stop();
+    await start('--reopen');
+    assert.equal(session.draft_text(), savedSource(fixture.expected));
+    const reopenedLink = JSON.parse(session.project(0n, fixture.label[0], fixture.label[1]));
+    assert.equal(reopenedLink.links[0].destination, 'https://x.test');
+    await stop();
+  }
   console.log(
-    'Compiled WASM clipboard: copy, one-action cut, Markdown paste and real store saving passed.',
+    'Compiled WASM clipboard: copy, one-action cut, Markdown paste, literal code fences, named-link meaning/carets/history and real store saving passed.',
   );
 } finally {
   if (session) await stop();

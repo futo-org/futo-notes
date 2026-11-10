@@ -47,6 +47,8 @@ fn action(
                 s.revision(),
                 selected,
                 match command {
+                    "CodeBlock" => BlockCommand::CodeBlock,
+                    "WrapCodeBlock" => BlockCommand::WrapCodeBlock,
                     "Text" => BlockCommand::Heading(0),
                     "Heading2" => BlockCommand::Heading(2),
                     "Quote" => BlockCommand::Quote,
@@ -133,7 +135,7 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
         "../../../../futo-notes-editor/tests/fixtures/list-shortcuts.json"
     ))
     .unwrap();
-    assert_eq!(original.len(), 24);
+    assert_eq!(original.len(), 29);
     assert_eq!(shortcuts.len(), 38);
     let staging: Vec<Value> = serde_json::from_str(include_str!(
         "../../../../futo-notes-editor/tests/fixtures/list-staging.json"
@@ -164,12 +166,12 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
         "../../../../futo-notes-editor/tests/fixtures/fence-container-commands.json"
     ))
     .unwrap();
-    assert_eq!(fences.len(), 23);
+    assert_eq!(fences.len(), 29);
     let headings: Vec<Value> = serde_json::from_str(include_str!(
         "../../../../futo-notes-editor/tests/fixtures/heading-quote-commands.json"
     ))
     .unwrap();
-    assert_eq!(headings.len(), 5);
+    assert_eq!(headings.len(), 16);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)

@@ -53,10 +53,12 @@ impl Row {
             open: back(&span.open),
             close: back(&span.close),
         };
+        let (table_scan, table_read) = crate::table::RowScan::counted(text);
         Self {
             source_len: text.len(),
             pipes: text.contains('|'),
-            parsed_source_bytes: full.parsed_source_bytes,
+            table_scan,
+            parsed_source_bytes: full.parsed_source_bytes + table_read,
             guarded_words: Vec::new(),
             images: moved(&full.images, skip, |image| &mut image.source),
             wikilinks: moved(&full.wikilinks, skip, |link| &mut link.source),

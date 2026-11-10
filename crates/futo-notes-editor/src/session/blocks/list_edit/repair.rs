@@ -75,9 +75,6 @@ pub(super) fn repairs(rows: &[Row], at: usize) -> Vec<Repair> {
     if row.changed() && !row.blank && !row.escape && row.escapable {
         options.push(Repair::Escape(at));
     }
-    if row.exact_blank && at + 1 < rows.len() {
-        options.push(Repair::Insert(at + 1, Insert::Comment));
-    }
     let boundary =
         at > 0 && (row.changed() || rows[at - 1].changed()) && row.insert == Insert::None;
     if boundary {
@@ -94,22 +91,6 @@ pub(super) fn repairs(rows: &[Row], at: usize) -> Vec<Repair> {
     }) {
         options.push(Repair::Alternate(end));
     }
-    if boundary {
-        options.push(Repair::Insert(at, Insert::Comment));
-    }
-    if let Some(end) = run {
-        if end + 1 < rows.len() && rows[end + 1].insert == Insert::None {
-            options.push(Repair::Insert(end + 1, Insert::Comment));
-        }
-        let start = (0..=end)
-            .rev()
-            .take_while(|&index| rows[index].changed() || rows[index].blank)
-            .last()
-            .unwrap_or(end);
-        if start > 0 && rows[start].insert == Insert::None {
-            options.push(Repair::Insert(start, Insert::Comment));
-        }
-    }
     // An empty item written by the command breaks the paragraph ABOVE it (an
     // empty item cannot interrupt one, and a `-` reads as a setext
     // underline): separate them. The first mismatch is the top of a
@@ -121,4 +102,23 @@ pub(super) fn repairs(rows: &[Row], at: usize) -> Vec<Repair> {
         }
     }
     options
+}
+
+/// Lists that only blank rows of the same quote keep apart would parse as one:
+/// the marker for the created row at `index` that differs from the created row
+/// at `previous` above it. Spelling it so up front spares the verification
+/// repair above, which finds one such list per reparse of the note.
+pub(super) fn apart_marker(rows: &[Row], previous: usize, index: usize) -> Option<u8> {
+    let quotes = rows[index].after.quotes;
+    (previous + 1 < index
+        && rows[previous].after.quotes == quotes
+        && rows[previous + 1..index]
+            .iter()
+            .all(|row| row.blank && row.before.quotes == quotes))
+    .then(|| match rows[previous].after.marker {
+        b'-' => b'+',
+        b'.' => b')',
+        b')' => b'.',
+        _ => b'-',
+    })
 }

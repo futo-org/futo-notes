@@ -9,12 +9,12 @@ fn range(a: usize, b: usize) -> DisplayRange {
     }
 }
 
+#[path = "lists/backspace_nested.rs"]
+mod backspace_nested;
 #[path = "lists/command_eligibility.rs"]
 mod command_eligibility;
 #[path = "lists/commands.rs"]
 mod commands;
-#[path = "lists/nesting_examples.rs"]
-mod nesting_examples;
 #[path = "lists/comment_seams.rs"]
 mod comment_seams;
 #[path = "lists/containers.rs"]
@@ -37,6 +37,8 @@ mod keys_backspace;
 mod lifting;
 #[path = "lists/mixed_commands.rs"]
 mod mixed_commands;
+#[path = "lists/nesting_examples.rs"]
+mod nesting_examples;
 #[path = "lists/projection.rs"]
 mod projection;
 #[path = "lists/tab.rs"]

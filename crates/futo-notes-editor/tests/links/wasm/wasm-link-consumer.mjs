@@ -9,6 +9,7 @@ import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
 import { savedSource } from '../../wasm-saved-source.mjs';
 import { Buffer } from 'node:buffer';
+import { partialLink } from './partial-link-consumer.mjs';
 import process from 'node:process';
 import console from 'node:console';
 import { setTimeout, clearTimeout } from 'node:timers';
@@ -83,6 +84,7 @@ try {
   assert.equal(session.draft_text(), "see [the __docs__](https://old.test 'Title')\r\n");
   await accept(session.redo(3n));
   await stop();
+  await partialLink(start, stop, () => session, timingVaults);
   const reopened = await start('--reopen');
   assert.equal(session.draft_text(), updated);
   assert.equal(JSON.parse(session.project(0n, 0, 14)).text, display);

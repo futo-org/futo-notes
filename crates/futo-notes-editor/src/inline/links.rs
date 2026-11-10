@@ -1,5 +1,112 @@
-use super::super::row::LinkMeaning;
-impl super::super::Projection {
+//! Link source boundaries are owned here; destination interpretation comes from
+//! the Markdown parser. Consumers receive destination semantics, never syntax.
+use super::row::LinkMeaning;
+mod angle;
+mod bare;
+mod nesting;
+pub(super) use angle::{complete_typed_angle, finish_angle_word};
+pub(super) use bare::bare_links;
+
+impl super::Projection {
+    pub(crate) fn link_descriptions_with_work(
+        &self,
+        range: crate::DisplayRange,
+    ) -> (
+        Vec<crate::LinkDescription>,
+        super::references::ReferenceWork,
+    ) {
+        let (runs, mut items) = self.row_link_runs(range);
+        let mut active: Vec<(crate::DisplayRange, std::sync::Arc<LinkMeaning>)> = Vec::new();
+        for (range, target) in runs {
+            let (pending, visits) = self.link_is_pending_with_work(range);
+            items += visits;
+            if pending {
+                continue;
+            }
+            if let Some((previous, meaning)) = active.last_mut() {
+                items += 1;
+                if previous.end == range.start
+                    && (std::sync::Arc::ptr_eq(meaning, &target)
+                        || meaning.destination == target.destination
+                            && meaning.title == target.title)
+                {
+                    previous.end = range.end;
+                    continue;
+                }
+            }
+            active.push((range, target));
+        }
+        let mut work = super::references::ReferenceWork {
+            parsed: 0,
+            items,
+            copied: 0,
+        };
+        let descriptions = active
+            .into_iter()
+            .filter(|(link, _)| link.start.0 <= range.end.0 && range.start.0 <= link.end.0)
+            .map(|(range, target)| {
+                work.items += 1;
+                work.copied +=
+                    target.destination.len() + target.title.as_ref().map_or(0, String::len);
+                crate::LinkDescription {
+                    range,
+                    destination: target.destination.clone(),
+                    title: target.title.clone(),
+                }
+            })
+            .collect();
+        (descriptions, work)
+    }
+
+    pub(super) fn all_link_ranges(
+        &self,
+        range: crate::DisplayRange,
+    ) -> (Vec<crate::DisplayRange>, usize) {
+        let (runs, work) = self.row_link_runs(range);
+        (
+            runs.into_iter()
+                .map(|(range, _)| range)
+                .filter(|link| link.start.0 <= range.end.0 && range.start.0 <= link.end.0)
+                .collect(),
+            work,
+        )
+    }
+
+    fn row_link_runs(
+        &self,
+        range: crate::DisplayRange,
+    ) -> (
+        Vec<(crate::DisplayRange, std::sync::Arc<LinkMeaning>)>,
+        usize,
+    ) {
+        let (first, a) = self.rows.locate_with_work(range.start.0, true);
+        let (last, z) = self.rows.locate_with_work(range.end.0, true);
+        let mut links = Vec::new();
+        let mut work = a + z;
+        for index in first..=last {
+            let (row, _, display, nodes) = self.rows.at_with_work(index);
+            work += nodes;
+            for span in &row.spans {
+                work += 1;
+                if let super::row::SpanKind::Link(target) = &span.kind {
+                    let (start, a) = row.display_at_with_work(span.open.end);
+                    let (end, z) = row.display_at_with_work(span.close.start);
+                    work += 1 + a + z;
+                    links.push((
+                        crate::DisplayRange {
+                            start: crate::DisplayOffset(display + start),
+                            end: crate::DisplayOffset(display + end),
+                        },
+                        target.clone(),
+                    ));
+                }
+            }
+        }
+        (links, work)
+    }
+}
+
+impl super::Projection {
     pub(crate) fn link_edit(
         &self,
         source: &ropey::Rope,
@@ -7,8 +114,8 @@ impl super::super::Projection {
         selection: crate::DisplayRange,
         destination: &str,
         label: Option<&str>,
-    ) -> Result<(super::super::edit::Plan, crate::SourceRange), crate::EditorError> {
-        use super::super::{
+    ) -> Result<(super::edit::Plan, crate::SourceRange), crate::EditorError> {
+        use super::{
             edit::{common_prefix, split_entities, Context, Plan},
             row::SpanKind,
             spelling::{spell_with_anchors, Marker},
@@ -112,46 +219,6 @@ impl super::super::Projection {
                 marker.close = explicit;
             }
         } else {
-            // Keep the formatting shared by the complete label outside its new link.
-            // Otherwise linking just "This" in "**This editor.**" splits the bold into
-            // "[**This**](url)** editor.**", whose second opener cannot precede a space.
-            let mut at = 0;
-            let mut enclosing: Option<Vec<usize>> = None;
-            let mut outside = std::collections::HashSet::new();
-            for piece in &pieces {
-                link_metadata_items += 1;
-                let end = at + piece.display.len();
-                if !piece.display.is_empty() && (at < a || end > z) {
-                    link_metadata_items += piece.spans.len();
-                    outside.extend(piece.spans.iter().copied());
-                }
-                if at < z && a < end {
-                    let spans: Vec<_> = piece
-                        .spans
-                        .iter()
-                        .copied()
-                        .filter(|id| !matches!(markers[*id].kind, SpanKind::Link(_)))
-                        .collect();
-                    link_metadata_items += piece.spans.len();
-                    match &mut enclosing {
-                        None => enclosing = Some(spans),
-                        Some(shared) => {
-                            link_metadata_items += shared.len().min(spans.len());
-                            let kept = shared
-                                .iter()
-                                .zip(&spans)
-                                .take_while(|(a, b)| a == b)
-                                .count();
-                            shared.truncate(kept);
-                        }
-                    }
-                }
-                at = end;
-            }
-            let nesting = enclosing.map_or(0, |shared| {
-                link_metadata_items += shared.len();
-                shared.iter().take_while(|id| outside.contains(id)).count()
-            });
             let id = markers.len();
             markers.push(Marker {
                 source: None,
@@ -162,19 +229,12 @@ impl super::super::Projection {
                 open: "[".into(),
                 close: format!("](<{}>)", destination_source(destination)),
             });
-            let mut at = 0;
-            for piece in &mut pieces {
-                let end = at + piece.display.len();
-                if at < z && a < end {
-                    piece
-                        .spans
-                        .retain(|id| !matches!(markers[*id].kind, SpanKind::Link(_)));
-                    if !destination.is_empty() {
-                        piece.spans.insert(nesting, id);
-                    }
-                }
-                at = end;
-            }
+            link_metadata_items += nesting::replace_selected_links(
+                &mut pieces,
+                &markers,
+                a..z,
+                (!destination.is_empty()).then_some(id),
+            );
         }
         let mut insertion = pieces.len()..pieces.len();
         if let Some(label) = label {
@@ -196,15 +256,15 @@ impl super::super::Projection {
             if a == z && !destination.is_empty() {
                 active.push(markers.len() - 1);
             }
-            let super::super::edit::Cut {
+            let super::edit::Cut {
                 mut before, after, ..
-            } = super::super::edit::cut(pieces, a..z, false);
+            } = super::edit::cut(pieces, a..z, false);
             let start = before.len();
             // Code content is literal: a backslash there is displayed.
             let in_code = active
                 .iter()
                 .any(|id| markers[*id].kind == SpanKind::Format(crate::InlineFormat::Code));
-            before.extend(label.chars().map(|ch| super::super::spelling::Piece {
+            before.extend(label.chars().map(|ch| super::spelling::Piece {
                 guard: None,
                 physical_prefix: false,
                 literal_url: None,
@@ -227,7 +287,7 @@ impl super::super::Projection {
         let mut rendered = spell_with_anchors(
             pieces,
             guard_state,
-            super::super::typed_angle::TypedState::current(typed_inputs),
+            super::typed_angle::TypedState::current(typed_inputs),
             &raw,
             markers,
             insertion,
@@ -298,7 +358,7 @@ fn explicit_close(destination: &str, title: Option<&str>) -> String {
     close
 }
 
-pub(in crate::inline) fn destination_source(destination: &str) -> String {
+pub(super) fn destination_source(destination: &str) -> String {
     let mut source = String::new();
     for ch in destination.chars() {
         match ch {
@@ -357,5 +417,137 @@ fn replace_destination(close: &str, destination: &str) -> String {
             text
         };
         format!("{}{text}{}", &close[..start], &close[end..])
+    }
+}
+
+impl super::Projection {
+    pub(crate) fn insert_link(
+        &self,
+        source: &ropey::Rope,
+        range: crate::DisplayRange,
+        destination: &str,
+        affinity: crate::Affinity,
+        pending: Option<&[crate::InlineFormat]>,
+    ) -> Result<super::edit::Plan, crate::EditorError> {
+        use super::{
+            edit::{carry_formats, common_prefix, cut, split_entities, Context, Cut, Plan},
+            row::SpanKind,
+            spelling::{spell, Marker, Piece},
+        };
+        let Context {
+            typed_inputs,
+            guard_state,
+            raw,
+            source_start,
+            source_end,
+            a,
+            z,
+            mut markers,
+            pieces,
+            link_metadata_items,
+            ..
+        } = self.edit_context(source, range)?;
+        let Cut {
+            mut before,
+            after,
+            left,
+            right,
+        } = cut(split_entities(pieces, a, z), a..z, false);
+        let mut active = if affinity == crate::Affinity::Backward {
+            left
+        } else {
+            right
+        };
+        if let Some(formats) = pending {
+            carry_formats(
+                &mut before,
+                &after,
+                &mut markers,
+                &mut active,
+                formats,
+                true,
+            );
+        }
+        let formats = active
+            .iter()
+            .filter_map(|id| markers[*id].kind.format())
+            .collect();
+        let (links, read) = bare_links(destination);
+        let link_metadata_items = link_metadata_items + read.items;
+        let bare = links.len() == 1
+            && links[0].open.start == 0
+            && links[0].close.end == destination.len()
+            && matches!(&links[0].kind, SpanKind::Link(target) if target.destination == destination && target.title.is_none() && target.reference.is_none());
+        let id = markers.len();
+        markers.push(Marker {
+            source: None,
+            literal_url: false,
+            pending: false,
+            activate: true,
+            kind: SpanKind::Link(LinkMeaning::bare(destination.into())),
+            open: if bare { "".into() } else { "[".into() },
+            close: if bare {
+                "".into()
+            } else {
+                format!("](<{}>)", destination_source(destination))
+            },
+        });
+        active.push(id);
+        let insertion = before.len();
+        before.push(Piece {
+            guard: None,
+            physical_prefix: false,
+            literal_url: None,
+            raw: destination.into(),
+            display: destination.into(),
+            spans: active,
+            trailing: false,
+            definition: None,
+            origin: None,
+            timing: false,
+        });
+        before.extend(after);
+        let mut rendered = spell(
+            before,
+            guard_state,
+            super::typed_angle::TypedState::current(typed_inputs),
+            &raw,
+            markers,
+            insertion..insertion + 1,
+            true,
+            &self.references,
+        )?;
+        let delimiter_work = rendered.relocate_delimiters(source_start);
+        let prefix = common_prefix(&raw, &rendered.text);
+        let suffix: usize = raw[prefix..]
+            .chars()
+            .rev()
+            .zip(rendered.text[prefix..].chars().rev())
+            .take_while(|(a, b)| a == b)
+            .map(|(ch, _)| ch.len_utf8())
+            .sum();
+        Ok(Plan {
+            retained: Default::default(),
+            requires_source_identity: false,
+            guarded_words: rendered.take_guards(source_start, source_end),
+            context: source_start..source_end,
+            split_retirement: None,
+            pending_links: rendered.pending_links,
+            activated_links: rendered.activated_links,
+            delimiters: rendered.delimiters,
+            input_start: 0,
+            range: source_start + prefix..source_end - suffix,
+            inserted: rendered.text[prefix..rendered.text.len() - suffix].into(),
+            caret: source_start + rendered.caret,
+            formats,
+            materialized: raw.len() + rendered.text.len() + rendered.materialized,
+            parsed: read.parsed + rendered.parsed,
+            link_metadata_items: link_metadata_items
+                + delimiter_work
+                + rendered.link_metadata_items
+                + links.len()
+                + 1,
+            link_copied_bytes: rendered.link_copied_bytes + destination.len() + read.copied,
+        })
     }
 }

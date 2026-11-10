@@ -115,12 +115,26 @@ fn shortcuts_retain_foreign_bytes_and_interpreted_ordinals_across_transparent_ga
                                         .unwrap(),
                                 );
                                 assert_eq!(accepts, 1);
+                                // The typed item keeps its number. The list below
+                                // merges into it (renumbered) only when it cannot
+                                // stay apart: the next number joins the list above,
+                                // or the neighbors take both delimiters.
+                                let merged = if number == 1000 {
+                                    before == after
+                                } else {
+                                    before != after
+                                };
+                                let expected = if merged {
+                                    [999, number, number + 1, number + 2]
+                                } else {
+                                    [999, number, 7, 8]
+                                };
                                 let source = session.source_text();
                                 assert!(source.starts_with(&prefix), "{source:?}");
                                 assert!(source.ends_with(&suffix), "{source:?}");
-                                assert_eq!(ordinals(&session), [999, number, 7, 8], "{raw:?}");
+                                assert_eq!(ordinals(&session), expected, "{raw:?}");
                                 let fresh = EditorSession::open(&source);
-                                assert_eq!(ordinals(&fresh), [999, number, 7, 8], "{source:?}");
+                                assert_eq!(ordinals(&fresh), expected, "{source:?}");
                                 assert_eq!(view.text, fresh.display_text());
                                 assert_eq!(session.affinity(), Affinity::Backward);
                                 view.apply(
@@ -139,7 +153,7 @@ fn shortcuts_retain_foreign_bytes_and_interpreted_ordinals_across_transparent_ga
                                         .unwrap(),
                                 );
                                 assert_eq!(session.source_text(), source);
-                                assert_eq!(ordinals(&session), [999, number, 7, 8]);
+                                assert_eq!(ordinals(&session), expected);
                             }
                         }
                     }

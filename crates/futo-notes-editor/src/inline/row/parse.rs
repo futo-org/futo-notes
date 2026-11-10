@@ -274,10 +274,6 @@ impl Row {
             }
         }
         for block in &blocks {
-            if block.empty_comment {
-                hidden[block.source.clone()].fill(true);
-                continue;
-            }
             if let Some(fence) = &block.fence {
                 // Retain the terminal boundary of an unmatched container fence.
                 if fence.closer.is_some() || fence.whole.end == source.len() {
@@ -301,6 +297,8 @@ impl Row {
         let mut display = String::new();
         let mut segments = Vec::new();
         let mut at = 0;
+        let mut table_scan = crate::table::ScanBuilder::new(source);
+        let mut table_parse = 0;
         while at < source.len() {
             let start = at;
             let display_start = display.len();
@@ -308,6 +306,10 @@ impl Row {
                 if range.start == at {
                     let (range, text) = replacements.next().unwrap();
                     display.push_str(&text);
+                    for (offset, ch) in source[range.clone()].char_indices() {
+                        table_scan.observe(range.start + offset, ch);
+                    }
+                    table_parse += range.len();
                     at = range.end;
                     segments.push(Segment {
                         source: start..at,
@@ -317,10 +319,12 @@ impl Row {
                     continue;
                 }
             }
+            let ch = source[at..].chars().next().unwrap();
+            table_scan.observe(at, ch);
             if hidden[at] {
-                at += source[at..].chars().next().unwrap().len_utf8();
+                at += ch.len_utf8();
             } else {
-                at += source[at..].chars().next().unwrap().len_utf8();
+                at += ch.len_utf8();
                 display.push_str(&source[start..at]);
             }
             segments.push(Segment {
@@ -329,6 +333,8 @@ impl Row {
                 identity: !hidden[start],
             });
         }
+        let (table_scan, table_read) = table_scan.finish();
+        table_parse += table_read;
         spans.sort_by_key(|span| (span.open.start, std::cmp::Reverse(span.close.end)));
         let (wikilinks, wikilink_mask) =
             crate::inline::wikilinks::scan(source, &isolated, &segments);
@@ -357,7 +363,11 @@ impl Row {
             tail_chain,
             source_len: source.len(),
             pipes: source.contains('|'),
-            parsed_source_bytes: source.len() + additional_parse + reference_work.parsed,
+            table_scan,
+            parsed_source_bytes: source.len()
+                + table_parse
+                + additional_parse
+                + reference_work.parsed,
             definitions,
             reference_uses,
             reference_work,

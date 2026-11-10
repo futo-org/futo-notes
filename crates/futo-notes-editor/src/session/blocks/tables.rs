@@ -8,6 +8,7 @@ use crate::{
 };
 use std::ops::Range;
 
+mod input;
 mod keys;
 #[cfg(test)]
 mod differential;
@@ -489,8 +490,7 @@ impl EditorSession {
         };
         cell.ok_or(EditorError::InvalidRange)?;
         let text = &table::flatten_for_cell(text);
-        let isolated = crate::InputAction::Isolated;
-        self.replace_action(expected, range, text, isolated, accept)
+        self.replace_markdown_action(expected, range, text, accept)
             .map(Some)
     }
 }

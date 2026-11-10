@@ -14,17 +14,9 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let body = self.split_block_body(std::slice::from_ref(&line), range)?;
-        let suffix_end = line.source.start
-            + self
-                .source
-                .byte_slice(line.source.clone())
-                .to_string()
-                .trim_end_matches(['\r', '\n'])
-                .len();
-        let suffix = self
-            .source
-            .byte_slice(line.content.end..suffix_end)
-            .to_string();
+        let suffix_range = self.block_line_suffix(&line);
+        let suffix_end = suffix_range.end;
+        let suffix = self.source.byte_slice(suffix_range).to_string();
         let continuation = if line.quote_depth > 0 {
             "> ".repeat(line.quote_depth)
         } else {

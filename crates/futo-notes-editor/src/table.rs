@@ -3,21 +3,19 @@
 //! receive cells and ask for commands. Offsets here are window-relative.
 use std::ops::Range;
 
+mod lines;
+use lines::{
+    delimiter, interrupts, interrupts_counted, line_bounds, line_from_pipes, parse_line, PipeScan,
+};
+pub(crate) use lines::{line_has_cell, pipe_count, row_line, unescaped_pipes, Line};
+mod scan;
+#[cfg(test)]
+mod scan_tests;
 mod types;
+#[cfg(test)]
+use scan::Header;
+pub(crate) use scan::{Builder as ScanBuilder, RowScan, State, Summary};
 pub use types::*;
-
-pub(crate) struct Line {
-    pub start: usize,
-    /// End of content, before any line ending.
-    pub end: usize,
-    /// Start of the next line (after the line ending).
-    pub next: usize,
-    pub lead: Option<usize>,
-    pub trail: Option<usize>,
-    /// Raw text between delimiting pipes, padding included.
-    pub cells: Vec<Range<usize>>,
-    pub pipes: usize,
-}
 
 pub(crate) struct Layout {
     /// Header, delimiter, then body rows.
@@ -30,136 +28,6 @@ pub(crate) struct Splice {
     pub at: usize,
     pub remove: usize,
     pub text: String,
-}
-
-fn unescaped_pipes(text: &str, start: usize, end: usize) -> Vec<usize> {
-    let bytes = text.as_bytes();
-    let mut pipes = Vec::new();
-    let mut slashes = 0;
-    for (at, byte) in bytes.iter().enumerate().take(end).skip(start) {
-        match byte {
-            b'\\' => slashes += 1,
-            b'|' => {
-                if slashes % 2 == 0 {
-                    pipes.push(at);
-                }
-                slashes = 0;
-            }
-            _ => slashes = 0,
-        }
-    }
-    pipes
-}
-
-/// Whether `range` (relative to `line`, one physical line without its
-/// ending) lies inside one cell of that line read as a table row. Cells come
-/// from the line alone, so `false` means no table can give it a cell.
-pub(crate) fn line_has_cell(line: &str, range: Range<usize>) -> bool {
-    parse_line(line, 0, line.len(), line.len())
-        .cells
-        .iter()
-        .any(|cell| cell.start <= range.start && range.end <= cell.end)
-}
-
-pub(crate) fn pipe_count(text: &str) -> usize {
-    unescaped_pipes(text, 0, text.len()).len()
-}
-
-fn parse_line(text: &str, start: usize, end: usize, next: usize) -> Line {
-    let bytes = text.as_bytes();
-    let mut first = start;
-    while first < end && matches!(bytes[first], b' ' | b'\t') {
-        first += 1;
-    }
-    let mut last = end;
-    while last > first && matches!(bytes[last - 1], b' ' | b'\t') {
-        last -= 1;
-    }
-    let mut pipes = unescaped_pipes(text, first, last);
-    let total = pipes.len();
-    let lead = (pipes.first() == Some(&first)).then(|| pipes.remove(0));
-    let trail = (pipes.last().is_some_and(|pipe| *pipe + 1 == last)).then(|| pipes.pop().unwrap());
-    let mut cells = Vec::new();
-    if total == 0 {
-        if first < last {
-            cells.push(start..end);
-        }
-    } else {
-        let mut from = lead.map_or(start, |lead| lead + 1);
-        // A lone leading pipe owns no cell.
-        if !(lead.is_some() && trail.is_none() && pipes.is_empty() && from >= last) {
-            for pipe in pipes.iter().copied() {
-                cells.push(from..pipe);
-                from = pipe + 1;
-            }
-            cells.push(from..trail.unwrap_or(end).max(from));
-        }
-    }
-    Line {
-        start,
-        end,
-        next,
-        lead,
-        trail,
-        cells,
-        pipes: total,
-    }
-}
-
-fn delimiter(text: &str, line: &Line) -> Option<Vec<TableAlignment>> {
-    if line.pipes == 0 || line.cells.is_empty() {
-        return None;
-    }
-    line.cells
-        .iter()
-        .map(|cell| {
-            let raw = text[cell.clone()].trim_matches([' ', '\t']);
-            let body = raw.strip_prefix(':').unwrap_or(raw);
-            let left = body.len() != raw.len();
-            let body = body.strip_suffix(':').unwrap_or(body);
-            let right = raw.len() - usize::from(left) != body.len();
-            (!body.is_empty() && body.bytes().all(|byte| byte == b'-')).then_some(
-                match (left, right) {
-                    (true, true) => TableAlignment::Center,
-                    (true, false) => TableAlignment::Left,
-                    (false, true) => TableAlignment::Right,
-                    _ => TableAlignment::None,
-                },
-            )
-        })
-        .collect()
-}
-
-/// A line that starts another block ends the table instead of becoming a row.
-fn interrupts(line: &str) -> bool {
-    let indent = line.len() - line.trim_start_matches(' ').len();
-    if indent > 3 {
-        return false;
-    }
-    let line = line[indent..].trim_end_matches(['\r', '\n']);
-    let first = line.bytes().next().unwrap_or(b' ');
-    let hashes = line.bytes().take_while(|byte| *byte == b'#').count();
-    let marker = matches!(first, b'-' | b'+' | b'*')
-        && matches!(line.as_bytes().get(1), None | Some(b' ' | b'\t'));
-    let digits = line.bytes().take_while(u8::is_ascii_digit).count();
-    let ordered = (1..=9).contains(&digits)
-        && matches!(line.as_bytes().get(digits), Some(b'.' | b')'))
-        && matches!(line.as_bytes().get(digits + 1), None | Some(b' ' | b'\t'));
-    let compact: String = line
-        .chars()
-        .filter(|ch| !matches!(ch, ' ' | '\t'))
-        .collect();
-    let rule = compact.len() >= 3
-        && matches!(first, b'-' | b'*' | b'_')
-        && compact.bytes().all(|byte| byte == first);
-    first == b'>'
-        || ((1..=6).contains(&hashes)
-            && matches!(line.as_bytes().get(hashes), None | Some(b' ' | b'\t')))
-        || line.starts_with("```")
-        || line.starts_with("~~~")
-        || marker
-        || ordered
-        || rule
 }
 
 impl Layout {

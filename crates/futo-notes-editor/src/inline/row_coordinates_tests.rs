@@ -219,6 +219,7 @@ fn model(source_len: usize, display: &str, segments: Vec<Segment>) -> Row {
     Row {
         source_len,
         pipes: false,
+        table_scan: crate::table::RowScan::new(&" ".repeat(source_len)),
         parsed_source_bytes: 0,
         guarded_words: Vec::new(),
         images: Vec::new(),

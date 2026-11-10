@@ -71,17 +71,12 @@ impl EditorSession {
         }
         let body = self.split_block_body(&lines, range)?;
         let origin = if list.first {
-            line.clone()
+            crate::inline::blocks::ListCommandLine::from_block(line, 0)
         } else {
-            let start = self
-                .source
-                .line_to_byte(self.source.byte_to_line(list.marker.start));
-            let point = DisplayOffset(self.projection.display_at(start));
+            let index = self.source.byte_to_line(list.marker.start);
+            let start = self.source.line_to_byte(index);
             self.projection
-                .block_lines(DisplayRange {
-                    start: point,
-                    end: point,
-                })
+                .list_command_lines_in_source(&(start..start + self.source.line(index).len_bytes()))
                 .into_iter()
                 .find(|line| {
                     line.list
@@ -93,12 +88,19 @@ impl EditorSession {
         let mut prefix = prefix;
         if list.first {
             if let Some(number) = list.ordinal {
-                replace_number(&mut prefix, line, number)?;
+                replace_number(&mut prefix, &origin, number)?;
             }
         }
+        // Repeat the item prefix, excluding a heading's opener or a hidden
+        // fence opener. Plain continuation rows still use their item's origin.
+        let prefix_end = if origin.heading > 0 || origin.code && origin.content.is_empty() {
+            origin.source.start + origin.list.as_ref().unwrap().indent
+        } else {
+            origin.content.start
+        };
         let mut continuation = self
             .source
-            .byte_slice(origin.source.start..origin.content.start)
+            .byte_slice(origin.source.start..prefix_end)
             .to_string();
         if let Some(number) = list.ordinal {
             replace_number(&mut continuation, &origin, number + 1)?;
@@ -116,17 +118,24 @@ impl EditorSession {
         // The item's later rows now follow the new marker and must stay in it.
         let opens_empty = body.right.is_empty() && origin.task.is_none();
         let (moved, blanks) = self.moved_item_rows(line, &origin, &continuation, opens_empty)?;
+        let suffix_range = if line.heading > 0 {
+            self.block_line_suffix(line)
+        } else {
+            line.content.end..line.content.end
+        };
+        let suffix = self.source.byte_slice(suffix_range.clone()).to_string();
         let output = format!(
-            "{left_prefix}{}\n{blanks}{continuation}{}",
+            "{left_prefix}{}{suffix}\n{blanks}{continuation}{}",
             body.left, body.right
         );
         let mut caret = line.source.start
             + left_prefix.len()
             + body.left.len()
+            + suffix.len()
             + 1
             + blanks.len()
             + continuation.len();
-        let mut edits = vec![(line.source.start..line.content.end, output)];
+        let mut edits = vec![(line.source.start..suffix_range.end, output)];
         edits.extend(moved);
         // The split closed and reopened formatting at the caret line's edges;
         // the paragraph's rows above and below it must close and reopen too.
@@ -184,7 +193,7 @@ impl EditorSession {
             accept,
         )?;
         self.carry_block_state(&mut change, body.formats, body.affinity);
-        change.work.materialized_source_bytes += body.materialized;
+        change.work.materialized_source_bytes += body.materialized + suffix.len();
         change.work.parsed_source_bytes += body.parsed;
         Ok(Some(change))
     }
@@ -286,7 +295,7 @@ impl EditorSession {
     fn moved_item_rows(
         &self,
         line: &crate::inline::blocks::BlockLine,
-        origin: &crate::inline::blocks::BlockLine,
+        origin: &crate::inline::blocks::ListCommandLine,
         continuation: &str,
         opens_empty: bool,
     ) -> Result<(RowEdits, String), EditorError> {
