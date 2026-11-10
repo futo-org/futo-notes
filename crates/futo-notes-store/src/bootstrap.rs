@@ -74,6 +74,7 @@ impl LocalNoteStore {
         }
         let (migrated, migrate_warnings) = self.migrate_text_files();
         warnings.extend(migrate_warnings);
+        warnings.extend(self.heal_unportable_note_names());
         Ok((migrated, warnings))
     }
 

@@ -10,6 +10,7 @@ mod notes;
 mod paths;
 mod relink;
 mod search;
+mod unportable_names;
 mod vault;
 mod vault_migration;
 mod welcome_seed;
