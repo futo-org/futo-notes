@@ -197,9 +197,11 @@ impl EditorSession {
         accept(&edit).map_err(EditorError::Persistence)?;
         let before_selection = self.selection;
         let anchors = on_text.then(|| {
+            let (start, end) = (before_selection.start.0, before_selection.end.0);
             (
-                self.projection.source_bounds(before_selection.start.0).1,
-                self.projection.source_bounds(before_selection.end.0).0,
+                self.projection.source_bounds(start).1,
+                self.projection.source_bounds(end).0,
+                self.projection.display_at(edit.range.start.0),
             )
         });
         let (before_source, before_source_work) = self.capture_history_selection();
@@ -213,17 +215,25 @@ impl EditorSession {
         accumulate_planning_work(&mut change.work, guard_validation);
         accumulate_planning_work(&mut change.work, work);
         change.work.materialized_source_bytes += edit.inserted.len();
-        self.selection = anchors.map_or(before_selection, |(start, end)| {
-            // The same source text, moved by the edit; a revealed definition
-            // may have shifted it on screen.
-            let moved = |at: usize| match at {
-                at if at <= edit.range.start.0 => at,
-                at if at >= edit.range.end.0 => at + edit.inserted.len() - edit.removed.len(),
-                _ => edit.range.start.0 + edit.inserted.len(),
+        self.selection = anchors.map_or(before_selection, |(start, end, edit_at)| {
+            // The same text: an edge outside the edit follows its source
+            // offset (a definition revealed above shifts it on screen); one
+            // inside the rewritten span stays, moved only by that shift.
+            let (from, to) = (edit.range.start.0, edit.range.end.0);
+            let shift = self.projection.display_at(from) as isize - edit_at as isize;
+            let place = |source: usize, display: usize| {
+                DisplayOffset(if source <= from {
+                    self.projection.display_at(source)
+                } else if source >= to {
+                    self.projection
+                        .display_at(source + edit.inserted.len() - edit.removed.len())
+                } else {
+                    display.saturating_add_signed(shift)
+                })
             };
             DisplayRange {
-                start: DisplayOffset(self.projection.display_at(moved(start))),
-                end: DisplayOffset(self.projection.display_at(moved(end))),
+                start: place(start, before_selection.start.0),
+                end: place(end, before_selection.end.0),
             }
         });
         self.pending_formats = None;

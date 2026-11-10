@@ -5,6 +5,18 @@ use crate::table::Layout;
 use crate::TableDescription;
 
 impl EditorSession {
+    /// Source bounds of the nonblank runs holding offsets `a..=b`.
+    fn run_bounds(&self, a: usize, b: usize) -> (usize, usize) {
+        let start = self
+            .table_run(a)
+            .map_or_else(|| self.table_line_start(a), |(base, _)| base);
+        let stop = self.table_run(b).map_or_else(
+            || self.table_line_end(b).1,
+            |(base, text)| base + text.len(),
+        );
+        (start, stop)
+    }
+
     /// The tables `range` touches, read from the start of its nonblank run so a
     /// range holding only list-like lines of a table (a `- ` delimiter row)
     /// still finds the table its header opens.
@@ -16,13 +28,7 @@ impl EditorSession {
         self.check_revision(expected)?;
         self.validate_range(range)?;
         let (a, b) = self.table_source_span(range);
-        let start = self
-            .table_run(a)
-            .map_or_else(|| self.table_line_start(a), |(base, _)| base);
-        let stop = self.table_run(b).map_or_else(
-            || self.table_line_end(b).1,
-            |(base, text)| base + text.len(),
-        );
+        let (start, stop) = self.run_bounds(a, b);
         let mut tables = self.inspect_tables(expected, self.display_range(start..stop))?;
         tables.retain(|table| {
             table.display.start.0 <= range.end.0 && range.start.0 <= table.display.end.0
@@ -36,13 +42,7 @@ impl EditorSession {
     /// Both readings are fresh sessions over those runs, never a splice check.
     pub(in crate::session) fn edit_keeps_tables(&self, edit: &SourceEdit) -> bool {
         let (a, b) = (edit.range.start.0, edit.range.end.0);
-        let start = self
-            .table_run(a)
-            .map_or_else(|| self.table_line_start(a), |(base, _)| base);
-        let stop = self.table_run(b).map_or_else(
-            || self.table_line_end(b).1,
-            |(base, text)| base + text.len(),
-        );
+        let (start, stop) = self.run_bounds(a, b);
         let old = self.source.byte_slice(start..stop).to_string();
         let (a, b) = (a - start, b - start);
         let new = format!("{}{}{}", &old[..a], edit.inserted, &old[b..]);
@@ -68,7 +68,21 @@ impl EditorSession {
                         x.len() == y.len()
                             && x.iter().zip(y).all(|(x, y)| {
                                 let (x, y) = (x.source, y.source);
-                                (x.start.0 <= b && a <= x.end.0)
+                                // The edit reaches a cell through its padding too.
+                                let pad = |at: usize, back: bool| {
+                                    let space = |byte: &u8| matches!(byte, b' ' | b'\t');
+                                    let bytes = old.as_bytes();
+                                    if back {
+                                        at - bytes[..at]
+                                            .iter()
+                                            .rev()
+                                            .take_while(|b| space(b))
+                                            .count()
+                                    } else {
+                                        at + bytes[at..].iter().take_while(|b| space(b)).count()
+                                    }
+                                };
+                                (pad(x.start.0, true) <= b && a <= pad(x.end.0, false))
                                     || old[x.start.0..x.end.0] == new[y.start.0..y.end.0]
                             })
                     })

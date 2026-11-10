@@ -267,3 +267,72 @@ fn the_selection_keeps_its_text_when_a_definition_is_revealed_above_it() {
     assert_eq!(session.source_text(), source);
     assert_eq!(session.selection(), at);
 }
+
+/// A command over text inside existing links keeps the selection on the same
+/// display text, for link, relink and unlink; Undo and Redo restore exactly.
+fn assert_selection_stays(source: &str, at: (usize, usize), destination: &str) {
+    let at = range(at.0, at.1);
+    let mut session = EditorSession::open(source);
+    let (text, before) = (session.display_text(), session.display_text());
+    session.select(Revision(0), at).unwrap();
+    let change = session
+        .set_link(Revision(0), at, destination, &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    let linked = session.source_text();
+    assert_eq!(session.display_text(), before);
+    assert_eq!(session.selection(), at, "{source:?} -> {linked:?}");
+    assert_eq!(change.selection, at);
+    assert_eq!(
+        &session.display_text()[at.start.0..at.end.0],
+        &text[at.start.0..at.end.0]
+    );
+    session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(
+        (session.source_text().as_str(), session.selection()),
+        (source, at)
+    );
+    session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!((session.source_text(), session.selection()), (linked, at));
+}
+
+#[test]
+fn the_selection_keeps_its_text_when_it_starts_or_ends_inside_a_rewritten_link() {
+    assert_selection_stays("| [abc](u) | d |\n| - | - |\n| e | f |", (3, 9), "");
+    assert_selection_stays("| a | [bcd](u) |\n| - | - |\n| e | f |", (2, 8), "");
+    assert_selection_stays(
+        "| [abc](u) | d |\n| - | - |\n| e | f |",
+        (3, 9),
+        "https://x.y",
+    );
+    assert_selection_stays(
+        "| a | [bcd](u) |\n| - | - |\n| e | f |",
+        (2, 8),
+        "https://x.y",
+    );
+}
+
+#[test]
+fn a_caret_in_a_cells_padding_inserts_the_link_there() {
+    for (source, at) in [
+        (ONE, 4),
+        ("| a |  |\n| - | - |\n| b | c |", 5),
+        ("| a |  |\n| - | - |\n| b | c |", 6),
+        ("| a |  |\n| - | - |\n| b | c |", 7),
+        ("|  a  |\n| - |\n| b |", 2),
+        ("|  a  |\n| - |\n| b |", 3),
+        ("|  a  |\n| - |\n| b |", 5),
+    ] {
+        let (session, changed) = link(source, (at, at));
+        assert!(changed, "{source:?} caret {at}");
+        let linked = session.source_text();
+        assert!(linked.contains("https://x.y"), "{linked:?}");
+        let rows = shape(&session).0.len();
+        assert_eq!(
+            rows,
+            shape(&EditorSession::open(source)).0.len(),
+            "{linked:?}"
+        );
+        assert_eq!(shape(&EditorSession::open(&linked)).1, 1, "{linked:?}");
+    }
+}
