@@ -34,6 +34,9 @@ This picks up the work from the 2026-11-06 to 11-09 sessions. Read it top to bot
 - **"The Obsidian way":** an empty marker indented under a list item is an empty nested item, not a setext underline. This comes from a one-function patch to pulldown-cmark, vendored at `vendor/pulldown-cmark` (see `PATCH.md`). Justin approved this dependency change.
 - **Link rule:**
   - A tap opens only http, https, mailto, tel and sms.
+  - `sms:` opens from the shipping iOS editor too, not only the text-first one (decided 2026-11-10).
+  - A link over a table is applied per cell, not across the selection (!635).
+  - A heading joined onto a code block may lose a link's URL: it keeps only its text (`mobile/headings.md`).
   - A schemeless destination resolves as a note.
   - The link prompt adds `https://` to web-looking input, unless a note by that name exists. Notes win.
 - **Image tap:** a plain tap puts a collapsed caret after the image, drawn at its right edge. Long-press or drag selects the image. See `mobile/images.md` line 4.

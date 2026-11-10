@@ -7,4 +7,4 @@ From section 2 of [../next-steps-2026-11-09.md](../next-steps-2026-11-09.md). Th
   - turn indented code after the joined text into prose (`para\n\n    a\n    b\n`, `[4,7)`, type `d`);
   - turn an item's continuation paragraph after a blank line into indented code (`para\n\n- p\n    - c\n\n      cp\n`, `[2,7)`, type `x`);
   - take children out of items the selection never touched (`para\n\n- p\n    - c\n- i\n  ```\n  k\n  ```\n`, `[2,7)`, type `x`).
-- Awaiting Justin's call: Backspace at a heading's start right after a closing fence joins it onto the code line as code, so a link's destination leaves the source (pinned in `tests/blocks/heading_join.rs`). Keep, refuse joining a link, or move the caret without joining.
+- Decided: Backspace at a heading's start right after a closing fence joins it onto the code line as code, and a link in it keeps only its text; its URL may be lost (pinned in `tests/blocks/heading_join.rs`, spec `mobile/headings.md`). Not a bug.
