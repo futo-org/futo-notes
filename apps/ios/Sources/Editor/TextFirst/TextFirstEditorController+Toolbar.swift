@@ -46,9 +46,8 @@
             let text = storage.string as NSString
             let caret = textView.selectedRange.location
             guard caret <= text.length else { return false }
-            if caret == text.length, caret == 0 || [10, 13].contains(text.character(at: caret - 1)) {
-                return (trailingBlock?.heading ?? 0) > 0
-            }
+            let atLineStart = caret == 0 || [10, 13].contains(text.character(at: caret - 1))
+            if caret == text.length, atLineStart { return (trailingBlock?.heading ?? 0) > 0 }
             let line = text.lineRange(for: NSRange(location: caret, length: 0))
             return storage.attribute(.tfHeading, at: line.location, effectiveRange: nil) != nil
         }

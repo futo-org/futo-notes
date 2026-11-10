@@ -8,8 +8,9 @@
     @Suite @MainActor
     struct TextFirstLinkTests {
         @Test func onlyAnExplicitAllowedSchemeOpensExternally() {
-            for raw in ["https://x", "HTTP://X", "mailto:a@b.c", "tel:5551234", "tel:911",
-                "sms:5551234", "SMS:5551234",
+            for raw in [
+                "https://x", "HTTP://X", "mailto:a@b.c", "tel:5551234", "tel:911", "sms:5551234",
+                "SMS:5551234",
             ] {
                 #expect(
                     TextFirstEditorController.externalLinkURL(raw) != nil, "\(raw)")

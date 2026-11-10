@@ -183,7 +183,8 @@
             #expect((h.tv.typingAttributes[.font] as! UIFont).pointSize == 24)
             tap(h, "heading-2")
             let typing = h.tv.typingAttributes[.font] as! UIFont
-            #expect(typing.pointSize == 17 && !typing.fontDescriptor.symbolicTraits.contains(.traitBold))
+            #expect(typing.pointSize == 17)
+            #expect(!typing.fontDescriptor.symbolicTraits.contains(.traitBold))
             h.type("H")
             #expect(font(h, at: 4).pointSize == 17)
         }
