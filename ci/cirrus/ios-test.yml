@@ -20,10 +20,13 @@ test_ios_native_task:
     fingerprint_key: futo-notes-cargo-git-$CIRRUS_OS-v1
     reupload_on_changes: true
   cargo_target_cache:
-    # Shared with buildFutoNotesIOSNative on purpose: both run the identical
-    # scripts/build-rust-ios.sh (three release-ffi iOS triples + the host debug
-    # lib used for binding generation), so one blob serves both and the two
-    # never run concurrently — the macscript runner drives one VM at a time.
+    # Shared with buildFutoNotesIOSNative on purpose: both run
+    # scripts/build-rust-ios.sh with the same profile (the build task all three
+    # release-ffi iOS triples, this task only aarch64-apple-ios-sim; a triple's
+    # artifacts are identical either way) plus the host debug lib used for
+    # binding generation, so one blob serves both and the two never run
+    # concurrently — the macscript runner drives one VM at a time. Only main and
+    # tags upload it (see the always: block); MR runs just restore it.
     # The one input that differs is FUTO_HOSTED_SERVER_BAKED, which the
     # default-branch build sets. futo-notes-sync reads it via option_env!,
     # which cargo tracks in the fingerprint (not by mtime), so a flip rebuilds
@@ -45,7 +48,7 @@ test_ios_native_task:
     - corepack prepare pnpm@12.15.0 --activate
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"
-    - rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+    - rustup target add aarch64-apple-ios-sim
     - pnpm install --frozen-lockfile
     # Two different mtime lies have to be undone before cargo looks at the
     # restored caches — see each script's header.
@@ -56,8 +59,9 @@ test_ios_native_task:
     # (2) The cache lands after the sources, so a restored artifact can still
     #     claim to be newer than the source it was built from.
     - CI_PROJECT_DIR="${CIRRUS_WORKING_DIR:-$PWD}" node scripts/ci-cargo-cache-freshness.mjs
-    # Shared Rust FFI -> FutoNotesFfi.xcframework + Swift bindings.
-    - bash scripts/build-rust-ios.sh
+    # Shared Rust FFI -> FutoNotesFfi.xcframework + Swift bindings, for the one
+    # Apple-silicon simulator the tests run on.
+    - FUTO_IOS_SIM_ARM64_ONLY=1 bash scripts/build-rust-ios.sh
     # Embedded editor bundle used by the native bridge tests: the one that ships.
     # `just test-ios-native` adds the puppet inspector only because the Debug app it
     # installs shares the one staged editor.html (docs/agents/justfile-notes.md).
@@ -82,9 +86,11 @@ test_ios_native_task:
     # Two tiers, keyed the same way testRustMacOS keys its full run. MR
     # pipelines run only the FutoNotesNativeTests unit bundle (Swift Testing,
     # 323 tests in ~13s in job 264124); main pushes, tags, and MRs that touch
-    # apps/ios (IOS_UI_TESTS=1 from ci/ios.yml) also run the
-    # FutoNotesNativeUITests bundle, the XCTest UI cases, which took 173s of that
-    # job's 226s test phase when the bundle held 8 of them.
+    # apps/ios or this job's CI files (IOS_UI_TESTS=1 from ci/ios.yml) also run
+    # the FutoNotesNativeUITests bundle (XCTest UI cases). Main and tags run
+    # every suite; an MR skips TextFirstKillLoopTests, and skips the licence,
+    # purchase and app-icon suites unless their sources changed
+    # (IOS_UI_PAYMENT_TESTS=1 from ci/ios.yml).
     - |
       if [ -n "${CI_COMMIT_TAG:-}" ] || [ "${IOS_UI_TESTS:-}" = 1 ] || { [ -n "${CI_DEFAULT_BRANCH:-}" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; }; then
         export IOS_TEST_TIER=full
@@ -92,6 +98,14 @@ test_ios_native_task:
         export IOS_TEST_TIER=unit
       fi
       echo "iOS test tier: $IOS_TEST_TIER"
+      SKIPPED_SUITES=""
+      if [ "$IOS_TEST_TIER" = full ] && [ -n "${CI_MERGE_REQUEST_IID:-}" ]; then
+        SKIPPED_SUITES="TextFirstKillLoopTests"
+        if [ "${IOS_UI_PAYMENT_TESTS:-}" != 1 ]; then
+          SKIPPED_SUITES="$SKIPPED_SUITES AppIconTests LicensePlateTests AppStorePurchaseTests"
+        fi
+      fi
+      echo "UI suites skipped: ${SKIPPED_SUITES:-none}"
     # xcodebuild's EXIT CODE is unreliable for a Swift-Testing-only target: it
     # returns non-zero for the empty XCTest bundle's "Executed 0 tests" on some
     # Xcode versions even when Swift Testing passed and "** TEST SUCCEEDED **"
@@ -111,6 +125,9 @@ test_ios_native_task:
       if [ "$IOS_TEST_TIER" = unit ]; then
         ONLY_TESTING=(-only-testing:FutoNotesNativeTests)
       fi
+      for SUITE in $SKIPPED_SUITES; do
+        ONLY_TESTING+=("-skip-testing:FutoNotesNativeUITests/$SUITE")
+      done
       set +e
       xcodebuild test -project apps/ios/FutoNotesNative.xcodeproj \
         -scheme FutoNotesNative \
@@ -118,6 +135,7 @@ test_ios_native_task:
         -destination "id=$SIM" \
         -derivedDataPath apps/ios/.build \
         -resultBundlePath apps/ios/.build/TestResults.xcresult \
+        ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
         CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" \
         2>&1 | tee apps/ios/.build/xcodebuild-test.log
       XCODEBUILD_EXIT=${PIPESTATUS[0]}
@@ -156,6 +174,15 @@ test_ios_native_task:
           exit 1
         fi
         echo "UI bundle: $UI_EXECUTED test(s) executed"
+        # Every UI suite not deliberately skipped must have passed, so a skip
+        # list cannot hide a suite that silently never ran.
+        for SUITE in $(sed -n 's/^final class \([A-Za-z0-9_]*\): XCTestCase.*/\1/p' apps/ios/UITests/*.swift); do
+          case " $SKIPPED_SUITES " in *" $SUITE "*) continue ;; esac
+          if ! grep -q "Test Suite '$SUITE' passed" "$LOG"; then
+            echo "ERROR: UI suite $SUITE did not pass or did not run" >&2
+            exit 1
+          fi
+        done
       fi
       # (4) Require the overall success marker.
       if ! grep -q '\*\* TEST SUCCEEDED \*\*' "$LOG"; then
@@ -164,6 +191,15 @@ test_ios_native_task:
       fi
       echo "iOS tests passed ($IOS_TEST_TIER tier; arbiter: TEST SUCCEEDED + per-bundle test counts + no failure markers)"
   always:
+    # Only main and tags upload cargo_target: elsewhere empty it, and the upload
+    # skips an empty folder ("All cache folders ... are empty!").
+    drop_target_on_mr_script:
+      - |
+        if [ -z "${CI_COMMIT_TAG:-}" ] && { [ -z "${CI_DEFAULT_BRANCH:-}" ] || [ "${CI_COMMIT_BRANCH:-}" != "${CI_DEFAULT_BRANCH}" ]; }; then
+          rm -rf target
+          mkdir -p target
+          echo "not main or a tag: target/ emptied so cargo_target is not uploaded"
+        fi
     # See the note on testRustMacOS's upload_caches: naming any cache disables
     # the automatic upload for all of them, so this list stays exhaustive.
     upload_caches:

@@ -45,6 +45,25 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     expect(iosTestTask).toContain('ONLY_TESTING=(-only-testing:FutoNotesNativeTests)');
   });
 
+  it('trims the MR iOS test job to the suites and slices its sources need', () => {
+    const iosTestTask = topLevelBlock(cirrusTasks, /^test_ios_native_task:$/m);
+    const iosTestJob = topLevelBlock(gitlabPipeline, /^test:ios-native:$/m);
+    const buildScript = readFileSync(join(ROOT, 'scripts/build-rust-ios.sh'), 'utf8');
+
+    // Simulator slice only in the test task; the shared script keeps three triples by default.
+    expect(iosTestTask).toContain('FUTO_IOS_SIM_ARM64_ONLY=1 bash scripts/build-rust-ios.sh');
+    expect(buildScript).toContain('--target aarch64-apple-ios --profile');
+    expect(buildScript).toContain('--target x86_64-apple-ios --profile');
+    // MRs skip the slow suites; main and tags (no CI_MERGE_REQUEST_IID) run them all.
+    expect(iosTestTask).toContain('[ -n "${CI_MERGE_REQUEST_IID:-}" ]');
+    expect(iosTestTask).toContain('SKIPPED_SUITES="TextFirstKillLoopTests"');
+    expect(iosTestTask).toContain('AppIconTests LicensePlateTests AppStorePurchaseTests');
+    expect(iosTestJob).toContain('IOS_UI_PAYMENT_TESTS: "1"');
+    expect(iosTestJob).toContain('- ci/cirrus/ios-test.yml\n      variables:');
+    // Only main and tags upload cargo_target.
+    expect(iosTestTask).toContain('drop_target_on_mr_script:');
+  });
+
   it('runs Android instrumentation tests in the required native build job', () => {
     const androidJob = topLevelBlock(gitlabPipeline, /^build:android-native:$/m);
     const releaseGate = topLevelBlock(gitlabPipeline, /^release:gate:$/m);
