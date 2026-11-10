@@ -53,7 +53,7 @@ func editorNavigationDecision(
     case "about" where url.absoluteString.caseInsensitiveCompare("about:blank") == .orderedSame:
         // The missing-bundle fallback uses loadHTMLString with a nil base URL.
         return .allow
-    case "http", "https", "mailto", "tel":
+    case "http", "https", "mailto", "tel", "sms":
         return .openExternally(url)
     default:
         return .deny

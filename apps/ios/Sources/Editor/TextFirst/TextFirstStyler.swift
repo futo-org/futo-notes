@@ -54,6 +54,8 @@
                     }
                 case .code(let start, let end):
                     here(start, end)?.code = true
+                case .heading(let start, let end, let level):
+                    here(start, end)?.heading = Int(level)
                 default: break
                 }
             }
@@ -73,7 +75,26 @@
             }
             if block.quoteDepth > 0 { attributes[.foregroundColor] = UIColor.secondaryLabel }
             if block.code { attributes[.font] = mono }
+            if block.heading > 0 {
+                attributes[.font] = headingFont(level: block.heading)
+                // A line in a quote or list is typed with the container's style (applied after the
+                // heading's), so its indents stand; only a plain heading has its own.
+                if block.list == nil, block.quoteDepth == 0 {
+                    attributes[.paragraphStyle] = headingParagraph(level: block.heading)
+                }
+            }
             return attributes
+        }
+
+        static func headingFont(level: Int) -> UIFont {
+            .systemFont(ofSize: headingSizes[min(max(level, 1), 6) - 1], weight: .bold)
+        }
+
+        private static func headingParagraph(level: Int) -> NSParagraphStyle {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineSpacing = 4
+            paragraph.paragraphSpacingBefore = level <= 2 ? 6 : 2
+            return paragraph
         }
 
         private static func range(_ start: UInt64, _ end: UInt64, _ length: Int) -> NSRange? {
@@ -88,13 +109,10 @@
             switch spec {
             case .heading(let start, let end, let level):
                 guard let r = range(start, end, length) else { return }
-                let size = headingSizes[min(max(Int(level), 1), 6) - 1]
+                storage.addAttribute(.font, value: headingFont(level: Int(level)), range: r)
+                storage.addAttribute(.tfHeading, value: Int(level), range: r)
                 storage.addAttribute(
-                    .font, value: UIFont.systemFont(ofSize: size, weight: .bold), range: r)
-                let paragraph = NSMutableParagraphStyle()
-                paragraph.lineSpacing = 4
-                paragraph.paragraphSpacingBefore = level <= 2 ? 6 : 2
-                storage.addAttribute(.paragraphStyle, value: paragraph, range: r)
+                    .paragraphStyle, value: headingParagraph(level: Int(level)), range: r)
             case .quote(let start, let end, let depth):
                 guard let r = range(start, end, length) else { return }
                 block(storage, r).quoteDepth = Int(depth)

@@ -55,8 +55,13 @@
                 }
                 Group {
                     if let controller {
+                        // The editor alone runs under the home indicator (the text view's own
+                        // safe-area inset keeps the last line reachable); the find bar below
+                        // stays inside the safe area, so it sits above the indicator.
                         TextFirstEditorRepresentable(
-                            controller: controller, theme: colorScheme == .dark ? "dark" : "light")
+                            controller: controller, theme: colorScheme == .dark ? "dark" : "light"
+                        )
+                        .ignoresSafeArea(.container, edges: .bottom)
                         TextFirstCompletionList(
                             model: controller.completionModel, localization: localization,
                             accept: { controller.acceptCompletion(noteId: $0) },
@@ -70,7 +75,6 @@
                     TextFirstFindBar(model: controller.findModel, controller: controller)
                 }
             }
-            .ignoresSafeArea(.container, edges: .bottom)
             .background(Theme.background)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

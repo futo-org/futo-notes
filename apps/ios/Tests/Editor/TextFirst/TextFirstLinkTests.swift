@@ -8,7 +8,10 @@
     @Suite @MainActor
     struct TextFirstLinkTests {
         @Test func onlyAnExplicitAllowedSchemeOpensExternally() {
-            for raw in ["https://x", "HTTP://X", "mailto:a@b.c", "tel:5551234", "tel:911"] {
+            for raw in [
+                "https://x", "HTTP://X", "mailto:a@b.c", "tel:5551234", "tel:911", "sms:5551234",
+                "SMS:5551234",
+            ] {
                 #expect(
                     TextFirstEditorController.externalLinkURL(raw) != nil, "\(raw)")
             }
@@ -21,6 +24,21 @@
                 "/abs", "notes/x.md",
             ] {
                 #expect(TextFirstEditorController.externalLinkURL(raw) == nil, "\(raw)")
+            }
+        }
+
+        @Test func theExternalOpenGuardAllowsExactlyTheEnginesSchemes() throws {
+            for scheme in ["http", "https", "mailto", "tel", "sms"] {
+                let url = try #require(URL(string: "\(scheme):x"))
+                #expect(
+                    editorNavigationDecision(for: url, isMainFrame: true, permittedFileURL: nil)
+                        == .openExternally(url), "\(scheme)")
+            }
+            for scheme in ["facetime", "ftp", "itms-services", "javascript", "data", "smsto"] {
+                let url = try #require(URL(string: "\(scheme):x"))
+                #expect(
+                    editorNavigationDecision(for: url, isMainFrame: true, permittedFileURL: nil)
+                        == .deny, "\(scheme)")
             }
         }
 

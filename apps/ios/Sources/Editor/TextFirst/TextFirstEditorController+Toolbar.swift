@@ -40,6 +40,22 @@
             updateTypingAttributes(active)
         }
 
+        /// The heading level the caret's line is drawn as, or nil: the styler's tag on the line's
+        /// first character, or the empty last line's block (an empty line has no character to
+        /// carry it). The line is `lineRange`'s own, which also ends at U+2028, U+2029 and U+0085:
+        /// an empty one (the caret at the end of the text after a line ending, or in an empty
+        /// note) has no character to read.
+        var caretHeadingLevel: Int? {
+            let text = storage.string as NSString
+            let caret = textView.selectedRange.location
+            guard caret <= text.length else { return nil }
+            let line = text.lineRange(for: NSRange(location: caret, length: 0))
+            guard line.length > 0 else {
+                return (trailingBlock?.heading ?? 0) > 0 ? trailingBlock?.heading : nil
+            }
+            return storage.attribute(.tfHeading, at: line.location, effectiveRange: nil) as? Int
+        }
+
         /// A collapsed toggle changes what the next character will be before any text exists.
         private func updateTypingAttributes(_ active: Set<String>) {
             guard textView.selectedRange.length == 0 else { return }
@@ -50,9 +66,8 @@
             var traits = base.fontDescriptor.symbolicTraits
             if active.contains("bold") {
                 traits.insert(.traitBold)
-            } else if !active.contains("heading-1")
-                && !active.contains("heading-2") && !active.contains("heading-3")
-            {
+            } else if caretHeadingLevel == nil {
+                // A heading is drawn bold at every level, so its next character stays bold.
                 traits.remove(.traitBold)
             }
             if active.contains("italic") {

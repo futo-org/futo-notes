@@ -8,6 +8,9 @@
     extension NSAttributedString.Key {
         /// `TextFirstBlockAttribute` on every character of a drawn line (including its newline).
         static let tfBlock = NSAttributedString.Key("futo.tf.block")
+        /// A heading's level (Int) on its drawn characters, so whether the caret's line is a heading
+        /// does not depend on which toolbar highlight is lit (the toolbar lights only H1 to H3).
+        static let tfHeading = NSAttributedString.Key("futo.tf.heading")
         /// An external link's destination, on its glyphs.
         static let tfLinkURL = NSAttributedString.Key("futo.tf.linkURL")
         /// A resolved wikilink's note id, on its glyphs.
@@ -19,6 +22,9 @@
         var quoteDepth = 0
         var code = false
         var divider = false
+        /// The heading level of an empty last line (0 elsewhere: a heading's own characters carry
+        /// its font), so the line starts as the heading it is.
+        var heading = 0
         var list: (depth: Int, marker: EditorListMarker, number: UInt64?, checked: Bool)?
         /// False on a row's later lines (a loose list's blank line): they indent but draw no marker.
         var showsMarker = true
