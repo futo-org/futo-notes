@@ -188,6 +188,43 @@
             #expect(font(h, at: 4).pointSize == 17)
         }
 
+        // next-steps 2: iOS draws H4 to H6 bold, but only a lit H1 to H3 kept the typing font bold,
+        // so the next character in a deeper heading showed non-bold until the engine restyled it.
+        @Test(arguments: [1, 2, 3, 4, 5, 6])
+        func typingInAHeadingKeepsItsWeightAtEveryLevel(level: Int) {
+            let marker = String(repeating: "#", count: level)
+            let h = TextFirstHarness("\(marker) Head")
+            h.controller.installToolbar(localization: Localization.system())
+            let size = font(h, at: 0).pointSize
+            for caret in [1, 2, 4] {
+                h.select(caret, caret)
+                let typing = h.tv.typingAttributes[.font] as! UIFont
+                #expect(typing.pointSize == size, "level \(level) caret \(caret): size")
+                #expect(
+                    typing.fontDescriptor.symbolicTraits.contains(.traitBold),
+                    "level \(level) caret \(caret): bold")
+            }
+            // The next line, started with Enter, is body again; and so is the line after the
+            // heading's toggle goes off.
+            h.select(4, 4)
+            h.type("\n")
+            let next = h.tv.typingAttributes[.font] as! UIFont
+            #expect(!next.fontDescriptor.symbolicTraits.contains(.traitBold), "after Enter")
+        }
+
+        @Test func typingInAnH2LosesItsWeightWhenItsHeadingToggleGoesOff() {
+            let h = TextFirstHarness("## Head")
+            h.controller.installToolbar(localization: Localization.system())
+            h.select(4, 4)
+            #expect(
+                (h.tv.typingAttributes[.font] as! UIFont).fontDescriptor.symbolicTraits.contains(
+                    .traitBold))
+            tap(h, "heading-2")
+            h.select(4, 4)
+            let typing = h.tv.typingAttributes[.font] as! UIFont
+            #expect(!typing.fontDescriptor.symbolicTraits.contains(.traitBold))
+        }
+
         // Mason D1/D2: a selection across blocks lights what every body carries; code dims inline.
         @Test func selectionWideFormatsLightAndCodeDimsInlineControls() {
             let h = TextFirstHarness("**a**\n\n**b**\n\nplain")

@@ -40,6 +40,19 @@
             updateTypingAttributes(active)
         }
 
+        /// Whether the caret's line is drawn as a heading: the styler's tag on the line's first
+        /// character, or the empty last line's block (an empty line has no character to carry it).
+        private var caretLineIsHeading: Bool {
+            let text = storage.string as NSString
+            let caret = textView.selectedRange.location
+            guard caret <= text.length else { return false }
+            if caret == text.length, caret == 0 || [10, 13].contains(text.character(at: caret - 1)) {
+                return (trailingBlock?.heading ?? 0) > 0
+            }
+            let line = text.lineRange(for: NSRange(location: caret, length: 0))
+            return storage.attribute(.tfHeading, at: line.location, effectiveRange: nil) != nil
+        }
+
         /// A collapsed toggle changes what the next character will be before any text exists.
         private func updateTypingAttributes(_ active: Set<String>) {
             guard textView.selectedRange.length == 0 else { return }
@@ -50,9 +63,8 @@
             var traits = base.fontDescriptor.symbolicTraits
             if active.contains("bold") {
                 traits.insert(.traitBold)
-            } else if !active.contains("heading-1")
-                && !active.contains("heading-2") && !active.contains("heading-3")
-            {
+            } else if !caretLineIsHeading {
+                // A heading is drawn bold at every level, so its next character stays bold.
                 traits.remove(.traitBold)
             }
             if active.contains("italic") {

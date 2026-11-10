@@ -106,6 +106,7 @@
             case .heading(let start, let end, let level):
                 guard let r = range(start, end, length) else { return }
                 storage.addAttribute(.font, value: headingFont(level: Int(level)), range: r)
+                storage.addAttribute(.tfHeading, value: Int(level), range: r)
                 storage.addAttribute(
                     .paragraphStyle, value: headingParagraph(level: Int(level)), range: r)
             case .quote(let start, let end, let depth):

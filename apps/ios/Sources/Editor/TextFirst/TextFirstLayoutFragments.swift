@@ -8,6 +8,9 @@
     extension NSAttributedString.Key {
         /// `TextFirstBlockAttribute` on every character of a drawn line (including its newline).
         static let tfBlock = NSAttributedString.Key("futo.tf.block")
+        /// A heading's level (Int) on its drawn characters, so whether the caret's line is a heading
+        /// does not depend on which toolbar highlight is lit (the toolbar lights only H1 to H3).
+        static let tfHeading = NSAttributedString.Key("futo.tf.heading")
         /// An external link's destination, on its glyphs.
         static let tfLinkURL = NSAttributedString.Key("futo.tf.linkURL")
         /// A resolved wikilink's note id, on its glyphs.
