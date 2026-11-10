@@ -249,7 +249,11 @@ fn a_checkpoint_that_cannot_be_written_fails_and_recovers() {
     let run = env.run(&["--json", "sync"]);
     run.assert_status(1);
     assert_eq!(run.error_code(), "sync_incomplete");
-    assert_eq!(env.run(&["read", "pending"]).stdout, "x\n", "local edit kept");
+    assert_eq!(
+        env.run(&["read", "pending"]).stdout,
+        "x\n",
+        "local edit kept"
+    );
 
     fs::remove_dir(&state).unwrap();
     env.run(&["--json", "sync"]).assert_ok();

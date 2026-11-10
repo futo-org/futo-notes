@@ -68,6 +68,47 @@ it.each([['new', 'lane'], ['lane']])(
   },
 );
 
+// A clone stamped with copy-time mtimes looks newer than the worktree's freshly
+// checked-out sources, so cargo reuses the primary checkout's stale crates and
+// builds or tests old code. The clone must keep each artifact's original mtime.
+it.skipIf(!['linux', 'darwin'].includes(process.platform))(
+  'clone-target keeps artifact mtimes so cargo rebuilds against the worktree sources',
+  () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-wt-clone-mtime-'));
+    try {
+      const repo = path.join(scratch, 'notes');
+      const dest = path.join(scratch, 'notes-lane');
+      const bin = path.join(scratch, 'bin');
+      fs.mkdirSync(path.join(repo, 'target'), { recursive: true });
+      fs.mkdirSync(dest);
+      fs.mkdirSync(bin);
+      const artifact = path.join(repo, 'target', 'artifact');
+      fs.writeFileSync(artifact, 'built from older sources');
+      const built = new Date('2020-01-02T03:04:05Z');
+      fs.utimesSync(artifact, built, built);
+      // tmpfs cannot reflink, so run the real cp with only the copy-on-write flag removed.
+      fs.writeFileSync(
+        path.join(bin, 'cp'),
+        `#!/bin/sh\nargs=""\nfor a in "$@"; do case "$a" in --reflink=always|-c) ;; *) args="$args '$a'";; esac; done\neval exec /bin/cp $args\n`,
+        { mode: 0o755 },
+      );
+      const result = spawnSync(
+        process.execPath,
+        [fileURLToPath(new URL('./worktree.mjs', import.meta.url)), 'clone-target', dest],
+        {
+          cwd: repo,
+          encoding: 'utf8',
+          env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+        },
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(fs.statSync(path.join(dest, 'target', 'artifact')).mtimeMs).toBe(built.getTime());
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
+  },
+);
+
 for (const mode of ['failure', 'success', 'racing-success']) {
   it.skipIf(!['linux', 'darwin'].includes(process.platform))(
     `clone-target: ${mode} publishes only a complete clone and preserves concurrent builds`,

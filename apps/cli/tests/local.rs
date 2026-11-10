@@ -348,7 +348,10 @@ fn rename_and_move_rewrite_backlinks_and_report_final_ids() {
     let id = renamed.assert_ok().line().to_owned();
     assert_ne!(id, "taken", "the collision got a new ID");
     assert_eq!(env.run(&["read", "taken"]).stdout, "already here\n");
-    assert_eq!(env.run(&["read", "linker"]).stdout, format!("see [[{id}]]\n"));
+    assert_eq!(
+        env.run(&["read", "linker"]).stdout,
+        format!("see [[{id}]]\n")
+    );
 
     let moved = env.run(&["--json", "move", &id, "--folder", "archive/2026"]);
     let value = moved.json();

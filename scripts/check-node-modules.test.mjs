@@ -55,7 +55,7 @@ describe('node_modules guard', () => {
 
   it('runs before every other dependency of `just check`', () => {
     const justfile = readJustfileSource(ROOT);
-    const check = /^check:(.*)$/m.exec(justfile);
+    const check = /^check(?: [^:\n]*)?:(.*)$/m.exec(justfile);
 
     expect(check?.[1].trim().split(/\s+/)[0]).toBe('check-node-modules');
   });
