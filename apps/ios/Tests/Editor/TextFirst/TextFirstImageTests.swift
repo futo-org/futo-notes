@@ -83,6 +83,40 @@
             #expect(fragment.layoutFragmentFrame.height < lineHeight(h, at: 0) + 40)
         }
 
+        /// An image inserted after text on the same line (the toolbar and a paste put it at the
+        /// caret) must not turn the text's own lines photo-tall: only the line holding the image is.
+        /// The laid-out heights of the first paragraph's lines.
+        private func lineHeights(_ h: TextFirstHarness) -> [CGFloat] {
+            h.tv.layoutIfNeeded()
+            let manager = h.tv.textLayoutManager!
+            let fragment = manager.textLayoutFragment(for: manager.documentRange.location)!
+            return fragment.textLineFragments.map { $0.typographicBounds.height }
+        }
+
+        @Test func textBeforeAnImageOnItsLineAddsNoPhotoHeightOfItsOwn() async {
+            let h = TextFirstHarness(
+                "Hello world![](wide-inline.png)\n",
+                files: ["wide-inline.png": TextFirstHarness.png(1800, 2400)])
+            #expect(await h.until { self.lineHeights(h).contains { $0 > 400 } })
+            let heights = lineHeights(h)
+            #expect(
+                heights.filter { $0 > 40 }.count == 1,
+                "only the image's line may be photo-tall, got \(heights)")
+            #expect(
+                heights.reduce(0, +) < (heights.max() ?? 0) + 100,
+                "the text's lines add \(heights.reduce(0, +) - (heights.max() ?? 0)) pt: \(heights)"
+            )
+        }
+
+        @Test func textWrappedAfterAnImageKeepsOrdinaryLines() async {
+            let h = TextFirstHarness(
+                "![](wide-caption.png) a caption long enough to wrap onto more lines than one\n",
+                files: ["wide-caption.png": TextFirstHarness.png(1800, 2400)])
+            #expect(await h.until { self.lineHeights(h).contains { $0 > 400 } })
+            let heights = lineHeights(h)
+            #expect(heights.filter { $0 > 40 }.count == 1, "got \(heights)")
+        }
+
         @Test func enteringAfterAPhotoDoesNotCarryItsHeightOrKern() async {
             let h = TextFirstHarness(
                 "![](tall.png)\n", files: ["tall.png": TextFirstHarness.png(900, 1800)])
@@ -123,9 +157,8 @@
         }
 
         private func lineHeight(_ h: TextFirstHarness, at i: Int) -> CGFloat {
-            (h.controller.storage.attribute(.paragraphStyle, at: i, effectiveRange: nil)
-                as? NSParagraphStyle)?
-                .minimumLineHeight ?? 0
+            h.controller.storage.attribute(.baselineOffset, at: i, effectiveRange: nil) as? CGFloat
+                ?? 0
         }
 
         @Test func anImageKeepsItsSpellingAndIsDrawnAsOneHiddenUnit() async {

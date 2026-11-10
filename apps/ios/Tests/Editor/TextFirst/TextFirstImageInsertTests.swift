@@ -40,8 +40,8 @@
             #expect(size.height > TextFirstImageMetrics.loadingHeight, "\(size)")
             let selection = h.tv.selectedRange
             func lineHeight() -> CGFloat {
-                (storage.attribute(.paragraphStyle, at: run.location, effectiveRange: nil)
-                    as? NSParagraphStyle)?.minimumLineHeight ?? 0
+                storage.attribute(.baselineOffset, at: run.location, effectiveRange: nil)
+                    as? CGFloat ?? 0
             }
             #expect(
                 await h.until { lineHeight() == size.height },
