@@ -110,7 +110,7 @@ impl EditorSession {
         let typed = matches!(intent, crate::inline::EditIntent::Input(_)) && !self.context.staged;
         let before = typed.then(|| self.before_input());
         let mut query_work = crate::inline::references::ReferenceWork::default();
-        let planned = self.continuing_written(range, |session| {
+        let planned = self.continuing_written(range, accept, |session, accept| {
             session.replace_action_planned(
                 expected,
                 range,

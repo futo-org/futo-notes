@@ -85,19 +85,20 @@ impl EditorSession {
                     text.to_owned(),
                 )])
             };
-            let (change, mut targets) = self.continuing_written(range, |session| {
-                session.checked_input(shown(), accept, |session, accept| {
-                    session.replace_runs(
-                        expected,
-                        range,
-                        text,
-                        &replacements,
-                        &targets,
-                        action,
-                        accept,
-                    )
-                })
-            })?;
+            let (change, mut targets) =
+                self.continuing_written(range, accept, |session, accept| {
+                    session.checked_input(shown(), accept, |session, accept| {
+                        session.replace_runs(
+                            expected,
+                            range,
+                            text,
+                            &replacements,
+                            &targets,
+                            action,
+                            accept,
+                        )
+                    })
+                })?;
             let caret = targets.pop().unwrap();
             (Some(change), targets, caret)
         };

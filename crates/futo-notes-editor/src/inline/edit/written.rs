@@ -19,12 +19,21 @@ thread_local! {
 }
 
 /// While held, inputs planned at the end of `run` (the exact source bytes the
-/// engine wrote just before the caret) may respell its escapes literally.
+/// engine wrote just before the caret) may respell its escapes literally. The
+/// run is thread-wide only while this session plans: it is suspended around
+/// every call to the host.
 pub(crate) struct EngineWritten(Option<String>);
 
 impl EngineWritten {
     pub(crate) fn set(run: String) -> Self {
         Self(WRITTEN.with(|slot| slot.replace(Some(run))))
+    }
+
+    /// No run is held until the guard drops. The host's acceptance callback
+    /// runs under this: an input it makes into another session on this
+    /// thread must never see this session's run.
+    pub(crate) fn suspend() -> Self {
+        Self(WRITTEN.with(|slot| slot.take()))
     }
 }
 

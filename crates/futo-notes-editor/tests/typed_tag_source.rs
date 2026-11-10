@@ -138,16 +138,6 @@ fn a_typed_tag_is_found_as_a_tag() {
 }
 
 #[test]
-fn table_delimiters_typed_under_a_header_make_a_table() {
-    let (mut s, _) = open_at("a | b\n", None);
-    type_chars(&mut s, "-|-");
-    assert_eq!(s.source_text(), "a | b\n-|-");
-    let end = s.display_text().len();
-    let tables = s.inspect_tables(s.revision(), range(0, end)).unwrap();
-    assert_eq!(tables.len(), 1);
-}
-
-#[test]
 fn a_word_typed_at_a_line_start_is_one_undo_action() {
     for word in ["#todo", "-5", "*nix", "##x", "#日本"] {
         let (mut s, _) = open_at("abc\n", None);
@@ -253,4 +243,161 @@ fn escapes_already_in_the_note_are_left_alone() {
     undo(&mut s);
     type_chars(&mut s, "y");
     assert_eq!(s.source_text(), "abc\n&#35;y");
+}
+
+/// Block kind per line: heading, quote depth, divider, code, front matter, list.
+fn line_kinds(source: &str) -> Vec<String> {
+    let s = EditorSession::open(source);
+    let all = range(0, s.display_text().len());
+    let blocks = s.project(s.revision(), all).unwrap().blocks;
+    let display = s.display_text();
+    std::iter::once(0)
+        .chain(display.match_indices('\n').map(|(at, _)| at + 1))
+        .map(|at| {
+            blocks
+                .iter()
+                .find(|b| b.range.start.0 <= at && at <= b.range.end.0)
+                .map_or("none".to_owned(), |b| {
+                    format!(
+                        "{} {} {} {} {} {:?}",
+                        b.heading, b.quote_depth, b.divider, b.code, b.metadata, b.list
+                    )
+                })
+        })
+        .collect()
+}
+
+/// Dropping an escape never changes the block kind of a line the input did
+/// not touch (a setext underline, a lazy continuation, a list or quote
+/// interruption); tables are the one exception, below.
+#[test]
+fn untouched_lines_keep_their_block_kind_while_a_word_is_typed() {
+    let shapes: &[(&str, Option<usize>)] = &[
+        ("abc\n", None),
+        ("abc\ndef\n", Some(4)),
+        ("> a\n", None),
+        ("- a\n", None),
+        ("1. a\n", None),
+        ("# a\n", None),
+        ("> - a\n", None),
+        ("a\n\nb", Some(2)),
+        ("abc\n\ndef", Some(4)),
+    ];
+    let words = [
+        "=", "==", "-", "--", "---", "-x", "1.", "1)", "1.x", "+", "+x", "*", "***", "#x", ">x",
+        "~~~", "```", "|x|", "a | b",
+    ];
+    let mut bad = Vec::new();
+    for (note, caret) in shapes {
+        for word in words {
+            let (mut s, _) = open_at(note, *caret);
+            let at = caret.unwrap_or(note.len());
+            let (head, tail) = (line_kinds(&note[..at]), line_kinds(&note[at..]));
+            for (n, ch) in word.chars().enumerate() {
+                input(&mut s, &ch.to_string(), InputAction::Typing);
+                let kinds = line_kinds(&s.source_text());
+                let before = head.len() - 1;
+                let after = tail.len() - 1;
+                if kinds[..before] != head[..before]
+                    || kinds[kinds.len() - after..] != tail[tail.len() - after..]
+                {
+                    bad.push(format!(
+                        "{note:?} at {at} typing {:?}: {:?}",
+                        word.chars().take(n + 1).collect::<String>(),
+                        s.source_text()
+                    ));
+                    break;
+                }
+            }
+        }
+    }
+    assert!(
+        bad.is_empty(),
+        "untouched lines changed kind:\n{}",
+        bad.join("\n")
+    );
+}
+
+/// The exception: a delimiter row typed under a pipe line makes a table.
+#[test]
+fn a_delimiter_row_typed_under_a_pipe_line_makes_a_table() {
+    for (note, typed, source) in [
+        ("a | b\n", "-|-", "a | b\n-|-"),
+        ("| a | b |\n", "|-|-|", "| a | b |\n|-|-|"),
+        ("a | b\n", ":-|-:", "a | b\n:-|-:"),
+        ("| a | b |\n", "|:-:|--:|", "| a | b |\n|:-:|--:|"),
+    ] {
+        let (mut s, _) = open_at(note, None);
+        type_chars(&mut s, typed);
+        assert_eq!(s.source_text(), source);
+        let tables = s.inspect_tables(s.revision(), range(0, s.display_text().len()));
+        assert_eq!(tables.unwrap().len(), 1, "{typed:?}");
+    }
+}
+
+/// Text that would start a block on a later line (a fence, a setext underline,
+/// leading whitespace) keeps its escape.
+#[test]
+fn escapes_that_still_guard_the_block_structure_stay() {
+    for (note, caret, typed, source) in [
+        ("\nafter\nmore", Some(0), "```x", "\\```x\nafter\nmore"),
+        ("\nafter", Some(0), "~~~x", "\\~~~x\nafter"),
+        ("abc\n", None, "==", "abc\n&#61;="),
+        ("abc\n", None, "--", "abc\n&#45;-"),
+        ("", None, " #x", "&#32;#x"),
+    ] {
+        let (mut s, _) = open_at(note, caret);
+        type_chars(&mut s, typed);
+        assert_eq!(s.source_text(), source, "{note:?} + {typed:?}");
+    }
+    // A second `=` arriving as one insert is no different.
+    let (mut s, _) = open_at("abc\n", None);
+    type_chars(&mut s, "=");
+    input(&mut s, "=", InputAction::Isolated);
+    assert_eq!(s.source_text(), "abc\n&#61;=");
+}
+
+/// A heading's would-be closing `#` run is written as it was typed.
+#[test]
+fn a_hash_run_after_heading_text_saves_as_typed() {
+    let (mut s, _) = open_at("", None);
+    type_chars(&mut s, "# a #x");
+    assert_eq!(s.source_text(), "# a #x");
+}
+
+/// An escape in the note beside a typed run is the note's, kept through Undo.
+#[test]
+fn a_note_escape_beside_a_typed_run_is_kept() {
+    let (mut s, _) = open_at("abc\n&#35;", None);
+    type_chars(&mut s, "#x");
+    assert_eq!(s.source_text(), "abc\n&#35;#x");
+    let (mut s, _) = open_at("&#35;", None);
+    type_chars(&mut s, "#");
+    undo(&mut s);
+    redo(&mut s);
+    type_chars(&mut s, "x");
+    assert_eq!(s.source_text(), "&#35;#x");
+}
+
+/// The host's acceptance callback may type into another session: it never
+/// sees the run the first session held.
+#[test]
+fn a_run_held_by_one_session_does_not_respell_another() {
+    let (mut a, _) = open_at("", None);
+    type_chars(&mut a, "#");
+    assert_eq!(a.source_text(), "&#35;");
+    let (mut b, _) = open_at("&#35;", Some(1));
+    a.replace_action(
+        a.revision(),
+        a.selection(),
+        "a",
+        InputAction::Typing,
+        &mut |_| {
+            input(&mut b, "b", InputAction::Typing);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(b.source_text(), "&#35;b");
+    assert_eq!(a.source_text(), "#a");
 }

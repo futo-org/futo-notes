@@ -60,22 +60,32 @@ impl EditorSession {
     }
 
     /// Runs `input` first allowed to respell the run that ends at a caret
-    /// `range`, then, refused, as it would run without one.
+    /// `range`, then, refused, as it would run without one. `input` accepts
+    /// through the callback it is given, which suspends the run: the host's
+    /// acceptance may type into another session on this thread.
     pub(super) fn continuing_written<T>(
         &mut self,
         range: DisplayRange,
-        mut input: impl FnMut(&mut Self) -> Result<T, EditorError>,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        mut input: impl FnMut(
+            &mut Self,
+            &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        ) -> Result<T, EditorError>,
     ) -> Result<T, EditorError> {
+        let mut accept = |edit: &SourceEdit| {
+            let _suspended = EngineWritten::suspend();
+            accept(edit)
+        };
         if let Some(run) = self.written_at(range) {
             let attempt = {
                 let _held = EngineWritten::set(run);
-                input(self)
+                input(self, &mut accept)
             };
             if !matches!(attempt, Err(EditorError::UnrepresentableFormat)) {
                 return attempt;
             }
         }
-        input(self)
+        input(self, &mut accept)
     }
 
     fn written_at(&self, range: DisplayRange) -> Option<String> {
