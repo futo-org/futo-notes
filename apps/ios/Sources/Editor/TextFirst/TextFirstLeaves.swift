@@ -177,10 +177,12 @@
                     switch result {
                     case .success(let saved):
                         if let mutation = saved.mutation { store.applyEditorMutation(mutation) }
+                        // The save may have adopted a peer's write that the mirror never saw, so
+                        // emptiness is the engine's to judge, under its mutation gate.
                         if entry.discardIfEmpty, controller.noteId == entry.originalId,
                             controller.isEmpty
                         {
-                            _ = await store.delete(controller.noteId)
+                            _ = await store.delete(controller.noteId, onlyIfEmpty: true)
                         }
                         return finish(entry)
                     case .failure(let error)

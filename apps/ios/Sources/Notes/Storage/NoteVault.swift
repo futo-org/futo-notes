@@ -89,9 +89,9 @@ actor NoteVault {
         return try core.createNote(title: title, folder: folder, content: "")
     }
 
-    func delete(_ id: String, epoch: UInt64) throws -> NoteMutation {
+    func delete(_ id: String, epoch: UInt64, onlyIfEmpty: Bool = false) throws -> NoteMutation {
         try requireGeneration(epoch)
-        return try core.delete(id: id)
+        return onlyIfEmpty ? try core.deleteIfEmpty(id: id) : try core.delete(id: id)
     }
 
     func rename(oldId: String, newId: String, epoch: UInt64) throws -> NoteMutation {

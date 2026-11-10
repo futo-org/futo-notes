@@ -180,6 +180,64 @@
             #expect(rig.disk("note") == "somebody else's note\n")
         }
 
+        /// A peer's write lands on the untouched new note while the screen is open: the leave's
+        /// save adopts it, so the note is somebody's now and must survive the leave.
+        @Test func anUntouchedNewNoteThatAPeerWroteIsNotDeleted() async throws {
+            let rig = try await TextFirstVaultRig(body: "")
+            defer { rig.tearDown() }
+            try rig.peerWrite("note", "the peer's words\n")
+            TextFirstLeaves.leave(
+                controller: rig.controller, store: rig.store,
+                ownerToken: rig.store.claimDraftOwnership(), discardIfEmpty: true,
+                originalId: "note")
+            #expect(await rig.until { TextFirstLeaves.unsettled == 0 })
+            #expect(rig.disk("note") == "the peer's words\n")
+        }
+
+        /// Keeping the note must not disturb the rest of the list: a skipped delete's mutation
+        /// still carries the vault's folders.
+        @Test func keepingAPeerWrittenNoteLeavesTheFolderListAlone() async throws {
+            let rig = try await TextFirstVaultRig(body: "")
+            defer { rig.tearDown() }
+            _ = await rig.store.createNote(title: "plan", folder: "Projects")
+            try rig.peerWrite("note", "the peer's words\n")
+            TextFirstLeaves.leave(
+                controller: rig.controller, store: rig.store,
+                ownerToken: rig.store.claimDraftOwnership(), discardIfEmpty: true,
+                originalId: "note")
+            #expect(await rig.until { TextFirstLeaves.unsettled == 0 })
+            #expect(rig.disk("note") == "the peer's words\n")
+            #expect(rig.store.folders == ["Projects"])
+        }
+
+        /// A skipped delete is not a committed identity change: the note still takes later
+        /// fire-and-forget flushes (the pop and background saves of the WKWebView editor).
+        @Test func aKeptNoteStillAcceptsFireAndForgetFlushes() async throws {
+            let rig = try await TextFirstVaultRig(body: "")
+            defer { rig.tearDown() }
+            try rig.peerWrite("note", "the peer's words\n")
+            TextFirstLeaves.leave(
+                controller: rig.controller, store: rig.store,
+                ownerToken: rig.store.claimDraftOwnership(), discardIfEmpty: true,
+                originalId: "note")
+            #expect(await rig.until { TextFirstLeaves.unsettled == 0 })
+            rig.store.flushAsync(
+                PendingDraft(id: "note", base: "the peer's words\n", content: "mine too\n"))
+            await rig.store.waitForEditorFlushes()
+            #expect(rig.disk("note") == "mine too\n")
+        }
+
+        /// The shipping (WKWebView) editor's untouched-capture discard is the same empty-only
+        /// delete: a peer's write that landed meanwhile survives it, an empty note does not.
+        @Test func theShippingEditorsUntouchedDiscardKeepsAPeerWrittenNote() async throws {
+            let rig = try await TextFirstVaultRig(body: "")
+            defer { rig.tearDown() }
+            try rig.peerWrite("note", "the peer's words\n")
+            rig.store.deleteAsync("note", onlyIfEmpty: true)
+            try await Task.sleep(nanoseconds: 500_000_000)
+            #expect(rig.disk("note") == "the peer's words\n")
+        }
+
         @Test func anUntouchedNewNoteIsDeleted() async throws {
             let rig = try await TextFirstVaultRig(body: "")
             defer { rig.tearDown() }
