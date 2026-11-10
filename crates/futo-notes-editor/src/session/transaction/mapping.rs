@@ -220,8 +220,12 @@ impl InputMapping {
             if let Some(display) = self.inserted_display.filter(|_| self.protected.is_none()) {
                 // Literal spelling already verified the exact inserted glyphs.
                 if display.end.0 - display.start.0 == self.input.1 {
-                    let at =
-                        display.start.0 + lead.ok_or(EditorError::UnrepresentableFormat)? + within;
+                    let at = match lead {
+                        Some(lead) => display.start.0 + lead + within,
+                        // Flattened by the line (see below): its end is the caret.
+                        None if within >= typed.len() => display.end.0,
+                        None => display.start.0 + within,
+                    };
                     return Ok((at, work));
                 }
             }
@@ -230,21 +234,36 @@ impl InputMapping {
         if self.requires_source_identity || self.protected.is_some() {
             return Err(EditorError::UnrepresentableFormat);
         }
-        let start = staged
-            .selection
-            .end
-            .0
-            .checked_sub(self.input.1)
+        let end = staged.selection.end.0;
+        let Some(lead) = lead else {
+            // The line flattened the typed text (a table cell turns a line break into a
+            // space), so it is shorter than typed: the end of it is the caret, and any
+            // inner target keeps the old anchoring.
+            let start = end
+                .checked_sub(self.input.1)
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            return Ok((
+                if within >= typed.len() {
+                    end
+                } else {
+                    start + within
+                },
+                1,
+            ));
+        };
+        // Anchor on the caret: the typed text ends the change and any structural text
+        // is before it or after it.
+        let begin = end
+            .checked_sub(typed.len())
             .ok_or(EditorError::UnrepresentableFormat)?;
-        let lead = lead.ok_or(EditorError::UnrepresentableFormat)?;
-        let at = start + lead + within;
+        let at = begin + within;
         // The typed text must be what sits there, and the target a character edge:
         // otherwise the source cannot be located, so the input is refused.
         let shown = &staged.projection.display;
         if lead != 0
             && (!typed.is_char_boundary(within)
                 || shown
-                    .get_byte_slice(start + lead..start + self.input.1)
+                    .get_byte_slice(begin..end)
                     .is_none_or(|run| run != typed))
         {
             return Err(EditorError::UnrepresentableFormat);
