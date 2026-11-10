@@ -3,6 +3,7 @@ mod checked_input;
 mod composition;
 mod external;
 mod find;
+mod speculative;
 pub use external::ExternalSourceAdoption;
 mod formatting;
 mod front_matter;
@@ -55,6 +56,8 @@ pub struct EditorSession {
     find: find::FindState,
     /// Names this session for async claims; never reused within a process.
     incarnation: u64,
+    /// Line-start escapes the engine wrote while the caret's line was typed.
+    speculative: Option<(usize, String)>,
 }
 
 impl EditorSession {
@@ -109,6 +112,7 @@ impl EditorSession {
             context: staging::StageContext::complete_source(),
             find: find::FindState::default(),
             incarnation: images::next_incarnation(),
+            speculative: None,
         }
     }
 
