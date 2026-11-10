@@ -120,6 +120,27 @@ describe('pre-merge CI routing contracts', () => {
     expect(rustWorkspaceJob).toContain('CARGO_CACHE_POLICY: pull-push');
   });
 
+  it('puts only short script-only jobs on the light runner tag, never an image or build job', () => {
+    // Runner 71 takes $LIGHT_RUNNER_TAG (dind_fast); under load it ran heavy jobs
+    // 4-18x slower than 112, so every heavy job stays on $LINUX_RUNNER_TAG.
+    expect(gitlabPipeline).toMatch(/^ {2}LIGHT_RUNNER_TAG: dind_fast$/m);
+    for (const name of [
+      'check:release-notes',
+      'check:release-notes:mr',
+      'test:audit',
+      'test:localization-audit',
+      'test:puppet-gates',
+    ]) {
+      const job = topLevelBlock(gitlabPipeline, new RegExp(`^${name}:$`, 'm'));
+      expect(job, name).toMatch(/^ {2}tags:\n {4}- \$LIGHT_RUNNER_TAG$/m);
+      expect(job, name).not.toContain('extends:');
+    }
+    for (const name of ['test', 'test:rust:workspace', 'test:e2e:rest', 'build:android-native']) {
+      const job = topLevelBlock(gitlabPipeline, new RegExp(`^${name}:$`, 'm'));
+      expect(job, name).not.toContain('LIGHT_RUNNER_TAG');
+    }
+  });
+
   it('keeps every Rust cache on one main key that only main and tags write', () => {
     const templates = readFileSync(new URL('../ci/templates.yml', import.meta.url), 'utf8');
     expect(templates).not.toContain('CI_COMMIT_REF_SLUG');
