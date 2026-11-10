@@ -41,12 +41,13 @@
                 throw RigError.createFailed
             }
             peer = NoteStore(notesRoot: root.path)
-            if opening, let quick = await store.quickOpenView(created) {
+            let read = try await store.readForEditor(created)
+            if opening, let quick = await store.quickOpenView(read) {
                 controller = try TextFirstEditorController(
                     noteId: created, quick: quick, imageRoot: root)
             } else {
                 controller = try TextFirstEditorController(
-                    noteId: created, session: try await store.openEditorSession(created),
+                    noteId: created, session: try await store.openEditorSession(read),
                     imageRoot: root)
             }
             controller.verifyDivergence = true
@@ -55,7 +56,7 @@
                 let store = store
                 controller.opener = Task {
                     if failingOpen { throw RigError.createFailed }
-                    return try await store.openEditorSession(created)
+                    return try await store.openEditorSession(read)
                 }
             }
             observe()

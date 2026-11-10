@@ -167,10 +167,14 @@
             }
             guard ticket == openTicket else { return }
             let id = noteId
-            let opener = Task { try await Self.openSession(store: store, id: id) }
             do {
+                // One read for the first screens and the session: input made on the first screens
+                // applies to the text it was made on, whatever another writer does meanwhile.
+                let read = try await store.readForEditor(id)
+                guard ticket == openTicket else { return }
+                let opener = Task { try await Self.openSession(store: store, read: read) }
                 let made: TextFirstEditorController
-                if let quick = await store.quickOpenView(id) {
+                if let quick = await store.quickOpenView(read) {
                     guard ticket == openTicket else { return Self.abandon(opener) }
                     made = try TextFirstEditorController(noteId: id, quick: quick)
                     made.opener = opener
@@ -230,13 +234,13 @@
         }
 
         /// The engine's open; waits while the previous screen's attachment on the note is released.
-        private static func openSession(store: NotesStore, id: String) async throws
+        private static func openSession(store: NotesStore, read: EditorNoteRead) async throws
             -> NativeEditorSession
         {
             var attempts = 0
             while true {
                 do {
-                    return try await store.openEditorSession(id)
+                    return try await store.openEditorSession(read)
                 } catch EditorSessionError.SessionAlreadyOpen where attempts < 20 {
                     attempts += 1
                     try? await Task.sleep(nanoseconds: 100_000_000)

@@ -57,7 +57,7 @@ fn a_definition_anywhere_after_the_cut_declines_a_first_screen_that_could_use_it
     plant_note(&root, "plain", &body);
     agrees_with_open(&store, "plain");
 
-    // Far past the read, and across a scan window's seam.
+    // Far past the read.
     let seam = QUICK_OPEN_BYTES + 1 + 64 * 1024;
     body.truncate(seam - 1);
     body += "]: https://example.com\n";

@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use search::StoreSearch;
 
 pub use editor_session::{
-    EditorClock, EditorStoreError, SaveStatus, StoreEditorHost, StoreEditorSession,
+    EditorClock, EditorNoteRead, EditorStoreError, SaveStatus, StoreEditorHost, StoreEditorSession,
 };
 pub use futo_notes_model::{WELCOME_NOTE, WELCOME_NOTE_ID};
 pub use futo_notes_search::{SearchHit, SearchStatus};
