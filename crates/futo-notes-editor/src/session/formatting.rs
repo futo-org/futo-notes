@@ -27,6 +27,15 @@ impl EditorSession {
         }
         if self.selection.start == self.selection.end {
             let mut formats = self.active_formats();
+            let here = (self.revision, self.selection);
+            if self.pending_formats.is_none()
+                || self
+                    .toggled_from
+                    .as_ref()
+                    .is_none_or(|(revision, selection, _)| (*revision, *selection) != here)
+            {
+                self.toggled_from = Some((here.0, here.1, formats.clone()));
+            }
             if formats.contains(&format) {
                 formats.retain(|value| *value != format);
             } else {

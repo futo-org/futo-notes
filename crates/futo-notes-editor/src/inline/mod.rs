@@ -37,6 +37,7 @@ mod table_split_tests;
 mod toggle;
 mod tree;
 mod window;
+mod word;
 use window::Window;
 pub(crate) mod wikilinks;
 

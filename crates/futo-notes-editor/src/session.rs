@@ -49,6 +49,9 @@ pub struct EditorSession {
     /// Set while a word replacement ending at the caret is planned as one run: the carried
     /// formats cover the whole run, not only the letters added after the caret's word.
     word_takes_carried: bool,
+    /// The caret's formats before the toggles that set `pending_formats` there, kept with the
+    /// revision and selection they were read at: what a toggle changed, not what typing carried.
+    toggled_from: Option<(Revision, DisplayRange, Vec<InlineFormat>)>,
     undo: Vec<HistoryGroup>,
     redo: Vec<HistoryGroup>,
     clock: Arc<dyn HistoryClock>,
@@ -105,6 +108,7 @@ impl EditorSession {
             affinity: Affinity::Forward,
             pending_formats: None,
             word_takes_carried: false,
+            toggled_from: None,
             undo: Vec::new(),
             redo: Vec::new(),
             clock,
