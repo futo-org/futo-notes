@@ -131,14 +131,11 @@
                 applying -= 1
                 replay(ops)
             } else {
-                // The whole open does not begin with what was shown: an outside write landed
-                // between the quick open's read and the whole open's. Show the engine's text and
-                // replay what was typed at the engine's caret, as for any other open: keys carry
-                // only their offsets from the selection, so they land beside the caret.
+                // The whole open does not begin with what was shown (the engine promises it does):
+                // show the engine's text. Input made against the other text cannot be placed.
                 print(
                     "text-first: quick open of \(noteId) differs from its whole open; replacing it")
                 reloadFromEngine()
-                replay(ops)
             }
             toolbarState.disabledFormats = []
             if toolbarInstalled { syncToolbar() }

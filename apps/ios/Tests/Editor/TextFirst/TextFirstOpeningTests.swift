@@ -144,24 +144,6 @@
             #expect(o.controller.engineSelection == o.tv.selectedRange)
         }
 
-        @Test func anOutsideWriteBetweenTheQuickAndWholeOpenKeepsWhatWasTyped() throws {
-            let source = Self.note()
-            let o = try Opening(source)
-            o.type("ab")
-            // Somebody else rewrites the note's head after the quick open read it.
-            let peer = "# Peer heading\n\n" + source
-            try peer.write(
-                to: o.root.appendingPathComponent("long.md"), atomically: true, encoding: .utf8)
-            try o.land()
-            let shown = o.tv.text ?? ""
-            #expect(shown.contains("ab"))
-            #expect(shown.contains("Peer heading"))
-            #expect(shown == (try o.controller.session.displayText()))
-            let saved = try o.controller.session.sourceText()
-            #expect(saved.contains("ab") && saved.contains("Peer heading"))
-            #expect(saved.count == peer.count + 2)
-        }
-
         @Test func aTapWhileOpeningIsTakenWhenTheEngineLandsMappedThroughEarlierEdits() throws {
             let source = Self.note()
             let o = try Opening(source)
