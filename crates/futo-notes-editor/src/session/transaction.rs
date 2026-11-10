@@ -288,7 +288,8 @@ impl EditorSession {
                         )?;
                     }
                     ResultTarget::Inserted { run, within } if *run == index => {
-                        let (at, target_work) = mapping.inserted_target(*within, &staged)?;
+                        let (at, target_work) =
+                            mapping.inserted_target(*within, &replacement.inserted, &staged)?;
                         link_metadata_items += target_work;
                         let (selected, work) = staged.projection.source_selection(
                             DisplayRange {
