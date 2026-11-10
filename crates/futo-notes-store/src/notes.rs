@@ -265,12 +265,38 @@ impl LocalNoteStore {
         })
     }
 
+    /// Delete `id` only if its file is still empty, checked under the mutation gate: a note
+    /// someone wrote to meanwhile is kept and the result changes nothing.
+    pub fn delete_if_empty(&self, id: &str) -> Result<MutationResult, String> {
+        self.delete_checked(
+            id,
+            |_| vault_fs::remove_local(&self.root, &note_filename(id)).map(|_| ()),
+            || Ok(self.read_existing(id)?.is_none_or(|body| body.is_empty())),
+        )
+    }
+
     pub fn delete_with<F>(&self, id: &str, remove: F) -> Result<MutationResult, String>
     where
         F: FnOnce(&Path) -> Result<(), String>,
     {
+        self.delete_checked(id, remove, || Ok(true))
+    }
+
+    fn delete_checked<F, G>(
+        &self,
+        id: &str,
+        remove: F,
+        may_delete: G,
+    ) -> Result<MutationResult, String>
+    where
+        F: FnOnce(&Path) -> Result<(), String>,
+        G: FnOnce() -> Result<bool, String>,
+    {
         let _gate = self.lock_gate()?;
         let _vault_mutation = vault_mutation_guard()?;
+        if !may_delete()? {
+            return Ok(MutationResult::default());
+        }
         let path = paths::note_path(&self.root, id)?;
         if !path.exists() {
             let journal_warning = self.forget_rename_into(id);

@@ -209,6 +209,15 @@ impl NoteStore {
             .map_err(NoteError::Io)
     }
 
+    /// Delete the note only if it is still empty when the gate is held; a note with
+    /// content is kept and the mutation is empty.
+    pub fn delete_if_empty(&self, id: String) -> Result<NoteMutation, NoteError> {
+        self.inner
+            .delete_if_empty(&id)
+            .map(Into::into)
+            .map_err(NoteError::Io)
+    }
+
     pub fn rename(&self, old_id: String, new_id: String) -> Result<NoteMutation, NoteError> {
         self.inner
             .rename(&old_id, &new_id)

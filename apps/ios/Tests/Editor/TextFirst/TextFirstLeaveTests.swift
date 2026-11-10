@@ -180,6 +180,20 @@
             #expect(rig.disk("note") == "somebody else's note\n")
         }
 
+        /// A peer's write lands on the untouched new note while the screen is open: the leave's
+        /// save adopts it, so the note is somebody's now and must survive the leave.
+        @Test func anUntouchedNewNoteThatAPeerWroteIsNotDeleted() async throws {
+            let rig = try await TextFirstVaultRig(body: "")
+            defer { rig.tearDown() }
+            try rig.peerWrite("note", "the peer's words\n")
+            TextFirstLeaves.leave(
+                controller: rig.controller, store: rig.store,
+                ownerToken: rig.store.claimDraftOwnership(), discardIfEmpty: true,
+                originalId: "note")
+            #expect(await rig.until { TextFirstLeaves.unsettled == 0 })
+            #expect(rig.disk("note") == "the peer's words\n")
+        }
+
         @Test func anUntouchedNewNoteIsDeleted() async throws {
             let rig = try await TextFirstVaultRig(body: "")
             defer { rig.tearDown() }

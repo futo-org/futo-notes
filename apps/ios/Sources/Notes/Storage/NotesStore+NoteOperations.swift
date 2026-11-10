@@ -55,7 +55,11 @@ extension NotesStore {
         }
     }
 
-    func delete(_ id: String, ownerToken: UInt64? = nil) async -> NoteMutationOutcome<Void> {
+    /// `onlyIfEmpty`: the engine deletes under its mutation gate only if the file is still empty;
+    /// a note someone wrote to meanwhile is kept.
+    func delete(
+        _ id: String, ownerToken: UInt64? = nil, onlyIfEmpty: Bool = false
+    ) async -> NoteMutationOutcome<Void> {
         let epoch = resetEpoch
         guard ownsDraft(ownerToken) else { return .failed }
         let identity = editorDraftCoordinator.beginIdentityMutation(id)
@@ -63,8 +67,9 @@ extension NotesStore {
         do {
             await pendingFlushes?.value
             guard ownsDraft(ownerToken) else { return .failed }
-            applyMutation(try await vault.delete(id, epoch: epoch), expectedEpoch: epoch)
-            discardDrafts(for: id)
+            let mutation = try await vault.delete(id, epoch: epoch, onlyIfEmpty: onlyIfEmpty)
+            applyMutation(mutation, expectedEpoch: epoch)
+            if !onlyIfEmpty || !mutation.removed.isEmpty { discardDrafts(for: id) }
             editorDraftCoordinator.finishIdentityMutation(identity, committed: true)
             onLocalChange?()
             return .committed(())
