@@ -27,10 +27,6 @@ export const androidEmulatorScript = readFileSync(
   join(ROOT, 'scripts/ci-android-emulator.sh'),
   'utf8',
 );
-export const androidSyncLegScript = readFileSync(
-  join(ROOT, 'scripts/ci-android-sync-leg.sh'),
-  'utf8',
-);
 export const androidRunScript = readFileSync(join(ROOT, 'apps/android/run.sh'), 'utf8');
 export const fdroidIndexScript = readFileSync(join(ROOT, 'scripts/update-fdroid-index.py'), 'utf8');
 export const iosStoryAvailabilityGate = readFileSync(

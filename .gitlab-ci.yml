@@ -1,6 +1,8 @@
 default:
-  # Every Linux job lands on our own runner (112 futonotesdebianrunner1, the
-  # only one with futo_notes_debian1). Shared runner 71 carries dind_fast too
+  # Every Linux job lands on our own runners: futo_notes_debian1 is on 112
+  # (futonotesdebianrunner1) and 114 (futonotesdebianrunner2, concurrency 2); 113
+  # also has it but is locked to the server project. No job may need a host to
+  # itself. Shared runner 71 carries dind_fast too
   # and is not used: it collapses under load. Runner 55, the
   # DigitalOcean box, is the outage path only: it re-pulls the image every
   # job, misses the pnpm store every job, and ran the unit job at 7m15

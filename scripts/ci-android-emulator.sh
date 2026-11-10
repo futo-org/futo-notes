@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Boot and tear down a headless Android emulator in CI.
 #
-# SOURCED, not executed, by every CI script that needs a device:
-# ci-android-instrumentation.sh (Compose instrumentation) and
-# ci-android-sync-leg.sh (desktop<->Android cross-platform sync). One copy so
-# the boot flags, KVM detection and readiness wait cannot drift between them.
+# SOURCED, not executed, by the CI scripts that need a device
+# (ci-android-instrumentation.sh). One copy so the boot flags, KVM detection
+# and readiness wait cannot drift.
 #
 # Caller contract:
 #   CI_PROJECT_DIR         required — the emulator log is written under it
@@ -115,7 +114,7 @@ ci_emulator_start() {
 # sys.boot_completed is not the end of booting. The Android framework process
 # (system_server) can die and start again AFTER it reads 1, and the property
 # STAYS 1 across that restart, so any probe that passed a moment ago may have
-# passed against the old process. test:cross-platform-sync:android lost 33 of
+# passed against the old process. the removed test:cross-platform-sync:android lost 33 of
 # 283 runs (2026-07-31..2026-10-08, all on runner 71) at `adb install`, right
 # after every readiness probe below had passed, with one of:
 #   cmd: Can't find service: package

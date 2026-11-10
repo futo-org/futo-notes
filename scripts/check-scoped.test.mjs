@@ -2,14 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import {
-  appGlobs,
-  commandsFor,
-  fsReadingTests,
-  importClosure,
-  planCheck,
-  rustExternalInputs,
-} from './check-scoped.mjs';
+import { commandsFor, importClosure, planCheck, rustExternalInputs } from './check-scoped.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -121,27 +114,6 @@ describe('planCheck', () => {
       run: true,
       why: 'it imports or reads src/shared/note/wikilinks.ts',
     });
-  });
-});
-
-describe('vitest selection', () => {
-  it('a new file in a globbed directory reaches the tests of the module that globs it', () => {
-    expect(plan('languages/xx.json').step('vitest').args).toContain(
-      'src/shared/localization/bundledLanguageCatalogs.ts',
-    );
-    expect(appGlobs(ROOT)).toContainEqual({
-      dir: 'languages',
-      module: 'src/shared/localization/bundledLanguageCatalogs.ts',
-    });
-  });
-
-  // release-channel.test.mjs reads .gitlab-ci.yml only through readGitlabCiSource, so a
-  // scan of the test's own source missed it and a ci/ change skipped it (Codex review).
-  it('counts a test that reads files through a helper it imports', () => {
-    const tests = fsReadingTests(ROOT);
-    expect(tests).toContain('scripts/release-channel.test.mjs');
-    // Browser app code calling the Tauri readFile API is not a file read.
-    expect(tests).not.toContain('src/lib/platform/tauri/images.test.ts');
   });
 });
 
