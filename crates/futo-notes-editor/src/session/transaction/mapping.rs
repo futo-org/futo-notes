@@ -183,8 +183,13 @@ impl InputMapping {
     pub(super) fn inserted_target(
         &self,
         within: usize,
+        typed: &str,
         staged: &EditorSession,
     ) -> Result<(usize, usize), EditorError> {
+        // A structural boundary (typing after a thematic break opens a new line)
+        // prefixes the change, so `within` counts from the typed text, which ends
+        // the change.
+        let lead = self.input.1.checked_sub(typed.len());
         if let Some(source) = self.source.as_ref().filter(|source| {
             self.protected.as_ref().map_or(
                 source.revision.0.checked_add(1) == Some(staged.revision().0),
@@ -215,7 +220,9 @@ impl InputMapping {
             if let Some(display) = self.inserted_display.filter(|_| self.protected.is_none()) {
                 // Literal spelling already verified the exact inserted glyphs.
                 if display.end.0 - display.start.0 == self.input.1 {
-                    return Ok((display.start.0 + within, work));
+                    let at =
+                        display.start.0 + lead.ok_or(EditorError::UnrepresentableFormat)? + within;
+                    return Ok((at, work));
                 }
             }
             return Err(EditorError::UnrepresentableFormat);
@@ -223,13 +230,26 @@ impl InputMapping {
         if self.requires_source_identity || self.protected.is_some() {
             return Err(EditorError::UnrepresentableFormat);
         }
-        staged
+        let start = staged
             .selection
             .end
             .0
             .checked_sub(self.input.1)
-            .map(|start| (start + within, 1))
-            .ok_or(EditorError::UnrepresentableFormat)
+            .ok_or(EditorError::UnrepresentableFormat)?;
+        let lead = lead.ok_or(EditorError::UnrepresentableFormat)?;
+        let at = start + lead + within;
+        // The typed text must be what sits there, and the target a character edge:
+        // otherwise the source cannot be located, so the input is refused.
+        let shown = &staged.projection.display;
+        if lead != 0
+            && (!typed.is_char_boundary(within)
+                || shown
+                    .get_byte_slice(start + lead..start + self.input.1)
+                    .is_none_or(|run| run != typed))
+        {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        Ok((at, 1))
     }
 
     fn source_at(
