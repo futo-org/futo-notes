@@ -39,8 +39,13 @@ final class TextFirstBottomEdgeUITests: XCTestCase {
         let close = app.buttons["Close find"]
         XCTAssertTrue(close.waitForExistence(timeout: 5))
         XCTAssertFalse(app.keyboards.firstMatch.exists)
+        // The test process cannot read the window's safe-area inset. A device with a home indicator
+        // (tall screens: every iPhone from the X on, and the iPads) has at least 20 pt of it at the
+        // bottom (34 pt on an iPhone); one with a home button has none, and the bar's own padding
+        // alone puts it above the edge.
+        let safeAreaBottom: CGFloat = window.height >= 800 ? 20 : 0
         XCTAssertLessThanOrEqual(
-            close.frame.maxY, window.maxY - 20,
+            close.frame.maxY, window.maxY - safeAreaBottom,
             "the find bar sits above the home indicator when the keyboard is down")
     }
 }
