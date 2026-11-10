@@ -11,4 +11,12 @@ editor. Lines here are *(mobile)*: true on iOS and Android alike.
 - Engine behavior independent of any renderer belongs in
   [portable-core](portable-core.md), not here.
 
-The section files under `mobile/` are added as lines move; none yet.
+The section files under `mobile/` are added as lines move.
+
+- [Clipboard and system text actions](mobile/clipboard.md)
+- [Toolbar state and commands](mobile/toolbar.md)
+- [Heading keys](mobile/headings.md)
+- [Lists, checkboxes and links](mobile/lists.md)
+- [Images](mobile/images.md)
+- [Tables](mobile/tables.md)
+- [Find in note](mobile/find.md)

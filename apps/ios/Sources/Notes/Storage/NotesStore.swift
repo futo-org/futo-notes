@@ -72,6 +72,9 @@ final class NotesStore: ObservableObject {
     var resetEpoch: UInt64 = 0
     var draftRegister: [UInt64: PendingDraft] = [:]
     var oneShotDraftTokens: Set<UInt64> = []
+    /// What a draft owner wants done, once and synchronously, when a full reset retires its token
+    /// (`whenRetired`); removed by `releaseDraftOwnership`.
+    var retirementHandlers: [UInt64: @MainActor () -> Void] = [:]
 
     /// What each note's draft was flushed as during the current background episode
     /// (id → the exact `PendingDraft` last flushed), cleared by
@@ -239,6 +242,9 @@ final class NotesStore: ObservableObject {
         oneShotDraftTokens.removeAll()
         flushedThisEpisode.removeAll()
         backgroundEditorFlush.removeAll()
+        let retired = retirementHandlers
+        retirementHandlers.removeAll()
+        for handler in retired.values { handler() }
     }
 
     func fullReset() async throws {

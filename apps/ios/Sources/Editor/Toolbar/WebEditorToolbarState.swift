@@ -3,7 +3,7 @@ import SwiftUI
 /// Reactive inputs the native markdown toolbar renders from. Owned by
 /// EditorHost, which updates it from bridge messages (`cursorContext`).
 @MainActor
-final class EditorToolbarState: ObservableObject {
+final class WebEditorToolbarState: ObservableObject {
     /// Cursor is on a list line specifically. `inContainer` is what actually
     /// gates the Indent/Outdent items now; this stays only as the fallback
     /// for a bundle old enough to have never sent `inContainer` at all.

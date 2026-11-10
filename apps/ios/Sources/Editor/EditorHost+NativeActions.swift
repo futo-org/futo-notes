@@ -6,19 +6,7 @@ extension EditorHost {
     /// Image bytes + preferred extension from the system pasteboard, or nil when
     /// it holds no image. Prefers the raw PNG/JPEG representation (preserves the
     /// source format, as the picker does), falling back to UIImage → PNG.
-    func clipboardImageData() -> (Data, String)? {
-        let pasteboard = UIPasteboard.general
-        if let png = pasteboard.data(forPasteboardType: UTType.png.identifier) {
-            return (png, "png")
-        }
-        if let jpeg = pasteboard.data(forPasteboardType: UTType.jpeg.identifier) {
-            return (jpeg, "jpg")
-        }
-        if let image = pasteboard.image, let png = image.pngData() {
-            return (png, "png")
-        }
-        return nil
-    }
+    func clipboardImageData() -> (Data, String)? { VaultImages.pasteboardImage() }
 
     /// Bridge 'pickImage': camera or library picker (camera falls back to the
     /// library on devices/simulators without one), save into the vault root

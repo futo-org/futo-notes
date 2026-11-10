@@ -99,15 +99,33 @@ enum VaultImages {
         }
     }
 
+    /// Image bytes + preferred extension from the system pasteboard, or nil when it holds no
+    /// image. Prefers the raw PNG/JPEG representation (preserves the source format, as the
+    /// picker does), falling back to UIImage -> PNG.
+    static func pasteboardImage() -> (Data, String)? {
+        let pasteboard = UIPasteboard.general
+        if let png = pasteboard.data(forPasteboardType: UTType.png.identifier) {
+            return (png, "png")
+        }
+        if let jpeg = pasteboard.data(forPasteboardType: UTType.jpeg.identifier) {
+            return (jpeg, "jpg")
+        }
+        if let image = pasteboard.image, let png = image.pngData() {
+            return (png, "png")
+        }
+        return nil
+    }
+
     /// Save picked image bytes into the vault root under a generated unique
     /// filename (image-<timestamp>[-n].<ext>). Returns the bare filename — what
     /// `![](…)` references — or nil on write failure. Extensions outside the
     /// shared image list are coerced to jpg (the pickers only ever hand us
     /// known formats; this is belt-and-suspenders). Runs off-main.
-    static func save(data: Data, preferredExtension: String) async -> String? {
+    static func save(
+        data: Data, preferredExtension: String, root: URL = NotesStore.resolveNotesRoot()
+    ) async -> String? {
         let lowered = preferredExtension.lowercased()
         let ext = futoImageExtensions.contains(lowered) ? lowered : "jpg"
-        let root = NotesStore.resolveNotesRoot()
         return await Task.detached(priority: .userInitiated) { () -> String? in
             let fm = FileManager.default
             try? fm.createDirectory(at: root, withIntermediateDirectories: true)
@@ -133,11 +151,10 @@ enum VaultImages {
     /// Remove a generated image whose asynchronous editor attachment went
     /// stale before insertion. The bare-name and extension checks keep this
     /// cleanup narrower than the scheme handler's already-flat asset surface.
-    static func remove(filename: String) async {
+    static func remove(filename: String, root: URL = NotesStore.resolveNotesRoot()) async {
         guard (filename as NSString).lastPathComponent == filename,
             mimeType(for: filename) != nil
         else { return }
-        let root = NotesStore.resolveNotesRoot()
         await Task.detached(priority: .utility) {
             do {
                 try FileManager.default.removeItem(at: root.appendingPathComponent(filename))

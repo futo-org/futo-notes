@@ -145,7 +145,7 @@
                     ?? NSNull(),
                 // The banner on screen, "" when none, as desktop reports its toast.
                 "toast": store.transientMessage.map {
-                    EditorHost.shared.desiredLocalization.localizedText(
+                    EditorHost.appLocalization.localizedText(
                         $0.path, arguments: $0.arguments)
                 } ?? "",
                 // Whether the app is on screen at all, and whether the keyboard is up: neither
@@ -184,7 +184,7 @@
         @MainActor
         func controlLabels() -> [String: [String]] {
             typealias Contract = PuppetServerContract
-            let localization = EditorHost.shared.desiredLocalization
+            let localization = EditorHost.appLocalization
             let native =
                 PuppetVerbs.shared.modalUp
                 ? []

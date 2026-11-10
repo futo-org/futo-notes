@@ -26,6 +26,14 @@ actor NoteVault {
     }
 
     func scan() -> NoteSnapshot { core.scan() }
+
+    /// A long note's first screens (nil for a short one): read-only file I/O that must not queue
+    /// behind `openEditor` on this actor, since it is what shows while that runs.
+    nonisolated func quickOpenView(_ id: String) -> EditorQuickView? { core.quickOpenView(id: id) }
+
+    /// The Rust editor session owns the note's exact bytes and saves them itself.
+    func openEditor(_ id: String) throws -> NativeEditorSession { try core.openEditor(id: id) }
+
     /// A missing note reads as empty; one that exists but cannot be decoded
     /// throws, so it never opens as a blank page.
     func read(_ id: String) throws -> String { try core.read(id: id) }

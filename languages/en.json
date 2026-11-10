@@ -293,7 +293,11 @@
         "peerDeletedDraftOpen": "This note was deleted elsewhere. Your draft is still open.",
         "peerChangedDraftOpen": "This note changed elsewhere. Your draft is still open.",
         "refreshFailedDraftOpen": "Couldn't refresh the open note. Your draft is still open.",
-        "openNoteDeletedKeepingDraft": "Open note was deleted; keeping local draft"
+        "openNoteDeletedKeepingDraft": "Open note was deleted; keeping local draft",
+        "retry": "Retry save",
+        "discard": "Discard edits",
+        "discardQuestion": "Discard unsaved edits?",
+        "discardWarning": "Your unsaved changes will be lost."
       },
       "navigation": {
         "renamePending": "Couldn't rename note. Navigation is paused while your title remains pending.",
@@ -482,6 +486,8 @@
         "editLink": "Edit link"
       },
       "linkPrompt": {
+        "label": "Link text",
+        "remove": "Remove link",
         "placeholder": "Paste or type a link",
         "urlAccessibilityLabel": "Link URL",
         "add": "Add",
