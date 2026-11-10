@@ -63,15 +63,15 @@ Done since this was written (all merged):
 - [x] An image added blank space to the text around it: !639. Text before a full-width photo now stays on one line and the photo wraps alone: !640.
 - [x] CI: Linux jobs kept off shared runner 71: !641. Faster `test:ios-native` on MRs: !642.
 
-### 5. iOS M9 (the last milestone; see `docs/plan/ios-text-first.md` on the branch)
+### 3. iOS M9 (the last milestone; see `docs/plan/ios-text-first.md` on the branch)
 - [ ] Remaining `docs/spec/editor/mobile/*` lines, VoiceOver alt text, overflow menu actions, and the scroll indicator / huge single paragraph / restyle after Bold-all on 2.3 MB (from M8).
 - [ ] A physical-iPhone evidence pass. Never block on it.
 
-### 6. Spec wording
+### 4. Spec wording
 - [ ] `interpretation-and-input.md:22` needs the image exception (!595). Write !597's wording (`mr-597/recheck.md`), the !603 `pending_edits` citation and the word-delete limitation.
 - [ ] Qualify "as in Obsidian" in `PATCH.md` and `lists.md`: Lezer agrees only when the parent and child markers are the same kind.
 
-### 7. Housekeeping
+### 5. Housekeeping
 - [ ] Remove stale worktrees once nothing needs them: `.claude/worktrees/{codex-fixes,img-redraw,empty-marker,...}`, `futo-notes-ios-tf-{device,integ,leave-identity,longnote}`. Before removing, check each for uncommitted changes and for commits not on any remote.
 - [ ] Three locked worktrees have merged branches and their `target/` already deleted: `futo-notes-editor-283-296`, `futo-notes-editor-283-299-recovery` and `futo-notes-text-first-editor-rebuild`. Ask Justin before removing them, since the lock says "ACTIVE".
 - [ ] !568 (recovery-log cleanup) conflicts with main and its pipeline is red. Ask Justin: rebase it or close it?
