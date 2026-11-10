@@ -3,7 +3,7 @@
 test:e2e:rest:
   extends: .ci-test-image
   stage: test
-  # Runner 71 — see the `test` job. Median 10m10 on runner 55 vs 3m02 on runner 71.
+  # Runner 112 — see the `test` job.
   tags:
     - $LINUX_RUNNER_TAG
   # One job, not three shards: each shard took 47-58s wall on runner 112
@@ -53,7 +53,7 @@ test:e2e:rest:
 test:e2e:editor-embed:
   extends: .ci-test-image
   stage: test
-  # Runner 71 — see the `test` job. Median 23m30 on runner 55 vs 8m16 on runner 71.
+  # Runner 112 — see the `test` job.
   tags:
     - $LINUX_RUNNER_TAG
   # Three shards by file (630 tests split 235/198/197 on 2026-10-08); each

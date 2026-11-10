@@ -1,6 +1,7 @@
 default:
-  # Every Linux job lands on an office runner (71 futocoredebianrunner1 and
-  # 112 futonotesdebianrunner1 carry dind_fast). Runner 55, the
+  # Every Linux job lands on our own runner (112 futonotesdebianrunner1, the
+  # only one with futo_notes_debian1). Shared runner 71 carries dind_fast too
+  # and is not used: it collapses under load. Runner 55, the
   # DigitalOcean box, is the outage path only: it re-pulls the image every
   # job, misses the pnpm store every job, and ran the unit job at 7m15
   # against 1m27 here. To use it, run the pipeline with LINUX_RUNNER_TAG=dind.
@@ -27,7 +28,7 @@ default:
     - export PATH="$CARGO_HOME/bin:$PATH"
 
 variables:
-  LINUX_RUNNER_TAG: dind_fast
+  LINUX_RUNNER_TAG: futo_notes_debian1
   CARGO_HOME: $CI_PROJECT_DIR/.cargo-home
   # Main/tag pipelines seed the shared Cargo archives (one key per cache, see
   # ci/templates.yml). MRs only consume them, lockfile changes included: a

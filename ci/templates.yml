@@ -9,10 +9,10 @@
   # if-not-present is safe on a digest pin (the bytes can't drift) and skips
   # a registry round-trip that cost up to 5 minutes under contention (job
   # 192833: prepare_executor 308s vs 4s; job 252177 still re-pulled
-  # kitchensink for 166s on runner 71). Only the dind_fast runner allows the
+  # kitchensink for 166s on a shared runner). Only our runners allow the
   # override — runner 55 (dind) is locked to allowed_pull_policies [always]
   # and refuses the job — so every job extending this ALSO carries a
-  # dind_fast ($LINUX_RUNNER_TAG) or futo_notes_serial tag
+  # futo_notes_debian1 ($LINUX_RUNNER_TAG) or futo_notes_serial tag
   # (premerge-test-parity asserts the pairing).
   image:
     name: gitlab.futo.org:5050/futo-notes/futo-notes/ci/test@sha256:75d071a3a8246e56daa733068bc41b3cce998c007e8d558aa82c72c247903766
@@ -22,7 +22,7 @@
 # $IMAGE_ANDROID is pinned by digest (.gitlab-ci.yml), so a cached copy can
 # never be stale, and `always` re-pulled it for ~150s per job (v1.9.0:
 # build:android-native and publish:android, 152s each). Every job extending
-# this ALSO carries `tags: [dind_fast]` — runner 55 refuses the policy.
+# this ALSO carries `tags: [$LINUX_RUNNER_TAG]` — runner 55 refuses the policy.
 .ci-android-image:
   image:
     name: $IMAGE_ANDROID

@@ -13,13 +13,13 @@
 test:
   extends: .ci-test-image
   stage: test
-  # Runner 71 (dind_fast), like the three Playwright jobs below. Untagged, ~75%
+  # Runner 112 ($LINUX_RUNNER_TAG), like the three Playwright jobs below. Untagged, ~75%
   # of these jobs landed on runner 55, which ran this one at a 7m15 median
-  # against 1m27 on runner 71 (14 days to 2026-10-08): 55 is locked to
+  # against 1m27 on a fast runner (14 days to 2026-10-08): 55 is locked to
   # pull_policy always (130-320s re-pulling the image every job), its pnpm
   # store cache misses (all 449 packages downloaded every job), and it runs up
-  # to 11 jobs at once. Runner 71 caps out at five concurrent jobs, so these
-  # can queue behind it there; they no longer queue behind a slow box.
+  # to 11 jobs at once. Runner 112 runs two jobs at once, so these can queue
+  # behind it; they no longer queue behind a slow box.
   tags:
     - $LINUX_RUNNER_TAG
   # No resource_group: the cross-pipeline lock queued every MR behind one job
