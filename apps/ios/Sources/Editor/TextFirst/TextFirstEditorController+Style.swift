@@ -130,9 +130,13 @@
             if block != nil {
                 _ = assertTrailingTypingAttributes()
             } else if wasSet {
-                // A line that stopped being a heading types body again (the style sync below
-                // carries only the paragraph style).
-                if wasHeading, caretIsAtEnd { textView.typingAttributes[.font] = Self.bodyFont }
+                // The empty heading is gone because it has characters now (the caret is still in
+                // the heading: its next character is the heading's), or because it stopped being
+                // a heading (body again); the style sync below carries only the paragraph style.
+                if wasHeading, caretIsAtEnd {
+                    textView.typingAttributes[.font] =
+                        caretHeadingLevel.map(TextFirstStyler.headingFont) ?? Self.bodyFont
+                }
                 syncEmptyLineTypingAttributes()
             }
             invalidateLastParagraph()

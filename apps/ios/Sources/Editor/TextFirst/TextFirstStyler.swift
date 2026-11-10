@@ -77,12 +77,16 @@
             if block.code { attributes[.font] = mono }
             if block.heading > 0 {
                 attributes[.font] = headingFont(level: block.heading)
-                attributes[.paragraphStyle] = headingParagraph(level: block.heading)
+                // A line in a quote or list is typed with the container's style (applied after the
+                // heading's), so its indents stand; only a plain heading has its own.
+                if block.list == nil, block.quoteDepth == 0 {
+                    attributes[.paragraphStyle] = headingParagraph(level: block.heading)
+                }
             }
             return attributes
         }
 
-        private static func headingFont(level: Int) -> UIFont {
+        static func headingFont(level: Int) -> UIFont {
             .systemFont(ofSize: headingSizes[min(max(level, 1), 6) - 1], weight: .bold)
         }
 

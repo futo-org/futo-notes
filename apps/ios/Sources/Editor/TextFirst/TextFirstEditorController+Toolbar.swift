@@ -40,16 +40,20 @@
             updateTypingAttributes(active)
         }
 
-        /// Whether the caret's line is drawn as a heading: the styler's tag on the line's first
-        /// character, or the empty last line's block (an empty line has no character to carry it).
-        private var caretLineIsHeading: Bool {
+        /// The heading level the caret's line is drawn as, or nil: the styler's tag on the line's
+        /// first character, or the empty last line's block (an empty line has no character to
+        /// carry it). The line is `lineRange`'s own, which also ends at U+2028, U+2029 and U+0085:
+        /// an empty one (the caret at the end of the text after a line ending, or in an empty
+        /// note) has no character to read.
+        var caretHeadingLevel: Int? {
             let text = storage.string as NSString
             let caret = textView.selectedRange.location
-            guard caret <= text.length else { return false }
-            let atLineStart = caret == 0 || [10, 13].contains(text.character(at: caret - 1))
-            if caret == text.length, atLineStart { return (trailingBlock?.heading ?? 0) > 0 }
+            guard caret <= text.length else { return nil }
             let line = text.lineRange(for: NSRange(location: caret, length: 0))
-            return storage.attribute(.tfHeading, at: line.location, effectiveRange: nil) != nil
+            guard line.length > 0 else {
+                return (trailingBlock?.heading ?? 0) > 0 ? trailingBlock?.heading : nil
+            }
+            return storage.attribute(.tfHeading, at: line.location, effectiveRange: nil) as? Int
         }
 
         /// A collapsed toggle changes what the next character will be before any text exists.
@@ -62,7 +66,7 @@
             var traits = base.fontDescriptor.symbolicTraits
             if active.contains("bold") {
                 traits.insert(.traitBold)
-            } else if !caretLineIsHeading {
+            } else if caretHeadingLevel == nil {
                 // A heading is drawn bold at every level, so its next character stays bold.
                 traits.remove(.traitBold)
             }
