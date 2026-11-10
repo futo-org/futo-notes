@@ -159,8 +159,12 @@
             storage.addAttribute(.paragraphStyle, value: style, range: paragraph)
         }
 
-        /// The view's width changed: every row's kern follows it.
+        /// The view's width changed: every row's kern follows it. Layout runs on every scroll
+        /// step, so an unchanged width leaves the text alone.
         func tablesWidthChanged() {
+            let width = images.containerWidth
+            guard abs(width - tablesWidth) > 0.5 else { return }
+            tablesWidth = width
             let all = NSRange(location: 0, length: min(styledThrough, storage.length))
             var rows: [(NSRange, CGFloat)] = []
             storage.enumerateAttribute(.tfTable, in: all) { value, run, _ in

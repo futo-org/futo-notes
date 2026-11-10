@@ -53,27 +53,11 @@
         override var text: String { value }
     }
 
+    /// Makes `InputCall`s on a view as the keyboard (delegate asked first) or a bare system
+    /// service would. The random input suite drives the same calls.
     @MainActor
-    private struct ShapeRun {
-        let h: TextFirstHarness
-        let control: UITextView
+    struct InputDriver {
         let asking: Asking
-        var sourceSnapshots: [String] = []
-
-        private let controlWindow: UIWindow
-        private let caret: Int
-
-        init(_ row: ShapeRow, _ asking: Asking) {
-            h = TextFirstHarness(row.before)
-            controlWindow = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
-            control = UITextView(usingTextLayoutManager: true)
-            control.frame = controlWindow.bounds
-            control.text = h.tv.text
-            controlWindow.addSubview(control)
-            controlWindow.isHidden = false
-            self.asking = asking
-            caret = row.caret
-        }
 
         private func nsRange(_ tv: UITextView, _ a: Int, _ b: Int) -> UITextRange {
             tv.textRange(
@@ -90,7 +74,7 @@
 
         /// True when UIKit goes on to insert (the delegate may take the key itself, as Enter is).
         @discardableResult
-        private func ask(_ tv: UITextView, _ range: NSRange, _ text: String) -> Bool {
+        func ask(_ tv: UITextView, _ range: NSRange, _ text: String) -> Bool {
             guard asking == .keyboard else { return true }
             return tv.delegate?.textView?(tv, shouldChangeTextIn: range, replacementText: text)
                 ?? true
@@ -106,7 +90,7 @@
             tv.insertDictationResult(phrases.map(Phrase.init))
         }
 
-        private func apply(_ call: InputCall, to tv: UITextView, editor: Bool) {
+        func apply(_ call: InputCall, to tv: UITextView) {
             switch call {
             case .select(let a, let b):
                 tv.selectedRange = NSRange(location: a, length: b - a)
@@ -146,17 +130,40 @@
                 if ask(tv, current(tv), t) { tv.insertText(t) }
             }
         }
+    }
+
+    @MainActor
+    private struct ShapeRun {
+        let h: TextFirstHarness
+        let control: UITextView
+        let driver: InputDriver
+        var sourceSnapshots: [String] = []
+
+        private let controlWindow: UIWindow
+        private let caret: Int
+
+        init(_ row: ShapeRow, _ asking: Asking) {
+            h = TextFirstHarness(row.before)
+            controlWindow = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
+            control = UITextView(usingTextLayoutManager: true)
+            control.frame = controlWindow.bounds
+            control.text = h.tv.text
+            controlWindow.addSubview(control)
+            controlWindow.isHidden = false
+            driver = InputDriver(asking: asking)
+            caret = row.caret
+        }
 
         /// The control first, then the editor: a composition must not see the other view take
         /// first responder (resigning commits marked text).
         mutating func run(_ calls: [InputCall]) {
             _ = control.becomeFirstResponder()
             control.selectedRange = NSRange(location: caret, length: 0)
-            for call in calls { apply(call, to: control, editor: false) }
+            for call in calls { driver.apply(call, to: control) }
             _ = h.tv.becomeFirstResponder()
             h.select(caret, caret)
             for call in calls {
-                apply(call, to: h.tv, editor: true)
+                driver.apply(call, to: h.tv)
                 sourceSnapshots.append(h.source)
             }
         }

@@ -274,5 +274,27 @@
             #expect(expected == before + 400)
             #expect(await h.until(30) { self.rows(h).count == expected })
         }
+
+        /// A scroll view lays itself out on every scroll step. The rows' geometry follows the
+        /// view's width, which a scroll does not change, so scrolling leaves the text alone.
+        @Test func scrollingPastATableLeavesTheTextStorageAlone() async {
+            let filler = (1...80).map { "line \($0)" }.joined(separator: "\n\n")
+            let h = TextFirstHarness(Self.note + "\n" + filler)
+            _ = await h.until { h.controller.styledThrough >= h.controller.mirrorLength }
+            #expect(!rows(h).isEmpty)
+            h.tv.layoutIfNeeded()
+            final class Count { var edits = 0 }
+            let count = Count()
+            let token = NotificationCenter.default.addObserver(
+                forName: NSTextStorage.didProcessEditingNotification,
+                object: h.controller.storage, queue: nil
+            ) { _ in count.edits += 1 }
+            defer { NotificationCenter.default.removeObserver(token) }
+            for step in 1...10 {
+                h.tv.contentOffset = CGPoint(x: 0, y: CGFloat(step) * 30)
+                h.tv.layoutIfNeeded()
+            }
+            #expect(count.edits == 0, "\(count.edits) text storage edits while scrolling")
+        }
     }
 #endif

@@ -23,6 +23,8 @@
         var rev: UInt64
         /// The engine's selection in view units (the view's may differ while composing).
         var engineSelection = NSRange(location: 0, length: 0)
+        /// The revision `engineSelection` was set at (its units are that display's).
+        var engineSelectionRev: UInt64 = 0
         /// UTF-16 length of the engine's display.
         var mirrorLength: Int
         /// > 0 while this class mutates the view, so its own callbacks are ignored.
@@ -46,6 +48,8 @@
         /// Debug and tests: compare the view with the engine after every change.
         var verifyDivergence = false
         private(set) var divergences: [String] = []
+        /// Debug and tests (with `verifyDivergence`): each refused engine call `recover` undid.
+        var recoveries: [String] = []
 
         var onCheckpoint: ((FlushDraftResult) -> Void)?
         var onFailure: ((Error) -> Void)?
@@ -96,6 +100,8 @@
         var toolbarInstalled = false
         let layoutDelegate = TextFirstLayoutDelegate()
         let imageRoot: URL
+        /// The container width the table rows' kern was last set for (`tablesWidthChanged`).
+        var tablesWidth: CGFloat = 0
         /// Each table's sideways scroll, by the display offset its table starts at.
         var tableScroll: [Int: CGFloat] = [:]
         var cellEditor: TextFirstCellEditor?
@@ -281,7 +287,7 @@
                 start: UInt64(from), end: UInt64(to + inserts - (ee - es)))
             let region = NSRange(location: from, length: to - from + storageDelta)
             guard NSMaxRange(region) <= storage.length else {
-                throw EditorSessionError.InvalidRange
+                throw ReconcileMismatch()
             }
             if (storage.string as NSString).substring(with: region) == target { return }
             applying += 1
@@ -291,8 +297,13 @@
             applying -= 1
         }
 
+        /// The view's text no longer covers the range an engine change names (a host bug, never
+        /// the engine's refusal).
+        struct ReconcileMismatch: Error {}
+
         func setSelection(_ range: NSRange) {
             engineSelection = range
+            engineSelectionRev = rev
             selectAllClipped = false
             guard NSMaxRange(range) <= storage.length else { return }
             // A selection too large for UIKit to highlight is shown as the stretch around the
