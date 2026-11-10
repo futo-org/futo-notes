@@ -4,7 +4,11 @@ mod block_queries;
 pub(crate) mod blocks;
 mod blocks_paragraph;
 mod edit;
-pub(crate) use edit::{EditIntent, Plan, SourceCorrespondence};
+#[cfg(test)]
+pub(crate) use edit::last_repaired;
+pub(crate) use edit::{EditIntent, Plan, Repair, SourceCorrespondence};
+mod kept;
+pub(crate) use kept::{keeps_blocks, Expected};
 pub(crate) mod fences;
 mod find;
 pub(crate) mod front_matter;

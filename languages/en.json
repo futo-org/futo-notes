@@ -486,14 +486,14 @@
         "editLink": "Edit link"
       },
       "linkPrompt": {
+        "label": "Link text",
+        "remove": "Remove link",
         "placeholder": "Paste or type a link",
         "urlAccessibilityLabel": "Link URL",
         "add": "Add",
         "update": "Update",
         "addAccessibilityLabel": "Add link",
         "updateAccessibilityLabel": "Update link",
-        "label": "Link text",
-        "remove": "Remove link",
         "failed": "Could not update the link. The text may have changed. Cancel and try again."
       },
       "find": {

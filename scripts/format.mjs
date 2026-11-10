@@ -3,6 +3,7 @@
 //
 //   node scripts/format.mjs           (just format-check / pnpm format:check)
 //   node scripts/format.mjs --write   (just format / pnpm format)
+//   node scripts/format.mjs a.ts b.svelte   only these paths (the scoped `just check`)
 //
 // Why this exists: `prettier --check "**/*.{ts,svelte,...}"` descends into any
 // directory under the repo root, including a nested git worktree or sibling
@@ -38,6 +39,7 @@ export function dropMissingPaths(files, pathExists = (f) => fs.existsSync(path.j
 
 function main() {
   const write = process.argv.includes('--write');
+  const only = new Set(process.argv.slice(2).filter((a) => !a.startsWith('--')));
   const prettier = path.join(ROOT, 'node_modules/prettier/bin/prettier.cjs');
   if (!fs.existsSync(prettier)) {
     console.error(
@@ -53,9 +55,14 @@ function main() {
   )
     .split('\0')
     .filter(Boolean)
-    .filter((f) => EXTENSIONS.some((ext) => f.endsWith(ext)));
+    .filter((f) => EXTENSIONS.some((ext) => f.endsWith(ext)))
+    .filter((f) => only.size === 0 || only.has(f));
   const targets = dropMissingPaths(tracked);
 
+  if (targets.length === 0 && only.size > 0) {
+    console.log('No formattable files among the given paths.');
+    process.exit(0);
+  }
   if (targets.length === 0) {
     console.error('No files to format — is this a git checkout?');
     process.exit(1);

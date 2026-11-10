@@ -119,11 +119,18 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
         self.check_revision(expected)?;
-        if self.composition.is_some() {
-            return self.compound_during_composition(expected, replacements, accept);
-        }
-        self.replace_many_with_targets(expected, replacements, &[], InputAction::Isolated, accept)
-            .map(|(change, _)| change)
+        let runs = replacements.iter();
+        let shown = runs.map(|run| (run.range.start.0..run.range.end.0, run.inserted.clone()));
+        let shown = crate::inline::Expected::Replaced(shown.collect());
+        self.checked_input(shown, accept, |session, accept| {
+            if session.composition.is_some() {
+                return session.compound_during_composition(expected, replacements, accept);
+            }
+            let action = InputAction::Isolated;
+            session
+                .replace_many_with_targets(expected, replacements, &[], action, accept)
+                .map(|(change, _)| change)
+        })
     }
 
     pub(super) fn replace_many_with_targets(

@@ -199,17 +199,34 @@ struct NoteListView: View {
                     // stack at once. Each needs its own identity or SwiftUI would
                     // share one view's @State (title, content, loaded) across the
                     // whole chain and Back would show the wrong note's text.
-                    NoteEditorView(noteId: id, autoFocus: false, navPath: $navigation.path)
-                        .environmentObject(store)
-                        .id(id)
+                    noteScreen(id: id, autoFocus: false)
                 case .newNote(let id):
-                    NoteEditorView(noteId: id, autoFocus: true, navPath: $navigation.path)
-                        .environmentObject(store)
-                        .id(id)
+                    noteScreen(id: id, autoFocus: true)
                 }
             }
         }
         .transientMessageBanner(store)
+    }
+
+    /// The note's screen: the WKWebView editor, or (dev builds with `TextFirstFlag` on) the
+    /// text-first editor. `.id(id)` keeps each pushed editor's state apart (see `.note` above).
+    @ViewBuilder
+    private func noteScreen(id: String, autoFocus: Bool) -> some View {
+        #if FUTO_DEBUG_BUILD
+            if TextFirstFlag.enabled() {
+                TextFirstNoteScreen(noteId: id, autoFocus: autoFocus, navPath: $navigation.path)
+                    .environmentObject(store)
+                    .id(id)
+            } else {
+                NoteEditorView(noteId: id, autoFocus: autoFocus, navPath: $navigation.path)
+                    .environmentObject(store)
+                    .id(id)
+            }
+        #else
+            NoteEditorView(noteId: id, autoFocus: autoFocus, navPath: $navigation.path)
+                .environmentObject(store)
+                .id(id)
+        #endif
     }
 
     @ToolbarContentBuilder

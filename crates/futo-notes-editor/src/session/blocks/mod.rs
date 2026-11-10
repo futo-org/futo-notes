@@ -25,6 +25,8 @@ mod clipboard;
 mod code_command;
 mod commands;
 mod content;
+#[cfg(test)]
+mod cross_code_tests;
 mod divider;
 mod fence_tab;
 mod fences;

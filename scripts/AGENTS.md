@@ -58,7 +58,8 @@ to writing a script in this directory.
 ## Testing
 
 Most scripts have a co-located `*.test.mjs`. `vitest.config.ts` includes `scripts/**/*.test.mjs`,
-so `just check` (via `pnpm run test:full`) and a bare `just test-unit` run all of them.
+so `just check-full` (via `pnpm run test:full`) and a bare `just test-unit` run all of them; `just check`
+runs the ones a change reaches through imports, plus every test that reads files directly.
 
 ```bash
 just test-unit scripts/qa-target.test.mjs   # only the tests you name

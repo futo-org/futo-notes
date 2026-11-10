@@ -214,10 +214,10 @@ justfile.
 The device-test recipes, why several classes used to run only the first, sharding and the
 build skip: [android-device-tests.md](android-device-tests.md).
 
-## test-android-native / check / cargo thrash
+## test-android-native / cargo thrash
 
-Why the JVM tests build no `.so`, why `check` runs three parallel lanes, and why consecutive
-cargo commands on different `-p` selections rebuild editor+store+ffi:
+Why the JVM tests build no `.so`, and why consecutive cargo commands on different `-p`
+selections rebuild editor+store+ffi:
 [verification-speed.md](verification-speed.md).
 
 ## check-puppet-verbs / check-puppet-first

@@ -19,17 +19,6 @@ Both flavors keep running: the only flavor-dependent code is `BuildConfig.IS_PLA
 Kotlin compile is incremental), so narrowing it would save nothing and could miss the next
 flavor-dependent test.
 
-## check (parallel lanes)
-
-`check` runs three lanes at once after the cheap serial gates (spec/coin checks, `lint-swift`):
-`_check-rust` (arch-gate incl. the Tauri sync contract, `test-rust`, rustfmt, clippy),
-`_check-static` (eslint, svelte-check, prettier, tsc) and `pnpm run test:full`. They share no
-files that any of them writes, and serial they were ~120s against ~50s for the longest lane.
-Output is held per lane and printed whole, in that order; every lane runs to the end, then the
-recipe names the failed lanes. `pnpm run build` runs after the join because it empties `dist/`,
-which the Tauri crate embeds while it compiles. Add a new check to the lane it belongs with; do
-not add a fourth lane unless it is as long as the others.
-
 ## Cargo thrash between package selections
 
 Cargo unifies features across the packages named by `-p`, so `cargo test -p A -p B`, `cargo build

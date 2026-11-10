@@ -82,10 +82,12 @@ function siblingPath(primary, name) {
   return path.join(path.dirname(primary), `${path.basename(primary)}-${name}`);
 }
 
-/** Copy-on-write clone command, or null on unsupported platforms. */
+/** Copy-on-write clone command, or null on unsupported platforms. `-p` keeps
+ *  artifact mtimes: copy-time mtimes would look newer than the worktree's
+ *  checked-out sources and cargo would reuse the primary checkout's stale crates. */
 function cloneTargetCommand(platform, src, dst) {
-  if (platform === 'darwin') return ['cp', ['-Rc', src, dst]];
-  if (platform === 'linux') return ['cp', ['-R', '--reflink=always', src, dst]];
+  if (platform === 'darwin') return ['cp', ['-Rpc', src, dst]];
+  if (platform === 'linux') return ['cp', ['-Rp', '--reflink=always', src, dst]];
   return null;
 }
 

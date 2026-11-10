@@ -484,14 +484,14 @@
         "editLink": "编辑链接"
       },
       "linkPrompt": {
+        "label": "链接文本",
+        "remove": "移除链接",
         "placeholder": "粘贴或输入链接",
         "urlAccessibilityLabel": "链接 URL",
         "add": "添加",
         "update": "更新",
         "addAccessibilityLabel": "添加链接",
         "updateAccessibilityLabel": "更新链接",
-        "label": "链接文字",
-        "remove": "移除链接",
         "failed": "无法更新链接。文字可能已更改。请取消后重试。"
       },
       "find": {

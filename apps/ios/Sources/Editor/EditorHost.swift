@@ -66,7 +66,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     /// Reactive inputs for the NATIVE markdown toolbar (bridge v3
     /// cursorContext drives Indent/Outdent visibility).
-    let toolbarState = EditorToolbarState()
+    let toolbarState = WebEditorToolbarState()
 
     /// iOS long-press mobile block-drag haptics (bridge 'haptic'). Separate
     /// generators (not one reused instance) so `.medium` (lift) and `.light`
@@ -233,4 +233,22 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     /// An autofocus that arrived before the web view had a window.
     var pendingAutoFocus = false
+}
+
+extension EditorHost {
+    /// False when the text-first editor (dev builds, `TextFirstFlag`) replaces the WKWebView one:
+    /// nothing may touch `EditorHost.shared`, whose first use creates the web view.
+    static var isInUse: Bool {
+        #if FUTO_DEBUG_BUILD
+            return !TextFirstFlag.enabled()
+        #else
+            return true
+        #endif
+    }
+
+    /// The app's strings, without creating the web view when it is not in use.
+    @MainActor
+    static var appLocalization: Localization {
+        isInUse ? shared.desiredLocalization : Localization.system()
+    }
 }

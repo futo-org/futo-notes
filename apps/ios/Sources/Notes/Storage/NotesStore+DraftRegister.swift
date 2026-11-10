@@ -34,7 +34,16 @@ extension NotesStore {
     func releaseDraftOwnership(token: UInt64) {
         draftRegister[token] = nil
         oneShotDraftTokens.remove(token)
+        retirementHandlers[token] = nil
         backgroundEditorFlush.release(token: token)
+    }
+
+    /// Run `handler` once, in the same turn, when a full reset retires `token`'s draft: an owner
+    /// that saves outside the register (a pending leave) must stop before the vault is wiped, not
+    /// at its next wake-up. A token released first never runs it.
+    func whenRetired(token: UInt64, _ handler: @escaping @MainActor () -> Void) {
+        guard token > retiredDraftTokensThrough else { return }
+        retirementHandlers[token] = handler
     }
 
     /// Keep a leaving editor's final dirty snapshot registered until its

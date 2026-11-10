@@ -41,14 +41,28 @@ impl EditorSession {
         }
         self.validate_range(range)?;
         range = self.body_range(self.outside_crlf(range))?;
-        // A line break takes the caret line's spelling, as pasted ones do.
-        if matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter) {
-            let (at, _) = self.projection.source_bounds(range.start.0);
-            if self.line_ending_at(at) == "\r\n" {
-                return self.crlf_enter(expected, range, key, accept);
+        let span = range.start.0..range.end.0;
+        let shown = match key {
+            ParagraphKey::Enter | ParagraphKey::ShiftEnter => crate::inline::Expected::Enter(span),
+            ParagraphKey::Delete => crate::inline::Expected::Deleted(span, true),
+            ParagraphKey::Backspace | ParagraphKey::BackspaceJoiningHeading => {
+                crate::inline::Expected::Deleted(span, false)
             }
-        }
-        self.lf_paragraph_key(expected, range, key, accept)
+            // Tab keys are not checked inputs: they plan as before repairs.
+            ParagraphKey::Tab | ParagraphKey::ShiftTab => {
+                return self.lf_paragraph_key(expected, range, key, accept);
+            }
+        };
+        self.checked_input(shown, accept, |session, accept| {
+            // A line break takes the caret line's spelling, as pasted ones do.
+            if matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter) {
+                let (at, _) = session.projection.source_bounds(range.start.0);
+                if session.line_ending_at(at) == "\r\n" {
+                    return session.crlf_enter(expected, range, key, accept);
+                }
+            }
+            session.lf_paragraph_key(expected, range, key, accept)
+        })
     }
 
     /// `paragraph_key` with every line break the key writes spelled LF.

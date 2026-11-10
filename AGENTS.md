@@ -206,7 +206,9 @@ once on device, and commit; the full suites run once, on the merged branch. Repo
 ## 8. Testing map
 
 The justfile is the command authority; the nearest nested manual maps changes to recipes.
-`just check` is the normal umbrella, `just prepush` the environment-dependent maximal chain.
+`just check` is the normal umbrella, scoped to what your branch changed (it prints its plan; config
+changes or an empty diff run everything); `just check-full` runs every step, and `just prepush` is
+the environment-dependent maximal chain.
 Run `just build` rather than hand-piping `tsc`/`vite build` through `head`/`tail`: the recipe sets
 `pipefail` so a failing build still exits non-zero, while a hand-rolled pipe swallows it (M11).
 

@@ -6,7 +6,7 @@
   click-only handler dead-ends on iOS WebKit) and the resolved URL
   is posted to the host via the `openUrl` bridge message (bridge v6); the host
   opens it in the system browser (iOS `UIApplication.open`, Android
-  `ACTION_VIEW`), scheme-guarded to `http/https/mailto/tel`. `window.open` is a
+  `ACTION_VIEW`), scheme-guarded to `http/https/mailto/tel` (iOS also `sms`, below). `window.open` is a
   no-op inside a WKWebView, which is why the bridge round-trip is required.
   Android additionally enforces in `EditorWebView.kt` that only `file://` editor
   assets may load in the reused WebView; all other schemes are intercepted and
@@ -15,7 +15,7 @@
   are allowed only for the bundled `editor.html` itself (exact standardized-path
   match — any other `file://` URL is denied, since `loadFileURL` grants read
   access to the whole bundle resources directory) and the `about:blank`
-  missing-bundle fallback; `http/https/mailto/tel` navigations are canceled and
+  missing-bundle fallback; `http/https/mailto/tel/sms` navigations are canceled and
   routed through the same scheme-guarded external open as the `openUrl` bridge
   case; every other scheme (including `javascript:`/`data:`) is denied, so a
   programmatic top-level navigation can never replace the editor. Policy is a
@@ -31,6 +31,12 @@
   EditorWebView.swift `openUrl` case, EditorWebView.kt `openExternalUrl` /
   `shouldOverrideUrlLoading` / `isInAppEditorNavigation`,
   tests/editor-embed-milkdown.spec.ts
+
+  > **Gap:** _(Android, desktop)_ the iOS guard (`editorNavigationDecision`, also used by the
+  > native text-first editor's link taps) opens `sms:` links, matching the engine's link rule
+  > (`http`, `https`, `mailto`, `tel`, `sms`); Android's `openExternalUrl` in
+  > `EditorHostCommands.kt` and the desktop dev opener (`dev_open_url.rs`) still deny `sms:`.
+  > The set is pinned on iOS in `TextFirstLinkTests.swift`.
 
 - Only the link's own glyphs open it: the hit is the anchor element under the
   pointer, so clicking the blank space past the end of a link — including a link

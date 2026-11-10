@@ -85,7 +85,7 @@ final class BackgroundEditorFlush {
 }
 
 @MainActor
-private final class EditorBackgroundLease {
+final class EditorBackgroundLease {
     private let provider: BackgroundTaskProvider
     var handle: Int?
     init(_ provider: BackgroundTaskProvider) { self.provider = provider }

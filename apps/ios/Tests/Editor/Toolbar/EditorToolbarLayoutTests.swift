@@ -15,7 +15,7 @@ struct EditorToolbarLayoutTests {
         )
         let window = UIWindow(windowScene: windowScene)
         let container = UIViewController()
-        let state = EditorToolbarState()
+        let state = WebEditorToolbarState()
         state.onListLine = onListLine
         let toolbar = UIHostingController(
             rootView: EditorToolbarView(
