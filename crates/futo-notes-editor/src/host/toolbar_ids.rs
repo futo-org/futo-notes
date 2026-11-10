@@ -23,7 +23,13 @@ pub fn toolbar_highlights(state: &ToolbarState) -> ToolbarHighlights {
         active.push("code-block");
     } else if let Some(level @ 1..=3) = state.heading {
         active.push(["heading-1", "heading-2", "heading-3"][usize::from(level) - 1]);
-    } else if !state.mixed && state.list.is_none() && !state.quote {
+    } else if !state.mixed
+        && !matches!(state.heading, Some(4..=6))
+        && state.list.is_none()
+        && !state.quote
+    {
+        // `heading` is 0 for a paragraph. A level 4-6 heading has no control and is not a
+        // paragraph, so it lights no block item.
         active.push("paragraph");
     }
     if state.quote {

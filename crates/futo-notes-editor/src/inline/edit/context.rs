@@ -51,6 +51,7 @@ impl Projection {
                 .any(|line| line.trim_matches([' ', '\t', '\r']).is_empty())
         });
         let mut selected_body_before = false;
+        let mut frames: Vec<crate::inline::fences::Fence> = Vec::new();
         for index in first..=last {
             let (row, row_source, _) = self.rows.at(index);
             let base = row_source - source_start;
@@ -148,10 +149,16 @@ impl Projection {
                 .filter(|block| {
                     if let Some(fence) = block.fence.as_ref().filter(|_| replacement.is_some()) {
                         link_metadata_items += 1;
-                        let (retired, work) = fence.retired_by(self, index, row_source, range);
-                        link_metadata_items += work;
+                        let (frame, resolved) = fence.resolved(self, index, row_source);
+                        let (retired, work) = frame.retired_in(self, range);
+                        link_metadata_items += resolved + work;
                         if retired && retired_fences.last() != Some(&fence.whole) {
                             retired_fences.push(fence.whole.clone());
+                        }
+                        let mut frame = frame;
+                        frame.back(source_start);
+                        if !frames.iter().any(|f| f.whole == frame.whole) {
+                            frames.push(frame);
                         }
                     }
                     let body_start = self.display_at(row_source + block.content.start);
@@ -343,6 +350,7 @@ impl Projection {
             markers,
             pieces,
             block_boundaries,
+            frames,
             pending_links,
             link_metadata_items,
         })
@@ -360,6 +368,8 @@ pub(in crate::inline) struct Context {
     pub(in crate::inline) markers: Vec<Marker>,
     pub(in crate::inline) pieces: Vec<Piece>,
     pub(in crate::inline) block_boundaries: Vec<usize>,
+    /// The fences the replaced range touches, in context bytes.
+    pub(in crate::inline) frames: Vec<crate::inline::fences::Fence>,
     pub(in crate::inline) pending_links: Vec<Range<usize>>,
     pub(in crate::inline) link_metadata_items: usize,
 }
