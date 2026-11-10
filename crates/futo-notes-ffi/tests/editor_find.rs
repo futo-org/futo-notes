@@ -199,3 +199,34 @@ fn previous_after_a_rescan_replaced_the_dropped_current_match_steps_before_it() 
     let press = session.find_step_landing(1, landing, false, false).unwrap();
     assert_eq!(press.landing, Some(EditorByteRange { start: 0, end: 3 }));
 }
+
+#[test]
+fn the_first_press_after_a_query_change_lands_even_after_a_seen_drop() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("k".into(), "".into(), "cat\n\ncat\n\ncat\n\ncat\n".into())
+        .unwrap();
+    let session = store.open_editor("k".into()).unwrap();
+    let landing = EditorFindLanding::new();
+    session.find_set_query(0, "cat".into()).unwrap();
+    for _ in 0..2 {
+        session
+            .find_step_landing(0, landing.clone(), true, false)
+            .unwrap();
+    }
+    session
+        .replace_utf16(
+            0,
+            EditorUtf16Range { start: 6, end: 7 },
+            "x".encode_utf16().collect(),
+        )
+        .unwrap();
+    session.find_report().unwrap(); // the debounced refresh reads the drop
+    landing.reset();
+    session.find_set_query(1, "cat".into()).unwrap();
+    // The new query's current match is 10..13: the first press lands on it, either direction.
+    let press = session.find_step_landing(1, landing, false, false).unwrap();
+    assert_eq!(press.landing, Some(EditorByteRange { start: 10, end: 13 }));
+}

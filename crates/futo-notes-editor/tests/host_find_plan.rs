@@ -277,3 +277,100 @@ fn undoing_the_dropping_edit_then_rescanning_lands_on_the_restored_match() {
     assert_eq!(press(&mut session, &mut landing, true), Some(range(5, 8)));
     assert_eq!(press(&mut session, &mut landing, true), Some(range(10, 13)));
 }
+
+fn select(session: &mut EditorSession, at: usize) {
+    let rev = session.revision();
+    session.select(rev, range(at, at)).unwrap();
+}
+
+#[test]
+fn the_first_press_after_a_reopen_lands_on_the_current_match_in_both_directions() {
+    // A drop that a find read has already seen must not leak into the next query's first press.
+    for forward in [true, false] {
+        let (mut session, mut landing) = on_the_second_match();
+        edit(&mut session, range(6, 7), "x");
+        session.find_report();
+        session.find_close();
+        landing.reset();
+        select(&mut session, 0);
+        let rev = session.revision();
+        session.find_set_query(rev, "cat").unwrap();
+        assert_eq!(
+            press(&mut session, &mut landing, forward),
+            Some(range(0, 3)),
+            "forward={forward}"
+        );
+    }
+}
+
+#[test]
+fn the_first_press_after_a_query_change_lands_on_the_current_match_in_both_directions() {
+    for forward in [true, false] {
+        let (mut session, mut landing) = on_the_second_match();
+        edit(&mut session, range(6, 7), "x");
+        session.find_report();
+        landing.reset();
+        let rev = session.revision();
+        session.find_set_query(rev, "cat").unwrap();
+        assert_eq!(
+            press(&mut session, &mut landing, forward),
+            Some(range(10, 13)),
+            "forward={forward}"
+        );
+    }
+}
+
+#[test]
+fn a_new_landing_meeting_a_dropped_match_count_lands_on_the_current_match() {
+    for forward in [true, false] {
+        let (mut session, _) = on_the_second_match();
+        edit(&mut session, range(6, 7), "x");
+        rescan(&mut session);
+        let mut landing = FindLanding::default();
+        assert_eq!(
+            press(&mut session, &mut landing, forward),
+            Some(range(10, 13)),
+            "forward={forward}"
+        );
+    }
+}
+
+#[test]
+fn a_previous_press_with_no_matches_leaves_the_next_press_a_first_one() {
+    let mut session = EditorSession::open("cat\n\ndog\n\ndog\n");
+    let rev = session.revision();
+    session.find_set_query(rev, "cat").unwrap();
+    let mut landing = FindLanding::default();
+    assert_eq!(press(&mut session, &mut landing, true), Some(range(0, 3)));
+    edit(&mut session, range(1, 2), "x");
+    assert_eq!(press(&mut session, &mut landing, false), None);
+    edit(&mut session, range(10, 13), "cat");
+    edit(&mut session, range(5, 8), "cat");
+    rescan(&mut session);
+    assert_eq!(press(&mut session, &mut landing, true), Some(range(5, 8)));
+}
+
+#[test]
+fn edits_past_the_overflow_keep_tracking_the_users_match() {
+    // 100 inserts at 0 move the user's match to 105..108, beyond the 65 the log holds.
+    for (forward, moved) in [(true, range(110, 113)), (false, range(100, 103))] {
+        let (mut session, mut landing) = on_the_second_match();
+        for _ in 0..100 {
+            edit(&mut session, range(0, 0), "z");
+        }
+        rescan(&mut session);
+        assert_eq!(session.find_report().current_range, Some(range(105, 108)));
+        assert_eq!(press(&mut session, &mut landing, forward), Some(moved));
+    }
+}
+
+#[test]
+fn a_touching_edit_after_the_overflow_still_drops_the_current_match() {
+    let (mut session, mut landing) = on_the_second_match();
+    for _ in 0..70 {
+        edit(&mut session, range(19, 19), "z");
+    }
+    edit(&mut session, range(6, 7), "x");
+    rescan(&mut session);
+    assert_eq!(press(&mut session, &mut landing, true), Some(range(10, 13)));
+}

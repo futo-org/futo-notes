@@ -77,6 +77,8 @@ pub(crate) struct FindState {
     /// Times an edit dropped the current match, for `FindReport::dropped`.
     dropped: u64,
     anchor: usize,
+    /// The current match while `invalid` has cleared the matches; see `track`.
+    lost: Option<DisplayRange>,
     log: Vec<(DisplayRange, usize)>,
     invalid: bool,
     /// Input since the last scan; cleared only by a scan or close.
@@ -93,31 +95,36 @@ impl FindState {
         }
         self.dirty = true;
         if self.invalid {
-            return;
-        }
-        if self.log.len() >= REBASE_LOG_LIMIT {
+            self.track(range, inserted);
+        } else if self.log.len() >= REBASE_LOG_LIMIT {
             self.log.push((range, inserted));
             self.invalid = true;
-            // The matches go, but what the unread edits did to the current one and to the step
-            // position is still known: count a drop only if an edit touched the current match.
-            let mut current = self.current.take().map(|at| self.matches[at]);
+            // The matches go, but what the unread edits do to the current one and to the step
+            // position is still tracked: a drop counts only if an edit touched the current match.
+            self.lost = self.current.take().map(|at| self.matches[at]);
             for (window, inserted) in std::mem::take(&mut self.log) {
-                let (start, end) = (window.start.0, window.end.0);
-                if let Some(found) = &mut current {
-                    if found.end.0 > start && found.start.0 < end {
-                        self.dropped += 1;
-                        current = None;
-                    } else if found.start.0 >= end {
-                        found.start.0 = found.start.0 - (end - start) + inserted;
-                        found.end.0 = found.end.0 - (end - start) + inserted;
-                    }
-                }
-                self.anchor = moved_anchor(self.anchor, start, end, inserted);
+                self.track(window, inserted);
             }
             self.matches.clear();
         } else {
             self.log.push((range, inserted));
         }
+    }
+
+    /// Carry the current match (`lost`, once the matches are gone) and the step position through
+    /// one edit. Only read while `invalid`, and set when it becomes so.
+    fn track(&mut self, window: DisplayRange, inserted: usize) {
+        let (start, end) = (window.start.0, window.end.0);
+        if let Some(found) = &mut self.lost {
+            if found.end.0 > start && found.start.0 < end {
+                self.dropped += 1;
+                self.lost = None;
+            } else if found.start.0 >= end {
+                found.start.0 = found.start.0 - (end - start) + inserted;
+                found.end.0 = found.end.0 - (end - start) + inserted;
+            }
+        }
+        self.anchor = moved_anchor(self.anchor, start, end, inserted);
     }
 
     fn rebase(&mut self) {

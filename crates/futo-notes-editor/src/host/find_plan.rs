@@ -74,13 +74,14 @@ pub enum FindStepPlan {
 #[derive(Debug, Default)]
 pub struct FindLanding {
     landed: bool,
-    /// `FindReport::dropped` when `landed` was last settled.
-    dropped: u64,
+    /// `FindReport::dropped` at the last press; none before the first one after a `reset`.
+    dropped: Option<u64>,
 }
 
 impl FindLanding {
     pub fn reset(&mut self) {
         self.landed = false;
+        self.dropped = None;
     }
 
     /// `report` is the engine's current find report. Matches with no current one (an edit
@@ -94,10 +95,10 @@ impl FindLanding {
         if composing {
             return FindStepPlan::Hold;
         }
-        if self.dropped != report.dropped {
-            self.dropped = report.dropped;
-            self.landed = !forward;
+        if self.dropped.is_some_and(|seen| seen != report.dropped) {
+            self.landed = !forward && report.total > 0;
         }
+        self.dropped = Some(report.dropped);
         if self.landed || (report.total > 0 && report.current_range.is_none()) {
             FindStepPlan::Advance
         } else {
