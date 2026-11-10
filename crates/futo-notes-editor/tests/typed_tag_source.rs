@@ -73,9 +73,14 @@ fn typed_tag_at_the_start_of_a_middle_line_keeps_its_hash() {
 #[test]
 fn typed_tag_after_enter_keeps_its_hash() {
     let mut s = open_at("abc", 3);
-    s.paragraph_key(s.revision(), s.selection(), ParagraphKey::Enter, &mut |_| Ok(()))
-        .unwrap()
-        .unwrap();
+    s.paragraph_key(
+        s.revision(),
+        s.selection(),
+        ParagraphKey::Enter,
+        &mut |_| Ok(()),
+    )
+    .unwrap()
+    .unwrap();
     let states = type_chars(&mut s, "#todo");
     eprintln!("after Enter: {states:?}");
     assert_eq!(s.source_text(), "abc\n#todo");
@@ -119,4 +124,15 @@ fn pasted_tag_at_a_line_start_keeps_its_hash() {
         assert_no_entity(label, &s.source_text());
         let _ = Revision(0);
     }
+}
+
+#[test]
+fn typed_double_hash_tag_and_undo_walk_back() {
+    let mut s = open_at("abc\n", 4);
+    type_chars(&mut s, "##x");
+    assert_eq!(s.source_text(), "abc\n##x");
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(s.display_text(), "abc\n##");
+    s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(s.source_text(), "abc\n##x");
 }

@@ -107,6 +107,13 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<(ViewChange, InputMapping), EditorError> {
         let action = intent.action().ok_or(EditorError::UnrepresentableFormat)?;
+        // A lone `#` run kept as entities only while it could read as an empty
+        // heading; a typed non-space, non-`#` character ends that doubt.
+        let (range, inserted) = match self.speculative_hash_run(range, inserted, action) {
+            Some((run, text)) => (run, std::borrow::Cow::Owned(text)),
+            None => (range, std::borrow::Cow::Borrowed(inserted)),
+        };
+        let inserted = &*inserted;
         let mut query_work = crate::inline::references::ReferenceWork::default();
         let planned = self.replace_action_planned(
             expected,
@@ -153,6 +160,55 @@ impl EditorSession {
         change.work.link_metadata_items += query_work.items;
         change.work.link_copied_bytes += query_work.copied;
         Ok((change, mapping))
+    }
+
+    /// Typing a letter right after a line holding only `&#35;` entities
+    /// (1 to 6, possibly mixed with literal `#`): the run and the letter are replaced together so the saved
+    /// line spells `#` literally, with the same display.
+    fn speculative_hash_run(
+        &self,
+        range: DisplayRange,
+        inserted: &str,
+        action: crate::InputAction,
+    ) -> Option<(DisplayRange, String)> {
+        let first = inserted.chars().next()?;
+        if action != crate::InputAction::Typing
+            || range.start != range.end
+            || self.composition.is_some()
+            || first.is_whitespace()
+            || first == '#'
+            || inserted.contains(['\r', '\n'])
+        {
+            return None;
+        }
+        let line = self.projection.block_lines(range).into_iter().next()?;
+        if line.code || line.metadata || line.html || line.heading != 0 || line.quote_depth != 0 {
+            return None;
+        }
+        let (_, at) = self.projection.source_bounds(range.start.0);
+        if line.content.end != at || at == line.content.start {
+            return None;
+        }
+        let run = self.source.byte_slice(line.content.start..at).to_string();
+        let mut rest = run.as_str();
+        let mut count = 0;
+        while !rest.is_empty() {
+            rest = rest
+                .strip_prefix("&#35;")
+                .or_else(|| rest.strip_prefix('#'))?;
+            count += 1;
+        }
+        if count == 0 || count > 6 || run.starts_with('#') || range.start.0 < count {
+            return None;
+        }
+        let start = DisplayOffset(range.start.0 - count);
+        Some((
+            DisplayRange {
+                start,
+                end: range.start,
+            },
+            format!("{}{inserted}", "#".repeat(count)),
+        ))
     }
 
     fn replace_action_planned(
