@@ -35,8 +35,10 @@
             let ownerToken: UInt64
             let discardIfEmpty: Bool
             let originalId: String
-            /// A title typed on the screen that its debounced rename had not committed yet.
+            /// A title typed on the screen that its debounced rename had not committed yet, and
+            /// that rename if it was already under way (it finishes first).
             let pendingTitle: String?
+            let renaming: Task<Void, Never>?
             var task: Task<Void, Never>?
             /// The loop's wait between attempts.
             var nap: Task<Void, Never>?
@@ -50,7 +52,8 @@
             var lease: EditorBackgroundLease?
             init(
                 controller: TextFirstEditorController, store: NotesStore, ownerToken: UInt64,
-                discardIfEmpty: Bool, originalId: String, pendingTitle: String?
+                discardIfEmpty: Bool, originalId: String, pendingTitle: String?,
+                renaming: Task<Void, Never>?
             ) {
                 self.controller = controller
                 self.store = store
@@ -58,6 +61,7 @@
                 self.discardIfEmpty = discardIfEmpty
                 self.originalId = originalId
                 self.pendingTitle = pendingTitle
+                self.renaming = renaming
             }
 
             func startLease() {
@@ -129,7 +133,8 @@
         /// a title does when the screen is popped (nav.md).
         static func leave(
             controller: TextFirstEditorController, store: NotesStore, ownerToken: UInt64,
-            discardIfEmpty: Bool, originalId: String, pendingTitle: String? = nil
+            discardIfEmpty: Bool, originalId: String, pendingTitle: String? = nil,
+            renaming: Task<Void, Never>? = nil
         ) {
             controller.yieldSaving()
             // The screen is gone: nothing about this draft is reported through it again.
@@ -137,7 +142,8 @@
             controller.onIdentityChange = nil
             let entry = Entry(
                 controller: controller, store: store, ownerToken: ownerToken,
-                discardIfEmpty: discardIfEmpty, originalId: originalId, pendingTitle: pendingTitle)
+                discardIfEmpty: discardIfEmpty, originalId: originalId, pendingTitle: pendingTitle,
+                renaming: renaming)
             entries.append(entry)
             store.whenRetired(token: ownerToken) { end(entry) }
             observeBackgrounding()
@@ -148,6 +154,8 @@
             entry.task = Task { @MainActor in
                 let controller = entry.controller
                 let store = entry.store
+                // The screen's rename may still be running: let it land before naming anything.
+                await entry.renaming?.value
                 // A peer's rename or a park since the last save moved the attachment; nothing
                 // below may name the old id.
                 await controller.refreshIdentity()

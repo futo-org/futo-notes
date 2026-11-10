@@ -265,7 +265,8 @@
             let pending = titleField != splitId(id: controller.noteId).title ? titleField : nil
             TextFirstLeaves.leave(
                 controller: controller, store: store, ownerToken: token,
-                discardIfEmpty: untouched, originalId: originalId, pendingTitle: pending)
+                discardIfEmpty: untouched, originalId: originalId, pendingTitle: pending,
+                renaming: renameTask)
         }
 
         /// The user confirmed losing the unsaved edits: end the attachment and go back.

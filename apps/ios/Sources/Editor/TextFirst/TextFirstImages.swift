@@ -151,7 +151,8 @@
                 return
             }
             let finish: @Sendable (UIImage?, Int) -> Void = { image, natural in
-                if let image {
+                // A file that was missing when the key was made has no identity to key it by.
+                if let image, !cacheKey.hasPrefix("missing:") {
                     Self.cache.setObject(
                         TextFirstCachedBitmap(image, natural: natural), forKey: cacheKey,
                         cost: Self.cost(image))

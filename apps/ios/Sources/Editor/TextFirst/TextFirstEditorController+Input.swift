@@ -193,8 +193,9 @@
             if from > 0, from < newLength, UTF16.isTrailSurrogate(platform.character(at: from)) {
                 from -= 1
             }
-            if oldTo < mirrorLength, oldTo + newLength - mirrorLength < newLength,
-                UTF16.isTrailSurrogate(platform.character(at: oldTo + newLength - mirrorLength))
+            let edge = oldTo + newLength - mirrorLength
+            if oldTo < mirrorLength, edge >= from, edge < newLength,
+                UTF16.isTrailSurrogate(platform.character(at: edge))
             {
                 oldTo += 1
             }
