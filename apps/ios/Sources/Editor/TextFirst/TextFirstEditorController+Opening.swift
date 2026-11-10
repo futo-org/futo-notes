@@ -143,6 +143,15 @@
             toolbarState.disabledFormats = []
             if toolbarInstalled { syncToolbar() }
             refreshCompletion()
+            // The file moved since the read these screens came from: the session's first save is
+            // due now, to merge or park that write. It runs here, before another key can come: one
+            // made while it ran off the main thread would be refused, as made on the text before.
+            if let due = try? session.saveDelay(), due <= 0 {
+                let epoch = identityEpoch
+                saved(
+                    Result { try session.saveIfDue() }, identity: try? session.noteId(),
+                    epoch: epoch)
+            }
             armSave()
             scheduleNextSlice()
         }

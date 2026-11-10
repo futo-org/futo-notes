@@ -41,7 +41,7 @@
                 throw RigError.createFailed
             }
             peer = NoteStore(notesRoot: root.path)
-            let read = try await store.readForEditor(created)
+            let read = await store.readForEditor(created)
             if opening, let quick = await store.quickOpenView(read) {
                 controller = try TextFirstEditorController(
                     noteId: created, quick: quick, imageRoot: root)

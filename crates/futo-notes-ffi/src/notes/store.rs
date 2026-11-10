@@ -59,16 +59,12 @@ impl NoteStore {
             .map(Into::into)
     }
 
-    /// Read a note once for its editor: `quick_open_view` and `open_editor_read`
-    /// both take these bytes, so input made on the first screens applies to the
-    /// text it was made on (#392). Blocking file I/O.
-    pub fn read_for_editor(
-        &self,
-        id: String,
-    ) -> Result<Arc<crate::EditorNoteRead>, crate::EditorSessionError> {
-        Ok(Arc::new(crate::EditorNoteRead(
-            self.inner.read_for_editor(&id)?,
-        )))
+    /// Read a note once for its editor: `quick_open_view` takes these bytes, and so does
+    /// `open_editor_read` once they were shown, so input made on the first screens applies to
+    /// the text it was made on (#392). A failed read has no first screens; the open reports it.
+    /// Blocking file I/O.
+    pub fn read_for_editor(&self, id: String) -> Arc<crate::EditorNoteRead> {
+        Arc::new(crate::EditorNoteRead(self.inner.read_for_editor(&id)))
     }
 
     /// The first screens of `read` (`quick_open_editor`), with their spans planned in UTF-16
@@ -80,8 +76,9 @@ impl NoteStore {
         self.inner.quick_open_read(&read.0).map(Into::into)
     }
 
-    /// `open_editor` on the bytes `read` holds. A write since the read is merged or parked by
-    /// the session's first save, which is due at once.
+    /// `open_editor`, on the bytes `read` holds when its first screens were shown (take them
+    /// first). A write since is then merged or parked by the session's first save, which is due
+    /// at once.
     pub fn open_editor_read(
         &self,
         read: Arc<crate::EditorNoteRead>,

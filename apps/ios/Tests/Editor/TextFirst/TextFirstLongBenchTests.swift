@@ -121,7 +121,7 @@
             let t0 = CACurrentMediaTime()
             let controller: TextFirstEditorController
             let firstText: Double
-            let read = try store.readForEditor(id: "big")
+            let read = store.readForEditor(id: "big")
             if let quick = store.quickOpenView(read: read) {
                 // The quick first screens, then the engine's open (which runs beside them in the app).
                 controller = try TextFirstEditorController(noteId: "big", quick: quick)
@@ -270,7 +270,7 @@
             let store = NoteStore(notesRoot: root.path)
             _ = try store.createNote(title: "big", folder: "", content: source)
             let t0 = CACurrentMediaTime()
-            let read = try store.readForEditor(id: "big")
+            let read = store.readForEditor(id: "big")
             let quick = store.quickOpenView(read: read)
             let t1 = CACurrentMediaTime()
             let session = try store.openEditorRead(read: read)

@@ -41,14 +41,14 @@
             #expect(TextFirstLeaves.unsettled == 1)
             #expect(rig.source.contains("typed"))
             await #expect(throws: EditorSessionError.self) {
-                _ = try await rig.store.openEditorSession(try await rig.store.readForEditor("note"))
+                _ = try await rig.store.openEditorSession(await rig.store.readForEditor("note"))
             }
             // The disk recovers: the retry that was never given up on writes the draft.
             rig.allowWrites()
             #expect(await rig.until { TextFirstLeaves.unsettled == 0 })
             #expect(rig.disk("note")?.contains("typed") == true)
             let again = try await rig.store.openEditorSession(
-                try await rig.store.readForEditor("note"))
+                await rig.store.readForEditor("note"))
             _ = try again.detach()
         }
 

@@ -30,8 +30,8 @@ actor NoteVault {
     /// One read of a note for its editor: its first screens and its session both come from it
     /// (#392). Read-only file I/O that must not queue behind `openEditor` on this actor, since
     /// what it shows is what shows while that runs.
-    nonisolated func readForEditor(_ id: String) throws -> EditorNoteRead {
-        try core.readForEditor(id: id)
+    nonisolated func readForEditor(_ id: String) -> EditorNoteRead {
+        core.readForEditor(id: id)
     }
 
     /// A long note's first screens (nil for a short one).

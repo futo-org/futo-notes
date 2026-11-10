@@ -34,7 +34,7 @@
                     at: root, withIntermediateDirectories: true)
                 store = NoteStore(notesRoot: root.path)
                 _ = try store.createNote(title: id, folder: "", content: source)
-                read = try store.readForEditor(id: id)
+                read = store.readForEditor(id: id)
                 let quick = try #require(store.quickOpenView(read: read))
                 controller = try TextFirstEditorController(
                     noteId: id, quick: quick, imageRoot: root)
@@ -86,7 +86,7 @@
             // A short note has no quick open.
             let short = NoteStore(notesRoot: o.root.path)
             _ = try short.createNote(title: "short", folder: "", content: "# small\n")
-            #expect(short.quickOpenView(read: try short.readForEditor(id: "short")) == nil)
+            #expect(short.quickOpenView(read: short.readForEditor(id: "short")) == nil)
         }
 
         @Test func theHandoverAppendsTheRestAndKeepsWhatTheViewShowed() async throws {

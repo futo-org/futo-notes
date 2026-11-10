@@ -129,10 +129,11 @@ impl LocalNoteStore {
         )
     }
 
-    /// Open on the bytes `read` holds, the ones its first screens showed. When
-    /// the note changed since, the session's saved base is still those bytes
-    /// and its first save is due at once: it merges or parks the outside
-    /// write as for any write after the open (recovery.md).
+    /// Open on the bytes `read` holds when its first screens were shown (a
+    /// host may have taken input on them); otherwise as `open_editor`. When the
+    /// note changed since those screens, the session's saved base is still
+    /// their bytes and its first save is due at once: it merges or parks the
+    /// outside write as for any write after the open (recovery.md).
     pub fn open_editor_read(
         &self,
         read: &EditorNoteRead,
@@ -140,7 +141,7 @@ impl LocalNoteStore {
         StoreEditorSession::open(
             StoreHandle::Borrowed(self),
             &read.id,
-            Some(&read.source),
+            read.shown(),
             Arc::new(clock::MonotonicClock::default()),
         )
     }
@@ -153,15 +154,15 @@ impl LocalNoteStore {
         StoreEditorSession::open(
             StoreHandle::Owned(Arc::clone(self)),
             &read.id,
-            Some(&read.source),
+            read.shown(),
             Arc::new(clock::MonotonicClock::default()),
         )
     }
 }
 
 impl<'store> StoreEditorSession<'store> {
-    /// `seen`: the bytes a host already showed (`EditorNoteRead`), opened on
-    /// in place of the file's when the two differ.
+    /// `seen`: the bytes a host already showed (`EditorNoteRead::shown`),
+    /// opened on in place of the file's when the two differ.
     fn open(
         store: StoreHandle<'store>,
         id: &str,

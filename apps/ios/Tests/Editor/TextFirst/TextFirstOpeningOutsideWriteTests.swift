@@ -15,9 +15,7 @@
         typealias Opening = TextFirstOpeningTests.Opening
 
         struct Raced {
-            /// The raced editor's draft once its engine landed.
-            let draft: String
-            /// The same input on an untouched open: what the draft must be.
+            /// The same input on an untouched open: the draft the raced editor must keep.
             let control: String
             /// Every note in the raced vault after its editor closed, by file name.
             let files: [String: String]
@@ -39,7 +37,6 @@
             act(o)
             for text in before { try o.write(text) }
             try o.land { if let after { try o.write(after) } }
-            let draft = try o.controller.session.sourceText()
             #expect(o.tv.text == (try o.controller.session.displayText()))
             _ = await o.controller.close()
             var files: [String: String] = [:]
@@ -48,7 +45,7 @@
                 files[name] = try String(
                     contentsOf: o.root.appendingPathComponent(name), encoding: .utf8)
             }
-            return Raced(draft: draft, control: expected, files: files)
+            return Raced(control: expected, files: files)
         }
 
         /// `base` with both one-stretch changes applied, when they touch separate text, as saved.
@@ -75,15 +72,13 @@
             return merged.isEmpty || merged.hasSuffix("\n") ? merged : merged + "\n"
         }
 
-        /// Typed input applied to what was shown, and both versions kept.
+        /// Both versions kept, the typed input exactly where it was made on what was shown: the
+        /// note is the outside version and a conflict copy holds the untouched open's draft, or the
+        /// note is both changes applied.
         static func expectBothKept(
             _ r: Raced, base: String, outside: String, _ label: String = "",
             sourceLocation: SourceLocation = #_sourceLocation
         ) {
-            #expect(
-                r.draft == r.control,
-                "\(label) the input did not apply to the text it was made on: draft begins \(r.draft.prefix(40).debugDescription), expected \(r.control.prefix(40).debugDescription)",
-                sourceLocation: sourceLocation)
             let note = r.files["long.md"]
             let copies = r.files.filter { $0.key != "long.md" }.map(\.value)
             if r.control == base || note == outside {
@@ -200,6 +195,30 @@
             #expect(o.tv.text == (try o.controller.session.displayText()))
             _ = await o.controller.close()
             #expect(try o.store.read(id: "long") == outside)
+        }
+
+        /// A key typed just after the handover, while the first save (due at once: the file moved)
+        /// merges the outside write, is kept: it is not refused as typed on the pre-merge text.
+        @Test func aKeyTypedRightAfterTheHandoverIsKeptWhenTheFileMoved() async throws {
+            let source = TextFirstOpeningTests.note()
+            let o = try Opening(source)
+            o.tv.selectedRange = NSRange(location: 9, length: 0)
+            o.type("αβ")
+            try o.write(source + "Peer tail.\n")
+            try o.land()
+            // A save the handover armed fires (as the next run loop pass would), and the work it
+            // sends off the main thread finishes before its result can come back.
+            o.controller.saveTimer?.fire()
+            Thread.sleep(forTimeInterval: 0.3)
+            o.type("γ")
+            #expect(o.tv.text == (try o.controller.session.displayText()))
+            _ = await o.controller.close()
+            let files = try FileManager.default.contentsOfDirectory(atPath: o.root.path)
+                .filter { $0.hasSuffix(".md") }
+                .map { try String(contentsOf: o.root.appendingPathComponent($0), encoding: .utf8) }
+            #expect(
+                files.contains { $0.contains("Section 0αβγ") }, "\(files.map { $0.prefix(40) })")
+            #expect(files.contains { $0.hasSuffix("Peer tail.\n") })
         }
 
         // MARK: seeded random races

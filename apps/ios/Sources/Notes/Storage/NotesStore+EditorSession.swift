@@ -8,10 +8,9 @@ extension NotesStore {
     }
 
     /// Read a note once for its editor (off the vault actor).
-    func readForEditor(_ id: String) async throws -> EditorNoteRead {
+    func readForEditor(_ id: String) async -> EditorNoteRead {
         let vault = vault
-        return try await Task.detached(priority: .userInitiated) { try vault.readForEditor(id) }
-            .value
+        return await Task.detached(priority: .userInitiated) { vault.readForEditor(id) }.value
     }
 
     /// The first screens of a long note, parsed from its first bytes alone; nil for a short note.

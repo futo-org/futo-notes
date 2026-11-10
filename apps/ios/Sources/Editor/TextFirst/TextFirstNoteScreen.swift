@@ -168,14 +168,16 @@
             guard ticket == openTicket else { return }
             let id = noteId
             do {
-                // One read for the first screens and the session: input made on the first screens
-                // applies to the text it was made on, whatever another writer does meanwhile.
-                let read = try await store.readForEditor(id)
+                // The session opens on the read its first screens showed (so they are taken
+                // first), and input made on them applies to the text it was made on, whatever
+                // another writer does meanwhile. With no first screens it opens on the file as it
+                // then is.
+                let read = await store.readForEditor(id)
+                let quick = await store.quickOpenView(read)
                 guard ticket == openTicket else { return }
                 let opener = Task { try await Self.openSession(store: store, read: read) }
                 let made: TextFirstEditorController
-                if let quick = await store.quickOpenView(read) {
-                    guard ticket == openTicket else { return Self.abandon(opener) }
+                if let quick {
                     made = try TextFirstEditorController(noteId: id, quick: quick)
                     made.opener = opener
                     show(made)
