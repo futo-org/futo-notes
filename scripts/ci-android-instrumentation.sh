@@ -4,7 +4,7 @@ set -euo pipefail
 : "${CI_PROJECT_DIR:?CI_PROJECT_DIR is required}"
 
 # Emulator lifecycle (boot flags, KVM detection, readiness wait) is shared with
-# the cross-platform sync leg — see scripts/ci-android-emulator.sh.
+# other device jobs — see scripts/ci-android-emulator.sh.
 # shellcheck source=scripts/ci-android-emulator.sh
 source "$CI_PROJECT_DIR/scripts/ci-android-emulator.sh"
 
