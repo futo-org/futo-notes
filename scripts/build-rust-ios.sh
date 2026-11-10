@@ -55,14 +55,20 @@ IOS_DEVICE_SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 IOS_SIMULATOR_SDK="$(xcrun --sdk iphonesimulator --show-sdk-path)"
 IOS_HOST_SDK="$(xcrun --sdk macosx --show-sdk-path)"
 
-echo "==> Building futo-notes-ffi for device (aarch64-apple-ios)"
-SDKROOT="$IOS_DEVICE_SDK" cargo build -p futo-notes-ffi --target aarch64-apple-ios --profile "$PROFILE"
+SIM_ARM64_ONLY="${FUTO_IOS_SIM_ARM64_ONLY:-}"
+
+if [[ -z "$SIM_ARM64_ONLY" ]]; then
+  echo "==> Building futo-notes-ffi for device (aarch64-apple-ios)"
+  SDKROOT="$IOS_DEVICE_SDK" cargo build -p futo-notes-ffi --target aarch64-apple-ios --profile "$PROFILE"
+fi
 
 echo "==> Building futo-notes-ffi for simulator (aarch64-apple-ios-sim)"
 SDKROOT="$IOS_SIMULATOR_SDK" cargo build -p futo-notes-ffi --target aarch64-apple-ios-sim --profile "$PROFILE"
 
-echo "==> Building futo-notes-ffi for simulator (x86_64-apple-ios)"
-SDKROOT="$IOS_SIMULATOR_SDK" cargo build -p futo-notes-ffi --target x86_64-apple-ios --profile "$PROFILE"
+if [[ -z "$SIM_ARM64_ONLY" ]]; then
+  echo "==> Building futo-notes-ffi for simulator (x86_64-apple-ios)"
+  SDKROOT="$IOS_SIMULATOR_SDK" cargo build -p futo-notes-ffi --target x86_64-apple-ios --profile "$PROFILE"
+fi
 
 echo "==> Building host lib (for binding generation metadata)"
 SDKROOT="$IOS_HOST_SDK" cargo build -p futo-notes-ffi
@@ -85,16 +91,23 @@ rm -f "$GEN/futo_notes_ffiFFI.h" "$GEN/futo_notes_ffiFFI.modulemap"
 
 echo "==> Creating $XCF"
 rm -rf "$XCF"
-SIM_UNIVERSAL="$TARGET_DIR/universal-apple-ios-sim"
-rm -rf "$SIM_UNIVERSAL"
-mkdir -p "$SIM_UNIVERSAL"
-lipo -create \
-  "$TARGET_DIR/aarch64-apple-ios-sim/$OUT_DIR/libfuto_notes_ffi.a" \
-  "$TARGET_DIR/x86_64-apple-ios/$OUT_DIR/libfuto_notes_ffi.a" \
-  -output "$SIM_UNIVERSAL/libfuto_notes_ffi.a"
-xcodebuild -create-xcframework \
-  -library "$TARGET_DIR/aarch64-apple-ios/$OUT_DIR/libfuto_notes_ffi.a" -headers "$HEADERS" \
-  -library "$SIM_UNIVERSAL/libfuto_notes_ffi.a" -headers "$HEADERS" \
-  -output "$XCF"
+if [[ -n "$SIM_ARM64_ONLY" ]]; then
+  echo "==> FUTO_IOS_SIM_ARM64_ONLY=$SIM_ARM64_ONLY — xcframework holds the arm64 simulator slice only"
+  xcodebuild -create-xcframework \
+    -library "$TARGET_DIR/aarch64-apple-ios-sim/$OUT_DIR/libfuto_notes_ffi.a" -headers "$HEADERS" \
+    -output "$XCF"
+else
+  SIM_UNIVERSAL="$TARGET_DIR/universal-apple-ios-sim"
+  rm -rf "$SIM_UNIVERSAL"
+  mkdir -p "$SIM_UNIVERSAL"
+  lipo -create \
+    "$TARGET_DIR/aarch64-apple-ios-sim/$OUT_DIR/libfuto_notes_ffi.a" \
+    "$TARGET_DIR/x86_64-apple-ios/$OUT_DIR/libfuto_notes_ffi.a" \
+    -output "$SIM_UNIVERSAL/libfuto_notes_ffi.a"
+  xcodebuild -create-xcframework \
+    -library "$TARGET_DIR/aarch64-apple-ios/$OUT_DIR/libfuto_notes_ffi.a" -headers "$HEADERS" \
+    -library "$SIM_UNIVERSAL/libfuto_notes_ffi.a" -headers "$HEADERS" \
+    -output "$XCF"
+fi
 
 echo "==> Done: $XCF and $GEN/futo_notes_ffi.swift"

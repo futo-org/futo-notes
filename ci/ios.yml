@@ -48,9 +48,10 @@ build:ios-native:
 # enforces the FutoNotesNativeTests target that build:ios-native only compiles.
 # Keep this hard gate for iOS-impacting MRs and releases while the single
 # macscript runner is constrained. Other MRs retain an optional manual run.
-# MR pipelines run the unit bundle only; main pushes and tags add the 8 UI
-# tests (~3 of the ~4 minutes of testing) — testFutoNotesIOSNative in
-# .cirrus.yml owns the tiers and the per-bundle outcome arbiter.
+# MR pipelines run the unit bundle only, plus the UI bundle when the MR touches
+# apps/ios or the iOS CI files; main pushes and tags run every UI suite —
+# testFutoNotesIOSNative (ci/cirrus/ios-test.yml) owns the tiers, the MR-side
+# suite skips and the per-bundle outcome arbiter.
 test:ios-native:
   stage: test
   needs: []
@@ -71,12 +72,41 @@ test:ios-native:
     expire_in: 1 week
   rules:
     - !reference [.not-scheduled, rules]
-    # An MR that touches the iOS app also runs the UI bundle (the full tier,
-    # +173 s): the Macs 110/111 averaged under 30 min of work a day in
-    # October, so the MR can afford what used to wait for the main push.
+    # An MR that touches the iOS app or the iOS CI files also runs the UI bundle
+    # (the full tier): the Macs 110/111 averaged under 30 min of work a day in
+    # October, so the MR can afford what used to wait for the main push. It
+    # skips TextFirstKillLoopTests, and the licence/purchase/app-icon suites
+    # unless this first rule matches: their UI tests, Swift sources, StoreKit
+    # config, app-icon assets and the Rust licence crate.
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - apps/ios/UITests/AppIconTests.swift
+        - apps/ios/UITests/LicensePlateTests.swift
+        - apps/ios/UITests/AppStorePurchaseTests.swift
+        - apps/ios/UITests/UITestApplication.swift
+        - apps/ios/Sources/License/**/*
+        - apps/ios/Sources/Settings/**/*
+        - apps/ios/Sources/App/**/*
+        - apps/ios/Sources/Localization/**/*
+        - apps/ios/StoreKit/**/*
+        - apps/ios/Assets.xcassets/**/*
+        - apps/ios/Resources/**/*
+        - apps/ios/project.yml
+        - apps/ios/Info.plist
+        - apps/ios/*.entitlements
+        - scripts/ios-scheme-test-storekit.mjs
+        - crates/futo-notes-license/**/*
+        - crates/futo-notes-ffi/**/*
+        - assets/coin/**/*
+        - languages/**/*
+      variables:
+        IOS_UI_TESTS: "1"
+        IOS_UI_PAYMENT_TESTS: "1"
     - if: $CI_MERGE_REQUEST_IID
       changes:
         - apps/ios/**/*
+        - ci/ios.yml
+        - ci/cirrus/ios-test.yml
       variables:
         IOS_UI_TESTS: "1"
     - if: $CI_MERGE_REQUEST_IID
