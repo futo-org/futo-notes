@@ -2,8 +2,8 @@
     import UIKit
 
     /// Owns the image atoms of one open note: interned per destination so a restyle finds a
-    /// loaded bitmap, loads them, and writes their geometry (the glyph kern and the paragraph's
-    /// minimum line height) into the text storage.
+    /// loaded bitmap, loads them, and writes their geometry (the glyph kern and the baseline lift
+    /// that makes the image's own line as tall as the image) into the text storage.
     @MainActor
     final class TextFirstImages {
         weak var controller: TextFirstEditorController?

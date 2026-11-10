@@ -6,8 +6,9 @@
     // Images in the text-first editor. The engine keeps an image's `![alt](destination)` spelling
     // in the display text and reports it as an atom (`EditorStyleSpan.image`); this draws it as one
     // unit. The glyphs stay in the text but are hidden (a 0.01 pt clear font); the first glyph
-    // carries a kern as wide as the image so the words after it flow past, and the paragraph's
-    // minimum line height is the image's height. The bitmap itself is drawn by the layout fragment.
+    // carries a kern as wide as the image so the words after it flow past, and a baseline offset
+    // as high as the image so its own line is as tall as the image (the paragraph's other lines
+    // keep their height). The bitmap itself is drawn by the layout fragment.
     // A destination is only ever loaded for display; the engine never reads image files and the
     // Markdown is never rewritten.
 

@@ -39,12 +39,10 @@
                 of: span.atom, available: h.controller.images.containerWidth)
             #expect(size.height > TextFirstImageMetrics.loadingHeight, "\(size)")
             let selection = h.tv.selectedRange
-            func lineHeight() -> CGFloat {
-                storage.attribute(.baselineOffset, at: run.location, effectiveRange: nil)
-                    as? CGFloat ?? 0
-            }
+            // The laid-out line holding the image: its height, plus the descent of any text on it.
+            func lineHeight() -> CGFloat { h.lineHeights(at: run.location).max() ?? 0 }
             #expect(
-                await h.until { lineHeight() == size.height },
+                await h.until { lineHeight() >= size.height && lineHeight() < size.height + 10 },
                 "line \(lineHeight()) not \(size.height)")
             #expect(h.tv.selectedRange == selection)
             #expect(h.controller.divergences.isEmpty)

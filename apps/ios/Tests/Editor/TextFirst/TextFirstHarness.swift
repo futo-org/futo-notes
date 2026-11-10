@@ -87,6 +87,17 @@
 
         func select(_ a: Int, _ b: Int) { tv.selectedRange = NSRange(location: a, length: b - a) }
 
+        /// The laid-out heights of the visual lines of the paragraph holding UTF-16 offset `i`.
+        func lineHeights(at i: Int = 0) -> [CGFloat] {
+            tv.layoutIfNeeded()
+            let manager = tv.textLayoutManager!
+            guard
+                let location = manager.location(manager.documentRange.location, offsetBy: i),
+                let fragment = manager.textLayoutFragment(for: location)
+            else { return [] }
+            return fragment.textLineFragments.map { $0.typographicBounds.height }
+        }
+
         /// One keyboard key: the delegate is asked first, as UIKeyboardImpl does, then UIKit inserts.
         func type(_ text: String) {
             for character in text {
