@@ -34,6 +34,11 @@ pub struct FindReport {
     pub reveal: Option<DisplayRange>,
     /// Input arrived since the last scan: totals may lag until a scan applies.
     pub stale: bool,
+    /// How often an edit has dropped the current match (a later scan then chooses another).
+    /// A host compares it across presses to see the current match change without one. Not
+    /// serialized: it is a host-side signal, not part of the portable payload.
+    #[serde(skip)]
+    pub dropped: u64,
 }
 
 /// Owned snapshot a host may scan on any thread. A result is accepted only for
@@ -69,7 +74,11 @@ pub(crate) struct FindState {
     generation: u64,
     matches: Vec<DisplayRange>,
     current: Option<usize>,
+    /// Times an edit dropped the current match, for `FindReport::dropped`.
+    dropped: u64,
     anchor: usize,
+    /// The current match while `invalid` has cleared the matches; see `track`.
+    lost: Option<DisplayRange>,
     log: Vec<(DisplayRange, usize)>,
     invalid: bool,
     /// Input since the last scan; cleared only by a scan or close.
@@ -86,16 +95,36 @@ impl FindState {
         }
         self.dirty = true;
         if self.invalid {
-            return;
-        }
-        if self.log.len() >= REBASE_LOG_LIMIT {
+            self.track(range, inserted);
+        } else if self.log.len() >= REBASE_LOG_LIMIT {
+            self.log.push((range, inserted));
             self.invalid = true;
+            // The matches go, but what the unread edits do to the current one and to the step
+            // position is still tracked: a drop counts only if an edit touched the current match.
+            self.lost = self.current.take().map(|at| self.matches[at]);
+            for (window, inserted) in std::mem::take(&mut self.log) {
+                self.track(window, inserted);
+            }
             self.matches.clear();
-            self.current = None;
-            self.log.clear();
         } else {
             self.log.push((range, inserted));
         }
+    }
+
+    /// Carry the current match (`lost`, once the matches are gone) and the step position through
+    /// one edit. Only read while `invalid`, and set when it becomes so.
+    fn track(&mut self, window: DisplayRange, inserted: usize) {
+        let (start, end) = (window.start.0, window.end.0);
+        if let Some(found) = &mut self.lost {
+            if found.end.0 > start && found.start.0 < end {
+                self.dropped += 1;
+                self.lost = None;
+            } else if found.start.0 >= end {
+                found.start.0 = found.start.0 - (end - start) + inserted;
+                found.end.0 = found.end.0 - (end - start) + inserted;
+            }
+        }
+        self.anchor = moved_anchor(self.anchor, start, end, inserted);
     }
 
     fn rebase(&mut self) {
@@ -112,14 +141,13 @@ impl FindState {
             }
             self.current = match self.current {
                 Some(at) if at >= after => Some(at - removed),
-                Some(at) if at >= first => None,
+                Some(at) if at >= first => {
+                    self.dropped += 1;
+                    None
+                }
                 other => other,
             };
-            if self.anchor >= end {
-                self.anchor = self.anchor - (end - start) + inserted;
-            } else if self.anchor > start {
-                self.anchor = start;
-            }
+            self.anchor = moved_anchor(self.anchor, start, end, inserted);
         }
     }
 
@@ -132,6 +160,17 @@ impl FindState {
             .matches
             .partition_point(|found| found.start.0 < self.anchor);
         (!self.matches.is_empty()).then(|| at % self.matches.len())
+    }
+}
+
+/// Where the step position goes when `start..end` is replaced by `inserted` bytes.
+fn moved_anchor(anchor: usize, start: usize, end: usize, inserted: usize) -> usize {
+    if anchor >= end {
+        anchor - (end - start) + inserted
+    } else if anchor > start {
+        start
+    } else {
+        anchor
     }
 }
 
@@ -390,6 +429,7 @@ impl EditorSession {
             }),
             reveal,
             stale: self.find.stale(),
+            dropped: self.find.dropped,
         }
     }
 }

@@ -40,4 +40,4 @@ tests. Read `docs/spec/editor/portable-core.md` before changing this surface.
 
 `host/` holds renderer helpers that are not Markdown rules and that every native
 view needs (today `DisplayMirror`: display UTF-8 ⇄ UTF-16 conversion of engine
-changes). UniFFI projection: `crates/futo-notes-ffi/src/editor/host.rs`.
+changes). UniFFI projection: `crates/futo-notes-ffi/src/editor/host.rs` (find in `host_find.rs`).

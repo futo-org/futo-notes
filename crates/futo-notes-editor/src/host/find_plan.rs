@@ -64,7 +64,8 @@ pub enum FindStepPlan {
     Hold,
     /// The first press after the query changed lands on the current match.
     Land,
-    /// Later presses move from the match the last one landed on.
+    /// Later presses move from the match the last one landed on, and so does a first press
+    /// with matches but no current one.
     Advance,
 }
 
@@ -73,17 +74,32 @@ pub enum FindStepPlan {
 #[derive(Debug, Default)]
 pub struct FindLanding {
     landed: bool,
+    /// `FindReport::dropped` at the last press; none before the first one after a `reset`.
+    dropped: Option<u64>,
 }
 
 impl FindLanding {
     pub fn reset(&mut self) {
         self.landed = false;
+        self.dropped = None;
     }
 
-    pub fn plan(&self, composing: bool) -> FindStepPlan {
+    /// `report` is the engine's current find report. Matches with no current one (an edit
+    /// dropped it until the next rescan) have nothing to land on, so the press steps to one.
+    ///
+    /// A press has landed only while the user is on the current match. An edit that dropped it
+    /// (`report.dropped` moved) leaves the user on no match, with or without a rescan after it:
+    /// Next goes to the first match at or after where they were (Land on the rescan's choice,
+    /// which is that match) and Previous to the last one before it (a step back from the choice).
+    pub fn plan(&mut self, composing: bool, forward: bool, report: &FindReport) -> FindStepPlan {
         if composing {
-            FindStepPlan::Hold
-        } else if self.landed {
+            return FindStepPlan::Hold;
+        }
+        if self.dropped.is_some_and(|seen| seen != report.dropped) {
+            self.landed = !forward && report.total > 0;
+        }
+        self.dropped = Some(report.dropped);
+        if self.landed || (report.total > 0 && report.current_range.is_none()) {
             FindStepPlan::Advance
         } else {
             FindStepPlan::Land
