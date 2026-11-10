@@ -3,7 +3,12 @@
 //! move. The parser remains the authority for interpreting candidate source.
 mod carry;
 mod context;
+mod frames;
+#[cfg(test)]
+pub(crate) use frames::last_repaired;
+pub(crate) use frames::Repair;
 mod insertion;
+mod plan;
 mod prefixes;
 pub(super) use context::Context;
 mod selection;
@@ -16,6 +21,9 @@ use super::{
 };
 use crate::{Affinity, DisplayRange, EditorError, InlineFormat};
 pub(super) use carry::{carry_formats, joined_span};
+pub(super) use plan::common_prefix;
+use plan::spent;
+pub(crate) use plan::Plan;
 use ropey::Rope;
 pub(super) use selection::{cut, split_entities, Cut};
 pub(crate) use source::SourceCorrespondence;
@@ -44,34 +52,6 @@ pub(super) enum Width {
     Line,
     /// The complete paragraph or list.
     Paragraph,
-}
-
-pub(crate) struct Plan {
-    pub guarded_words: Option<super::guarded_words::GuardUpdate>,
-    pub split_retirement: Option<std::sync::Arc<super::guarded_words::CodeWordIdentity>>,
-    pub retained: SourceCorrespondence,
-    pub requires_source_identity: bool,
-    /// The source window the planner read; `range` lies inside it.
-    pub context: Range<usize>,
-    pub range: Range<usize>,
-    pub delimiters: Vec<Range<usize>>,
-    pub pending_links: Vec<Range<usize>>,
-    pub activated_links: Vec<Range<usize>>,
-    pub inserted: String,
-    pub caret: usize,
-    pub input_start: usize,
-    pub formats: Vec<InlineFormat>,
-    pub materialized: usize,
-    pub parsed: usize,
-    pub link_metadata_items: usize,
-    pub link_copied_bytes: usize,
-}
-pub(super) fn common_prefix(a: &str, b: &str) -> usize {
-    a.chars()
-        .zip(b.chars())
-        .take_while(|(a, b)| a == b)
-        .map(|(c, _)| c.len_utf8())
-        .sum()
 }
 
 impl Projection {
@@ -113,6 +93,19 @@ impl Projection {
                 reuse,
             )
         };
+        // Carried formats join the span beside them where they can. When that
+        // reading cannot be spelled (a format dropped around trailing
+        // whitespace), the new text opens spans of its own.
+        let paragraph = || match plan(Width::Paragraph, true) {
+            Err(EditorError::UnrepresentableFormat) if pending.is_some() => {
+                plan(Width::Paragraph, false)
+            }
+            other => other,
+        };
+        // A repair reads the whole paragraph or list.
+        if frames::Repair::held() {
+            return frames::Repair::retry(paragraph).map(|(plan, _)| plan);
+        }
         // A cut context can be too narrow to plan (or to judge) the input:
         // plan once more against the whole line when a word seam bounds the
         // rows, then against the complete paragraph or list (#314).
@@ -146,12 +139,11 @@ impl Projection {
                 Err(_) => {}
             }
         }
-        // Carried formats join the span beside them where they can. When that
-        // reading cannot be spelled (a format dropped around trailing
-        // whitespace), the new text opens spans of its own.
-        let (wide, _) = match plan(Width::Paragraph, true) {
-            Err(EditorError::UnrepresentableFormat) if pending.is_some() => {
-                plan(Width::Paragraph, false)?
+        // A cut that drops one end of a code block's frame is refused; plan
+        // it again with that end given back (`frames`).
+        let (wide, _) = match paragraph() {
+            Err(EditorError::UnrepresentableFormat) if frames::may_repair(&self.display, range) => {
+                frames::Repair::retry(paragraph)?
             }
             other => other?,
         };
@@ -193,6 +185,7 @@ impl Projection {
             mut markers,
             pieces,
             block_boundaries,
+            frames,
             pending_links,
             link_metadata_items,
         } = self.edit_context_for_change(
@@ -289,6 +282,16 @@ impl Projection {
                     }
                 }
             }
+        }
+        if frames::Repair::held() {
+            frames::rebalance(
+                &frames,
+                &raw,
+                &mut before,
+                &mut after,
+                a < z,
+                source_end == source.len_bytes(),
+            );
         }
         let mut changed = before;
         let insertion_index = changed.len();
@@ -513,17 +516,6 @@ impl Projection {
         };
         Ok((plan, sealed))
     }
-}
-
-/// `plan` charged with the work of the refused attempts before it.
-fn spent(mut plan: Plan, tried: Vec<Plan>) -> Plan {
-    for attempt in tried {
-        plan.materialized += attempt.materialized;
-        plan.parsed += attempt.parsed;
-        plan.link_metadata_items += attempt.link_metadata_items;
-        plan.link_copied_bytes += attempt.link_copied_bytes;
-    }
-    plan
 }
 
 pub(crate) fn delimiter(format: InlineFormat) -> &'static str {

@@ -86,6 +86,26 @@ impl EditorSession {
         intent: crate::inline::EditIntent,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<(ViewChange, InputMapping), EditorError> {
+        let span = range.start.0..range.end.0;
+        let shown = match intent {
+            crate::inline::EditIntent::Paste => {
+                crate::inline::Expected::Pasted(span, inserted.into())
+            }
+            _ => crate::inline::Expected::Replaced(vec![(span, inserted.into())]),
+        };
+        self.checked_input(shown, accept, |session, accept| {
+            session.replace_intent_once(expected, range, inserted, intent, accept)
+        })
+    }
+
+    fn replace_intent_once(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        inserted: &str,
+        intent: crate::inline::EditIntent,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<(ViewChange, InputMapping), EditorError> {
         let action = intent.action().ok_or(EditorError::UnrepresentableFormat)?;
         let mut query_work = crate::inline::references::ReferenceWork::default();
         let planned = self.replace_action_planned(

@@ -217,7 +217,7 @@ impl EditorSession {
         if let PasteTarget::Code = target {
             // The fence owner keeps pasted delimiters literal by lengthening
             // the enclosing fence, while retaining its physical prefixes.
-            if let Some(mut change) = self.fence_paste(expected, range, text, accept)? {
+            if let Some(mut change) = self.code_paste(expected, range, text, accept)? {
                 change.work.link_metadata_items += selection_work;
                 return Ok(Some(change));
             }

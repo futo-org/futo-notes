@@ -78,14 +78,82 @@ impl EditorSession {
         } else {
             let mut targets = targets.to_vec();
             targets.push(range.start.0 + text.len());
-            let (change, mut targets) =
-                self.replace_many_with_targets(expected, &replacements, &targets, action, accept)?;
+            let shown = crate::inline::Expected::Replaced(vec![(
+                range.start.0..range.end.0,
+                text.to_owned(),
+            )]);
+            let (change, mut targets) = self.checked_input(shown, accept, |session, accept| {
+                session.replace_runs(
+                    expected,
+                    range,
+                    text,
+                    &replacements,
+                    &targets,
+                    action,
+                    accept,
+                )
+            })?;
             let caret = targets.pop().unwrap();
             (Some(change), targets, caret)
         };
         self.finish_os_selection(caret, carried, change.as_mut());
         Ok((change, targets))
     }
+    /// The text-service runs, as before repairs. Refused, the input is
+    /// planned as one run replacing the whole range, as typing over it is,
+    /// which a code block's frame repair can keep (`inline::Repair`), but
+    /// only when the text the runs keep is plain text inside one line: one
+    /// run would respell its hidden formatting and blocks.
+    #[allow(clippy::too_many_arguments)]
+    fn replace_runs(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        text: &str,
+        runs: &[crate::DisplayReplacement],
+        targets: &[usize],
+        action: crate::InputAction,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<(ViewChange, Vec<usize>), EditorError> {
+        let planned = {
+            let _as_before = crate::inline::Repair::bar();
+            self.replace_many_with_targets(expected, runs, targets, action, accept)
+        };
+        match planned {
+            Err(EditorError::UnrepresentableFormat)
+                if crate::inline::Repair::may() && self.keeps_plain(range, runs) =>
+            {
+                crate::inline::Repair::mark();
+                let whole = crate::DisplayReplacement {
+                    range,
+                    inserted: text.to_owned(),
+                };
+                self.replace_many_with_targets(expected, &[whole], targets, action, accept)
+            }
+            other => other,
+        }
+    }
+
+    /// Whether the stretches of `range` between `runs` are plain text: no
+    /// line break and source spelled as shown.
+    fn keeps_plain(&self, range: DisplayRange, runs: &[crate::DisplayReplacement]) -> bool {
+        let ends = runs.iter().map(|run| (run.range.start.0, run.range.end.0));
+        let mut at = range.start.0;
+        ends.chain([(range.end.0, range.end.0)])
+            .all(|(start, end)| {
+                let kept = self.projection.display.byte_slice(at..start).to_string();
+                let source =
+                    self.projection.source_bounds(at).1..self.projection.source_bounds(start).0;
+                at = end;
+                !kept.contains('\n')
+                    && (kept.is_empty()
+                        || self
+                            .source
+                            .get_byte_slice(source)
+                            .is_some_and(|raw| raw == kept.as_str()))
+            })
+    }
+
     pub(super) fn finish_os_selection(
         &mut self,
         caret: usize,
