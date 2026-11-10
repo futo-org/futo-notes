@@ -53,7 +53,7 @@ commit that finishes the last milestone (archive rule).
 | `EditorEngineOpening.kt` (`selectWhileOpening`, the queue's range mapping), `RenderWork.map` | `host::PendingEdits`, `EditorPendingEdits` | !603 (stacked on !596, merges !590) | posted |
 | `EditorEngineStream.kt` `OpenSlices.sliceEnd` | `DisplayMirror::slice_end`, `begins_with` (the handover's byte-exact prefix test) | !603 | posted |
 | `EditorEngineStorage.kt` `showQuickOpen` (`window(quick.projection, tableSpans(quick.tables))`) | `host::plan_quick_open`, `NoteStore.quick_open_view`, `EditorQuickView` | !603 | posted |
-| `ToolbarCommandGate.kt` | not needed on iOS for small commands (the main actor runs them whole); large ones now take the engine queue and drop taps meanwhile (see M8 notes): every command runs synchronously on the main actor, so none is queued or dropped. Revisit if M8 moves the engine off the main thread. | | |
+| `ToolbarCommandGate.kt` | not needed on iOS for small commands (the main actor runs them whole); large ones now take the engine queue and drop taps meanwhile (see [M8 notes](ios-text-first/notes-m7-m8.md)): every command runs synchronously on the main actor, so none is queued or dropped. Revisit if M8 moves the engine off the main thread. | | |
 
 ## Integration 2026-11-08 (branch ios-text-first)
 
@@ -76,78 +76,6 @@ directly above a table re-slices the rest of the note on each keystroke there.
   (160 pt column, row height, the grid's font and alignment), on the same engine session; its
   accessory bar has Undo and Done; Done, or a tap on the note outside it, returns. Reverse by
   presenting the same object in a sheet again (`openCellEditor`); spec line in mobile/tables.md.
-
-## M7 notes
-
-- Engine: the non-UI half of `EditorEngineFind.kt` is `host::plan_find` (report + matches to UTF-16
-  marks, hidden while composing) and `host::FindLanding` (the first press after a query change
-  lands on the current match; later ones step). Everything else (matching, wrap, table barriers,
-  stale rescans, rebasing) was already the engine's.
-- Entry and bar: an overflow menu (ellipsis) in the note screen's toolbar holds "Find in note" (the
-  other actions of the WebView screen's menu are M9); the existing `FindInNoteBar` is a layout
-  sibling under the editor, so it rides above the keyboard and the note never runs under it.
-  Count text is the catalog's `editor.find.matchCount`.
-- Marks: never in the text storage. `TextFirstLayoutFragment` paints them behind the glyphs (every
-  paragraph is now a custom fragment: a fragment laid out before the first mark is not rebuilt by
-  invalidation), inside table cells (cell text laid out as the grid draws it) and over an image
-  whose alt text or destination matches (the engine counts those; the spelling is hidden). Orange =
-  current, yellow = the rest. Repaint = invalidating the viewport's layout.
-- Edits keep the bar open: `accept` schedules a 150 ms refresh (engine rebases on read; a stale
-  report takes a scan request, scans on a background queue, applies if the revision still holds).
-- Step: lands via the engine selection (`selectUtf16`), scrolls the match a third of the way down,
-  and scrolls a table's columns to the match's cell. It does NOT open the cell field (Android does);
-  the field opens on tap. Closing restores the selection and scroll position from before find opened
-  when nothing was edited (find-in-note.md iOS/Android line; Android text-first does not).
-- Spec: `docs/spec/editor/mobile/find.md` (one *(mobile)* line, one *(iOS)* line); Android's find
-  line in portable-core/find.md kept only its cell-field-focus half (38cd5c444 on android-text-first).
-- Tests: `TextFirstFindTests` (8: marks, stepping with wrap, refresh after edits, close, table
-  cells and a column scroll, cell marks after an edit above, image marks, painted pixels) and
-  `TextFirstFindUITests` (real touches: menu, bar above the keyboard, count, steps, close).
-- Open: the engine counts a match in an image's file name, so a step can land on a hidden spelling (the picture is marked).
-
-## M8 notes
-
-- Opening: `TextFirstNoteScreen` starts the engine's open and the quick open together; a note over 16 KB
-  shows `NoteStore.quickOpenView` (display + spans planned by Rust) in a controller with no session
-  (`TextFirstEditorController+Opening.swift`). Until `attach(session:)` the view takes input but
-  changes nothing: `shouldChangeTextIn` returns false and queues `OpeningOp`s (keys, Enter, selection),
-  replayed on landing; a range is mapped through what the engine actually changed
-  (`EditorPendingEdits.record/map`), and a key at the range the view never left goes to the engine's
-  caret. Toolbar edit buttons are disabled; copy, cut, paste, undo, find and taps on controls wait.
-  A leave before landing waits for the open, applies the ops and saves.
-- No streaming of text on iOS: appending the rest of a 2.3 MB display to the text storage costs 0 to 2 ms
-  (TextKit 2 lays out lazily), so the handover is one append and only styling is in slices.
-  Slices now end where the engine says (`slice_end`), wait a gap (8 ms or the slice's own time) so
-  touches run between them, and wait while a finger is down or the edit menu shows.
-- Select All: UIKit highlighting 2.3 MB held the main thread 2.2 s at once and again after every
-  restyle (sampled: `UITextSelectionDisplayInteraction _updateSelectionIfNeeded`). The engine selects
-  everything; the view's selection is the stretch around the viewport and follows scrolling; copy, cut,
-  typing, commands use the engine's selection (`effectiveSelection`).
-- Large commands (selection >= 50,000 units): Bold etc. run on the `io` queue (`engineJobs` counts them;
-  any main-thread engine call would wait on the engine's lock, so every engine entry point checks
-  `engineBusy`); taps and keys meanwhile are dropped; the result restyles the viewport at once and the
-  rest in slices. The toolbar state of a huge selection and a find scan (>= 200,000 units) also run there.
-- Not changed after trying: a new width keeps the reader's line (UIKit already does; test only), a
-  cell field far from the viewport does not move the reader (test only), double-tap, long-press word
-  and handle drags at far offsets use the same hit test as the verified tap (tested at the UIKit-call
-  level, not with real fingers).
-- Open problems: (1) a new width holds the main thread 0.8 s (1.3 MB) to 2.1 s (2.3 MB) wherever the
-  reader is (TextKit 2 re-lays out from the first line; moving to the top first did not help); no iOS 27
-  viewport API was tried (not known to exist). (2) After Bold on everything the Swift styler spends
-  about 100 ms per 12k-unit slice (160 slices: 21 to 31 s to finish styling a 2.3 MB note). (3) Note shapes
-  with one huge paragraph (20k lines, no blank line) restyle at 0.5 to 0.8 s per slice after Bold: engine
-  large-paragraph work. (4) Scroll indicator estimate and scroll cost per step: not touched.
-  (5) Style slices have no viewport anchoring beyond the viewport-first restyle after a command.
-  (6) No loading indicator (Android's 300 ms line): the quick open makes it moot below 300 ms.
-- Pipe-line quadratic (engine `inspect_tables`, for the fix lane to confirm on iOS): a 20k-line note of plain lines
-  with one `a | b` line before them, versus the same note without it (`TFSLICE`, release Rust, sim):
-  first style slice 457 ms vs 48 ms, styling not finished after 20 s vs finished; Select All then Bold on it does
-  not finish in 2 minutes. Re-measure with `TEXT_FIRST_BENCH_MODE=slice` after the engine MR lands
-  (`ios-text-first-artifacts/m8/pipe-20k.md`, `nopipe-20k.md`).
-- Follow-up (engine): find's first press with no current match but total > 0 should step instead of
-  doing nothing (Android behaves the same). iOS reschedules the rescan after composition (test added).
-- Timings (iOS 27.2 sim futo-qa-6, Debug app, release Rust, `TextFirstLongBenchTests`): see
-  `docs/spec/editor/mobile/long-notes.md`; raw logs in `ios-text-first-artifacts/m8/`.
 
 ## Architecture review follow-up (leave, checkpoint, identity, contention)
 
@@ -215,6 +143,70 @@ Review of !591 at 06ec72176, checked against the merged M8 code. Verdicts and wh
   with a local-only sleep in `vault_fs/unix.rs` `write_temp_and_install` (`FUTO_SLOW_WRITE_MS`).
 
 Milestone notes M1 to M6: [ios-text-first/notes-m1-m6.md](ios-text-first/notes-m1-m6.md).
+Milestone notes M7 and M8: [ios-text-first/notes-m7-m8.md](ios-text-first/notes-m7-m8.md).
+
+## Input safety net (2026-11-09, lane `ios-tf/input-safety-net`)
+
+- `TextFirstRandomInputTests`: seeded random runs of the input-shape calls (typing, deletion,
+  text-service replacement, marked text, dictation) mixed with Enter, toolbar commands, undo, redo,
+  paste, cut and selection changes, on a note holding every block kind. After every operation the view
+  text and selection equal the engine's display and `engineSelection` (Swift's copy: the FFI has no
+  selection getter), `divergences` is empty, the engine holds no composition the view does not, and no
+  call was refused (`recoveries`). 24 seeds of 120 operations, about 4 s; a failing seed prints its
+  shortened operations for a named row. Explore with `TEST_RUNNER_FUTO_RANDOM_FIRST`, `_SEEDS`, `_OPS`.
+  An engine refusal matching an open next-steps item (`UnrepresentableFormat`, or `InvalidRange` on
+  character boundaries in two shapes) is a known issue and the run steps over it; a stale revision, an
+  open composition or a split character never is. Fails all 24 seeds with `reconcile`'s repaint
+  skipped. Seeds 1 to 800 at 150 operations: no mismatch beyond the two fixed below.
+- `tablesWidthChanged()` rewrote every table row's attributes on each layout pass, so each scroll
+  step edited the text storage (11 edits over 10 steps); it now has a width guard (`tablesWidth`).
+- Fixed: a refused composition commit left the engine composing, so every later key was refused (the
+  editor stopped taking input). `reloadFromEngine` now cancels the engine's composition.
+- Fixed: after a refused edit `recover` kept the caret where the dropped edit left it (it could split
+  a surrogate pair) as the engine's selection. It now restores the engine's selection when
+  `engineSelectionRev` matches; otherwise it keeps the view's, snapped, and tells the engine. Each fix
+  reverted alone fails its row. Opus re-check: the first classifier swallowed both; tightened, SHIP.
+- Engine refusals found (next-steps item 3, each a named known-issue row): a selection crossing into or
+  out of a code block or from a heading or paragraph into a list; some pastes; Backspace at a code
+  block's first line below a blank line and on a line split out of a link; a key, Enter or dictation
+  at a caret in a list item holding a pasted block; replacing or deleting inside one line; `InvalidRange`
+  for valid ranges; a composition committed after an undo (iOS only).
+
+## Deferred architecture work
+
+Moved from `docs/plan/ios-text-first-architecture.md` (written 2026-11-09 at `d4ec4cfe2`) when the input safety net landed.
+
+Three refactors that would make the editor simpler to change. None changes what the user sees, each rewrites code that has just stabilized, and iPhone performance is assumed good enough, so each waits for its trigger.
+
+### One engine update per input event
+
+**Today.** A plain keystroke makes seven or eight FFI calls that Swift stitches together (`replaceUtf16Action`, `mirror.applyChange`, two `byteToUtf16`, `stylePlan`, `toolbarHighlights`, `wikilinkCompletion`, `saveDelay`), converting between the engine's byte offsets and UTF-16 itself. `EditorDisplayMirror` is a second rope of text the session already indexes in UTF-16 (`crates/futo-notes-editor/src/coordinates.rs:36`); iOS is its only user. The returned `EditorViewChange` carries a full projection of which Swift reads only the range.
+
+**Idea.** Additive session entry points that take UTF-16 and return one record: the display edit, the selection, the display length, the reparsed window with its style spans, toolbar highlights, wikilink completion and save delay. iOS then drops the mirror, the offset conversions, and `accept`/`restyle`/`syncToolbar`/`refreshCompletion` in favor of one `apply(update)`. Conversion failures become errors (today `style_plan` maps them to offset 0, `crates/futo-notes-ffi/src/editor/host.rs:545`) and every read checks the revision. Get Justin's OK on the API shape before coding; Android would inherit it.
+
+**Trigger.** Mason wants to share input sequencing with Android, or a bug is traced to the mirror or the offset conversions.
+
+### The draft owns saving
+
+**Today.** `TextFirstLeaves` keeps the whole controller (view, storage, image cache) alive to retry a failed save, and hands it back through `claim`/`accept`/`yieldSaving`/`resumeSaving`/`openTicket`. `unsavedNoteIds` misses a pending leave.
+
+**Idea.** A draft object owns the session, the save timer, checkpoint, close, the save fence, identity and the one retry loop; `NotesStore` registers it by note id until its close is durable, discarded or retired by a reset. The controller holds a draft and a view; leaving drops the controller. Reopening a note with a pending draft builds a fresh view from its session.
+
+**Trigger.** A second bug in the leave handover, or a feature that has to change that code.
+
+### Controller phases
+
+**Today.** `TextFirstEditorController` has about 55 stored properties and 15 mode flags; `opening`/`engineBusy`/`commandRunning` are checked at 58 sites.
+
+**Idea.** One `phase` value (opening, live, job, closed), every engine call routed through one wrapper that consults it, and the remaining properties grouped by owner.
+
+**Trigger.** A change that would add another mode flag, or heavy work on the controller for any other reason.
+
+### Also set aside
+
+- Measuring on a phone and setting performance budgets: when someone sees a stall on a real device.
+- Pull styling through `NSTextContentStorageDelegate`, raising the iOS long-note thresholds, styler caches, engine work-bound tests, #337: speed only.
+- Images as one-character atoms in the engine's display: a cross-platform engine change for Justin and Mason.
 
 ## Human checklist (needs a physical iPhone; never blocks a milestone)
 
