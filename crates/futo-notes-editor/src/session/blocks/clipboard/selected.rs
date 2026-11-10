@@ -41,4 +41,24 @@ impl EditorSession {
         }
         Ok(change)
     }
+
+    /// The code block's paste (`fence_paste`). Text pasted over a selection
+    /// from code out of it lands as code text, planned with the frame the
+    /// selection crosses (`inline::Repair`) inside a checked paste.
+    pub(super) fn code_paste(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        text: &str,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        if crate::inline::Repair::may() && self.projection.leaves_code(range) {
+            let _repair = crate::inline::Repair::hold();
+            match self.replace_markdown_action(expected, range, text, accept) {
+                Err(EditorError::UnrepresentableFormat) => {}
+                change => return change.map(Some),
+            }
+        }
+        self.fence_paste(expected, range, text, accept)
+    }
 }

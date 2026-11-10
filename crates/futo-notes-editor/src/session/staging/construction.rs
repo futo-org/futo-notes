@@ -130,7 +130,10 @@ impl EditorSession {
             None
         };
         staged.projection.initial_link_metadata_items += usize::from(origin.is_some());
-        staged.context = StageContext { origin };
+        staged.context = StageContext {
+            origin,
+            staged: true,
+        };
         Ok(staged)
     }
 }

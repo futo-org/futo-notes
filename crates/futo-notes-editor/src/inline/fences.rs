@@ -22,8 +22,21 @@ impl Fence {
     /// Fixed machine words copied when cloning the retained fence record.
     pub const COPY_WORK: usize = std::mem::size_of::<Self>() / std::mem::size_of::<usize>();
 
+    /// This fence with its ranges in whole-source bytes, a continued fence's
+    /// rows resolved through the same canonical owner as block queries.
+    pub fn resolved(
+        &self,
+        projection: &super::Projection,
+        index: usize,
+        source_base: usize,
+    ) -> (Self, usize) {
+        let mut frame = self.clone();
+        frame.shift(source_base);
+        let fixed = projection.fix_fence_with_work(index, source_base, &mut frame);
+        (frame, Self::COPY_WORK + fixed)
+    }
+
     /// Complete body ownership plus text outside it retires a closed frame.
-    /// Resolve cut records through the same canonical owner as block queries.
     pub fn retired_by(
         &self,
         projection: &super::Projection,
@@ -31,17 +44,25 @@ impl Fence {
         source_base: usize,
         range: crate::DisplayRange,
     ) -> (bool, usize) {
-        let mut frame = self.clone();
-        frame.shift(source_base);
-        let fixed = projection.fix_fence_with_work(index, source_base, &mut frame);
-        let (start, a) = projection.display_at_with_work(frame.body.start);
-        let (end, z) = projection.display_at_with_work(frame.body.end);
+        let (frame, work) = self.resolved(projection, index, source_base);
+        let (retired, visits) = frame.retired_in(projection, range);
+        (retired, work + visits)
+    }
+
+    /// `retired_by` for a fence already `resolved`.
+    pub fn retired_in(
+        &self,
+        projection: &super::Projection,
+        range: crate::DisplayRange,
+    ) -> (bool, usize) {
+        let (start, a) = projection.display_at_with_work(self.body.start);
+        let (end, z) = projection.display_at_with_work(self.body.end);
         (
-            frame.closer.is_some()
+            self.closer.is_some()
                 && range.start.0 <= start
                 && end <= range.end.0
                 && (range.start.0 < start || end < range.end.0),
-            Self::COPY_WORK + fixed + a + z,
+            a + z,
         )
     }
 
@@ -292,6 +313,22 @@ fn body_start(bodies: &[Range<usize>], line: &Range<usize>) -> Option<usize> {
 }
 
 impl super::Projection {
+    /// Whether a selection runs on past its code block, into prose or another
+    /// block. That is not code input: the generic planner owns the frames it
+    /// crosses.
+    pub(crate) fn leaves_code(&self, range: crate::DisplayRange) -> bool {
+        range.start != range.end && {
+            let lines = self.block_lines(range);
+            let whole = lines
+                .first()
+                .and_then(|line| line.fence.as_ref())
+                .map(|fence| fence.whole.clone());
+            lines.iter().any(|line| {
+                !line.code || line.fence.as_ref().map(|fence| fence.whole.clone()) != whole
+            })
+        }
+    }
+
     /// The same retained frame facts used by ordinary replacement. Inspect
     /// physical records as well as visible ones: an empty terminal body can
     /// share the selection's endpoint while its opener remains hidden.

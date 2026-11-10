@@ -7,6 +7,9 @@ mod construction;
 #[derive(Default)]
 pub(super) struct StageContext {
     pub origin: Option<crate::inline::references::SourceOrigin>,
+    /// A window of the note, not the note: its inputs are steps of one
+    /// outside it (`checked_input`).
+    pub staged: bool,
 }
 
 impl StageContext {
