@@ -11,9 +11,21 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
         destination: &str,
+        tables: &[crate::TableDescription],
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let Bodies { bodies, .. } = self.format_bodies(range);
+        // The body walk can misread a table row (a `- ` delimiter row, a row
+        // without a pipe) as paragraph text: leave such a table alone.
+        let overlaps = |body: &Body, table: &crate::TableDescription| {
+            body.range.start.0 < table.display.end.0 && table.display.start.0 < body.range.end.0
+        };
+        if bodies
+            .iter()
+            .any(|body| !body.cell && tables.iter().any(|table| overlaps(body, table)))
+        {
+            return Ok(None);
+        }
         let (window, display_start) = self.projection.edit_window(range);
         let raw = self.source.byte_slice(window.clone()).to_string();
         let mut staged = self.stage_source(&raw, window.clone())?;
@@ -61,9 +73,12 @@ impl EditorSession {
         source_range.start.0 += window.start;
         source_range.end.0 += window.start;
         let edit = self.prepare_source(expected, source_range, &inserted)?;
+        if !self.edit_keeps_tables(&edit) {
+            return Ok(None);
+        }
         let pending = staged.prepare_pending_for_parent(window.start);
         let guard_validation = self.validate_stage_guards(&edit, window, &pending)?;
-        self.commit_bodies(edit, Some(pending), guard_validation, work, accept)
+        self.commit_bodies(edit, Some(pending), guard_validation, work, true, accept)
             .map(Some)
     }
 }

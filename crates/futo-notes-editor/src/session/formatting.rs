@@ -179,22 +179,29 @@ impl EditorSession {
             let guard_validation = self.validate_stage_guards(&edit, window, &pending)?;
             (edit, Some(pending), guard_validation, work)
         };
-        self.commit_bodies(edit, pending, guard_validation, work, accept)
+        self.commit_bodies(edit, pending, guard_validation, work, false, accept)
     }
 
     /// Accept a planned multi-body edit as one history action, keeping the
-    /// selection.
+    /// selection (`on_text`: the same text, wherever the edit moved it).
     fn commit_bodies(
         &mut self,
         edit: SourceEdit,
         pending: Option<crate::inline::PendingLinks>,
         guard_validation: EditWork,
         work: EditWork,
+        on_text: bool,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
         // No host-visible changes, history or clock boundaries before acceptance.
         accept(&edit).map_err(EditorError::Persistence)?;
         let before_selection = self.selection;
+        let anchors = on_text.then(|| {
+            (
+                self.projection.source_bounds(before_selection.start.0).1,
+                self.projection.source_bounds(before_selection.end.0).0,
+            )
+        });
         let (before_source, before_source_work) = self.capture_history_selection();
         let before_affinity = self.affinity;
         let before_formats = self.pending_formats.clone();
@@ -206,7 +213,19 @@ impl EditorSession {
         accumulate_planning_work(&mut change.work, guard_validation);
         accumulate_planning_work(&mut change.work, work);
         change.work.materialized_source_bytes += edit.inserted.len();
-        self.selection = before_selection;
+        self.selection = anchors.map_or(before_selection, |(start, end)| {
+            // The same source text, moved by the edit; a revealed definition
+            // may have shifted it on screen.
+            let moved = |at: usize| match at {
+                at if at <= edit.range.start.0 => at,
+                at if at >= edit.range.end.0 => at + edit.inserted.len() - edit.removed.len(),
+                _ => edit.range.start.0 + edit.inserted.len(),
+            };
+            DisplayRange {
+                start: DisplayOffset(self.projection.display_at(moved(start))),
+                end: DisplayOffset(self.projection.display_at(moved(end))),
+            }
+        });
         self.pending_formats = None;
         change.selection = self.selection;
         change.affinity = self.affinity;

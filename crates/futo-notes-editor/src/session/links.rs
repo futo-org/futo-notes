@@ -99,12 +99,15 @@ impl EditorSession {
         // cell; anywhere else in a table it would break the row.
         let in_cell = if self.in_table_cell(range) {
             true
-        } else if self.inspect_tables(expected, range)?.is_empty() {
-            false
-        } else if label.is_none() && range.start != range.end {
-            return self.set_link_bodies(expected, range, destination, accept);
         } else {
-            return Ok(None);
+            let tables = self.tables_touching(expected, range)?;
+            if tables.is_empty() {
+                false
+            } else if label.is_none() && range.start != range.end {
+                return self.set_link_bodies(expected, range, destination, &tables, accept);
+            } else {
+                return Ok(None);
+            }
         };
         self.set_link_in_scope(expected, range, label, destination, in_cell, accept)
     }
@@ -178,12 +181,7 @@ impl EditorSession {
             },
             &plan.inserted,
         )?;
-        if edit.removed == edit.inserted
-            || in_cell
-                && (crate::table::pipe_count(&edit.removed)
-                    != crate::table::pipe_count(&edit.inserted)
-                    || edit.inserted.contains(['\r', '\n']))
-        {
+        if edit.removed == edit.inserted || in_cell && !self.edit_keeps_tables(&edit) {
             return Ok(None);
         }
         let before_links = self.projection.pending_for_source_edit(edit.range);

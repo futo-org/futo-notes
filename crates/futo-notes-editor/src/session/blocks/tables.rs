@@ -12,6 +12,7 @@ use std::ops::Range;
 mod differential;
 mod input;
 mod keys;
+mod link_guard;
 
 struct Window {
     base: usize,

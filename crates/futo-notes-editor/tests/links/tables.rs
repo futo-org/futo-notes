@@ -187,3 +187,83 @@ fn a_label_edit_across_cells_changes_nothing() {
     assert!(changed.is_none());
     assert_eq!(session.source_text(), ONE);
 }
+
+/// The command changes nothing or leaves every table's cells as they were
+/// when the saved source is read again.
+fn assert_keeps_tables(source: &str, at: (usize, usize), destination: &str) {
+    let before = shape(&EditorSession::open(source));
+    let mut session = EditorSession::open(source);
+    let at = range(at.0, at.1);
+    session.select(Revision(0), at).unwrap();
+    let result = session.set_link(Revision(0), at, destination, &mut |_| Ok(()));
+    if let Ok(Some(_)) = result {
+        let after = session.source_text();
+        assert_eq!(
+            shape(&EditorSession::open(&after)),
+            before,
+            "{source:?} -> {after:?}"
+        );
+    } else {
+        assert_eq!(session.source_text(), source);
+    }
+}
+
+#[test]
+fn a_delimiter_row_the_body_walk_reads_as_a_list_item_is_left_alone() {
+    for (source, at) in [
+        ("a | b\n- | -\nc | d", (0, 15)),
+        ("a | b\n- | -\nc | d", (4, 8)),
+        ("| a | b |\n- | -\n| c | d |", (0, 23)),
+        ("intro\n\na | b\n- | -\nc | d", (0, 22)),
+    ] {
+        assert_refused(source, at);
+    }
+}
+
+#[test]
+fn a_pipeless_row_never_takes_a_link_that_spans_rows_or_a_pipe() {
+    let source = "| a |\n| - |\nb\nc\n";
+    assert_refused(source, (12, 15));
+    assert_keeps_tables("| a | b |\n| - | - |\nc d\n\nafter", (22, 30), "x|y");
+    assert_keeps_tables("| a | b |\n| - | - |\nc d\n\nafter", (20, 30), "x|y");
+}
+
+#[test]
+fn an_edit_that_unescapes_a_kept_pipe_changes_nothing() {
+    let source = "| [a](<https://x.y/a\\|b>) | c |\n| - | - |\n";
+    let mut session = EditorSession::open(source);
+    session.select(Revision(0), range(0, 20)).unwrap();
+    let changed = session
+        .set_link(
+            Revision(0),
+            range(0, 20),
+            "https://x.y/c|b",
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    assert!(changed.is_none());
+    assert_eq!(session.source_text(), source);
+}
+
+#[test]
+fn the_selection_keeps_its_text_when_a_definition_is_revealed_above_it() {
+    let source = "[id]: /x\n\n| [a][id] |\n| - |";
+    let mut session = EditorSession::open(source);
+    let (before, at) = (session.display_text(), range(0, 11));
+    session.select(Revision(0), at).unwrap();
+    let text = &before[0..11];
+    let change = session
+        .set_link(Revision(0), at, "/new", &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    let selected = session.selection();
+    assert_eq!(selected, range(10, 21));
+    assert_eq!(change.selection, selected);
+    assert_eq!(
+        &session.display_text()[selected.start.0..selected.end.0],
+        text
+    );
+    session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(session.source_text(), source);
+    assert_eq!(session.selection(), at);
+}
