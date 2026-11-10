@@ -88,6 +88,32 @@
             }
         }
 
+        /// A pasted Markdown link is a link, not its characters: at a paragraph's start, inside it,
+        /// at a heading's start and after a collapsed Bold.
+        @Test func aPastedMarkdownLinkBecomesALink() throws {
+            for (before, at, bold) in [
+                ("plain text", 0, false), ("plain text", 6, false), ("# Heading one", 0, false),
+                ("Heading one", 0, true),
+            ] {
+                let h = harness(before)
+                h.controller.installToolbar(localization: Localization.system())
+                h.select(at, at)
+                if bold {
+                    h.controller.toolbar(
+                        ToolbarSpec.groups.flatMap { $0 }.first { $0.id == "bold" }!)
+                }
+                UIPasteboard.general.string = "[l](https://e.x)"
+                h.tv.paste(nil)
+                #expect(!h.display.contains("["), "pasted as text: \(h.source.debugDescription)")
+                #expect(h.source.contains("[l](https://e.x)"), "\(h.source.debugDescription)")
+                #expect(
+                    h.controller.storage.attribute(.tfLinkURL, at: at, effectiveRange: nil)
+                        as? String
+                        == "https://e.x", "no link at \(at) in \(h.source.debugDescription)")
+                #expect(h.controller.divergences.isEmpty && h.controller.recoveries.isEmpty)
+            }
+        }
+
         /// The harness's vault also holds a note `Other`, so a wikilink to it resolves.
         private func harness(_ source: String) -> TextFirstHarness {
             let h = TextFirstHarness(source)

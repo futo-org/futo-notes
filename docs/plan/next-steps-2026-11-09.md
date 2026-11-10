@@ -37,6 +37,7 @@ This picks up the work from the 2026-11-06 to 11-09 sessions. Read it top to bot
   - A schemeless destination resolves as a note.
   - The link prompt adds `https://` to web-looking input, unless a note by that name exists. Notes win.
 - **Image tap:** a plain tap puts a collapsed caret after the image, drawn at its right edge. Long-press or drag selects the image. See `mobile/images.md` line 4.
+- **Paste:** a pasted Markdown link becomes a link, not its characters (decided 2026-11-09). Main's engine already does this; `ios-text-first` has it since main was merged in on 2026-11-09, and its engine crates now equal main's (`TextFirstLinkTests.aPastedMarkdownLinkBecomesALink`).
 - **Quote-keep:** a list command inside a quote keeps the quote (`> x` → `> - x`).
 - **120Hz** (`CADisableMinimumFrameDurationOnPhone`) stays, but moves out into its own small MR.
 - **Dropped:** the save-lock, store-reset-ends-sessions and expected-id-rename engine work. Revisit only if typing stalls during sync are actually seen.
@@ -64,13 +65,13 @@ This picks up the work from the 2026-11-06 to 11-09 sessions. Read it top to bot
 - [ ] Backspace on the blank line after a closing fence errors.
 - Refusals the iOS random input suite found (2026-11-09). Each is a named known-issue row in `apps/ios/Tests/Editor/TextFirst/TextFirstRandomInputTests.swift` (`RandomInputRows`), which turns red once the engine fixes it. The bytes below reproduce in plain `EditorSession` unless marked "iOS only".
   - [ ] Replacing or deleting a selection that crosses into or out of a code block is always refused, and one from a heading or paragraph into a bullet or numbered list about half the time. Typing, paste, Enter, a composition and Backspace over such a selection all hit it, so the key is dropped. Spec: `interpretation-and-input.md:22`. Repro: the suite's note, display UTF-16 `[71,176)` (from `note]].` in the intro to `let ` in the code block), then type `d`; or `[69,108)`, from the intro into the second bullet.
-  - [ ] Some pastes are refused: `[l](https://e.x)` pasted at display 0 of `Heading one\n` after a collapsed Bold toggle (works mid-paragraph); the same link at display 13 of `# Heading **hel***lo*second\n`; and `line1\nline2` pasted at display 1 of `# [l](https://e.x)Heading\n`.
+  - [ ] A multi-line paste at the end of a link inside a heading is refused: `line1\nline2` pasted at display 1 of `# [l](https://e.x)Heading\n`. (The link-after-Bold and heading-span link pastes are fixed on main.)
   - [ ] Backspace at a caret is refused at a code block's first line when a blank line is directly above its opening fence: `para\n\n```\ncode\n```\n`, display 6. Also on a line that an Enter split out of a link: `Intro a [l\n ](https://example.com)a quote\n> second line\n`, display 10.
-  - [ ] A key, Enter or dictation at a caret is refused (iOS only). Seen in a task or numbered item holding a pasted code block or quote (toolbar Task list on the first line, paste ```` ```\ncode\n``` ````, Enter), and after `1. ` was typed over a selection, then dictation.
+  - [ ] A key, Enter or dictation at a caret is refused (iOS only). Seen in a numbered item holding a pasted quote (toolbar Numbered list on the first line, paste `> q`, Backspace, Enter), and after `1. ` was typed over a selection, then dictation. (The task item holding a pasted code block is fixed on main.)
   - [ ] The engine answers `InvalidRange` for valid ranges: `- a\n- b` pasted at display 203 of the suite's note (the start of the last table row); `plain` pasted at display 17 of `| a |\n| - |\n| b |Heading one\n\nx\n`; Enter over display bytes `[2,4)` (`" \n"`) of `1. é \nIntro with x\n`.
   - [ ] Replacing or deleting text inside one line is refused: a word replacement, or a key or Backspace over a single-line selection (iOS only; seeds 414, 453, 481 at 150 operations). One case, below a task item holding a pasted code block: source `- [ ] \n- [ ] \n- [ ] ```\n      code\n      ```\n      Heading one\n\nIntro with **bold**…`, replace display `[48,52)` with `hello`.
   - [ ] A composition committed at a caret after an undo is refused (iOS only, 9 operations; the row has them).
-  - Also seen while triaging (not a refusal; needs a product call): a pasted Markdown link lands as escaped literal text (`[l](https://e.x)` at the start of a heading saves `# \[l](https://e.x)Heading one`), though `clipboard.md:5` says paste reads plain text as Markdown. Mid-paragraph with Bold pending, the letter before it was respelled as `&#110;`.
+  - Seen on main while checking pastes (source churn, the display is right): a link pasted after a collapsed Bold at a line start saves `**[l](https://e.x)**&#72;eading one`, and one beside a heading's spans respells `**hel**` as `__he&#108;__`.
 
 ### 4. File as ONE issue (rare-shape engine bugs on main, each with its repro bytes)
 - A link next to a whitespace-only code span loses formatting: `"\n\` \`\ncd"` with link `[0,4)`.

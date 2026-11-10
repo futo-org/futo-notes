@@ -56,12 +56,14 @@
                 name: "typing over a selection that ends inside a code block",
                 ops: [.input(.select(71, 176), .keyboard), .input(.insert("d"), .keyboard)],
                 knownIssue: crossBlock),
+            // Fixed by main's engine (merged into ios-text-first 2026-11-09).
             RandomInputRow(
                 name: "pasting a link after a collapsed Bold at a line start",
-                ops: [.tool("bold"), .paste("[l](https://e.x)")], knownIssue: paste),
+                ops: [.tool("bold"), .paste("[l](https://e.x)")]),
+            // Fixed by main's engine (merged into ios-text-first 2026-11-09).
             RandomInputRow(
                 name: "pasting two lines right after a pasted link",
-                ops: [.paste("[l](https://e.x)"), .paste("line1\nline2")], knownIssue: paste),
+                ops: [.paste("[l](https://e.x)"), .paste("line1\nline2")]),
             RandomInputRow(
                 name: "Backspace at a code block's first line below a blank line",
                 ops: [.enter, .tool("code-block"), .input(.backspace, .keyboard)],
@@ -73,10 +75,10 @@
                     .input(.insert(" "), .keyboard), .input(.backspace, .keyboard),
                 ],
                 knownIssue: backspace),
+            // Fixed by main's engine (merged into ios-text-first 2026-11-09).
             RandomInputRow(
                 name: "Enter in a task item holding a pasted code block",
-                ops: [.tool("task-list"), .paste("```\ncode\n```"), .enter],
-                knownIssue: atCaret),
+                ops: [.tool("task-list"), .paste("```\ncode\n```"), .enter]),
             RandomInputRow(
                 name: "Enter after Backspace in a numbered item holding a pasted quote",
                 ops: [

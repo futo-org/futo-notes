@@ -172,6 +172,11 @@ Milestone notes M7 and M8: [ios-text-first/notes-m7-m8.md](ios-text-first/notes-
   at a caret in a list item holding a pasted block; replacing or deleting inside one line; `InvalidRange`
   for valid ranges; a composition committed after an undo (iOS only).
 
+- Merged origin/main (86573c3f8) into the branch, 2026-11-09: a pasted Markdown link is now a link
+  (Justin's call; main's engine already did it). The engine crates now equal main's: the branch's
+  engine work was all on main, and `empty_list_body` was dropped as main did (3e5f2acb3, not needed
+  after !604's parser patch). Three known-issue rows turned into plain regression rows.
+
 ## Deferred architecture work
 
 Moved from `docs/plan/ios-text-first-architecture.md` (written 2026-11-09 at `d4ec4cfe2`) when the input safety net landed.
