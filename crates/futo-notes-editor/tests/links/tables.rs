@@ -209,21 +209,38 @@ fn assert_keeps_tables(source: &str, at: (usize, usize), destination: &str) {
 }
 
 #[test]
-fn a_delimiter_row_the_body_walk_reads_as_a_list_item_is_left_alone() {
-    for (source, at) in [
-        ("a | b\n- | -\nc | d", (0, 15)),
-        ("a | b\n- | -\nc | d", (4, 8)),
-        ("| a | b |\n- | -\n| c | d |", (0, 23)),
-        ("intro\n\na | b\n- | -\nc | d", (0, 22)),
-    ] {
-        assert_refused(source, at);
-    }
+fn a_delimiter_row_the_body_walk_reads_as_a_list_item_links_each_cell() {
+    let (a, b) = ("[a](<https://x.y>)", "[b](<https://x.y>)");
+    let (c, d) = ("[c](<https://x.y>)", "[d](<https://x.y>)");
+    assert_links(
+        "a | b\n- | -\nc | d",
+        (0, 15),
+        &format!("{a} | {b}\n- | -\n{c} | {d}"),
+    );
+    assert_links(
+        "a | b\n- | -\nc | d",
+        (4, 8),
+        &format!("a | {b}\n- | -\nc | d"),
+    );
+    assert_links(
+        "| a | b |\n- | -\n| c | d |",
+        (0, 23),
+        &format!("| {a} | {b} |\n- | -\n| {c} | {d} |"),
+    );
+    assert_links(
+        "intro\n\na | b\n- | -\nc | d",
+        (0, 22),
+        &format!("[intro](<https://x.y>)\n\n{a} | {b}\n- | -\n{c} | {d}"),
+    );
 }
 
 #[test]
-fn a_pipeless_row_never_takes_a_link_that_spans_rows_or_a_pipe() {
-    let source = "| a |\n| - |\nb\nc\n";
-    assert_refused(source, (12, 15));
+fn a_pipeless_row_links_each_row_never_across_rows_or_a_pipe() {
+    assert_links(
+        "| a |\n| - |\nb\nc\n",
+        (12, 15),
+        "| a |\n| - |\n[b](<https://x.y>)\n[c](<https://x.y>)\n",
+    );
     assert_keeps_tables("| a | b |\n| - | - |\nc d\n\nafter", (22, 30), "x|y");
     assert_keeps_tables("| a | b |\n| - | - |\nc d\n\nafter", (20, 30), "x|y");
 }

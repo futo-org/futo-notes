@@ -18,7 +18,18 @@ pub(super) struct Body {
 pub(super) struct Bodies {
     /// The selection touches more than one body.
     pub multi: bool,
+    /// The selection is not inside one cell of a table it touches (it runs
+    /// over a pipe, a delimiter row or a row boundary): the raw selection
+    /// must not be toggled as one run, whatever the body count.
+    pub straddles: bool,
     pub bodies: Vec<Body>,
+}
+
+impl Bodies {
+    /// Toggle each body rather than the selection as one run.
+    pub fn per_body(&self) -> bool {
+        self.multi || self.straddles
+    }
 }
 
 /// Whether `line` continues the paragraph `previous` holds (a soft line
@@ -40,17 +51,6 @@ struct Placed {
     /// Holds no inline body within the selection.
     skip: bool,
     trimmed: Option<DisplayRange>,
-    /// A root paragraph line with a pipe: it may be a table row.
-    pipe: bool,
-}
-
-/// Only root paragraph text can be a table row.
-fn table_candidate(line: &BlockLine) -> bool {
-    line.paragraph_text
-        && line.heading == 0
-        && line.quote_depth == 0
-        && line.list.is_none()
-        && !line.in_list
 }
 
 /// `a..z` without its edge whitespace; `None` when nothing is left.
@@ -74,6 +74,16 @@ impl EditorSession {
         self.bodies_in(range, &self.projection.format_block_lines(range))
     }
 
+    /// The display offset where the nonblank lines holding `at` begin.
+    fn run_start(&self, at: usize) -> usize {
+        let display = &self.projection.display;
+        let mut line = display.byte_to_line(at);
+        while line > 0 && !display.line(line - 1).to_string().trim().is_empty() {
+            line -= 1;
+        }
+        display.line_to_byte(line)
+    }
+
     /// [`Self::format_bodies`] over `range`'s already-read format lines.
     pub(super) fn bodies_in(&self, range: DisplayRange, lines: &[BlockLine]) -> Bodies {
         let (from, to) = (range.start.0, range.end.0);
@@ -94,27 +104,30 @@ impl EditorSession {
                 } else {
                     trimmed(projection, a, z)
                 },
-                pipe: !skip
-                    && table_candidate(line)
-                    && projection
-                        .display
-                        .byte_slice(start..end)
-                        .chars()
-                        .any(|ch| ch == '|'),
             }
         });
         // Trimmed selected line ranges per body, and whether it is a cell.
         let mut groups: Vec<(Vec<Option<DisplayRange>>, bool)> = Vec::new();
         let mut previous: Option<&BlockLine> = None;
-        let mut table: Option<TableDescription> = None;
+        let mut straddles = false;
+        // Every root table the range touches: a line inside one is a table
+        // line whatever the block walk reads it as (a delimiter row starting
+        // `- ` is a list item there, a row without outer pipes a paragraph).
+        // The range may start mid-table, where the block walk sees only list
+        // or paragraph lines: read from the start of the nonblank run.
+        let tables = self
+            .inspect_tables(self.revision, span(self.run_start(from), to))
+            .unwrap_or_default();
         for (line, placed) in lines.iter().zip(placed) {
             if placed.skip {
                 previous = None;
                 continue;
             }
-            if let Some(cells) =
-                self.table_cells(line, placed.start, placed.end, placed.pipe, &mut table)
-            {
+            if let Some(cells) = table_cells(&tables, placed.start, placed.end) {
+                let (a, z) = (placed.start.max(from), placed.end.min(to));
+                straddles |= !cells
+                    .iter()
+                    .any(|cell| cell.start.0 <= a && z <= cell.end.0);
                 for cell in cells {
                     let (a, z) = (cell.start.0.max(from), cell.end.0.min(to));
                     if a < z {
@@ -144,42 +157,24 @@ impl EditorSession {
                 })
             })
             .collect();
-        Bodies { multi, bodies }
+        Bodies {
+            multi,
+            straddles,
+            bodies,
+        }
     }
+}
 
-    /// The cell contents of a root table row `line` (display `start..end`),
-    /// or `None` when it is not a table line. A delimiter row has no cells.
-    /// One table answers each of its following rows.
-    fn table_cells(
-        &self,
-        line: &BlockLine,
-        start: usize,
-        end: usize,
-        pipe: bool,
-        table: &mut Option<TableDescription>,
-    ) -> Option<Vec<DisplayRange>> {
-        if !table_candidate(line) {
-            return None;
-        }
-        let within =
-            |table: &TableDescription| table.display.start.0 <= start && end <= table.display.end.0;
-        if !table.as_ref().is_some_and(within) {
-            if !pipe {
-                return None;
-            }
-            *table = self.inspect_table(self.revision, span(start, start)).ok()?;
-        }
-        let found = table.as_ref().filter(|table| within(table))?;
-        if found
-            .delimiter_line
-            .is_some_and(|line| line.start.0 <= start && start <= line.end.0)
-        {
-            return Some(Vec::new());
-        }
-        let row = found
-            .row_lines
-            .iter()
-            .position(|line| line.start.0 <= start && start <= line.end.0)?;
-        Some(found.rows[row].iter().map(|cell| cell.content).collect())
+/// The cell contents of the table row at display `start..end`, or `None`
+/// when it is in no table. A delimiter row has no cells.
+fn table_cells(tables: &[TableDescription], start: usize, end: usize) -> Option<Vec<DisplayRange>> {
+    let table = tables
+        .iter()
+        .find(|table| table.display.start.0 <= start && end <= table.display.end.0)?;
+    let at = |line: &DisplayRange| line.start.0 <= start && start <= line.end.0;
+    if table.delimiter_line.as_ref().is_some_and(at) {
+        return Some(Vec::new());
     }
+    let row = table.row_lines.iter().position(at)?;
+    Some(table.rows[row].iter().map(|cell| cell.content).collect())
 }

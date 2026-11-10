@@ -37,8 +37,13 @@ impl EditorSession {
             self.typing = None;
             return Ok(committed);
         }
-        let Bodies { multi, bodies } = self.format_bodies(self.selection);
-        if multi {
+        let found = self.format_bodies(self.selection);
+        let (per_body, bodies) = (found.per_body(), found.bodies);
+        if per_body {
+            // Only pipes, delimiter cells or spaces selected: nothing to format.
+            if bodies.is_empty() {
+                return Ok(committed);
+            }
             return self
                 .toggle_bodies(expected, format, &bodies, accept)
                 .map(Some);
@@ -126,8 +131,10 @@ impl EditorSession {
         range: DisplayRange,
         lines: &[crate::inline::blocks::BlockLine],
     ) -> Vec<InlineFormat> {
-        let Bodies { multi, bodies } = self.bodies_in(range, lines);
-        if !multi {
+        let found = self.bodies_in(range, lines);
+        let per_body = found.per_body();
+        let bodies = found.bodies;
+        if !per_body {
             return self.projection.selection_formats(range);
         }
         let projection = &self.projection;
