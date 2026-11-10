@@ -73,30 +73,39 @@ impl EditorSession {
             && range.end == self.selection.end)
             .then(|| self.pending_formats.clone())
             .flatten();
+        let before = (!self.context.staged).then(|| self.before_input());
         let (mut change, targets, caret) = if replacements.is_empty() {
             (None, targets.to_vec(), range.end.0)
         } else {
             let mut targets = targets.to_vec();
             targets.push(range.start.0 + text.len());
-            let shown = crate::inline::Expected::Replaced(vec![(
-                range.start.0..range.end.0,
-                text.to_owned(),
-            )]);
-            let (change, mut targets) = self.checked_input(shown, accept, |session, accept| {
-                session.replace_runs(
-                    expected,
-                    range,
-                    text,
-                    &replacements,
-                    &targets,
-                    action,
-                    accept,
-                )
-            })?;
+            let shown = || {
+                crate::inline::Expected::Replaced(vec![(
+                    range.start.0..range.end.0,
+                    text.to_owned(),
+                )])
+            };
+            let (change, mut targets) =
+                self.continuing_written(range, accept, |session, accept| {
+                    session.checked_input(shown(), accept, |session, accept| {
+                        session.replace_runs(
+                            expected,
+                            range,
+                            text,
+                            &replacements,
+                            &targets,
+                            action,
+                            accept,
+                        )
+                    })
+                })?;
             let caret = targets.pop().unwrap();
             (Some(change), targets, caret)
         };
         self.finish_os_selection(caret, carried, change.as_mut());
+        if let Some(before) = before {
+            self.track_written(before);
+        }
         Ok((change, targets))
     }
     /// The text-service runs, as before repairs. Refused, the input is

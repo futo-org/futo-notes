@@ -376,23 +376,21 @@ impl EditorSession {
             .projection
             .pending_links(before_links.after_window(&edit));
         change.work.link_metadata_items += before_links.work + after_links.work;
-        self.undo.push(HistoryGroup {
-            entries: vec![HistoryEntry {
-                before_source,
-                after_source,
-                before_selection,
-                before_affinity,
-                before_formats,
-                before_links,
-                after_selection: self.selection,
-                after_affinity: self.affinity,
-                after_formats: self.pending_formats.clone(),
-                after_links,
-                range: edit.range,
-                removed: edit.removed,
-                inserted: edit.inserted,
-            }],
-        });
+        self.undo.push(HistoryGroup::new(vec![HistoryEntry {
+            before_source,
+            after_source,
+            before_selection,
+            before_affinity,
+            before_formats,
+            before_links,
+            after_selection: self.selection,
+            after_affinity: self.affinity,
+            after_formats: self.pending_formats.clone(),
+            after_links,
+            range: edit.range,
+            removed: edit.removed,
+            inserted: edit.inserted,
+        }]));
         self.redo.clear();
         self.typing = None;
         Ok((change, targets))

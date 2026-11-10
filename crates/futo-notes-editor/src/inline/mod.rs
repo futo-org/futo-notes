@@ -6,7 +6,7 @@ mod blocks_paragraph;
 mod edit;
 #[cfg(test)]
 pub(crate) use edit::last_repaired;
-pub(crate) use edit::{EditIntent, Plan, Repair, SourceCorrespondence};
+pub(crate) use edit::{EditIntent, EngineWritten, Plan, Repair, SourceCorrespondence};
 mod kept;
 pub(crate) use kept::{keeps_blocks, Expected};
 pub(crate) mod fences;
