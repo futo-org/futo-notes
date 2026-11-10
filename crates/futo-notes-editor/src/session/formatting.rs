@@ -6,6 +6,7 @@ mod at_once;
 #[cfg(test)]
 mod at_once_tests;
 mod bodies;
+mod link_bodies;
 use bodies::{Bodies, Body};
 #[cfg(test)]
 mod fuzz_tests;
@@ -178,9 +179,31 @@ impl EditorSession {
             let guard_validation = self.validate_stage_guards(&edit, window, &pending)?;
             (edit, Some(pending), guard_validation, work)
         };
+        self.commit_bodies(edit, pending, guard_validation, work, false, accept)
+    }
+
+    /// Accept a planned multi-body edit as one history action, keeping the
+    /// selection (`on_text`: the same text, wherever the edit moved it).
+    fn commit_bodies(
+        &mut self,
+        edit: SourceEdit,
+        pending: Option<crate::inline::PendingLinks>,
+        guard_validation: EditWork,
+        work: EditWork,
+        on_text: bool,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<ViewChange, EditorError> {
         // No host-visible changes, history or clock boundaries before acceptance.
         accept(&edit).map_err(EditorError::Persistence)?;
         let before_selection = self.selection;
+        let anchors = on_text.then(|| {
+            let (start, end) = (before_selection.start.0, before_selection.end.0);
+            (
+                self.projection.source_bounds(start).1,
+                self.projection.source_bounds(end).0,
+                self.projection.display_at(edit.range.start.0),
+            )
+        });
         let (before_source, before_source_work) = self.capture_history_selection();
         let before_affinity = self.affinity;
         let before_formats = self.pending_formats.clone();
@@ -192,7 +215,27 @@ impl EditorSession {
         accumulate_planning_work(&mut change.work, guard_validation);
         accumulate_planning_work(&mut change.work, work);
         change.work.materialized_source_bytes += edit.inserted.len();
-        self.selection = before_selection;
+        self.selection = anchors.map_or(before_selection, |(start, end, edit_at)| {
+            // The same text: an edge outside the edit follows its source
+            // offset (a definition revealed above shifts it on screen); one
+            // inside the rewritten span stays, moved only by that shift.
+            let (from, to) = (edit.range.start.0, edit.range.end.0);
+            let shift = self.projection.display_at(from) as isize - edit_at as isize;
+            let place = |source: usize, display: usize| {
+                DisplayOffset(if source <= from {
+                    self.projection.display_at(source)
+                } else if source >= to {
+                    self.projection
+                        .display_at(source + edit.inserted.len() - edit.removed.len())
+                } else {
+                    display.saturating_add_signed(shift)
+                })
+            };
+            DisplayRange {
+                start: place(start, before_selection.start.0),
+                end: place(end, before_selection.end.0),
+            }
+        });
         self.pending_formats = None;
         change.selection = self.selection;
         change.affinity = self.affinity;

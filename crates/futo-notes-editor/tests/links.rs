@@ -28,3 +28,5 @@ mod word_end;
 
 #[path = "links/reference_blocks.rs"]
 mod reference_blocks;
+#[path = "links/tables.rs"]
+mod tables;

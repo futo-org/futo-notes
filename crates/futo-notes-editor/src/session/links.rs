@@ -95,6 +95,35 @@ impl EditorSession {
             );
         }
         self.validate_range(range)?;
+        // Inside one table cell a link is ordinary; across cells it is one per
+        // cell; anywhere else in a table it would break the row.
+        let in_cell = if self.in_table_cell(range) {
+            true
+        } else {
+            let tables = self.tables_touching(expected, range)?;
+            if tables.is_empty() {
+                false
+            } else if label.is_none() && range.start != range.end {
+                return self.set_link_bodies(expected, range, destination, &tables, accept);
+            } else {
+                return Ok(None);
+            }
+        };
+        self.set_link_in_scope(expected, range, label, destination, in_cell, accept)
+    }
+
+    /// [`Self::set_link_label`] for a range already known to lie inside one
+    /// table cell (`in_cell`, so the edit may not change the cell's pipes) or
+    /// outside every table.
+    pub(super) fn set_link_in_scope(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        label: Option<&str>,
+        destination: &str,
+        in_cell: bool,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
         let (link, inspection_work) = self.inspect_link_with_work(expected, range)?;
         let target = link.as_ref().map_or(range, |link| link.range);
         // An unchanged plain label keeps the existing source and formatting.
@@ -152,7 +181,7 @@ impl EditorSession {
             },
             &plan.inserted,
         )?;
-        if edit.removed == edit.inserted {
+        if edit.removed == edit.inserted || in_cell && !self.edit_keeps_tables(&edit) {
             return Ok(None);
         }
         let before_links = self.projection.pending_for_source_edit(edit.range);

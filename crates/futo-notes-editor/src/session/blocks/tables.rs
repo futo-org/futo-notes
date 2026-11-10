@@ -12,6 +12,7 @@ use std::ops::Range;
 mod differential;
 mod input;
 mod keys;
+mod link_guard;
 
 struct Window {
     base: usize,
@@ -241,7 +242,7 @@ impl EditorSession {
         self.table_target(range).is_some()
     }
 
-    pub(super) fn in_table_cell(&self, range: DisplayRange) -> bool {
+    pub(in crate::session) fn in_table_cell(&self, range: DisplayRange) -> bool {
         self.table_target(range)
             .is_some_and(|(_, cell)| cell.is_some())
     }
