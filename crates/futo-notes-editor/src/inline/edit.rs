@@ -14,6 +14,7 @@ pub(super) use context::Context;
 mod selection;
 mod source;
 mod span_sweep;
+mod written;
 use super::row::SpanKind;
 use super::{
     spelling::{spell, Marker, Piece, PieceOrigin},
@@ -28,6 +29,7 @@ use ropey::Rope;
 pub(super) use selection::{cut, split_entities, Cut};
 pub(crate) use source::SourceCorrespondence;
 use std::ops::Range;
+pub(crate) use written::EngineWritten;
 
 #[derive(Clone, Copy)]
 pub(crate) enum EditIntent {
@@ -436,6 +438,8 @@ impl Projection {
         if let Some(value) = timing.literal {
             literal = imported || value;
         }
+        let plain = literal && !imported && toggle.is_none() && !speculative_block;
+        let unescaped = written::unescape(&mut changed[..insertion_index], inserted, plain);
         let mut rendered = spell(
             changed,
             guard_state,
@@ -450,6 +454,9 @@ impl Projection {
         let parsed = rendered.parsed + angle.work.parsed + completion.work.parsed;
         let guarded_words = rendered.take_guards(source_start, source_end);
         let output = rendered.text;
+        if unescaped.is_some_and(|run| !written::held(&run, &raw, &output)) {
+            return Err(EditorError::UnrepresentableFormat);
+        }
         let (sealed, seal_parsed) =
             self.sealed_candidate(source, source_start, source_end, &output);
         let caret = rendered.caret;

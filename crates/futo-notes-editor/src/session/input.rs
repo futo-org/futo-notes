@@ -107,24 +107,20 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<(ViewChange, InputMapping), EditorError> {
         let action = intent.action().ok_or(EditorError::UnrepresentableFormat)?;
-        // A lone `#` run kept as entities only while it could read as an empty
-        // heading; a typed non-space, non-`#` character ends that doubt.
-        let continued = self.speculative_continuation(range, action);
-        let (range, inserted) = match self.speculative_prefix_rewrite(range, inserted, action) {
-            Some((run, text)) => (run, std::borrow::Cow::Owned(text)),
-            None => (range, std::borrow::Cow::Borrowed(inserted)),
-        };
-        let inserted = &*inserted;
+        let typed = matches!(intent, crate::inline::EditIntent::Input(_)) && !self.context.staged;
+        let before = typed.then(|| self.before_input());
         let mut query_work = crate::inline::references::ReferenceWork::default();
-        let planned = self.replace_action_planned(
-            expected,
-            range,
-            inserted,
-            action,
-            intent,
-            accept,
-            &mut query_work,
-        );
+        let planned = self.continuing_written(range, |session| {
+            session.replace_action_planned(
+                expected,
+                range,
+                inserted,
+                action,
+                intent,
+                accept,
+                &mut query_work,
+            )
+        });
         // A typed character is never refused: when no spelling of it reads as
         // typed, its delimiters land escaped, and failing that the text lands
         // as literal source.
@@ -160,7 +156,9 @@ impl EditorSession {
         change.work.parsed_source_bytes += query_work.parsed;
         change.work.link_metadata_items += query_work.items;
         change.work.link_copied_bytes += query_work.copied;
-        self.track_speculative_prefix(continued.as_ref());
+        if let Some(before) = before {
+            self.track_written(before);
+        }
         Ok((change, mapping))
     }
 
@@ -360,9 +358,7 @@ impl EditorSession {
         if join {
             self.undo.last_mut().unwrap().entries.push(entry);
         } else {
-            self.undo.push(HistoryGroup {
-                entries: vec![entry],
-            });
+            self.undo.push(HistoryGroup::new(vec![entry]));
         }
         self.redo.clear();
     }

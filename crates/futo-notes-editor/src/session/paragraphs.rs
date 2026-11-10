@@ -53,7 +53,8 @@ impl EditorSession {
                 return self.lf_paragraph_key(expected, range, key, accept);
             }
         };
-        self.checked_input(shown, accept, |session, accept| {
+        let before = (!self.context.staged).then(|| self.before_input());
+        let change = self.checked_input(shown, accept, |session, accept| {
             // A line break takes the caret line's spelling, as pasted ones do.
             if matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter) {
                 let (at, _) = session.projection.source_bounds(range.start.0);
@@ -62,7 +63,11 @@ impl EditorSession {
                 }
             }
             session.lf_paragraph_key(expected, range, key, accept)
-        })
+        })?;
+        if let Some(before) = before {
+            self.track_written(before);
+        }
+        Ok(change)
     }
 
     /// `paragraph_key` with every line break the key writes spelled LF.

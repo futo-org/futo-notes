@@ -111,6 +111,16 @@ impl HistoryEntry {
 
 pub(crate) struct HistoryGroup {
     pub entries: Vec<HistoryEntry>,
+    /// The engine-written run (start, source bytes) before and after the group.
+    pub written: [Option<(usize, String)>; 2],
+}
+impl HistoryGroup {
+    pub fn new(entries: Vec<HistoryEntry>) -> Self {
+        Self {
+            entries,
+            written: [None, None],
+        }
+    }
 }
 /// The user input that owns a source edit, including any necessary local repair.
 pub(crate) struct HistoryInput<'a> {
