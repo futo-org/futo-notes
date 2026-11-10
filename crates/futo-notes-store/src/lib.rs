@@ -12,6 +12,7 @@ mod paths;
 mod relink;
 pub mod rename_journal;
 mod search;
+mod unportable_names;
 mod vault;
 mod vault_migration;
 mod welcome_seed;

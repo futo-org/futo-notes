@@ -169,3 +169,41 @@ fn read_existing_distinguishes_an_empty_note_from_a_missing_note() {
     assert_eq!(store.read_existing("Missing").unwrap(), None);
     assert!(store.read_existing("../outside").is_err());
 }
+
+// Crash #1816: a Linux/macOS file named `Que pasaria si: ....md` is a name the
+// note-id rules refuse (Windows-portability), so it was hidden from the list and
+// failed `invalid note id` when opened. Bootstrap renames it to its sanitized
+// name so it is a normal, syncable note; it never replaces an existing note.
+#[test]
+fn bootstrap_heals_unportable_note_names_without_losing_either_file() {
+    let root = TestRoot::new();
+    fs::create_dir(root.0.join("Docs")).unwrap();
+    fs::write(root.0.join("Recipe: ribs?.md"), "colon body").unwrap();
+    fs::write(root.0.join("Recipe ribs.md"), "already here").unwrap();
+    fs::write(root.0.join("Docs/Plan: v2.md"), "nested body").unwrap();
+    fs::write(root.0.join("fine.md"), "untouched").unwrap();
+    let store = store(&root);
+
+    let result = store.bootstrap().unwrap();
+    assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+
+    let mut ids: Vec<_> = result
+        .snapshot
+        .notes
+        .iter()
+        .map(|n| n.id.as_str())
+        .collect();
+    ids.sort_unstable();
+    assert_eq!(
+        ids,
+        ["Docs/Plan v2", "Recipe ribs", "Recipe ribs-2", "fine"]
+    );
+    assert_eq!(store.read("Recipe ribs").unwrap(), "already here");
+    assert_eq!(store.read("Recipe ribs-2").unwrap(), "colon body");
+    assert_eq!(store.read("Docs/Plan v2").unwrap(), "nested body");
+    assert!(!root.0.join("Recipe: ribs?.md").exists());
+    assert!(!root.0.join("Docs/Plan: v2.md").exists());
+
+    // Idempotent: a second launch has nothing left to heal.
+    assert_eq!(store.bootstrap().unwrap().snapshot.notes.len(), 4);
+}
