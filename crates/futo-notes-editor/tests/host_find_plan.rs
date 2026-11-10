@@ -52,18 +52,18 @@ fn the_first_press_lands_and_later_ones_advance_until_the_query_changes() {
     let rev = session.revision();
     let mut landing = FindLanding::default();
     let opened = session.find_set_query(rev, "bold").unwrap();
-    assert_eq!(landing.plan(true), FindStepPlan::Hold);
+    assert_eq!(landing.plan(true, &opened), FindStepPlan::Hold);
     assert_eq!(landing.landing(FindStepPlan::Hold, &opened), None);
-    assert_eq!(landing.plan(false), FindStepPlan::Land);
+    assert_eq!(landing.plan(false, &opened), FindStepPlan::Land);
     let first = landing.landing(FindStepPlan::Land, &opened).unwrap();
     assert_eq!(first, opened.current_range.unwrap());
-    assert_eq!(landing.plan(false), FindStepPlan::Advance);
+    assert_eq!(landing.plan(false, &opened), FindStepPlan::Advance);
     let next = session.find_step(rev, CaretDirection::Forward).unwrap();
     let second = landing.landing(FindStepPlan::Advance, &next).unwrap();
     assert_eq!(next.current, 2);
     assert_ne!(first, second);
     landing.reset();
-    assert_eq!(landing.plan(false), FindStepPlan::Land);
+    assert_eq!(landing.plan(false, &opened), FindStepPlan::Land);
 }
 
 #[test]
@@ -73,5 +73,36 @@ fn a_press_with_no_match_stays_a_first_press() {
     let mut landing = FindLanding::default();
     let none = session.find_set_query(rev, "zzz").unwrap();
     assert_eq!(landing.landing(FindStepPlan::Land, &none), None);
-    assert_eq!(landing.plan(false), FindStepPlan::Land);
+    assert_eq!(landing.plan(false, &none), FindStepPlan::Land);
+}
+
+#[test]
+fn a_first_press_with_matches_but_no_current_one_steps_to_one() {
+    // Typing inside the current match drops it from the matches until a rescan lands, leaving
+    // matches and no current one; the first press then has to step, not wait for a landing.
+    let range = |start, end| DisplayRange {
+        start: DisplayOffset(start),
+        end: DisplayOffset(end),
+    };
+    for (forward, direction, expected) in [
+        (true, CaretDirection::Forward, range(5, 8)),
+        (false, CaretDirection::Backward, range(10, 13)),
+    ] {
+        let mut session = EditorSession::open("cat\n\ncat\n\ncat\n");
+        let rev = session.revision();
+        session.find_set_query(rev, "cat").unwrap();
+        let mut accept = |_: &SourceEdit| Ok(());
+        session.replace(rev, range(1, 2), "x", &mut accept).unwrap();
+        let rev = session.revision();
+        let report = session.find_report();
+        assert_eq!((report.total, report.current), (2, 0), "forward={forward}");
+        let mut landing = FindLanding::default();
+        assert_eq!(landing.plan(false, &report), FindStepPlan::Advance);
+        let stepped = session.find_step(rev, direction).unwrap();
+        assert_eq!(
+            landing.landing(FindStepPlan::Advance, &stepped),
+            Some(expected)
+        );
+        assert_eq!(stepped.current_range, Some(expected));
+    }
 }

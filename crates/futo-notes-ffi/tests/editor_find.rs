@@ -99,3 +99,33 @@ fn find_snapshot_and_landing_give_utf16_marks_and_first_press_lands() {
         .landing
         .is_none());
 }
+
+#[test]
+fn a_first_press_after_an_edit_dropped_the_current_match_steps_to_a_match() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("h".into(), "".into(), "cat\n\ncat\n\ncat\n".into())
+        .unwrap();
+    let session = store.open_editor("h".into()).unwrap();
+    let landing = EditorFindLanding::new();
+    session.find_set_query(0, "cat".into()).unwrap();
+    // Typing inside the current match drops it until a rescan, leaving two matches and no current.
+    session
+        .replace_utf16(
+            0,
+            EditorUtf16Range { start: 1, end: 2 },
+            "x".encode_utf16().collect(),
+        )
+        .unwrap();
+    let report = session.find_report().unwrap();
+    assert_eq!((report.total, report.current), (2, 0));
+    let press = session
+        .find_step_landing(1, landing.clone(), true, false)
+        .unwrap();
+    assert_eq!(press.landing, Some(EditorByteRange { start: 5, end: 8 }));
+    assert_eq!(press.report.current, 1);
+    let next = session.find_step_landing(1, landing, true, false).unwrap();
+    assert_eq!(next.report.current, 2);
+}

@@ -503,7 +503,7 @@ impl NativeEditorSession {
     ) -> Result<EditorFindStep, EditorSessionError> {
         self.with_revision(expected, |session| {
             let mut landing = landing.inner.lock().unwrap_or_else(|e| e.into_inner());
-            let plan = landing.plan(composing);
+            let plan = landing.plan(composing, &session.find_report()?);
             let report = if plan == FindStepPlan::Advance {
                 let direction = if forward {
                     futo_notes_editor::CaretDirection::Forward
