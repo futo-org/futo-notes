@@ -52,8 +52,7 @@ fn assert_no_entity(label: &str, source: &str) {
 
 fn typed_tag(label: &str, note: &str, caret: usize, expected: &str) {
     let mut s = open_at(note, caret);
-    let states = type_chars(&mut s, "#todo");
-    eprintln!("{label}: per-keystroke sources {states:?}");
+    type_chars(&mut s, "#todo");
     assert_eq!(s.source_text(), expected, "{label}");
     assert_no_entity(label, &s.source_text());
 }
@@ -81,31 +80,26 @@ fn typed_tag_after_enter_keeps_its_hash() {
     )
     .unwrap()
     .unwrap();
-    let states = type_chars(&mut s, "#todo");
-    eprintln!("after Enter: {states:?}");
+    type_chars(&mut s, "#todo");
     assert_eq!(s.source_text(), "abc\n#todo");
     assert_no_entity("after Enter", &s.source_text());
 }
 #[test]
 fn typed_hash_then_space_is_a_heading_without_entities() {
     let mut s = open_at("abc\n", 4);
-    let states = type_chars(&mut s, "# ");
-    eprintln!("hash space: {states:?}");
+    type_chars(&mut s, "# ");
     assert_eq!(s.source_text(), "abc\n# ");
     assert_no_entity("hash space", &s.source_text());
 }
 #[test]
 fn undo_and_redo_of_a_typed_hash_leave_no_entity() {
     let mut s = open_at("abc\n", 4);
-    let typed = type_chars(&mut s, "#");
-    eprintln!("lone hash: {typed:?}");
+    type_chars(&mut s, "#");
     s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
     assert_eq!(s.source_text(), "abc\n");
     s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
-    eprintln!("after redo: {:?}", s.source_text());
     // finish the tag after the redo
-    let states = type_chars(&mut s, "todo");
-    eprintln!("finish after redo: {states:?}");
+    type_chars(&mut s, "todo");
     assert_eq!(s.source_text(), "abc\n#todo");
     assert_no_entity("redo then finish", &s.source_text());
 }
@@ -119,7 +113,6 @@ fn pasted_tag_at_a_line_start_keeps_its_hash() {
         let mut s = open_at(note, caret);
         s.paste_markdown(s.revision(), range(caret, caret), "#todo", &mut |_| Ok(()))
             .unwrap();
-        eprintln!("{label}: {:?}", s.source_text());
         assert_eq!(s.source_text(), expected, "{label}");
         assert_no_entity(label, &s.source_text());
         let _ = Revision(0);

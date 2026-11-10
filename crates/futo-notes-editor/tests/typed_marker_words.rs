@@ -84,7 +84,6 @@ fn words_at_a_line_start_save_as_typed_and_quote_marker_stays_escaped() {
         let shown = run(word);
         for (shape, source) in shown {
             let line = source.rsplit('\n').next().unwrap_or("").to_string();
-            eprintln!("{word:?} {shape}: {source:?}");
             // `>x` reads as a quote unescaped, so its escape is still needed.
             if (line.contains("&#") && *word != ">x") || line.contains('\\') {
                 bad.push(format!("{word:?} {shape}: {source:?}"));
@@ -107,7 +106,6 @@ fn tag_after_container_prefixes_saves_as_typed() {
         let _ = caret;
         s.select(s.revision(), range(end, end)).unwrap();
         type_chars(&mut s, typed);
-        eprintln!("{label}: {:?}", s.source_text());
         if s.source_text() != expected {
             bad.push(format!("{label}: {:?}", s.source_text()));
         }
@@ -120,7 +118,6 @@ fn lone_hash_then_space_at_the_caret_is_a_heading_without_entities() {
     for (note, caret) in [("", 0), ("abc\n", 4), ("abc\ndef", 4)] {
         let mut s = open_at(note, caret);
         type_chars(&mut s, "# ");
-        eprintln!("{note:?}: {:?}", s.source_text());
         assert!(!s.source_text().contains("&#"), "{:?}", s.source_text());
         type_chars(&mut s, "x");
         assert!(!s.source_text().contains("&#"), "{:?}", s.source_text());
