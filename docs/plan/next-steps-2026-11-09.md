@@ -55,7 +55,7 @@ This picks up the work from the 2026-11-06 to 11-09 sessions. Read it top to bot
 - [ ] An empty heading on the last line isn't styled.
 - [ ] A toolbar list on a quote adds a blank line on the first keystroke.
 - [ ] `sms:` is blocked by the Swift external-open guard, though the engine allows it.
-- [ ] Rotation freeze/hitch (M8 leftover).
+- [ ] Rotation freeze/hitch (M8 leftover). Also: before iOS 27 a new width loses the reader's line in a long note. CI's iOS 26 runtime put the top 51,488 characters away in `TextFirstLongNoteTests.aNewWidthKeepsTheReadersLineAtTheTop` (a known issue there before iOS 27). The pool sims are all iOS 27, so this needs an iOS 26 runtime to reproduce. The likely fix is to anchor the top character across the width change ourselves.
 - [ ] A whole-image selection's blue tint is hidden under the image (LOW).
 - [ ] Code block on a new last line below another code block (`` ```\nx\n```\n\n ``, caret at the end) draws the empty block's background 4 pt taller until the first character is typed (known-issue row in `TextFirstEmptyMarkerTests`; the engine's source is the same shape as in an empty note, which draws right).
 
