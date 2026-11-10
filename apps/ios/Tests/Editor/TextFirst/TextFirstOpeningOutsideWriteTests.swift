@@ -64,10 +64,13 @@
             var (first, second) = (stretch(one), stretch(two))
             if second.start < first.start { swap(&first, &second) }
             guard first.end < second.start else { return nil }
-            let units =
-                b[..<first.start] + first.middle + b[first.end..<second.start] + second.middle
-                + b[second.end...]
-            let merged = String(decoding: Array(units), as: UTF16.self)
+            var units: [UInt16] = []
+            units.append(contentsOf: b[..<first.start])
+            units.append(contentsOf: first.middle)
+            units.append(contentsOf: b[first.end..<second.start])
+            units.append(contentsOf: second.middle)
+            units.append(contentsOf: b[second.end...])
+            let merged = String(decoding: units, as: UTF16.self)
             // A save ends a nonempty note with a line ending (recovery.md).
             return merged.isEmpty || merged.hasSuffix("\n") ? merged : merged + "\n"
         }
