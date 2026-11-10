@@ -78,14 +78,58 @@ impl EditorSession {
         } else {
             let mut targets = targets.to_vec();
             targets.push(range.start.0 + text.len());
-            let (change, mut targets) =
-                self.replace_many_with_targets(expected, &replacements, &targets, action, accept)?;
+            let shown = crate::inline::Expected::Replaced(vec![(
+                range.start.0..range.end.0,
+                text.to_owned(),
+            )]);
+            let (change, mut targets) = self.checked_input(shown, accept, |session, accept| {
+                session.replace_runs(
+                    expected,
+                    range,
+                    text,
+                    &replacements,
+                    &targets,
+                    action,
+                    accept,
+                )
+            })?;
             let caret = targets.pop().unwrap();
             (Some(change), targets, caret)
         };
         self.finish_os_selection(caret, carried, change.as_mut());
         Ok((change, targets))
     }
+    /// The text-service runs, as before repairs. Refused, the input is
+    /// planned as one run replacing the whole range, as typing over it is,
+    /// which a code block's frame repair can keep (`inline::Repair`).
+    #[allow(clippy::too_many_arguments)]
+    fn replace_runs(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        text: &str,
+        runs: &[crate::DisplayReplacement],
+        targets: &[usize],
+        action: crate::InputAction,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<(ViewChange, Vec<usize>), EditorError> {
+        let planned = {
+            let _as_before = crate::inline::Repair::bar();
+            self.replace_many_with_targets(expected, runs, targets, action, accept)
+        };
+        match planned {
+            Err(EditorError::UnrepresentableFormat) if crate::inline::Repair::may() => {
+                crate::inline::Repair::mark();
+                let whole = crate::DisplayReplacement {
+                    range,
+                    inserted: text.to_owned(),
+                };
+                self.replace_many_with_targets(expected, &[whole], targets, action, accept)
+            }
+            other => other,
+        }
+    }
+
     pub(super) fn finish_os_selection(
         &mut self,
         caret: usize,

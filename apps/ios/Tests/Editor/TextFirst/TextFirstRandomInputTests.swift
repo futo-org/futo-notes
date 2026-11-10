@@ -83,6 +83,16 @@
             RandomInputRow(
                 name: "cutting a selection that ends inside a code block",
                 ops: [.input(.select(71, 176), .keyboard), .cut]),
+            // A key over a selection goes to the text service's replacement, which keeps a
+            // letter the selection holds ("n" of "note") as a run of its own: here the code
+            // line after the selection's end ("y") stays code (re-check R1 of !634).
+            RandomInputRow(
+                name: "typing a letter the selection holds over prose and a code line",
+                ops: [
+                    .input(.select(181, 181), .keyboard), .enter,
+                    .input(.insert("y"), .keyboard),
+                    .input(.select(71, 181), .keyboard), .input(.insert("n"), .keyboard),
+                ]),
             // Fixed by main's engine (merged into ios-text-first 2026-11-09).
             RandomInputRow(
                 name: "pasting a link after a collapsed Bold at a line start",

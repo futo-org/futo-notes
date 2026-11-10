@@ -4,7 +4,9 @@
 mod carry;
 mod context;
 mod frames;
-pub(crate) use frames::{keeps_blocks, Repair, Repaired};
+#[cfg(test)]
+pub(crate) use frames::last_repaired;
+pub(crate) use frames::Repair;
 mod insertion;
 mod plan;
 mod prefixes;
@@ -205,7 +207,6 @@ impl Projection {
             first_row.context.clone(),
         ));
         let mut typed = super::typed_angle::TypedState::current(typed_inputs);
-        let mut shown = frames::Repair::held().then(|| frames::Shown::read(&pieces));
         let expanded = split_entities(pieces, a, z);
         let (split_guard, split_work) =
             guard_state.prepare_split(&expanded, a..z, inserted, intent)?;
@@ -282,7 +283,7 @@ impl Projection {
                 }
             }
         }
-        if shown.is_some() {
+        if frames::Repair::held() {
             frames::rebalance(
                 &frames,
                 &raw,
@@ -308,9 +309,6 @@ impl Projection {
         )?;
         let imported = pasted.semantic;
         let insertion_end = changed.len();
-        if let Some(shown) = &mut shown {
-            shown.input(&changed[insertion_index..]);
-        }
         changed.extend(after);
         if let Some(owner) = deleting_guard {
             let work = guard_state.finish_deletion(&changed, owner)?;
@@ -452,13 +450,8 @@ impl Projection {
         let parsed = rendered.parsed + angle.work.parsed + completion.work.parsed;
         let guarded_words = rendered.take_guards(source_start, source_end);
         let output = rendered.text;
-        let (sealed, mut seal_parsed) =
+        let (sealed, seal_parsed) =
             self.sealed_candidate(source, source_start, source_end, &output);
-        if let Some(shown) = &shown {
-            let following = frames::following(source, source_end);
-            let new = [output.as_str(), &following];
-            seal_parsed += shown.kept(&raw, new, a, z, &self.references, &rendered.winners)?;
-        }
         let caret = rendered.caret;
         let literal = rendered.literal;
         let (mut retained, mut correspondence_work) =

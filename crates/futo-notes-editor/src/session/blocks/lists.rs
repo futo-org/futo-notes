@@ -61,25 +61,18 @@ impl EditorSession {
                 None,
                 accept,
                 |staged, local, accept| {
-                    let ((removed, change), parsed) =
-                        staged.checked_steps(local, &["\n", "\r\n"], |staged| {
-                            let removed = staged.replace_action(
-                                staged.revision(),
-                                local,
-                                "",
-                                crate::InputAction::Isolated,
-                                accept,
-                            )?;
-                            let at = staged.selection();
-                            Ok((
-                                removed,
-                                staged.paragraph_key(staged.revision(), at, key, accept)?,
-                            ))
-                        })?;
-                    let Some(mut change) = change else {
+                    let removed = staged.replace_action(
+                        staged.revision(),
+                        local,
+                        "",
+                        crate::InputAction::Isolated,
+                        accept,
+                    )?;
+                    let Some(mut change) =
+                        staged.paragraph_key(staged.revision(), staged.selection(), key, accept)?
+                    else {
                         return Ok(None);
                     };
-                    change.work.parsed_source_bytes += parsed;
                     change.work.materialized_source_bytes += removed.work.materialized_source_bytes;
                     change.work.parsed_source_bytes += removed.work.parsed_source_bytes;
 

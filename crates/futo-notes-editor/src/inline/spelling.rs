@@ -417,7 +417,6 @@ pub(super) fn spell_with_anchors(
         delimiters: url_timing::collect_delimiters(&pieces, &rendered, &mut link_metadata_items),
         anchors: mapped,
         text: rendered.text,
-        winners: rendered.winners,
         caret: rendered.caret,
         parsed,
         link_metadata_items,

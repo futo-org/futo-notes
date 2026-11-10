@@ -105,7 +105,6 @@ fn backspace_at_a_code_blocks_first_line_below_a_blank_line_acts_as_for_a_quote_
     for (note, at, expected) in [
         ("para\n\n```\ncode\n```\n", 6, "para\ncode"),
         ("para\n\n```\ncode\n```", 6, "para\ncode"),
-        ("para\n\n```\ncode\n```\ntail\n", 6, "para\ncode\ntail\n"),
         (
             "para\n\n```\ncode\nmore\n```\n",
             6,
@@ -155,6 +154,11 @@ fn edits_that_would_change_a_line_outside_the_selection_are_refused() {
             Input::Type("d"),
         ),
         ("```\ncode\n```\ntail\n", 4, 5, Input::Type("d")),
+        // R3: the paragraph after a frame that goes would become a lazy line of
+        // the joined text, two paragraphs one (next-steps 3).
+        ("para\n\n```\nab\n```\nnext line\n", 2, 7, Input::Type("d")),
+        ("para\n\n```\nab\n```\n=\n", 2, 7, Input::Type("d")),
+        ("para\n\n```\ncode\n```\ntail\n", 5, 6, Input::Backspace),
     ] {
         assert_eq!(
             checked(note, a, b, input),
@@ -200,4 +204,33 @@ fn a_paste_from_code_out_of_it_lands_as_code_and_the_block_closes_again() {
     let mut s = EditorSession::open(note);
     apply(&mut s, range(3, 19), Input::Paste("x\ny")).unwrap();
     assert_eq!(s.source_text(), "> ```\n> codx\n> ytail text\n");
+}
+
+/// iOS types over a selection with `replace_os`, whose text-service runs keep
+/// characters the typed text shares with the selection. The runs are checked
+/// as the one input they are (re-check R1, R2).
+#[test]
+fn a_text_service_replacement_is_checked_as_one_input() {
+    // R1: a run ending at a code line's end took that line's break. Planned
+    // as one run, the code block closes again after the joined text.
+    let note = "Some text\n\n```\nlet value = 1\nreturn value\n```\n";
+    let source = checked(note, 5, 24, Input::Os("e"));
+    assert_eq!(source.as_deref(), Some("Some e\n```\nreturn value\n```\n"));
+    let note = "para\n\n```\ndeep\nx\n```\n";
+    assert_eq!(
+        checked(note, 4, 10, Input::Os("d")).as_deref(),
+        Some("parad\n```\nx\n```\n")
+    );
+    // R2: two explicit runs whose result drops a line break are refused.
+    let note = "3) three\n4) four\n\n```\nlet x = 1\ny = 2\nz = 3\n```";
+    let mut s = EditorSession::open(note);
+    let run = |a, b, text: &str| DisplayReplacement {
+        range: range(a, b),
+        inserted: text.into(),
+    };
+    let runs = [run(4, 12, "d"), run(12, 21, "e")];
+    assert!(s
+        .replace_many(s.revision(), &runs, &mut |_| Ok(()))
+        .is_err());
+    assert_eq!(s.source_text(), note);
 }

@@ -20,6 +20,13 @@ pub(crate) enum Input {
     Enter,
     Backspace,
     Delete,
+    /// A text service's replacement (`replace_os`), as iOS types over a
+    /// selection; `Kept` types the selection's last letter, which the
+    /// service keeps as a run of its own.
+    Os(&'static str),
+    Kept,
+    /// Two runs (`replace_many`): the range's halves, typed `d` and `e`.
+    Many,
 }
 
 impl Input {
@@ -32,13 +39,24 @@ impl Input {
         Input::Delete,
     ];
 
-    fn shown(self) -> &'static str {
+    /// What the input shows in place of `selected`.
+    fn shown(self, selected: &str) -> String {
         match self {
-            Input::Type(text) | Input::Paste(text) | Input::Commit(text) => text,
-            Input::Enter => "\n",
-            Input::Backspace | Input::Delete => "",
+            Input::Type(text) | Input::Paste(text) | Input::Commit(text) | Input::Os(text) => {
+                text.into()
+            }
+            Input::Kept => kept(selected).into(),
+            Input::Many => "de".into(),
+            Input::Enter => "\n".into(),
+            Input::Backspace | Input::Delete => String::new(),
         }
     }
+}
+
+/// The selection's last letter or digit, else `k`.
+fn kept(selected: &str) -> String {
+    let last = selected.chars().rev().find(|ch| ch.is_alphanumeric());
+    last.unwrap_or('k').to_string()
 }
 
 pub(crate) fn apply(
@@ -65,6 +83,28 @@ pub(crate) fn apply(
         Input::Delete => s
             .paragraph_key(rev, at, ParagraphKey::Delete, accept)
             .map(drop),
+        Input::Os(_) | Input::Kept => {
+            let selected = s.display_text()[at.start.0..at.end.0].to_owned();
+            let text = input.shown(&selected);
+            s.replace_os(rev, at, &text, &[], accept).map(drop)
+        }
+        Input::Many => {
+            let shown = s.display_text();
+            let mut half = (at.start.0 + at.end.0) / 2;
+            while !shown.is_char_boundary(half) {
+                half -= 1;
+            }
+            let run = |start, end, text: &str| DisplayReplacement {
+                range: range(start, end),
+                inserted: text.into(),
+            };
+            let runs = if at.start.0 < half && half < at.end.0 {
+                vec![run(at.start.0, half, "d"), run(half, at.end.0, "e")]
+            } else {
+                vec![run(at.start.0, at.end.0, "de")]
+            };
+            s.replace_many(rev, &runs, accept).map(drop)
+        }
     }
 }
 
@@ -76,24 +116,36 @@ pub(crate) struct Kind {
     heading: u8,
     quote: u8,
     list: u8,
+    /// The line begins its paragraph, heading, item or code block.
+    starts: bool,
 }
 
 /// Each nonblank shown line's text and `Kind`.
 pub(crate) fn lines(source: &str) -> Vec<(String, Kind)> {
     let options = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
-    let mut out = Vec::new();
+    let mut out: Vec<(String, Kind)> = Vec::new();
     let mut line = String::new();
     let mut kind = Kind {
         code: false,
         heading: 0,
         quote: 0,
         list: 0,
+        starts: false,
     };
+    // The kind of the line being read, and whether a block began before it.
     let mut line_kind = kind.clone();
-    let flush = |line: &mut String, kind: &Kind, out: &mut Vec<(String, Kind)>| {
+    let mut fresh = false;
+    let mut flush = |line: &mut String, kind: &Kind, fresh: &mut bool| {
         let text = line.trim_end_matches('\r');
         if !text.trim().is_empty() {
-            out.push((text.to_owned(), kind.clone()));
+            let starts = std::mem::take(fresh);
+            out.push((
+                text.to_owned(),
+                Kind {
+                    starts,
+                    ..kind.clone()
+                },
+            ));
         }
         line.clear();
     };
@@ -111,12 +163,13 @@ pub(crate) fn lines(source: &str) -> Vec<(String, Kind)> {
                     tag,
                     Tag::Paragraph | Tag::Heading { .. } | Tag::CodeBlock(_) | Tag::Item
                 ) {
-                    flush(&mut line, &line_kind, &mut out);
+                    flush(&mut line, &line_kind, &mut fresh);
+                    fresh = true;
                 }
                 line_kind = kind.clone();
             }
             Event::End(end) => {
-                flush(&mut line, &line_kind, &mut out);
+                flush(&mut line, &line_kind, &mut fresh);
                 match end {
                     TagEnd::CodeBlock => kind.code = false,
                     TagEnd::Heading(_) => kind.heading = 0,
@@ -131,16 +184,16 @@ pub(crate) fn lines(source: &str) -> Vec<(String, Kind)> {
                 while let Some(part) = parts.next() {
                     line.push_str(part);
                     if parts.peek().is_some() {
-                        flush(&mut line, &line_kind, &mut out);
+                        flush(&mut line, &line_kind, &mut fresh);
                     }
                 }
             }
             Event::Text(text) | Event::Code(text) => line.push_str(&text),
-            Event::SoftBreak | Event::HardBreak => flush(&mut line, &line_kind, &mut out),
+            Event::SoftBreak | Event::HardBreak => flush(&mut line, &line_kind, &mut fresh),
             _ => {}
         }
     }
-    flush(&mut line, &line_kind, &mut out);
+    flush(&mut line, &line_kind, &mut fresh);
     out
 }
 
@@ -214,10 +267,10 @@ fn exactly_replaced(
         .map_or(note.len(), |end| last + end + 1);
     let crlf = note[from..to].contains("\r\n");
     assert!(
-        shown == expected(input.shown())
+        shown == expected(&input.shown(&old[a..b]))
             || input == Input::Enter && crlf && shown == expected("\r\n"),
         "{label}\nsource {source:?}\nshows {shown:?}\nexpected {:?}",
-        expected(input.shown())
+        expected(&input.shown(&old[a..b]))
     );
     let (old_lines, new_lines) = (lines(note), lines(source));
     let nonblank = |text: &str| {
@@ -235,9 +288,22 @@ fn exactly_replaced(
         let after = old[b..]
             .find('\n')
             .map_or(0, |at| nonblank(&old[b + at + 1..]));
+        // The rest of a block the input cut may begin a block of its own;
+        // a line that began one still does (two blocks never become one).
+        let split = |old: &(String, Kind), new: &(String, Kind)| {
+            old.0 == new.0
+                && Kind {
+                    starts: true,
+                    ..old.1.clone()
+                } == new.1
+        };
         let kept = before + after <= new_lines.len()
             && old_lines[..before] == new_lines[..before]
-            && old_lines[old_lines.len() - after..] == new_lines[new_lines.len() - after..];
+            && old_lines[old_lines.len() - after..]
+                .iter()
+                .zip(&new_lines[new_lines.len() - after..])
+                .enumerate()
+                .all(|(at, (old, new))| old == new || at == 0 && split(old, new));
         assert!(
             kept,
             "{label}\nsource {source:?}\nlines {old_lines:?}\nbecame {new_lines:?}"

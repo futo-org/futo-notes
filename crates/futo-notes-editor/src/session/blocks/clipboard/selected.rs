@@ -14,7 +14,6 @@ impl EditorSession {
     ) -> Result<Option<ViewChange>, EditorError> {
         let mut change =
             self.stage_block_action(expected, range, None, accept, |staged, local, accept| {
-                let repaired = crate::inline::Repaired::watch();
                 let removed = staged.replace_action(
                     staged.revision(),
                     local,
@@ -22,11 +21,6 @@ impl EditorSession {
                     crate::InputAction::Isolated,
                     accept,
                 )?;
-                // A deletion that gave a code frame an end back is not checked
-                // past the paste after it, so it is refused, as before.
-                if repaired.seen() {
-                    return Err(EditorError::UnrepresentableFormat);
-                }
                 let Some(mut pasted) = staged.paste_input(
                     staged.revision(),
                     staged.selection(),
@@ -50,7 +44,7 @@ impl EditorSession {
 
     /// The code block's paste (`fence_paste`). Text pasted over a selection
     /// from code out of it lands as code text, planned with the frame the
-    /// selection crosses (`inline::Repair`) where that reads as pasted.
+    /// selection crosses (`inline::Repair`) inside a checked paste.
     pub(super) fn code_paste(
         &mut self,
         expected: Revision,
@@ -58,7 +52,7 @@ impl EditorSession {
         text: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        if self.projection.leaves_code(range) {
+        if crate::inline::Repair::may() && self.projection.leaves_code(range) {
             let _repair = crate::inline::Repair::hold();
             match self.replace_markdown_action(expected, range, text, accept) {
                 Err(EditorError::UnrepresentableFormat) => {}
