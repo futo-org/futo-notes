@@ -27,7 +27,7 @@
             guard !closed, !engineBusy else { return }
             let expected = rev
             guard effectiveSelection.length >= Self.heavySelection else {
-                finishCommand(context, Result { try work(session, expected) })
+                finishCommand(context, Result { try work(self.session, expected) })
                 return
             }
             engineJobs += 1

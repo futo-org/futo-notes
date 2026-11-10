@@ -16,6 +16,10 @@
             /// Where the caret goes in the display text before the keys.
             let at: @Sendable (String) -> Int
             let keys: [String]
+            /// The empty item becomes a blank line right under the item, so what is typed there
+            /// continues the item (main's spelling, kept by Justin 2026-11-09; the engine writes no
+            /// separator comment): the caret sits at the item's text, where the character lands.
+            var continuesItem = false
         }
 
         private nonisolated static let textEnd: @Sendable (String) -> Int = {
@@ -42,7 +46,8 @@
                         at: textEnd, keys: ["\n", "\n"]),
                     Row(
                         name: "enter twice in a \(kind) mid-note", source: "\(line)\n\nafter",
-                        at: { ($0 as NSString).range(of: "one").upperBound }, keys: ["\n", "\n"]),
+                        at: { ($0 as NSString).range(of: "one").upperBound }, keys: ["\n", "\n"],
+                        continuesItem: kind != "quote"),
                     Row(
                         name: "backspace on an empty \(kind) alone in the note", source: marker,
                         at: { _ in 0 }, keys: [backspace]),
@@ -96,6 +101,19 @@
                 } else {
                     h.type(key)
                 }
+            }
+            if row.continuesItem {
+                let x = caretX(h)
+                #expect(x > plain + 1, "\(name): the caret is not at the item's text (\(x))")
+                _ = await h.until(0.5) { false }
+                h.type("x")
+                let typed = h.tv.position(
+                    from: h.tv.beginningOfDocument, offset: h.tv.selectedRange.location - 1)!
+                h.tv.layoutIfNeeded()
+                let landed = h.tv.caretRect(for: typed).minX
+                #expect(abs(landed - x) < 0.5, "\(name): caret at \(x), the character at \(landed)")
+                #expect(h.controller.divergences.isEmpty)
+                return
             }
             func check(_ when: String) {
                 let style = h.tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle

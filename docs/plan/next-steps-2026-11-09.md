@@ -38,6 +38,7 @@ This picks up the work from the 2026-11-06 to 11-09 sessions. Read it top to bot
   - The link prompt adds `https://` to web-looking input, unless a note by that name exists. Notes win.
 - **Image tap:** a plain tap puts a collapsed caret after the image, drawn at its right edge. Long-press or drag selects the image. See `mobile/images.md` line 4.
 - **Paste:** a pasted Markdown link becomes a link, not its characters (decided 2026-11-09). Main's engine already does this; `ios-text-first` has it since main was merged in on 2026-11-09, and its engine crates now equal main's (`TextFirstLinkTests.aPastedMarkdownLinkBecomesALink`).
+- **List exit mid-note:** keep main's spelling (decided 2026-11-09): Enter twice on an item followed by a blank line and a paragraph leaves `- one\n\n\nafter` with the caret under the item, so typing there continues the item, as in Obsidian. No separator comment is written. iOS draws the caret at the item's text (`TextFirstExitCaretTests`).
 - **Quote-keep:** a list command inside a quote keeps the quote (`> x` → `> - x`).
 - **120Hz** (`CADisableMinimumFrameDurationOnPhone`) stays, but moves out into its own small MR.
 - **Dropped:** the save-lock, store-reset-ends-sessions and expected-id-rename engine work. Revisit only if typing stalls during sync are actually seen.
@@ -56,6 +57,7 @@ This picks up the work from the 2026-11-06 to 11-09 sessions. Read it top to bot
 - [ ] `sms:` is blocked by the Swift external-open guard, though the engine allows it.
 - [ ] Rotation freeze/hitch (M8 leftover).
 - [ ] A whole-image selection's blue tint is hidden under the image (LOW).
+- [ ] Code block on a new last line below another code block (`` ```\nx\n```\n\n ``, caret at the end) draws the empty block's background 4 pt taller until the first character is typed (known-issue row in `TextFirstEmptyMarkerTests`; the engine's source is the same shape as in an empty note, which draws right).
 
 ### 3. Engine fix lane (small engine MRs to main)
 - [ ] Word completion with Bold off: `hel` → `hello` gives `**hel**lo`.
