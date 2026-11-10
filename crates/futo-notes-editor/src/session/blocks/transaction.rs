@@ -194,4 +194,28 @@ impl EditorSession {
         change.work.link_copied_bytes += plan.link_copied_bytes;
         Ok(Some(change))
     }
+
+    /// Runs `steps` on this staged session: deleting `local`, then a key rule
+    /// at the caret that leaves. When the deletion was planned with a code
+    /// frame given back (`inline::Repaired`), the key rule's result is checked
+    /// too: refused unless it `keeps_blocks` with one of `inputs` for `local`.
+    /// Also the bytes that check parsed.
+    pub(in crate::session) fn checked_steps<T>(
+        &mut self,
+        local: DisplayRange,
+        inputs: &[&str],
+        steps: impl FnOnce(&mut Self) -> Result<T, EditorError>,
+    ) -> Result<(T, usize), EditorError> {
+        let before = self.source_text();
+        let repaired = crate::inline::Repaired::watch();
+        let done = steps(self)?;
+        if !repaired.seen() {
+            return Ok((done, 0));
+        }
+        let (start, end) = (local.start.0, local.end.0);
+        match crate::inline::keeps_blocks(&before, &self.source_text(), start, end, inputs) {
+            (true, parsed) => Ok((done, parsed)),
+            (false, _) => Err(EditorError::UnrepresentableFormat),
+        }
+    }
 }

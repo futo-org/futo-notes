@@ -35,6 +35,12 @@ fn android_heading_join_keeps_existing_structural_neighbor_rules() {
         ("- item\n# title", Some("- itemtitle")),
         ("> quote\n\n# title", Some("> quote\n# title")),
         ("```\ncode\n```\n# title", Some("```\ncodetitle\n```")),
+        // Joined text is code, so a link keeps only its text: the destination
+        // leaves the source (next-steps 3, awaiting a product call).
+        (
+            "```\ncode\n```\n# title [l](https://e.x)",
+            Some("```\ncodetitle l\n```"),
+        ),
         (
             "| a | b |\n| - | - |\n| c | d |\n\n# title",
             Some("| a | b |\n| - | - |\n| c | d |\n# title"),

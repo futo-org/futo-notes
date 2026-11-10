@@ -298,16 +298,24 @@ impl EditorSession {
             transaction.apply(edit.range, &edit.inserted);
             Ok(())
         };
-        let deleted = staged.replace_action(
-            staged.revision(),
-            local,
-            "",
-            crate::InputAction::Isolated,
-            &mut capture,
-        )?;
-        let entered = staged
-            .paragraph_key(staged.revision(), staged.selection(), key, &mut capture)?
-            .unwrap();
+        let ((deleted, mut entered), parsed) =
+            staged.checked_steps(local, &["\n", "\r\n"], |staged| {
+                let deleted = staged.replace_action(
+                    staged.revision(),
+                    local,
+                    "",
+                    crate::InputAction::Isolated,
+                    &mut capture,
+                )?;
+                let at = staged.selection();
+                Ok((
+                    deleted,
+                    staged
+                        .paragraph_key(staged.revision(), at, key, &mut capture)?
+                        .unwrap(),
+                ))
+            })?;
+        entered.work.parsed_source_bytes += parsed;
         let (mut footprint, inserted) = transaction.finish();
         footprint.start.0 += window.start;
         footprint.end.0 += window.start;

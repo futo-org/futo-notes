@@ -1,108 +1,18 @@
-//! A selection that crosses a block boundary is replaced or deleted by every
-//! input kind (interpretation-and-input.md: a typed character is never
-//! refused for its block context), including into or out of a code block and
-//! into a list the text before it cannot lazily absorb.
+//! A selection that crosses a code block's boundary, into or out of it, is
+//! replaced or deleted by every input kind (interpretation-and-input.md), or
+//! refused when that would change a line outside it. Accepted, the display is
+//! the old one with the range replaced and every other line keeps its block.
 use futo_notes_editor::*;
+
+#[path = "cross_block_selection/check.rs"]
+mod check;
+use check::{apply, checked, range, Input};
 
 /// The note the iOS random input suite starts from.
 const NOTE: &str = "# Heading one\n\nIntro with **bold**, *italic*, ~~strike~~, `code`, a [link](https://example.com) and [[Other note]].\n\n## Lists\n\n- bullet one\n- bullet two\n\t- nested\n1. first\n2. second\n\n- [ ] task open\n- [x] task done\n\n> a quote\n> second line\n\n```\nlet x = 1\n```\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n![img](img.png)\n\nTail paragraph.";
 
-fn range(a: usize, b: usize) -> DisplayRange {
-    DisplayRange {
-        start: DisplayOffset(a),
-        end: DisplayOffset(b),
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-enum Input {
-    Type(&'static str),
-    Paste(&'static str),
-    Commit(&'static str),
-    Enter,
-    Backspace,
-    Delete,
-}
-
-impl Input {
-    const ALL: [Input; 6] = [
-        Input::Type("d"),
-        Input::Paste("pp"),
-        Input::Commit("kk"),
-        Input::Enter,
-        Input::Backspace,
-        Input::Delete,
-    ];
-
-    fn shown(self) -> &'static str {
-        match self {
-            Input::Type(text) | Input::Paste(text) | Input::Commit(text) => text,
-            Input::Enter => "\n",
-            Input::Backspace | Input::Delete => "",
-        }
-    }
-}
-
-fn apply(s: &mut EditorSession, at: DisplayRange, input: Input) -> Result<(), EditorError> {
-    s.select(s.revision(), at)?;
-    let rev = s.revision();
-    let accept = &mut |_: &SourceEdit| Ok(());
-    match input {
-        Input::Type(text) => s.replace(rev, at, text, accept).map(drop),
-        Input::Paste(text) => s.paste_markdown(rev, at, text, accept).map(drop),
-        Input::Commit(text) => {
-            s.compose(rev, at, text)?;
-            s.commit_composition(rev, None, accept).map(drop)
-        }
-        Input::Enter => s
-            .paragraph_key(rev, at, ParagraphKey::Enter, accept)
-            .map(drop),
-        Input::Backspace => s
-            .paragraph_key(rev, at, ParagraphKey::Backspace, accept)
-            .map(drop),
-        Input::Delete => s
-            .paragraph_key(rev, at, ParagraphKey::Delete, accept)
-            .map(drop),
-    }
-}
-
-/// A code block that ends a note hides the note's final line ending. A join
-/// into or out of such a block (or one that stops it ending the note) differs
-/// from the old display with the range replaced by that ending alone.
-fn differs_by_final_ending(note: &str, source: &str, display: &str, expected: &str) -> bool {
-    let ends_in_code = |text: &str| {
-        let lines: Vec<&str> = text.trim_end_matches(['\r', '\n']).lines().collect();
-        let fence = |line: &str| line.starts_with("```") || line.starts_with("~~~");
-        lines.iter().filter(|line| fence(line)).count() % 2 == 1
-            || lines.last().is_some_and(|line| fence(line))
-    };
-    let flat = |text: &str| text.trim_end_matches(['\r', '\n']).to_owned();
-    (ends_in_code(note) || ends_in_code(source)) && flat(display) == flat(expected)
-}
-
-/// Applies `input` over `[a, b)`: it is accepted, the display is the old one
-/// with the range replaced, a reopen shows the same, and Undo restores the
-/// exact source and selection. Returns the new source.
 fn replaced(note: &str, a: usize, b: usize, input: Input) -> String {
-    let mut s = EditorSession::open(note);
-    let old = s.display_text();
-    let label = format!("{input:?} over {:?} of {note:?}", &old[a..b]);
-    apply(&mut s, range(a, b), input).unwrap_or_else(|error| panic!("{error:?}: {label}"));
-    let source = s.source_text();
-    let expected = format!("{}{}{}", &old[..a], input.shown(), &old[b..]);
-    let shown = s.display_text();
-    if !differs_by_final_ending(note, &source, &shown, &expected) {
-        assert_eq!(shown, expected, "{label}\nsource {source:?}");
-    }
-    assert_eq!(
-        EditorSession::open(&source).display_text(),
-        shown,
-        "{label}\nreopened {source:?}"
-    );
-    s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
-    assert_eq!(s.source_text(), note, "{label}: Undo");
-    assert_eq!(s.selection(), range(a, b), "{label}: Undo selection");
-    source
+    checked(note, a, b, input).unwrap_or_else(|| panic!("refused: {input:?} [{a},{b}) of {note:?}"))
 }
 
 #[test]
@@ -113,20 +23,6 @@ fn every_input_replaces_a_selection_from_a_paragraph_into_a_code_block() {
     }
     let source = replaced(NOTE, 71, 176, Input::Type("d"));
     assert!(source.contains("[[Other dx = 1\n\n| A | B |"), "{source:?}");
-}
-
-#[test]
-fn every_input_replaces_a_selection_from_a_paragraph_into_a_list() {
-    // `[69,108)`: from the intro into the second bullet, whose nested item
-    // lost its parent and its four columns of indent.
-    for input in Input::ALL {
-        replaced(NOTE, 69, 108, input);
-    }
-    let source = replaced(NOTE, 69, 108, Input::Type("d"));
-    assert!(
-        source.contains("[[Othed\n- nested\n1. first\n2. second\n\n- [ ] task open"),
-        "{source:?}"
-    );
 }
 
 #[test]
@@ -154,21 +50,17 @@ fn text_after_a_selection_joins_the_line_it_began_on_and_code_keeps_its_lines() 
             20,
             "```\nlet dl\n```\nmore\n",
         ),
-        (
-            "```\nlet x = 1\ny = 2\n```\n\ntail",
-            4,
-            20,
-            "```\nlet dl\n```",
-        ),
-        // From one code block into another.
+        // An unclosed block at the note's end already shows that, as before.
+        ("```\nlet x = 1\ny = 2\n```\n\ntail", 4, 20, "```\nlet dl"),
+        // From one code block into another: they are one now, as before.
         (
             "```\nlet x = 1\ny = 2\n```\n\n```\nz = 3\nw = 4\n```\n",
             4,
             22,
-            "```\nlet d\n```\n```\nw = 4\n```\n",
+            "```\nlet d\nw = 4\n```\n",
         ),
         // From the end of a code line, over the frame's ending.
-        ("```\ncode\n```\ntail\n", 4, 5, "```\ncodedtail\n```\n"),
+        ("```\ncode\n```\ntail", 4, 5, "```\ncodedtail\n```"),
         // Containers keep their prefixes.
         (
             "> ```\n> let x = 1\n> y = 2\n> ```\n\ntail\n",
@@ -182,30 +74,12 @@ fn text_after_a_selection_joins_the_line_it_began_on_and_code_keeps_its_lines() 
             12,
             "tad= 1\n> ```\n> y = 2\n> z = 3\n> ```\n",
         ),
-        // Into a list: an ordered item starts at 1 under the joined text, and
-        // an item indented four columns loses that indent with its parent.
-        (
-            "para one\n\n1. first\n2. second\n3. third\n\ntail\n",
-            4,
-            14,
-            "paradt\n1. second\n3. third\n\ntail\n",
-        ),
-        (
-            "para one\n\n- bullet a\n\t- nested\n\t- n2\n- bullet b\n",
-            4,
-            16,
-            "parad a\n- nested\n- n2\n- bullet b\n",
-        ),
-        // A selection that stays inside the line's own list is untouched.
-        (
-            "1. first\n2. second\n\ntail\n",
-            3,
-            10,
-            "1. firdnd\n\ntail\n",
-        ),
     ] {
-        let source = replaced(note, a, b, Input::Type("d"));
-        assert_eq!(source, expected, "{note:?} [{a},{b})");
+        assert_eq!(
+            replaced(note, a, b, Input::Type("d")),
+            expected,
+            "{note:?} [{a},{b})"
+        );
     }
 }
 
@@ -217,15 +91,21 @@ fn a_crlf_code_block_keeps_its_line_endings() {
     let note = "```\r\nlet x\r\ny = 2\r\n```\r\n\r\ntail\r\nmore\r\n";
     let source = replaced(note, 2, 16, Input::Type("d"));
     assert_eq!(source, "```\r\nledtail\r\n```\r\nmore\r\n");
+    // A range between a CR and its LF is refused, as before: Undo could not
+    // select it again as given.
+    let note = "para\r\n\r\n```\r\na\r\nb\r\nc\r\n```\r\n";
+    assert_eq!(checked(note, 5, 12, Input::Type("d")), None);
 }
 
 #[test]
 fn backspace_at_a_code_blocks_first_line_below_a_blank_line_acts_as_for_a_quote_or_list() {
     // The deletion is the blank line's break; the block's first line joins the line
     // that was blank, as a quote's or a list item's does, and its later lines stay.
+    // A frame that goes takes the note's final line ending, hidden after it, along.
     for (note, at, expected) in [
-        ("para\n\n```\ncode\n```\n", 6, "para\ncode\n"),
+        ("para\n\n```\ncode\n```\n", 6, "para\ncode"),
         ("para\n\n```\ncode\n```", 6, "para\ncode"),
+        ("para\n\n```\ncode\n```\ntail\n", 6, "para\ncode\ntail\n"),
         (
             "para\n\n```\ncode\nmore\n```\n",
             6,
@@ -237,7 +117,87 @@ fn backspace_at_a_code_blocks_first_line_below_a_blank_line_acts_as_for_a_quote_
             "para\nquote a\n> quote b\n",
         ),
     ] {
-        let source = replaced(note, at - 1, at, Input::Backspace);
-        assert_eq!(source, expected, "{note:?}");
+        assert_eq!(
+            replaced(note, at - 1, at, Input::Backspace),
+            expected,
+            "{note:?}"
+        );
     }
+}
+
+/// The MR !634 review's repros (`mrqa-engine-artifacts/mr-634/review.md`):
+/// each is refused as before or gives the right result.
+#[test]
+fn edits_that_would_change_a_line_outside_the_selection_are_refused() {
+    for (note, a, b, input) in [
+        // H1: indented code after the joined text would read as prose.
+        ("para\n\n    a\n    b\n", 4, 7, Input::Type("d")),
+        (
+            "## head *two*\n\n    indented code\n    more code\n",
+            9,
+            10,
+            Input::Enter,
+        ),
+        (
+            "# head\n\n    indented code\n    more code\n",
+            5,
+            8,
+            Input::Backspace,
+        ),
+        // M1: Enter's list rule, after the deletion, takes item `b`'s marker.
+        ("- a\n- b\n\n```\nc\nd\n```\n", 4, 6, Input::Enter),
+        // A closed block made the note's last one cannot show its final line
+        // ending (next-steps 3).
+        (
+            "```\nlet x = 1\ny = 2\n```\n\ntail\n",
+            4,
+            20,
+            Input::Type("d"),
+        ),
+        ("```\ncode\n```\ntail\n", 4, 5, Input::Type("d")),
+    ] {
+        assert_eq!(
+            checked(note, a, b, input),
+            None,
+            "{input:?} [{a},{b}) of {note:?}"
+        );
+    }
+    // M2: the paragraph after the block stays where it is (as before).
+    let note = "- item\n  ```\n  c1\n  c2\n  ```\nplain text here\n";
+    assert_eq!(
+        checked(note, 4, 8, Input::Paste("pp")).as_deref(),
+        Some("- itemppc2\n  ```\nplain text here\n")
+    );
+}
+
+#[test]
+fn a_paste_from_code_out_of_it_lands_as_code_and_the_block_closes_again() {
+    // H4: the closer comes back after the text the paste joined, Markdown or not.
+    let note = "```\ncode one\ncode two\n```\n\ntail text\n\n# Later heading\n\n- later item\n";
+    for paste in [
+        "plain",
+        "**b**",
+        "x\ny",
+        "# h",
+        "- l1\n- l2",
+        "> q",
+        "1. one",
+    ] {
+        let source = checked(note, 3, 19, Input::Paste(paste)).unwrap();
+        assert!(
+            source.ends_with("tail text\n```\n\n# Later heading\n\n- later item\n"),
+            "{paste:?}: {source:?}"
+        );
+    }
+    // Codex P1: a block paste keeps its line on the code line, closed.
+    assert_eq!(
+        checked("```\nabc\n```\ndef", 1, 5, Input::Paste("- x")).as_deref(),
+        Some("```\na- xef\n```")
+    );
+    // A paste the planner cannot spell that way takes the code block's own
+    // rule, as before (its final line ending hides after the code: next-steps 3).
+    let note = "> ```\n> code one\n> code two\n> ```\n\ntail text\n";
+    let mut s = EditorSession::open(note);
+    apply(&mut s, range(3, 19), Input::Paste("x\ny")).unwrap();
+    assert_eq!(s.source_text(), "> ```\n> codx\n> ytail text\n");
 }

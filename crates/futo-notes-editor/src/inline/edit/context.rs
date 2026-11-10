@@ -27,9 +27,6 @@ impl Projection {
             super::Width::Line => (first, last) = self.whole_lines(first, last),
             super::Width::Paragraph => (first, last) = self.uncut_piece(source, first, last),
         }
-        if super::frames::RestartLists::held() && replacement.is_some() {
-            last = (last + 1).min(self.rows.len().saturating_sub(1));
-        }
         let (_, source_start, display_start) = self.rows.at(first);
         let (end_row, source_end, _) = self.rows.at(last);
         let source_end = source_end + end_row.source_len;

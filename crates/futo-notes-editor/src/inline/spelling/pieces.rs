@@ -41,6 +41,8 @@ pub(in crate::inline) struct Spelling {
     pub guarded_words: Option<Vec<crate::inline::guarded_words::GuardedWord>>,
     pub materialized: usize,
     pub text: String,
+    /// The reference definitions `text` declares, as a candidate parse takes them.
+    pub winners: Vec<crate::inline::references::Winner>,
     pub origins: Vec<(PieceOrigin, Range<usize>)>,
     pub delimiters: Vec<Range<usize>>,
     pub pending_links: Vec<Range<usize>>,

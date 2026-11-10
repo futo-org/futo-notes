@@ -4,7 +4,7 @@
 mod carry;
 mod context;
 mod frames;
-pub(crate) use frames::RestartLists;
+pub(crate) use frames::{keeps_blocks, Repair, Repaired};
 mod insertion;
 mod plan;
 mod prefixes;
@@ -19,6 +19,8 @@ use super::{
 };
 use crate::{Affinity, DisplayRange, EditorError, InlineFormat};
 pub(super) use carry::{carry_formats, joined_span};
+pub(super) use plan::common_prefix;
+use plan::spent;
 pub(crate) use plan::Plan;
 use ropey::Rope;
 pub(super) use selection::{cut, split_entities, Cut};
@@ -48,14 +50,6 @@ pub(super) enum Width {
     Line,
     /// The complete paragraph or list.
     Paragraph,
-}
-
-pub(super) fn common_prefix(a: &str, b: &str) -> usize {
-    a.chars()
-        .zip(b.chars())
-        .take_while(|(a, b)| a == b)
-        .map(|(c, _)| c.len_utf8())
-        .sum()
 }
 
 impl Projection {
@@ -97,6 +91,19 @@ impl Projection {
                 reuse,
             )
         };
+        // Carried formats join the span beside them where they can. When that
+        // reading cannot be spelled (a format dropped around trailing
+        // whitespace), the new text opens spans of its own.
+        let paragraph = || match plan(Width::Paragraph, true) {
+            Err(EditorError::UnrepresentableFormat) if pending.is_some() => {
+                plan(Width::Paragraph, false)
+            }
+            other => other,
+        };
+        // A repair reads the whole paragraph or list.
+        if frames::Repair::held() {
+            return frames::Repair::retry(paragraph).map(|(plan, _)| plan);
+        }
         // A cut context can be too narrow to plan (or to judge) the input:
         // plan once more against the whole line when a word seam bounds the
         // rows, then against the complete paragraph or list (#314).
@@ -130,20 +137,11 @@ impl Projection {
                 Err(_) => {}
             }
         }
-        // Carried formats join the span beside them where they can. When that
-        // reading cannot be spelled (a format dropped around trailing
-        // whitespace), the new text opens spans of its own.
-        let wide = match plan(Width::Paragraph, true) {
-            Err(EditorError::UnrepresentableFormat) if pending.is_some() => {
-                plan(Width::Paragraph, false)
-            }
-            other => other,
-        };
-        // Lines that join text before them may need respelling to stay a list.
-        let (wide, _) = match wide {
-            Err(EditorError::UnrepresentableFormat) if range.start != range.end => {
-                let _restart = RestartLists::set();
-                plan(Width::Paragraph, true)?
+        // A cut that drops one end of a code block's frame is refused; plan
+        // it again with that end given back (`frames`).
+        let (wide, _) = match paragraph() {
+            Err(EditorError::UnrepresentableFormat) if frames::may_repair(&self.display, range) => {
+                frames::Repair::retry(paragraph)?
             }
             other => other?,
         };
@@ -207,6 +205,7 @@ impl Projection {
             first_row.context.clone(),
         ));
         let mut typed = super::typed_angle::TypedState::current(typed_inputs);
+        let mut shown = frames::Repair::held().then(|| frames::Shown::read(&pieces));
         let expanded = split_entities(pieces, a, z);
         let (split_guard, split_work) =
             guard_state.prepare_split(&expanded, a..z, inserted, intent)?;
@@ -283,15 +282,16 @@ impl Projection {
                 }
             }
         }
-        frames::rebalance(
-            &frames,
-            &raw,
-            &mut before,
-            &mut after,
-            a < z,
-            source_end == source.len_bytes(),
-        );
-        frames::restart_lists(&mut after);
+        if shown.is_some() {
+            frames::rebalance(
+                &frames,
+                &raw,
+                &mut before,
+                &mut after,
+                a < z,
+                source_end == source.len_bytes(),
+            );
+        }
         let mut changed = before;
         let insertion_index = changed.len();
         let pasted = self.append_input(
@@ -308,6 +308,9 @@ impl Projection {
         )?;
         let imported = pasted.semantic;
         let insertion_end = changed.len();
+        if let Some(shown) = &mut shown {
+            shown.input(&changed[insertion_index..]);
+        }
         changed.extend(after);
         if let Some(owner) = deleting_guard {
             let work = guard_state.finish_deletion(&changed, owner)?;
@@ -449,8 +452,13 @@ impl Projection {
         let parsed = rendered.parsed + angle.work.parsed + completion.work.parsed;
         let guarded_words = rendered.take_guards(source_start, source_end);
         let output = rendered.text;
-        let (sealed, seal_parsed) =
+        let (sealed, mut seal_parsed) =
             self.sealed_candidate(source, source_start, source_end, &output);
+        if let Some(shown) = &shown {
+            let following = frames::following(source, source_end);
+            let new = [output.as_str(), &following];
+            seal_parsed += shown.kept(&raw, new, a, z, &self.references, &rendered.winners)?;
+        }
         let caret = rendered.caret;
         let literal = rendered.literal;
         let (mut retained, mut correspondence_work) =
@@ -515,17 +523,6 @@ impl Projection {
         };
         Ok((plan, sealed))
     }
-}
-
-/// `plan` charged with the work of the refused attempts before it.
-fn spent(mut plan: Plan, tried: Vec<Plan>) -> Plan {
-    for attempt in tried {
-        plan.materialized += attempt.materialized;
-        plan.parsed += attempt.parsed;
-        plan.link_metadata_items += attempt.link_metadata_items;
-        plan.link_copied_bytes += attempt.link_copied_bytes;
-    }
-    plan
 }
 
 pub(crate) fn delimiter(format: InlineFormat) -> &'static str {

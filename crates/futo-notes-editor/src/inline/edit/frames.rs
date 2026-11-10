@@ -1,11 +1,14 @@
-//! Repairs for a replacement whose selection crosses a block boundary. Text
-//! after the selection joins the line the selection began on, as it does
-//! across any block boundary, and the lines left keep their own block. For a
-//! code block that takes one end of its frame, the lines left stay code; for
-//! list items the selection's text joined above, the items are respelled so
-//! they still read as a list there.
+//! Repairs for a replacement whose selection crosses a code block's frame.
+//! Text after the selection joins the line the selection began on, as it does
+//! across any block boundary, and the code lines left stay code. The planner
+//! tries these only for input it refused without them, and accepts the result
+//! only when it shows exactly the replaced display and every line outside the
+//! selection keeps its block.
 use super::{Piece, PieceOrigin};
 use crate::inline::fences::Fence;
+use crate::inline::references::{References, Winner};
+use crate::inline::row::Row;
+use crate::EditorError;
 use std::ops::Range;
 
 fn hidden_piece(raw: String, trailing: bool) -> Piece {
@@ -86,7 +89,7 @@ pub(super) fn rebalance(
     lost.sort_by_key(|&(_, _, opener_kept)| opener_kept);
     for (frame, line, opener_kept) in lost {
         let Some((line_start, text_end, line_end)) = line else {
-            reopen(frame, raw, after, None);
+            reopen(frame, raw, after, None, false);
             continue;
         };
         if opener_kept {
@@ -120,7 +123,13 @@ pub(super) fn rebalance(
             }
         } else {
             let gone = frame.body.end..text_end;
-            reopen(frame, raw, after, Some((gone, text_end..line_end)));
+            reopen(
+                frame,
+                raw,
+                after,
+                Some((gone, text_end..line_end)),
+                ends_note,
+            );
         }
     }
 }
@@ -129,19 +138,22 @@ pub(super) fn rebalance(
 /// survive open the block again, with the lines' own container prefix; when
 /// only the end of one line survives it is text, so the frame goes too: its
 /// closer line (`frame_and_ending`, when there is one) is removed and its
-/// ending, hidden as the note's final one, shows.
+/// ending shows, unless it is the note's final one (`ends_note`): hidden
+/// after the frame, it goes with it rather than show as a new line.
 fn reopen(
     frame: &Fence,
     raw: &str,
     after: &mut Vec<Piece>,
     frame_and_ending: Option<(Range<usize>, Range<usize>)>,
+    ends_note: bool,
 ) {
     let next = after
         .iter()
         .position(|piece| within(piece, &frame.body) && piece.raw.ends_with('\n'));
     let Some(next) = next else {
         let (gone, ending) = frame_and_ending.unwrap_or((0..0, frame.separator.clone()));
-        after.retain(|piece| !within(piece, &gone));
+        let last = ends_note && ending.end == raw.len();
+        after.retain(|piece| !within(piece, &gone) && !(last && within(piece, &ending)));
         for piece in after.iter_mut().filter(|piece| within(piece, &ending)) {
             piece.display = piece.raw.clone();
         }
@@ -166,103 +178,244 @@ fn indent_or_quote(piece: &Piece) -> bool {
 }
 
 thread_local! {
-    static RESTART_LISTS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static RETRY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static REPAIRED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// While held, the lines after the text a replacement joins are respelled to
-/// read as list items there: an item indented four columns or more (its
-/// parent went with the selection) loses that indent, and an ordered one
-/// starts at 1. CommonMark reads either as a continuation of the joined
-/// text otherwise, so the item would turn into visible marker characters.
-pub(crate) struct RestartLists(bool);
+/// Held while the planner gives a fence back the frame end its cut dropped
+/// (`rebalance`) and accepts the result only as `Shown::kept` allows: in its
+/// own retry of an input it refused, or for a paste out of code.
+pub(crate) struct Repair(bool);
 
-impl RestartLists {
-    pub(crate) fn set() -> Self {
-        Self(RESTART_LISTS.with(|slot| slot.replace(true)))
+impl Repair {
+    pub(crate) fn hold() -> Self {
+        Self(RETRY.with(|slot| slot.replace(true)))
     }
 
-    /// Whether a `RestartLists` is held: the planner's context then also
-    /// holds the row after the replaced range, whose lines may need the same.
     pub(super) fn held() -> bool {
-        RESTART_LISTS.with(|slot| slot.get())
+        RETRY.with(std::cell::Cell::get)
+    }
+
+    /// `plan`, held (the planner's retry of an input it refused, or its
+    /// plan for one under a caller's hold): accepted, it is noted for
+    /// `Repaired`.
+    pub(super) fn retry<T>(plan: impl Fn() -> Result<T, EditorError>) -> Result<T, EditorError> {
+        let _held = Self::hold();
+        let planned = plan()?;
+        REPAIRED.with(|slot| slot.set(true));
+        Ok(planned)
     }
 }
 
-impl Drop for RestartLists {
+impl Drop for Repair {
     fn drop(&mut self) {
-        RESTART_LISTS.with(|slot| slot.set(self.0));
+        RETRY.with(|slot| slot.set(self.0));
     }
 }
 
-fn hidden(piece: &Piece) -> bool {
-    piece.display.is_empty() && !piece.raw.is_empty()
-}
+/// Watches for an accepted retry (`Repair`), for a key rule that takes the planned
+/// result on and must then check its own result the same way (`keeps_blocks`).
+pub(crate) struct Repaired(bool);
 
-fn indent(piece: &Piece) -> bool {
-    hidden(piece) && piece.raw.chars().all(|ch| matches!(ch, ' ' | '\t'))
-}
-
-/// Respells the lines after the first one of `after`; see `RestartLists`.
-pub(super) fn restart_lists(after: &mut Vec<Piece>) {
-    if !RestartLists::held() {
-        return;
+impl Repaired {
+    pub(crate) fn watch() -> Self {
+        Self(REPAIRED.with(|slot| slot.replace(false)))
     }
-    // The first shown line break ends the joined line; a closer's hidden
-    // frame ending does not.
-    let Some(line_end) = after
-        .iter()
-        .position(|piece| piece.raw.contains('\n') && !piece.display.is_empty())
-    else {
-        return;
-    };
-    let mut line = line_end + 1;
-    let mut removed = None;
-    // The run of lines up to the next blank one keeps its relative indents.
-    while line < after.len() && !after[line].raw.starts_with('\n') {
-        let end = line
-            + after[line..]
-                .iter()
-                .take_while(|piece| indent(piece))
-                .count();
-        let mut columns = 0usize;
-        for ch in after[line..end].iter().flat_map(|piece| piece.raw.chars()) {
-            columns += if ch == '\t' { 4 - columns % 4 } else { 1 };
-        }
-        let removed = *removed.get_or_insert(if columns >= 4 { columns } else { 0 });
-        let mut from = end;
-        if removed > 0 {
-            let spaces = " ".repeat(columns.saturating_sub(removed));
-            from = line + usize::from(!spaces.is_empty());
-            after.splice(
-                line..end,
-                (!spaces.is_empty()).then(|| hidden_piece(spaces, false)),
-            );
-        }
-        match after[from..]
+
+    pub(crate) fn seen(&self) -> bool {
+        REPAIRED.with(std::cell::Cell::get)
+    }
+}
+
+impl Drop for Repaired {
+    fn drop(&mut self) {
+        REPAIRED.with(|slot| slot.set(self.0 || slot.get()));
+    }
+}
+
+/// Whether the planner may `Repair::retry` an input over `range`: a
+/// selection, outside a retry, with neither end between a CR and its LF
+/// (Undo could not select that range again as given).
+pub(super) fn may_repair(display: &ropey::Rope, range: crate::DisplayRange) -> bool {
+    range.start != range.end
+        && !Repair::held()
+        && ![range.start.0, range.end.0].into_iter().any(|at| {
+            at > 0
+                && at < display.len_bytes()
+                && display.byte(at - 1) == b'\r'
+                && display.byte(at) == b'\n'
+        })
+}
+
+/// The context's display and reference definitions before the edit, and
+/// the display of the input planned into it.
+pub(super) struct Shown {
+    display: String,
+    winners: Vec<Winner>,
+    input: String,
+}
+
+impl Shown {
+    pub(super) fn read(pieces: &[Piece]) -> Self {
+        let winners = pieces
             .iter()
-            .position(|piece| piece.raw.contains('\n'))
-        {
-            Some(next) => line = from + next + 1,
-            None => break,
+            .filter_map(|piece| match (&piece.origin, &piece.definition) {
+                (Some(PieceOrigin::Source(range)), Some(key)) => Some(Winner {
+                    range: range.clone(),
+                    key: key.clone(),
+                }),
+                _ => None,
+            })
+            .collect();
+        Self {
+            display: pieces.iter().map(|piece| piece.display.as_str()).collect(),
+            winners,
+            input: String::new(),
         }
     }
-    let mut at = line_end + 1;
-    while after.get(at).is_some_and(|piece| {
-        hidden(piece) && piece.raw.chars().all(|ch| matches!(ch, ' ' | '\t' | '>'))
-    }) {
-        at += 1;
+
+    pub(super) fn input(&mut self, pieces: &[Piece]) {
+        self.input = pieces.iter().map(|piece| piece.display.as_str()).collect();
     }
-    let digits = after[at..]
+
+    /// `keeps_blocks` for the planner's output replacing `raw`, both read as
+    /// the candidate is and followed by the lines after the context an item
+    /// open at its end could take in (`[output, following]`). Refused
+    /// otherwise; the bytes parsed.
+    pub(super) fn kept(
+        &self,
+        raw: &str,
+        [output, following]: [&str; 2],
+        a: usize,
+        z: usize,
+        references: &std::sync::Arc<References>,
+        winners: &[Winner],
+    ) -> Result<usize, EditorError> {
+        let new = Row::candidate(&format!("{output}{following}"), references, winners);
+        let old = Row::candidate(&format!("{raw}{following}"), references, &self.winners);
+        let input = &self.input;
+        let shown = old.display.starts_with(&self.display)
+            && new.display == format!("{}{input}{}", &old.display[..a], &old.display[z..]);
+        if !shown || !kinds_kept(&old, &new, a, z) {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        Ok(new.parsed_source_bytes + old.parsed_source_bytes)
+    }
+}
+
+/// The lines after source `end` that an open list item could take in: blank
+/// or indented ones (the context ends at a blank line or the note's end).
+pub(super) fn following(source: &ropey::Rope, end: usize) -> String {
+    let mut text = String::new();
+    for line in source.byte_slice(end..).lines() {
+        let line = line.to_string();
+        if !line.trim().is_empty() && !line.starts_with([' ', '\t']) {
+            break;
+        }
+        text.push_str(&line);
+    }
+    text
+}
+
+/// Whether `after`, the source `before` became by an input over display
+/// `a..z`, shows the old display with that range replaced by one of `inputs`
+/// and keeps the block of every nonblank line before the range's first line
+/// and after its last (`Kind`). Also the bytes parsed.
+pub(crate) fn keeps_blocks(
+    before: &str,
+    after: &str,
+    a: usize,
+    z: usize,
+    inputs: &[&str],
+) -> (bool, usize) {
+    let read = |text: &str| {
+        let (references, winners, _) = References::scan(text);
+        Row::parse_with_references(text, &references, &winners)
+    };
+    let (old, new) = (read(before), read(after));
+    let shown = inputs
         .iter()
-        .take_while(|piece| hidden(piece) && piece.raw.bytes().all(|byte| byte.is_ascii_digit()))
-        .count();
-    let delimiter = after
-        .get(at + digits)
-        .is_some_and(|piece| hidden(piece) && matches!(piece.raw.as_str(), "." | ")"));
-    if digits == 0 || !delimiter || (digits == 1 && after[at].raw == "1") {
-        return;
+        .any(|input| new.display == format!("{}{input}{}", &old.display[..a], &old.display[z..]));
+    (
+        shown && kinds_kept(&old, &new, a, z),
+        old.parsed_source_bytes + new.parsed_source_bytes,
+    )
+}
+
+/// What a shown line is: code, a heading level, its quote depth and its list
+/// nesting.
+#[derive(PartialEq)]
+struct Kind {
+    code: bool,
+    heading: u8,
+    quote: usize,
+    list: Option<usize>,
+    in_list: bool,
+    html: bool,
+}
+
+/// Whether the nonblank lines of `old` before display `a`'s line and after
+/// `z`'s keep their `Kind` as the first and last lines of `new`.
+fn kinds_kept(old: &Row, new: &Row, a: usize, z: usize) -> bool {
+    let (first, last) = (
+        old.display[..a].matches('\n').count(),
+        old.display[..z].matches('\n').count(),
+    );
+    let old_lines = shown_lines(old);
+    let new_lines = shown_lines(new);
+    let before: Vec<_> = old_lines.iter().filter(|line| line.0 < first).collect();
+    let after: Vec<_> = old_lines.iter().filter(|line| line.0 > last).collect();
+    before.len() + after.len() <= new_lines.len()
+        && before
+            .iter()
+            .zip(&new_lines)
+            .all(|(old, new)| old.1 == new.1)
+        && after
+            .iter()
+            .rev()
+            .zip(new_lines.iter().rev())
+            .all(|(old, new)| old.1 == new.1)
+}
+
+/// Each nonblank shown line's index and `Kind`, from the block holding its
+/// first character.
+fn shown_lines(row: &Row) -> Vec<(usize, Kind)> {
+    let mut lines = Vec::new();
+    let mut at = 0;
+    for (index, text) in row.display.split('\n').enumerate() {
+        let start = at;
+        at += text.len() + 1;
+        if text.trim().is_empty() {
+            continue;
+        }
+        let segment = row
+            .segments
+            .partition_point(|segment| segment.display.end <= start);
+        let Some(segment) = row.segments.get(segment) else {
+            continue;
+        };
+        let source = segment.source.start
+            + if segment.identity {
+                start.saturating_sub(segment.display.start)
+            } else {
+                0
+            };
+        let block = row
+            .blocks
+            .partition_point(|block| block.source.end <= source);
+        if let Some(block) = row.blocks.get(block) {
+            lines.push((
+                index,
+                Kind {
+                    code: block.code,
+                    heading: block.heading,
+                    quote: block.quote_depth,
+                    list: block.list.as_ref().map(|list| list.depth),
+                    in_list: block.in_list,
+                    html: block.html,
+                },
+            ));
+        }
     }
-    after[at].raw = "1".into();
-    after[at].origin = None;
-    after.drain(at + 1..at + digits);
+    lines
 }

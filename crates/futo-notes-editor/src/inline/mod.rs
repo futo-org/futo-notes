@@ -4,7 +4,7 @@ mod block_queries;
 pub(crate) mod blocks;
 mod blocks_paragraph;
 mod edit;
-pub(crate) use edit::{EditIntent, Plan, SourceCorrespondence};
+pub(crate) use edit::{keeps_blocks, EditIntent, Plan, Repair, Repaired, SourceCorrespondence};
 pub(crate) mod fences;
 mod find;
 pub(crate) mod front_matter;

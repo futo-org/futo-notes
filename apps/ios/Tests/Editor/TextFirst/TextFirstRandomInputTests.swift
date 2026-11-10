@@ -48,12 +48,20 @@
                     .tool("code-block"), .input(.select(7, 44), .keyboard),
                     .input(.insert("w"), .keyboard), .enter,
                 ]),
-            // Fixed in the engine (a selection across a block boundary keeps the blocks it
-            // leaves; docs/spec/editor/portable-core/interpretation-and-input.md): into a bullet
-            // list whose nested item loses its parent, and into a code block.
             RandomInputRow(
                 name: "typing over a selection from a paragraph into a list",
-                ops: [.input(.select(69, 108), .keyboard), .input(.insert("."), .keyboard)]),
+                ops: [.input(.select(69, 108), .keyboard), .input(.insert("."), .keyboard)],
+                knownIssue: crossBlock),
+            RandomInputRow(
+                name: "Enter over a selection from a paragraph into a list",
+                ops: [.input(.select(69, 108), .keyboard), .enter],
+                knownIssue: crossBlock),
+            RandomInputRow(
+                name: "pasting over a selection from a paragraph into a list",
+                ops: [.input(.select(69, 108), .keyboard), .paste("plain")],
+                knownIssue: crossBlock),
+            // Fixed in the engine (a selection across a code block's boundary keeps the code
+            // lines it leaves; docs/spec/editor/portable-core/interpretation-and-input.md).
             RandomInputRow(
                 name: "typing over a selection that ends inside a code block",
                 ops: [.input(.select(71, 176), .keyboard), .input(.insert("d"), .keyboard)]),
@@ -75,12 +83,6 @@
             RandomInputRow(
                 name: "cutting a selection that ends inside a code block",
                 ops: [.input(.select(71, 176), .keyboard), .cut]),
-            RandomInputRow(
-                name: "Enter over a selection from a paragraph into a list",
-                ops: [.input(.select(69, 108), .keyboard), .enter]),
-            RandomInputRow(
-                name: "pasting over a selection from a paragraph into a list",
-                ops: [.input(.select(69, 108), .keyboard), .paste("plain")]),
             // Fixed by main's engine (merged into ios-text-first 2026-11-09).
             RandomInputRow(
                 name: "pasting a link after a collapsed Bold at a line start",
@@ -208,7 +210,7 @@
         }
 
         static let crossBlock =
-            "next-steps 3: a selection across blocks is still refused in rare shapes (one that starts or ends inside an inline span such as bold, italic or code, one that leaves a closed code block as the note's last block, Enter that starts in a list or quote); the code block and list shapes are fixed"
+            "next-steps 3: replacing a selection from a heading or paragraph into a list is refused about half the time, and one across a code block where the edit would change a line outside it (or leave a closed code block as the note's last block)"
         static let paste =
             "next-steps 3: some pastes are refused (a link after a collapsed Bold at a line start or beside a heading's inline spans; two lines after a link)"
         static let backspace =
