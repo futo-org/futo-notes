@@ -13,7 +13,10 @@ struct NoteListView: View {
     @EnvironmentObject private var store: NotesStore
     @EnvironmentObject private var sync: SyncManager
     /// Only to hand on to the Settings sheet, which owns the License row.
+    /// Every object Settings reads is re-injected: a sheet that lost one
+    /// crashed on iPad (crash #1839).
     @EnvironmentObject private var license: LicenseModel
+    @EnvironmentObject private var licenseStorefront: LicenseStorefront
     @Environment(\.localization) private var localization
     @State private var search = ""
     @State private var navPath: [Route] = []
@@ -127,6 +130,7 @@ struct NoteListView: View {
                     .environmentObject(sync)
                     .environmentObject(store)
                     .environmentObject(license)
+                    .environmentObject(licenseStorefront)
             }
             // Centered fullScreenCover, not a .confirmationDialog — see
             // DestructiveConfirmDialog for why (arrow-popover misanchoring).
