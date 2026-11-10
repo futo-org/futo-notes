@@ -22,8 +22,11 @@ impl EditorSession {
         let Some(line) = self.projection.block_lines(range).into_iter().next() else {
             return Ok(None);
         };
+        // An unquoted list item is already outside a quote above it: a nonempty
+        // item interrupts the quote's paragraph without a blank line.
         if line.code
             || line.heading > 0
+            || line.quote_depth == 0 && line.list.is_some()
             || line.divider
             || !self
                 .source

@@ -42,3 +42,6 @@ mod empty_list_commands;
 
 #[path = "blocks/empty_text_boundaries.rs"]
 mod empty_text_boundaries;
+
+#[path = "blocks/list_after_quote.rs"]
+mod list_after_quote;
