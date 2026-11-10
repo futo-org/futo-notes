@@ -6,6 +6,7 @@ mod at_once;
 #[cfg(test)]
 mod at_once_tests;
 mod bodies;
+mod link_bodies;
 use bodies::{Bodies, Body};
 #[cfg(test)]
 mod fuzz_tests;
@@ -178,6 +179,19 @@ impl EditorSession {
             let guard_validation = self.validate_stage_guards(&edit, window, &pending)?;
             (edit, Some(pending), guard_validation, work)
         };
+        self.commit_bodies(edit, pending, guard_validation, work, accept)
+    }
+
+    /// Accept a planned multi-body edit as one history action, keeping the
+    /// selection.
+    fn commit_bodies(
+        &mut self,
+        edit: SourceEdit,
+        pending: Option<crate::inline::PendingLinks>,
+        guard_validation: EditWork,
+        work: EditWork,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<ViewChange, EditorError> {
         // No host-visible changes, history or clock boundaries before acceptance.
         accept(&edit).map_err(EditorError::Persistence)?;
         let before_selection = self.selection;

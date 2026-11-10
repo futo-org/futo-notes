@@ -67,7 +67,7 @@ This picks up the work from the 2026-11-06 to 11-09 sessions. Read it top to bot
 - [ ] Word completion with Bold off: `hel` → `hello` gives `**hel**lo`.
 - [ ] Find: a first press with no current match but total > 0 should step to a match.
 - [ ] H4–H6 light up "paragraph" in the toolbar mapping (a one-line fix, near !594's code).
-- [ ] `set_link` over a table destroys the table. Repro: `| a |\n| - |\n| b |`. One Undo restores it.
+- [x] `set_link` over a table destroys the table. Repro: `| a |\n| - |\n| b |`. One Undo restores it.
 - [ ] Backspace on the blank line after a closing fence errors.
 - Refusals the iOS random input suite found (2026-11-09). Each is a named known-issue row in `apps/ios/Tests/Editor/TextFirst/TextFirstRandomInputTests.swift` (`RandomInputRows`), which turns red once the engine fixes it. The bytes below reproduce in plain `EditorSession` unless marked "iOS only".
   - [ ] Replacing or deleting a selection that crosses into or out of a code block is always refused, and one from a heading or paragraph into a bullet or numbered list about half the time. Typing, paste, Enter, a composition and Backspace over such a selection all hit it, so the key is dropped. Spec: `interpretation-and-input.md:22`. Repro: the suite's note, display UTF-16 `[71,176)` (from `note]].` in the intro to `let ` in the code block), then type `d`; or `[69,108)`, from the intro into the second bullet.
