@@ -41,6 +41,8 @@
         func installTapRecognizer() {
             layoutDelegate.host = self
             textView.textLayoutManager?.delegate = layoutDelegate
+            (textView.textLayoutManager?.textContentManager as? NSTextContentStorage)?.delegate =
+                imageBreakDelegate
             let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
             tap.cancelsTouchesInView = false
             tap.delegate = self

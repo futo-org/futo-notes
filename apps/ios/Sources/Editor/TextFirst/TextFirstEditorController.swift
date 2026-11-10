@@ -99,6 +99,7 @@
         let toolbarState = WebEditorToolbarState()
         var toolbarInstalled = false
         let layoutDelegate = TextFirstLayoutDelegate()
+        let imageBreakDelegate = TextFirstImageBreakDelegate()
         let imageRoot: URL
         /// The container width the table rows' kern was last set for (`tablesWidthChanged`).
         var tablesWidth: CGFloat = 0

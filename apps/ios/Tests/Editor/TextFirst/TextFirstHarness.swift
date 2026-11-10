@@ -98,6 +98,27 @@
             return fragment.textLineFragments.map { $0.typographicBounds.height }
         }
 
+        /// The visual lines of the paragraph holding UTF-16 offset `i`: the display characters each
+        /// holds (newline included) and its laid-out height. The empty line after a final newline is
+        /// left out.
+        func visualLines(at i: Int = 0) -> [(range: NSRange, text: String, height: CGFloat)] {
+            tv.layoutIfNeeded()
+            let manager = tv.textLayoutManager!
+            guard
+                let location = manager.location(manager.documentRange.location, offsetBy: i),
+                let fragment = manager.textLayoutFragment(for: location)
+            else { return [] }
+            let start = manager.offset(
+                from: manager.documentRange.location, to: fragment.rangeInElement.location)
+            let text = (tv.text ?? "") as NSString
+            return fragment.textLineFragments.filter { $0.characterRange.length > 0 }.map { line in
+                let range = NSRange(
+                    location: start + line.characterRange.location,
+                    length: line.characterRange.length)
+                return (range, text.substring(with: range), line.typographicBounds.height)
+            }
+        }
+
         /// One keyboard key: the delegate is asked first, as UIKeyboardImpl does, then UIKit inserts.
         func type(_ text: String) {
             for character in text {
