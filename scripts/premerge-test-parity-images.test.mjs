@@ -27,7 +27,7 @@ describe('pre-merge CI routing contracts: container images and Node', () => {
   it('runs every if-not-present image job on the one runner that allows its pull policy', () => {
     // Runner 55 (dind) only allows pull_policy always and refuses a job that
     // asks for if-not-present, so the image and an office-runner tag
-    // ($LINUX_RUNNER_TAG = dind_fast, or futo_notes_serial) travel together.
+    // ($LINUX_RUNNER_TAG = futo_notes_debian1, or futo_notes_serial) travel together.
     const androidImageBlock = topLevelBlock(gitlabPipeline, /^\.ci-android-image:$/m);
     expect(androidImageBlock).toMatch(/^\s+name: \$IMAGE_ANDROID$/m);
     expect(androidImageBlock).toContain('pull_policy: if-not-present');

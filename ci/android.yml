@@ -9,14 +9,12 @@
 
 build:android-native:
   stage: build
-  # Pin to the office runner via the dind_fast tag (only runner 71 has it; the
-  # DigitalOcean dind droplet has just `dind`). It keeps a warm local cargo
+  # Pin to our own runner via the futo_notes_debian1 tag (only runner 112 has
+  # it; the DigitalOcean dind droplet has just `dind`). It keeps a warm local cargo
   # cache and has far faster CPU — ~5m here vs ~88m cold on the droplet.
-  # Trade-off: every dind_fast job shares that one box and loses the droplet
-  # as failover. It runs at most five jobs at once (14 days to 2026-10-08: no
-  # sixth ever started, and a job starting as the fifth waited a median 11s
-  # vs 1-2s otherwise), and since the JavaScript jobs moved here too (`test`,
-  # test:e2e:*) those five slots are this repo's main MR bottleneck.
+  # Trade-off: every Linux job shares that one box and loses the droplet
+  # as failover. It runs two jobs at once, and since the JavaScript jobs moved
+  # here too (`test`, test:e2e:*) those slots are this repo's main MR bottleneck.
   tags:
     - $LINUX_RUNNER_TAG
   # Native verification is independent of the JavaScript suite; starting it

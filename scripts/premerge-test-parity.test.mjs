@@ -291,7 +291,7 @@ describe('pre-merge CI routing contracts', () => {
     expect(gitlabPipeline).toMatch(
       /^default:\n(?: {2}#.*\n)* {2}tags:\n {4}- \$LINUX_RUNNER_TAG$/m,
     );
-    expect(gitlabPipeline).toContain('LINUX_RUNNER_TAG: dind_fast');
+    expect(gitlabPipeline).toContain('LINUX_RUNNER_TAG: futo_notes_debian1');
     // No job names a Linux runner tag directly; the outage path (runner 55)
     // is a run-pipeline variable, not an edit.
     expect(gitlabPipeline).not.toMatch(/^ {4}- dind(_fast)?$/m);
