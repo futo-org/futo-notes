@@ -295,7 +295,7 @@ impl LocalNoteStore {
         let _gate = self.lock_gate()?;
         let _vault_mutation = vault_mutation_guard()?;
         if !may_delete()? {
-            return Ok(MutationResult::default());
+            return Ok(self.finish_mutation(Vec::new(), MutationResult::default()));
         }
         let path = paths::note_path(&self.root, id)?;
         if !path.exists() {

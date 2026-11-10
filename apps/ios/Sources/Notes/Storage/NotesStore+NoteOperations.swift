@@ -69,8 +69,9 @@ extension NotesStore {
             guard ownsDraft(ownerToken) else { return .failed }
             let mutation = try await vault.delete(id, epoch: epoch, onlyIfEmpty: onlyIfEmpty)
             applyMutation(mutation, expectedEpoch: epoch)
-            if !onlyIfEmpty || !mutation.removed.isEmpty { discardDrafts(for: id) }
-            editorDraftCoordinator.finishIdentityMutation(identity, committed: true)
+            let removed = !onlyIfEmpty || !mutation.removed.isEmpty
+            if removed { discardDrafts(for: id) }
+            editorDraftCoordinator.finishIdentityMutation(identity, committed: removed)
             onLocalChange?()
             return .committed(())
         } catch {
@@ -80,10 +81,10 @@ extension NotesStore {
         }
     }
 
-    func deleteAsync(_ id: String, ownerToken: UInt64? = nil) {
+    func deleteAsync(_ id: String, ownerToken: UInt64? = nil, onlyIfEmpty: Bool = false) {
         if let ownerToken, ownerToken <= retiredDraftTokensThrough { return }
         Task {
-            _ = await delete(id, ownerToken: ownerToken)
+            _ = await delete(id, ownerToken: ownerToken, onlyIfEmpty: onlyIfEmpty)
         }
     }
 
