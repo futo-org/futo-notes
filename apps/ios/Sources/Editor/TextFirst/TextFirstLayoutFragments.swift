@@ -19,6 +19,9 @@
         var quoteDepth = 0
         var code = false
         var divider = false
+        /// The heading level of an empty last line (0 elsewhere: a heading's own characters carry
+        /// its font), so the line starts as the heading it is.
+        var heading = 0
         var list: (depth: Int, marker: EditorListMarker, number: UInt64?, checked: Bool)?
         /// False on a row's later lines (a loose list's blank line): they indent but draw no marker.
         var showsMarker = true

@@ -125,10 +125,14 @@
         func setTrailingBlock(_ block: TextFirstBlockAttribute?) {
             guard block != nil || trailingBlock != nil else { return }
             let wasSet = trailingBlock != nil
+            let wasHeading = (trailingBlock?.heading ?? 0) > 0
             trailingBlock = block
             if block != nil {
                 _ = assertTrailingTypingAttributes()
             } else if wasSet {
+                // A line that stopped being a heading types body again (the style sync below
+                // carries only the paragraph style).
+                if wasHeading, caretIsAtEnd { textView.typingAttributes[.font] = Self.bodyFont }
                 syncEmptyLineTypingAttributes()
             }
             invalidateLastParagraph()

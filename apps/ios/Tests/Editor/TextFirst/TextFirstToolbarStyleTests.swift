@@ -156,6 +156,38 @@
             #expect(first.source.hasPrefix("Head"))
         }
 
+        // next-steps 2: an empty heading on the note's last line has no character to carry the
+        // heading's font, so the first character typed was body until the engine restyled it.
+        @Test(arguments: ["abc\n", "abc\n\n", ""])
+        func anEmptyHeadingOnTheLastLineStartsTheTypedLineAsAHeading(source: String) {
+            let h = TextFirstHarness(source)
+            h.controller.installToolbar(localization: Localization.system())
+            let end = (h.tv.text as NSString).length
+            h.select(end, end)
+            h.type("# ")
+            let typing = h.tv.typingAttributes[.font] as! UIFont
+            #expect(typing.pointSize == 28, "\(source.debugDescription): typing size")
+            #expect(typing.fontDescriptor.symbolicTraits.contains(.traitBold))
+            h.type("H")
+            let last = (h.tv.text as NSString).length - 1
+            #expect(font(h, at: last).pointSize == 28, "first character typed")
+            #expect(font(h, at: last).fontDescriptor.symbolicTraits.contains(.traitBold))
+            #expect(h.controller.divergences.isEmpty)
+        }
+
+        @Test func anEmptyHeadingOnTheLastLineGoesBackToBodyWithItsToggle() {
+            let h = TextFirstHarness("abc\n")
+            h.controller.installToolbar(localization: Localization.system())
+            h.select(4, 4)
+            tap(h, "heading-2")
+            #expect((h.tv.typingAttributes[.font] as! UIFont).pointSize == 24)
+            tap(h, "heading-2")
+            let typing = h.tv.typingAttributes[.font] as! UIFont
+            #expect(typing.pointSize == 17 && !typing.fontDescriptor.symbolicTraits.contains(.traitBold))
+            h.type("H")
+            #expect(font(h, at: 4).pointSize == 17)
+        }
+
         // Mason D1/D2: a selection across blocks lights what every body carries; code dims inline.
         @Test func selectionWideFormatsLightAndCodeDimsInlineControls() {
             let h = TextFirstHarness("**a**\n\n**b**\n\nplain")
