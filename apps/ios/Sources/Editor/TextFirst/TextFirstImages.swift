@@ -8,7 +8,9 @@
     // unit. The glyphs stay in the text but are hidden (a 0.01 pt clear font); the first glyph
     // carries a kern as wide as the image so the words after it flow past, and a baseline offset
     // as high as the image so its own line is as tall as the image (the paragraph's other lines
-    // keep their height). The bitmap itself is drawn by the layout fragment.
+    // keep their height). The bitmap itself is drawn by the layout fragment. The typesetter is
+    // shown the spelling's `!` as a character it may break before (`TextFirstImageBreakDelegate`),
+    // so a photo too wide for its line moves down alone instead of dragging the word before it.
     // A destination is only ever loaded for display; the engine never reads image files and the
     // Markdown is never rewritten.
 
@@ -45,6 +47,40 @@
         /// The size the last layout pass reserved for it.
         var size = CGSize.zero
         init(_ atom: TextFirstImageAtom) { self.atom = atom }
+    }
+
+    /// Hands TextKit each paragraph holding an image with the first character of every image's
+    /// spelling swapped for one the typesetter may break before. The spelling starts with `!`, and
+    /// UAX #14 never breaks before `!`, even after a space, so "world ![](x.png)" was one
+    /// unbreakable word: a photo too wide for its line pushed "world" (and then "Hello") down with
+    /// it and was split off last. The swap is one UTF-16 unit for one UTF-16 unit and the
+    /// character is hidden like the rest of the spelling, so the storage, the display text and
+    /// every offset are untouched; only the string being typeset differs.
+    final class TextFirstImageBreakDelegate: NSObject, NSTextContentStorageDelegate {
+        /// U+02C8: class BB (a break may come before it, never after), one UTF-16 unit, and narrower
+        /// than `!` in the hidden font, so the line the kern was sized for still fits the image.
+        static let breakBefore = "\u{02C8}"
+
+        func textContentStorage(
+            _ textContentStorage: NSTextContentStorage, textParagraphWith range: NSRange
+        ) -> NSTextParagraph? {
+            guard let storage = textContentStorage.textStorage else { return nil }
+            var typeset: NSMutableAttributedString?
+            storage.enumerateAttribute(.tfImage, in: range) { value, run, _ in
+                guard value is TextFirstImageSpan,
+                    (storage.string as NSString).character(at: run.location) == 0x21
+                else { return }
+                let shown =
+                    typeset
+                    ?? NSMutableAttributedString(
+                        attributedString: storage.attributedSubstring(from: range))
+                shown.replaceCharacters(
+                    in: NSRange(location: run.location - range.location, length: 1),
+                    with: Self.breakBefore)
+                typeset = shown
+            }
+            return typeset.map { NSTextParagraph(attributedString: $0) }
+        }
     }
 
     enum TextFirstImageMetrics {
