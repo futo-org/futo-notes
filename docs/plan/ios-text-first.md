@@ -177,6 +177,11 @@ Milestone notes M7 and M8: [ios-text-first/notes-m7-m8.md](ios-text-first/notes-
   engine work was all on main, and `empty_list_body` was dropped as main did (3e5f2acb3, not needed
   after !604's parser patch). Three known-issue rows turned into plain regression rows.
 
+- Codex (gpt-6.1-sol, high) on !591: seven findings, all confirmed, none outside the debug flag.
+  Fixed (each test fails without its fix): a title typed inside the rename debounce commits with the
+  leave; a screen that left stops acting on its open; the fallback diff keeps surrogate pairs whole;
+  the image cache keys by file, size and date and keeps the file's width. Two more: next-steps 2.
+
 ## Deferred architecture work
 
 Moved from `docs/plan/ios-text-first-architecture.md` (written 2026-11-09 at `d4ec4cfe2`) when the input safety net landed.

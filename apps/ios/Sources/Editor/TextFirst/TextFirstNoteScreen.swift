@@ -167,6 +167,7 @@
             do {
                 let made: TextFirstEditorController
                 if let quick = await store.quickOpenView(id) {
+                    guard ticket == openTicket else { return Self.abandon(opener) }
                     made = try TextFirstEditorController(noteId: id, quick: quick)
                     made.opener = opener
                     show(made)
@@ -178,8 +179,9 @@
                         throw error
                     }
                 } else {
-                    made = try TextFirstEditorController(
-                        noteId: id, session: try await opener.value)
+                    let session = try await opener.value
+                    guard ticket == openTicket else { return Self.abandon(opener) }
+                    made = try TextFirstEditorController(noteId: id, session: session)
                     show(made)
                 }
                 made.refreshNoteIds()
@@ -190,8 +192,16 @@
             } catch {
                 // A note that cannot be opened never shows as a blank page.
                 print("text-first: open \(noteId) failed: \(error)")
+                // Only while this screen is the one that asked: once it left, the top of the
+                // stack is another note's.
+                guard ticket == openTicket else { return }
                 if !navPath.isEmpty { navPath.removeLast() }
             }
+        }
+
+        /// The screen left while its open was in flight: release the session nobody will mount.
+        private static func abandon(_ opener: Task<NativeEditorSession, Error>) {
+            Task { _ = try? (await opener.value).detach() }
         }
 
         /// Mount a controller (fresh, or the draft a failed leave kept) on this screen.
@@ -251,9 +261,11 @@
             let untouched =
                 autoFocus && titleField == splitId(id: originalId).title && !controller.dirty
             let token = ownerToken
+            // A title typed within the rename's debounce commits with the leave.
+            let pending = titleField != splitId(id: controller.noteId).title ? titleField : nil
             TextFirstLeaves.leave(
                 controller: controller, store: store, ownerToken: token,
-                discardIfEmpty: untouched, originalId: originalId)
+                discardIfEmpty: untouched, originalId: originalId, pendingTitle: pending)
         }
 
         /// The user confirmed losing the unsaved edits: end the attachment and go back.

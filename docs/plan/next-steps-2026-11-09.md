@@ -59,6 +59,10 @@ This picks up the work from the 2026-11-06 to 11-09 sessions. Read it top to bot
 - [ ] A whole-image selection's blue tint is hidden under the image (LOW).
 - [ ] Code block on a new last line below another code block (`` ```\nx\n```\n\n ``, caret at the end) draws the empty block's background 4 pt taller until the first character is typed (known-issue row in `TextFirstEmptyMarkerTests`; the engine's source is the same shape as in an empty note, which draws right).
 
+- [ ] Codex review of !591 (2026-11-09; `ios-text-first-artifacts/merge-591/codex-review.md`), two findings left for engine work:
+  - Leaving an untouched new note deletes it if a peer's write landed meanwhile: the save adopts the write, the Swift mirror stays empty, `TextFirstLeaves` sees `isEmpty` and deletes. The WKWebView screen has the same in-memory check. The fix is an engine "close and delete if still empty" that checks identity and content under the mutation gate.
+  - Quick open and full open read the file separately. If an outside write lands in between, the prefix check fails and input typed while opening is dropped (`+Opening.swift`). The fix is to take both views from one engine snapshot.
+
 ### 3. Engine fix lane (small engine MRs to main)
 - [ ] Word completion with Bold off: `hel` → `hello` gives `**hel**lo`.
 - [ ] Find: a first press with no current match but total > 0 should step to a match.

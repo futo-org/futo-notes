@@ -139,6 +139,30 @@
             #expect(!files.contains("note.md"))
         }
 
+        /// A title typed just before Back (inside the screen's rename debounce) is not lost: the
+        /// leave renames to it, then saves under the new name.
+        @Test func aTitleTypedJustBeforeLeavingIsCommittedByTheLeave() async throws {
+            let rig = try await TextFirstVaultRig(body: "keep me")
+            defer { rig.tearDown() }
+            rig.selectEnd()
+            rig.type(" typed")
+            TextFirstLeaves.leave(
+                controller: rig.controller, store: rig.store,
+                ownerToken: rig.store.claimDraftOwnership(), discardIfEmpty: false,
+                originalId: rig.controller.noteId, pendingTitle: "Renamed")
+            let deadline = Date().addingTimeInterval(10)
+            while TextFirstLeaves.unsettled > 0, Date() < deadline {
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            #expect(TextFirstLeaves.unsettled == 0)
+            let files = (try? FileManager.default.contentsOfDirectory(atPath: rig.root.path)) ?? []
+            #expect(files.contains("Renamed.md") && !files.contains("note.md"), "\(files)")
+            let body = try String(
+                contentsOf: rig.root.appendingPathComponent("Renamed.md"), encoding: .utf8)
+            #expect(
+                body.contains("keep me") && body.contains("typed"), "\(body.debugDescription)")
+        }
+
         /// A new note left untouched is deleted; one a peer renamed meanwhile is somebody's note,
         /// and so is the different note a peer then made at the name it vacated (a leave that
         /// named the screen's old id would delete that one).

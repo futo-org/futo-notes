@@ -60,10 +60,10 @@
             }
             let made = TextFirstImageAtom(
                 destination: destination, alt: alt, vault: vault, remote: remote)
-            if let hit = TextFirstImageLoader.cached(destination, pixelWidth: pixelWidth) {
-                made.image = hit
-                made.decodedPixelWidth = Int(hit.size.width * hit.scale)
-                made.naturalPixelWidth = made.decodedPixelWidth
+            if let hit = loader.cached(made, pixelWidth: pixelWidth) {
+                made.image = hit.image
+                made.decodedPixelWidth = Int(hit.image.size.width * hit.image.scale)
+                made.naturalPixelWidth = hit.natural
             }
             atoms[destination] = made
             return made

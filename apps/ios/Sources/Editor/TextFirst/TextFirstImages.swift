@@ -70,10 +70,20 @@
         }
     }
 
+    /// A decoded bitmap and its file's own pixel width (a wider view decodes it again).
+    final class TextFirstCachedBitmap {
+        let image: UIImage
+        let natural: Int
+        init(_ image: UIImage, natural: Int) {
+            self.image = image
+            self.natural = natural
+        }
+    }
+
     /// Decodes vault and remote images off the main thread, downsampled to the display width.
     final class TextFirstImageLoader: @unchecked Sendable {
-        private static let cache: NSCache<NSString, UIImage> = {
-            let c = NSCache<NSString, UIImage>()
+        private static let cache: NSCache<NSString, TextFirstCachedBitmap> = {
+            let c = NSCache<NSString, TextFirstCachedBitmap>()
             c.totalCostLimit = 96 * 1024 * 1024
             return c
         }()
@@ -111,13 +121,22 @@
             queue.cancelAllOperations()
         }
 
-        private static func key(_ destination: String, _ width: Int) -> NSString {
-            "\(destination)@\(width)" as NSString
+        /// The cache is process-wide: a vault image is keyed by its file and that file's size and
+        /// modification date, so another vault's image of the same name, or a replaced file, is
+        /// never shown from it. A remote image by its address.
+        private func key(_ atom: TextFirstImageAtom, _ width: Int) -> NSString {
+            guard atom.vault else { return "\(atom.destination)@\(width)" as NSString }
+            guard let file = resolve(atom.destination),
+                let attributes = try? FileManager.default.attributesOfItem(atPath: file.path)
+            else { return "missing:\(atom.destination)@\(width)" as NSString }
+            let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+            let size = (attributes[.size] as? Int) ?? 0
+            return "\(file.path)|\(modified)|\(size)@\(width)" as NSString
         }
 
-        /// A decoded bitmap that is already in memory for this width.
-        static func cached(_ destination: String, pixelWidth: Int) -> UIImage? {
-            cache.object(forKey: key(destination, pixelWidth))
+        /// A decoded bitmap (and its file's pixel width) already in memory for this width.
+        func cached(_ atom: TextFirstImageAtom, pixelWidth: Int) -> TextFirstCachedBitmap? {
+            Self.cache.object(forKey: key(atom, pixelWidth))
         }
 
         /// `done` runs on the main queue with the bitmap and its file's pixel width, or nil.
@@ -126,13 +145,17 @@
             done: @escaping @Sendable (UIImage?, Int) -> Void
         ) {
             let destination = atom.destination
-            let key = Self.key(destination, pixelWidth)
-            if let hit = Self.cache.object(forKey: key) {
-                DispatchQueue.main.async { done(hit, Int(hit.size.width * hit.scale)) }
+            let cacheKey = key(atom, pixelWidth)
+            if let hit = Self.cache.object(forKey: cacheKey) {
+                DispatchQueue.main.async { done(hit.image, hit.natural) }
                 return
             }
             let finish: @Sendable (UIImage?, Int) -> Void = { image, natural in
-                if let image { Self.cache.setObject(image, forKey: key, cost: Self.cost(image)) }
+                if let image {
+                    Self.cache.setObject(
+                        TextFirstCachedBitmap(image, natural: natural), forKey: cacheKey,
+                        cost: Self.cost(image))
+                }
                 DispatchQueue.main.async { done(image, natural) }
             }
             if atom.vault {

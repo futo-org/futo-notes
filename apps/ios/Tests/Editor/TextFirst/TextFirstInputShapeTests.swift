@@ -257,6 +257,14 @@
         }
 
         static let autocorrect: [ShapeRow] = [
+            // The two emoji share a UTF-16 unit (the first, then the second): the change still
+            // replaces whole characters, also when the service skips the delegate.
+            ShapeRow(
+                name: "a text service replaces an emoji sharing its first unit", before: "😀 x",
+                caret: 2, calls: [.replace(0, 2, "😃")], source: "😃 x"),
+            ShapeRow(
+                name: "a text service replaces an emoji sharing its second unit", before: "🀀 x",
+                caret: 2, calls: [.replace(0, 2, "🐀")], source: "🐀 x"),
             ShapeRow(
                 name: "autocorrect a bold word at its end", before: "**teh** x", caret: 3,
                 calls: [.replace(0, 3, "the")], source: "**the** x"),

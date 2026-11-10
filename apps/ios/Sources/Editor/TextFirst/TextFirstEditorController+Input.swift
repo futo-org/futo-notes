@@ -182,14 +182,21 @@
                 return
             }
             let radius = 32
-            let from: Int
-            let oldTo: Int
+            var from = 0
+            var oldTo = mirrorLength
             if let hint {
                 from = max(0, min(hint.range.location, newLength, mirrorLength) - radius)
                 oldTo = min(mirrorLength, NSMaxRange(hint.range) + radius)
-            } else {
-                from = 0
-                oldTo = mirrorLength
+            }
+            // The window's edges sit outside the edit, where the two texts agree: widen each to a
+            // whole character (the engine refuses a range that splits a surrogate pair).
+            if from > 0, from < newLength, UTF16.isTrailSurrogate(platform.character(at: from)) {
+                from -= 1
+            }
+            if oldTo < mirrorLength, oldTo + newLength - mirrorLength < newLength,
+                UTF16.isTrailSurrogate(platform.character(at: oldTo + newLength - mirrorLength))
+            {
+                oldTo += 1
             }
             let newTo = oldTo + (newLength - mirrorLength)
             guard newTo >= from, newTo <= newLength,
@@ -219,11 +226,16 @@
             while prefix < most, old.character(at: prefix) == new.character(at: prefix) {
                 prefix += 1
             }
+            // 😀 → 😃 share their first UTF-16 unit; the change starts at the character's start.
+            if prefix > 0, UTF16.isLeadSurrogate(old.character(at: prefix - 1)) { prefix -= 1 }
             var suffix = 0
             while suffix < most - prefix,
                 old.character(at: old.length - 1 - suffix)
                     == new.character(at: new.length - 1 - suffix)
             { suffix += 1 }
+            if suffix > 0, UTF16.isTrailSurrogate(old.character(at: old.length - suffix)) {
+                suffix -= 1
+            }
             let range = NSRange(location: from + prefix, length: old.length - prefix - suffix)
             let text = new.substring(
                 with: NSRange(location: prefix, length: new.length - prefix - suffix))
