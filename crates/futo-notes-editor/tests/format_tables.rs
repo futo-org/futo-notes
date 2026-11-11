@@ -327,7 +327,8 @@ fn taking_off_a_run_that_spans_a_pipe_never_wraps_the_pipe() {
         ("| a | b |\n|---|---|\n| *c | d* |", 24, 29),
         ("a|b\n-|-\n*c|d*", 8, 11),
     ] {
-        for format in [InlineFormat::Italic] {
+        {
+            let format = InlineFormat::Italic;
             let mut s = EditorSession::open(original);
             let (display, grid) = (s.display_text().to_owned(), shape(&s));
             s.select(s.revision(), range(start, end)).unwrap();
