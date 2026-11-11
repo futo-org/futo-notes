@@ -85,6 +85,8 @@ internal class EditorEngine(
         private set
     @Volatile var publishedIme: EngineImeState? = null
         private set
+    /** The display offset at the top of the view's screen, written by the view as it scrolls. */
+    @Volatile var screenStart = 0
 
 
     // ---- view and toolbar (posted from the UI thread) ----

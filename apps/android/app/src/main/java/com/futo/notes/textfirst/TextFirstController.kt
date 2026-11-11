@@ -78,6 +78,7 @@ internal class TextFirstController(
         view.clipboard.onCopyRefused = { onClipboardRefused() }
         MainThreadWatchdog.start()
         view.setOnFocusChangeListener { _, hasFocus -> focused = hasFocus }
+        view.setOnScrollChangeListener { _, _, _, _, _ -> engine?.screenStart = view.scrollAnchor()?.offset ?: 0 }
         view.onFrameDrawn = { timings ->
             latencyWindow.add(timings)?.let { Log.i("TextFirstLatency", it.toString()) }
             view.removeCallbacks(latencyFlush)

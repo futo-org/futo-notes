@@ -34,12 +34,10 @@ internal fun EditorEngine.acceptViewChange(change: EditorViewChange) {
         val b = mirror.toUtf16(change.projection.range.end.toInt()).coerceAtMost(shown)
         if (b - a > OpenSlices.NEXT_CHARS * 2) {
             renderWork.dirty(a, b)
-            val focus = if (edits.isEmpty()) emptyList() else {
-                val from = (mirror.selStart - OpenSlices.FIRST_CHARS / 2).coerceIn(a, b)
-                val to = (from + OpenSlices.FIRST_CHARS).coerceAtMost(b)
-                listOf(projectWindow(from, to))
-            }
-            postUpdate(edits, focus, sourceChanged = true, paced = true)
+            // A restyle leaves the screen where it is; a text edit reveals the caret.
+            val from = (if (edits.isEmpty()) screenStart else mirror.selStart - OpenSlices.FIRST_CHARS / 2).coerceIn(a, b)
+            val to = (from + OpenSlices.FIRST_CHARS).coerceAtMost(b)
+            postUpdate(edits, listOf(projectWindow(from, to)), sourceChanged = true, paced = true)
         } else {
             val window = if (change.projection.range.end.toInt() <= mirror.toByte(shown)) window(change.projection) else projectWindow(a, b)
             postUpdate(edits, listOf(window), sourceChanged = true)

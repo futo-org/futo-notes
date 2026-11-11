@@ -29,9 +29,12 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
     }
     val nativeStart = selectionStart
     val nativeEnd = selectionEnd
+    val restyleOnly = update.reset == null && update.edits.all { it.start == it.end && it.text.isEmpty() }
+    // A restyle keeps the reader's top line where it was, as a style slice does.
+    val anchor = if (restyleOnly && update.windows.isNotEmpty() && restoring == null) scrollAnchor() else null
     // Renderer notifications can sort Android's anchor/focus even when only
     // spans change. Rust owns the range; Android retains its direction.
-    val keepDirection = update.reset == null && update.edits.all { it.start == it.end && it.text.isEmpty() } &&
+    val keepDirection = restyleOnly &&
         nativeStart >= 0 && nativeEnd >= 0 &&
         minOf(nativeStart, nativeEnd) == minOf(update.selStart, update.selEnd) &&
         maxOf(nativeStart, nativeEnd) == maxOf(update.selStart, update.selEnd)
@@ -95,6 +98,7 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
     } finally {
         applying = false
     }
+    anchor?.let { anchorY(it)?.let { y -> if (y != scrollY) scrollTo(scrollX, y) } }
     onApplyMeasured?.invoke(KeyTimings(
         update.inputUptimeNanos, update.postedNanos, update.engineNanos,
         applyStart, editsEnd, android.os.SystemClock.elapsedRealtimeNanos(),
