@@ -10,6 +10,9 @@ use super::*;
 use crate::inline::{EditIntent, Plan};
 use std::ops::Range;
 
+/// Cell count past which a table is never planned in one pass.
+const MANY_CELLS: usize = 64;
+
 /// One body's plan: `None` when the staged sequence must decide instead.
 enum Planned {
     Edit(Box<Plan>),
@@ -33,6 +36,12 @@ impl EditorSession {
     ) -> Option<(SourceRange, String, EditWork)> {
         let (window, _) = self.projection.edit_window(self.selection);
         if self.projection.pending_links(window).has_fields() {
+            return None;
+        }
+        // Cells of one table all read the whole table as their context, so
+        // their plans never read as independent: planning each of many only
+        // to find that out costs cells times table size.
+        if bodies.len() > MANY_CELLS && bodies.iter().all(|body| body.cell) {
             return None;
         }
         let mut edits: Vec<(Range<usize>, String)> = Vec::new();
