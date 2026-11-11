@@ -244,3 +244,127 @@ fn a_text_service_replacement_is_checked_as_one_input() {
     assert!(corrected.is_err(), "{:?}", s.source_text());
     assert_eq!(s.source_text(), note);
 }
+
+/// A text service's replacement keeps the characters it shares with the
+/// selection as they were, or is refused: it never turns kept plain text into
+/// inline code or emphasis because hidden markup sits at the edge of a kept
+/// stretch (#350). `checked` holds every accepted result to the per-character
+/// formatting oracle.
+#[test]
+fn a_text_service_replacement_never_formats_the_text_it_keeps() {
+    // (note, selected display text, what the text service shows instead)
+    let cases: &[(&str, &str, &str)] = &[
+        // The issue: a fence pasted into a task item, kept words after it.
+        (
+            "- [ ] \n- [ ] ```\n      code\n      ```\n      Heading one\n\ntail",
+            "code    \n    Heading",
+            "Heading",
+        ),
+        (
+            "- [ ] \n- [ ] ```\n      code\n      ```\n      Heading one\n\ntail",
+            "code",
+            "cod",
+        ),
+        (
+            "- [ ] \n- [ ] ```\n      code\n      ```\n      Heading one\n\ntail",
+            "Heading one",
+            "Heading on",
+        ),
+        (
+            "- [ ] \n- [ ] ```\n      code\n      ```\n      Heading one\n\ntail",
+            "code    \n    Heading one",
+            "Heading one!",
+        ),
+        // A fence and kept words, in a paragraph, a list, a quote.
+        (
+            "```\ncode\n```\nHeading one\n\ntail",
+            "code\nHeading one",
+            "Heading one!",
+        ),
+        (
+            "```\ncode\n```\nHeading one\n\ntail",
+            "code\nHeading",
+            "Heading",
+        ),
+        (
+            "```\ncode\n```\nHeading one\n\ntail",
+            "code\nHeading one",
+            "Heading on",
+        ),
+        (
+            "> ```\n> fenced\n> ```\n> tail words\n\nafter",
+            "fenced\ntail",
+            "tail",
+        ),
+        (
+            "- ```\n  fenced\n  ```\n  tail words\n\nafter",
+            "fenced\ntail",
+            "tail",
+        ),
+        (
+            "- ```\n  fenced\n  ```\n  tail words\n\nafter",
+            "fenced\ntail words",
+            "tail word",
+        ),
+        (
+            "para\n\n```\ncode here\n```\ntail words",
+            "code here\ntail",
+            "tail",
+        ),
+        // Hidden markup (backticks, asterisks, a link's brackets) at either
+        // edge of a kept stretch.
+        ("one `two` three four", "two three", "two thre"),
+        ("one `two` three four", "one two", "on two"),
+        ("one `two` three four", "three four", "three for"),
+        ("one `two`three four", "twothree", "twothre"),
+        ("one `two`three four", "twothree", "wothree"),
+        ("- item `code` more text\nnext", "code more", "cod more"),
+        ("- item `code` more text\nnext", "item code", "iten code"),
+        ("> quote `code` more text\n> next", "code more", "code mor"),
+        (
+            "> quote **bold** more text\n> next",
+            "bold more",
+            "bold mor",
+        ),
+        (
+            "> quote **bold** more text\n> next",
+            "bold more",
+            "old more",
+        ),
+        (
+            "- [ ] task `code` more text\n- next",
+            "code more",
+            "code mor",
+        ),
+        (
+            "- [ ] task `code` more\n- [ ] ```\n      fenced\n      ```\n      tail",
+            "more",
+            "mor",
+        ),
+        ("text `a` text `b` text", "a text b", "a text"),
+        (
+            "see [a link](https://x.y) here",
+            "a link here",
+            "a lin here",
+        ),
+        (
+            "see *one* two ~~three~~ four",
+            "one two three",
+            "on two three",
+        ),
+    ];
+    let mut failed = Vec::new();
+    for (note, selected, text) in cases {
+        let display = EditorSession::open(note).display_text();
+        let Some(a) = display.find(selected) else {
+            eprintln!("MISSING {selected:?} not in {display:?} of {note:?}");
+            continue;
+        };
+        let run =
+            std::panic::catch_unwind(|| checked(note, a, a + selected.len(), Input::Os(text)));
+        if run.is_err() {
+            failed.push((note, selected, text));
+        }
+    }
+    assert!(failed.is_empty(), "formatting changed: {failed:#?}");
+}
