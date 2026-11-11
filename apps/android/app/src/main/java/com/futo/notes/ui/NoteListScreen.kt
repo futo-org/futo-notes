@@ -393,12 +393,14 @@ internal fun NoteListScreen(
     )
 }
 
-/** Toast body for a MOVE-UP folder delete [list.md]. Pluralizes the
- *  moved-note count ("moved 1 note" / "moved N notes"). */
-internal fun folderDeletedMessage(moved: UInt): LocalizedMessage = LocalizedMessage(
-    "folders.delete.movedNotes",
-    mapOf("count" to moved.toLong()),
-)
+/** Toast body for a MOVE-UP folder delete [list.md]: "Folder deleted" when no note
+ *  moved, else the pluralized moved-note count, as on desktop. */
+internal fun folderDeletedMessage(moved: UInt): LocalizedMessage =
+    if (moved == 0u) {
+        LocalizedMessage("folders.deleted")
+    } else {
+        LocalizedMessage("folders.delete.movedNotes", mapOf("count" to moved.toLong()))
+    }
 
 /** Rank changes re-pin only an at-top viewport; the four-pixel allowance
  *  absorbs overscroll settling without disturbing deep scrolls [list.md]. */

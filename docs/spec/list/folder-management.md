@@ -74,7 +74,8 @@
   - **iOS native**: folder row swipe or long-press "Delete Folder…". →
     NoteListView.swift
   - **Android native**: in-list folder row long-press → "Delete folder", with a
-    "Folder deleted; moved N notes" toast. Deleting the folder a pushed screen is
+    "Folder deleted; moved N notes" toast, or "Folder deleted" when no note
+    moved, as on desktop. Deleting the folder a pushed screen is
     showing pops that screen (see [Folder browsing](folder-browsing.md#folder-browsing)). →
     NoteListScreen.kt
   - The native shells share the Rust primitive (rejects the vault root and
