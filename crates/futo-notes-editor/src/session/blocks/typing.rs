@@ -22,8 +22,12 @@ impl EditorSession {
         let Some(line) = self.projection.block_lines(range).into_iter().next() else {
             return Ok(None);
         };
+        // An unquoted list item's marker line is already outside a quote above
+        // it: a nonempty item interrupts the quote's paragraph. Blank and
+        // continuation lines the list owns still need the separator.
         if line.code
             || line.heading > 0
+            || line.quote_depth == 0 && line.list.as_ref().is_some_and(|list| list.first)
             || line.divider
             || !self
                 .source
