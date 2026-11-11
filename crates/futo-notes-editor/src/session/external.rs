@@ -224,7 +224,7 @@ fn rebase_stack(
         if !redo {
             entries.reverse();
         }
-        groups.push(HistoryGroup { entries });
+        groups.push(HistoryGroup::new(entries));
     }
     groups.reverse();
     Ok(groups)

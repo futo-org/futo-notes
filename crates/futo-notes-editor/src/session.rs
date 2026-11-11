@@ -3,6 +3,7 @@ mod checked_input;
 mod composition;
 mod external;
 mod find;
+mod written;
 pub use external::ExternalSourceAdoption;
 mod formatting;
 mod front_matter;
@@ -61,6 +62,9 @@ pub struct EditorSession {
     find: find::FindState,
     /// Names this session for async claims; never reused within a process.
     incarnation: u64,
+    /// Escapes the engine wrote just before the caret while it was typed.
+    written_run: Option<written::WrittenRun>,
+    last_edit: Option<written::LastEdit>,
 }
 
 impl EditorSession {
@@ -117,6 +121,8 @@ impl EditorSession {
             context: staging::StageContext::complete_source(),
             find: find::FindState::default(),
             incarnation: images::next_incarnation(),
+            written_run: None,
+            last_edit: None,
         }
     }
 
@@ -341,6 +347,7 @@ impl EditorSession {
             .projection
             .apply(&self.source, edit, self.context.origin.as_ref());
         self.revision = edit.revision;
+        self.note_applied(edit);
         self.find.edited(update.range, update.inserted.len());
         let caret = DisplayOffset(
             self.projection
@@ -525,6 +532,7 @@ impl EditorSession {
             change.work.link_copied_bytes += link_work.copied;
         }
         self.typing = None;
+        self.restore_written(&entry.written[usize::from(redo)]);
         if redo {
             self.undo.push(entry);
         } else {

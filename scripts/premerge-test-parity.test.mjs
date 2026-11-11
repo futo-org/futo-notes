@@ -1,5 +1,4 @@
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 import { CORE_SCHEMA, defineSequenceTag, load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
@@ -11,9 +10,7 @@ import {
   packageScripts,
   androidInstrumentationScript,
   androidEmulatorScript,
-  androidSyncLegScript,
   topLevelBlock,
-  ROOT,
 } from './premerge-test-parity.helpers.mjs';
 
 const gitlabYamlSchema = CORE_SCHEMA.withTags(
@@ -115,23 +112,39 @@ describe('pre-merge CI routing contracts', () => {
 
   it('does not recompress the shared Rust target cache after source-only MR jobs', () => {
     const rustWorkspaceJob = topLevelBlock(gitlabPipeline, /^test:rust:workspace:$/m);
-    const syncJob = topLevelBlock(gitlabPipeline, /^test:cross-platform-sync:$/m);
 
     expect(rustWorkspaceJob).toContain('CARGO_CACHE_POLICY: pull');
     expect(rustWorkspaceJob).toContain('- $LINUX_RUNNER_TAG');
     expect(rustWorkspaceJob).toContain('needs: []');
-    expect(syncJob).toMatch(/^\s{4}CARGO_CACHE_POLICY: pull$/m);
-    expect(syncJob).toContain('CARGO_CACHE_POLICY: pull-push');
-    expect(syncJob).toContain('.cache-cargo-sync');
-    expect(syncJob).toContain('needs: []');
     expect(rustWorkspaceJob).toContain('Cargo.lock');
     expect(rustWorkspaceJob).toContain('CARGO_CACHE_POLICY: pull-push');
+  });
+
+  it('puts only short script-only jobs on the light runner tag, never an image or build job', () => {
+    // Runner 71 takes $LIGHT_RUNNER_TAG (dind_fast); under load it ran heavy jobs
+    // 4-18x slower than 112, so every heavy job stays on $LINUX_RUNNER_TAG.
+    expect(gitlabPipeline).toMatch(/^ {2}LIGHT_RUNNER_TAG: dind_fast$/m);
+    for (const name of [
+      'check:release-notes',
+      'check:release-notes:mr',
+      'test:audit',
+      'test:localization-audit',
+      'test:puppet-gates',
+    ]) {
+      const job = topLevelBlock(gitlabPipeline, new RegExp(`^${name}:$`, 'm'));
+      expect(job, name).toMatch(/^ {2}tags:\n {4}- \$LIGHT_RUNNER_TAG$/m);
+      expect(job, name).not.toContain('extends:');
+    }
+    for (const name of ['test', 'test:rust:workspace', 'test:e2e:rest', 'build:android-native']) {
+      const job = topLevelBlock(gitlabPipeline, new RegExp(`^${name}:$`, 'm'));
+      expect(job, name).not.toContain('LIGHT_RUNNER_TAG');
+    }
   });
 
   it('keeps every Rust cache on one main key that only main and tags write', () => {
     const templates = readFileSync(new URL('../ci/templates.yml', import.meta.url), 'utf8');
     expect(templates).not.toContain('CI_COMMIT_REF_SLUG');
-    for (const name of ['cargo-tauri', 'sync', 'native']) {
+    for (const name of ['cargo-tauri', 'native']) {
       expect(templates).toContain(`key: ${name}-$CARGO_CACHE_EPOCH-$CI_DEFAULT_BRANCH`);
     }
     for (const file of ['test-rust.yml', 'test-sync.yml', 'android.yml']) {
@@ -210,7 +223,6 @@ describe('pre-merge CI routing contracts', () => {
     const sources = {
       ...gitlabPipelineSources,
       ...justfileSources,
-      'scripts/ci-android-sync-leg.sh': androidSyncLegScript,
       'scripts/ci-android-instrumentation.sh': androidInstrumentationScript,
       'scripts/ci-android-emulator.sh': androidEmulatorScript,
     };
@@ -234,44 +246,18 @@ describe('pre-merge CI routing contracts', () => {
     expect(androidJob).toContain("-name 'TEST-*.xml' -type f -print -quit");
   });
 
-  it('runs the full sync scenario set on every desktop/sync MR, alone on a serial runner', () => {
-    const syncJob = topLevelBlock(gitlabPipeline, /^test:cross-platform-sync:$/m);
-    const androidSyncJob = topLevelBlock(gitlabPipeline, /^test:cross-platform-sync:android:$/m);
+  it('keeps CI free of jobs that need a host to themselves', () => {
+    // The cross-device sync e2e suites flaked when two runs shared a host and
+    // were pinned to a one-job-at-a-time runner; they run by hand now
+    // (`pnpm run test:cross-platform`). Jobs must be able to overlap.
+    expect(gitlabPipeline).not.toContain('futo_notes_serial');
+    expect(gitlabPipeline).not.toMatch(/^\s+resource_group: (?!ios-)/m);
+    expect(gitlabPipeline).not.toMatch(/^test:cross-platform-sync/m);
+    const releaseGate = topLevelBlock(gitlabPipeline, /^release:gate:$/m);
+    expect(releaseGate).not.toContain('test:cross-platform-sync');
     const ffiJob = topLevelBlock(gitlabPipeline, /^test:rust:ffi-android:$/m);
-
-    expect(syncJob).toContain('node tests/cross-platform-sync.mjs $SYNC_SCENARIO_FLAGS');
-    // No rule trims the scale probes, and no MR rule is manual: the suite
-    // blocks every merge that can touch the desktop client or the sync stack.
-    // The MR and main rules share ONE path list (a YAML anchor), so main
-    // re-runs whatever an MR was gated on, and docs/iOS/Android-only MRs skip
-    // the serial runner's queue.
-    expect(syncJob).not.toContain('--skip-slow');
-    expect(syncJob).toMatch(
-      /- if: \$CI_MERGE_REQUEST_IID\n {6}changes: &cross-platform-sync-changes\n/,
-    );
-    expect(syncJob).toContain('changes: *cross-platform-sync-changes');
-    for (const path of [
-      'crates/**/*',
-      'apps/tauri/**/*',
-      'src/**/*',
-      'packages/**/*',
-      'tests/lib/**/*',
-    ]) {
-      expect(syncJob).toContain(`- ${path}`);
-    }
-    expect(syncJob).not.toContain('when: manual');
-    expect(syncJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
-    // The serial runners (one job at a time) are the exclusion that the
-    // project-wide resource_group used to be; the FFI compile that once shared
-    // that group now runs on the shared slots and no longer orders itself
-    // behind the suite.
-    for (const job of [syncJob, androidSyncJob]) {
-      expect(job).toContain('    - futo_notes_serial');
-      expect(job).not.toContain('resource_group');
-    }
     expect(ffiJob).toContain('    - $LINUX_RUNNER_TAG');
     expect(ffiJob).not.toContain('resource_group');
-    expect(ffiJob).not.toContain('- job: test:cross-platform-sync');
   });
 
   it('runs the Windows Rust tests on crate MRs behind the bring-up switch', () => {

@@ -299,7 +299,7 @@ fn an_indented_star_typed_on_a_blank_line_stays_visible_text() {
     let mut view = ReferenceView::new("\n");
     s.select(s.revision(), range(1, 1)).unwrap();
     type_chars(&mut s, &mut view, " *]");
-    assert_eq!(s.source_text(), "\n&#32;&#42;]");
+    assert_eq!(s.source_text(), "\n&#32;*]");
     assert_eq!(view.text, "\n *]");
     assert_eq!(s.selection(), range(4, 4));
 }

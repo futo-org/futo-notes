@@ -15,19 +15,17 @@ describe('pre-merge CI routing contracts: container images and Node', () => {
     const defaultBlock = topLevelBlock(gitlabPipeline, /^default:$/m);
     const testImageBlock = topLevelBlock(gitlabPipeline, /^\.ci-test-image:$/m);
     const rustWorkspaceJob = topLevelBlock(gitlabPipeline, /^test:rust:workspace:$/m);
-    const syncJob = topLevelBlock(gitlabPipeline, /^test:cross-platform-sync:$/m);
 
     expect(defaultBlock).toMatch(/^\s+image: .*\/kitchensink@sha256:[a-f0-9]{64}$/m);
     expect(testImageBlock).toMatch(/^\s+name: .*\/ci\/test@sha256:[a-f0-9]{64}$/m);
     expect(testImageBlock).toContain('pull_policy: if-not-present');
     expect(rustWorkspaceJob).toContain('extends: .ci-test-image');
-    expect(syncJob).toContain('extends: .ci-test-image');
   });
 
   it('runs every if-not-present image job on the one runner that allows its pull policy', () => {
     // Runner 55 (dind) only allows pull_policy always and refuses a job that
     // asks for if-not-present, so the image and an office-runner tag
-    // ($LINUX_RUNNER_TAG = futo_notes_debian1, or futo_notes_serial) travel together.
+    // ($LINUX_RUNNER_TAG = futo_notes_debian1) travel together.
     const androidImageBlock = topLevelBlock(gitlabPipeline, /^\.ci-android-image:$/m);
     expect(androidImageBlock).toMatch(/^\s+name: \$IMAGE_ANDROID$/m);
     expect(androidImageBlock).toContain('pull_policy: if-not-present');
@@ -38,18 +36,11 @@ describe('pre-merge CI routing contracts: container images and Node', () => {
     const jobs = gitlabPipeline.split(/(?=^[^ #\n][^\n]*:\n)/m);
     const imageJobs = jobs.filter((job) => /^ {2}extends: \.ci-(?:test|android)-image$/m.test(job));
     const names = imageJobs.map((job) => job.split('\n')[0]);
-    for (const job of [
-      'build:android-native:',
-      'publish:android:',
-      'test:rust:ffi-android:',
-      'test:cross-platform-sync:android:',
-    ]) {
+    for (const job of ['build:android-native:', 'publish:android:', 'test:rust:ffi-android:']) {
       expect(names).toContain(job);
     }
     for (const job of imageJobs) {
-      expect(job, job.split('\n')[0]).toMatch(
-        /^ {2}tags:\n {4}- (?:\$LINUX_RUNNER_TAG|futo_notes_serial)$/m,
-      );
+      expect(job, job.split('\n')[0]).toMatch(/^ {2}tags:\n {4}- \$LINUX_RUNNER_TAG$/m);
     }
   });
 

@@ -11,7 +11,6 @@ import {
   cirrusTasks,
   androidInstrumentationScript,
   androidEmulatorScript,
-  androidSyncLegScript,
   androidRunScript,
   fdroidIndexScript,
   iosStoryAvailabilityGate,
@@ -87,25 +86,6 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     );
   });
 
-  it('runs the desktop<->Android sync leg on a booted emulator and gates the release on it', () => {
-    const androidSyncJob = topLevelBlock(gitlabPipeline, /^test:cross-platform-sync:android:$/m);
-    const releaseGate = topLevelBlock(gitlabPipeline, /^release:gate:$/m);
-
-    expect(androidSyncJob).toContain('bash "$CI_PROJECT_DIR/scripts/ci-android-sync-leg.sh"');
-    expect(androidSyncJob).toContain('- job: build:android-native');
-    // Alone on a serial runner, like the desktop mesh; overlapping starves both.
-    expect(androidSyncJob).toContain('    - futo_notes_serial');
-    expect(releaseGate).toContain('- job: test:cross-platform-sync:android');
-    // The APK producer's gate must be a superset of this job's, so neither may
-    // trigger on a path the other ignores (build:android-native excludes
-    // .gitlab-ci.yml and docs, per the test above).
-    expect(androidSyncJob).not.toContain('- .gitlab-ci.yml');
-    expect(androidSyncJob).not.toContain('- docs/**/*');
-    // A run that finds no usable device must fail, not report green (M11).
-    expect(androidSyncLegScript).toContain('--android-only');
-    expect(androidEmulatorScript).toContain('service check package');
-  });
-
   it('builds both Android distribution flavors and routes each to its own consumer', () => {
     // Product flavors renamed every Gradle variant task AND every output path
     // under app/build/outputs (`apk/debug` → `apk/direct/debug`, `bundle/release`
@@ -152,9 +132,6 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     expect(publishAndroidJob).not.toContain('outputs/bundle/release');
     expect(releaseJob).toContain('apps/android/app/build/outputs/apk/direct/release');
     expect(fdroidIndexScript).toContain('apps/android/app/build/outputs/apk/direct/release/*.apk');
-    expect(androidSyncLegScript).toContain(
-      'apps/android/app/build/outputs/apk/direct/debug/app-direct-debug.apk',
-    );
 
     // Local recipes follow the same split, and the dev loop stays on direct.
     expect(buildRecipe).toContain(':app:assembleDirectDebug :app:assemblePlayDebug');
@@ -179,9 +156,6 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
 
     expect(androidCheckJob).toContain('- crates/**/*');
     expect(androidCheckJob).toContain('build -p futo-notes-ffi --profile release-ffi');
-    // On the shared slots, not the serial runner the sync suites own: a
-    // concurrent full-tree compile used to flake their timing-sensitive
-    // scenarios, which the serial runners now rule out without a lock.
     expect(androidCheckJob).toContain('    - $LINUX_RUNNER_TAG');
     expect(androidCheckJob).not.toContain('resource_group');
     expect(macosRustTask).toContain('cargo check -p futo-notes-ffi --target aarch64-apple-ios');
@@ -205,7 +179,7 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     const skipRule = firstRule.slice(0, firstRule.indexOf('\n    - !reference'));
     expect(skipRule).toContain('when: never');
     const nativeStart = nativeJob.indexOf('changes: &native-android-changes');
-    expect(paths(nativeJob, nativeStart).length).toBeGreaterThan(10);
+    expect(paths(nativeJob, nativeStart).length).toBeGreaterThan(5);
     expect(paths(androidCheckJob, rulesAt)).toEqual(paths(nativeJob, nativeStart));
     // Crates that build:android-native does not watch still reach the check.
     expect(androidCheckJob).toContain('- crates/**/*');

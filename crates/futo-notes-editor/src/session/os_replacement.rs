@@ -76,6 +76,7 @@ impl EditorSession {
             .flatten();
         let whole_word =
             self.word_split_by_carried(range, &old, text, &replacements, carried.as_deref());
+        let before = (!self.context.staged).then(|| self.before_input());
         let (mut change, targets, caret) = if replacements.is_empty() {
             (None, targets.to_vec(), range.end.0)
         } else {
@@ -101,28 +102,33 @@ impl EditorSession {
                 };
             // A word the carried formats would split (#360) is planned as one run under them.
             // Should that plan fail before the host sees an edit, the runs plan it as before.
-            let planned = if whole_word {
-                let whole = [crate::DisplayReplacement {
-                    range,
-                    inserted: text.to_owned(),
-                }];
-                let mut handed = false;
-                let first = plan(self, &whole, true, &mut |edit| {
-                    handed = true;
-                    accept(edit)
-                });
-                match first {
-                    Err(_) if !handed => plan(self, &replacements, false, accept),
-                    other => other,
-                }
-            } else {
-                plan(self, &replacements, false, accept)
-            };
-            let (change, mut targets) = planned?;
+            let (change, mut targets) =
+                self.continuing_written(range, accept, |session, accept| {
+                    if whole_word {
+                        let whole = [crate::DisplayReplacement {
+                            range,
+                            inserted: text.to_owned(),
+                        }];
+                        let mut handed = false;
+                        let first = plan(session, &whole, true, &mut |edit| {
+                            handed = true;
+                            accept(edit)
+                        });
+                        match first {
+                            Err(_) if !handed => plan(session, &replacements, false, accept),
+                            other => other,
+                        }
+                    } else {
+                        plan(session, &replacements, false, accept)
+                    }
+                })?;
             let caret = targets.pop().unwrap();
             (Some(change), targets, caret)
         };
         self.finish_os_selection(caret, carried, change.as_mut());
+        if let Some(before) = before {
+            self.track_written(before);
+        }
         Ok((change, targets))
     }
 

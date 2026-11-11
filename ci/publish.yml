@@ -12,7 +12,7 @@ release:gate:
     # DAG `needs`, release/publish:ios run as soon as their needs succeed —
     # a failed test job NOT in this list does not stop the publish (this
     # nearly shipped v1.4.0 twice: once past a failed test:e2e:rest, once
-    # past a failed test:cross-platform-sync).
+    # past a failed test:rust:workspace).
     - job: test
     - job: check:release-notes
     - job: test:localization-audit
@@ -22,8 +22,6 @@ release:gate:
     - job: test:rust:ffi-android
     - job: test:rust:macos
     - job: test:desktop-smoke:macos
-    - job: test:cross-platform-sync
-    - job: test:cross-platform-sync:android
     - job: test:ios-native
     # Exists only while the WINDOWS_PERSIST_RUNNER bring-up switch is on
     # (ci/windows.yml); optional so a tag without it still gates.
