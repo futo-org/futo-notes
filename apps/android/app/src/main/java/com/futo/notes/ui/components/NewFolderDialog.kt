@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -18,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.futo.notes.NotesStore
@@ -39,8 +42,8 @@ import uniffi.futo_notes_ffi.validateTitle
  * name is a path segment); empty names, case-insensitive-duplicate siblings and
  * names carrying a forbidden character can't be created — [folderNameVerdict]
  * owns that decision and its wording. Confirm hands back the FULL folder path.
- * [renaming] makes it the rename dialog, whose verbs are SetNewName and SubmitRename;
- * it opens focused with the whole name selected, as desktop's inline rename does.
+ * [renaming] makes it the rename dialog, whose verbs are SetNewName and SubmitRename.
+ * Both open focused with the whole name selected and confirm on Enter, as desktop does.
  */
 @Composable
 fun NewFolderDialog(
@@ -60,7 +63,7 @@ fun NewFolderDialog(
     val imeVisible = imeTargetVisible()
     var field by remember(initialName) { mutableStateOf(TextFieldValue(initialName, TextRange(0, initialName.length))) }
     val nameFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { if (renaming) nameFocus.requestFocus() }
+    LaunchedEffect(Unit) { nameFocus.requestFocus() }
 
     /** The folder name [typed] makes and what the dialog says of it. */
     fun check(typed: String): Pair<String, FolderNameVerdict> {
@@ -78,23 +81,27 @@ fun NewFolderDialog(
             duplicate = duplicate,
         )
     }
-    val (clean, verdict) = check(field.text)
+    val verdict = check(field.text).second
 
     fun type(typed: TextFieldValue) {
         field = typed.copy(text = typed.text.replace("\n", ""))
     }
 
-    fun confirm(folderName: String) = onCreate(if (parent.isEmpty()) folderName else "$parent/$folderName")
+    // Confirm reads the name as it is now, not as this frame drew it, so a verb straight
+    // after SetNewFolderName sees what it typed.
+    fun confirm(): FolderNameVerdict {
+        val (folderName, verdictNow) = check(field.text)
+        if (verdictNow.canConfirm) onCreate(if (parent.isEmpty()) folderName else "$parent/$folderName")
+        return verdictNow
+    }
 
-    // The field, Confirm and Cancel. Confirm reads the name as it is now, not as this
-    // frame drew it, so a verb straight after SetNewFolderName sees what it typed.
     PuppetVerbScope(modal = true) {
         val setName: suspend (JSONObject) -> Any? = { arguments ->
             arguments.getString("name").let { type(TextFieldValue(it, TextRange(it.length))) }
             mapOf("name" to field.text)
         }
         val submit: suspend (JSONObject) -> Unit = {
-            val (folderName, verdictNow) = check(field.text)
+            val verdictNow = confirm()
             if (!verdictNow.canConfirm) {
                 // What the dialog shows under the field; an empty field shows nothing.
                 throw PuppetVerbRefusal(
@@ -103,7 +110,6 @@ fun NewFolderDialog(
                         ?: "the name is empty, so ${if (renaming) "Rename" else "Create"} is disabled",
                 )
             }
-            confirm(folderName)
         }
         listOf(
             if (renaming) {
@@ -142,6 +148,8 @@ fun NewFolderDialog(
                     onValueChange = { type(it) },
                     label = { Text(localization.localizedText("folders.nameFieldShort")) },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { confirm() }),
                     shape = RoundedCornerShape(FutoRadius.md),
                     modifier = Modifier.fillMaxWidth().focusRequester(nameFocus),
                 )
@@ -162,7 +170,7 @@ fun NewFolderDialog(
             val canCreate = verdict.canConfirm
             TextButton(
                 enabled = canCreate,
-                onClick = { confirm(clean) },
+                onClick = { confirm() },
             ) {
                 Text(
                     confirmLabel ?: localization.localizedText("common.actions.create"),
