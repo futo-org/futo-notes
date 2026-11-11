@@ -11,6 +11,12 @@ use bodies::{Bodies, Body};
 #[cfg(test)]
 mod fuzz_tests;
 
+/// Charged metadata visits one staged multi-body toggle may spend. Each
+/// staged body re-reads its whole block, so a table of many cells costs
+/// cells times table size; past this the toggle is refused (about a tenth of
+/// a second) rather than freezing the host. A 300-row table fits.
+const STAGED_BUDGET: usize = 8_000_000;
+
 impl EditorSession {
     /// A collapsed toggle changes the carried format without writing empty
     /// markdown. A selected toggle is one accepted, byte-exact history action.
@@ -170,6 +176,15 @@ impl EditorSession {
             projection.selection_formats(body.range).contains(&format)
         });
         let add = !carried.iter().all(|carried| *carried);
+        // Taking a format off a cell whose run goes on across a cell pipe
+        // would leave markers around the lone pipe (`c *| d*`): refuse.
+        if !add
+            && bodies
+                .iter()
+                .any(|body| body.cell && self.run_crosses_pipe(body, format))
+        {
+            return Err(EditorError::UnrepresentableFormat);
+        }
         let (edit, pending, guard_validation, work) = if let Some((range, inserted, work)) =
             self.plan_bodies_at_once(format, add, bodies, &carried)
         {
@@ -186,7 +201,41 @@ impl EditorSession {
             let guard_validation = self.validate_stage_guards(&edit, window, &pending)?;
             (edit, Some(pending), guard_validation, work)
         };
+        // A run of markers that spanned a cell pipe, taken off cell by cell,
+        // would leave markers around the lone pipe (`c *|* d`): refuse
+        // whatever damaged a table's cells.
+        if bodies.iter().any(|body| body.cell)
+            && !(self.edit_keeps_tables(&edit) && self.edit_keeps_cell_text(&edit))
+        {
+            return Err(EditorError::UnrepresentableFormat);
+        }
         self.commit_bodies(edit, pending, guard_validation, work, false, accept)
+    }
+
+    /// Whether `format` on a table cell carries on across the pipe beside it.
+    fn run_crosses_pipe(&self, body: &Body, format: InlineFormat) -> bool {
+        let display = &self.projection.display;
+        let (start, end) = (body.range.start.0, body.range.end.0);
+        let line = display.byte_to_line(start);
+        let first = display.line_to_byte(line);
+        let text = display.line(line).to_string();
+        let (start, end) = (start - first, end - first);
+        let space = |ch: char| matches!(ch, ' ' | '\t');
+        let after = &text[end..];
+        let gap = after.len() - after.trim_start_matches(space).len();
+        let before = &text[..start];
+        let back = before.len() - before.trim_end_matches(space).len();
+        let probe = |from: usize, to: usize| {
+            self.carries_format(
+                DisplayRange {
+                    start: DisplayOffset(first + from),
+                    end: DisplayOffset(first + to),
+                },
+                format,
+            )
+        };
+        (after[gap..].starts_with('|') && probe(end, end + gap + 1))
+            || (before[..before.len() - back].ends_with('|') && probe(start - back - 1, start))
     }
 
     /// Accept a planned multi-body edit as one history action, keeping the
@@ -304,6 +353,9 @@ impl EditorSession {
         for body in bodies {
             if add && carries(body.range) {
                 continue;
+            }
+            if work.link_metadata_items > STAGED_BUDGET {
+                return Err(EditorError::UnrepresentableFormat);
             }
             let mut toggle = |range| {
                 staged.toggle_staged(

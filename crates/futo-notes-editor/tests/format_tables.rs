@@ -315,3 +315,69 @@ fn toggles_starting_at_a_pipeless_data_row_and_with_text_after() {
         }
     }
 }
+
+/// A format run that spans a cell pipe, taken off cell by cell, never leaves
+/// markers around a lone pipe: the table keeps its grid or the toggle refuses.
+#[test]
+fn taking_off_a_run_that_spans_a_pipe_never_wraps_the_pipe() {
+    for (original, start, end) in [
+        ("a | b\n- | -\n*c | d*", 10, 15),
+        ("a | b\n--- | ---\n*c | d*", 14, 19),
+        ("| a | b |\n| - | - |\n| *c | d* |", 24, 29),
+        ("| a | b |\n|---|---|\n| *c | d* |", 24, 29),
+        ("a|b\n-|-\n*c|d*", 8, 11),
+    ] {
+        for format in [InlineFormat::Italic] {
+            let mut s = EditorSession::open(original);
+            let (display, grid) = (s.display_text().to_owned(), shape(&s));
+            s.select(s.revision(), range(start, end)).unwrap();
+            toggle(&mut s, format);
+            let on = s.source_text();
+            assert!(!on.contains("*|*"), "{original:?}: {on:?}");
+            assert_eq!(s.display_text(), display, "{original:?}: {on:?}");
+            assert_eq!(
+                shape(&EditorSession::open(&on)),
+                grid,
+                "{original:?}: {on:?}"
+            );
+        }
+    }
+}
+
+fn big_table(rows: usize) -> String {
+    let mut source = String::from("a | b\n- | -\n");
+    for i in 0..rows {
+        source.push_str(&format!("c{i} | d{i}\n"));
+    }
+    source
+}
+
+#[test]
+fn a_modest_table_formats_whole_and_a_huge_one_is_refused_fast() {
+    let select_all = |rows| {
+        let mut s = EditorSession::open(&big_table(rows));
+        let all = range(0, s.display_text().len());
+        s.select(s.revision(), all).unwrap();
+        let rev = s.revision();
+        let result = s.toggle_format(rev, InlineFormat::Bold, &mut |_| Ok(()));
+        (s, result)
+    };
+    let (s, result) = select_all(40);
+    let change = result.unwrap().unwrap();
+    assert_eq!(s.source_text().matches("**").count(), 2 * 82);
+    // The staged toggle spends well inside its work budget.
+    assert!(
+        change.work.link_metadata_items < 8_000_000,
+        "{:?}",
+        change.work
+    );
+    // A table far past the budget is refused rather than frozen on: nothing
+    // is written and nothing is recorded.
+    let (s, result) = select_all(2_000);
+    assert!(
+        matches!(result, Err(EditorError::UnrepresentableFormat)),
+        "{result:?}"
+    );
+    assert_eq!(s.source_text(), big_table(2_000));
+    assert_eq!(s.revision(), Revision(0));
+}

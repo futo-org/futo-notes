@@ -36,6 +36,23 @@ impl EditorSession {
         Ok(tables)
     }
 
+    /// Whether `edit` (an inline format toggle) leaves each cell of the
+    /// tables it touches reading the same text. Markers left around a lone
+    /// pipe (`c *| d*`) move a cell's edge and fail this where the cell and
+    /// pipe counts alone do not.
+    pub(in crate::session) fn edit_keeps_cell_text(&self, edit: &SourceEdit) -> bool {
+        let (a, b) = (edit.range.start.0, edit.range.end.0);
+        let (start, stop) = self.run_bounds(a, b);
+        let old = self.source.byte_slice(start..stop).to_string();
+        let new = format!(
+            "{}{}{}",
+            &old[..a - start],
+            edit.inserted,
+            &old[b - start..]
+        );
+        cell_texts(&old) == cell_texts(&new)
+    }
+
     /// Whether `edit` leaves every table in the nonblank runs it touches as
     /// the engine reads it from the result: the same tables, rows and cells
     /// per row, and every cell the edit does not reach with its exact source.
@@ -88,6 +105,27 @@ impl EditorSession {
                     })
             })
     }
+}
+
+/// Every cell's display text, table by table and row by row, as a fresh
+/// session reads `text`.
+fn cell_texts(text: &str) -> Vec<Vec<Vec<String>>> {
+    let session = EditorSession::open(text);
+    let display = session.display_text();
+    read_tables(text)
+        .iter()
+        .map(|table| {
+            table
+                .rows
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|cell| display[cell.content.start.0..cell.content.end.0].to_owned())
+                        .collect()
+                })
+                .collect()
+        })
+        .collect()
 }
 
 /// The tables a fresh session finds in `text`.

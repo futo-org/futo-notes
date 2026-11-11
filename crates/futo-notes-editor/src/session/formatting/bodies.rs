@@ -69,19 +69,38 @@ fn span(start: usize, end: usize) -> DisplayRange {
     }
 }
 
+/// Pipeless lines in a row after which the walk for a table header stops.
+const PIPELESS_ROWS: usize = 256;
+
 impl EditorSession {
     pub(super) fn format_bodies(&self, range: DisplayRange) -> Bodies {
         self.bodies_in(range, &self.projection.format_block_lines(range))
     }
 
-    /// The display offset where the nonblank lines holding `at` begin.
+    /// Where a table holding the line at `at` may begin: the start of the
+    /// nonblank run above it when a line of that run has a pipe (every
+    /// table's header does), else the line itself. The walk gives up after
+    /// `PIPELESS_ROWS` lines in a row without a pipe (a table whose pipeless
+    /// rows run longer is read from the selection only), so prose costs a
+    /// bounded scan, with no allocation and no table reading.
     fn run_start(&self, at: usize) -> usize {
         let display = &self.projection.display;
-        let mut line = display.byte_to_line(at);
-        while line > 0 && !display.line(line - 1).to_string().trim().is_empty() {
+        let own = display.byte_to_line(at);
+        let (mut line, mut piped, mut streak) = (own, false, 0);
+        while line > 0 && streak < PIPELESS_ROWS {
+            let above = display.line(line - 1);
+            if above.chars().all(char::is_whitespace) {
+                break;
+            }
+            if above.chars().any(|ch| ch == '|') {
+                piped = true;
+                streak = 0;
+            } else {
+                streak += 1;
+            }
             line -= 1;
         }
-        display.line_to_byte(line)
+        display.line_to_byte(if piped { line } else { own })
     }
 
     /// [`Self::format_bodies`] over `range`'s already-read format lines.
