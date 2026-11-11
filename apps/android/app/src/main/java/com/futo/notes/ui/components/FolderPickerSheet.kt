@@ -82,10 +82,12 @@ fun FolderPickerSheet(
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 24.dp),
         ) {
-            MicroLabel(
-                title ?: localization.localizedText("folders.movePickerHeading"),
-                Modifier.padding(start = 24.dp, bottom = 8.dp),
-            )
+            val headingModifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp)
+            if (title == null) {
+                MicroLabel(localization.localizedText("folders.movePickerHeading"), headingModifier)
+            } else {
+                Text(title, style = FutoType.title, color = FutoTheme.colors.textPrimary, modifier = headingModifier)
+            }
             SheetRow(
                 path = "",
                 label = localization.localizedText("folders.root"),
