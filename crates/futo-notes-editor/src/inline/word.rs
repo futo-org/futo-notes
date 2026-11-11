@@ -8,7 +8,8 @@ impl Projection {
     /// the range is one row's text spelled in source exactly as shown (no
     /// markers, escapes or entities inside it), and no link, wikilink, image,
     /// reference or guarded word overlaps or touches it, save an inline link
-    /// holding it. Respelling such a word changes nothing but its formats.
+    /// holding it. Respelling such a word changes nothing but its formats. Every span holding
+    /// it sits on its line, and it follows whitespace, a line or cell start, or such a span's opener.
     pub(crate) fn plain_word(
         &self,
         source: &Rope,
@@ -31,6 +32,7 @@ impl Projection {
         }
         let touches = |other: &Range<usize>| other.start <= end && start <= other.end;
         let mut formats = Vec::new();
+        let mut opens_here = false;
         for span in &row.spans {
             let format = match &span.kind {
                 SpanKind::Format(format) => *format,
@@ -51,12 +53,28 @@ impl Projection {
                 }
             };
             if span.open.end <= start && end <= span.close.start {
+                // A span crossing a line break would have its other line respelled.
+                let spelled = row_source + span.open.start..row_source + span.close.end;
+                if source
+                    .get_byte_slice(spelled)?
+                    .chars()
+                    .any(|c| matches!(c, '\n' | '\r'))
+                {
+                    return None;
+                }
+                opens_here |= span.open.end == start;
                 formats.push(format);
             } else if span.open.end > start && span.open.start < end
                 || span.close.start < end && span.close.end > start
             {
                 return None;
             }
+        }
+        // The word starts a line or cell, follows whitespace, or follows the opener of a span
+        // holding it; after anything else the new markers could not flank it.
+        let after = row.display[..local.start].chars().next_back();
+        if !(opens_here || after.is_none_or(char::is_whitespace)) {
+            return None;
         }
         let near = row.wikilinks.iter().any(|link| touches(&link.source))
             || row.images.iter().any(|image| touches(&image.source))
