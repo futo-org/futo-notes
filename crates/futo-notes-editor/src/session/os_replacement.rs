@@ -168,8 +168,15 @@ impl EditorSession {
     }
 
     /// Whether the stretches of `range` between `runs` are plain text: no
-    /// line break and source spelled as shown.
+    /// line break, source spelled as shown, and formatted as the text one run
+    /// lands at the range's start is. One run puts the kept text there, so
+    /// text kept after a code span's closing marker (hidden at its edge) would
+    /// turn into inline code (#350). A block's own markers, which the code
+    /// block's frame repair keeps, open no format.
     fn keeps_plain(&self, range: DisplayRange, runs: &[crate::DisplayReplacement]) -> bool {
+        let lands = self
+            .projection
+            .formats_at(self.projection.source_bounds(range.start.0).1);
         let ends = runs.iter().map(|run| (run.range.start.0, run.range.end.0));
         let mut at = range.start.0;
         ends.chain([(range.end.0, range.end.0)])
@@ -178,12 +185,16 @@ impl EditorSession {
                 let source =
                     self.projection.source_bounds(at).1..self.projection.source_bounds(start).0;
                 at = end;
+                let formatted = |formats: Vec<InlineFormat>| {
+                    formats.len() == lands.len() && formats.iter().all(|f| lands.contains(f))
+                };
                 !kept.contains('\n')
                     && (kept.is_empty()
                         || self
                             .source
-                            .get_byte_slice(source)
-                            .is_some_and(|raw| raw == kept.as_str()))
+                            .get_byte_slice(source.clone())
+                            .is_some_and(|raw| raw == kept.as_str())
+                            && formatted(self.projection.formats_at(source.start)))
             })
     }
 
