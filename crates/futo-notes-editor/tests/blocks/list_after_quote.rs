@@ -123,3 +123,98 @@ fn an_ime_commit_into_a_list_item_after_a_quote_adds_no_blank_line() {
         assert_eq!(s.source_text(), format!("{item}日本"), "{command:?}");
     }
 }
+
+/// (quote depth, in a list) of the display line holding `needle`.
+fn kind_of(s: &EditorSession, needle: &str) -> (usize, bool) {
+    let d = s.display_text();
+    let at = d.find(needle).unwrap();
+    let blocks = s.project(s.revision(), range(0, d.len())).unwrap().blocks;
+    let b = blocks
+        .iter()
+        .find(|b| b.range.start.0 <= at && at <= b.range.end.0)
+        .unwrap();
+    (b.quote_depth, b.list.is_some())
+}
+
+fn type_at(raw: &str, caret: usize, text: &str, action: InputAction) -> EditorSession {
+    let mut s = EditorSession::open(raw);
+    s.select_with_affinity(s.revision(), range(caret, caret), Affinity::Backward)
+        .unwrap();
+    let sel = s.selection();
+    s.replace_action(s.revision(), sel, text, action, &mut |_| Ok(()))
+        .unwrap();
+    s
+}
+
+#[test]
+fn typing_on_the_blank_line_after_a_quoted_list_item_keeps_the_next_paragraph_outside_the_quote() {
+    let raw = "- > quoted item\n\nNext paragraph";
+    assert_eq!(kind_of(&EditorSession::open(raw), "Next"), (0, false));
+    let s = type_at(raw, "quoted item\n".len(), "Z", InputAction::Typing);
+    assert_eq!(kind_of(&s, "Next"), (0, false), "{:?}", s.source_text());
+    assert_eq!(kind_of(&s, "Z"), (0, false), "{:?}", s.source_text());
+}
+
+#[test]
+fn typing_on_a_blank_list_continuation_after_a_quote_keeps_the_next_line_outside_the_quote() {
+    for raw in ["- > abc\n  \n  xyz", "- a\n  > q\n\n  more"] {
+        let d = EditorSession::open(raw).display_text();
+        let blank = d
+            .find("\n\n")
+            .map_or_else(|| d.find("\n").unwrap() + 1, |i| i + 1);
+        let tail = if raw.contains("xyz") { "xyz" } else { "more" };
+        let s = type_at(raw, blank, "Z", InputAction::Typing);
+        assert_eq!(kind_of(&s, tail).0, 0, "{raw:?} -> {:?}", s.source_text());
+    }
+}
+
+#[test]
+fn typing_on_the_blank_line_after_a_quoted_item_keeps_the_untouched_line_bytes() {
+    let s = type_at("1. > lq\n\n  xyz\n", 3, "Z", InputAction::Typing);
+    assert!(
+        s.source_text().ends_with("\n  xyz\n"),
+        "{:?}",
+        s.source_text()
+    );
+}
+
+#[test]
+fn the_first_character_after_a_list_command_below_a_quote_adds_no_line_by_any_route() {
+    for (command, item) in [
+        (BlockCommand::BulletList, "> abc\n- "),
+        (BlockCommand::OrderedList, "> abc\n1. "),
+        (BlockCommand::TaskList, "> abc\n- [ ] "),
+    ] {
+        for route in ["typing", "isolated", "os", "compose"] {
+            let mut s = EditorSession::open("> abc\n");
+            s.select_with_affinity(s.revision(), range(4, 4), Affinity::Backward)
+                .unwrap();
+            s.block_command(s.revision(), range(4, 4), command, &mut |_| Ok(()))
+                .unwrap();
+            assert_eq!(s.source_text(), item);
+            let at = s.selection();
+            let ok = &mut |_: &SourceEdit| Ok(());
+            match route {
+                "typing" => drop(s.replace_action(s.revision(), at, "Z", InputAction::Typing, ok)),
+                "isolated" => {
+                    drop(s.replace_action(s.revision(), at, "Z", InputAction::Isolated, ok))
+                }
+                "os" => drop(s.replace_os(s.revision(), at, "Z", &[], ok)),
+                _ => {
+                    s.compose(s.revision(), at, "Z").unwrap();
+                    drop(s.commit_composition(s.revision(), Some("Z"), ok));
+                }
+            }
+            assert_eq!(s.source_text(), format!("{item}Z"), "{command:?} {route}");
+            assert_eq!(s.display_text(), "abc\nZ", "{command:?} {route}");
+            s.undo(s.revision(), &mut |_| Ok(())).unwrap();
+            assert_eq!(s.source_text(), item, "{command:?} {route} undo");
+            s.redo(s.revision(), &mut |_| Ok(())).unwrap();
+            assert_eq!(
+                s.source_text(),
+                format!("{item}Z"),
+                "{command:?} {route} redo"
+            );
+        }
+    }
+}
