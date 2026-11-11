@@ -1,5 +1,7 @@
 package com.futo.notes.textfirst
 
+import android.text.Selection
+
 /**
  * When the note view scrolls to meet its caret.
  *
@@ -71,4 +73,16 @@ internal fun TextFirstEditText.revealCaret(offset: Int, nativeReveal: () -> Bool
     val end = (editableText?.length ?: 0) - 1
     if (end > 0 && minOf(selectionStart, selectionEnd) == 0 && maxOf(selectionStart, selectionEnd) == end) return false
     return reveal.at(offset, ready = layout != null && height > 0, reveal = nativeReveal)
+}
+
+/**
+ * A blur (the keyboard dropped, focus moved to the title or find bar) ends a range at its end,
+ * as TextView's closing text menu does, and leaves the reader on their line: that end, often
+ * far below the screen after Select All, is not revealed.
+ */
+internal fun TextFirstEditText.endSelectionOnBlur() {
+    val end = selectionEnd
+    if (end < 0) return
+    reveal.hold(end)
+    if (selectionStart != end) Selection.setSelection(editableText, end)
 }

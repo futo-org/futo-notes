@@ -55,10 +55,11 @@ internal fun AndroidComposeTestRule<ActivityScenarioRule<ComponentActivity>, Com
         is ViewGroup -> (0 until view.childCount).firstNotNullOfOrNull { find(view.getChildAt(it)) }
         else -> null
     }
+    // The whole note: a caret put at the end of a still-arriving prefix stays there as the rest lands.
     waitUntil(15_000) {
         var ready = false
         runOnUiThread {
-            find(activity.window.decorView)?.let { if (it.length() > 100) { editor = it; ready = true } }
+            find(activity.window.decorView)?.let { if (it.length() > 100 && it.contentComplete) { editor = it; ready = true } }
         }
         ready
     }

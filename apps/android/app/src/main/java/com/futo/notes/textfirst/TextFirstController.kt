@@ -77,7 +77,11 @@ internal class TextFirstController(
         view.onTableCell = { start, end, seq -> engine?.selectDisplayRange(start, end, seq) {} }
         view.clipboard.onCopyRefused = { onClipboardRefused() }
         MainThreadWatchdog.start()
-        view.setOnFocusChangeListener { _, hasFocus -> focused = hasFocus }
+        view.setOnFocusChangeListener { _, hasFocus ->
+            focused = hasFocus
+            // The cell field takes focus with its content selected in the note.
+            if (!hasFocus && cellView == null) view.endSelectionOnBlur()
+        }
         view.setOnScrollChangeListener { _, _, _, _, _ -> engine?.screenStart = view.scrollAnchor()?.offset ?: 0 }
         view.onFrameDrawn = { timings ->
             latencyWindow.add(timings)?.let { Log.i("TextFirstLatency", it.toString()) }
