@@ -3,7 +3,7 @@ use super::*;
 
 /// Property 4, and the index: every line, its reading and its display equal
 /// a fresh read of the same text, and the reader's own whole-note reading.
-pub(super) fn check_fresh(engine: &Engine, context: &str) {
+pub(in crate::engine::tests) fn check_fresh(engine: &Engine, context: &str) {
     let source = engine.source_text();
     let fresh = read::open(&source);
     assert_eq!(engine.store.len(), fresh.len(), "{context}");

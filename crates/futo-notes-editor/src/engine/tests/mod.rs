@@ -1,5 +1,6 @@
 //! Literal cases for the core. The five properties are in `properties.rs`.
 mod commands;
+mod external;
 mod projection;
 mod properties;
 

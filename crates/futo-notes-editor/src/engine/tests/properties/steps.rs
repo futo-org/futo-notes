@@ -22,7 +22,7 @@ pub(super) fn state(engine: &Engine) -> State {
 }
 
 #[derive(Default)]
-pub(super) struct Model {
+pub(in crate::engine::tests) struct Model {
     undo: Vec<(State, State)>,
     redo: Vec<(State, State)>,
 }
@@ -49,7 +49,7 @@ impl Model {
 
 /// A renderer's copy of the display, and the windows it restyled.
 #[derive(Default)]
-pub(super) struct View {
+pub(in crate::engine::tests) struct View {
     pub text: String,
     /// The display range of each change's lines since the last check.
     pub restyled: Vec<std::ops::Range<usize>>,
@@ -65,14 +65,14 @@ impl View {
 }
 
 /// Apply a view change to a copy of the display, as a renderer would.
-pub(super) fn apply_view(view: &mut View, change: &crate::engine::edit::Change) {
+pub(in crate::engine::tests) fn apply_view(view: &mut View, change: &crate::engine::edit::Change) {
     view.text
         .replace_range(change.range.start.0..change.range.end.0, &change.inserted);
     view.restyled.push(change.lines.clone());
 }
 
 /// One random step. Returns a description for failure messages.
-pub(super) fn step(
+pub(in crate::engine::tests) fn step(
     engine: &mut Engine,
     model: &mut Model,
     view: &mut View,

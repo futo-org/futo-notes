@@ -27,6 +27,10 @@ use checks::*;
 use generate::*;
 use steps::*;
 
+pub(super) use checks::check_fresh;
+pub(super) use generate::{cases, note, Random};
+pub(super) use steps::{apply_view, step, Model, View};
+
 #[test]
 fn the_five_properties_hold_over_random_edits() {
     let mut random = Random::from_env();
