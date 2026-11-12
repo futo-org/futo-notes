@@ -6,6 +6,7 @@
 //! lines out of a fence keeps each one a plain line (`kept_line` writes a
 //! leading `\` where the text would read as another block), so the shown
 //! text does not move.
+mod cut;
 mod keys;
 
 use super::super::command::{kept_line, Command, Edit};

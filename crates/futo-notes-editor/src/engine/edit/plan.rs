@@ -54,6 +54,9 @@ impl Engine {
     /// the line markers and hidden lines inside it, keeps the syntax of spans
     /// that reach out of it, and drops the syntax of spans left empty; the
     /// text lands where the selection starts, inside spans that start there.
+    /// Fences likewise: a fence line inside it whose block reaches out of it
+    /// is kept, moved to just after the joined line, and a block left with
+    /// no code line goes whole (`kept_frame`).
     pub(crate) fn plan(&self, range: DisplayRange, text: &str) -> Plan {
         let (s, e) = (range.start.0, range.end.0);
         let mut inserted = String::new();
@@ -135,6 +138,14 @@ impl Engine {
             replacement.push_str(spelled(piece));
         }
         replacement.push_str(&keep_outside(to..end));
+        // A fence frame line the selection cuts goes after the joined line.
+        let (end, old) = match self.kept_frame(start, end) {
+            Some((to, text)) => {
+                replacement.push_str(&text);
+                (to, self.source_slice(start..to))
+            }
+            None => (end, old),
+        };
         // Trim what the replacement leaves as it was.
         let prefix = old
             .bytes()

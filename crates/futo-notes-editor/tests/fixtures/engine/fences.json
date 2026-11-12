@@ -19,7 +19,6 @@
   {"name": "code block: the whole table goes in", "marks": "^<>", "before": "<| a |\n|---|\n| 1 |>", "command": "CodeBlock", "after": "```\n<| a |\n|---|\n| 1 |>\n```"},
   {"name": "wrap: mixed blocks go into one fence as typed", "before": "# **[t**\n- one\n> q]", "command": "WrapCodeBlock", "after": "```\n# **[t**\n- one\n> q]\n```"},
   {"name": "wrap: a plain line", "before": "a|b", "command": "WrapCodeBlock", "after": "```\na|b\n```"},
-
   {"name": "code off: the only code line", "before": "```\nx|\n```", "command": "CodeBlock", "after": "x|"},
   {"name": "code off: the first of two lines", "before": "```\n|x\ny\n```", "command": "CodeBlock", "after": "|x\n```\ny\n```"},
   {"name": "code off: the last of two lines", "before": "```\nx\n|y\n```", "command": "CodeBlock", "after": "```\nx\n```\n|y"},
@@ -40,7 +39,6 @@
   {"name": "code off: a split under a bullet keeps the closing line's indent", "before": "- a\n  ```\n  x\n  |y\n  ```", "command": "CodeBlock", "after": "- a\n  ```\n  x\n  ```\n  |y"},
   {"name": "code off: a tilde fence keeps its spelling", "before": "~~~~py\nx\n|y\n~~~~", "command": "CodeBlock", "after": "~~~~py\nx\n~~~~\n|y"},
   {"name": "code off: the note's final line ending stays", "before": "```\nx|\n```\n", "command": "CodeBlock", "after": "x|\n"},
-
   {"name": "enter: a code line's indent continues", "before": "```\n    a|b\n```", "command": "Enter", "after": "```\n    a\n    |b\n```"},
   {"name": "enter: at a line's start writes no indent", "before": "```\n|  ab\n```", "command": "Enter", "after": "```\n\n|  ab\n```"},
   {"name": "enter: inside the indent writes the indent before the caret", "before": "```\n  |  ab\n```", "command": "Enter", "after": "```\n  \n  |  ab\n```"},
@@ -62,7 +60,6 @@
   {"name": "enter: a selected whole block with text after", "before": "```\n[a\nb]\n```\nafter", "command": "Enter", "after": "```\na\nb\n```\n|\nafter"},
   {"name": "enter: a selected whole block under a bullet opens the line at its indent", "before": "- x\n  ```\n[  code]\n  ```", "command": "Enter", "after": "- x\n  ```\n  code\n  ```\n  |"},
   {"name": "enter: a selected part of a block is replaced", "before": "```\n[a\nb]\nc\n```", "command": "Enter", "after": "```\n\n|\nc\n```"},
-
   {"name": "tab: two spaces at the caret", "before": "~~~x\na|b\n cd\n~~~", "command": "Tab", "after": "~~~x\na  |b\n cd\n~~~"},
   {"name": "tab: two spaces at each selected line's start", "before": "~~~x\na[b\n c]d\n~~~", "command": "Tab", "after": "~~~x\n  a[b\n   c]d\n~~~"},
   {"name": "shift tab: up to two spaces off", "before": "~~~x\nab\n c|d\n~~~", "command": "ShiftTab", "after": "~~~x\nab\nc|d\n~~~"},
@@ -73,5 +70,26 @@
   {"name": "indent: a tab at the caret line's start", "before": "```\nx|\n```", "command": "Indent", "after": "```\n\tx|\n```"},
   {"name": "indent: a tab at each touched line", "before": "```\n[x\ny]\n```", "command": "Indent", "after": "```\n\t[x\n\ty]\n```"},
   {"name": "indent: an empty block's line", "before": "```|\n```", "command": "Indent", "after": "```\n\t|\n```"},
-  {"name": "outdent: a tab, else up to two spaces, off each touched line", "before": "```\n[\tx\n   y\nz]\n```", "command": "Outdent", "after": "```\n[x\n y\nz]\n```"}
+  {"name": "outdent: a tab, else up to two spaces, off each touched line", "before": "```\n[\tx\n   y\nz]\n```", "command": "Outdent", "after": "```\n[x\n y\nz]\n```"},
+  {"name": "backspace: at the first code line's start the line joins the line above", "before": "a\n```\n|code\nmore\n```\nb", "command": "Backspace", "after": "a|code\n```\nmore\n```\nb"},
+  {"name": "backspace: a one-line block's line joins the line above and the block goes", "before": "a\n```\n|code\n```\nb", "command": "Backspace", "after": "a|code\nb"},
+  {"name": "backspace: on an empty block removes it", "before": "a\n```|\n```\nb", "command": "Backspace", "after": "a|\nb"},
+  {"name": "backspace: on an empty block nothing closes", "before": "a\n```|", "command": "Backspace", "after": "a|"},
+  {"name": "backspace: after a block takes the line into its last code line", "before": "```\ncode\n```\n|b\nc", "command": "Backspace", "after": "```\ncode|b\n```\nc"},
+  {"name": "delete: at the last code line's end takes the next line in", "before": "```\ncode|\n```\nb\nc", "command": "Delete", "after": "```\ncode|b\n```\nc"},
+  {"name": "delete: at the end of the line above a block takes its first code line out", "before": "a|\n```\ncode\nmore\n```", "command": "Delete", "after": "a|code\n```\nmore\n```"},
+  {"name": "typing over code and the line after keeps the closing line after the joined line", "before": "```\nx\nc[ode\n```\nb]c\nd", "command": "type:Z", "after": "```\nx\ncZ|c\n```\nd"},
+  {"name": "typing from one block into another keeps both frames", "before": "```\nx[1\n```\nmid\n```\ny]1\nz\n```", "command": "type:T", "after": "```\nxT|1\n```\n```\nz\n```"},
+  {"name": "typing over a whole block takes its frame too", "before": "a[\n```\ncode\n```\nb]c", "command": "type:X", "after": "aX|c"},
+  {"name": "#348 1: a list, a blank line and a whole block", "marks": "^<>", "before": "- [ ] task\n- [x] done\n<\n```\nlet x = 1\ny = 2\nz = 3\n```\n>\npara one end\n\n# head\n", "command": "type:xy", "after": "- [ ] task\n- [x] done\nxy^\npara one end\n\n# head\n"},
+  {"name": "#348 2: a block nothing closes keeps its opening line", "before": "para one end[\n```\nun]closed\nlines", "command": "type:d", "after": "para one endd|closed\n```\nlines"},
+  {"name": "#348 3: a line break into an item's block keeps the block", "before": "- item[\n  ```\n  c]1\n  c2\n  ```\nplain text here\n", "command": "type:d", "after": "- itemd|1\n  ```\n  c2\n  ```\nplain text here\n"},
+  {"name": "#348 4: CRLF out of a block keeps its closing line", "before": "```\r\ncrlf[\r\ncode\r\n```\r\n]\n```\r\ncrlf\r\ncode\r\n```\r\n\n> quote a\n> quote b", "command": "type:pp", "after": "```\r\ncrlfpp|\n```\n```\r\ncrlf\r\ncode\r\n```\r\n\n> quote a\n> quote b"},
+  {"name": "#348 5: quoted backticks are quote lines", "before": "> ```[\n> code one\n> code t]wo\n> ```\n\ntail text\n", "command": "type:x\ny", "after": "> ```x\ny|wo\n> ```\n\ntail text\n"},
+  {"name": "#348 7: deleting a line above indented plain lines", "before": "- next\n\n[para one end\n]\n    indented code\n    more code\n", "command": "Backspace", "after": "- next\n\n|\n    indented code\n    more code\n"},
+  {"name": "#348 R1: text over prose and a block's first line keeps the block", "before": "Some [text\n\n```\nlet value = 1]\nreturn value\n```\n", "command": "type:e", "after": "Some e|\n```\nreturn value\n```\n"},
+  {"name": "#348 R1: a shorter one", "before": "para[\n\n```\ndeep]\nx\n```\n", "command": "type:d", "after": "parad|\n```\nx\n```\n"},
+  {"name": "#348 P1: a block line over a block's end stays code, closed", "before": "```\na[bc\n```\nd]ef", "command": "type:- x", "after": "```\na- x|ef\n```"},
+  {"name": "#348: code ending the note on a multibyte character", "before": "```\na[\n]é", "command": "type:x", "after": "```\nax|é"},
+  {"name": "#348 window: text from one fence's code past its end", "before": "```\n\npara one end\n\n~~~\ntil a\n```\ntil [b\n~~~\n\npara ]one end\n\n- far item\n\nfar para end", "command": "type:d", "after": "```\n\npara one end\n\n~~~\ntil a\n```\ntil d|one end\n~~~\n\n- far item\n\nfar para end"}
 ]

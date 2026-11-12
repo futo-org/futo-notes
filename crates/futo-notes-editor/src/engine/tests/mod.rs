@@ -269,13 +269,15 @@ fn replacing_a_selection_writes_these_bytes() {
         ("> a\n> b", "a\nb", "X", "> X"),
         ("# Title", "Title", "X", "# X"),
         ("1. a\n2. b\n3. c", "a\nb\nc", "", "1. "),
-        // Hidden lines inside the selection go with it.
-        ("a\n```\ncode\n```\nb", "a\nco", "", "de\n```\nb"),
-        ("a\n```\ncode\n```\nb", "de\nb", "", "a\n```\nco"),
+        // Hidden lines inside the selection go with it, except a fence
+        // frame line whose block goes on outside it: that stays, after the
+        // joined line, and goes when no code line is left (fences/cut.rs).
+        ("a\n```\ncode\n```\nb", "a\nco", "", "de\nb"),
+        ("a\n```\ncode\n```\nb", "de\nb", "", "a\n```\nco\n```"),
         ("a\n---\nb", "\u{fffc}", "", "a\n\nb"),
         ("a\n---\nb", "a\n\u{fffc}", "X", "X\nb"),
         // A selection starting on an empty code block's line keeps the block.
-        ("```\n```\nb", "\nb", "X", "```\nX"),
+        ("```\n```\nb", "\nb", "X", "```\nX\n```"),
         // Tables: cells are text; pipes show and are selected like text.
         (
             "| a | b |\n|---|---|\n| c | d |",
