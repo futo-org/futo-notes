@@ -138,6 +138,20 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
     new tag block was written with LF. Note-id delivery enters 75 rows (1,000 paragraphs) and
     85 (20,000) against the old 7 and 9, under that test's bound of 128 nodes and 4 links; both
     examine 1 link. Store lib on the core: every relink, identity, wikilink and tag test passes.
+  - Merged: taking in outside changes (`engine/external.rs`, 12 literal cases and a property:
+    random local edits, an outside edit, a three-way merge, adopt; undo-all reaches the outside
+    version byte for byte, redo returns to the merge, fresh read after every step). Prepare
+    rebases every undo and redo group with `three_way_merge` and maps every selection; it refuses
+    before changing anything on ambiguity, the old bounds (1 MiB / 16 MiB) or composition. Apply
+    replaces only the changed window, through `accept` (so find follows it). Old bugs fixed: the
+    history-keeping adoption refused every note with front matter, so an outside change parked
+    the draft; adoption re-read the whole note; the history-dropping variant put the caret at the
+    note's end; `move_caret` had no `on_next!` and panicked on the core. About 3.6% of random
+    cases refuse because a historical merge is ambiguous (repeated blank lines), as on the old
+    engine; those park, nothing is lost. All store outside-write tests pass on the core
+    (`merging` 11, `clean_refresh` 6, `external_rename` 8, `saving`, `quick_open`, `flush_draft`).
+    Store lib on the core after this merge: 230 passed, 28 failed (links, clipboard, quick open,
+    composition, tables, blocks, list actions: families not merged yet).
   - The wikilinks merge put `engine/mod.rs` over the size limit: selection and movement moved
     to `engine/selection.rs`, UTF-16 conversions to `engine/utf16.rs`, verbatim.
   - Rule kept, noted by the fences lane: typing after a ``` that is the note's last line goes
@@ -155,4 +169,11 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
   4. A divider shows as one U+FFFC.
   Front matter lines and a table's delimiter row show their whole text; everything else hides
   its marker and inline syntax.
-- Open questions for the maintainer: none yet.
+- Open questions for the maintainer:
+  1. Outside changes that touch, open or close front matter are refused by the history-keeping
+     adoption, so a dirty draft parks a conflict copy (a clean session drops history and adopts).
+     The spec says metadata parks; no hazard in rebasing through it was found. Keep refusing?
+  2. A portable page asked to adopt its own text: the core has no record to send, so
+     `adopt_merged_source` returns `UnrepresentableFormat`; the old engine sent an empty Append.
+  3. Images: "safe to write" is now only "reads back as exactly that image" (see the images
+     entry); keep, or keep the old engine's blanket refusals of `<`, `\` and backticks too?
