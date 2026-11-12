@@ -29,7 +29,8 @@ impl Engine {
             &Self,
             DisplayRange,
             ParagraphKey,
-        ) -> Result<Option<Command>, EditorError>; 4] = [
+        ) -> Result<Option<Command>, EditorError>; 5] = [
+            Self::image_key,
             Self::table_key,
             Self::fence_key,
             Self::list_key,
