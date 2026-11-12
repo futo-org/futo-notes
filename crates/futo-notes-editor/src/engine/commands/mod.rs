@@ -105,9 +105,13 @@ impl Engine {
             | BlockCommand::ToggleHeading(_)
             | BlockCommand::Quote
             | BlockCommand::Divider => self.block_toggle(range, command),
-            BlockCommand::Indent
-            | BlockCommand::Outdent
-            | BlockCommand::ToggleTask
+            BlockCommand::Indent | BlockCommand::Outdent => {
+                match self.fence_indent(range, command == BlockCommand::Outdent)? {
+                    Some(command) => Ok(Some(command)),
+                    None => self.list_command(range, command),
+                }
+            }
+            BlockCommand::ToggleTask
             | BlockCommand::BulletList
             | BlockCommand::OrderedList
             | BlockCommand::TaskList => self.list_command(range, command),
