@@ -17,10 +17,12 @@ pub(super) fn check_fresh(engine: &Engine, context: &str) {
         assert_eq!(have.carry, want.carry, "line {index} carry {context}");
         assert_eq!(have.line, want.line, "line {index} reading {context}");
         assert_eq!(have.spans, want.spans, "line {index} spans {context}");
+        assert_eq!(have.links, want.links, "line {index} link bits {context}");
         assert_eq!(have.view, want.view, "line {index} display {context}");
         assert_eq!(have.size, want.size, "line {index} size {context}");
     }
     assert_eq!(engine.store.total(), fresh.total(), "{context}");
+    engine.store.check_links(context);
     let mut sum = crate::engine::store::Size::default();
     for index in 0..engine.store.len() {
         assert_eq!(

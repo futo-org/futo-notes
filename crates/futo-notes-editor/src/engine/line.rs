@@ -71,8 +71,20 @@ pub(crate) struct Entry {
     pub carry: Carry,
     pub line: Line,
     pub spans: Vec<Span>,
+    /// One bit per wikilink target leaf on the line (`link_bit`), so a
+    /// note-id delivery skips lines whose links it cannot change.
+    pub links: u64,
     pub view: View,
     pub size: Size,
+}
+
+/// The bit a wikilink target's last path component hashes to. A note-id
+/// change can only re-resolve links whose leaf matches a changed id's leaf.
+pub(crate) fn link_bit(target: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    futo_notes_wikilinks::note_id_leaf(target).hash(&mut hasher);
+    1 << (hasher.finish() % 64)
 }
 
 /// What a line's display depends on beyond the line itself.
@@ -115,6 +127,7 @@ impl Entry {
             carry: before,
             line,
             spans: Vec::new(),
+            links: 0,
             view: View {
                 role: Role::Text,
                 ending: true,
@@ -127,6 +140,14 @@ impl Entry {
     /// Read the line's inline marks (after table headers are settled).
     pub fn read_spans(&mut self) {
         self.spans = line_spans(&self.text, &self.line);
+        self.links = self
+            .spans
+            .iter()
+            .filter_map(|span| match &span.kind {
+                SpanKind::Wikilink { target } => Some(link_bit(target)),
+                _ => None,
+            })
+            .fold(0, |mask, bit| mask | bit);
     }
 
     /// The line without its ending.

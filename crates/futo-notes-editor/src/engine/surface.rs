@@ -211,7 +211,7 @@ impl Engine {
             if at <= start16 {
                 self.display_from16(at)
             } else if at <= start16 + text16 {
-                super::utf16_to_byte(&marked.text, at - start16)
+                super::utf16::utf16_to_byte(&marked.text, at - start16)
                     .map(|local| marked.range.start.0 + local)
             } else {
                 let real = self.display_from16(at - start16 - text16 + end16)?;

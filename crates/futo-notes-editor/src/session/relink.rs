@@ -14,6 +14,8 @@ impl EditorSession {
         rewritten: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        on_next!(self, accept, |e, accept| e
+            .apply_own_relink(expected, rewritten, accept));
         self.check_revision(expected)?;
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);

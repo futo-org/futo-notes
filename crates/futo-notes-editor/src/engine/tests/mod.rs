@@ -4,6 +4,7 @@ mod find;
 mod images;
 mod projection;
 mod properties;
+mod wikilinks;
 
 use super::Engine;
 use crate::{
