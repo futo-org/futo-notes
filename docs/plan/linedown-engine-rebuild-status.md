@@ -89,7 +89,27 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
     chain: 874 passed, 389 failed, 4 ignored; on the parent commit 870/389/4, same failures
     by name. `just test-ios-native TextFirstBlockDrawingTests TextFirstOpeningTests`: 40 of 41;
     the failure is the old engine's Tab indent (26 Rust indent tests fail on the parent).
-- Stage 3: not started; each family's commands land behind the switch first.
+- Stage 3: in progress.
+  - Done on `linedown`: the shared command machinery (commit `feat(editor): give the core one
+    command shape, one guard and work counts`). `engine/command.rs`: `Command` (edits on named
+    lines plus the selection after), `Engine::run` (marked text commits first in the same
+    acceptance as its own undo step; then the edits; then the one guard; one undo group),
+    `kept_line` (the one escape function). The guard reads unnamed lines again (line 1, the line
+    above, lines between named ranges, then forward until the carry settles) and cancels if any
+    reads as another kind of block. `engine/commands/` dispatches paragraph keys (families asked
+    in order tables, fences, lists, blocks; unclaimed keys type) and toolbar block commands to
+    one file per family. `EditWork` now counts re-read bytes, copied source bytes and projection
+    descriptions; `engine/tests/commands.rs` pins that a distant edit's counts do not grow with
+    the note. The property run presses random paragraph keys and block commands.
+  - Families run in parallel, one worktree and branch each (`linedown-<family>`, worktree
+    `futo-notes-ln-<family>`), merged into `linedown` in the brief's order. Shared agent brief:
+    each family writes its literal cases to a new `tests/fixtures/engine/<family>.json` read by
+    a core test, instead of extending the old shared fixtures, because old tests and the wasm
+    consumers read those until stage 4 and new cases there would only add old-engine failures.
+    Stage 4 points the wasm consumers at the new files.
+  - Started: external adoption, lists, heading/quote/divider, inline formatting and links,
+    tables, fences, images, wikilinks and tags (with completion, note ids, relinking), find,
+    quick open. Paste and clipboard start after lists and tables land.
 - Stage 4: not started.
 - Stage 5: not started.
 - Surface methods deleted, with reasons: none yet.
