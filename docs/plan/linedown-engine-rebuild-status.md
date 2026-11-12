@@ -118,6 +118,16 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
     break is a barrier. Old `host_find_plan` 18/18 on the core; old `tests/find.rs` 4/5, the
     failure is three rows asserting a CommonMark result (a line break reads as a space).
     Stage 4: move the public find types out of `session/find.rs`, do not delete them.
+  - Merged: images (`engine/commands/images.rs`, 52 fixture cases, each checking undo and
+    redo). Inserted inline at the caret as `![alt](reference)`, `<...>` around a reference with
+    a space or parenthesis, one undo step. "Safe to write" is now one rule: the text reads back
+    on its line as exactly one image with that alt and destination, else `InvalidText`. Review:
+    so `a<b.png`, `a\b.png` and an unpaired backtick in the alt are now written, and an alt
+    `[x]` (reads as a wikilink), a `|` in a reference inside a table cell and an image right
+    after `\` are now refused. Backspace or Delete stepping into an image removes it whole
+    (`image_key`, asked first). The core lets a caret stand inside an image's text; keeping it
+    outside is the renderer's, from the atom's before/after. Old `tests/images.rs` 5/7 on the
+    core: the alt now shows as typed, and three old refusals are now accepted.
   - Rule kept, noted by the fences lane: typing after a ``` that is the note's last line goes
     into the empty code block's body (display rule 3), so `js` there writes "```\njs", not a
     language; mid-note it writes "```js".
