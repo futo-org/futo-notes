@@ -147,8 +147,12 @@ impl Engine {
         }
         self.check_display_range(range)?;
         if let Some(command) = self.key_command(range, key)? {
-            // A command with no edits moves the selection (a table key).
+            // A command with no edits moves the selection (a table key); one
+            // that leaves it where it is changes nothing.
             if command.edits.is_empty() {
+                if self.display_range(command.selection.clone()) == self.selection {
+                    return Ok(None);
+                }
                 return self.moved_view(expected, command.selection).map(Some);
             }
             let change = self.run(expected, |_| Ok(Some(command)), accept)?;

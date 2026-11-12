@@ -254,7 +254,7 @@ impl Engine {
         })
     }
 
-    fn display_range(&self, source: Range<usize>) -> DisplayRange {
+    pub(crate) fn display_range(&self, source: Range<usize>) -> DisplayRange {
         DisplayRange {
             start: DisplayOffset(self.display_of(source.start)),
             end: DisplayOffset(self.display_of(source.end)),
