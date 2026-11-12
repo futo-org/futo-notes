@@ -151,6 +151,7 @@ impl Engine {
         }
         self.revision = revision;
         let (dstart, dold, dend) = batch.display.expect("display footprint with source");
+        self.find.edited(dstart..dold, dend - dstart, revision);
         let shown = Shown {
             range: dstart..dold,
             inserted: self.display_slice(dstart..dend),

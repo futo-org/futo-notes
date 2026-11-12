@@ -257,6 +257,7 @@ impl EditorSession {
         expected: Revision,
         query: &str,
     ) -> Result<FindReport, EditorError> {
+        on_next!(self, |e| e.find_set_query(expected, query));
         self.check_revision(expected)?;
         self.find.open = true;
         self.find.query = query.to_owned();
@@ -282,6 +283,7 @@ impl EditorSession {
         expected: Revision,
         direction: CaretDirection,
     ) -> Result<FindReport, EditorError> {
+        on_next!(self, |e| e.find_step(expected, direction));
         self.check_revision(expected)?;
         self.find.rebase();
         let total = self.find.matches.len();
@@ -317,6 +319,7 @@ impl EditorSession {
     /// Clear matches and invalidate in-flight scans; the query is remembered
     /// for the next open of this note. The selection is left where it is.
     pub fn find_close(&mut self) -> FindReport {
+        on_next!(self, |e| e.find_close());
         self.find.open = false;
         self.find.generation += 1;
         self.find.matches.clear();
@@ -328,6 +331,7 @@ impl EditorSession {
     }
 
     pub fn find_report(&mut self) -> FindReport {
+        on_next!(self, |e| e.find_report());
         self.find.rebase();
         self.find_report_with(None)
     }
@@ -338,6 +342,7 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<Vec<DisplayRange>, EditorError> {
+        on_next!(self, |e| e.find_matches(expected, range));
         self.check_revision(expected)?;
         self.validate_range(range)?;
         self.find.rebase();
@@ -355,6 +360,7 @@ impl EditorSession {
     /// Snapshot for an off-path rescan. Whole-text materialization, so hosts
     /// call it after input settles, never per keystroke.
     pub fn find_scan_request(&self) -> Option<FindScanRequest> {
+        on_next!(ref self, |e| e.find_scan_request());
         (self.find.open && !self.find.query.is_empty()).then(|| FindScanRequest {
             incarnation: self.incarnation,
             generation: self.find.generation,
@@ -370,6 +376,7 @@ impl EditorSession {
     /// anything else is rejected as stale with no state change. Host-supplied matches must
     /// also be non-empty, ascending, non-overlapping, in range and on character boundaries.
     pub fn find_apply_scan(&mut self, result: &FindScanResult) -> Option<FindReport> {
+        on_next!(self, |e| e.find_apply_scan(result));
         if !self.find.open
             || result.incarnation != self.incarnation
             || result.generation != self.find.generation
@@ -404,6 +411,7 @@ impl EditorSession {
     }
 
     pub fn find_work(&self) -> FindWork {
+        on_next!(ref self, |e| e.find_work());
         FindWork {
             barrier_bytes: self.find.barrier_bytes.get(),
             ..self.find.work

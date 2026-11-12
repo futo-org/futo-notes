@@ -5,7 +5,7 @@
 mod blocks;
 mod clipboard;
 mod fences;
-mod find;
+pub(super) mod find;
 mod images;
 mod inline;
 mod lists;
