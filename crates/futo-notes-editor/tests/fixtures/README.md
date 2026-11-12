@@ -177,3 +177,25 @@ a quoted empty paragraph uses the existing hidden-comment separator to keep
 its margin caret and quote ancestry without joining the prior list.
 
 Two selected-ancestor Heading/Quote literals cover quoted task parents and children with CRLF, and an owned child first-text endpoint with its unselected grandchild retained as a list. The heading/quote family now has sixteen cases. Explicit final-block intent lifts selected descendants; the separate Text ancestor literal remains unchanged.
+
+## Linedown reading
+
+`linedown/` holds the reading cases, one file per theme, for `docs/spec/editor/portable-core/linedown.md`: for
+each `input`, one string per line naming what the line reader reports — the block (`plain`,
+`plain@1` for an indented line lined up under list depth 1, `blank`, `h2`, `bullet d0 -`,
+`number d1 3)`, `task d0 - [x]`, `divider`, `fence-open js`, `code`, `fence-close`,
+`front-open`, `front`, `front-close`, `table-header 2`, `table-delimiter 2`, `table-row 2`),
+a `q1 ` prefix for quote depth, ` : ` and the line's content, then each inline mark as
+`[kind source]`. Every case names the spec rule or "Differences" row it pins. The fixtures
+assert what each line is, never HTML. `src/lines/tests.rs` runs them, checks that re-reading
+after any edit equals a fresh read, and checks that text added below never changes a line
+above (the table header excepted).
+
+The comparison run reads a vault with pulldown-cmark and with the line reader and prints each
+class of changed line against the spec rule that predicts it. It is read-only:
+
+    LINES_COMPARE=<dir>[:<file.jsonl>] LINES_COMPARE_EXAMPLES=<scratch file> \
+      cargo test -p futo-notes-editor --lib lines::compare -- --ignored --nocapture
+
+A `.jsonl` path reads one note per line from its `body` field (the ML corpus, decompressed).
+The examples file holds note text: keep it out of the repo.

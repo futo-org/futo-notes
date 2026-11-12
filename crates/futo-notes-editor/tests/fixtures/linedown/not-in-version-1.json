@@ -1,0 +1,99 @@
+{
+ "about": "Linedown reading fixtures (not-in-version-1): per line, what the reader reports. See tests/fixtures/README.md.",
+ "cases": [
+  {
+   "name": "setext === under text is a plain line",
+   "rule": "Not in version 1 / Differences from CommonMark and GFM row 1",
+   "input": "Title\n===",
+   "lines": [
+    "plain : Title",
+    "plain : ==="
+   ]
+  },
+  {
+   "name": "reference links are literal",
+   "rule": "Not in version 1",
+   "input": "[text][ref]\n\n[ref]: https://example.com",
+   "lines": [
+    "plain : [text][ref]",
+    "blank",
+    "plain : [ref]: https://example.com [url https://example.com]"
+   ]
+  },
+  {
+   "name": "footnotes are literal",
+   "rule": "Not in version 1",
+   "input": "a[^1]\n[^1]: note",
+   "lines": [
+    "plain : a[^1]",
+    "plain : [^1]: note"
+   ]
+  },
+  {
+   "name": "raw HTML is literal",
+   "rule": "Not in version 1",
+   "input": "<div>hi</div>\n<b>x</b>",
+   "lines": [
+    "plain : <div>hi</div>",
+    "plain : <b>x</b>"
+   ]
+  },
+  {
+   "name": "entities are literal",
+   "rule": "Not in version 1",
+   "input": "&amp; &#35; &#x20;",
+   "lines": [
+    "plain : &amp; &#35; &#x20;"
+   ]
+  },
+  {
+   "name": "a trailing backslash shows",
+   "rule": "Not in version 1",
+   "input": "a\\\nb",
+   "lines": [
+    "plain : a\\",
+    "plain : b"
+   ]
+  },
+  {
+   "name": "trailing spaces are spaces",
+   "rule": "Not in version 1",
+   "input": "a  \nb",
+   "lines": [
+    "plain : a  ",
+    "plain : b"
+   ]
+  },
+  {
+   "name": "the Why-not-CommonMark examples read as typed",
+   "rule": "Why not CommonMark",
+   "input": "#\na\n---\n- a\n\n- b",
+   "lines": [
+    "plain : #",
+    "plain : a",
+    "divider",
+    "bullet d0 - : a",
+    "blank",
+    "bullet d0 - : b"
+   ]
+  },
+  {
+   "name": "#414: a task item with a lone CR",
+   "rule": "Issue #414",
+   "input": "- [ ] a\rb\n- [ ] c",
+   "lines": [
+    "task d0 - [ ] : a\rb",
+    "task d0 - [ ] : c"
+   ]
+  },
+  {
+   "name": "#353: a link cannot cross a line",
+   "rule": "Issue #353",
+   "input": "[a\nb](c)",
+   "lines": [
+    "plain : [a",
+    "plain : b](c)"
+   ]
+  }
+ ]
+}

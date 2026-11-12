@@ -5,6 +5,7 @@ mod history;
 pub mod host;
 pub use history::{DisplayReplacement, DisplayUtf16Replacement, HistoryClock, InputAction};
 mod inline;
+mod lines;
 mod link_target;
 mod movement;
 mod parallel;

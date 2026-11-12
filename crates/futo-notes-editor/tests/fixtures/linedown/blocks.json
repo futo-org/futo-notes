@@ -1,0 +1,322 @@
+{
+ "about": "Linedown reading fixtures (blocks): per line, what the reader reports. See tests/fixtures/README.md.",
+ "cases": [
+  {
+   "name": "grocery list then a lone dash",
+   "rule": "The principle / Differences from CommonMark and GFM row 1",
+   "input": "grocery list\n-",
+   "lines": [
+    "plain : grocery list",
+    "plain : -"
+   ]
+  },
+  {
+   "name": "grocery list then an empty bullet",
+   "rule": "The principle",
+   "input": "grocery list\n- ",
+   "lines": [
+    "plain : grocery list",
+    "bullet d0 - : "
+   ]
+  },
+  {
+   "name": "foo and bar are two lines",
+   "rule": "The principle / Differences from CommonMark and GFM row 2",
+   "input": "foo\nbar",
+   "lines": [
+    "plain : foo",
+    "plain : bar"
+   ]
+  },
+  {
+   "name": "three blank lines show as three",
+   "rule": "The principle / Differences from CommonMark and GFM row 3",
+   "input": "a\n\n\n\nb",
+   "lines": [
+    "plain : a",
+    "blank",
+    "blank",
+    "blank",
+    "plain : b"
+   ]
+  },
+  {
+   "name": "whitespace-only line is blank",
+   "rule": "Blocks",
+   "input": "a\n \t \nb",
+   "lines": [
+    "plain : a",
+    "blank",
+    "plain : b"
+   ]
+  },
+  {
+   "name": "a final line ending opens an empty line",
+   "rule": "The principle",
+   "input": "a\n",
+   "lines": [
+    "plain : a",
+    "blank"
+   ]
+  },
+  {
+   "name": "lone CR is an ordinary character",
+   "rule": "The principle",
+   "input": "a\r\nb\rc",
+   "lines": [
+    "plain : a",
+    "plain : b\rc"
+   ]
+  },
+  {
+   "name": "open fence runs to the end of the note",
+   "rule": "When one line affects another 1",
+   "input": "```\n# a\n- b",
+   "lines": [
+    "fence-open",
+    "code : # a",
+    "code : - b"
+   ]
+  },
+  {
+   "name": "closed fence then markdown again",
+   "rule": "When one line affects another 1",
+   "input": "```js\nx\n```\n# a",
+   "lines": [
+    "fence-open js",
+    "code : x",
+    "fence-close",
+    "h1 : a"
+   ]
+  },
+  {
+   "name": "front matter closed",
+   "rule": "When one line affects another 2 / Front matter",
+   "input": "---\ntitle: x\n---\n# a",
+   "lines": [
+    "front-open",
+    "front",
+    "front-close",
+    "h1 : a"
+   ]
+  },
+  {
+   "name": "front matter with no close runs to the end",
+   "rule": "When one line affects another 2 / Front matter",
+   "input": "---\ntitle: x\n# a",
+   "lines": [
+    "front-open",
+    "front",
+    "front"
+   ]
+  },
+  {
+   "name": "--- after line 1 is a divider",
+   "rule": "Front matter",
+   "input": "a\n---\nb\n---",
+   "lines": [
+    "plain : a",
+    "divider",
+    "plain : b",
+    "divider"
+   ]
+  },
+  {
+   "name": "--- on line 1 with trailing text is not front matter",
+   "rule": "Front matter",
+   "input": "--- x\n---",
+   "lines": [
+    "plain : --- x",
+    "divider"
+   ]
+  },
+  {
+   "name": "table rows follow header and delimiter",
+   "rule": "When one line affects another 4 / Tables",
+   "input": "| a | b |\n|---|---|\n| 1 | 2 |\nnext",
+   "lines": [
+    "table-header 2 : | a | b |",
+    "table-delimiter 2",
+    "table-row 2 : | 1 | 2 |",
+    "plain : next"
+   ]
+  },
+  {
+   "name": "pipe lines with no delimiter row are plain",
+   "rule": "When one line affects another 4 / Tables",
+   "input": "| a | b |\n| 1 | 2 |",
+   "lines": [
+    "plain : | a | b |",
+    "plain : | 1 | 2 |"
+   ]
+  },
+  {
+   "name": "delimiter row makes only the line above a header",
+   "rule": "When one line affects another 5",
+   "input": "x\n| a |\n|---|",
+   "lines": [
+    "plain : x",
+    "table-header 1 : | a |",
+    "table-delimiter 1"
+   ]
+  },
+  {
+   "name": "a delimiter row with no pipe line above is plain",
+   "rule": "When one line affects another 5",
+   "input": "x\n|---|",
+   "lines": [
+    "plain : x",
+    "plain : |---|"
+   ]
+  },
+  {
+   "name": "a marker needs a space",
+   "rule": "Blocks / A marker needs a space",
+   "input": "-\n- milk\n#\n#tag\n# Title\n>quote",
+   "lines": [
+    "plain : -",
+    "bullet d0 - : milk",
+    "plain : #",
+    "plain : #tag [tag #tag]",
+    "h1 : Title",
+    "plain : >quote"
+   ]
+  },
+  {
+   "name": "a tab after a marker counts",
+   "rule": "Blocks / A marker needs a space",
+   "input": "-\tx\n#\tx",
+   "lines": [
+    "bullet d0 - : x",
+    "h1 : x"
+   ]
+  },
+  {
+   "name": "empty heading and empty bullet with a space",
+   "rule": "Blocks / A marker needs a space",
+   "input": "# \n- ",
+   "lines": [
+    "h1 : ",
+    "bullet d0 - : "
+   ]
+  },
+  {
+   "name": "> alone is an empty quote line",
+   "rule": "Blocks / A marker needs a space",
+   "input": "> a\n>\n> b",
+   "lines": [
+    "q1 plain : a",
+    "q1 blank",
+    "q1 plain : b"
+   ]
+  },
+  {
+   "name": "headings start at column 0",
+   "rule": "Blocks / Headings and dividers start at column 0",
+   "input": " # a\n# Title #",
+   "lines": [
+    "plain :  # a",
+    "h1 : Title #"
+   ]
+  },
+  {
+   "name": "seven hashes is plain",
+   "rule": "Blocks",
+   "input": "####### x\n###### x",
+   "lines": [
+    "plain : ####### x",
+    "h6 : x"
+   ]
+  },
+  {
+   "name": "dividers and their look-alikes",
+   "rule": "Blocks / Headings and dividers start at column 0 / Differences from CommonMark and GFM row 12",
+   "input": "a\n---\n***\n___\n ---\n--\n--- \n-*-\n- - -",
+   "lines": [
+    "plain : a",
+    "divider",
+    "divider",
+    "divider",
+    "plain :  ---",
+    "plain : --",
+    "plain : --- ",
+    "plain : -*-",
+    "bullet d0 - : - -"
+   ]
+  },
+  {
+   "name": "a line of only Unicode whitespace is blank",
+   "rule": "Blocks",
+   "input": "a\n \n　\nb",
+   "lines": [
+    "plain : a",
+    "blank",
+    "blank",
+    "plain : b"
+   ]
+  },
+  {
+   "name": "a divider has no spaces in it",
+   "rule": "Blocks",
+   "input": "a\n*** ** *\n-- --",
+   "lines": [
+    "plain : a",
+    "plain : *** ** *",
+    "plain : -- --"
+   ]
+  },
+  {
+   "name": "bullet markers",
+   "rule": "Blocks",
+   "input": "- a\n* b\n+ c",
+   "lines": [
+    "bullet d0 - : a",
+    "bullet d0 * : b",
+    "bullet d0 + : c"
+   ]
+  },
+  {
+   "name": "numbered markers as typed",
+   "rule": "Blocks",
+   "input": "1. a\n3) b\n10. c",
+   "lines": [
+    "number d0 1. : a",
+    "number d0 3) : b",
+    "number d0 10. : c"
+   ]
+  },
+  {
+   "name": "a number needs its delimiter and a space",
+   "rule": "Blocks",
+   "input": "1.a\n1.\n1 a\n1: a",
+   "lines": [
+    "plain : 1.a",
+    "plain : 1.",
+    "plain : 1 a",
+    "plain : 1: a"
+   ]
+  },
+  {
+   "name": "tasks",
+   "rule": "Blocks",
+   "input": "- [ ] a\n- [x] b\n- [X] c\n- [ ]\n1. [ ] d\n- [y] e",
+   "lines": [
+    "task d0 - [ ] : a",
+    "task d0 - [x] : b",
+    "task d0 - [X] : c",
+    "bullet d0 - : [ ]",
+    "number d0 1. : [ ] d",
+    "bullet d0 - : [y] e"
+   ]
+  },
+  {
+   "name": ">text is plain",
+   "rule": "Blocks / Differences from CommonMark and GFM row 10",
+   "input": ">text\n> text",
+   "lines": [
+    "plain : >text",
+    "q1 plain : text"
+   ]
+  }
+ ]
+}

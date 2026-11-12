@@ -204,8 +204,9 @@ impl Content<'_> {
 
 /// Unicode punctuation or symbol (CommonMark 0.31). Without the general
 /// category in std, this treats non-alphanumerics outside the combining and
-/// format ranges as punctuation. It only decides where a domain ends.
-fn punctuation(char: char) -> bool {
+/// format ranges as punctuation. It decides where a domain ends and how an
+/// emphasis delimiter flanks its neighbours.
+pub(crate) fn punctuation(char: char) -> bool {
     !(char.is_alphanumeric()
         || matches!(char,
             '\u{0300}'..='\u{036F}'

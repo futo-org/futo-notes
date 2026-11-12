@@ -1,8 +1,8 @@
 //! GFM autolink literals in pulldown's inline text; the borrowed hint only
 //! avoids useless parses. pulldown has no literal extension, and the
 //! markdown crate's tree builder panicked on some notes (#283).
-use crate::lines::url as literal;
 use crate::inline::row::{LinkMeaning, Span, SpanKind};
+use crate::lines::url as literal;
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use std::ops::Range;
 

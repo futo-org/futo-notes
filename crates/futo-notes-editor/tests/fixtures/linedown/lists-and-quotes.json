@@ -1,0 +1,282 @@
+{
+ "about": "Linedown reading fixtures (lists-and-quotes): per line, what the reader reports. See tests/fixtures/README.md.",
+ "cases": [
+  {
+   "name": "a plain line under a bullet is its own line",
+   "rule": "Lists / Differences from CommonMark and GFM row 4",
+   "input": "- buy milk\n  the oat kind",
+   "lines": [
+    "bullet d0 - : buy milk",
+    "plain@0 : the oat kind"
+   ]
+  },
+  {
+   "name": "an unindented plain line under a bullet",
+   "rule": "Lists / Differences from CommonMark and GFM row 4",
+   "input": "- a\nb",
+   "lines": [
+    "bullet d0 - : a",
+    "plain : b"
+   ]
+  },
+  {
+   "name": "two-space nesting",
+   "rule": "Lists",
+   "input": "- fruit\n  - apples\n  - pears\n- bread",
+   "lines": [
+    "bullet d0 - : fruit",
+    "bullet d1 - : apples",
+    "bullet d1 - : pears",
+    "bullet d0 - : bread"
+   ]
+  },
+  {
+   "name": "four-space nesting",
+   "rule": "Lists / Why list depth looks at the lines above",
+   "input": "- fruit\n    - apples",
+   "lines": [
+    "bullet d0 - : fruit",
+    "bullet d1 - : apples"
+   ]
+  },
+  {
+   "name": "tab nesting",
+   "rule": "Lists",
+   "input": "- fruit\n\t- apples\n\t\t- red",
+   "lines": [
+    "bullet d0 - : fruit",
+    "bullet d1 - : apples",
+    "bullet d2 - : red"
+   ]
+  },
+  {
+   "name": "mixed indents in one note",
+   "rule": "Lists",
+   "input": "- a\n  - b\n- c\n    - d\n\t- e",
+   "lines": [
+    "bullet d0 - : a",
+    "bullet d1 - : b",
+    "bullet d0 - : c",
+    "bullet d1 - : d",
+    "bullet d1 - : e"
+   ]
+  },
+  {
+   "name": "depth never jumps by two",
+   "rule": "Lists",
+   "input": "- a\n          - b",
+   "lines": [
+    "bullet d0 - : a",
+    "bullet d1 - : b"
+   ]
+  },
+  {
+   "name": "an indented list line with nothing shallower is top level",
+   "rule": "Lists",
+   "input": "  - a\n  - b\n- c",
+   "lines": [
+    "bullet d0 - : a",
+    "bullet d0 - : b",
+    "bullet d0 - : c"
+   ]
+  },
+  {
+   "name": "a bullet under a numbered item nests by indent alone",
+   "rule": "Why list depth looks at the lines above",
+   "input": "1. fruit\n  - apples\n10. veg\n  - leeks",
+   "lines": [
+    "number d0 1. : fruit",
+    "bullet d1 - : apples",
+    "number d0 10. : veg",
+    "bullet d1 - : leeks"
+   ]
+  },
+  {
+   "name": "going back up a level",
+   "rule": "Lists",
+   "input": "- a\n  - b\n    - c\n  - d\n - e",
+   "lines": [
+    "bullet d0 - : a",
+    "bullet d1 - : b",
+    "bullet d2 - : c",
+    "bullet d1 - : d",
+    "bullet d1 - : e"
+   ]
+  },
+  {
+   "name": "a column-0 plain line ends the list",
+   "rule": "Lists / What ends a list",
+   "input": "- a\nb\n  - c",
+   "lines": [
+    "bullet d0 - : a",
+    "plain : b",
+    "bullet d0 - : c"
+   ]
+  },
+  {
+   "name": "blank lines do not end a list",
+   "rule": "Lists / What ends a list",
+   "input": "- a\n\n  - b",
+   "lines": [
+    "bullet d0 - : a",
+    "blank",
+    "bullet d1 - : b"
+   ]
+  },
+  {
+   "name": "indented plain lines do not end a list",
+   "rule": "Lists / What ends a list",
+   "input": "- a\n  x\n  - b",
+   "lines": [
+    "bullet d0 - : a",
+    "plain@0 : x",
+    "bullet d1 - : b"
+   ]
+  },
+  {
+   "name": "a heading ends a list",
+   "rule": "Lists / What ends a list",
+   "input": "- a\n# h\n  - b",
+   "lines": [
+    "bullet d0 - : a",
+    "h1 : h",
+    "bullet d0 - : b"
+   ]
+  },
+  {
+   "name": "a divider ends a list",
+   "rule": "Lists / What ends a list",
+   "input": "- a\n---\n  - b",
+   "lines": [
+    "bullet d0 - : a",
+    "divider",
+    "bullet d0 - : b"
+   ]
+  },
+  {
+   "name": "a column-0 fence ends a list",
+   "rule": "Lists / What ends a list",
+   "input": "- a\n```\nx\n```\n  - b",
+   "lines": [
+    "bullet d0 - : a",
+    "fence-open",
+    "code : x",
+    "fence-close",
+    "bullet d0 - : b"
+   ]
+  },
+  {
+   "name": "indented plain lines line up with the nearest shallower list line",
+   "rule": "Lists / Indented plain lines in a list",
+   "input": "- a\n  - b\n    x\n  y\n z",
+   "lines": [
+    "bullet d0 - : a",
+    "bullet d1 - : b",
+    "plain@1 : x",
+    "plain@1 : y",
+    "plain@0 : z"
+   ]
+  },
+  {
+   "name": "an indented heading or divider in a list is an indented plain line",
+   "rule": "Lists",
+   "input": "- a\n  # b\n  ---",
+   "lines": [
+    "bullet d0 - : a",
+    "plain@0 : # b",
+    "plain@0 : ---"
+   ]
+  },
+  {
+   "name": "outside a list leading whitespace shows as typed",
+   "rule": "Lists / Why not CommonMark",
+   "input": "one\n  two\n\tthree",
+   "lines": [
+    "plain : one",
+    "plain :   two",
+    "plain : \tthree"
+   ]
+  },
+  {
+   "name": "an indented line under a numbered item lines up",
+   "rule": "Lists",
+   "input": "3) a\n   b",
+   "lines": [
+    "number d0 3) : a",
+    "plain@0 : b"
+   ]
+  },
+  {
+   "name": "numbers show as typed",
+   "rule": "Lists / Numbers show as typed / Differences from CommonMark and GFM row 8",
+   "input": "1. a\n1. b\n1. c\n\n3. x",
+   "lines": [
+    "number d0 1. : a",
+    "number d0 1. : b",
+    "number d0 1. : c",
+    "blank",
+    "number d0 3. : x"
+   ]
+  },
+  {
+   "name": "a plain line under a quote is not quoted",
+   "rule": "Quotes / Differences from CommonMark and GFM row 5",
+   "input": "> quoted\nnot quoted",
+   "lines": [
+    "q1 plain : quoted",
+    "plain : not quoted"
+   ]
+  },
+  {
+   "name": "quotes nest with >> or > >",
+   "rule": "Quotes",
+   "input": ">> a\n> > b\n> >c\n>>c",
+   "lines": [
+    "q2 plain : a",
+    "q2 plain : b",
+    "q1 plain : >c",
+    "q1 plain : >c"
+   ]
+  },
+  {
+   "name": "stacking markers on one line",
+   "rule": "Stacking markers on one line",
+   "input": "> - item\n> # Title\n- # Title\n- > b",
+   "lines": [
+    "q1 bullet d0 - : item",
+    "q1 h1 : Title",
+    "bullet d0 - : # Title",
+    "bullet d0 - : > b"
+   ]
+  },
+  {
+   "name": "a list inside a quote nests by indent",
+   "rule": "Stacking markers on one line / Lists",
+   "input": "> - a\n>   - b\n> c\n>   - d",
+   "lines": [
+    "q1 bullet d0 - : a",
+    "q1 bullet d1 - : b",
+    "q1 plain : c",
+    "q1 bullet d0 - : d"
+   ]
+  },
+  {
+   "name": "a quote line ends a list outside it",
+   "rule": "Lists / Quotes",
+   "input": "- a\n> b\n  - c",
+   "lines": [
+    "bullet d0 - : a",
+    "q1 plain : b",
+    "bullet d0 - : c"
+   ]
+  },
+  {
+   "name": "a divider after > is quoted text",
+   "rule": "Stacking markers on one line",
+   "input": "> ---",
+   "lines": [
+    "q1 plain : ---"
+   ]
+  }
+ ]
+}

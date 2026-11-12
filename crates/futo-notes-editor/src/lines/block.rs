@@ -64,9 +64,13 @@ pub(crate) enum TableRole {
 pub(crate) enum Kind {
     /// Text that is no other block. `aligned` is the list depth an indented
     /// plain line lines up under; its leading whitespace is then `marker`.
-    Plain { aligned: Option<usize> },
+    Plain {
+        aligned: Option<usize>,
+    },
     Blank,
-    Heading { level: u8 },
+    Heading {
+        level: u8,
+    },
     /// `-`, `*`, `+`, or digits then `.` or `)`. `marker` on the line holds
     /// indent, list marker, the space after it and a task box.
     List {
@@ -84,7 +88,10 @@ pub(crate) enum Kind {
         /// The info string's first word on an opening fence.
         language: Option<Range<usize>>,
     },
-    Table { role: TableRole, columns: usize },
+    Table {
+        role: TableRole,
+        columns: usize,
+    },
 }
 
 /// One line. Offsets are absolute in the note.
@@ -110,7 +117,8 @@ impl Line {
     }
 }
 
-/// Every line of `source`, and the carry before each one.
+/// Every line of `source`, and the carry before each one. A note always has
+/// at least one line; a final line ending opens one more, empty line.
 pub(crate) fn read(source: &str) -> (Vec<Line>, Vec<Carry>) {
     let mut lines = Vec::new();
     let mut carries = Vec::new();
@@ -119,20 +127,13 @@ pub(crate) fn read(source: &str) -> (Vec<Line>, Vec<Carry>) {
     loop {
         carries.push(carry.clone());
         let line = read_line(&mut carry, source, at);
+        let last = line.ending == 0;
+        at = line.end();
         place(&mut lines, line);
-        at = lines.last().unwrap().end();
-        if at >= source.len() && lines.last().unwrap().ending == 0 {
-            break;
-        }
-        if at == source.len() {
-            // A final line ending opens one more, empty line.
-            carries.push(carry.clone());
-            let line = read_line(&mut carry, source, at);
-            place(&mut lines, line);
-            break;
+        if last {
+            return (lines, carries);
         }
     }
-    (lines, carries)
 }
 
 /// Push `line`; a delimiter row makes the line above it a header.
@@ -152,6 +153,32 @@ pub(crate) fn place(lines: &mut Vec<Line>, line: Line) {
     lines.push(line);
 }
 
+/// Where a line sits: its start, length without the ending, and ending.
+struct Place {
+    start: usize,
+    len: usize,
+    ending: usize,
+}
+
+impl Place {
+    /// A line of `kind`; `marker` and `content` are relative to its start.
+    fn line(&self, kind: Kind, quote: usize, marker: Range<usize>, content: Range<usize>) -> Line {
+        Line {
+            range: self.start..self.start + self.len,
+            ending: self.ending,
+            kind,
+            quote,
+            marker: self.start + marker.start..self.start + marker.end,
+            content: self.start + content.start..self.start + content.end,
+        }
+    }
+
+    /// A line that is all syntax.
+    fn syntax(&self, kind: Kind) -> Line {
+        self.line(kind, 0, 0..self.len, self.len..self.len)
+    }
+}
+
 /// The line starting at `start`, and the carry after it.
 pub(crate) fn read_line(carry: &mut Carry, source: &str, start: usize) -> Line {
     let rest = &source[start..];
@@ -161,22 +188,13 @@ pub(crate) fn read_line(carry: &mut Carry, source: &str, start: usize) -> Line {
         None => (rest.len(), 0),
     };
     let text = &rest[..len];
-    let range = start..start + len;
+    let place = Place { start, len, ending };
     let first = std::mem::take(&mut carry.first);
     let header_above = carry.header_above.take();
-    let line = |kind, quote, marker: Range<usize>, content: Range<usize>| Line {
-        range: range.clone(),
-        ending,
-        kind,
-        quote,
-        marker: start + marker.start..start + marker.end,
-        content: start + content.start..start + content.end,
-    };
-    let empty = len..len;
 
     if first && text == "---" {
         carry.front_matter = true;
-        return line(Kind::FrontMatter(FrontMatterRole::Open), 0, 0..len, empty);
+        return place.syntax(Kind::FrontMatter(FrontMatterRole::Open));
     }
     if carry.front_matter {
         let role = if text == "---" {
@@ -185,29 +203,45 @@ pub(crate) fn read_line(carry: &mut Carry, source: &str, start: usize) -> Line {
         } else {
             FrontMatterRole::Body
         };
-        return line(Kind::FrontMatter(role), 0, 0..len, empty);
+        return place.syntax(Kind::FrontMatter(role));
     }
     if let Some(open) = carry.fence {
-        let (indent, _) = indent(text);
-        let body = text[indent..].trim_end_matches([' ', '\t']);
-        let run = body.bytes().take_while(|&b| b == open.ch).count();
-        if run >= open.len && run == body.len() {
-            carry.fence = None;
-            let kind = Kind::Fence {
-                role: FenceRole::Close,
-                depth: open.depth,
-                language: None,
-            };
-            return line(kind, 0, 0..len, empty);
-        }
-        let kind = Kind::Fence {
-            role: FenceRole::Code,
-            depth: open.depth,
-            language: None,
-        };
-        return line(kind, 0, empty.clone(), 0..len);
+        return fenced(carry, open, &place, text);
     }
+    read_block(carry, &place, text, header_above)
+}
 
+/// A line inside an open fence: code, or the closing fence.
+fn fenced(carry: &mut Carry, open: OpenFence, place: &Place, text: &str) -> Line {
+    let (indent, _) = indent(text);
+    let body = text[indent..].trim_end_matches([' ', '\t']);
+    let run = body.bytes().take_while(|&b| b == open.ch).count();
+    let closes = run >= open.len && run == body.len();
+    if closes {
+        carry.fence = None;
+    }
+    let kind = Kind::Fence {
+        role: if closes {
+            FenceRole::Close
+        } else {
+            FenceRole::Code
+        },
+        depth: open.depth,
+        language: None,
+    };
+    if closes {
+        place.syntax(kind)
+    } else {
+        place.line(kind, 0, 0..0, 0..place.len)
+    }
+}
+
+/// A line outside fences and front matter, read by its own text and the
+/// list lines and table above it.
+fn read_block(carry: &mut Carry, place: &Place, text: &str, header_above: Option<usize>) -> Line {
+    let (start, len) = (place.start, place.len);
+    let line = |kind, quote, marker, content| place.line(kind, quote, marker, content);
+    let empty = len..len;
     let (quote, body) = quotes(text);
     let (indent_bytes, width) = indent(&text[body..]);
     let at = body + indent_bytes;
@@ -225,7 +259,7 @@ pub(crate) fn read_line(carry: &mut Carry, source: &str, start: usize) -> Line {
         carry.table = None;
     }
 
-    if own.is_empty() {
+    if own.chars().all(char::is_whitespace) {
         return line(Kind::Blank, quote, 0..body, empty);
     }
 
@@ -236,27 +270,7 @@ pub(crate) fn read_line(carry: &mut Carry, source: &str, start: usize) -> Line {
 
     if quote == 0 {
         if let Some((ch, run)) = fence_open(own) {
-            let depth = if width == 0 {
-                carry.list.clear();
-                None
-            } else {
-                aligned(&carry.list, width)
-            };
-            carry.fence = Some(OpenFence {
-                ch,
-                len: run,
-                depth,
-            });
-            let info = own[run..].trim_start_matches([' ', '\t']);
-            let word = info.find([' ', '\t']).unwrap_or(info.len());
-            let info_start = len - info.len();
-            let language = (word > 0).then(|| start + info_start..start + info_start + word);
-            let kind = Kind::Fence {
-                role: FenceRole::Open,
-                depth,
-                language,
-            };
-            return line(kind, 0, 0..len, empty);
+            return fence_opener(carry, place, own, width, ch, run);
         }
     }
 
@@ -325,6 +339,37 @@ pub(crate) fn read_line(carry: &mut Carry, source: &str, start: usize) -> Line {
     }
 }
 
+/// An opening fence; one indented in a list lines up with the list.
+fn fence_opener(
+    carry: &mut Carry,
+    place: &Place,
+    own: &str,
+    width: usize,
+    ch: u8,
+    run: usize,
+) -> Line {
+    let depth = if width == 0 {
+        carry.list.clear();
+        None
+    } else {
+        aligned(&carry.list, width)
+    };
+    carry.fence = Some(OpenFence {
+        ch,
+        len: run,
+        depth,
+    });
+    let info = own[run..].trim_start_matches([' ', '\t']);
+    let word = info.find([' ', '\t']).unwrap_or(info.len());
+    let info_start = place.start + place.len - info.len();
+    let language = (word > 0).then_some(info_start..info_start + word);
+    place.syntax(Kind::Fence {
+        role: FenceRole::Open,
+        depth,
+        language,
+    })
+}
+
 /// Quote depth and the byte where the quoted text starts. Each `>` counts
 /// when a space, tab, another `>` or the line's end follows it; one space or
 /// tab after it belongs to the marker.
@@ -384,7 +429,11 @@ fn fence_open(own: &str) -> Option<(u8, usize)> {
 }
 
 fn divider(own: &str) -> bool {
-    let Some(ch) = own.bytes().next().filter(|b| matches!(b, b'-' | b'*' | b'_')) else {
+    let Some(ch) = own
+        .bytes()
+        .next()
+        .filter(|b| matches!(b, b'-' | b'*' | b'_'))
+    else {
         return false;
     };
     own.len() >= 3 && own.bytes().all(|b| b == ch)

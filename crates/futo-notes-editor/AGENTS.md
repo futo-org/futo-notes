@@ -24,6 +24,12 @@ pairing before acceptance. Boundary repairs may encode the immediate neighboring
 scalar as an entity so CommonMark can retain its formatting. Code contents stay
 opaque to inline interpretation.
 
+`lines/` reads a note one line at a time, as
+`docs/spec/editor/portable-core/linedown.md` defines it: each line's block, depth
+and inline marks, plus an incremental re-read that stops where the carry from
+the lines above settles. Its cases are `tests/fixtures/linedown/`. Nothing
+calls it until the engine moves off `inline/`'s pulldown-cmark reading.
+
 Source/display text queries explicitly materialize whole text. Input reparses the
 affected paragraphs and their neighbors; paragraph-tree sums avoid rewriting tail
 offsets after a distant caret jump. Large paragraphs, lists and fences still
