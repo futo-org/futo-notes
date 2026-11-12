@@ -27,6 +27,8 @@ commit that finishes step 3 (archive rule).
   Android's renderer is on `android-text-first` and picks the field up there.
 - Milkdown is not changed. It leaves in the same release that brings this editor to desktop, so
   the two editors disagreeing about a note is not a shipped state.
+- Linedown is not tied to HTML. The reader reports what each line is (block, depth, spans), and
+  fixtures assert that, never HTML output. No rule is added or kept because of how HTML renders.
 - Code does not name the dialect. Only the spec and the fixture file say "Linedown".
 - A line ends at `\n` or `\r\n`. A lone `\r` is an ordinary character.
 - Linedown's rules supersede every other Markdown reader in the repo. `futo-notes-tags` and
