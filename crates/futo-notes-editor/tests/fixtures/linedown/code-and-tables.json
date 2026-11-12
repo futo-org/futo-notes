@@ -89,6 +89,15 @@
    ]
   },
   {
+   "name": "marks do not cross a header's cells",
+   "rule": "Tables",
+   "input": "| *a | b* |\n|---|---|",
+   "lines": [
+    "table-header 2 : | *a | b* |",
+    "table-delimiter 2"
+   ]
+  },
+  {
    "name": "rows with too few or too many cells are still rows",
    "rule": "Tables",
    "input": "| a | b |\n|---|---|\n| 1 |\n| 1 | 2 | 3 |",

@@ -152,23 +152,28 @@ impl Reading {
                 *span = unshift_span(span.clone(), removed);
             }
         }
-        let read = lines.len();
-        let spans: Vec<_> = lines.iter().map(|line| line_spans(source, line)).collect();
-        self.lines.splice(first..old, lines);
-        self.carries.splice(first..old, carries);
-        self.spans.splice(first..old, spans);
-        // A delimiter row the re-read stopped at keeps its header.
-        if let Some(Kind::Table {
-            role: TableRole::Delimiter,
-            columns,
-        }) = self.lines.get(first + read).map(|line| line.kind.clone())
-        {
-            let header = &mut self.lines[first + read - 1];
+        // A delimiter row the re-read stopped at keeps its header, which is
+        // read by cells: settle it before reading inline marks.
+        if let (
+            Some(Kind::Table {
+                role: TableRole::Delimiter,
+                columns,
+            }),
+            Some(header),
+        ) = (
+            self.lines.get(old).map(|line| line.kind.clone()),
+            lines.last_mut(),
+        ) {
             header.kind = Kind::Table {
                 role: TableRole::Header,
                 columns,
             };
         }
+        let read = lines.len();
+        let spans: Vec<_> = lines.iter().map(|line| line_spans(source, line)).collect();
+        self.lines.splice(first..old, lines);
+        self.carries.splice(first..old, carries);
+        self.spans.splice(first..old, spans);
         first..first + read
     }
 }
