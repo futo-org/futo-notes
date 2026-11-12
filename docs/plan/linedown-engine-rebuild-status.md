@@ -152,6 +152,42 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
     (`merging` 11, `clean_refresh` 6, `external_rename` 8, `saving`, `quick_open`, `flush_draft`).
     Store lib on the core after this merge: 230 passed, 28 failed (links, clipboard, quick open,
     composition, tables, blocks, list actions: families not merged yet).
+  - Merged: quick open (`src/quick_open.rs`; the old CommonMark path moved verbatim to
+    `src/quick_open/commonmark.rs`). The core reads the whole lines of the first 16 KB and
+    shows all but the last (a delimiter row or closing fence there changes the line above); no
+    quick open when line 1 is `---` and the head holds no closing `---`; a cut inside a table
+    moves back to the table's first line. A property cuts random notes at random lengths and
+    checks the head's projection equals the whole note's (160,000 reads per seed). 20,000-line
+    note: head 0.68 ms against 12.36 ms whole (release). Stage 4: delete `quick_open`'s
+    `rest_may_define` parameter, `may_define_reference`, `quick_open/commonmark.rs` and the
+    tests that only run without the feature (kept now so the surface does not change).
+  - Merged: heading, quote and divider (`engine/commands/blocks/`, 138 cases). Divider writes
+    `---` at the caret, no blank line; where `---` would make line 1 open front matter it writes
+    `----`. Enter splits a heading into heading plus plain line, continues a quote, leaves the
+    quote one level on an empty quote line; split inline marks are closed and reopened. iOS
+    sends `BackspaceJoiningHeading` for every caret Backspace: at a heading's start it joins up.
+    Toolbar heading/quote use the commands' own rules (checked over every selection of a
+    450-note corpus). `typed-escapes.md` deleted. Core bug fixed: Backspace at `b` in
+    `> a\n>\n> b` wrote `>b`. Budgets (old -> new): quote keys at 20k rows 1117/1039/1538 ->
+    71/70/80; Quote over 4k headings 856,640 -> 16,001 metadata items.
+  - Merged: lists (`engine/commands/lists/`, 152 cases in `tests/fixtures/engine/lists/`).
+    Enter splits an item (next number, unchecked box); on an empty item removes the marker (no
+    blank line) or outdents it; at the text start opens an empty item above. Backspace at an
+    item's text start takes the marker off. Indent writes a tab; outdent takes the leading
+    whitespace of the item it sits under, else one tab or every space; both carry the lines
+    under the item. Toggles act on every touched line. Renumbering as the Decisions say. Fixed
+    as cases: #414, #421, #422, #355/!661, #353 (a link cannot cross a line). Guard made
+    near-linear (Bullet over 40,000 lines 442 ms -> 75 ms, release). Budgets all lower (e.g.
+    middle bullet toggle at 20k 1099 -> 49).
+  - Merged: fences (`engine/commands/fences/`, 93 cases). Code block and Wrap code block are one
+    command: lines keep their source exactly, one fence for the selection, the fence longer than
+    any backtick-only line inside; taking code out splits the block, `kept_line` keeps lines
+    plain (so `# x` comes back `\# x`). Enter in code keeps the line's whitespace; Tab writes
+    two spaces. Core rule added to `plan`: a fence line inside a selection whose block goes on
+    outside it is kept, moved after the joined line; a block left with no code line goes whole
+    (fixes the #348 shapes). Old bugs fixed: Code block wrote the visible text (dropping
+    markers), one fence per paragraph. Budget: keys in a 20,000-line block 963/885/1018 ->
+    44/43/46.
   - The wikilinks merge put `engine/mod.rs` over the size limit: selection and movement moved
     to `engine/selection.rs`, UTF-16 conversions to `engine/utf16.rs`, verbatim.
   - Rule kept, noted by the fences lane: typing after a ``` that is the note's last line goes
@@ -175,5 +211,16 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
      The spec says metadata parks; no hazard in rebasing through it was found. Keep refusing?
   2. A portable page asked to adopt its own text: the core has no record to send, so
      `adopt_merged_source` returns `UnrepresentableFormat`; the old engine sent an empty Append.
+  4. Lists: Enter in `1. a` above `1. b` writes `2.` (the Decision read literally), so a list
+     numbered `1.` throughout gains a `2.`. Write the item's own number when the list does not
+     count up? Enter over two numbered items leaves the second's number as written.
+  5. Lists: Indent always writes a tab, so an item indented into a two-space sub-list sits at 4
+     columns beside siblings at 2 (the old engine used the sub-list's column).
+  6. Quote on a heading or list item makes plain quoted text (`## T` -> `> T`), as before;
+     Linedown could write `> ## T`, making Quote an exact toggle.
+  7. Quote leaves blank lines at a selection's edges unquoted; a selection ending at a line's
+     display start does not touch that line (the old engine made an exception for list items).
+  8. A fence typed mid-note: after ``` the line hides and the caret moves into the code, so the
+     old "Enter closes a typed fence" cannot trigger.
   3. Images: "safe to write" is now only "reads back as exactly that image" (see the images
      entry); keep, or keep the old engine's blanket refusals of `<`, `\` and backticks too?
