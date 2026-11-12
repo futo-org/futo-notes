@@ -263,7 +263,7 @@ impl Engine {
         let mut batch = Batch::default();
         let mut committed = None;
         if let Some(marked) = &marked {
-            let commit = self.plan(self.outside_crlf(marked.range), &marked.text);
+            let commit = self.plan_input(self.outside_crlf(marked.range), &marked.text);
             self.raw(&mut batch, commit.range.clone(), &commit.inserted);
             self.caret_at(commit.caret);
             committed = Some((batch.records.len(), self.point()));
@@ -293,7 +293,7 @@ impl Engine {
                     self.composition = None;
                     batch = Batch::default();
                     let marked = marked.as_ref().expect("marked text");
-                    let commit = self.plan(self.outside_crlf(marked.range), &marked.text);
+                    let commit = self.plan_input(self.outside_crlf(marked.range), &marked.text);
                     self.raw(&mut batch, commit.range.clone(), &commit.inserted);
                     self.caret_at(commit.caret);
                 }

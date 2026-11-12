@@ -12,6 +12,8 @@ pub(crate) struct Plan {
     pub inserted: String,
     /// Source offset of the caret after the edit.
     pub caret: usize,
+    /// Bytes of source read to plan it, beyond the edit's own re-read.
+    pub parsed: usize,
 }
 
 /// Syntax a selection keeps: one end of a span reaching out of it.
@@ -55,6 +57,21 @@ impl Engine {
     /// that reach out of it, and drops the syntax of spans left empty; the
     /// text lands where the selection starts, inside spans that start there.
     pub(crate) fn plan(&self, range: DisplayRange, text: &str) -> Plan {
+        let plan = self.replacement(range, text);
+        // A deletion keeps a span's format when it leaves a space at its
+        // edge (inline family, `commands/inline/typing.rs`).
+        match self.kept_formats(&plan.range, &plan.inserted) {
+            Some(kept) => Plan {
+                range: kept.range,
+                inserted: kept.inserted,
+                caret: kept.caret,
+                parsed: kept.parsed,
+            },
+            None => plan,
+        }
+    }
+
+    fn replacement(&self, range: DisplayRange, text: &str) -> Plan {
         let (s, e) = (range.start.0, range.end.0);
         let mut inserted = String::new();
         if s != e || !text.is_empty() {
@@ -78,6 +95,7 @@ impl Engine {
                 range: at..at,
                 caret: at + inserted.len(),
                 inserted,
+                parsed: 0,
             };
         }
         let (lo_s, _) = self.source_span(s);
@@ -150,6 +168,21 @@ impl Engine {
             range: start + prefix..end,
             inserted: replacement[prefix..].to_owned(),
             caret,
+            parsed: 0,
+        }
+    }
+
+    /// Input at display `range`: shaped by the formats the caret carries
+    /// when the inline family takes it, else `plan`.
+    pub(crate) fn plan_input(&self, range: DisplayRange, text: &str) -> Plan {
+        match self.formatted_input(range, text) {
+            Some(typed) => Plan {
+                range: typed.range,
+                inserted: typed.inserted,
+                caret: typed.caret,
+                parsed: typed.parsed,
+            },
+            None => self.plan(range, text),
         }
     }
 

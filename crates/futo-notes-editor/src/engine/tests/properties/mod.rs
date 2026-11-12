@@ -13,6 +13,7 @@
 //! `TYPING_CASES` and `TYPING_SEED` set the number of notes and the seed.
 mod checks;
 mod generate;
+mod inline;
 mod real;
 mod steps;
 
@@ -25,6 +26,7 @@ use crate::{
 };
 use checks::*;
 use generate::*;
+use inline::inline_step;
 use steps::*;
 
 #[test]

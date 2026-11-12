@@ -238,7 +238,7 @@ impl Engine {
             }
         );
         ToolbarState {
-            formats: self.active_formats(),
+            formats: self.toolbar_formats(),
             heading: match line.kind {
                 Kind::Heading { level } => Some(level),
                 _ => None,
@@ -252,7 +252,7 @@ impl Engine {
             },
             code,
             mixed: false,
-            inline_allowed: !code,
+            inline_allowed: self.inline_allowed(),
             can_indent: false,
             can_outdent: false,
             can_undo: self.can_undo(),
