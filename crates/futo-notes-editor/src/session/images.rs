@@ -59,6 +59,8 @@ impl EditorSession {
         if claim != self.image_claim() {
             return Err(EditorError::StaleClaim);
         }
+        on_next!(self, accept, |e, accept| e
+            .insert_image(expected, reference, alt, accept));
         if self.composition().is_some() {
             return Err(EditorError::CompositionActive);
         }
