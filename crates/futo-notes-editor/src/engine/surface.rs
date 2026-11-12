@@ -239,11 +239,8 @@ impl Engine {
         );
         ToolbarState {
             formats: self.active_formats(),
-            heading: match line.kind {
-                Kind::Heading { level } => Some(level),
-                _ => None,
-            },
-            quote: line.quote > 0,
+            heading: self.toolbar_heading(),
+            quote: self.toolbar_quote(),
             list: match line.kind {
                 Kind::List { task: Some(_), .. } => Some(ToolbarList::Task),
                 Kind::List { ordered: true, .. } => Some(ToolbarList::Ordered),
