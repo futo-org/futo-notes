@@ -20,6 +20,7 @@ impl EditorSession {
         expected: Revision,
         range: DisplayUtf16Range,
     ) -> Result<DisplayRange, EditorError> {
+        on_next!(ref self, |e| e.display_from_utf16(expected, range));
         self.check_revision(expected)?;
         if range.start.0 > range.end.0 {
             return Err(EditorError::InvalidRange);
@@ -38,6 +39,7 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<DisplayUtf16Range, EditorError> {
+        on_next!(ref self, |e| e.display_to_utf16(expected, range));
         self.check_revision(expected)?;
         if range.start.0 > range.end.0 {
             return Err(EditorError::InvalidRange);
@@ -176,6 +178,10 @@ impl EditorSession {
         range: DisplayUtf16Range,
         inserted: &[u16],
     ) -> Result<(DisplayRange, String), EditorError> {
+        on_next!(ref self, |e| Ok((
+            e.input_from_utf16(expected, range)?,
+            String::from_utf16(inserted).map_err(|_| EditorError::InvalidText)?,
+        )));
         self.check_revision(expected)?;
         let range = if self.composition().is_some() {
             if range.start.0 > range.end.0 {

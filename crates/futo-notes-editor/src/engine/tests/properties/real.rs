@@ -39,11 +39,13 @@ fn the_properties_hold_on_real_notes() {
                 check_positions(&engine, &context);
             }
             let mut model = Model::default();
-            let mut view = engine.display_text();
+            let mut view = View::new(engine.display_text());
             for _ in 0..8 {
+                let before = lines_of(&engine);
                 step(&mut engine, &mut model, &mut view, &mut random);
+                check_restyled(&before, &engine, &mut view, &context);
             }
-            assert!(view == engine.display_text(), "{context}: view change");
+            assert!(view.text == engine.display_text(), "{context}: view change");
             check_fresh(&engine, &context);
             while engine.undo(engine.revision(), &mut ok).unwrap().is_some() {}
             assert!(engine.source_text() == *original, "{context}: undo");

@@ -1,5 +1,5 @@
 mod common;
-use common::ReferenceView;
+use common::{OldListFields, ReferenceView};
 use futo_notes_editor::*;
 
 fn range(a: usize, b: usize) -> DisplayRange {

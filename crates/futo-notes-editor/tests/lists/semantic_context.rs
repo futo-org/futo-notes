@@ -21,7 +21,7 @@ fn ordinals(session: &EditorSession) -> Vec<u64> {
             block
                 .list
                 .filter(|list| list.first)
-                .and_then(|list| list.number)
+                .and_then(|list| list.number())
         })
         .collect()
 }

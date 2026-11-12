@@ -253,9 +253,40 @@ Update this section at the end of every stage, and whenever you stop mid-stage.
   The chain `cargo test -p futo-notes-editor -p futo-notes-store -p futo-notes-core`:
   871 passed, 389 failed, 4 ignored. The failures are the old engine's: editor plus core
   374 (the count before this stage), store 15, all `tests::editor_session::*`.
-- Stage 2: not started. The core has no projection yet: stage 2 builds `ProjectionSlice`
-  (runs, blocks, links, wikilinks, atoms) and `StyleSpec::ListRow` from the engine's lines.
-- Stage 3: not started.
+- Stage 2: done (commit `feat(editor): run the core behind the surface on iOS`).
+  - Switch: cargo feature `engine` (futo-notes-editor, forwarded by futo-notes-ffi), off by
+    default; only `FUTO_EDITOR_ENGINE=1` in `scripts/build-rust-ios.sh` sets it. Under it,
+    `src/session/next.rs` and one `on_next!` line per method hand `EditorSession`'s editing
+    path to the core (open, select, conversions, replace, OS replace, one-item replace-many,
+    composition, paragraph keys, replay, undo/redo, project, toolbar state, active formats).
+    The old fields the store reads (revision, selection, affinity, marked text, source rope)
+    follow the core, so store and FFI are unchanged. Commands the core lacks change nothing:
+    block commands, format toggles, wikilink completion, table inspection, quick open (a note
+    opens whole), external adoption (refused, so a save parks). Stage 4 deletes the switch.
+  - `engine/project.rs` builds `ProjectionSlice` from each line's reading; `engine/surface.rs`
+    makes `ViewChange`s whose projection covers every line read again (`Shown.lines`). A new
+    property check proves restyling only that window matches a fresh read (mutation-tested).
+    Wikilinks are unresolved (label = target); Enter writes a bare line break (lists: stage 3).
+  - Surface change (approved kind): `ListDescription` is `{indent, marker, ordered, checked,
+    first}`; `StyleSpec`/`EditorStyleSpan::ListRow` carry `indent` (columns) and `text` (marker
+    as typed). An indented plain line is a `ListRow` with the new marker kind `Plain` (plan,
+    "Host and FFI"). Review: `Plain` and `ordered` are additions.
+  - The old engine fills the fields approximately (indent = marker column, marker `-` or
+    `n.`); old list tests and the wasm list consumer read them through a shim (depth =
+    indent/2+1). Both go at the cut-over.
+  - iOS draws the marker text and indents 12 pt a column plus a 30 pt gutter on list items;
+    every bullet is a disc (shape by depth would be Swift working out nesting).
+  - Simulator (pool sim, `FUTO_EDITOR_ENGINE=1`, text-first on), real key presses: `- top`,
+    `   - three spaces`, ` - one space`, `  plain under`, `3) three`, `10) ten`. `3)` and `10)`
+    draw as typed, bullets at their own indents; the saved file equals the typed text plus the
+    store's final line ending (`saved_note_source`).
+  - Puppet's iOS editor verbs reach only the web editor (papercut pc_6f36185bc2f2).
+  - Verified: engine tests 22 passed; properties 20,000 cases on seeds 1, 3, 7, 424242 pass;
+    `cargo test -p futo-notes-ffi --features engine --test editor_engine_slice` 1 passed. The
+    chain: 874 passed, 389 failed, 4 ignored; on the parent commit 870/389/4, same failures
+    by name. `just test-ios-native TextFirstBlockDrawingTests TextFirstOpeningTests`: 40 of 41;
+    the failure is the old engine's Tab indent (26 Rust indent tests fail on the parent).
+- Stage 3: not started; each family's commands land behind the switch first.
 - Stage 4: not started.
 - Surface methods deleted, with reasons: none yet.
 - Display rules that are not "text minus ranges" (stated in `engine/line.rs`):

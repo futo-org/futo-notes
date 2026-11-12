@@ -226,9 +226,13 @@ impl Correspondence {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A list line, or an indented plain line (empty `marker`, not `ordered`).
 pub struct ListDescription {
-    pub depth: usize,
-    pub number: Option<u64>,
+    /// Columns of the line's own leading whitespace (space 1, tab 4).
+    pub indent: usize,
+    /// The list marker as typed (`-`, `3)`, `10.`); empty on a plain line.
+    pub marker: String,
+    pub ordered: bool,
     pub checked: Option<bool>,
     pub first: bool,
 }

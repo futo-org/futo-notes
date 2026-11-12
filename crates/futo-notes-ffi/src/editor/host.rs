@@ -217,6 +217,8 @@ pub enum EditorListMarker {
     Bullet,
     Ordered,
     Task,
+    /// An indented plain line: drawn at its indent, with no marker.
+    Plain,
 }
 
 /// One styled stretch of the display in UTF-16 units (see `futo_notes_editor::host::StyleSpec`).
@@ -240,12 +242,13 @@ pub enum EditorStyleSpan {
         end: u64,
         depth: u64,
     },
+    /// `indent` is the line's own leading whitespace in columns; `text` the marker as typed.
     ListRow {
         start: u64,
         end: u64,
-        depth: u64,
+        indent: u64,
         marker: EditorListMarker,
-        number: Option<u64>,
+        text: String,
         checked: bool,
         first: bool,
     },
@@ -335,21 +338,22 @@ impl From<StyleSpec> for EditorStyleSpan {
             StyleSpec::ListRow {
                 start,
                 end,
-                depth,
+                indent,
                 marker,
-                number,
+                text,
                 checked,
                 first,
             } => Self::ListRow {
                 start: u(start),
                 end: u(end),
-                depth: u(depth),
+                indent: u(indent),
                 marker: match marker {
                     ListMarker::Bullet => EditorListMarker::Bullet,
                     ListMarker::Ordered => EditorListMarker::Ordered,
                     ListMarker::Task => EditorListMarker::Task,
+                    ListMarker::Plain => EditorListMarker::Plain,
                 },
-                number,
+                text,
                 checked,
                 first,
             },

@@ -25,13 +25,30 @@
         /// The heading level of an empty last line (0 elsewhere: a heading's own characters carry
         /// its font), so the line starts as the heading it is.
         var heading = 0
-        var list: (depth: Int, marker: EditorListMarker, number: UInt64?, checked: Bool)?
+        /// A list line, or an indented plain line (`.plain`): the line's own indent in columns
+        /// and its marker as typed, as the engine reports them.
+        var list: TextFirstListRow?
         /// False on a row's later lines (a loose list's blank line): they indent but draw no marker.
         var showsMarker = true
+
+        /// Where the line's text starts after its indent and marker gutter.
+        var listIndent: CGFloat { list.map(TextFirstMetrics.listIndent) ?? 0 }
+        /// A list item, which draws a marker (an indented plain line draws only its indent).
+        var isItem: Bool { list.map { $0.marker != .plain } ?? false }
     }
 
+    typealias TextFirstListRow = (
+        indent: Int, marker: EditorListMarker, text: String, checked: Bool
+    )
+
     enum TextFirstMetrics {
-        static func listIndent(depth: Int) -> CGFloat { 30 + CGFloat(depth) * 24 }
+        /// One column of a line's own leading whitespace (space 1, tab 4).
+        static let column: CGFloat = 12
+        /// The text's leading edge: the indent's columns, then a marker's gutter. Nothing here
+        /// works out nesting: uneven indents draw unevenly.
+        static func listIndent(_ row: TextFirstListRow) -> CGFloat {
+            (row.marker == .plain ? 0 : 30) + CGFloat(row.indent) * column
+        }
         static func quoteIndent(depth: Int) -> CGFloat {
             depth > 0 ? 14 + CGFloat(depth - 1) * 14 : 0
         }
@@ -140,7 +157,7 @@
             // paragraph's line spacing above its text (a list's minimum line height already
             // includes it), and its block art fills it. The first line of a note has none.
             let spacing =
-                trailing.list == nil && textLineFragments.count > 1
+                !trailing.isItem && textLineFragments.count > 1
                 ? MainActor.assumeIsolated {
                     (TextFirstEditorController.baseAttributes[.paragraphStyle]
                         as? NSParagraphStyle)?.lineSpacing ?? 0
@@ -167,9 +184,8 @@
 
         /// The leading edge of the list text, in container coordinates.
         private func textIndent(of block: TextFirstBlockAttribute) -> CGFloat {
-            guard let list = block.list else { return 0 }
-            return TextFirstMetrics.quoteIndent(depth: block.quoteDepth)
-                + TextFirstMetrics.listIndent(depth: list.depth)
+            guard block.list != nil else { return 0 }
+            return TextFirstMetrics.quoteIndent(depth: block.quoteDepth) + block.listIndent
         }
 
         private func checkboxRect(of block: TextFirstBlockAttribute, row: Row) -> CGRect? {
@@ -187,7 +203,7 @@
         /// row (so the highlight reaches the rendered bullet, number or box); nil for a caret or a
         /// partial selection.
         var highlightedMarkerRect: CGRect? {
-            guard block.list != nil, block.showsMarker, let host, let manager = textLayoutManager,
+            guard block.isItem, block.showsMarker, let host, let manager = textLayoutManager,
                 MainActor.assumeIsolated({ host.selectionRange(for: self, in: manager) }) != nil
             else { return nil }
             let line = firstLine
@@ -239,13 +255,13 @@
                     context.fill(decorationRect(at: point, row: row, x: x, width: 3))
                 }
             }
-            if let list = block.list, block.showsMarker {
+            if let list = block.list, block.isItem, block.showsMarker {
                 drawListMarker(list, of: block, row: row, at: point, in: context)
             }
         }
 
         private func drawListMarker(
-            _ list: (depth: Int, marker: EditorListMarker, number: UInt64?, checked: Bool),
+            _ list: TextFirstListRow,
             of block: TextFirstBlockAttribute, row: Row, at point: CGPoint, in context: CGContext
         ) {
             switch list.marker {
@@ -275,7 +291,7 @@
             case .ordered:
                 let font = UIFont.monospacedDigitSystemFont(ofSize: 17, weight: .regular)
                 let text = NSAttributedString(
-                    string: "\(list.number ?? 1).",
+                    string: list.text,
                     attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
                 let size = text.size()
                 text.draw(
@@ -283,21 +299,15 @@
                         x: point.x + textIndent(of: block) - size.width - 6,
                         y: point.y + row.baseline - font.ascender))
             case .bullet:
-                // Disc, ring, square by depth.
                 let d: CGFloat = 6
                 let r = CGRect(
                     x: point.x + textIndent(of: block) - 14 - d / 2,
                     y: point.y + markerCenterY(row) - d / 2,
                     width: d, height: d)
                 UIColor.secondaryLabel.setFill()
-                UIColor.secondaryLabel.setStroke()
-                switch list.depth % 3 {
-                case 0: context.fillEllipse(in: r)
-                case 1:
-                    context.setLineWidth(1.2)
-                    context.strokeEllipse(in: r.insetBy(dx: 0.6, dy: 0.6))
-                default: context.fill(r)
-                }
+                context.fillEllipse(in: r)
+            case .plain:
+                break
             }
         }
     }

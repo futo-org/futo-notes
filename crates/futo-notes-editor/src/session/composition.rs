@@ -32,6 +32,14 @@ impl EditorSession {
         range: DisplayRange,
         text: &str,
     ) -> Result<Composition, EditorError> {
+        on_next!(self, |e| e.compose(expected, range, text).map(|marked| {
+            Composition {
+                revision: marked.revision,
+                range: marked.range,
+                text: marked.text,
+                runs: Vec::new(),
+            }
+        }));
         self.check_revision(expected)?;
         self.validate_range(range)?;
         let range = if range.start == range.end {
@@ -61,6 +69,8 @@ impl EditorSession {
         text: Option<&str>,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        on_next!(self, accept, |e, accept| e
+            .commit_view(expected, text, accept));
         self.check_revision(expected)?;
         let Some(marked) = self.composition.clone() else {
             return Ok(None);
@@ -445,6 +455,7 @@ impl EditorSession {
     }
 
     pub fn cancel_composition(&mut self, expected: Revision) -> Result<(), EditorError> {
+        on_next!(self, |e| e.cancel_composition(expected));
         self.check_revision(expected)?;
         self.composition = None;
         Ok(())

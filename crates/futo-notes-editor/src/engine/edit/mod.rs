@@ -23,6 +23,8 @@ pub(crate) struct Change {
     pub inserted: String,
     pub selection: DisplayRange,
     pub affinity: Affinity,
+    /// The display of every line the change showed again, after it.
+    pub lines: Range<usize>,
 }
 
 pub(crate) use compose::Marked;
@@ -34,6 +36,31 @@ struct Batch {
     /// Start, end in the text before the batch, end in the text now.
     source: Option<(usize, usize, usize)>,
     display: Option<(usize, usize, usize)>,
+    /// The display of the lines shown again, in the display now.
+    lines: Option<Range<usize>>,
+}
+
+/// `lines` (display now) carried through a display edit of `range` that
+/// inserted `inserted` bytes, then grown by `shown`.
+fn regrow(
+    lines: &mut Option<Range<usize>>,
+    range: Range<usize>,
+    inserted: usize,
+    shown: Range<usize>,
+) {
+    let map = |at: usize| {
+        if at <= range.start {
+            at
+        } else if at >= range.end {
+            at - range.len() + inserted
+        } else {
+            range.start + inserted
+        }
+    };
+    *lines = Some(match lines.take() {
+        None => shown,
+        Some(old) => map(old.start).min(shown.start)..map(old.end).max(shown.end),
+    });
 }
 
 fn grow(footprint: &mut Option<(usize, usize, usize)>, range: Range<usize>, inserted: usize) {
@@ -55,8 +82,10 @@ impl Engine {
         let Shown {
             range: shown,
             inserted: display,
+            lines,
         } = read::edit(&mut self.store, range.clone(), inserted);
         grow(&mut batch.source, range.clone(), inserted.len());
+        regrow(&mut batch.lines, shown.clone(), display.len(), lines);
         grow(&mut batch.display, shown, display.len());
         batch.records.push(Record {
             start: range.start,
@@ -117,6 +146,7 @@ impl Engine {
         let shown = Shown {
             range: dstart..dold,
             inserted: self.display_slice(dstart..dend),
+            lines: batch.lines.clone().expect("lines shown with the display"),
         };
         Ok(Some((edit, shown, batch.records)))
     }
@@ -171,6 +201,7 @@ impl Engine {
             inserted: shown.inserted,
             selection: self.selection,
             affinity: self.affinity,
+            lines: shown.lines,
         }
     }
 

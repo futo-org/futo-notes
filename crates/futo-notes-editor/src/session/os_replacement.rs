@@ -15,6 +15,11 @@ impl EditorSession {
         placeholders: &[DisplayRange],
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        on_next!(self, accept, |e, accept| {
+            let text = clean_placeholders(text, placeholders)?;
+            e.input(expected, range, &text, crate::InputAction::Isolated, accept)
+                .map(Some)
+        });
         self.check_revision(expected)?;
         let text = clean_placeholders(text, placeholders)?;
         if self.composition.is_some() {

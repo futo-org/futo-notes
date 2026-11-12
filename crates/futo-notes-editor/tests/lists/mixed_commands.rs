@@ -19,7 +19,7 @@ fn mixed_parent_retirement_promotes_a_retargeted_child_owner_and_keeps_foreign_l
         .filter_map(|block| block.list.as_ref().filter(|list| list.first))
         .collect();
     assert_eq!(
-        items.iter().map(|list| list.depth).collect::<Vec<_>>(),
+        items.iter().map(|list| list.depth()).collect::<Vec<_>>(),
         vec![1, 2, 1, 1]
     );
     let mut plan = plan;
@@ -113,7 +113,7 @@ fn mixed_retirement_preserves_retained_and_enclosing_quote_scopes() {
                     .list
                     .as_ref()
                     .filter(|list| list.first)
-                    .map(|list| (list.depth, block.quote_depth)))
+                    .map(|list| (list.depth(), block.quote_depth)))
                 .collect::<Vec<_>>(),
             depths
         );

@@ -26,6 +26,7 @@ impl EditorSession {
         format: InlineFormat,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        on_next!(self, nothing);
         self.check_revision(expected)?;
         let committed = self.commit_composition(expected, None, accept)?;
         if self.projection.all_code_lines(self.selection) {

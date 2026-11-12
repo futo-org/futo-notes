@@ -22,6 +22,9 @@ unicase = { version = "2.10.0", default-features = false }
 [features]
 # Test-only WASM hook: restore a session with a frozen history clock.
 test-clock = []
+# Sessions run on the rebuilt core (`src/session/next.rs`). For trying it on a
+# device before the cut-over; never enabled in a shipping build.
+engine = []
 
 [lints]
 workspace = true

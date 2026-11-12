@@ -100,6 +100,10 @@ pub fn quick_open(
     rest_may_define: impl FnOnce() -> bool,
     note_ids: impl FnOnce() -> Vec<String>,
 ) -> Option<QuickOpen> {
+    // The rebuilt core has no quick open yet: a note opens whole.
+    if cfg!(feature = "engine") {
+        return None;
+    }
     let boundaries = boundaries(head);
     let mut rest_may_define = Some(rest_may_define);
     let mut note_ids = Some(note_ids);

@@ -1,4 +1,8 @@
 mod blocks;
+#[cfg(feature = "engine")]
+mod next;
+#[cfg(feature = "engine")]
+pub(crate) use next::not_yet;
 mod checked_input;
 mod composition;
 mod external;
@@ -65,6 +69,9 @@ pub struct EditorSession {
     /// Escapes the engine wrote just before the caret while it was typed.
     written_run: Option<written::WrittenRun>,
     last_edit: Option<written::LastEdit>,
+    /// The rebuilt core, under the `engine` feature (`session/next.rs`).
+    #[cfg(feature = "engine")]
+    pub(crate) next: Option<Box<crate::engine::Engine>>,
 }
 
 impl EditorSession {
@@ -86,6 +93,9 @@ impl EditorSession {
         revision: Revision,
         clock: Arc<dyn HistoryClock>,
     ) -> Self {
+        #[cfg(feature = "engine")]
+        return Self::on_engine(source, revision, clock);
+        #[cfg(not(feature = "engine"))]
         Self::with_projection(
             source,
             revision,
@@ -123,6 +133,8 @@ impl EditorSession {
             incarnation: images::next_incarnation(),
             written_run: None,
             last_edit: None,
+            #[cfg(feature = "engine")]
+            next: None,
         }
     }
 
@@ -136,6 +148,7 @@ impl EditorSession {
     }
 
     pub fn display_text(&self) -> String {
+        on_next!(ref self, |e| e.display_text());
         self.projection.display.to_string()
     }
 
@@ -148,6 +161,7 @@ impl EditorSession {
     }
 
     pub fn active_formats(&self) -> Vec<InlineFormat> {
+        on_next!(ref self, |e| e.active_formats());
         if let Some(formats) = &self.pending_formats {
             return formats.clone();
         }
@@ -179,6 +193,7 @@ impl EditorSession {
         range: DisplayRange,
         affinity: Affinity,
     ) -> Result<SelectionChange, EditorError> {
+        on_next!(self, |e| e.select_with_affinity(expected, range, affinity));
         self.check_revision(expected)?;
         self.validate_range(range)?;
         let range = self.outside_metadata(self.outside_crlf(range));
@@ -253,6 +268,7 @@ impl EditorSession {
         offset: DisplayOffset,
         affinity: Affinity,
     ) -> Result<SourceOffset, EditorError> {
+        on_next!(ref self, |e| e.source_at(expected, offset, affinity));
         self.check_revision(expected)?;
         self.char_index(offset)?;
         let (low, high) = self.projection.source_bounds(offset.0);
@@ -267,6 +283,7 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<ProjectionSlice, EditorError> {
+        on_next!(ref self, |e| e.project(expected, range));
         self.check_revision(expected)?;
         self.validate_range(range)?;
         Ok(self.projection.query(self.revision, range))
@@ -393,6 +410,7 @@ impl EditorSession {
         edit: &SourceEdit,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
+        on_next!(self, accept, |e, accept| e.replay_view(edit, accept));
         self.check_revision(edit.previous_revision)?;
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);
@@ -426,6 +444,8 @@ impl EditorSession {
         redo: bool,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        on_next!(self, accept, |e, accept| e
+            .history_view(expected, redo, accept));
         self.check_revision(expected)?;
         if self.composition.is_some() {
             return Ok(None);

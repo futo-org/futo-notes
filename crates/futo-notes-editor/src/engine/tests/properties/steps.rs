@@ -47,16 +47,35 @@ impl Model {
     }
 }
 
+/// A renderer's copy of the display, and the windows it restyled.
+#[derive(Default)]
+pub(super) struct View {
+    pub text: String,
+    /// The display range of each change's lines since the last check.
+    pub restyled: Vec<std::ops::Range<usize>>,
+}
+
+impl View {
+    pub fn new(text: String) -> Self {
+        Self {
+            text,
+            restyled: Vec::new(),
+        }
+    }
+}
+
 /// Apply a view change to a copy of the display, as a renderer would.
-pub(super) fn apply_view(view: &mut String, change: &crate::engine::edit::Change) {
-    view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
+pub(super) fn apply_view(view: &mut View, change: &crate::engine::edit::Change) {
+    view.text
+        .replace_range(change.range.start.0..change.range.end.0, &change.inserted);
+    view.restyled.push(change.lines.clone());
 }
 
 /// One random step. Returns a description for failure messages.
 pub(super) fn step(
     engine: &mut Engine,
     model: &mut Model,
-    view: &mut String,
+    view: &mut View,
     random: &mut Random,
 ) -> String {
     match random.below(10) {
@@ -99,7 +118,7 @@ pub(super) fn select_step(engine: &mut Engine, random: &mut Random) -> String {
 pub(super) fn type_step(
     engine: &mut Engine,
     model: &mut Model,
-    view: &mut String,
+    view: &mut View,
     random: &mut Random,
 ) -> String {
     let revision = engine.revision();
@@ -159,7 +178,7 @@ pub(super) fn type_step(
 pub(super) fn delete_step(
     engine: &mut Engine,
     model: &mut Model,
-    view: &mut String,
+    view: &mut View,
     random: &mut Random,
 ) -> String {
     let revision = engine.revision();
@@ -181,7 +200,7 @@ pub(super) fn delete_step(
 pub(super) fn history_step(
     engine: &mut Engine,
     model: &mut Model,
-    view: &mut String,
+    view: &mut View,
     random: &mut Random,
 ) -> String {
     let revision = engine.revision();
@@ -215,7 +234,7 @@ pub(super) fn history_step(
 pub(super) fn compose_step(
     engine: &mut Engine,
     model: &mut Model,
-    view: &mut String,
+    view: &mut View,
     random: &mut Random,
 ) -> String {
     let revision = engine.revision();
@@ -243,7 +262,7 @@ pub(super) fn compose_step(
 pub(super) fn compose_then_type_step(
     engine: &mut Engine,
     model: &mut Model,
-    view: &mut String,
+    view: &mut View,
 ) -> String {
     let revision = engine.revision();
     let before = state(engine);
@@ -301,7 +320,7 @@ pub(super) fn compose_then_type_step(
 pub(super) fn source_step(
     engine: &mut Engine,
     model: &mut Model,
-    view: &mut String,
+    view: &mut View,
     random: &mut Random,
 ) -> String {
     let revision = engine.revision();

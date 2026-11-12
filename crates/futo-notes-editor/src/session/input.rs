@@ -40,6 +40,8 @@ impl EditorSession {
         action: crate::InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
+        on_next!(self, accept, |e, accept| e
+            .input(expected, range, inserted, action, accept));
         self.replace_action_mapped(expected, range, inserted, action, accept)
             .map(|(change, _)| change)
     }

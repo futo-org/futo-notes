@@ -122,9 +122,13 @@ export interface Correspondence {
   kind: CorrespondenceKind;
 }
 
+/** A list line, or an indented plain line (empty `marker`, not `ordered`). */
 export interface ListDescription {
-  depth: number;
-  number: number | null;
+  /** Columns of the line's own leading whitespace (space 1, tab 4). */
+  indent: number;
+  /** The list marker as typed (`-`, `3)`, `10.`); empty on a plain line. */
+  marker: string;
+  ordered: boolean;
   checked: boolean | null;
   first: boolean;
 }

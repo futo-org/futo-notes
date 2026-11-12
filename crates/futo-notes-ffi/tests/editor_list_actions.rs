@@ -218,7 +218,8 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
             .filter_map(|block| {
                 block.list.filter(|list| list.first).map(|list| {
                     assert_eq!(
-                        list.depth,
+                        // Old cases count depth; the surface reports the line's own indent.
+                        list.indent / 2 + 1,
                         case["itemDepths"][item_index].as_u64().unwrap_or(1) as u64
                     );
                     assert_eq!(
@@ -228,7 +229,10 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
                             .unwrap_or_else(|| case["quoteDepth"].as_u64().unwrap_or(0))
                     );
                     item_index += 1;
-                    serde_json::json!([list.number, list.checked])
+                    serde_json::json!([
+                        list.marker.trim_end_matches(['.', ')']).parse::<u64>().ok(),
+                        list.checked
+                    ])
                 })
             })
             .collect();

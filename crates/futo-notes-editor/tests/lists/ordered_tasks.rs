@@ -59,8 +59,8 @@ fn ordered_tasks_keep_the_existing_start_and_raw_padding_when_checkboxes_are_rem
                 .iter()
                 .filter_map(
                     |block| block.list.as_ref().filter(|list| list.first).map(|list| (
-                        list.depth,
-                        list.number,
+                        list.depth(),
+                        list.number(),
                         list.checked
                     ))
                 )
@@ -106,8 +106,8 @@ fn repeated_ordered_child_lifts_keep_new_owner_starts_between_foreign_lists() {
                 .iter()
                 .filter_map(
                     |block| block.list.as_ref().filter(|list| list.first).map(|list| (
-                        list.depth,
-                        list.number,
+                        list.depth(),
+                        list.number(),
                         list.checked
                     ))
                 )
@@ -189,8 +189,8 @@ fn quoted_and_ancestor_selected_ordered_fragments_keep_their_canonical_owners() 
                 .iter()
                 .filter_map(
                     |block| block.list.as_ref().filter(|list| list.first).map(|list| (
-                        list.depth,
-                        list.number,
+                        list.depth(),
+                        list.number(),
                         list.checked,
                         block.quote_depth
                     ))

@@ -38,16 +38,18 @@ fn the_five_properties_hold_over_random_edits() {
         check_fresh(&engine, &format!("case {case} opened {original:?}"));
         check_positions(&engine, &format!("case {case} opened {original:?}"));
         let mut model = Model::default();
-        let mut view = engine.display_text();
+        let mut view = View::new(engine.display_text());
         let mut steps = Vec::new();
         for _ in 0..24 {
+            let before = lines_of(&engine);
             let done = step(&mut engine, &mut model, &mut view, &mut random);
             steps.push(done);
             let context = format!(
                 "case {case} from {original:?} after {steps:?}, now {:?}",
                 engine.source_text()
             );
-            assert_eq!(view, engine.display_text(), "view change {context}");
+            assert_eq!(view.text, engine.display_text(), "view change {context}");
+            check_restyled(&before, &engine, &mut view, &context);
             check_fresh(&engine, &context);
             check_positions(&engine, &context);
             assert!(engine.composition().is_none());
@@ -80,11 +82,11 @@ fn a_long_note_edits_without_walking_and_reads_as_fresh() {
     }
     let mut engine = Engine::open(&original);
     let mut model = Model::default();
-    let mut view = engine.display_text();
+    let mut view = View::new(engine.display_text());
     for _ in 0..200 {
         step(&mut engine, &mut model, &mut view, &mut random);
     }
-    assert_eq!(view, engine.display_text());
+    assert_eq!(view.text, engine.display_text());
     check_fresh(&engine, "long note");
 }
 
@@ -113,7 +115,7 @@ fn large_pastes_and_deletions_keep_the_line_index_exact() {
             start: SourceOffset(a),
             end: SourceOffset(b),
         };
-        let mut view = engine.display_text();
+        let mut view = View::new(engine.display_text());
         if let Some(change) = engine
             .edit_source(engine.revision(), range, &pasted, &mut ok)
             .unwrap()
@@ -123,7 +125,7 @@ fn large_pastes_and_deletions_keep_the_line_index_exact() {
         let mut want = source.clone();
         want.replace_range(a..b, &pasted);
         assert_eq!(engine.source_text(), want, "round {round}");
-        assert_eq!(view, engine.display_text(), "round {round}");
+        assert_eq!(view.text, engine.display_text(), "round {round}");
         check_fresh(&engine, &format!("round {round}"));
     }
     while engine.undo(engine.revision(), &mut ok).unwrap().is_some() {}

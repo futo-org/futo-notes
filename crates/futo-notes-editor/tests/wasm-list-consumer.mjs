@@ -90,9 +90,12 @@ function assertItems(page, revision, display, item) {
   const items = blocks
     .filter((block) => block.list?.first)
     .map((block, index) => {
-      assert.equal(block.list.depth, item.itemDepths?.[index] ?? 1);
+      // The surface reports the line's own indent and marker; these old cases count depth and
+      // numbers. Rewritten or deleted at the cut-over.
+      const number = Number.parseInt(block.list.marker, 10);
+      assert.equal(Math.floor(block.list.indent / 2) + 1, item.itemDepths?.[index] ?? 1);
       assert.equal(block.quote_depth, item.itemQuoteDepths?.[index] ?? item.quoteDepth ?? 0);
-      return [block.list.number, block.list.checked];
+      return [Number.isNaN(number) ? null : number, block.list.checked];
     });
   assert.deepEqual(items, item.finalItems, item.name);
 }

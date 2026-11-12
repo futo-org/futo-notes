@@ -45,7 +45,7 @@ fn a_tab_indented_item_under_a_heading_or_fence_item_opens() {
         let last = s.project(s.revision(), range(at, at)).unwrap();
         let list = last.blocks.iter().rev().find_map(|b| b.list.as_ref());
         assert_eq!(
-            list.map(|l| l.depth),
+            list.map(|l| l.depth()),
             Some(depth),
             "{raw:?}: {:?}",
             last.blocks
@@ -159,7 +159,7 @@ fn a_long_lazy_list_keeps_distant_marker_bytes_and_continuation_semantics() {
         .project(s.revision(), range(tail, view.text.len()))
         .unwrap();
     assert_eq!(
-        projection.blocks[0].list.as_ref().unwrap().number,
+        projection.blocks[0].list.as_ref().unwrap().number(),
         Some(4096)
     );
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());

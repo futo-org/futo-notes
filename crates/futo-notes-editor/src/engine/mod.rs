@@ -6,14 +6,17 @@
 //! line through the per-line size index, then stepping over the line's
 //! hidden pieces.
 //!
-//! Nothing calls this module until the surface moves onto it.
+//! Only `EditorSession` under the `engine` feature (never in a shipping
+//! build) calls this module until the surface moves onto it.
 #![allow(dead_code)]
 
 mod edit;
 mod history;
 mod line;
+mod project;
 mod read;
 mod store;
+mod surface;
 #[cfg(test)]
 mod tests;
 
@@ -53,9 +56,18 @@ impl Engine {
     }
 
     pub fn open_with_clock(text: &str, clock: Arc<dyn HistoryClock>) -> Self {
+        Self::restore_with_clock(text, Revision(0), clock)
+    }
+
+    /// Open `text` at `revision`, with no history.
+    pub fn restore_with_clock(
+        text: &str,
+        revision: Revision,
+        clock: Arc<dyn HistoryClock>,
+    ) -> Self {
         let mut engine = Self {
             store: read::open(text),
-            revision: Revision(0),
+            revision,
             selection: DisplayRange::default(),
             affinity: Affinity::Forward,
             formats: None,

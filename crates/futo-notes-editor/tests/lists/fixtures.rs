@@ -164,7 +164,7 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
                 .filter_map(|block| {
                     block.list.filter(|list| list.first).map(|list| {
                         assert_eq!(
-                            list.depth,
+                            list.depth(),
                             case["itemDepths"][item_index].as_u64().unwrap_or(1) as usize
                         );
                         assert_eq!(
@@ -175,7 +175,7 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
                                 as usize
                         );
                         item_index += 1;
-                        serde_json::json!([list.number, list.checked])
+                        serde_json::json!([list.number(), list.checked])
                     })
                 })
                 .collect();

@@ -73,9 +73,13 @@ impl Projection {
             heading: block.heading,
             quote_depth: block.quote_depth,
             divider: block.divider,
+            // The old engine reads no marker text; deleted at the cut-over.
             list: block.list.as_ref().map(|list| crate::ListDescription {
-                depth: list.depth,
-                number: list.ordinal,
+                indent: list.marker_column,
+                marker: list
+                    .ordinal
+                    .map_or_else(|| "-".to_owned(), |n| format!("{n}.")),
+                ordered: list.ordinal.is_some(),
                 checked: list.checked,
                 first: list.first,
             }),

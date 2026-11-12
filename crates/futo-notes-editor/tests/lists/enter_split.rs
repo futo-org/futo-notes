@@ -18,10 +18,10 @@ fn list_rows(s: &EditorSession) -> Vec<String> {
             at += line.len() + 1;
             match block.and_then(|block| block.list.as_ref()) {
                 None => "p".to_owned(),
-                Some(list) if !list.first => list.depth.to_string(),
-                Some(list) => match list.number {
-                    Some(number) => format!("{}.{number}", list.depth),
-                    None => format!("-{}", list.depth),
+                Some(list) if !list.first => list.depth().to_string(),
+                Some(list) => match list.number() {
+                    Some(number) => format!("{}.{number}", list.depth()),
+                    None => format!("-{}", list.depth()),
                 },
             }
         })

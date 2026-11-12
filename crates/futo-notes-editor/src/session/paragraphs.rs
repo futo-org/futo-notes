@@ -30,6 +30,8 @@ impl EditorSession {
         key: ParagraphKey,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        on_next!(self, accept, |e, accept| e
+            .key(expected, range, key, accept));
         self.check_revision(expected)?;
         if self.composition.is_some() {
             return self.command_during_composition(

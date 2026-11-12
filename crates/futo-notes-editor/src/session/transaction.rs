@@ -118,6 +118,16 @@ impl EditorSession {
         replacements: &[DisplayReplacement],
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
+        on_next!(self, accept, |e, accept| match replacements {
+            [one] => e.input(
+                expected,
+                one.range,
+                &one.inserted,
+                crate::InputAction::Isolated,
+                accept
+            ),
+            _ => Err(EditorError::InvalidRange),
+        });
         self.check_revision(expected)?;
         let runs = replacements.iter();
         let shown = runs.map(|run| (run.range.start.0..run.range.end.0, run.inserted.clone()));

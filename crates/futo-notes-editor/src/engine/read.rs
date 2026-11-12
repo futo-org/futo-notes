@@ -16,6 +16,9 @@ pub(crate) struct Shown {
     /// The replaced display range, in the display before the edit.
     pub range: Range<usize>,
     pub inserted: String,
+    /// The display of every line shown again, in the display after the edit:
+    /// what a view restyles, even where the text did not change.
+    pub lines: Range<usize>,
 }
 
 /// The note's text cut into lines, each with its ending; the last line has
@@ -240,5 +243,6 @@ fn trim(start: usize, old: &str, new: &str) -> Shown {
     Shown {
         range: start + prefix..start + old.len() - suffix,
         inserted: new[prefix..new.len() - suffix].to_owned(),
+        lines: start..start + new.len(),
     }
 }

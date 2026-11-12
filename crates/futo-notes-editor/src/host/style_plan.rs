@@ -14,6 +14,8 @@ pub enum ListMarker {
     Bullet,
     Ordered,
     Task,
+    /// An indented plain line: drawn at its indent, with no marker.
+    Plain,
 }
 
 /// One styled stretch in the host's UTF-16 units, drawn from an engine projection. No Markdown
@@ -38,12 +40,15 @@ pub enum StyleSpec {
         end: usize,
         depth: usize,
     },
+    /// A list line, or an indented plain line (`ListMarker::Plain`). `indent` is the line's own
+    /// leading whitespace in columns (space 1, tab 4); `text` is the marker as typed (`-`, `3)`),
+    /// empty on a plain line. Nothing is computed from other lines.
     ListRow {
         start: usize,
         end: usize,
-        depth: usize,
+        indent: usize,
         marker: ListMarker,
-        number: Option<u64>,
+        text: String,
         checked: bool,
         first: bool,
     },
@@ -263,9 +268,11 @@ pub fn plan_styles(
             });
         }
         if let Some(list) = &block.list {
-            let marker = if list.checked.is_some() {
+            let marker = if list.marker.is_empty() {
+                ListMarker::Plain
+            } else if list.checked.is_some() {
                 ListMarker::Task
-            } else if list.number.is_some() {
+            } else if list.ordered {
                 ListMarker::Ordered
             } else {
                 ListMarker::Bullet
@@ -273,10 +280,9 @@ pub fn plan_styles(
             out.push(StyleSpec::ListRow {
                 start: s,
                 end: e,
-                // The engine counts list nesting from 1.
-                depth: list.depth.saturating_sub(1),
+                indent: list.indent,
                 marker,
-                number: list.number,
+                text: list.marker.clone(),
                 checked: list.checked == Some(true),
                 first: list.first,
             });

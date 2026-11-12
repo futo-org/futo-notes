@@ -101,8 +101,10 @@ fn assert_items(s: &crate::StoreEditorSession<'_>, case: &Value) {
         .into_iter()
         .filter_map(|block| {
             block.list.filter(|list| list.first).map(|list| {
+                // The surface reports the line's own indent and marker; these old cases count
+                // depth and numbers. Deleted or rewritten at the cut-over.
                 assert_eq!(
-                    list.depth,
+                    list.indent / 2 + 1,
                     case["itemDepths"][item_index].as_u64().unwrap_or(1) as usize
                 );
                 assert_eq!(
@@ -113,7 +115,10 @@ fn assert_items(s: &crate::StoreEditorSession<'_>, case: &Value) {
                         as usize
                 );
                 item_index += 1;
-                serde_json::json!([list.number, list.checked])
+                serde_json::json!([
+                    list.marker.trim_end_matches(['.', ')']).parse::<u64>().ok(),
+                    list.checked
+                ])
             })
         })
         .collect();

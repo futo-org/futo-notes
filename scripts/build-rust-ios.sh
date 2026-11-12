@@ -57,17 +57,25 @@ IOS_HOST_SDK="$(xcrun --sdk macosx --show-sdk-path)"
 
 SIM_ARM64_ONLY="${FUTO_IOS_SIM_ARM64_ONLY:-}"
 
+# FUTO_EDITOR_ENGINE=1 runs editor sessions on the rebuilt core (the ffi crate's
+# `engine` feature): a debug trial before the cut-over, never a shipping build.
+FEATURES=()
+if [[ -n "${FUTO_EDITOR_ENGINE:-}" ]]; then
+  echo "==> FUTO_EDITOR_ENGINE set — editor sessions run on the rebuilt core (never ship this build)"
+  FEATURES=(--features engine)
+fi
+
 if [[ -z "$SIM_ARM64_ONLY" ]]; then
   echo "==> Building futo-notes-ffi for device (aarch64-apple-ios)"
-  SDKROOT="$IOS_DEVICE_SDK" cargo build -p futo-notes-ffi --target aarch64-apple-ios --profile "$PROFILE"
+  SDKROOT="$IOS_DEVICE_SDK" cargo build -p futo-notes-ffi --target aarch64-apple-ios --profile "$PROFILE" ${FEATURES[@]+"${FEATURES[@]}"}
 fi
 
 echo "==> Building futo-notes-ffi for simulator (aarch64-apple-ios-sim)"
-SDKROOT="$IOS_SIMULATOR_SDK" cargo build -p futo-notes-ffi --target aarch64-apple-ios-sim --profile "$PROFILE"
+SDKROOT="$IOS_SIMULATOR_SDK" cargo build -p futo-notes-ffi --target aarch64-apple-ios-sim --profile "$PROFILE" ${FEATURES[@]+"${FEATURES[@]}"}
 
 if [[ -z "$SIM_ARM64_ONLY" ]]; then
   echo "==> Building futo-notes-ffi for simulator (x86_64-apple-ios)"
-  SDKROOT="$IOS_SIMULATOR_SDK" cargo build -p futo-notes-ffi --target x86_64-apple-ios --profile "$PROFILE"
+  SDKROOT="$IOS_SIMULATOR_SDK" cargo build -p futo-notes-ffi --target x86_64-apple-ios --profile "$PROFILE" ${FEATURES[@]+"${FEATURES[@]}"}
 fi
 
 echo "==> Building host lib (for binding generation metadata)"

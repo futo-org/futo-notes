@@ -149,7 +149,7 @@
         @Test func listRowsCarryTheirMarkerNumberAndTaskState() {
             let h = TextFirstHarness("- bullet\n\n1. first\n2. second\n\n- [ ] open\n- [x] done\n")
             #expect(block(h, atLineStartingWith: "bullet")?.list?.marker == .bullet)
-            #expect(block(h, atLineStartingWith: "second")?.list?.number == 2)
+            #expect(block(h, atLineStartingWith: "second")?.list?.text == "2.")
             #expect(block(h, atLineStartingWith: "open")?.list?.marker == .task)
             #expect(block(h, atLineStartingWith: "open")?.list?.checked == false)
             #expect(block(h, atLineStartingWith: "done")?.list?.checked == true)
@@ -172,13 +172,14 @@
 
         @Test func nestedListsIndentAndQuotesDrawBars() {
             let h = TextFirstHarness("- a\n  - nested\n\n> > deep\n")
-            #expect(block(h, atLineStartingWith: "nested")?.list?.depth == 1)
+            let nested = block(h, atLineStartingWith: "nested")?.list
+            #expect(nested?.indent == 2)
             #expect(block(h, atLineStartingWith: "deep")?.quoteDepth == 2)
             let at = (h.tv.text as NSString).range(of: "nested").location
             let style =
                 h.controller.storage.attribute(.paragraphStyle, at: at, effectiveRange: nil)
                 as! NSParagraphStyle
-            #expect(style.headIndent == TextFirstMetrics.listIndent(depth: 1))
+            #expect(nested.map { style.headIndent == TextFirstMetrics.listIndent($0) } == true)
         }
 
         @Test func codeBlocksAndDividersAreDrawnNotTyped() {
@@ -253,7 +254,7 @@
             h.select(3, 3)
             #expect(h.controller.paragraphKey(.tab, onlyIfChanged: true))
             #expect(h.source.hasPrefix("- a\n\t- b"))
-            #expect(block(h, atLineStartingWith: "b")?.list?.depth == 1)
+            #expect((block(h, atLineStartingWith: "b")?.list?.indent ?? 0) > 0)
             #expect(h.controller.paragraphKey(.shiftTab, onlyIfChanged: true))
             #expect(h.source.hasPrefix("- a\n- b"))
             // Outside a list the key is UIKit's.

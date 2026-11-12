@@ -28,6 +28,7 @@ impl EditorSession {
     /// Selection-wide formats and common blocks, plus the initial command
     /// eligibility rules. This reads retained attribution; it never stages edits.
     pub fn toolbar_state(&self) -> ToolbarState {
+        on_next!(ref self, |e| e.toolbar());
         self.toolbar_state_at(self.selection)
     }
 

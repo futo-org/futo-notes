@@ -1,5 +1,43 @@
 //! Portable exact-source editing; persistence and views are supplied by its host.
 
+/// Under the `engine` feature (never in a shipping build) a method on the
+/// editing path runs on the rebuilt core instead (`src/session/next.rs`).
+/// `ref` borrows the core; `accept` passes the method's acceptance through.
+macro_rules! on_next {
+    (ref $session:ident, |$engine:ident| $body:expr) => {
+        #[cfg(feature = "engine")]
+        {
+            if let Some($engine) = $session.next.as_deref() {
+                return $body;
+            }
+        }
+    };
+    ($session:ident, |$engine:ident| $body:expr) => {
+        #[cfg(feature = "engine")]
+        {
+            if $session.next.is_some() {
+                return $session.with_next(|$engine| $body);
+            }
+        }
+    };
+    ($session:ident, $accept:ident, |$engine:ident, $inner:ident| $body:expr) => {
+        #[cfg(feature = "engine")]
+        {
+            if $session.next.is_some() {
+                return $session.with_next_accept($accept, |$engine, $inner| $body);
+            }
+        }
+    };
+    ($session:ident, nothing) => {
+        #[cfg(feature = "engine")]
+        {
+            if $session.next.is_some() {
+                return crate::session::not_yet();
+            }
+        }
+    };
+}
+
 mod coordinates;
 mod engine;
 mod history;

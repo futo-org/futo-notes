@@ -226,7 +226,7 @@ fn outdent_retargets_the_lifted_item_to_its_parent_list_kind_and_content_width()
                 .iter()
                 .find_map(|block| block.list.as_ref())
                 .unwrap()
-                .depth,
+                .depth(),
             1
         );
         view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
@@ -341,7 +341,7 @@ fn retargeting_an_outer_list_preserves_the_owned_nested_list_depth() {
             .iter()
             .find_map(|block| block.list.as_ref())
             .unwrap()
-            .depth,
+            .depth(),
         2
     );
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());

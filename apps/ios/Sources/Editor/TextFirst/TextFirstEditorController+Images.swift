@@ -46,9 +46,7 @@
                 as? TextFirstBlockAttribute
             {
                 indent = TextFirstMetrics.quoteIndent(depth: block.quoteDepth)
-                if let list = block.list {
-                    indent += TextFirstMetrics.listIndent(depth: list.depth)
-                }
+                indent += block.listIndent
             }
             return max(40, containerWidth - indent)
         }

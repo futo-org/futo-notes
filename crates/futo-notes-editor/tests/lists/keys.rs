@@ -301,7 +301,12 @@ fn maximum_supported_ordered_markers_continue_with_valid_lazy_physical_numbers()
         .unwrap()
         .blocks
         .into_iter()
-        .filter_map(|block| block.list.filter(|list| list.first).map(|list| list.number))
+        .filter_map(|block| {
+            block
+                .list
+                .filter(|list| list.first)
+                .map(|list| list.number())
+        })
         .collect();
     assert_eq!(
         numbers,

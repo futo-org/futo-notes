@@ -85,6 +85,55 @@ pub(super) fn check_fresh(engine: &Engine, context: &str) {
     assert_eq!(engine.display_text(), fresh_display(&source), "{context}");
 }
 
+/// Each line's reading and how it shows, for comparing before and after.
+pub(super) type Shape = (
+    crate::lines::Line,
+    Vec<crate::lines::Span>,
+    crate::engine::line::View,
+);
+
+pub(super) fn lines_of(engine: &Engine) -> Vec<Shape> {
+    engine
+        .store
+        .iter_from(0)
+        .map(|entry| (entry.line.clone(), entry.spans.clone(), entry.view.clone()))
+        .collect()
+}
+
+/// A renderer restyles only each change's lines: every line that shows
+/// outside them reads and shows as it did before. Checked for steps that
+/// made one change.
+pub(super) fn check_restyled(before: &[Shape], engine: &Engine, view: &mut View, context: &str) {
+    let restyled = std::mem::take(&mut view.restyled);
+    let [lines] = restyled.as_slice() else {
+        return;
+    };
+    let after = lines_of(engine);
+    let mut display = 0;
+    for (index, entry) in engine.store.iter_from(0).enumerate() {
+        let (start, end) = (display, display + entry.size.display);
+        display = end;
+        let empty = entry.size.display == 0 && entry.view.role != Role::Empty;
+        if empty {
+            continue;
+        }
+        let old = if end <= lines.start && start < lines.start {
+            before.get(index)
+        } else if start >= lines.end && end > lines.end {
+            (before.len() + index)
+                .checked_sub(after.len())
+                .and_then(|i| before.get(i))
+        } else {
+            continue;
+        };
+        assert_eq!(
+            old,
+            Some(&after[index]),
+            "line {index} outside the restyled {lines:?} changed: {context}"
+        );
+    }
+}
+
 pub(super) fn fresh_display(source: &str) -> String {
     Engine::open(source).display_text()
 }

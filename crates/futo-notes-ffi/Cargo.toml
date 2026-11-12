@@ -17,6 +17,8 @@ required-features = ["bindgen"]
 
 [features]
 bindgen = ["uniffi/cli", "uniffi/cargo-metadata"]
+# Editor sessions on the rebuilt core; never in a shipping build (see futo-notes-editor).
+engine = ["futo-notes-editor/engine"]
 
 [dependencies]
 # `tokio` exports async methods; the `bindgen` feature above adds the generator.

@@ -47,9 +47,9 @@
                 case .quote(let start, let end, let depth):
                     here(start, end)?.quoteDepth = Int(depth)
                 case .listRow(
-                    let start, let end, let depth, let marker, let number, let checked, let first):
+                    let start, let end, let indent, let marker, let text, let checked, let first):
                     if let b = here(start, end) {
-                        b.list = (Int(depth), marker, number, checked)
+                        b.list = (Int(indent), marker, text, checked)
                         b.showsMarker = first
                     }
                 case .code(let start, let end):
@@ -119,9 +119,9 @@
                 indent(storage, r)
                 storage.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: r)
             case .listRow(
-                let start, let end, let depth, let marker, let number, let checked, let first):
+                let start, let end, let columns, let marker, let text, let checked, let first):
                 guard let r = range(start, end, length) else { return }
-                block(storage, r).list = (Int(depth), marker, number, checked)
+                block(storage, r).list = (Int(columns), marker, text, checked)
                 block(storage, r).showsMarker = first
                 indent(storage, r)
                 if marker == .task && checked {
@@ -196,21 +196,21 @@
             return made
         }
 
-        /// Head indent from the line's quote depth and list depth (the markers live in the gutter).
+        /// Head indent from the line's quote depth and own indent (the markers live in the gutter).
         private static func indent(_ storage: NSTextStorage, _ r: NSRange) {
             storage.addAttribute(
                 .paragraphStyle, value: paragraphStyle(for: block(storage, r)), range: r)
         }
 
         /// The paragraph style of a quote or list line: its head indent from the quote depth and
-        /// list depth.
+        /// the line's own indent.
         private static func paragraphStyle(for b: TextFirstBlockAttribute)
             -> NSMutableParagraphStyle
         {
             var indent = TextFirstMetrics.quoteIndent(depth: b.quoteDepth)
-            if let list = b.list { indent += TextFirstMetrics.listIndent(depth: list.depth) }
+            indent += b.listIndent
             let paragraph = NSMutableParagraphStyle()
-            if b.list != nil {
+            if b.isItem {
                 // Empty paragraphs omit TextKit's inter-line spacing. Reserve the same line
                 // height for an empty item as a typed one instead of changing its marker baseline.
                 paragraph.minimumLineHeight = TextFirstEditorController.bodyFont.lineHeight + 4

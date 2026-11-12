@@ -26,6 +26,7 @@ impl EditorSession {
         expected: Revision,
         source: &str,
     ) -> Result<ExternalSourceAdoption, EditorError> {
+        on_next!(ref self, |_e| Err(EditorError::UnrepresentableFormat));
         self.check_revision(expected)?;
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);
@@ -89,6 +90,7 @@ impl EditorSession {
         expected: Revision,
         source: &str,
     ) -> Result<ExternalSourceAdoption, EditorError> {
+        on_next!(ref self, |_e| Err(EditorError::UnrepresentableFormat));
         self.check_revision(expected)?;
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);

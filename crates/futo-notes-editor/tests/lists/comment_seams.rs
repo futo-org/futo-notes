@@ -68,7 +68,12 @@ fn conflicting_neighbors_merge_the_following_list_without_writing_a_comment() {
         .unwrap()
         .blocks
         .into_iter()
-        .filter_map(|block| block.list.filter(|list| list.first).map(|list| list.number))
+        .filter_map(|block| {
+            block
+                .list
+                .filter(|list| list.first)
+                .map(|list| list.number())
+        })
         .collect();
     assert_eq!(items, [Some(9), Some(1), Some(2), Some(3)]);
 }

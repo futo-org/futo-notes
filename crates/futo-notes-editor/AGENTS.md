@@ -29,8 +29,10 @@ opaque to inline interpretation.
 and inline marks, plus an incremental re-read that stops where the carry from
 the lines above settles. Its cases are `tests/fixtures/linedown/`.
 
-`engine/` is the core being rebuilt on `lines/`; nothing calls it until the
-surface cuts over to it. The note's text, kept as lines with their readings, is
+`engine/` is the core being rebuilt on `lines/`. Only the `engine` cargo
+feature calls it (`src/session/next.rs` hands `EditorSession`'s editing path
+to it; `FUTO_EDITOR_ENGINE=1` turns it on for `scripts/build-rust-ios.sh`);
+no shipping build enables it, and the cut-over replaces that switch. The note's text, kept as lines with their readings, is
 the only stored text: each line's display is its text minus hidden pieces, and
 `crates/futo-notes-editor/src/engine/line.rs` lists the few display rules that
 differ. A chunked Fenwick index over line sizes finds a line by source, display or

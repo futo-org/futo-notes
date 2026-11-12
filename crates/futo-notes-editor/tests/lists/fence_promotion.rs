@@ -26,7 +26,7 @@ fn prove_fence_plan(
             .unwrap();
         assert!(outside.blocks.iter().all(|b| !b.code
             && b.quote_depth == outside_quotes
-            && b.list.as_ref().is_some_and(|l| l.first && l.depth == 1)));
+            && b.list.as_ref().is_some_and(|l| l.first && l.depth() == 1)));
     }
     for affinity in [Affinity::Backward, Affinity::Forward] {
         let mut s = EditorSession::open(raw);

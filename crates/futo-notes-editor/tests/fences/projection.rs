@@ -95,10 +95,9 @@ fn code_list_marker_prefix_is_retained_at_a_rendering_window_start() {
         let marker = projection.blocks.iter().find(|block| {
             block.code
                 && block.range == range(start, start)
-                && block
-                    .list
-                    .as_ref()
-                    .is_some_and(|list| list.first && list.depth == depth && list.number == number)
+                && block.list.as_ref().is_some_and(|list| {
+                    list.first && list.depth() == depth && list.number() == number
+                })
         });
         if marker.is_none() {
             missing.push((label, projection.blocks));
@@ -178,7 +177,7 @@ fn code_list_marker_prefix_controls_keep_existing_first_and_continuation_roles()
                     && block
                         .list
                         .as_ref()
-                        .is_some_and(|list| list.first && list.number == number)
+                        .is_some_and(|list| list.first && list.number() == number)
             })
             .count();
         assert_eq!(first, 1, "{source:?}");

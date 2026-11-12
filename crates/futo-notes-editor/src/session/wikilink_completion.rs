@@ -71,6 +71,7 @@ impl EditorSession {
         &self,
         expected: Revision,
     ) -> Result<Option<WikilinkCompletion>, EditorError> {
+        on_next!(self, nothing);
         self.check_revision(expected)?;
         let Some(run) = self.completion_run() else {
             return Ok(None);
