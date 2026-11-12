@@ -17,7 +17,6 @@ reintroduce them or wait for them at final acceptance. → docs/plan/text-first-
 
 - [Linedown: the dialect the engine reads and writes](portable-core/linedown.md)
 - [Exact source, interpretation and input](portable-core/interpretation-and-input.md)
-- [Escapes the engine writes while typing](portable-core/typed-escapes.md)
 - [Heading, quote and divider block commands](portable-core/block-commands.md)
 - [Find in note](portable-core/find.md)
 - [Link editing and source ownership](portable-core/links.md)
