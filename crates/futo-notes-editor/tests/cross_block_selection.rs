@@ -244,3 +244,176 @@ fn a_text_service_replacement_is_checked_as_one_input() {
     assert!(corrected.is_err(), "{:?}", s.source_text());
     assert_eq!(s.source_text(), note);
 }
+
+/// (note, selected display text, what the text service shows instead)
+const KEPT_PLAIN: &[(&str, &str, &str)] = &[
+    // The issue: a fence pasted into a task item, kept words after it.
+    (
+        "- [ ] \n- [ ] ```\n      code\n      ```\n      Heading one\n\ntail",
+        "code    \n    Heading",
+        "Heading",
+    ),
+    (
+        "- [ ] \n- [ ] ```\n      code\n      ```\n      Heading one\n\ntail",
+        "code",
+        "cod",
+    ),
+    (
+        "- [ ] \n- [ ] ```\n      code\n      ```\n      Heading one\n\ntail",
+        "Heading one",
+        "Heading on",
+    ),
+    (
+        "- [ ] \n- [ ] ```\n      code\n      ```\n      Heading one\n\ntail",
+        "code    \n    Heading one",
+        "Heading one!",
+    ),
+    // A fence and kept words, in a paragraph, a list, a quote.
+    (
+        "```\ncode\n```\nHeading one\n\ntail",
+        "code\nHeading one",
+        "Heading one!",
+    ),
+    (
+        "```\ncode\n```\nHeading one\n\ntail",
+        "code\nHeading",
+        "Heading",
+    ),
+    (
+        "```\ncode\n```\nHeading one\n\ntail",
+        "code\nHeading one",
+        "Heading on",
+    ),
+    (
+        "> ```\n> fenced\n> ```\n> tail words\n\nafter",
+        "fenced\ntail",
+        "tail",
+    ),
+    (
+        "- ```\n  fenced\n  ```\n  tail words\n\nafter",
+        "fenced\ntail",
+        "tail",
+    ),
+    (
+        "- ```\n  fenced\n  ```\n  tail words\n\nafter",
+        "fenced\ntail words",
+        "tail word",
+    ),
+    (
+        "para\n\n```\ncode here\n```\ntail words",
+        "code here\ntail",
+        "tail",
+    ),
+    // Hidden markup (backticks, asterisks, a link's brackets) at either
+    // edge of a kept stretch.
+    ("one `two` three four", "two three", "two thre"),
+    ("one `two` three four", "one two", "on two"),
+    ("one `two` three four", "three four", "three for"),
+    ("one `two`three four", "twothree", "twothre"),
+    ("one `two`three four", "twothree", "wothree"),
+    ("- item `code` more text\nnext", "code more", "cod more"),
+    ("- item `code` more text\nnext", "item code", "iten code"),
+    ("> quote `code` more text\n> next", "code more", "code mor"),
+    (
+        "> quote **bold** more text\n> next",
+        "bold more",
+        "bold mor",
+    ),
+    (
+        "> quote **bold** more text\n> next",
+        "bold more",
+        "old more",
+    ),
+    (
+        "- [ ] task `code` more text\n- next",
+        "code more",
+        "code mor",
+    ),
+    (
+        "- [ ] task `code` more\n- [ ] ```\n      fenced\n      ```\n      tail",
+        "more",
+        "mor",
+    ),
+    ("text `a` text `b` text", "a text b", "a text"),
+    (
+        "see [a link](https://x.y) here",
+        "a link here",
+        "a lin here",
+    ),
+    (
+        "see *one* two ~~three~~ four",
+        "one two three",
+        "on two three",
+    ),
+];
+
+/// A text service's replacement keeps the characters it shares with the
+/// selection as they were, or is refused: it never turns kept plain text into
+/// inline code or emphasis because hidden markup sits at the edge of a kept
+/// stretch (#350). `checked` holds every accepted result to the per-character
+/// formatting oracle.
+#[test]
+fn a_text_service_replacement_never_formats_the_text_it_keeps() {
+    let mut failed = Vec::new();
+    for (note, selected, text) in KEPT_PLAIN {
+        let display = EditorSession::open(note).display_text();
+        let Some(a) = display.find(selected) else {
+            eprintln!("MISSING {selected:?} not in {display:?} of {note:?}");
+            continue;
+        };
+        let run =
+            std::panic::catch_unwind(|| checked(note, a, a + selected.len(), Input::Os(text)));
+        if run.is_err() {
+            failed.push((note, selected, text));
+        }
+    }
+    assert!(failed.is_empty(), "formatting changed: {failed:#?}");
+}
+
+fn replace_os_over(note: &str, selected: &str, text: &str) -> Result<String, EditorError> {
+    let mut s = EditorSession::open(note);
+    let at = s.display_text().find(selected).unwrap();
+    let selection = range(at, at + selected.len());
+    s.select(s.revision(), selection).unwrap();
+    s.replace_os(s.revision(), selection, text, &[], &mut |_| Ok(()))
+        .map(|_| s.source_text())
+}
+
+/// A dictated phrase over differently formatted words shares only letters the
+/// character diff pairs by chance, so it is written as typing writes it, not
+/// refused as kept text (the keep guard holds stretches of three or more
+/// letters or digits).
+#[test]
+fn a_dictated_phrase_over_mixed_formatting_is_written_as_typing_would() {
+    for (note, selected, text, typed) in [
+        (
+            "- **jumps** **lazy**s, coffee ~~world~~ hello",
+            "jumps lazys, coffee world",
+            "Monday items Monday cant",
+            "- **Monday items Monday cant** hello",
+        ),
+        (
+            "fox it's recieve **hello**s **over** *project*",
+            "fox it's recieve hellos over project",
+            "jumps Monday brown items coffee naïve",
+            "jumps Monday brown items coffee naïve",
+        ),
+    ] {
+        assert_eq!(
+            replace_os_over(note, selected, text).as_deref(),
+            Ok(typed),
+            "{note:?}"
+        );
+    }
+}
+
+/// A kept bold word after a fence is refused; a kept link label there is
+/// not (the guard reads Bold, Italic, Strike and Code, not links), and the
+/// word joins the code line as typing joins it. Pinned as it is on main.
+#[test]
+fn a_kept_link_after_a_fence_joins_the_code_line_as_typing_does() {
+    let bold = replace_os_over("```\ncode\n```\n**Heading** one", "\nHeading", "Heading");
+    assert!(bold.is_err(), "{bold:?}");
+    let link = replace_os_over("```\ncode\n```\n[Heading](u) one", "\nHeading", "Heading");
+    assert_eq!(link.as_deref(), Ok("```\ncodeHeading one\n```"));
+}

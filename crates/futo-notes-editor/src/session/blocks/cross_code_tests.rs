@@ -34,7 +34,7 @@ const PIECES: &[&str] = &[
     "plain text here\n",
 ];
 
-const INPUTS: [Input; 12] = [
+const INPUTS: [Input; 13] = [
     Input::Type("d"),
     Input::Type("xy"),
     Input::Paste("pp"),
@@ -46,6 +46,7 @@ const INPUTS: [Input; 12] = [
     Input::Os("e"),
     Input::Kept,
     Input::Fixed,
+    Input::Tail,
     Input::Many,
 ];
 

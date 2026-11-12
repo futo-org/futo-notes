@@ -28,6 +28,9 @@ pub(crate) enum Input {
     /// A text service's correction: the selection with `z` after its first
     /// letter, everything else kept.
     Fixed,
+    /// A text service's correction that drops the selection's first line (its
+    /// first half on one line) and keeps the rest.
+    Tail,
     /// Two runs (`replace_many`): the range's halves, typed `d` and `e`.
     Many,
 }
@@ -55,6 +58,10 @@ impl Input {
                     format!("{}z{}", &selected[..after], &selected[after..])
                 }
                 None => format!("z{selected}"),
+            },
+            Input::Tail => match selected.find('\n') {
+                Some(at) => selected[at + 1..].into(),
+                None => selected[selected.len() / 2..].into(),
             },
             Input::Many => "de".into(),
             Input::Enter => "\n".into(),
@@ -93,7 +100,7 @@ pub(crate) fn apply(
         Input::Delete => s
             .paragraph_key(rev, at, ParagraphKey::Delete, accept)
             .map(drop),
-        Input::Os(_) | Input::Kept | Input::Fixed => {
+        Input::Os(_) | Input::Kept | Input::Fixed | Input::Tail => {
             let selected = s.display_text()[at.start.0..at.end.0].to_owned();
             let text = input.shown(&selected);
             s.replace_os(rev, at, &text, &[], accept).map(drop)
@@ -282,6 +289,12 @@ fn exactly_replaced(
         "{label}\nsource {source:?}\nshows {shown:?}\nexpected {:?}",
         expected(&input.shown(&old[a..b]))
     );
+    if matches!(
+        input,
+        Input::Os(_) | Input::Kept | Input::Fixed | Input::Tail
+    ) {
+        unchanged_text_keeps_its_formatting(note, old, a, b, input, source, shown, label);
+    }
     let (old_lines, new_lines) = (lines(note), lines(source));
     let nonblank = |text: &str| {
         text.split('\n')
@@ -319,4 +332,153 @@ fn exactly_replaced(
             "{label}\nsource {source:?}\nlines {old_lines:?}\nbecame {new_lines:?}"
         );
     }
+}
+
+/// Inline formatting the parser gives one character.
+const CODE: u8 = 1;
+const EMPHASIS: u8 = 2;
+const STRONG: u8 = 4;
+const STRIKE: u8 = 8;
+const LINK: u8 = 16;
+
+/// Each nonblank character the parser reads in `source`, with its formatting.
+fn formatted(source: &str) -> Vec<(char, u8)> {
+    let options = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    let (mut flags, mut out) = (0u8, Vec::new());
+    let mut depth = [0u32; 5];
+    let at = |bit: u8| bit.trailing_zeros() as usize;
+    for event in Parser::new_ext(source, options) {
+        match event {
+            Event::Start(tag) => {
+                let bit = match tag {
+                    Tag::Emphasis => EMPHASIS,
+                    Tag::Strong => STRONG,
+                    Tag::Strikethrough => STRIKE,
+                    Tag::Link { .. } => LINK,
+                    _ => continue,
+                };
+                depth[at(bit)] += 1;
+                flags |= bit;
+            }
+            Event::End(end) => {
+                let bit = match end {
+                    TagEnd::Emphasis => EMPHASIS,
+                    TagEnd::Strong => STRONG,
+                    TagEnd::Strikethrough => STRIKE,
+                    TagEnd::Link => LINK,
+                    _ => continue,
+                };
+                depth[at(bit)] -= 1;
+                if depth[at(bit)] == 0 {
+                    flags &= !bit;
+                }
+            }
+            Event::Text(text) => out.extend(
+                text.chars()
+                    .filter(|ch| !ch.is_whitespace())
+                    .map(|ch| (ch, flags)),
+            ),
+            Event::Code(text) => out.extend(
+                text.chars()
+                    .filter(|ch| !ch.is_whitespace())
+                    .map(|ch| (ch, flags | CODE)),
+            ),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// A text service keeps the characters its replacement shares with the
+/// selection, so each keeps its formatting: the characters outside the range,
+/// and those the character diff keeps inside it, are read by the parser as
+/// they were (#350). Inserted characters take whatever formatting results,
+/// and only inline formatting is compared: a block's kind is the lines check's
+/// (a one-run plan lands a character the service shares with a code line in
+/// the line it joins). Inside the range a character the diff keeps may gain no
+/// formatting (plain text turned into code, emphasis or a link); it may lose
+/// some, as kept text that joins a code block (as typing joins it) loses its
+/// inline formats. The oracle cannot see code-block text: it reads as plain.
+#[allow(clippy::too_many_arguments)]
+fn unchanged_text_keeps_its_formatting(
+    note: &str,
+    old: &str,
+    a: usize,
+    b: usize,
+    input: Input,
+    source: &str,
+    shown: &str,
+    label: &str,
+) {
+    let (before, after) = (formatted(note), formatted(source));
+    let nonblank = |text: &str| {
+        text.chars()
+            .filter(|ch| !ch.is_whitespace())
+            .collect::<Vec<_>>()
+    };
+    // The oracle reads text as the display shows it, or it is no oracle.
+    if before.iter().map(|c| c.0).ne(nonblank(old)) || after.iter().map(|c| c.0).ne(nonblank(shown))
+    {
+        return;
+    }
+    let inserted = input.shown(&old[a..b]);
+    // Per nonblank character of the new display: the formatting it keeps from
+    // the old one, or none if inserted.
+    let mut old_flags = before.iter().map(|c| Some(c.1));
+    let mut expected: Vec<Option<(u8, bool)>> = Vec::new();
+    expected.extend(
+        old_flags
+            .by_ref()
+            .take(nonblank(&old[..a]).len())
+            .map(|f| f.map(|f| (f, true))),
+    );
+    let mut inside: Vec<Option<(u8, bool)>> = old_flags
+        .by_ref()
+        .take(nonblank(&old[a..b]).len())
+        .map(|f| f.map(|f| (f, false)))
+        .collect();
+    let diff = similar::TextDiff::from_chars(&old[a..b], inserted.as_str());
+    let changes: Vec<_> = diff.iter_all_changes().collect();
+    // A kept stretch of fewer than three letters or digits is shared by
+    // chance (dictation), and the engine does not hold it to its formatting.
+    let mut held = vec![false; changes.len()];
+    let mut start = 0;
+    while start < changes.len() {
+        let equal = |at: usize| changes[at].tag() == similar::ChangeTag::Equal;
+        let end = (start..changes.len())
+            .find(|&at| !equal(at))
+            .unwrap_or(changes.len());
+        let letters = (start..end)
+            .filter(|&at| changes[at].value().chars().any(char::is_alphanumeric))
+            .count();
+        held[start..end].fill(letters >= 3);
+        start = end.max(start + 1);
+    }
+    for (at, change) in changes.iter().enumerate() {
+        let blank = change.value().chars().all(char::is_whitespace);
+        match change.tag() {
+            similar::ChangeTag::Equal if !blank => {
+                let flags = inside.remove(0);
+                expected.push(flags.filter(|_| held[at]));
+            }
+            similar::ChangeTag::Delete if !blank => drop(inside.remove(0)),
+            similar::ChangeTag::Insert if !blank => expected.push(None),
+            _ => {}
+        }
+    }
+    expected.extend(old_flags.map(|f| f.map(|f| (f, true))));
+    let holds = expected.len() == after.len()
+        && expected.iter().zip(&after).all(|(want, got)| {
+            want.is_none_or(|(flags, exact)| {
+                if exact {
+                    flags == got.1
+                } else {
+                    got.1 & !flags == 0
+                }
+            })
+        });
+    assert!(
+        holds,
+        "{label}\nsource {source:?}\nunchanged text changed formatting\nwas {before:?}\nnow {after:?}"
+    );
 }
