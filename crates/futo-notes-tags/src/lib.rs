@@ -208,11 +208,11 @@ pub fn extract_tag_names(content: &str) -> Vec<String> {
 }
 
 /// Byte ranges of the tag names (without `#`) in one line of text, by the same
-/// grammar as [`extract_tag_names`] but with no code regions: the caller has
-/// already decided what on the line is code and drops tags inside it.
-pub fn tag_name_ranges(line: &str) -> Vec<std::ops::Range<usize>> {
+/// grammar as [`extract_tag_names`], with the caller's code regions (sorted,
+/// non-overlapping byte ranges) in place of this crate's own code reader.
+pub fn tag_name_ranges(line: &str, code: &[(usize, usize)]) -> Vec<std::ops::Range<usize>> {
     let bytes = line.as_bytes();
-    let cursor = RegionCursor::new(&[]);
+    let cursor = RegionCursor::new(code);
     let mut ranges = Vec::new();
     let mut i = 0usize;
     while let Some(offset) = memchr::memchr(b'#', &bytes[i..]) {

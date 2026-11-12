@@ -192,3 +192,19 @@ fn linear_inline_scan_matches_backreference_regex() {
         }
     }
 }
+
+#[test]
+fn tag_name_ranges_find_the_names_tag_extraction_finds() {
+    for line in [
+        "#a b #c-d, x#e (#f) #1x #g.",
+        "`#code` #after `x`#glued",
+        "#é #ok\t#tab",
+    ] {
+        let code = code_regions(line, line.as_bytes());
+        let names: Vec<String> = crate::tag_name_ranges(line, &code)
+            .into_iter()
+            .map(|range| crate::normalize_tag_name(&line[range]))
+            .collect();
+        assert_eq!(names, crate::extract_tag_names(line), "{line:?}");
+    }
+}
