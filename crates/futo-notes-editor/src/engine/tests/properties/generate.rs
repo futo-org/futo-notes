@@ -1,29 +1,29 @@
 //! Random notes and positions for the property run.
 use super::*;
 
-pub(super) struct Random(pub(super) u64);
+pub(in crate::engine::tests) struct Random(pub(super) u64);
 
 impl Random {
-    pub(super) fn from_env() -> Self {
+    pub(in crate::engine::tests) fn from_env() -> Self {
         let seed = std::env::var("TYPING_SEED").map_or(0x9e37_79b9_7f4a_7c15, |seed| {
             seed.parse().expect("TYPING_SEED")
         });
         Self(seed | 1)
     }
 
-    pub(super) fn below(&mut self, bound: usize) -> usize {
+    pub(in crate::engine::tests) fn below(&mut self, bound: usize) -> usize {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
         self.0 ^= self.0 << 17;
         (self.0 % bound.max(1) as u64) as usize
     }
 
-    pub(super) fn pick<'a>(&mut self, items: &[&'a str]) -> &'a str {
+    pub(in crate::engine::tests) fn pick<'a>(&mut self, items: &[&'a str]) -> &'a str {
         items[self.below(items.len())]
     }
 }
 
-pub(super) fn cases() -> usize {
+pub(in crate::engine::tests) fn cases() -> usize {
     std::env::var("TYPING_CASES").map_or(300, |cases| cases.parse().expect("TYPING_CASES"))
 }
 
@@ -94,7 +94,7 @@ pub(super) const TYPED: &[&str] = &[
     "| a |", "|---|", "\r",
 ];
 
-pub(super) fn note(random: &mut Random) -> String {
+pub(in crate::engine::tests) fn note(random: &mut Random) -> String {
     let mut out = String::new();
     if random.below(8) == 0 {
         out.push_str("---\nkey: v\n");

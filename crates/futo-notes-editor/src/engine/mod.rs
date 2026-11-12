@@ -13,6 +13,7 @@
 mod command;
 mod commands;
 mod edit;
+mod external;
 mod history;
 mod line;
 mod project;
@@ -25,6 +26,8 @@ mod tests;
 mod utf16;
 
 pub(crate) use edit::Marked;
+#[cfg(feature = "engine")]
+pub(crate) use external::Adoption;
 
 use crate::history::{HistoryClock, MonotonicClock, TypingRun};
 use crate::{

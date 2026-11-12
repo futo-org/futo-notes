@@ -16,6 +16,9 @@ pub struct ExternalSourceAdoption {
     undo: Vec<HistoryGroup>,
     redo: Vec<HistoryGroup>,
     pending: Option<crate::inline::PendingLinks>,
+    /// The core's prepared plan, under the `engine` feature.
+    #[cfg(feature = "engine")]
+    next: Option<crate::engine::Adoption>,
 }
 
 impl EditorSession {
@@ -26,7 +29,9 @@ impl EditorSession {
         expected: Revision,
         source: &str,
     ) -> Result<ExternalSourceAdoption, EditorError> {
-        on_next!(ref self, |_e| Err(EditorError::UnrepresentableFormat));
+        on_next!(ref self, |e| e
+            .prepare_external(expected, source, true)
+            .map(|plan| self.on_core(plan)));
         self.check_revision(expected)?;
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);
@@ -77,6 +82,8 @@ impl EditorSession {
             undo,
             redo,
             pending: Some(pending),
+            #[cfg(feature = "engine")]
+            next: None,
         })
     }
 
@@ -90,7 +97,9 @@ impl EditorSession {
         expected: Revision,
         source: &str,
     ) -> Result<ExternalSourceAdoption, EditorError> {
-        on_next!(ref self, |_e| Err(EditorError::UnrepresentableFormat));
+        on_next!(ref self, |e| e
+            .prepare_external(expected, source, false)
+            .map(|plan| self.on_core(plan)));
         self.check_revision(expected)?;
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);
@@ -113,6 +122,8 @@ impl EditorSession {
             undo: Vec::new(),
             redo: Vec::new(),
             pending: None,
+            #[cfg(feature = "engine")]
+            next: None,
         })
     }
 
@@ -132,6 +143,10 @@ impl EditorSession {
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);
         }
+        #[cfg(feature = "engine")]
+        if let Some(plan) = adoption.next {
+            return self.with_next_accept(&mut |_| Ok(()), |e, accept| e.adopt_view(plan, accept));
+        }
         let mut change = self.apply(&adoption.edit);
         self.selection = self
             .project_history_selection(adoption.selection, self.selection)
@@ -145,6 +160,37 @@ impl EditorSession {
         change.selection = self.selection;
         change.affinity = self.affinity;
         Ok(change)
+    }
+}
+
+#[cfg(feature = "engine")]
+impl EditorSession {
+    /// A core plan in the surface's shape. The old fields carry the claim the
+    /// session checks; `edit` is the Append a portable page sends (a no-op
+    /// at the same revision when the text is unchanged).
+    fn on_core(&self, plan: crate::engine::Adoption) -> ExternalSourceAdoption {
+        let edit = plan.edit().cloned().unwrap_or(SourceEdit {
+            previous_revision: plan.revision(),
+            revision: plan.revision(),
+            range: SourceRange {
+                start: SourceOffset(0),
+                end: SourceOffset(0),
+            },
+            removed: String::new(),
+            inserted: String::new(),
+        });
+        ExternalSourceAdoption {
+            revision: plan.revision(),
+            incarnation: self.incarnation,
+            opening_selection: self.selection,
+            opening_affinity: self.affinity,
+            edit,
+            selection: SourceSelection::Derived,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            pending: None,
+            next: Some(plan),
+        }
     }
 }
 

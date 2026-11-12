@@ -13,6 +13,7 @@ impl EditorSession {
         expected: Revision,
         direction: CaretDirection,
     ) -> Result<SelectionChange, EditorError> {
+        on_next!(self, |e| e.move_caret(expected, direction));
         self.check_revision(expected)?;
         let selection = self.selection();
         let position = match direction {
