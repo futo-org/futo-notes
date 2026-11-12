@@ -128,6 +128,18 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
     (`image_key`, asked first). The core lets a caret stand inside an image's text; keeping it
     outside is the renderer's, from the atom's before/after. Old `tests/images.rs` 5/7 on the
     core: the alt now shows as typed, and three old refusals are now accepted.
+  - Merged: wikilinks and tags (`engine/commands/wikilinks/`, 44 fixture cases with undo and
+    redo): completion and accepting it (only the differing bytes are written), note ids held by
+    the core so wikilinks resolve again (`note_id`, shortest unique label), `update_note_ids`
+    restyling only links whose resolution changed (a 64-bit mask per line over the targets' last
+    path components, ORed per chunk in the store), `apply_own_relink` as one command and one
+    undo step, tags from the reader, header tags as before. Old bugs fixed: adding a header tag
+    when front matter closes on the note's last line was refused; after CRLF front matter the
+    new tag block was written with LF. Note-id delivery enters 75 rows (1,000 paragraphs) and
+    85 (20,000) against the old 7 and 9, under that test's bound of 128 nodes and 4 links; both
+    examine 1 link. Store lib on the core: every relink, identity, wikilink and tag test passes.
+  - The wikilinks merge put `engine/mod.rs` over the size limit: selection and movement moved
+    to `engine/selection.rs`, UTF-16 conversions to `engine/utf16.rs`, verbatim.
   - Rule kept, noted by the fences lane: typing after a ``` that is the note's last line goes
     into the empty code block's body (display rule 3), so `js` there writes "```\njs", not a
     language; mid-note it writes "```js".
