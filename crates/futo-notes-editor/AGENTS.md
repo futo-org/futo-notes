@@ -27,8 +27,19 @@ opaque to inline interpretation.
 `lines/` reads a note one line at a time, as
 `docs/spec/editor/portable-core/linedown.md` defines it: each line's block, depth
 and inline marks, plus an incremental re-read that stops where the carry from
-the lines above settles. Its cases are `tests/fixtures/linedown/`. Nothing
-calls it until the engine moves off `inline/`'s pulldown-cmark reading.
+the lines above settles. Its cases are `tests/fixtures/linedown/`.
+
+`engine/` is the core being rebuilt on `lines/`; nothing calls it until the
+surface cuts over to it. The note's text, kept as lines with their readings, is
+the only stored text: each line's display is its text minus hidden pieces, and
+`crates/futo-notes-editor/src/engine/line.rs` lists the few display rules that
+differ. A chunked Fenwick index over line sizes finds a line by source, display or
+UTF-16 offset without walking the note. Every change is text edits plus one host
+acceptance; undo replays reverse edits.
+`crates/futo-notes-editor/src/engine/tests/properties/` holds the five
+properties (unchanged bytes on open, exact typing, exact undo, incremental equals
+fresh, round-trip positions); `TYPING_CASES`/`TYPING_SEED` widen it and
+`LINES_COMPARE` runs it read-only on note directories (`-- --ignored`).
 
 Source/display text queries explicitly materialize whole text. Input reparses the
 affected paragraphs and their neighbors; paragraph-tree sums avoid rewriting tail
