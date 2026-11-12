@@ -27,8 +27,10 @@ commit that finishes step 3 (archive rule).
   Android's renderer is on `android-text-first` and picks the field up there.
 - Milkdown is not changed. It leaves in the same release that brings this editor to desktop, so
   the two editors disagreeing about a note is not a shipped state.
-- Linedown is not tied to HTML. The reader reports what each line is (block, depth, spans), and
+- Linedown is not tied to HTML. The reader reports what each line is (block, indent, spans), and
   fixtures assert that, never HTML output. No rule is added or kept because of how HTML renders.
+- A line's indent is its own leading whitespace width (space 1, tab 4). There is no depth derived
+  from other lines. Uneven lists draw unevenly.
 - Code does not name the dialect. Only the spec and the fixture file say "Linedown".
 - A line ends at `\n` or `\r\n`. A lone `\r` is an ordinary character.
 - Linedown's rules supersede every other Markdown reader in the repo. `futo-notes-tags` and
@@ -45,8 +47,8 @@ commit that finishes step 3 (archive rule).
 A new module `src/linedown/` that nothing else calls yet.
 
 - **Block reader.** One pass over lines with a small carry: open fence (character and length),
-  open front matter, the list stack (indent widths of the list lines above, tab = 4), and "inside
-  a table". Output per line: block kind, quote depth, list marker text, list depth, task state,
+  open front matter, and "inside a table". Output per line: block kind, quote depth, list marker
+  text, the line's indent in columns (its own leading whitespace, space 1, tab 4), task state,
   heading level, the ranges of the marker and the content, fence role, table role. Offsets are
   document-absolute.
 - **Table header.** The single reach-back: when a line is a delimiter row and the line above is a
@@ -60,7 +62,7 @@ A new module `src/linedown/` that nothing else calls yet.
   line's end equals the carry it had before. Worst case is the rest of the note (a fence or front
   matter opened or closed), which is also true today.
 - **Fixture file** `tests/fixtures/linedown.json`: input text and, per line, the expected block,
-  depth and inline spans. At least one case per rule in the spec and one per row of its
+  indent and inline spans. At least one case per rule in the spec and one per row of its
   "Differences from CommonMark and GFM" table. The crate's tests run it.
 - **Comparison run.** A test-only binary reads every `.md` under a directory with pulldown-cmark
   and with the new reader and prints each class of line whose reading changed, with counts. Run
@@ -89,12 +91,13 @@ posted on #423.
   outdent, join and Backspace, heading and quote toggles, divider, split, paste. The
   respell-reparse-repair planner (`session/blocks/list_edit/`) is not ported: with one-line items
   a command edits the lines it names and nothing else changes meaning.
-- **Host and FFI.** `StyleSpec::ListRow` gains the marker text as typed and drops the computed
-  number. An indented plain line inside a list is reported with the depth of the list line it
-  aligns to and no marker. `crates/futo-notes-ffi/src/editor/host.rs` mirrors both.
+- **Host and FFI.** `StyleSpec::ListRow` carries the line's indent in columns and the marker text
+  as typed, and no depth or computed number. An indented plain line is reported with its own
+  indent and no marker. `crates/futo-notes-ffi/src/editor/host.rs` mirrors both.
 - **iOS** (`apps/ios/Sources/Editor/TextFirst/`): draw the marker text the engine sends
-  (`TextFirstLayoutFragments.swift` draws `"\(number)."` today, so `3)` shows as `1.`); indent a
-  markerless list-aligned line by its depth (`TextFirstStyler.swift`); blank lines show one per
+  (`TextFirstLayoutFragments.swift` draws `"\(number)."` today, so `3)` shows as `1.`); draw a
+  list line and an indented plain line at the engine's indent width (`TextFirstStyler.swift`), with
+  no Swift code working out nesting; blank lines show one per
   line; front matter that runs to the end of the note is visibly metadata, not body text; long
   cell text wraps inside its cell. No Markdown rule is added to Swift.
 - **Other readers.** `futo-notes-tags` stops matching inline code across a line break, and
@@ -176,7 +179,8 @@ is rewritten; these are display differences.
 | Two or more blank lines in a row | 347 | Shown as written |
 | Trailing two-space hard break | 63 | Invisible trailing spaces |
 | Tables | 62 | Unchanged if every row starts with a pipe (to be counted in step 1) |
-| Indented line under a bullet | 22 | Its own line, drawn under the bullet's text |
+| Indented line under a bullet | 22 | Its own line, drawn at its own indent |
+| Nested list lines indented by four spaces or a tab | 302 | Wider steps than notes indented by two (289) |
 | Unindented line under a bullet | 19 | Its own plain line |
 | Bold left open on one line | 7 | Literal `**` |
 | 4-space or tab indented code | 6 | Plain lines |

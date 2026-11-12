@@ -7,8 +7,6 @@ its copy of record for the repo and changes in the same merge request as the beh
 
 A minimal markdown implementation focused on providing a good editing experience for note-takers.
 
-**A line's meaning never changes because of a line after it. Earlier lines may set context for later ones.**
-
 Linedown uses the characters of CommonMark and GFM, but reads them one line at a time. It describes how text is read. Editor conveniences, such as continuing a bullet on Enter or closing a code fence for you, are outside this document.
 
 Status: draft, version 1. It applies to the text-first editor only.
@@ -37,22 +35,21 @@ A blank line is an empty line. Three blank lines show as three empty lines.
 
 A line ends at `\n` or `\r\n`. A lone `\r` is an ordinary character.
 
-**Linedown is not tied to HTML.** CommonMark defines Markdown by the HTML it produces. Linedown defines what each line is: a heading, a bullet at some depth, a run of bold text. HTML is one way to draw that, and a native text view is another. Nothing in this document depends on HTML, and no rule exists because of how HTML would render it.
+**Linedown is not tied to HTML.** CommonMark defines Markdown by the HTML it produces. Linedown defines what each line is: a heading, a bullet at some indent, a run of bold text. HTML is one way to draw that, and a native text view is another. Nothing in this document depends on HTML, and no rule exists because of how HTML would render it.
 
 ## When one line affects another
 
 A line is read by its own text, with these exceptions. No others exist.
 
-An earlier line affects later lines in four cases:
+An earlier line affects later lines in three cases:
 
 1. **Code fence.** After an opening fence, every line is code until the closing fence. With no closing fence, code runs to the end of the note.
 2. **Front matter.** If line 1 is `---`, every line is front matter until the next `---`. With no closing `---`, it runs to the end of the note.
-3. **List depth.** How deep a list item sits depends on the list lines above it.
-4. **Table rows.** A line starting with `|` is a table row only when it follows a table's header and delimiter row.
+3. **Table rows.** A line starting with `|` is a table row only when it follows a table's header and delimiter row.
 
 A later line affects an earlier line in one case:
 
-5. **Table header.** A delimiter row turns the single line directly above it into a table header. This is the only case where a line changes the meaning of a line before it.
+4. **Table header.** A delimiter row turns the single line directly above it into a table header. This is the only case where a line changes the meaning of a line before it.
 
 ## Blocks
 
@@ -104,22 +101,24 @@ A divider has no spaces in it: `- - -` is a bullet with the text `- -`.
   the oat kind
 ```
 
-These are two lines: a bullet and an indented plain line. The plain line is drawn lined up with the bullet's text, so it reads as part of the item, but each line stands alone.
+These are two lines: a bullet and an indented plain line. Each stands alone.
 
-**Depth comes from the list lines above.** A list line is one level deeper than the nearest list line above it with less indent, and the same depth as one with equal indent. Indent is compared by width, and a tab counts as 4 spaces.
+**Indent is the line's own.** A line's indent is the width of its leading whitespace: a space is 1 column and a tab is 4. A list line is drawn that far in. Nothing above it is consulted, so there is no "depth" that depends on other lines.
 
 ```
-- fruit
-  - apples
-  - pears
-- bread
+- People
+  - Mason
+    - White
+  - Aran
+    - White
+- Animals
 ```
 
-Two spaces, four spaces and tabs all nest correctly, and depth never jumps by two levels. A list line with no shallower list line above it is at the top level, even if it is indented.
+Each line here says how far in it sits, so the list draws as typed. "Animals" has no indent and sits at the left edge, whatever came before it.
 
-**What ends a list.** The list lines above stop counting at the first line that starts at column 0 and is not a list item: a plain line, heading, divider or code fence. Blank lines and indented plain lines do not end the list.
+A list looks right when its author indents consistently, which is almost always. Linedown does not tidy a list that is indented unevenly: it draws what the file says.
 
-**Indented plain lines in a list** are drawn lined up with the text of the nearest list line above that has the same indent or less. Outside a list, leading whitespace shows as typed.
+**Indented plain lines** are also drawn at their own indent. In the milk example the plain line is indented 2 columns, and the bullet's text also starts at column 2, so the two line up without any rule connecting them.
 
 **Numbers show as typed.** `3. item` shows a 3, whatever is above it. Nothing is renumbered when the note is read.
 
@@ -159,7 +158,6 @@ let x = 1
 - The opening fence may be indented, for example under a bullet.
 - A fence is not recognised after `>`.
 - A fence with no closing line runs to the end of the note.
-- List depth carries on after the closing fence.
 
 Indented text is never code. Code is fences only.
 
@@ -252,7 +250,7 @@ Notes stay `.md` files. Linedown never rewrites a file to fit these rules, and a
 
 ### Why not CommonMark
 
-In CommonMark a line can change what its neighbours mean. An editor built on it has two choices when that would misread what you typed: show you the wrong thing, or quietly write extra characters into your note to prevent it. Ours did the second. These are things our CommonMark editors wrote into notes that nobody typed:
+In CommonMark a line can change what its neighbors mean. An editor built on it has two choices when that would misread what you typed: show you the wrong thing, or quietly write extra characters into your note to prevent it. Ours did the second. These are things our CommonMark editors wrote into notes that nobody typed:
 
 You type a line that starts with two spaces:
 
@@ -278,18 +276,9 @@ You add an empty bullet under a line of text. A blank line is inserted above it,
 
 Each of these is a patch over one rule: a line's meaning can depend on the lines around it. Every patch leaves text in the file that the author did not write and that other apps display. Linedown removes the rule, so the patches have nothing to fix. A note holds what you typed.
 
-### Why list depth looks at the lines above
+### Why list indent is read from the line alone
 
-Depth is the one place where a list line is not read by its own text. Two simpler rules were considered, and both misread ordinary notes.
-
-**A fixed width per level**, such as "every two spaces is one level", needs no context. But people indent by two spaces, four spaces or a tab, often in the same vault. This note indents by four:
-
-```
-- fruit
-    - apples
-```
-
-Under a fixed two-space rule, "apples" lands two levels deep with nothing at the level between. Under a fixed four-space rule, every two-space note stops nesting at all.
+An earlier draft of Linedown gave each list line a depth worked out from the list lines above it. That was the only look-back we chose, not one we were forced into, so it was removed. Three rules were considered.
 
 **CommonMark's rule** is that a nested item must be indented to the column where its parent's text starts. That column depends on the parent's marker:
 
@@ -300,4 +289,16 @@ Under a fixed two-space rule, "apples" lands two levels deep with nothing at the
 
 Here "apples" is indented two spaces, but the text of `1. fruit` starts at column three. So CommonMark does not nest it: "apples" becomes a separate list. Under `10. fruit` it would take four spaces. The author has to count columns, and the answer changes when a number gains a digit.
 
-**Linedown's rule** asks one question: is this line indented more than the list line above it? If so it is one level deeper. Both notes above nest the way they look, and so does a tab. The cost is that depth depends on earlier lines, which is why it is listed under "When one line affects another". It never depends on later ones.
+**Relative depth** says a list line is one level deeper than the nearest list line above it with less indent. It turns two-space, four-space and tab notes into the same tidy levels. But the reader has to carry a stack of indents down the note, it needs a rule for what ends a list, and changing one bullet's indent changes the depth of every bullet under it. It also has an odd case:
+
+```
+- A
+    - B
+  - C
+```
+
+B and C are indented differently, but both come out one level under A, so they draw at the same level and the picture disagrees with the file.
+
+**Linedown's rule** has no depth. A line is drawn as far in as it is indented. Every list line is read alone, there is nothing to carry and nothing that ends a list, and the example above draws exactly as typed. A note indented by four spaces draws with wider steps than one indented by two. That is what the file says.
+
+The cost falls on lists that are indented unevenly, which draw unevenly. We accept that: you have to make a good list, and people almost always do.
