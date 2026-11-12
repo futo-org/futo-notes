@@ -28,6 +28,9 @@ pub(crate) enum Input {
     /// A text service's correction: the selection with `z` after its first
     /// letter, everything else kept.
     Fixed,
+    /// A text service's correction that drops the selection's first line (its
+    /// first half on one line) and keeps the rest.
+    Tail,
     /// Two runs (`replace_many`): the range's halves, typed `d` and `e`.
     Many,
 }
@@ -55,6 +58,10 @@ impl Input {
                     format!("{}z{}", &selected[..after], &selected[after..])
                 }
                 None => format!("z{selected}"),
+            },
+            Input::Tail => match selected.find('\n') {
+                Some(at) => selected[at + 1..].into(),
+                None => selected[selected.len() / 2..].into(),
             },
             Input::Many => "de".into(),
             Input::Enter => "\n".into(),
@@ -93,7 +100,7 @@ pub(crate) fn apply(
         Input::Delete => s
             .paragraph_key(rev, at, ParagraphKey::Delete, accept)
             .map(drop),
-        Input::Os(_) | Input::Kept | Input::Fixed => {
+        Input::Os(_) | Input::Kept | Input::Fixed | Input::Tail => {
             let selected = s.display_text()[at.start.0..at.end.0].to_owned();
             let text = input.shown(&selected);
             s.replace_os(rev, at, &text, &[], accept).map(drop)
@@ -282,7 +289,10 @@ fn exactly_replaced(
         "{label}\nsource {source:?}\nshows {shown:?}\nexpected {:?}",
         expected(&input.shown(&old[a..b]))
     );
-    if matches!(input, Input::Os(_) | Input::Kept | Input::Fixed) {
+    if matches!(
+        input,
+        Input::Os(_) | Input::Kept | Input::Fixed | Input::Tail
+    ) {
         unchanged_text_keeps_its_formatting(note, old, a, b, input, source, shown, label);
     }
     let (old_lines, new_lines) = (lines(note), lines(source));
@@ -428,10 +438,29 @@ fn unchanged_text_keeps_its_formatting(
         .map(|f| f.map(|f| (f, false)))
         .collect();
     let diff = similar::TextDiff::from_chars(&old[a..b], inserted.as_str());
-    for change in diff.iter_all_changes() {
+    let changes: Vec<_> = diff.iter_all_changes().collect();
+    // A kept stretch of fewer than three letters or digits is shared by
+    // chance (dictation), and the engine does not hold it to its formatting.
+    let mut held = vec![false; changes.len()];
+    let mut start = 0;
+    while start < changes.len() {
+        let equal = |at: usize| changes[at].tag() == similar::ChangeTag::Equal;
+        let end = (start..changes.len())
+            .find(|&at| !equal(at))
+            .unwrap_or(changes.len());
+        let letters = (start..end)
+            .filter(|&at| changes[at].value().chars().any(char::is_alphanumeric))
+            .count();
+        held[start..end].fill(letters >= 3);
+        start = end.max(start + 1);
+    }
+    for (at, change) in changes.iter().enumerate() {
         let blank = change.value().chars().all(char::is_whitespace);
         match change.tag() {
-            similar::ChangeTag::Equal if !blank => expected.push(inside.remove(0)),
+            similar::ChangeTag::Equal if !blank => {
+                let flags = inside.remove(0);
+                expected.push(flags.filter(|_| held[at]));
+            }
             similar::ChangeTag::Delete if !blank => drop(inside.remove(0)),
             similar::ChangeTag::Insert if !blank => expected.push(None),
             _ => {}
