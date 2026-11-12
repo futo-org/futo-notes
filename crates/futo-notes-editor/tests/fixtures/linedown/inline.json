@@ -98,7 +98,7 @@
    "input": "\\# not heading\n- \\# todo\n\\*a\\*",
    "lines": [
     "plain : \\# not heading [escape \\#]",
-    "bullet d0 - : \\# todo [escape \\#]",
+    "bullet i0 - : \\# todo [escape \\#]",
     "plain : \\*a\\* [escape \\*] [escape \\*]"
    ]
   },
@@ -196,7 +196,7 @@
    "input": "# a **b**\n- [ ] *c*",
    "lines": [
     "h1 : a **b** [bold **b**]",
-    "task d0 - [ ] : *c* [italic *c*]"
+    "task i0 - [ ] : *c* [italic *c*]"
    ]
   }
  ]

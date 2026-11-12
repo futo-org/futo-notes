@@ -16,7 +16,7 @@
    "input": "grocery list\n- ",
    "lines": [
     "plain : grocery list",
-    "bullet d0 - : "
+    "bullet i0 - : "
    ]
   },
   {
@@ -175,7 +175,7 @@
    "input": "-\n- milk\n#\n#tag\n# Title\n>quote",
    "lines": [
     "plain : -",
-    "bullet d0 - : milk",
+    "bullet i0 - : milk",
     "plain : #",
     "plain : #tag [tag #tag]",
     "h1 : Title",
@@ -187,7 +187,7 @@
    "rule": "Blocks / A marker needs a space",
    "input": "-\tx\n#\tx",
    "lines": [
-    "bullet d0 - : x",
+    "bullet i0 - : x",
     "h1 : x"
    ]
   },
@@ -197,7 +197,7 @@
    "input": "# \n- ",
    "lines": [
     "h1 : ",
-    "bullet d0 - : "
+    "bullet i0 - : "
    ]
   },
   {
@@ -215,7 +215,7 @@
    "rule": "Blocks / Headings and dividers start at column 0",
    "input": " # a\n# Title #",
    "lines": [
-    "plain :  # a",
+    "plain i1 : # a",
     "h1 : Title #"
    ]
   },
@@ -237,11 +237,11 @@
     "divider",
     "divider",
     "divider",
-    "plain :  ---",
+    "plain i1 : ---",
     "plain : --",
     "plain : --- ",
     "plain : -*-",
-    "bullet d0 - : - -"
+    "bullet i0 - : - -"
    ]
   },
   {
@@ -270,9 +270,9 @@
    "rule": "Blocks",
    "input": "- a\n* b\n+ c",
    "lines": [
-    "bullet d0 - : a",
-    "bullet d0 * : b",
-    "bullet d0 + : c"
+    "bullet i0 - : a",
+    "bullet i0 * : b",
+    "bullet i0 + : c"
    ]
   },
   {
@@ -280,9 +280,9 @@
    "rule": "Blocks",
    "input": "1. a\n3) b\n10. c",
    "lines": [
-    "number d0 1. : a",
-    "number d0 3) : b",
-    "number d0 10. : c"
+    "number i0 1. : a",
+    "number i0 3) : b",
+    "number i0 10. : c"
    ]
   },
   {
@@ -301,12 +301,12 @@
    "rule": "Blocks",
    "input": "- [ ] a\n- [x] b\n- [X] c\n- [ ]\n1. [ ] d\n- [y] e",
    "lines": [
-    "task d0 - [ ] : a",
-    "task d0 - [x] : b",
-    "task d0 - [X] : c",
-    "bullet d0 - : [ ]",
-    "number d0 1. : [ ] d",
-    "bullet d0 - : [y] e"
+    "task i0 - [ ] : a",
+    "task i0 - [x] : b",
+    "task i0 - [X] : c",
+    "bullet i0 - : [ ]",
+    "number i0 1. : [ ] d",
+    "bullet i0 - : [y] e"
    ]
   },
   {

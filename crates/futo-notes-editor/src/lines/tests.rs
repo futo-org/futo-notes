@@ -6,27 +6,33 @@ pub(super) fn describe(source: &str, line: &Line, spans: &[Span]) -> String {
     if line.quote > 0 {
         out.push_str(&format!("q{} ", line.quote));
     }
-    let at = |depth: &Option<usize>| depth.map_or(String::new(), |d| format!("@{d}"));
+    let at = |indent: &usize| {
+        if *indent == 0 {
+            String::new()
+        } else {
+            format!(" i{indent}")
+        }
+    };
     let mut content = true;
     match &line.kind {
-        Kind::Plain { aligned } => out.push_str(&format!("plain{}", at(aligned))),
+        Kind::Plain { indent } => out.push_str(&format!("plain{}", at(indent))),
         Kind::Blank => {
             out.push_str("blank");
             content = false;
         }
         Kind::Heading { level } => out.push_str(&format!("h{level}")),
         Kind::List {
-            depth, text, task, ..
+            indent, text, task, ..
         } => {
             let marker = &source[text.clone()];
             match (task, marker.ends_with(['.', ')'])) {
                 (Some(checked), _) => {
                     let mark = source[line.marker.end - 3..line.marker.end - 2].to_owned();
                     let mark = if *checked { mark } else { " ".into() };
-                    out.push_str(&format!("task d{depth} {marker} [{mark}]"))
+                    out.push_str(&format!("task i{indent} {marker} [{mark}]"))
                 }
-                (None, true) => out.push_str(&format!("number d{depth} {marker}")),
-                (None, false) => out.push_str(&format!("bullet d{depth} {marker}")),
+                (None, true) => out.push_str(&format!("number i{indent} {marker}")),
+                (None, false) => out.push_str(&format!("bullet i{indent} {marker}")),
             }
         }
         Kind::Divider => {
@@ -43,7 +49,7 @@ pub(super) fn describe(source: &str, line: &Line, spans: &[Span]) -> String {
         }
         Kind::Fence {
             role,
-            depth,
+            indent,
             language,
         } => {
             let name = match role {
@@ -51,7 +57,7 @@ pub(super) fn describe(source: &str, line: &Line, spans: &[Span]) -> String {
                 FenceRole::Code => "code",
                 FenceRole::Close => "fence-close",
             };
-            out.push_str(&format!("{name}{}", at(depth)));
+            out.push_str(&format!("{name}{}", at(indent)));
             if let Some(language) = language {
                 out.push_str(&format!(" {}", &source[language.clone()]));
             }
@@ -247,4 +253,28 @@ fn typing_at_the_end_rereads_little() {
     let read = reading.update(&source, at, 0, 1);
     assert!(read.len() <= 3, "{read:?}");
     assert_eq!(reading, Reading::new(&source));
+}
+
+/// No list state is carried: indenting one bullet re-reads that line and the
+/// one above it (the table-header look-back), and nothing below.
+#[test]
+fn indenting_a_bullet_settles_on_the_same_line() {
+    let mut source = String::new();
+    for index in 0..2_000 {
+        source.push_str(&format!("- item {index}\n"));
+    }
+    let mut reading = Reading::new(&source);
+    let at = source.find("- item 1000").unwrap();
+    source.insert_str(at, "    ");
+    let read = reading.update(&source, at, 0, 4);
+    assert!(read.len() <= 2, "{read:?}");
+    assert_eq!(reading, Reading::new(&source));
+    assert!(matches!(
+        reading.lines[1000].kind,
+        Kind::List { indent: 4, .. }
+    ));
+    assert!(matches!(
+        reading.lines[1001].kind,
+        Kind::List { indent: 0, .. }
+    ));
 }

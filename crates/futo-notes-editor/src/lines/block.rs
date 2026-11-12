@@ -11,10 +11,6 @@ pub(crate) struct Carry {
     /// Front matter is open and runs until a `---` line.
     pub front_matter: bool,
     pub fence: Option<OpenFence>,
-    /// Indent widths of the list lines above, shallowest first.
-    pub list: Vec<usize>,
-    /// The quote depth those list lines sit at.
-    pub list_quote: usize,
     /// Inside a table with this many header cells.
     pub table: Option<usize>,
     /// The line above starts with `|` at the top level outside a table, so a
@@ -35,8 +31,6 @@ impl Carry {
 pub(crate) struct OpenFence {
     pub ch: u8,
     pub len: usize,
-    /// List depth the opening fence lines up with, if it sits in a list.
-    pub depth: Option<usize>,
     /// The opening fence's language, which every line inside it carries.
     pub language: Option<String>,
 }
@@ -64,10 +58,10 @@ pub(crate) enum TableRole {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
-    /// Text that is no other block. `aligned` is the list depth an indented
-    /// plain line lines up under; its leading whitespace is then `marker`.
+    /// Text that is no other block. An indented plain line is drawn at its own
+    /// `indent` (columns); its leading whitespace is then `marker`.
     Plain {
-        aligned: Option<usize>,
+        indent: usize,
     },
     Blank,
     Heading {
@@ -76,7 +70,8 @@ pub(crate) enum Kind {
     /// `-`, `*`, `+`, or digits then `.` or `)`. `marker` on the line holds
     /// indent, list marker, the space after it and a task box.
     List {
-        depth: usize,
+        /// Columns of the line's own leading whitespace.
+        indent: usize,
         /// The marker as typed: `-`, `3)`, `10.`.
         text: Range<usize>,
         ordered: bool,
@@ -86,7 +81,9 @@ pub(crate) enum Kind {
     FrontMatter(FrontMatterRole),
     Fence {
         role: FenceRole,
-        depth: Option<usize>,
+        /// Columns of a fence line's own leading whitespace; code lines keep
+        /// their whitespace as code and report 0.
+        indent: usize,
         /// The info string's first word on an opening fence.
         language: Option<Range<usize>>,
     },
@@ -106,7 +103,7 @@ pub(crate) struct Line {
     pub kind: Kind,
     pub quote: usize,
     /// Syntax before the content: quote markers, a list or heading marker and
-    /// the space after it, a list line's indent.
+    /// the space after it, the leading whitespace of a list or indented plain line.
     pub marker: Range<usize>,
     /// What inline reading applies to. Empty for blank, divider, fence,
     /// front matter and delimiter lines.
@@ -228,7 +225,7 @@ fn fenced(carry: &mut Carry, open: OpenFence, place: &Place, text: &str) -> Line
         } else {
             FenceRole::Code
         },
-        depth: open.depth,
+        indent: if closes { width(&text[..indent]) } else { 0 },
         language: None,
     };
     if closes {
@@ -239,7 +236,7 @@ fn fenced(carry: &mut Carry, open: OpenFence, place: &Place, text: &str) -> Line
 }
 
 /// A line outside fences and front matter, read by its own text and the
-/// list lines and table above it.
+/// table above it.
 fn read_block(carry: &mut Carry, place: &Place, text: &str, header_above: Option<usize>) -> Line {
     let (start, len) = (place.start, place.len);
     let line = |kind, quote, marker, content| place.line(kind, quote, marker, content);
@@ -265,11 +262,6 @@ fn read_block(carry: &mut Carry, place: &Place, text: &str, header_above: Option
         return line(Kind::Blank, quote, 0..body, empty);
     }
 
-    if quote != carry.list_quote {
-        carry.list.clear();
-        carry.list_quote = quote;
-    }
-
     if quote == 0 {
         if let Some((ch, run)) = fence_open(own) {
             return fence_opener(carry, place, own, width, ch, run);
@@ -277,7 +269,6 @@ fn read_block(carry: &mut Carry, place: &Place, text: &str, header_above: Option
     }
 
     if top && own.starts_with('|') {
-        carry.list.clear();
         if let Some(columns) = header_above.filter(|_| delimiter_row(own)) {
             carry.table = Some(columns);
             let kind = Kind::Table {
@@ -287,24 +278,21 @@ fn read_block(carry: &mut Carry, place: &Place, text: &str, header_above: Option
             return line(kind, 0, 0..len, empty);
         }
         carry.header_above = Some(super::table::cells(own).len()).filter(|&cells| cells > 0);
-        return line(Kind::Plain { aligned: None }, 0, 0..0, 0..len);
+        return line(Kind::Plain { indent: 0 }, 0, 0..0, 0..len);
     }
 
     if top && divider(own) {
-        carry.list.clear();
         return line(Kind::Divider, 0, 0..len, empty);
     }
 
     if width == 0 {
         if let Some(level) = heading(own) {
-            carry.list.clear();
             let marker = at + level as usize + 1;
             return line(Kind::Heading { level }, quote, 0..marker, marker..len);
         }
     }
 
     if let Some((marker_len, ordered)) = list_marker(own) {
-        let depth = list_depth(&mut carry.list, width);
         let text_range = at..at + marker_len;
         let mut content = at + marker_len + 1;
         let task = if ordered {
@@ -316,7 +304,7 @@ fn read_block(carry: &mut Carry, place: &Place, text: &str, header_above: Option
             content += 4;
         }
         let kind = Kind::List {
-            depth,
+            indent: width,
             text: start + text_range.start..start + text_range.end,
             ordered,
             task,
@@ -324,24 +312,10 @@ fn read_block(carry: &mut Carry, place: &Place, text: &str, header_above: Option
         return line(kind, quote, 0..content, content..len);
     }
 
-    if width == 0 {
-        carry.list.clear();
-        return line(Kind::Plain { aligned: None }, quote, 0..body, body..len);
-    }
-    match aligned(&carry.list, width) {
-        Some(depth) => line(
-            Kind::Plain {
-                aligned: Some(depth),
-            },
-            quote,
-            0..at,
-            at..len,
-        ),
-        None => line(Kind::Plain { aligned: None }, quote, 0..body, body..len),
-    }
+    line(Kind::Plain { indent: width }, quote, 0..at, at..len)
 }
 
-/// An opening fence; one indented in a list lines up with the list.
+/// An opening fence, at its own indent.
 fn fence_opener(
     carry: &mut Carry,
     place: &Place,
@@ -350,12 +324,6 @@ fn fence_opener(
     ch: u8,
     run: usize,
 ) -> Line {
-    let depth = if width == 0 {
-        carry.list.clear();
-        None
-    } else {
-        aligned(&carry.list, width)
-    };
     let info = own[run..].trim_start_matches([' ', '\t']);
     let word = info.find([' ', '\t']).unwrap_or(info.len());
     let info_start = place.start + place.len - info.len();
@@ -363,12 +331,11 @@ fn fence_opener(
     carry.fence = Some(OpenFence {
         ch,
         len: run,
-        depth,
         language: (word > 0).then(|| info[..word].to_owned()),
     });
     place.syntax(Kind::Fence {
         role: FenceRole::Open,
-        depth,
+        indent: width,
         language,
     })
 }
@@ -391,35 +358,24 @@ fn quotes(text: &str) -> (usize, usize) {
     (depth, at)
 }
 
-/// Leading whitespace: its bytes and its width (a tab counts as 4).
+/// Columns a tab counts for in an indent; a space counts for one.
+pub(crate) const TAB_WIDTH: usize = 4;
+
+/// Leading whitespace: its bytes and its width in columns.
 fn indent(text: &str) -> (usize, usize) {
-    let mut width = 0;
-    let mut bytes = 0;
-    for byte in text.bytes() {
-        match byte {
-            b' ' => width += 1,
-            b'\t' => width += 4,
-            _ => break,
-        }
-        bytes += 1;
-    }
-    (bytes, width)
+    let bytes = text
+        .bytes()
+        .take_while(|&b| b == b' ' || b == b'\t')
+        .count();
+    (bytes, width(&text[..bytes]))
 }
 
-/// The depth of a list line indented `width`, updating the list lines above.
-fn list_depth(list: &mut Vec<usize>, width: usize) -> usize {
-    while list.last().is_some_and(|&above| above > width) {
-        list.pop();
-    }
-    if list.last() != Some(&width) {
-        list.push(width);
-    }
-    list.len() - 1
-}
-
-/// The depth of the nearest list line above with indent `width` or less.
-fn aligned(list: &[usize], width: usize) -> Option<usize> {
-    list.iter().rposition(|&above| above <= width)
+/// The width in columns of spaces and tabs.
+pub(crate) fn width(whitespace: &str) -> usize {
+    whitespace
+        .bytes()
+        .map(|b| if b == b'\t' { TAB_WIDTH } else { 1 })
+        .sum()
 }
 
 fn fence_open(own: &str) -> Option<(u8, usize)> {

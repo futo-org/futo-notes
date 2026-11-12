@@ -2,18 +2,6 @@
  "about": "Linedown reading fixtures (code-and-tables): per line, what the reader reports. See tests/fixtures/README.md.",
  "cases": [
   {
-   "name": "list depth carries on after a closing fence",
-   "rule": "Code",
-   "input": "- a\n  ```\n  code\n  ```\n  - b",
-   "lines": [
-    "bullet d0 - : a",
-    "fence-open@0",
-    "code@0 :   code",
-    "fence-close@0",
-    "bullet d1 - : b"
-   ]
-  },
-  {
    "name": "a fence is not recognised after >",
    "rule": "Code",
    "input": "> ```\n> x",
@@ -59,7 +47,7 @@
    "lines": [
     "plain : a",
     "blank",
-    "plain :     code"
+    "plain i4 : code"
    ]
   },
   {
@@ -137,9 +125,9 @@
    "lines": [
     "q1 plain : | a |",
     "q1 plain : |---|",
-    "bullet d0 - : x",
-    "plain@0 : | a |",
-    "plain@0 : |---|"
+    "bullet i0 - : x",
+    "plain i2 : | a |",
+    "plain i2 : |---|"
    ]
   },
   {

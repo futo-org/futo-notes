@@ -69,6 +69,8 @@ fn compare_note(totals: &mut Totals, note: usize, label: &str, source: &str) {
     }
     let mut blank_run = 0;
     let mut cause: Option<String> = None;
+    // The last list item: CommonMark's nesting count, quote depth, own indent.
+    let mut previous_item: Option<(usize, usize, usize)> = None;
     for (index, line) in reading.lines.iter().enumerate() {
         let text = &source[line.range.clone()];
         let before = &old[index];
@@ -127,6 +129,23 @@ fn compare_note(totals: &mut Totals, note: usize, label: &str, source: &str) {
             if !class.is_empty() {
                 class = format!("{cause} — the lines that fence holds");
             }
+        }
+        let class = match (&line.kind, previous_item.take()) {
+            (Kind::List { indent, .. }, Some((lists, quote, before_indent)))
+                if class.is_empty()
+                    && before.item_start
+                    && before.lists == lists
+                    && line.quote == quote
+                    && *indent != before_indent =>
+            {
+                "Lists — CommonMark drew these items at one level; their own indents differ, so they draw unevenly".into()
+            }
+            _ => class,
+        };
+        if let Kind::List { indent, .. } = line.kind {
+            previous_item = Some((before.lists, line.quote, indent));
+        } else if line.kind != Kind::Blank {
+            previous_item = None;
         }
         let class = if class.is_empty() && !matches!(new_shape(line), Shape::Code) {
             let mut old_here = by_line[index].clone();

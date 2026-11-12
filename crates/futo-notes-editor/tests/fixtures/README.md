@@ -182,10 +182,11 @@ Two selected-ancestor Heading/Quote literals cover quoted task parents and child
 
 `linedown/` holds the reading cases, one file per theme, for `docs/spec/editor/portable-core/linedown.md`: for
 each `input`, one string per line naming what the line reader reports — the block (`plain`,
-`plain@1` for an indented line lined up under list depth 1, `blank`, `h2`, `bullet d0 -`,
-`number d1 3)`, `task d0 - [x]`, `divider`, `fence-open js`, `code`, `fence-close`,
+`plain i2` for a plain line indented 2 columns, `blank`, `h2`, `bullet i0 -`,
+`number i2 3)`, `task i0 - [x]`, `divider`, `fence-open js`, `code`, `fence-close`,
 `front-open`, `front`, `front-close`, `table-header 2`, `table-delimiter 2`, `table-row 2`),
-a `q1 ` prefix for quote depth, ` : ` and the line's content, then each inline mark as
+a `q1 ` prefix for quote depth (an indent is the line's own leading width after any quote
+marker: a space is 1 column, a tab 4), ` : ` and the line's content, then each inline mark as
 `[kind source]`. Every case names the spec rule or "Differences" row it pins. The fixtures
 assert what each line is, never HTML. `src/lines/tests.rs` runs them, checks that re-reading
 after any edit equals a fresh read, and checks that text added below never changes a line

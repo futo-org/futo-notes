@@ -72,9 +72,9 @@
     "plain : #",
     "plain : a",
     "divider",
-    "bullet d0 - : a",
+    "bullet i0 - : a",
     "blank",
-    "bullet d0 - : b"
+    "bullet i0 - : b"
    ]
   },
   {
@@ -82,8 +82,8 @@
    "rule": "Issue #414",
    "input": "- [ ] a\rb\n- [ ] c",
    "lines": [
-    "task d0 - [ ] : a\rb",
-    "task d0 - [ ] : c"
+    "task i0 - [ ] : a\rb",
+    "task i0 - [ ] : c"
    ]
   },
   {

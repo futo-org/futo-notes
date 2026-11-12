@@ -216,7 +216,7 @@ pub(super) fn old_shape(old: &Old, text: &str) -> Shape {
     } else if old.setext_underline {
         Shape::Heading(0)
     } else if old.item_start {
-        Shape::List(old.lists.saturating_sub(1))
+        Shape::List(0)
     } else if let Some(level) = old.heading {
         Shape::Heading(level)
     } else if old.rule {

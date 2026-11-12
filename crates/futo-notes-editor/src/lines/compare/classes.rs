@@ -8,7 +8,7 @@ pub(super) fn new_shape(line: &Line) -> Shape {
         Kind::Plain { .. } => Shape::Plain,
         Kind::Blank => Shape::Blank,
         Kind::Heading { level } => Shape::Heading(*level),
-        Kind::List { depth, .. } => Shape::List(*depth),
+        Kind::List { .. } => Shape::List(0),
         Kind::Divider => Shape::Divider,
         Kind::FrontMatter(_) => Shape::FrontMatter,
         Kind::Fence {
@@ -249,9 +249,6 @@ pub(super) fn block_class(old: &Old, text: &str, line: &Line, source: &str) -> S
             } else {
                 "UNPREDICTED — plain → divider".into()
             };
-        }
-        (Shape::List(a), Shape::List(b)) if a != b => {
-            return "Lists — depth comes from the indent of the list lines above".into();
         }
         (Shape::Plain, Shape::Blank) | (Shape::Blank, Shape::Plain) => {
             return format!(

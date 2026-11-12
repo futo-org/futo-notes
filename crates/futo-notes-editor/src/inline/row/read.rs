@@ -16,10 +16,7 @@ pub(crate) fn read_rows(text: &str, carry: &mut Carry, ends_note: bool) -> Vec<R
         let before = carry.clone();
         let line = lines::block::read_line(carry, text, at);
         let mut lines = vec![line];
-        if matches!(
-            lines[0].kind,
-            Kind::FrontMatter(FrontMatterRole::Open)
-        ) {
+        if matches!(lines[0].kind, Kind::FrontMatter(FrontMatterRole::Open)) {
             while carry.front_matter && lines.last().unwrap().end() < text.len() {
                 let next = lines::block::read_line(carry, text, lines.last().unwrap().end());
                 lines.push(next);
@@ -146,7 +143,10 @@ impl Row {
                                 }),
                             }),
                             Mark::Escape => {
-                                replacements.push((whole.clone(), source[whole.start + 1..whole.end].to_owned()));
+                                replacements.push((
+                                    whole.clone(),
+                                    source[whole.start + 1..whole.end].to_owned(),
+                                ));
                             }
                             Mark::Wikilink { .. } | Mark::Tag => {}
                         }
@@ -164,7 +164,10 @@ impl Row {
         while at < source.len() {
             let start = at;
             let display_start = display.len();
-            if replacements.peek().is_some_and(|(range, _)| range.start == at) {
+            if replacements
+                .peek()
+                .is_some_and(|(range, _)| range.start == at)
+            {
                 let (range, text) = replacements.next().unwrap();
                 display.push_str(&text);
                 for (offset, ch) in source[range.clone()].char_indices() {
@@ -244,7 +247,10 @@ fn shifted(line: &Line, by: usize) -> Line {
 }
 
 fn carry_language(carry: &Carry) -> Option<String> {
-    carry.fence.as_ref().and_then(|fence| fence.language.clone())
+    carry
+        .fence
+        .as_ref()
+        .and_then(|fence| fence.language.clone())
 }
 
 /// The front matter row: its `---` lines are hidden and the lines between
@@ -253,9 +259,9 @@ fn front_matter(source: &str, lines: &[Line], base: usize, hidden: &mut [bool]) 
     let local = |range: &Range<usize>| range.start - base..range.end - base;
     let opener = lines[0].end() - base;
     hidden[..opener].fill(true);
-    let closed = lines.iter().rposition(|line| {
-        matches!(line.kind, Kind::FrontMatter(FrontMatterRole::Close))
-    });
+    let closed = lines
+        .iter()
+        .rposition(|line| matches!(line.kind, Kind::FrontMatter(FrontMatterRole::Close)));
     let value_end = match closed {
         Some(index) => {
             let close = local(&lines[index].range).start;
@@ -265,9 +271,9 @@ fn front_matter(source: &str, lines: &[Line], base: usize, hidden: &mut [bool]) 
         None => source.len(),
     };
     let value = &source[opener..value_end];
-    let ending = value.strip_suffix('\n').map_or(0, |rest| {
-        1 + usize::from(rest.ends_with('\r'))
-    });
+    let ending = value
+        .strip_suffix('\n')
+        .map_or(0, |rest| 1 + usize::from(rest.ends_with('\r')));
     let content_end = value_end - ending;
     BlockLine {
         source: 0..source.len(),
@@ -288,14 +294,11 @@ fn block_line(source: &str, line: &Line, base: usize) -> BlockLine {
     let whole = range.start..range.end + line.ending;
     let content = local(&line.content);
     let marker = local(&line.marker);
-    let width = |text: &str| -> usize {
-        text.chars()
-            .map(|ch| if ch == '\t' { 4 } else { 1 })
-            .sum()
-    };
+    let width =
+        |text: &str| -> usize { text.chars().map(|ch| if ch == '\t' { 4 } else { 1 }).sum() };
     let (list, task, in_list) = match &line.kind {
         Kind::List {
-            depth,
+            indent,
             text,
             ordered,
             task,
@@ -310,10 +313,12 @@ fn block_line(source: &str, line: &Line, base: usize) -> BlockLine {
                 ordinal: ordered
                     .then(|| source[text.start..text.end - 1].parse().ok())
                     .flatten(),
-                depth: depth + 1,
+                // One-line items have no nesting; the line's own indent is
+                // what a renderer draws.
+                depth: 1,
                 checked: *task,
                 first: true,
-                indent: marker_column,
+                indent: *indent,
                 marker_column,
                 content_column: marker_column + text.len() + 1,
                 previous_content_column: None,
@@ -324,36 +329,14 @@ fn block_line(source: &str, line: &Line, base: usize) -> BlockLine {
             let task = task.map(|_| marker.end - 4..marker.end - 1);
             (Some(item), task, true)
         }
-        Kind::Plain {
-            aligned: Some(depth),
-        } => {
-            let item = ListLine {
-                marker: content.start..content.start,
-                owner: whole.clone(),
-                item: whole.clone(),
-                outer_item: whole.clone(),
-                ordinal: None,
-                depth: depth + 1,
-                checked: None,
-                first: false,
-                indent: width(&source[marker.clone()]),
-                marker_column: 0,
-                content_column: width(&source[marker.clone()]),
-                previous_content_column: None,
-                parent_marker_column: None,
-                parent_content_column: None,
-                quote_depth: line.quote,
-            };
-            (Some(item), None, true)
-        }
         _ => (None, None, false),
     };
     let heading = match line.kind {
         Kind::Heading { level } => level,
         _ => 0,
     };
-    let paragraph_text = matches!(line.kind, Kind::Plain { .. } | Kind::List { .. })
-        && !content.is_empty();
+    let paragraph_text =
+        matches!(line.kind, Kind::Plain { .. } | Kind::List { .. }) && !content.is_empty();
     BlockLine {
         source: whole.clone(),
         content: content.clone(),
