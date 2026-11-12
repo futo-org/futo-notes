@@ -123,6 +123,16 @@
    ]
   },
   {
+   "name": "a lone CR after the closing --- is text, so line 1 is a divider",
+   "rule": "When one line affects another 5 / Front matter",
+   "input": "---\ntitle: x\n---\r",
+   "lines": [
+    "divider",
+    "plain : title: x",
+    "plain : ---\r"
+   ]
+  },
+  {
    "name": "--- after line 1 is a divider",
    "rule": "Front matter",
    "input": "a\n---\nb\n---",

@@ -1,0 +1,224 @@
+[
+ {
+  "name": "Bullet on a plain line",
+  "before": "‸a",
+  "command": "BulletList",
+  "after": "- ‸a"
+ },
+ {
+  "name": "Bullet on a bullet takes it off",
+  "before": "- ‸a",
+  "command": "BulletList",
+  "after": "‸a"
+ },
+ {
+  "name": "Bullet on every selected line",
+  "before": "«a\nb»",
+  "command": "BulletList",
+  "after": "- «a\n- b»"
+ },
+ {
+  "name": "Bullet on a mixed selection makes the rest bullets",
+  "before": "- a\n«b\n* c»",
+  "command": "BulletList",
+  "after": "- a\n- «b\n* c»"
+ },
+ {
+  "name": "Bullet on bullets takes them all off",
+  "before": "- «a\n- b»",
+  "command": "BulletList",
+  "after": "«a\nb»"
+ },
+ {
+  "name": "Bullet off a middle item writes no blank line",
+  "before": "- item 1\n- ‸item 2\n- item 3",
+  "command": "BulletList",
+  "after": "- item 1\n‸item 2\n- item 3"
+ },
+ {
+  "name": "Two runs of bullets stay as typed",
+  "before": "- a\n‸b\n* c",
+  "command": "BulletList",
+  "after": "- a\n- ‸b\n* c"
+ },
+ {
+  "name": "Numbered on plain lines counts from 1",
+  "before": "«a\nb\nc»",
+  "command": "OrderedList",
+  "after": "1. «a\n2. b\n3. c»"
+ },
+ {
+  "name": "Numbered counts on from the item above",
+  "before": "1. a\n‸b",
+  "command": "OrderedList",
+  "after": "1. a\n2. ‸b"
+ },
+ {
+  "name": "Numbered bumps the items below that were counting on",
+  "before": "1. a\n‸b\n2. c",
+  "command": "OrderedList",
+  "after": "1. a\n2. ‸b\n3. c"
+ },
+ {
+  "name": "Numbered above a first item bumps it",
+  "before": "‸a\n1. b",
+  "command": "OrderedList",
+  "after": "1. ‸a\n2. b"
+ },
+ {
+  "name": "Numbered leaves an item below that was not counting on",
+  "before": "‸a\n5. b",
+  "command": "OrderedList",
+  "after": "1. ‸a\n5. b"
+ },
+ {
+  "name": "Numbered on bullets",
+  "before": "* «a\n* b»\n\n+ keep",
+  "command": "OrderedList",
+  "after": "1. «a\n2. b»\n\n+ keep"
+ },
+ {
+  "name": "Numbered on numbered items takes them off",
+  "before": "1. «a\n2. b»",
+  "command": "OrderedList",
+  "after": "«a\nb»"
+ },
+ {
+  "name": "Task on a plain line",
+  "before": "‸a",
+  "command": "TaskList",
+  "after": "- [ ] ‸a"
+ },
+ {
+  "name": "Task on a bullet keeps its bullet",
+  "before": "* ‸a",
+  "command": "TaskList",
+  "after": "* [ ] ‸a"
+ },
+ {
+  "name": "Task on a numbered item",
+  "before": "1. ‸a",
+  "command": "TaskList",
+  "after": "- [ ] ‸a"
+ },
+ {
+  "name": "Task on a task takes it off",
+  "before": "- [x] ‸a",
+  "command": "TaskList",
+  "after": "‸a"
+ },
+ {
+  "name": "Bullet on a task drops the box",
+  "before": "- [x] ‸a",
+  "command": "BulletList",
+  "after": "- ‸a"
+ },
+ {
+  "name": "Numbered on a task drops the box",
+  "before": "- [ ] ‸a",
+  "command": "OrderedList",
+  "after": "1. ‸a"
+ },
+ {
+  "name": "A heading becomes an item",
+  "before": "# ‸Title",
+  "command": "BulletList",
+  "after": "- ‸Title"
+ },
+ {
+  "name": "A quoted heading becomes a quoted item",
+  "before": "> ## ‸heading",
+  "command": "BulletList",
+  "after": "> - ‸heading"
+ },
+ {
+  "name": "A quoted line becomes a quoted item",
+  "before": "> ‸quoted",
+  "command": "BulletList",
+  "after": "> - ‸quoted"
+ },
+ {
+  "name": "An indented line keeps its indent",
+  "before": "  ‸text",
+  "command": "BulletList",
+  "after": "  - ‸text"
+ },
+ {
+  "name": "A caret on a blank line starts an empty item",
+  "before": "a\n‸",
+  "command": "BulletList",
+  "after": "a\n- ‸"
+ },
+ {
+  "name": "A caret on a blank line under a numbered item counts on",
+  "before": "1. a\n‸",
+  "command": "OrderedList",
+  "after": "1. a\n2. ‸"
+ },
+ {
+  "name": "A caret on a blank quoted line starts a quoted item",
+  "before": "> ‸",
+  "command": "TaskList",
+  "after": "> - [ ] ‸"
+ },
+ {
+  "name": "Blank lines in a selection stay blank",
+  "before": "«a\n\nb»",
+  "command": "BulletList",
+  "after": "- «a\n\n- b»"
+ },
+ {
+  "name": "A bullet keeps text that reads as a box with a backslash",
+  "before": "‸[ ] x",
+  "command": "BulletList",
+  "after": "- ‸\\[ ] x"
+ },
+ {
+  "name": "Taking a bullet off writes a backslash when needed",
+  "before": "- ‸# todo",
+  "command": "BulletList",
+  "after": "‸\\# todo"
+ },
+ {
+  "name": "Taking a bullet off text that reads as a quote",
+  "before": "- ‸> b",
+  "command": "BulletList",
+  "after": "‸\\> b"
+ },
+ {
+  "name": "Dividers, fences and tables are left alone",
+  "before": "«a\n---\n```\nx\n```\nb»",
+  "command": "BulletList",
+  "after": "- «a\n---\n```\nx\n```\n- b»"
+ },
+ {
+  "name": "The checkbox checks a task",
+  "before": "- [ ] ‸a",
+  "command": "ToggleTask",
+  "after": "- [x] ‸a"
+ },
+ {
+  "name": "The checkbox unchecks a task",
+  "before": "- [X] ‸a",
+  "command": "ToggleTask",
+  "after": "- [ ] ‸a"
+ },
+ {
+  "name": "The checkbox checks every task when any is unchecked",
+  "before": "- [x] «a\n- [ ] b»",
+  "command": "ToggleTask",
+  "after": "- [x] «a\n- [x] b»"
+ },
+ {
+  "name": "The checkbox unchecks every task when all are checked",
+  "before": "- [x] «a\n- [X] b»",
+  "command": "ToggleTask",
+  "after": "- [ ] «a\n- [ ] b»"
+ },
+ {
+  "name": "The checkbox does nothing on a bullet",
+  "before": "- ‸a",
+  "command": "ToggleTask",
+  "after": "- ‸a"
+ }
+]

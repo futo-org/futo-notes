@@ -211,11 +211,16 @@ pub(crate) fn read_line(carry: &mut Carry, source: &str, start: usize) -> Line {
 }
 
 /// Whether a line of exactly `---` follows in `rest`, the text after line 1:
-/// only then does line 1 open front matter.
+/// only then does line 1 open front matter. A `\r` ends a line only before
+/// `\n`; on the note's last line it is text.
 pub(crate) fn closes_front_matter(rest: &str) -> bool {
-    rest.split('\n')
-        .skip(1)
-        .any(|line| line.strip_suffix('\r').unwrap_or(line) == "---")
+    rest.split_inclusive('\n').skip(1).any(|line| {
+        let line = match line.strip_suffix('\n') {
+            Some(line) => line.strip_suffix('\r').unwrap_or(line),
+            None => line,
+        };
+        line == "---"
+    })
 }
 
 /// A line inside an open fence: code, or the closing fence.

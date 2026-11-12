@@ -235,3 +235,49 @@ fn work_counts_do_not_grow_with_the_note() {
         "{work:?}"
     );
 }
+
+#[test]
+fn the_guard_follows_every_unnamed_line_between_many_named_ones() {
+    // Name every other line and give each a second line: each unnamed blank
+    // line between them moves down by the lines gained above it.
+    let lines = 2_000;
+    let source = "a\n\n".repeat(lines);
+    let command = |engine: &Engine, text: &str| {
+        let mut edits = Vec::new();
+        let mut named = Vec::new();
+        for index in (0..lines * 2).step_by(2) {
+            let at = engine.line_start(index) + 1;
+            let written = if index == lines { text } else { "\nb" };
+            edits.push(Edit::insert(at, written));
+            named.push(index..index + 1);
+        }
+        Command {
+            edits,
+            lines: named,
+            selection: 0..0,
+            affinity: None,
+            typed: false,
+        }
+    };
+    let mut engine = Engine::open(&source);
+    let landed = engine
+        .run(
+            engine.revision(),
+            |engine| Ok(Some(command(engine, "\nb"))),
+            &mut ok,
+        )
+        .unwrap();
+    assert!(landed.is_some());
+    assert_eq!(engine.source_text(), "a\nb\n\n".repeat(lines));
+    // A fence opened halfway turns every unnamed blank line below into code.
+    let mut engine = Engine::open(&source);
+    let cancelled = engine
+        .run(
+            engine.revision(),
+            |engine| Ok(Some(command(engine, "\n```"))),
+            &mut ok,
+        )
+        .unwrap();
+    assert!(cancelled.is_none());
+    assert_eq!(engine.source_text(), source);
+}

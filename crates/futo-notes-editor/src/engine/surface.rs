@@ -224,8 +224,8 @@ impl Engine {
         })
     }
 
-    /// What the toolbar shows for the caret's line: its formats, block and
-    /// history. Commands are the next stage's; none is offered yet.
+    /// What the toolbar shows for the caret's line: its formats, block,
+    /// list nesting and history.
     pub(crate) fn toolbar(&self) -> ToolbarState {
         use crate::lines::{FenceRole, Kind};
         let entry = self.caret_line();
@@ -237,6 +237,7 @@ impl Engine {
                 ..
             }
         );
+        let (can_indent, can_outdent) = self.list_indents();
         ToolbarState {
             formats: self.active_formats(),
             heading: match line.kind {
@@ -253,8 +254,8 @@ impl Engine {
             code,
             mixed: false,
             inline_allowed: !code,
-            can_indent: false,
-            can_outdent: false,
+            can_indent,
+            can_outdent,
             can_undo: self.can_undo(),
             can_redo: self.can_redo(),
         }
