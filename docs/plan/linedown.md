@@ -28,6 +28,13 @@ commit that finishes step 3 (archive rule).
 - Milkdown is not changed. It leaves in the same release that brings this editor to desktop, so
   the two editors disagreeing about a note is not a shipped state.
 - Code does not name the dialect. Only the spec and the fixture file say "Linedown".
+- A line ends at `\n` or `\r\n`. A lone `\r` is an ordinary character.
+- Linedown's rules supersede every other Markdown reader in the repo. `futo-notes-tags` and
+  `futo-notes-search` must agree with the editor about what is code and what is a tag.
+- Text too long for a table cell soft-wraps inside the cell. That is renderer behavior, not a
+  dialect rule.
+- A note whose first line is `---` with no closing `---` is all front matter. The renderer must
+  make that state obvious.
 - No speed work beyond the bar: no counted-work budget in the tests goes up.
 - Files are never rewritten to fit the dialect.
 
@@ -86,7 +93,14 @@ posted on #423.
 - **iOS** (`apps/ios/Sources/Editor/TextFirst/`): draw the marker text the engine sends
   (`TextFirstLayoutFragments.swift` draws `"\(number)."` today, so `3)` shows as `1.`); indent a
   markerless list-aligned line by its depth (`TextFirstStyler.swift`); blank lines show one per
-  line. No Markdown rule is added to Swift.
+  line; front matter that runs to the end of the note is visibly metadata, not body text; long
+  cell text wraps inside its cell. No Markdown rule is added to Swift.
+- **Other readers.** `futo-notes-tags` stops matching inline code across a line break, and
+  `futo-notes-search`'s `extract_tags_inline` skips code and uses the tags crate's boundary rule,
+  so both agree with the editor about whether `#x` is a tag. The tags rule has a TypeScript mirror
+  in `packages/editor` locked by `tests/conformance/tags.json`: Rust, TypeScript and the goldens
+  change in one commit (`packages/editor/AGENTS.md` owns the procedure). That mirror is a note
+  rule, not Milkdown editor code.
 - **Tests.** Rewrite or delete the tests that pin removed behavior, in the crate (717), the
   store's `editor_session` tests (104), the FFI editor tests (66) and the shared JSON list
   fixtures (224 cases, also run by `tests/wasm-*-consumer.mjs`). Counted-work budgets in
@@ -172,16 +186,9 @@ is rewritten; these are display differences.
 Step 1's comparison run replaces these grep estimates with the reader's own counts and adds
 `../futo-notes-ml`.
 
-## Open questions
+## Open question
 
-1. **Line endings.** The spec does not say what a line break is. Proposed: `\n` and `\r\n` end a
-   line; a lone `\r` is an ordinary character. The engine handles lone CR today (#414).
-2. **Extra table cells.** The spec says a long row is trimmed. Is the extra text hidden,
-   or shown unstyled after the last column? Hidden text cannot be edited, which is #419's
-   complaint in a new form.
-3. **Other readers.** `futo-notes-tags` matches inline code across line breaks and
-   `futo-notes-search` scans `#` with no code skipping. Both can disagree with the editor about
-   whether `#x` is a tag. Out of scope here; file separately once step 2 lands.
-4. **Front matter.** Milkdown's spec and the engine today require a closing `---`. Linedown runs
-   unclosed front matter to the end of the note. A note that opens with a divider line becomes
-   all metadata; the renderer must make that state obvious.
+**Extra table cells.** The spec says a row with more cells than the header is trimmed. Is the
+extra cell's text hidden, or shown unstyled after the last column? Hidden text cannot be edited,
+which is #419's complaint in a new form. Not needed for step 1. Ask on #423 before step 2 touches
+tables.

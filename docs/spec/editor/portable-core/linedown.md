@@ -35,6 +35,8 @@ bar
 
 A blank line is an empty line. Three blank lines show as three empty lines.
 
+A line ends at `\n` or `\r\n`. A lone `\r` is an ordinary character.
+
 ## When one line affects another
 
 A line is read by its own text, with these exceptions. No others exist.
