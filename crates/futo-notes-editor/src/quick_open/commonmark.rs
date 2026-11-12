@@ -13,31 +13,17 @@
 //! and footnote definitions, which resolve document-wide — a shown `[` with a
 //! `]:` anywhere after the cut declines. A lone CR ends the scan, as it does
 //! the desktop's chunk planner (docs/spec/editor/performance.md).
+//!
+//! The CommonMark engine's quick open, for builds without the `engine`
+//! feature; the cut-over deletes this file.
 use pulldown_cmark::{Event, Parser};
 
-use crate::{
-    DisplayOffset, DisplayRange, EditorSession, ProjectionSlice, Revision, TableDescription,
-};
-
-/// How many leading bytes of a note a host reads for its first screens.
-pub const QUICK_OPEN_BYTES: usize = 16 * 1024;
-
-/// The first screens of a note exactly as its whole-note session shows them.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct QuickOpen {
-    /// The leading source bytes shown.
-    pub source_len: usize,
-    pub display: String,
-    /// Styles for all of `display` as a revision-0 session projects them,
-    /// through [`shown_projection`].
-    pub projection: ProjectionSlice,
-    /// The tables starting in `display`.
-    pub tables: Vec<TableDescription>,
-}
+use super::{may_define_reference, shown_projection, QuickOpen};
+use crate::{DisplayOffset, DisplayRange, EditorSession, Revision};
 
 /// Where `head`'s first screens end, ignoring definitions after them;
 /// `None` when no cut stands.
-pub fn quick_open_cut(head: &str) -> Option<usize> {
+pub(super) fn quick_open_cut(head: &str) -> Option<usize> {
     let boundaries = boundaries(head);
     let last = boundaries.len().checked_sub(2)?;
     Some(boundaries[last])
@@ -86,24 +72,12 @@ fn lone_cr(text: &str) -> Option<usize> {
     (0..bytes.len()).find(|&at| bytes[at] == b'\r' && bytes.get(at + 1) != Some(&b'\n'))
 }
 
-/// Whether `bytes` may hold a link reference or footnote definition.
-pub fn may_define_reference(bytes: &[u8]) -> bool {
-    bytes.windows(2).any(|pair| pair == b"]:")
-}
-
-/// The first screens of a note from its leading bytes `head`.
-/// `rest_may_define` answers [`may_define_reference`] for the note's bytes
-/// after `head`, starting from `head`'s last byte; `note_ids` are the vault's,
-/// as the whole note's session receives them. Each runs only when needed.
-pub fn quick_open(
+/// See [`super::quick_open`].
+pub(super) fn quick_open(
     head: &str,
     rest_may_define: impl FnOnce() -> bool,
     note_ids: impl FnOnce() -> Vec<String>,
 ) -> Option<QuickOpen> {
-    // The rebuilt core has no quick open yet: a note opens whole.
-    if cfg!(feature = "engine") {
-        return None;
-    }
     let boundaries = boundaries(head);
     let mut rest_may_define = Some(rest_may_define);
     let mut note_ids = Some(note_ids);
@@ -164,18 +138,4 @@ fn row_boundary(session: &EditorSession, source: usize) -> Option<usize> {
     } else {
         None
     }
-}
-
-/// What a renderer draws of `slice` within its range: anything starting at or
-/// after the range's end belongs to the block after it, which is not shown.
-/// Correspondence maps coordinates for edits, so it is not carried.
-pub fn shown_projection(mut slice: ProjectionSlice) -> ProjectionSlice {
-    let end = slice.range.end.0;
-    slice.correspondence.clear();
-    slice.runs.retain(|run| run.range.start.0 < end);
-    slice.blocks.retain(|block| block.range.start.0 < end);
-    slice.links.retain(|link| link.range.start.0 < end);
-    slice.wikilinks.retain(|link| link.range.start.0 < end);
-    slice.atoms.retain(|atom| atom.range.start.0 < end);
-    slice
 }

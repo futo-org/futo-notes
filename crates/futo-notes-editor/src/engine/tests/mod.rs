@@ -2,6 +2,7 @@
 mod commands;
 mod projection;
 mod properties;
+mod quick_open;
 
 use super::Engine;
 use crate::{
