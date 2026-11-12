@@ -108,7 +108,7 @@ impl Engine {
         let mut batch = Batch::default();
         // Commit.
         let commit_range = self.outside_crlf(marked.range);
-        let commit = self.plan(commit_range, &marked.text);
+        let commit = self.plan_input(commit_range, &marked.text);
         self.raw(&mut batch, commit.range.clone(), &commit.inserted);
         let commit_records = batch.records.len();
         let (dstart, dold, dend) = batch.display.expect("commit changed the display");

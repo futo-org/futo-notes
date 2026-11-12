@@ -5,6 +5,7 @@ mod external;
 mod fences;
 mod find;
 mod images;
+mod inline;
 mod lists;
 mod projection;
 mod properties;

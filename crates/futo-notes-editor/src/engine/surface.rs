@@ -243,7 +243,7 @@ impl Engine {
             .code_indent_state()
             .unwrap_or_else(|| self.list_indents());
         ToolbarState {
-            formats: self.active_formats(),
+            formats: self.toolbar_formats(),
             heading: self.toolbar_heading(),
             quote: self.toolbar_quote(),
             list: match line.kind {
@@ -254,7 +254,7 @@ impl Engine {
             },
             code,
             mixed: false,
-            inline_allowed: !code,
+            inline_allowed: !code && self.inline_allowed(),
             can_indent,
             can_outdent,
             can_undo: self.can_undo(),

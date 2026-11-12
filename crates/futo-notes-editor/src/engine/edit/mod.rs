@@ -245,8 +245,9 @@ impl Engine {
             .then(|| typing_kind(range, text, self.selection))
             .flatten();
         let before = self.point();
-        let plan = self.plan(range, text);
+        let plan = self.plan_input(range, text);
         let mut batch = Batch::default();
+        batch.work.parsed_source_bytes += plan.parsed;
         self.raw(&mut batch, plan.range.clone(), &plan.inserted);
         let Some((edit, shown, records)) = self.accept(batch, accept)? else {
             return Ok(None);
