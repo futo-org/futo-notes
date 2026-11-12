@@ -1,6 +1,7 @@
 mod context;
 mod html;
 mod parse;
+pub(crate) mod read;
 pub(crate) use html::{CandidateOpener, Shape};
 mod split;
 use crate::InlineFormat;
@@ -102,6 +103,8 @@ pub(crate) struct Row {
     /// For each item open at the row's end (depth 1 first): the
     /// row-relative start of the item and of the list holding it.
     pub tail_chain: Vec<(usize, usize)>,
+    /// What the lines above hand this row's first line.
+    pub carry: crate::lines::Carry,
 }
 
 pub(crate) fn parser_options() -> Options {

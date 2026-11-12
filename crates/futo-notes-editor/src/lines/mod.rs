@@ -17,9 +17,7 @@ mod compare;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use block::{Carry, Kind, Line, TableRole};
-#[cfg(test)]
-use block::{FenceRole, FrontMatterRole};
+pub(crate) use block::{Carry, FenceRole, FrontMatterRole, Kind, Line, TableRole};
 pub(crate) use inline::{Span, SpanKind};
 use std::ops::Range;
 

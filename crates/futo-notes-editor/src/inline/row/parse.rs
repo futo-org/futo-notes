@@ -361,6 +361,7 @@ impl Row {
             context: None,
             context_ends: Vec::new(),
             tail_chain,
+            carry: Default::default(),
             source_len: source.len(),
             pipes: source.contains('|'),
             table_scan,

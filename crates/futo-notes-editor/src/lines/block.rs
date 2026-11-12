@@ -31,12 +31,14 @@ impl Carry {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct OpenFence {
     pub ch: u8,
     pub len: usize,
     /// List depth the opening fence lines up with, if it sits in a list.
     pub depth: Option<usize>,
+    /// The opening fence's language, which every line inside it carries.
+    pub language: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -205,7 +207,7 @@ pub(crate) fn read_line(carry: &mut Carry, source: &str, start: usize) -> Line {
         };
         return place.syntax(Kind::FrontMatter(role));
     }
-    if let Some(open) = carry.fence {
+    if let Some(open) = carry.fence.clone() {
         return fenced(carry, open, &place, text);
     }
     read_block(carry, &place, text, header_above)
@@ -354,15 +356,16 @@ fn fence_opener(
     } else {
         aligned(&carry.list, width)
     };
-    carry.fence = Some(OpenFence {
-        ch,
-        len: run,
-        depth,
-    });
     let info = own[run..].trim_start_matches([' ', '\t']);
     let word = info.find([' ', '\t']).unwrap_or(info.len());
     let info_start = place.start + place.len - info.len();
     let language = (word > 0).then_some(info_start..info_start + word);
+    carry.fence = Some(OpenFence {
+        ch,
+        len: run,
+        depth,
+        language: (word > 0).then(|| info[..word].to_owned()),
+    });
     place.syntax(Kind::Fence {
         role: FenceRole::Open,
         depth,

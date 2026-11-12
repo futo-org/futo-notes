@@ -134,6 +134,7 @@ impl Row {
             context: None,
             context_ends: Vec::new(),
             tail_chain: Vec::new(),
+            carry: Default::default(),
         })
     }
 }

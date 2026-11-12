@@ -96,6 +96,7 @@ impl Row {
                 .iter()
                 .map(|&(item, owner)| (item.max(skip) - skip, owner.max(skip) - skip))
                 .collect(),
+            carry: Default::default(),
         }
     }
 

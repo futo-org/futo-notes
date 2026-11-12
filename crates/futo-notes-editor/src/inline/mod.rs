@@ -38,7 +38,7 @@ mod toggle;
 mod tree;
 mod window;
 mod word;
-use window::Window;
+
 pub(crate) mod wikilinks;
 
 use crate::{
@@ -47,7 +47,7 @@ use crate::{
 };
 pub(crate) use lists::{columns, ListLine};
 use ropey::Rope;
-use row::{partition, Outside, Row};
+use row::{partition, Outside};
 use tree::Rows;
 
 pub(crate) struct Projection {
@@ -117,50 +117,15 @@ impl Projection {
         reference_work: references::ReferenceWork,
         context: Option<(&str, Option<u64>)>,
     ) -> Self {
-        let outside = match context {
-            Some((context, first_number)) => Outside {
-                continues: true,
-                context: Some(context),
-                first_number,
-                ..Outside::default()
-            },
-            None => Outside::default(),
-        };
-        let metadata = if document_start {
-            front_matter::len(source.bytes())
+        let _ = (winners, context);
+        let mut carry = if document_start {
+            crate::lines::Carry::start()
         } else {
-            0
+            crate::lines::Carry::default()
         };
-        let mut origin = metadata;
-        let mut witness_work = 0;
-        let parsed: Vec<_> = (metadata > 0)
-            .then(|| Row::metadata(&source[..metadata]))
-            .into_iter()
-            .chain(
-                partition(&source[metadata..], outside)
-                    .rows
-                    .into_iter()
-                    .map(|piece| {
-                        let text = piece.text;
-                        let (local, work) = references::window_winners(winners, origin, text.len());
-                        witness_work += work;
-                        let row = Row::piece(text, &piece.shape, &references, &local);
-                        origin += text.len();
-                        row
-                    }),
-            )
-            .collect();
-        let initial_link_metadata_items = reference_work.items
-            + witness_work
-            + parsed
-                .iter()
-                .map(|row| row.reference_work.items)
-                .sum::<usize>();
-        let initial_link_copied_bytes = reference_work.copied
-            + parsed
-                .iter()
-                .map(|row| row.reference_work.copied)
-                .sum::<usize>();
+        let parsed = row::read::read_rows(source, &mut carry, document_start);
+        let initial_link_metadata_items = reference_work.items;
+        let initial_link_copied_bytes = reference_work.copied;
         let initial_parse_work = reference_work.parsed
             + source.len()
             + parsed
@@ -278,32 +243,65 @@ impl Projection {
         row.formats_at(offset - source)
     }
 
-    /// Reparse the edit's paragraphs and immediate neighbors, which can join
-    /// when a blank-line separator changes. No tail offsets are rewritten.
+    /// Re-read from the row above the edit until a row after it starts with
+    /// the carry it had before. No tail offsets are rewritten.
     pub fn apply(
         &mut self,
         source: &Rope,
         edit: &SourceEdit,
-        canonical_origin: Option<&references::SourceOrigin>,
+        _canonical_origin: Option<&references::SourceOrigin>,
     ) -> Update {
-        let Window {
-            first,
-            last,
-            source_start,
-            display_start,
-            source_end,
-            display_end,
-            text,
-            metadata,
-            pieces,
-            partition_bytes,
-        } = self.reparse_window(source, edit);
+        let start = edit.range.start.0;
+        let (removed, inserted) = (edit.removed.len(), edit.inserted.len());
+        let (old_end, new_end) = (start + removed, start + inserted);
+        let moved = |offset: usize| offset + inserted - removed;
+        let total = source.len_bytes();
+        let first = self.rows.locate(start, false).saturating_sub(1);
+        let (first_row, source_start, display_start) = self.rows.at(first);
+        let mut carry = first_row.carry.clone();
+        let mut at = source_start;
+        let mut old = first + 1;
+        let mut parsed = Vec::new();
+        let mut parsed_source_bytes = 0;
+        loop {
+            let chunk = next_chunk(source, at, &carry);
+            parsed_source_bytes += chunk.len();
+            let end = at + chunk.len();
+            parsed.extend(row::read::read_rows(&chunk, &mut carry, end == total));
+            at = end;
+            if at >= total {
+                old = self.rows.len();
+                break;
+            }
+            if at < new_end {
+                continue;
+            }
+            while old < self.rows.len() {
+                let old_start = self.rows.at(old).1;
+                if old_start < old_end || moved(old_start) < at {
+                    old += 1;
+                } else {
+                    break;
+                }
+            }
+            if old < self.rows.len() {
+                let (row, old_start, _) = self.rows.at(old);
+                if moved(old_start) == at && row.carry == carry {
+                    break;
+                }
+            }
+        }
+        let last = old - 1;
+        let display_end = if old < self.rows.len() {
+            self.rows.at(old).2
+        } else {
+            self.display.len_bytes()
+        };
         let (pending, metadata_work) = self.pending_display(first, last);
         let (delimiters, delimiter_work) = self.retained_delimiters(first, last, edit);
         let mut guards = Vec::new();
         let mut typed_inputs = Vec::new();
-        let mut winners = Vec::new();
-        let mut reference_work = references::ReferenceWork::default();
+        let mut reference_items = 0;
         for index in first..=last {
             let (row, base, _) = self.rows.at(index);
             pending_links::retain_row_fields(
@@ -312,117 +310,26 @@ impl Projection {
                 edit,
                 &mut guards,
                 &mut typed_inputs,
-                &mut reference_work.items,
+                &mut reference_items,
             );
-            for definition in row
-                .definitions
-                .iter()
-                .filter(|definition| definition.winner)
-            {
-                let mut range = base + definition.range.start..base + definition.range.end;
-                if edit.range.end.0 <= range.start {
-                    range.start = range.start - edit.removed.len() + edit.inserted.len();
-                    range.end = range.end - edit.removed.len() + edit.inserted.len();
-                } else if edit.range.start.0 < range.end && range.start < edit.range.end.0 {
-                    continue;
-                }
-                if let Some(target) = self.references.target(definition.key.as_ref()) {
-                    winners.push(references::Winner {
-                        range: range.start - source_start..range.end - source_start,
-                        key: target.reference.as_ref().unwrap().clone(),
-                    });
-                }
-            }
         }
-        let mut origin = metadata;
-        let placed: Vec<_> = pieces
-            .into_iter()
-            .map(|(len, shape)| {
-                origin += len;
-                (origin - len, len, shape)
-            })
-            .collect();
-        // Each row parses alone; a whole-note reparse spreads them over cores.
-        let references = &self.references;
-        let pieces = crate::parallel::map(&placed, |(origin, len, shape)| {
-            let raw = &text[*origin..*origin + *len];
-            let (local, work) = references::window_winners(&winners, *origin, raw.len());
-            (Row::piece(raw, shape, references, &local), work)
-        });
-        let parsed: Vec<_> = (metadata > 0)
-            .then(|| Row::metadata(&text[..metadata]))
-            .into_iter()
-            .chain(pieces.into_iter().map(|(row, work)| {
-                reference_work.items += work;
-                row
-            }))
-            .collect();
-        let (meaning_changed, comparison_work) =
-            self.reference_meaning_changed(first, last, source_start, &parsed, edit);
-        reference_work.items += comparison_work;
-        if meaning_changed {
-            if self.references_complete || canonical_origin.is_some() {
-                let local_parsed = partition_bytes
-                    + text.len()
-                    + parsed
-                        .iter()
-                        .map(|row| row.parsed_source_bytes)
-                        .sum::<usize>();
-                let local_items = reference_work.items
-                    + parsed
-                        .iter()
-                        .map(|row| row.reference_work.items)
-                        .sum::<usize>();
-                let local_copied = reference_work.copied
-                    + parsed
-                        .iter()
-                        .map(|row| row.reference_work.copied)
-                        .sum::<usize>();
-                return self.rebuild_references(
-                    source,
-                    edit,
-                    partition_bytes + text.len(),
-                    local_parsed,
-                    local_items + metadata_work + delimiter_work,
-                    local_copied,
-                    canonical_origin,
-                );
-            }
-            self.needs_global_references = true;
-        }
-        let link_copied_bytes = reference_work.copied
-            + parsed
-                .iter()
-                .map(|row| row.reference_work.copied)
-                .sum::<usize>();
-        let mut reference_items = reference_work.items
-            + parsed
-                .iter()
-                .map(|row| row.reference_work.items)
-                .sum::<usize>();
-        let parsed_source_bytes = partition_bytes
-            + text.len()
-            + parsed
-                .iter()
-                .map(|row| row.parsed_source_bytes)
-                .sum::<usize>();
-        let mut inserted = String::new();
+        let mut inserted_text = String::new();
         for row in &parsed {
-            inserted.push_str(&row.display);
+            inserted_text.push_str(&row.display);
         }
-        let parsed_display_len = inserted.len();
-        let old = self
+        let parsed_display_len = inserted_text.len();
+        let old_display = self
             .display
             .byte_slice(display_start..display_end)
             .to_string();
-        let start = self.display.byte_to_char(display_start);
-        let end = self.display.byte_to_char(display_end);
-        self.display.remove(start..end);
-        self.display.insert(start, &inserted);
-        self.rows.replace(first, last + 1, parsed);
+        let from = self.display.byte_to_char(display_start);
+        let to = self.display.byte_to_char(display_end);
+        self.display.remove(from..to);
+        self.display.insert(from, &inserted_text);
+        self.rows.replace(first, old, parsed);
         if !guards.is_empty() || !typed_inputs.is_empty() {
             let retained = PendingLinks {
-                window: source_start..source_end,
+                window: source_start..at,
                 ranges: Vec::new(),
                 delimiters: Vec::new(),
                 guarded_words: guards,
@@ -432,16 +339,16 @@ impl Projection {
             reference_items +=
                 self.restore_guard_words(&retained) + self.restore_typed_origins(&retained);
         }
-        let prefix: usize = old
+        let prefix: usize = old_display
             .chars()
-            .zip(inserted.chars())
+            .zip(inserted_text.chars())
             .take_while(|(a, b)| a == b)
             .map(|(c, _)| c.len_utf8())
             .sum();
-        let suffix: usize = old[prefix..]
+        let suffix: usize = old_display[prefix..]
             .chars()
             .rev()
-            .zip(inserted[prefix..].chars().rev())
+            .zip(inserted_text[prefix..].chars().rev())
             .take_while(|(a, b)| a == b)
             .map(|(c, _)| c.len_utf8())
             .sum();
@@ -449,7 +356,7 @@ impl Projection {
             start: DisplayOffset(display_start + prefix),
             end: DisplayOffset(display_end - suffix),
         };
-        let inserted = inserted[prefix..inserted.len() - suffix].to_owned();
+        let inserted = inserted_text[prefix..inserted_text.len() - suffix].to_owned();
         let semantic_range = DisplayRange {
             start: DisplayOffset(display_start),
             end: DisplayOffset(display_start + parsed_display_len),
@@ -460,13 +367,40 @@ impl Projection {
             + self.install_delimiters(delimiters)
             + self.preserve_pending_display(pending, range, inserted.len());
         Update {
-            link_copied_bytes,
+            link_copied_bytes: 0,
             link_metadata_items,
             range,
             inserted,
             parsed_source_bytes,
-            materialized_source_bytes: partition_bytes + text.len(),
+            materialized_source_bytes: parsed_source_bytes,
             semantic_range,
         }
     }
+}
+
+/// The source of the next row from `at`: one line, or the whole front matter
+/// when the note's first line opens it.
+fn next_chunk(source: &Rope, at: usize, carry: &crate::lines::Carry) -> String {
+    let line_end = |from: usize| {
+        let line = source.byte_to_line(from);
+        if line + 1 < source.len_lines() {
+            source.line_to_byte(line + 1)
+        } else {
+            source.len_bytes()
+        }
+    };
+    let mut end = line_end(at);
+    let first = source.byte_slice(at..end).to_string();
+    if carry.first && first.trim_end_matches(['\r', '\n']) == "---" {
+        while end < source.len_bytes() {
+            let next = line_end(end);
+            let line = source.byte_slice(end..next).to_string();
+            end = next;
+            if line.trim_end_matches(['\r', '\n']) == "---" {
+                break;
+            }
+        }
+        return source.byte_slice(at..end).to_string();
+    }
+    first
 }
