@@ -101,13 +101,25 @@
    ]
   },
   {
-   "name": "front matter with no close runs to the end",
+   "name": "unclosed front matter is not front matter",
    "rule": "When one line affects another 2 / Front matter",
    "input": "---\ntitle: x\n# a",
    "lines": [
+    "divider",
+    "plain : title: x",
+    "h1 : a"
+   ]
+  },
+  {
+   "name": "a closing --- makes line 1 open front matter",
+   "rule": "When one line affects another 5 / Front matter",
+   "input": "---\ntitle: x\n# a\n---\nbody",
+   "lines": [
     "front-open",
     "front",
-    "front"
+    "front",
+    "front-close",
+    "plain : body"
    ]
   },
   {

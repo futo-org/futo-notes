@@ -256,7 +256,10 @@ impl Projection {
         let (old_end, new_end) = (start + removed, start + inserted);
         let moved = |offset: usize| offset + inserted - removed;
         let total = source.len_bytes();
-        let first = self.rows.locate(start, false).saturating_sub(1);
+        let mut first = self.rows.locate(start, false).saturating_sub(1);
+        if front_matter_may_change(source, self.rows.at(0).0, edit) {
+            first = 0;
+        }
         let (first_row, source_start, display_start) = self.rows.at(first);
         let mut carry = first_row.carry.clone();
         let mut at = source_start;
@@ -378,6 +381,28 @@ impl Projection {
     }
 }
 
+/// Whether an edit can open or close front matter, which depends on a later
+/// `---` line closing line 1's `---`: then the re-read starts at row zero.
+fn front_matter_may_change(source: &Rope, first: &row::Row, edit: &SourceEdit) -> bool {
+    let line = |index: usize| {
+        let text = source.line(index).to_string();
+        text.trim_end_matches(['\r', '\n']).to_owned()
+    };
+    if !first.metadata && line(0) != "---" && first.source_len > 5 {
+        return false;
+    }
+    let start = edit.range.start.0;
+    if start <= first.source_len {
+        return true;
+    }
+    let touched = |text: &str| text.contains("---");
+    if touched(&edit.removed) || touched(&edit.inserted) {
+        return true;
+    }
+    let at = source.byte_to_line(start);
+    line(at) == "---"
+}
+
 /// The source of the next row from `at`: one line, or the whole front matter
 /// when the note's first line opens it.
 fn next_chunk(source: &Rope, at: usize, carry: &crate::lines::Carry) -> String {
@@ -397,10 +422,9 @@ fn next_chunk(source: &Rope, at: usize, carry: &crate::lines::Carry) -> String {
             let line = source.byte_slice(end..next).to_string();
             end = next;
             if line.trim_end_matches(['\r', '\n']) == "---" {
-                break;
+                return source.byte_slice(at..end).to_string();
             }
         }
-        return source.byte_slice(at..end).to_string();
     }
     first
 }

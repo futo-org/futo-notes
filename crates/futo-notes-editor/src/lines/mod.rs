@@ -96,6 +96,11 @@ impl Reading {
             .partition_point(|line| line.range.start <= start)
             .saturating_sub(1);
         first = first.saturating_sub(1);
+        // Whether line 1 opens front matter depends on a later `---` line:
+        // when that can change, read again from the top.
+        if front_matter_may_change(source, &self.lines, start, removed, inserted) {
+            first = 0;
+        }
         let mut carry = self.carries[first].clone();
         let mut at = self.lines[first].range.start;
         let mut old = first;
@@ -166,6 +171,51 @@ impl Reading {
         }
         first..first + read
     }
+}
+
+/// Whether an edit can open or close front matter: the note starts (or
+/// started) with a `---` line, and the edit touches line 1 or adds or removes
+/// a line that could be the closing `---`.
+pub(crate) fn front_matter_may_change(
+    source: &str,
+    old: &[Line],
+    start: usize,
+    removed: usize,
+    inserted: usize,
+) -> bool {
+    let old_first = &old[0];
+    let starts = |text: &str| {
+        let line = text.split('\n').next().unwrap_or("");
+        line.strip_suffix('\r').unwrap_or(line) == "---"
+    };
+    let was = matches!(old_first.kind, Kind::FrontMatter(_))
+        || (old_first.range.len() == 3 && matches!(old_first.kind, Kind::Divider));
+    if !was && !starts(source) {
+        return false;
+    }
+    if start <= old_first.end() {
+        return true;
+    }
+    // An old `---` line the edit touches may have been the closing line.
+    let touched = old
+        .iter()
+        .skip_while(|line| line.end() < start)
+        .take_while(|line| line.range.start <= start + removed);
+    if touched.into_iter().any(|line| {
+        line.range.len() == 3 && matches!(line.kind, Kind::Divider | Kind::FrontMatter(_))
+    }) {
+        return true;
+    }
+    // A `---` line could appear or vanish only where text changed: look at
+    // the new lines around the insertion, and assume a removal may have held one.
+    let from = source[..start].rfind('\n').map_or(0, |at| at + 1);
+    let to = source[start + inserted..]
+        .find('\n')
+        .map_or(source.len(), |at| start + inserted + at);
+    removed > 0
+        || source[from..to]
+            .split('\n')
+            .any(|line| line.strip_suffix('\r').unwrap_or(line) == "---")
 }
 
 fn unshift_span(mut span: Span, by: usize) -> Span {

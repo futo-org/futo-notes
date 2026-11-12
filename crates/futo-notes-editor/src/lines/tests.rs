@@ -175,12 +175,14 @@ fn appending_never_changes_an_earlier_line() {
             let after = Reading::new(source);
             let settled = before.lines.len().saturating_sub(2);
             for index in 0..settled {
+                // The two later-line cases: a table header, and front matter
+                // that a closing `---` below opens on line 1.
                 if matches!(
                     after.lines[index].kind,
                     Kind::Table {
                         role: TableRole::Header,
                         ..
-                    }
+                    } | Kind::FrontMatter(_)
                 ) {
                     continue;
                 }

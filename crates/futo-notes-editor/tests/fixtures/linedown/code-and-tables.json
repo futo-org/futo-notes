@@ -100,6 +100,16 @@
    ]
   },
   {
+   "name": "#419: an extra cell is read and formatted like any cell",
+   "rule": "Tables",
+   "input": "| a |\n|---|\n| 1 | **2** |",
+   "lines": [
+    "table-header 1 : | a |",
+    "table-delimiter 1",
+    "table-row 1 : | 1 | **2** | [bold **2**]"
+   ]
+  },
+  {
    "name": "a table row needs a leading pipe",
    "rule": "Tables / Differences from CommonMark and GFM row 11",
    "input": "a | b\n--|--\n1 | 2",

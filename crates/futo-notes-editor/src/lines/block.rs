@@ -191,7 +191,7 @@ pub(crate) fn read_line(carry: &mut Carry, source: &str, start: usize) -> Line {
     let first = std::mem::take(&mut carry.first);
     let header_above = carry.header_above.take();
 
-    if first && text == "---" {
+    if first && text == "---" && closes_front_matter(&source[start + len..]) {
         carry.front_matter = true;
         return place.syntax(Kind::FrontMatter(FrontMatterRole::Open));
     }
@@ -208,6 +208,14 @@ pub(crate) fn read_line(carry: &mut Carry, source: &str, start: usize) -> Line {
         return fenced(carry, open, &place, text);
     }
     read_block(carry, &place, text, header_above)
+}
+
+/// Whether a line of exactly `---` follows in `rest`, the text after line 1:
+/// only then does line 1 open front matter.
+pub(crate) fn closes_front_matter(rest: &str) -> bool {
+    rest.split('\n')
+        .skip(1)
+        .any(|line| line.strip_suffix('\r').unwrap_or(line) == "---")
 }
 
 /// A line inside an open fence: code, or the closing fence.
