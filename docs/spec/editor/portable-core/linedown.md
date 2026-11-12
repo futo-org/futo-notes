@@ -44,12 +44,15 @@ A line is read by its own text, with these exceptions. No others exist.
 An earlier line affects later lines in three cases:
 
 1. **Code fence.** After an opening fence, every line is code until the closing fence. With no closing fence, code runs to the end of the note.
-2. **Front matter.** If line 1 is `---`, every line is front matter until the next `---`. With no closing `---`, it runs to the end of the note.
+2. **Front matter.** If line 1 is `---` and a later line is `---`, every line between them is front matter.
 3. **Table rows.** A line starting with `|` is a table row only when it follows a table's header and delimiter row.
 
-A later line affects an earlier line in one case:
+A later line affects an earlier line in two cases:
 
-4. **Table header.** A delimiter row turns the single line directly above it into a table header. This is the only case where a line changes the meaning of a line before it.
+4. **Table header.** A delimiter row turns the single line directly above it into a table header.
+5. **Front matter close.** A `---` line closes front matter that line 1 opened. Until it exists, line 1 is a divider and every line is read as usual.
+
+These are the only cases where a line changes the meaning of a line before it.
 
 ## Blocks
 
@@ -163,7 +166,7 @@ Indented text is never code. Code is fences only.
 
 ### Front matter
 
-If the first line of the note is exactly `---`, the lines up to the next `---` are front matter. With no closing `---`, front matter runs to the end of the note. A `---` anywhere else is a divider.
+If the first line of the note is exactly `---` and a later line is exactly `---`, the lines between them are front matter. With no closing `---` there is no front matter: line 1 is a divider and every line is read as usual. A `---` anywhere else is a divider.
 
 ### Tables
 
@@ -183,7 +186,7 @@ A table is:
 - Every row starts with `|`.
 - Colons in the delimiter row set alignment: `:---` left, `:---:` centre, `---:` right.
 - Cells hold inline text only. `\|` is a literal pipe.
-- A row with too few cells is padded. A row with too many is trimmed.
+- A row with too few cells is padded. Cells past the header show as new columns: the table is as wide as its widest row.
 - Tables are read only at the top level, not inside quotes or lists.
 - Until the delimiter row exists, `| item | qty |` is a plain line.
 

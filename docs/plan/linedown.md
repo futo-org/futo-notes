@@ -37,8 +37,11 @@ commit that finishes step 3 (archive rule).
   `futo-notes-search` must agree with the editor about what is code and what is a tag.
 - Text too long for a table cell soft-wraps inside the cell. That is renderer behavior, not a
   dialect rule.
-- A note whose first line is `---` with no closing `---` is all front matter. The renderer must
-  make that state obvious.
+- A note whose first line is `---` is front matter only once a later `---` closes it; until then
+  line 1 is a divider and every line reads as usual (maintainer, 2026-11-12). The closing line is
+  the second look-back after the table header: adding or removing it re-reads from line 1.
+- A table row with more cells than its header shows them as new columns; the table is as wide
+  as its widest row (maintainer, 2026-11-12). Each row's cells are still read from that row.
 - No speed work beyond the bar: no counted-work budget in the tests goes up.
 - Files are never rewritten to fit the dialect.
 
@@ -98,7 +101,7 @@ posted on #423.
   (`TextFirstLayoutFragments.swift` draws `"\(number)."` today, so `3)` shows as `1.`); draw a
   list line and an indented plain line at the engine's indent width (`TextFirstStyler.swift`), with
   no Swift code working out nesting; blank lines show one per
-  line; front matter that runs to the end of the note is visibly metadata, not body text; long
+  line; long
   cell text wraps inside its cell. No Markdown rule is added to Swift.
 - **Other readers.** `futo-notes-tags` stops matching inline code across a line break, and
   `futo-notes-search`'s `extract_tags_inline` skips code and uses the tags crate's boundary rule,
@@ -163,7 +166,7 @@ For review. Everything not listed keeps today's behavior.
 | #414, Enter in a task item with a lone CR panics (`list_paragraph.rs:115`) | Dies with `list_paragraph.rs`. Becomes a fixture. |
 | #421, #422, Enter around list items | Die with the list rewrite. Become fixtures. |
 | #417, typing at the end of front matter without a trailing newline | Survives. Recheck after step 2. |
-| #419, text in an extra table cell cannot be formatted | Changes: Linedown trims extra cells. See open question 2. |
+| #419, text in an extra table cell cannot be formatted | Dies: extra cells are new columns, read and formatted like any cell. Becomes a fixture. |
 | #420, formatting a table above ~300 rows is refused | Survives. Table staging is not part of this work. |
 | `engine/no-comment-separator` | Merge to main first (it stops the engine writing HTML comments into notes), then rebase `linedown`. |
 | `desktop/new-editor`, `desktop/gpui-rewrite`, `fix/text-first-list-renumber-and-tab` | Rebase onto `linedown` after step 2, or drop. Owner's call. |
@@ -191,10 +194,3 @@ is rewritten; these are display differences.
 
 Step 1's comparison run replaces these grep estimates with the reader's own counts and adds
 `../futo-notes-ml`.
-
-## Open question
-
-**Extra table cells.** The spec says a row with more cells than the header is trimmed. Is the
-extra cell's text hidden, or shown unstyled after the last column? Hidden text cannot be edited,
-which is #419's complaint in a new form. Not needed for step 1. Ask on #423 before step 2 touches
-tables.
