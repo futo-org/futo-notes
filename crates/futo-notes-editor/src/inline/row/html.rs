@@ -285,18 +285,9 @@ impl Row {
     /// A planned candidate's parse, in its row's HTML context when continued.
     pub(crate) fn candidate(
         text: &str,
-        references: &Arc<crate::inline::references::References>,
-        winners: &[crate::inline::references::Winner],
+        _references: &Arc<crate::inline::references::References>,
+        _winners: &[crate::inline::references::Winner],
     ) -> Self {
-        let (opener, continued, followed, context) =
-            CANDIDATE_OPENER.with(|slot| slot.borrow().clone());
-        if let Some(context) = context {
-            return Self::list_continuation(&context, text, references, winners);
-        }
-        let mut row = opener
-            .and_then(|opener| Self::html_continuation(&opener, text, references))
-            .unwrap_or_else(|| Self::parse_with_references(text, references, winners));
-        row.continue_fence(text, continued, followed);
-        row
+        super::read::read_candidate(text)
     }
 }

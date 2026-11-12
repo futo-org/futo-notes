@@ -39,6 +39,24 @@ pub(crate) fn read_rows(text: &str, carry: &mut Carry, ends_note: bool) -> Vec<R
     }
 }
 
+/// One row holding every line of `text`, read with no lines above it: the
+/// planner checks a candidate source against this before accepting it.
+pub(crate) fn read_candidate(text: &str) -> Row {
+    let mut carry = Carry::default();
+    let mut lines = Vec::new();
+    let mut at = 0;
+    loop {
+        let line = lines::block::read_line(&mut carry, text, at);
+        let last = line.ending == 0;
+        at = line.end();
+        lines::block::place(&mut lines, line);
+        if last {
+            break;
+        }
+    }
+    Row::read(text, &lines, 0, Carry::default())
+}
+
 impl Row {
     /// The row for `lines`, whose offsets start at `base` in the text that
     /// `source` (the row's own text) was cut from.
