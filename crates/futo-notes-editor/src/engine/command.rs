@@ -143,10 +143,20 @@ struct Before {
     /// Line 1, the line above the named lines and the unnamed lines between
     /// them: index before the command, and class.
     lines: Vec<(usize, (u8, u8))>,
-    /// Lines each named range gains (or loses): its end and the count.
+    /// Each named range's end (ranges sorted and merged), with the lines
+    /// the named ranges up to it gain (or lose) in all.
     deltas: Vec<(usize, isize)>,
     /// The first line after the named ones and the carry at its start.
     after: Option<(usize, Carry)>,
+}
+
+impl Before {
+    /// Where unnamed line `index` (before the command) is after it.
+    fn shift(&self, index: usize) -> usize {
+        let at = self.deltas.partition_point(|(end, _)| *end <= index);
+        let moved = at.checked_sub(1).map_or(0, |last| self.deltas[last].1);
+        (index as isize + moved) as usize
+    }
 }
 
 fn newlines(text: &str) -> isize {
@@ -154,20 +164,37 @@ fn newlines(text: &str) -> isize {
 }
 
 impl Engine {
+    /// The guard's record. Every step is a binary search or one pass, so a
+    /// command naming many separate lines costs no more than its lines.
     fn before_command(&self, command: &Command, edits: &[Edit]) -> Result<Before, EditorError> {
         let count = self.store.len();
-        let named = |index: usize| command.lines.iter().any(|range| range.contains(&index));
-        let first = command.lines.iter().map(|range| range.start).min();
-        let end = command.lines.iter().map(|range| range.end).max();
-        let (Some(first), Some(end)) = (first, end) else {
-            return Err(EditorError::InvalidRange);
-        };
-        if end > count || command.lines.iter().any(|range| range.is_empty()) {
+        if command.lines.is_empty()
+            || command
+                .lines
+                .iter()
+                .any(|range| range.is_empty() || range.end > count)
+        {
             return Err(EditorError::InvalidRange);
         }
+        let mut sorted = command.lines.clone();
+        sorted.sort_by_key(|range| range.start);
+        let mut ranges: Vec<Range<usize>> = Vec::with_capacity(sorted.len());
+        for range in sorted {
+            match ranges.last_mut() {
+                Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+                _ => ranges.push(range),
+            }
+        }
+        let named = |index: usize| {
+            let at = ranges.partition_point(|range| range.end <= index);
+            ranges.get(at).is_some_and(|range| range.start <= index)
+        };
+        let (first, end) = (ranges[0].start, ranges[ranges.len() - 1].end);
         let mut lines: Vec<(usize, (u8, u8))> = Vec::new();
         let mut look = |index: usize| {
-            if !named(index) && lines.iter().all(|(seen, _)| *seen != index) {
+            // Only line 1 and the line above come before the ascending run,
+            // so only they can repeat an index.
+            if !named(index) && lines.iter().take(2).all(|(seen, _)| *seen != index) {
                 lines.push((index, class(&self.store.get(index).line.kind)));
             }
         };
@@ -178,19 +205,36 @@ impl Engine {
         for index in first..end {
             look(index);
         }
-        let mut deltas = Vec::new();
-        for range in &command.lines {
-            let from = self.store.before(range.start).source;
-            let to = self.store.before(range.end).source;
-            let mut delta = 0;
-            for edit in edits {
-                if edit.range.start >= from && edit.range.end <= to {
-                    delta +=
-                        newlines(&edit.text) - newlines(&self.source_slice(edit.range.clone()));
-                }
+        // Each edit's line count change goes to the named range holding it.
+        let bounds: Vec<(usize, usize)> = ranges
+            .iter()
+            .map(|range| {
+                (
+                    self.store.before(range.start).source,
+                    self.store.before(range.end).source,
+                )
+            })
+            .collect();
+        let mut gained = vec![0isize; ranges.len()];
+        for edit in edits {
+            let at = bounds.partition_point(|&(_, to)| to < edit.range.end);
+            if bounds
+                .get(at)
+                .is_some_and(|&(from, _)| edit.range.start >= from)
+            {
+                gained[at] +=
+                    newlines(&edit.text) - newlines(&self.source_slice(edit.range.clone()));
             }
-            deltas.push((range.end, delta));
         }
+        let mut total = 0;
+        let deltas = ranges
+            .iter()
+            .zip(gained)
+            .map(|(range, gained)| {
+                total += gained;
+                (range.end, total)
+            })
+            .collect();
         let lowest = self.store.before(first).source;
         let highest = self.store.before(end).source;
         if edits
@@ -210,18 +254,9 @@ impl Engine {
     /// Whether, after the edits, every line the command did not name reads
     /// as the same kind of block as before.
     fn guard_holds(&self, before: &Before) -> bool {
-        let shift = |index: usize| -> usize {
-            let moved: isize = before
-                .deltas
-                .iter()
-                .filter(|(end, _)| *end <= index)
-                .map(|(_, delta)| *delta)
-                .sum();
-            (index as isize + moved) as usize
-        };
         let count = self.store.len();
         for &(index, was) in &before.lines {
-            let now = shift(index);
+            let now = before.shift(index);
             if now >= count || class(&self.store.get(now).line.kind) != was {
                 return false;
             }
@@ -232,7 +267,7 @@ impl Engine {
         // Read the unnamed lines below as they read before, until the carry
         // they had matches the carry they have.
         let mut old = carry.clone();
-        let mut index = shift(*end);
+        let mut index = before.shift(*end);
         while index < count {
             let entry = self.store.get(index);
             if entry.carry == old {

@@ -1,0 +1,362 @@
+[
+ {
+  "name": "Enter splits a bullet",
+  "before": "- ab‸cd",
+  "command": "Enter",
+  "after": "- ab\n- ‸cd"
+ },
+ {
+  "name": "Enter at an item's end opens an empty item",
+  "before": "- abc‸",
+  "command": "Enter",
+  "after": "- abc\n- ‸"
+ },
+ {
+  "name": "Enter keeps the bullet as typed",
+  "before": "* a‸\n+ b",
+  "command": "Enter",
+  "after": "* a\n* ‸\n+ b"
+ },
+ {
+  "name": "Shift+Enter in an item is Enter",
+  "before": "- a‸b",
+  "command": "ShiftEnter",
+  "after": "- a\n- ‸b"
+ },
+ {
+  "name": "Enter in a task starts an unchecked task",
+  "before": "- [x] do‸ne",
+  "command": "Enter",
+  "after": "- [x] do\n- [ ] ‸ne"
+ },
+ {
+  "name": "Enter in a numbered item writes the next number",
+  "before": "1. a‸",
+  "command": "Enter",
+  "after": "1. a\n2. ‸"
+ },
+ {
+  "name": "Enter bumps the items counting in sequence below",
+  "before": "1. a‸\n2. b\n3. c",
+  "command": "Enter",
+  "after": "1. a\n2. ‸\n3. b\n4. c"
+ },
+ {
+  "name": "Enter leaves items that were not in sequence",
+  "before": "1. a‸\n1. b\n1. c",
+  "command": "Enter",
+  "after": "1. a\n2. ‸\n1. b\n1. c"
+ },
+ {
+  "name": "Bumping stops at the first item out of sequence",
+  "before": "5) a‸\n6) b\n9) c\n10) d",
+  "command": "Enter",
+  "after": "5) a\n6) ‸\n7) b\n9) c\n10) d"
+ },
+ {
+  "name": "Bumping passes over lines under an item",
+  "before": "1. a‸\n   - x\n     y\n2. b",
+  "command": "Enter",
+  "after": "1. a\n2. ‸\n   - x\n     y\n3. b"
+ },
+ {
+  "name": "Bumping passes over a fence under an item",
+  "before": "1. a‸\n   ```\n   1. code\n   ```\n2. b",
+  "command": "Enter",
+  "after": "1. a\n2. ‸\n   ```\n   1. code\n   ```\n3. b"
+ },
+ {
+  "name": "Bumping stops at a blank line",
+  "before": "1. a‸\n\n2. b",
+  "command": "Enter",
+  "after": "1. a\n2. ‸\n\n2. b"
+ },
+ {
+  "name": "Bumping stops at another delimiter",
+  "before": "1. a‸\n2) b",
+  "command": "Enter",
+  "after": "1. a\n2. ‸\n2) b"
+ },
+ {
+  "name": "Bumping stops at a bullet",
+  "before": "1. a‸\n- x\n2. b",
+  "command": "Enter",
+  "after": "1. a\n2. ‸\n- x\n2. b"
+ },
+ {
+  "name": "A number gains a digit",
+  "before": "9. a‸\n10. b",
+  "command": "Enter",
+  "after": "9. a\n10. ‸\n11. b"
+ },
+ {
+  "name": "Nested Enter bumps only its own level",
+  "before": "1. a\n   1. x‸\n   2. y\n2. b",
+  "command": "Enter",
+  "after": "1. a\n   1. x\n   2. ‸\n   3. y\n2. b"
+ },
+ {
+  "name": "Leading zeros keep their width",
+  "before": "01. a‸\n02. b",
+  "command": "Enter",
+  "after": "01. a\n02. ‸\n03. b"
+ },
+ {
+  "name": "Ten-digit numbers count on",
+  "before": "999999999. a‸\n1. b",
+  "command": "Enter",
+  "after": "999999999. a\n1000000000. ‸\n1. b"
+ },
+ {
+  "name": "A number too long to count is copied as typed",
+  "before": "1000000000000000000000000000000000000. a‸\n2. b",
+  "command": "Enter",
+  "after": "1000000000000000000000000000000000000. a\n1000000000000000000000000000000000000. ‸\n2. b"
+ },
+ {
+  "name": "A quoted item keeps its quotes",
+  "before": "> > 3) a‸",
+  "command": "Enter",
+  "after": "> > 3) a\n> > 4) ‸"
+ },
+ {
+  "name": "An item keeps its own indent",
+  "before": "\t- a‸\n   - b",
+  "command": "Enter",
+  "after": "\t- a\n\t- ‸\n   - b"
+ },
+ {
+  "name": "Enter keeps a CRLF note's line endings",
+  "before": "- a‸\r\n- b",
+  "command": "Enter",
+  "after": "- a\r\n- ‸\r\n- b"
+ },
+ {
+  "name": "Enter on the last line takes the ending above it",
+  "before": "- x\r\n- a‸",
+  "command": "Enter",
+  "after": "- x\r\n- a\r\n- ‸"
+ },
+ {
+  "name": "Enter splits bold into two bold runs",
+  "before": "- **ab‸cd**",
+  "command": "Enter",
+  "after": "- **ab**\n- **‸cd**"
+ },
+ {
+  "name": "Enter splits formatting in a CRLF list",
+  "before": "* __a‸b__\r\n\r\n+ keep",
+  "command": "Enter",
+  "after": "* __a__\r\n* __‸b__\r\n\r\n+ keep"
+ },
+ {
+  "name": "Enter at the end of bold leaves no empty marks",
+  "before": "- **ab‸**",
+  "command": "Enter",
+  "after": "- **ab**\n- ‸"
+ },
+ {
+  "name": "Enter splits inline code",
+  "before": "- `a‸b`",
+  "command": "Enter",
+  "after": "- `a`\n- `‸b`"
+ },
+ {
+  "name": "#353: a link cannot cross a line, so Enter splits it into two links",
+  "before": "- [te‸xt](u)",
+  "command": "Enter",
+  "after": "- [te](u)\n- [‸xt](u)"
+ },
+ {
+  "name": "#353: Backspace on the line split out of a link deletes the character",
+  "before": "Intro a [l‸\n ](https://example.com)a quote\n> second line\n",
+  "command": "Backspace",
+  "after": "Intro a [‸\n ](https://example.com)a quote\n> second line\n"
+ },
+ {
+  "name": "A wikilink is not split into two notes",
+  "before": "- [[no‸te]]",
+  "command": "Enter",
+  "after": "- [[no\n- ‸te]]"
+ },
+ {
+  "name": "A heading marker in an item's text is text",
+  "before": "- ## ab ##‸",
+  "command": "Enter",
+  "after": "- ## ab ##\n- ‸"
+ },
+ {
+  "name": "#414: Enter in a task item with a lone CR",
+  "before": "- [ ] a‸\r#",
+  "command": "Enter",
+  "after": "- [ ] a\n- [ ] ‸\r#"
+ },
+ {
+  "name": "#414: Enter in a bullet whose box a lone CR breaks",
+  "before": "- [‸ ]\r#",
+  "command": "Enter",
+  "after": "- [\n- ‸ ]\r#"
+ },
+ {
+  "name": "Enter at an item's start opens an empty item above",
+  "before": "- a\n- ‸b",
+  "command": "Enter",
+  "after": "- a\n- \n- ‸b"
+ },
+ {
+  "name": "Enter at a numbered item's start",
+  "before": "1. first step\n2. ‸second step",
+  "command": "Enter",
+  "after": "1. first step\n2. \n3. ‸second step"
+ },
+ {
+  "name": "Enter at a numbered item's start bumps the items below",
+  "before": "5) ‸ab\n6) keep",
+  "command": "Enter",
+  "after": "5) \n6) ‸ab\n7) keep"
+ },
+ {
+  "name": "Enter at a numbered item's start leaves items out of sequence",
+  "before": "5) ‸ab\n1) keep",
+  "command": "Enter",
+  "after": "5) \n6) ‸ab\n1) keep"
+ },
+ {
+  "name": "Enter at a task's start opens an unchecked task above",
+  "before": "- [x] ‸done",
+  "command": "Enter",
+  "after": "- [ ] \n- [x] ‸done"
+ },
+ {
+  "name": "Enter at the start of bold text",
+  "before": "- **‸ab**",
+  "command": "Enter",
+  "after": "- \n- **‸ab**"
+ },
+ {
+  "name": "Enter over an item's whole text keeps its state below",
+  "before": "- [X] «done»",
+  "command": "Enter",
+  "after": "- [ ] \n- [X] ‸"
+ },
+ {
+  "name": "Enter on an empty item takes its marker off",
+  "before": "- a\n- ‸",
+  "command": "Enter",
+  "after": "- a\n‸"
+ },
+ {
+  "name": "Enter on an empty task takes its marker off",
+  "before": "- [ ] ‸",
+  "command": "Enter",
+  "after": "‸"
+ },
+ {
+  "name": "Enter on an empty middle item writes no blank line",
+  "before": "1. a\n2. ‸\n3. b",
+  "command": "Enter",
+  "after": "1. a\n‸\n3. b"
+ },
+ {
+  "name": "Enter on an empty quoted item keeps the quote",
+  "before": "> - a\n> - ‸",
+  "command": "Enter",
+  "after": "> - a\n> ‸"
+ },
+ {
+  "name": "Enter on an empty item keeps CRLF",
+  "before": "* a\r\n* ‸\r\n* b",
+  "command": "Enter",
+  "after": "* a\r\n‸\r\n* b"
+ },
+ {
+  "name": "Enter on an empty indented item outdents it",
+  "before": "- a\n  - ‸",
+  "command": "Enter",
+  "after": "- a\n- ‸"
+ },
+ {
+  "name": "Enter on an empty tab-indented item outdents it",
+  "before": "- a\n\t- ‸",
+  "command": "Enter",
+  "after": "- a\n- ‸"
+ },
+ {
+  "name": "Enter on an empty nested item outdents it to its parent's indent",
+  "before": "- a\n    - b\n        - c\n        - ‸\n        - d\n    - e",
+  "command": "Enter",
+  "after": "- a\n    - b\n        - c\n    - ‸\n        - d\n    - e"
+ },
+ {
+  "name": "Enter on an empty nested numbered item outdents and renumbers",
+  "before": "1. a\n   1. b\n   2. ‸\n   3. c\n2. d",
+  "command": "Enter",
+  "after": "1. a\n   1. b\n2. ‸\n   1. c\n3. d"
+ },
+ {
+  "name": "Enter replaces a selection in an item",
+  "before": "- a«bc»d",
+  "command": "Enter",
+  "after": "- a\n- ‸d"
+ },
+ {
+  "name": "Enter over two items keeps the second item's marker",
+  "before": "* a«b\n* c»d",
+  "command": "Enter",
+  "after": "* a\n* ‸d"
+ },
+ {
+  "name": "Enter over two numbered items writes no number",
+  "before": "5) a«b\n1) c»d\n1) tail",
+  "command": "Enter",
+  "after": "5) a\n1) ‸d\n1) tail"
+ },
+ {
+  "name": "#421: Enter over lines ending in a quote keeps the quote",
+  "before": "- a«\n- b\n> »q",
+  "command": "Enter",
+  "after": "- a\n> ‸q"
+ },
+ {
+  "name": "#422: Enter over a blank line before an item keeps the item",
+  "before": "# h\n«\n- »a\n- b\n\nend\n",
+  "command": "Enter",
+  "after": "# h\n«\n- »a\n- b\n\nend\n"
+ },
+ {
+  "name": "!661: Enter over an item's end and a plain line's start",
+  "before": "1. é« \n»Intro with x\n",
+  "command": "Enter",
+  "after": "1. é\n‸Intro with x\n"
+ },
+ {
+  "name": "!661: Enter over an item's line break before a heading changes nothing",
+  "before": "1. x«\n# »h\n",
+  "command": "Enter",
+  "after": "1. x«\n# »h\n"
+ },
+ {
+  "name": "!661: Enter that would delete a fence's opening line is cancelled",
+  "before": "- a«\n```\n»c\n```\n",
+  "command": "Enter",
+  "after": "- a«\n```\n»c\n```\n"
+ },
+ {
+  "name": "!661: Enter over an item's end and a quote keeps the quote",
+  "before": "- a« b\n> »q\n",
+  "command": "Enter",
+  "after": "- a\n> ‸q\n"
+ },
+ {
+  "name": "!661: Enter over a CRLF line break changes nothing",
+  "before": "- a«\r\n- »b",
+  "command": "Enter",
+  "after": "- a«\r\n- »b"
+ },
+ {
+  "name": "Enter on a plain line under an item writes a bare line break",
+  "before": "- a\nb‸",
+  "command": "Enter",
+  "after": "- a\nb\n‸"
+ }
+]

@@ -1,0 +1,182 @@
+[
+ {
+  "name": "Indent writes a tab",
+  "before": "- a\n- ‸b",
+  "command": "Indent",
+  "after": "- a\n\t- ‸b"
+ },
+ {
+  "name": "Tab on an item indents it",
+  "before": "- a\n- ‸b",
+  "command": "Tab",
+  "after": "- a\n\t- ‸b"
+ },
+ {
+  "name": "Tab on a plain line does nothing",
+  "before": "- a\n‸b",
+  "command": "Tab",
+  "after": "- a\n‸b"
+ },
+ {
+  "name": "Indent on a plain line does nothing",
+  "before": "‸a",
+  "command": "Indent",
+  "after": "‸a"
+ },
+ {
+  "name": "Indent on a list's first item",
+  "before": "- ‸a",
+  "command": "Indent",
+  "after": "\t- ‸a"
+ },
+ {
+  "name": "Indent writes the tab after the quotes",
+  "before": "> - a\n> - ‸b",
+  "command": "Indent",
+  "after": "> - a\n> \t- ‸b"
+ },
+ {
+  "name": "Indent moves the lines under the item",
+  "before": "- a\n- ‸b\n  - c\n    d\n- e",
+  "command": "Indent",
+  "after": "- a\n\t- ‸b\n\t  - c\n\t    d\n- e"
+ },
+ {
+  "name": "Indent moves a fence under the item",
+  "before": "- before\n- ‸parent\n  ```\n    \n  ```",
+  "command": "Indent",
+  "after": "- before\n\t- ‸parent\n\t  ```\n\t    \n\t  ```"
+ },
+ {
+  "name": "Indent every selected item",
+  "before": "* parent\n* «one\n* two»\n* keep",
+  "command": "Indent",
+  "after": "* parent\n\t* «one\n\t* two»\n* keep"
+ },
+ {
+  "name": "Indent a numbered item: a new sub-list counts from 1 and the rest close up",
+  "before": "1. a\n2. b\n3. ‸c\n4. d",
+  "command": "Indent",
+  "after": "1. a\n2. b\n\t1. ‸c\n3. d"
+ },
+ {
+  "name": "Indent a numbered item under a numbered sub-list counts on",
+  "before": "1. a\n\t1. x\n2. ‸b\n3. c",
+  "command": "Indent",
+  "after": "1. a\n\t1. x\n\t2. ‸b\n2. c"
+ },
+ {
+  "name": "Indent an empty item",
+  "before": "- a\n- ‸",
+  "command": "Indent",
+  "after": "- a\n\t- ‸"
+ },
+ {
+  "name": "Indent an empty numbered item",
+  "before": "1. a\n2. ‸",
+  "command": "Indent",
+  "after": "1. a\n\t1. ‸"
+ },
+ {
+  "name": "Indent an empty task",
+  "before": "- [ ] a\n- [ ] ‸",
+  "command": "Indent",
+  "after": "- [ ] a\n\t- [ ] ‸"
+ },
+ {
+  "name": "Indent an item whose text is a quote marker",
+  "before": "- a\n- > ‸b",
+  "command": "Indent",
+  "after": "- a\n\t- > ‸b"
+ },
+ {
+  "name": "Outdent takes a tab off",
+  "before": "- a\n\t- ‸b",
+  "command": "Outdent",
+  "after": "- a\n- ‸b"
+ },
+ {
+  "name": "Shift+Tab outdents",
+  "before": "- a\n\t- ‸b",
+  "command": "ShiftTab",
+  "after": "- a\n- ‸b"
+ },
+ {
+  "name": "Outdent lines an item up with the item it sits under",
+  "before": "- a\n  - b\n    - ‸c",
+  "command": "Outdent",
+  "after": "- a\n  - b\n  - ‸c"
+ },
+ {
+  "name": "Outdent in a four-space note",
+  "before": "- a\n    - b\n        - ‸c",
+  "command": "Outdent",
+  "after": "- a\n    - b\n    - ‸c"
+ },
+ {
+  "name": "Outdent moves the lines under the item",
+  "before": "- parent\n  - ‸child\n    - grandchild",
+  "command": "Outdent",
+  "after": "- parent\n- ‸child\n  - grandchild"
+ },
+ {
+  "name": "Outdent moves a fence under the item",
+  "before": "- a\n  - ‸b\n    ```\n    code\n    ```",
+  "command": "Outdent",
+  "after": "- a\n- ‸b\n  ```\n  code\n  ```"
+ },
+ {
+  "name": "Outdent in a quote",
+  "before": "> - a\n>   - ‸b",
+  "command": "Outdent",
+  "after": "> - a\n> - ‸b"
+ },
+ {
+  "name": "Outdent a tab in a quote",
+  "before": "> - a\n> \t- ‸b",
+  "command": "Outdent",
+  "after": "> - a\n> - ‸b"
+ },
+ {
+  "name": "Outdent on an item with no indent does nothing",
+  "before": "- ‸a",
+  "command": "Outdent",
+  "after": "- ‸a"
+ },
+ {
+  "name": "Outdent with no item above takes one tab off",
+  "before": "\t\t- ‸a",
+  "command": "Outdent",
+  "after": "\t- ‸a"
+ },
+ {
+  "name": "Outdent with no item above takes the spaces off",
+  "before": "   - ‸a",
+  "command": "Outdent",
+  "after": "- ‸a"
+ },
+ {
+  "name": "Outdent a numbered item into its parent's list",
+  "before": "1. a\n   1. ‸b\n   2. c\n2. d",
+  "command": "Outdent",
+  "after": "1. a\n2. ‸b\n   1. c\n3. d"
+ },
+ {
+  "name": "Outdent a numbered item's last child",
+  "before": "1. a\n   1. b\n   2. ‸c\n2. d",
+  "command": "Outdent",
+  "after": "1. a\n   1. b\n2. ‸c\n3. d"
+ },
+ {
+  "name": "Outdent a numbered item under a bullet keeps its number",
+  "before": "- a\n  1) ‸b",
+  "command": "Outdent",
+  "after": "- a\n1) ‸b"
+ },
+ {
+  "name": "Outdent every selected item, each one level",
+  "before": "- a\n\t- «b\n\t\t- c»",
+  "command": "Outdent",
+  "after": "- a\n- «b\n\t- c»"
+ }
+]

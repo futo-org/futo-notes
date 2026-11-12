@@ -4,6 +4,7 @@ mod commands;
 mod external;
 mod find;
 mod images;
+mod lists;
 mod projection;
 mod properties;
 mod quick_open;
