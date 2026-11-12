@@ -89,8 +89,12 @@ chain once, before the commit.
 
 For documentation/tooling-only edits, run `just check-agent-docs` and
 `just check-qa-input-safety`, plus tests for any changed executable tooling.
-Spec edits also require the workflow in `docs/spec/AGENTS.md`. CI changes need a
-real pipeline on the changed head with the affected jobs actually executed.
+Spec edits also require the workflow in `docs/spec/AGENTS.md`. Merge requests get
+no pipeline, so a CI change first runs on main after the merge: run the CI
+contract tests (`scripts/premerge-test-parity.test.mjs` and its siblings, part of
+`just check`) before it, and
+after it confirm with `just ci-wait main` that the affected jobs actually ran and
+passed. Tag-only jobs follow `/ci-doctor` Step 4.
 
 Do not pipe checks through `head` or `tail` without `pipefail`; use the recipes so
 failed builds cannot look green. Read each check's result before continuing.

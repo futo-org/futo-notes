@@ -22,52 +22,11 @@ const gitlabYamlSchema = CORE_SCHEMA.withTags(
 );
 
 describe('pre-merge CI routing contracts', () => {
-  it('runs Rust/WASM and iOS consumers for captured-input fixture-only changes', () => {
-    for (const jobName of [/^test:rust:workspace:$/m, /^test:ios-native:$/m]) {
-      const job = topLevelBlock(gitlabPipeline, jobName);
-      const anchor = job.indexOf('changes: &');
-      const start = job.lastIndexOf('$CI_MERGE_REQUEST_IID', anchor);
-      const rule = job.slice(start);
-      const changes = rule.slice(rule.indexOf('changes:'), rule.indexOf('- if:'));
-      expect(changes, `${jobName} must run the captured-input consumers`).toContain(
-        '- tests/fixtures/editor-native-input/**/*\n',
-      );
-    }
-  });
-
-  it('runs iOS consumers for shared editor fixture-only changes', () => {
-    const job = topLevelBlock(gitlabPipeline, /^test:ios-native:$/m);
-    const anchor = job.indexOf('changes: &native-ios-test-changes');
-    const start = job.lastIndexOf('$CI_MERGE_REQUEST_IID', anchor);
-    const rule = job.slice(start);
-    const changes = rule.slice(rule.indexOf('changes:'), rule.indexOf('- if:'));
-    // Both structural-seams.json and fence-physical-rows.json are shared
-    // inputs to the Swift consumer, even when no apps/ios path changes.
-    expect(changes, 'fixture-only MRs must run the existing iOS consumers').toContain(
-      '- crates/futo-notes-editor/tests/fixtures/**/*\n',
-    );
-  });
-
   it('has no duplicate mapping keys in any pipeline file', () => {
     // GitLab keeps the last of two same-named keys without a warning: a stale
     // second `changes:` once replaced main's sync-suite path list.
     for (const [file, source] of Object.entries(gitlabPipelineSources)) {
       expect(() => load(source, { schema: gitlabYamlSchema, filename: file })).not.toThrow();
-    }
-  });
-
-  it('keeps the internal Windows VM chain together when its build script changes', () => {
-    // A ci/win-build.ps1-only MR previously included the build without its
-    // provision job, so GitLab rejected the entire pipeline before any job ran.
-    for (const name of [
-      'windows:provision:internal',
-      'build:desktop-internal:windows',
-      'windows:cleanup:internal',
-    ]) {
-      const block = topLevelBlock(gitlabPipeline, new RegExp(`^${name}:$`, 'm'));
-      const mrRule = block.slice(block.lastIndexOf('    - if: $CI_MERGE_REQUEST_IID'));
-      expect(mrRule).toContain('      changes:');
-      expect(mrRule).toContain('        - ci/win-build.ps1');
     }
   });
 
@@ -110,23 +69,12 @@ describe('pre-merge CI routing contracts', () => {
     expect(packageScripts['test:e2e:rest']).toContain('--workers=2');
   });
 
-  it('does not recompress the shared Rust target cache after source-only MR jobs', () => {
-    const rustWorkspaceJob = topLevelBlock(gitlabPipeline, /^test:rust:workspace:$/m);
-
-    expect(rustWorkspaceJob).toContain('CARGO_CACHE_POLICY: pull');
-    expect(rustWorkspaceJob).toContain('- $LINUX_RUNNER_TAG');
-    expect(rustWorkspaceJob).toContain('needs: []');
-    expect(rustWorkspaceJob).toContain('Cargo.lock');
-    expect(rustWorkspaceJob).toContain('CARGO_CACHE_POLICY: pull-push');
-  });
-
   it('puts only short script-only jobs on the light runner tag, never an image or build job', () => {
     // Runner 71 takes $LIGHT_RUNNER_TAG (dind_fast); under load it ran heavy jobs
     // 4-18x slower than 112, so every heavy job stays on $LINUX_RUNNER_TAG.
     expect(gitlabPipeline).toMatch(/^ {2}LIGHT_RUNNER_TAG: dind_fast$/m);
     for (const name of [
       'check:release-notes',
-      'check:release-notes:mr',
       'test:audit',
       'test:localization-audit',
       'test:puppet-gates',
@@ -146,13 +94,6 @@ describe('pre-merge CI routing contracts', () => {
     expect(templates).not.toContain('CI_COMMIT_REF_SLUG');
     for (const name of ['cargo-tauri', 'native']) {
       expect(templates).toContain(`key: ${name}-$CARGO_CACHE_EPOCH-$CI_DEFAULT_BRANCH`);
-    }
-    for (const file of ['test-rust.yml', 'test-sync.yml', 'android.yml']) {
-      const text = readFileSync(new URL(`../ci/${file}`, import.meta.url), 'utf8');
-      // An MR rule that sets pull-push would upload a per-MR copy of target/.
-      expect(text, file).not.toMatch(
-        /- if: \$CI_MERGE_REQUEST_IID\n(?:\s+changes:[^\n]*\n(?:\s+- [^\n]*\n)+)?\s+variables:\n\s+CARGO_CACHE_POLICY: pull-push/,
-      );
     }
   });
 
@@ -175,41 +116,6 @@ describe('pre-merge CI routing contracts', () => {
       /^pkg-futoinfra:trigger:$/m,
     ]) {
       expect(topLevelBlock(gitlabPipeline, jobName)).toContain(stableTag);
-    }
-  });
-
-  it('runs the editor-bundle MR jobs for every directory in the bundle import graph', () => {
-    const bundleInputs = [
-      'src/editor-embed/**/*',
-      'src/features/editor/**/*',
-      'src/styles/**/*',
-      'src/features/images/**/*',
-      'packages/editor/**/*',
-      'editor.html',
-      'vite.editor.config.ts',
-      'src/lib/platform/**/*',
-      'src/lib/localNoteStore.ts',
-      'src/lib/rules.ts',
-      'src/shared/**/*',
-      'src/features/sync/**/*',
-      'src/features/notes/**/*',
-      'src/features/folders/**/*',
-      'svelte.config.js',
-    ];
-    for (const jobName of [/^test:e2e:editor-embed:$/m, /^test:ios-native:$/m]) {
-      const job = topLevelBlock(gitlabPipeline, jobName);
-      // The anchored rule is the bundle gate; test:ios-native puts its
-      // apps/ios-only UI-tier rule ahead of it.
-      const anchor = job.indexOf('changes: &');
-      const start =
-        anchor >= 0
-          ? job.lastIndexOf('$CI_MERGE_REQUEST_IID', anchor)
-          : job.indexOf('$CI_MERGE_REQUEST_IID');
-      const mrRule = job.slice(start);
-      const changes = mrRule.slice(mrRule.indexOf('changes:'), mrRule.indexOf('- if:'));
-      for (const glob of bundleInputs) {
-        expect(changes, `${jobName} MR changes: is missing ${glob}`).toContain(`- ${glob}\n`);
-      }
     }
   });
 
@@ -260,7 +166,7 @@ describe('pre-merge CI routing contracts', () => {
     expect(ffiJob).not.toContain('resource_group');
   });
 
-  it('runs the Windows Rust tests on crate MRs behind the bring-up switch', () => {
+  it('runs the Windows Rust tests on crate changes behind the bring-up switch', () => {
     const win = topLevelBlock(gitlabPipeline, /^test:rust:windows:$/m);
     const releaseGate = topLevelBlock(gitlabPipeline, /^release:gate:$/m);
 

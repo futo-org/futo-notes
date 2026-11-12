@@ -55,7 +55,7 @@ ci-wait *args:
   #!/usr/bin/env bash
   exec node scripts/ci-wait.mjs wait "$@"
 
-# Open MRs oldest first: iid, draft/ready, head-pipeline status, branch, title.
+# Open MRs oldest first: iid, draft/ready, created date, branch, title.
 mr-status:
   @node scripts/ci-wait.mjs mr-status
 

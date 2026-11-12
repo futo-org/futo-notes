@@ -88,17 +88,25 @@ Apply the rule for the class; do not just patch the symptom:
 6. **Flakes get root-caused** — wait on conditions/events, not durations; don't assert exact
    user-facing strings. One commented timeout bump is the ceiling; a second bump on the same job
    means find the real cause.
-7. Keep MR-blocking vs `allow_failure`/manual intent explicit in `rules:` — don't accidentally
+7. Keep blocking vs `allow_failure`/manual intent explicit in `rules:` — don't accidentally
    promote a manual job to blocking or vice versa.
+8. **Merge requests get no pipeline.** `workflow:` in `.gitlab-ci.yml` admits only tags and the
+   default branch; the MR author runs `just check` locally instead. Don't add an MR rule to a
+   job: a suite that must run before tag time gets a default-branch `changes:` rule.
 
 ## Step 4 — Verify without burning a tag
 
-- **MR-scoped jobs**: push a branch/MR and watch that pipeline.
+- **Main-pipeline jobs**: run the job's script locally where possible, merge, then watch the main
+  push with `just ci-wait main` and confirm the job ran (not skipped by `changes:`) and passed.
 - **Tag-only jobs**: never verify by tagging. Options, in order of preference:
   1. Run the job's script locally with the same inputs (most publish scripts are
      `scripts/*.py|mjs|sh` — they run outside CI).
-  2. Push a temp branch with a one-commit rule override making the job run on that branch
-     (`rules: - if: $CI_COMMIT_BRANCH == "ci-dryrun-x"`); revert before merge.
+  2. A numeric prerelease tag (`v1.9.0-4`): it runs every build plus `release:gate`, but no
+     stable publish job. Tagging is still an ask-first action. `release:internal` creates a
+     GitLab Release, so first confirm it still passes `--released-at 2000-01-01` (otherwise it
+     takes over `releases/permalink/latest`, the production updater URL), and afterwards check
+     that permalink still resolves to the stable version. A branch cannot get a pipeline:
+     `workflow:` admits only tags and the default branch.
   3. For the updater path specifically: `node scripts/release-build.mjs e2e` rehearses
      build→sign→serve→verify end-to-end with localdev keys.
 - **After a failed tag**: fix on main first. Then ask the user before any retag/new tag

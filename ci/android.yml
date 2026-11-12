@@ -3,8 +3,8 @@
 # ─────────────────────────────────────────────────────────────
 # Native app shells (Compose / SwiftUI) — NOT Tauri. Same Rust core
 # (futo-notes-ffi via UniFFI) + the embedded editor.html bundle. These are the
-# release mobile apps on tags; on MRs/default-branch pushes they remain
-# build-only verification jobs with no device install.
+# release mobile apps on tags; on default-branch pushes they remain build-only
+# verification jobs with no device install.
 # ─────────────────────────────────────────────────────────────
 
 build:android-native:
@@ -29,7 +29,6 @@ build:android-native:
     # Gradle wrapper dist + dependency cache (GRADLE_USER_HOME below).
     - !reference [.cache-gradle-native, cache]
   variables:
-    CARGO_CACHE_POLICY: pull
     ANDROID_HOME: /opt/android-sdk
     ANDROID_SDK_ROOT: /opt/android-sdk
     JAVA_HOME: /opt/jdk-21
@@ -120,7 +119,7 @@ build:android-native:
     # Off tags, both flavors' DEBUG APKs are assembled — that is the only thing
     # that compiles a play-only source set or buildConfigField before release
     # day, and the pure-logic JVM unit tests run for BOTH flavors whenever this
-    # job runs — MR/default pipelines via its changes gate, and ALWAYS on tag
+    # job runs — default-branch pushes via its changes gate, and ALWAYS on tag
     # builds — so a release can't ship past a red unit test, and
     # DistributionFlavorTest's per-flavor assertions are evaluated on both
     # sides. This job is a release:gate dependency, so a failure here blocks
@@ -190,8 +189,8 @@ build:android-native:
   timeout: 90m
   rules:
     - !reference [.not-scheduled, rules]
-    - if: $CI_MERGE_REQUEST_IID
-      changes: &native-android-changes
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
         - apps/android/**/*
         - crates/futo-notes-ffi/**/*
         - Cargo.lock
@@ -201,10 +200,4 @@ build:android-native:
         - scripts/build-rust-android.sh
         - scripts/ci-android-instrumentation.sh
         - scripts/ci-android-emulator.sh
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: *native-android-changes
-      variables:
-        CARGO_CACHE_POLICY: pull-push
     - if: $CI_COMMIT_TAG
-      variables:
-        CARGO_CACHE_POLICY: pull-push

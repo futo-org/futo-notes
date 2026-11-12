@@ -158,17 +158,6 @@ build:linux-appimage:
     expire_in: 4 weeks
   rules:
     - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - ci/*.yml
-        - .gitlab-ci.yml
-        - scripts/patch-appimage.mjs
-        - scripts/patch-appimage.test.mjs
-        - scripts/prepare-appimage-signing-environment.sh
-        - scripts/release-build.mjs
-        - scripts/release-build.test.mjs
-      when: manual
-      allow_failure: true
 
 # Dogfood download of the futo-notes CLI (apps/cli): a static musl binary that
 # runs on any x86_64 Linux. Manual on purpose: the CLI is not a release
@@ -210,6 +199,6 @@ build:cli:linux:
     - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_TAG
       when: never
-    - if: $CI_MERGE_REQUEST_IID || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_PIPELINE_SOURCE == "web"
       when: manual
       allow_failure: true
