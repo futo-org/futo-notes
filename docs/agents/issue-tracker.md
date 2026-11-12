@@ -97,7 +97,7 @@ create` will not say so.** This project is public, so every _read_ succeeds with
   ```bash
   set -euo pipefail
   glab api --hostname gitlab.futo.org "projects/488/merge_requests/$mr_iid" \
-    | jq -e '.head_pipeline // error("MR has no head pipeline") | {id, status, web_url}'
+    | jq -e '.detailed_merge_status // error("no merge status") | .'
   ```
 
   Set `mr_iid` to the merge request number first. Project **488** is
@@ -106,8 +106,8 @@ create` will not say so.** This project is public, so every _read_ succeeds with
 
 - **Pipeline `view` is an interactive terminal UI.** It requires a TTY even
   for a read. For scripts, use `glab ci get --pipeline-id "$pipeline_id" --output json`,
-  `glab ci status`, or the REST API. For waiting on the MR's actual head
-  pipeline, use `just ci-wait "mr:$mr_iid" --json`.
+  `glab ci status`, or the REST API. To wait on a pipeline, use
+  `just ci-wait <pipeline-id|sha|branch> --json`. Merge requests get no pipeline.
 
   `glab pipeline list` uses `--ref` on the installed CLI, not `--branch`;
   `glab ci get` and `glab ci status` do accept `--branch`. Check the specific

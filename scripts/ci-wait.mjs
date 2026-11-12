@@ -7,13 +7,14 @@
 //
 //   just ci-wait <pipeline-id>    # exact pipeline in this project
 //   just ci-wait <sha>            # newest pipeline for that sha
-//   just ci-wait mr:291           # the MR's head pipeline (also `!291`)
 //   just ci-wait <branch>         # newest pipeline for that ref
 //   Numeric names: use sha:<sha> or ref:<branch> to distinguish them from IDs.
 //   options: --timeout <min> (45) --interval <sec> (20) --json --no-trace
 //   exit: 0 success · 1 failed/canceled/skipped/blocked-on-manual · 2 timeout
 //         3 usage/auth/no pipeline
-//   just mr-status                # open MRs, oldest first, with head pipeline
+//   just mr-status                # open MRs, oldest first
+// Merge requests get no pipeline (.gitlab-ci.yml workflow:), so there is no
+// MR target: `mr:291` / `!291` is a usage error, not a branch name.
 //
 // Uses the REST API with $GITLAB_TOKEN, falling back to the configured glab
 // credential for gitlab.futo.org when the environment does not supply one.
@@ -25,8 +26,7 @@ export const TERMINAL = new Set(['success', 'failed', 'canceled', 'skipped', 'ma
 
 export function parseTarget(arg) {
   if (!arg) return null;
-  const mr = arg.match(/^(?:!|mr:)(\d+)$/);
-  if (mr) return { kind: 'mr', iid: Number(mr[1]) };
+  if (/^(?:!|mr:)\d+$/.test(arg)) return null;
   const pipeline = arg.match(/^(?:pipeline:)?([1-9]\d*)$/);
   if (pipeline && Number.isSafeInteger(Number(pipeline[1])))
     return { kind: 'pipeline', id: Number(pipeline[1]) };
@@ -78,12 +78,6 @@ export function makeApi(token, fetchImpl = globalThis.fetch) {
 
 export async function findPipeline(target, api) {
   if (target.kind === 'pipeline') return api.json(`/pipelines/${target.id}`);
-  if (target.kind === 'mr') {
-    const mr = await api.json(`/merge_requests/${target.iid}`);
-    if (mr.head_pipeline) return mr.head_pipeline;
-    const list = await api.json(`/merge_requests/${target.iid}/pipelines?per_page=1`);
-    return list[0] ?? null;
-  }
   const query =
     target.kind === 'sha' ? `sha=${target.sha}` : `ref=${encodeURIComponent(target.ref)}`;
   const list = await api.json(`/pipelines?${query}&per_page=1`);
@@ -184,16 +178,15 @@ export function formatResult(r) {
 
 export function formatMrLine(mr) {
   const state = mr.draft ? 'draft' : 'ready';
-  const pipe = mr.head_pipeline?.status ?? 'no-pipeline';
   const conflicts = mr.has_conflicts ? ' CONFLICTS' : '';
-  return `!${String(mr.iid).padEnd(5)} ${state.padEnd(6)} ${pipe.padEnd(9)} ${String(mr.created_at ?? '').slice(0, 10)}  ${String(mr.source_branch).slice(0, 34).padEnd(34)} ${String(mr.title).slice(0, 60)}${conflicts}`;
+  return `!${String(mr.iid).padEnd(5)} ${state.padEnd(6)} ${String(mr.created_at ?? '').slice(0, 10)}  ${String(mr.source_branch).slice(0, 34).padEnd(34)} ${String(mr.title).slice(0, 60)}${conflicts}`;
 }
 
 export async function mrStatus(api, { log = (s) => process.stdout.write(s + '\n') } = {}) {
   const list = await api.json(
     `/merge_requests?state=opened&order_by=created_at&sort=asc&per_page=100`,
   );
-  log(`IID    STATE  PIPELINE  CREATED     BRANCH                             TITLE`);
+  log(`IID    STATE  CREATED     BRANCH                             TITLE`);
   const rows = [];
   for (const brief of list) {
     const mr = await api.json(`/merge_requests/${brief.iid}`);
@@ -231,13 +224,15 @@ async function main() {
   }
   if (cmd !== 'wait') {
     process.stderr.write(
-      'usage: ci-wait.mjs wait <pipeline-id|sha|mr:N|branch> [--timeout min] [--interval sec] [--json] [--no-trace] | ci-wait.mjs mr-status\n',
+      'usage: ci-wait.mjs wait <pipeline-id|sha|branch> [--timeout min] [--interval sec] [--json] [--no-trace] | ci-wait.mjs mr-status\n',
     );
     process.exit(3);
   }
   const target = parseTarget(flags._[0]);
   if (!target) {
-    process.stderr.write('usage: just ci-wait <pipeline-id|sha|mr:N|branch>\n');
+    process.stderr.write(
+      'usage: just ci-wait <pipeline-id|sha|branch> (merge requests get no pipeline)\n',
+    );
     process.exit(3);
   }
   const result = await waitForPipeline(target, {

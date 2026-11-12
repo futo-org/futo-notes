@@ -90,15 +90,6 @@ build:desktop-internal:linux:
     expire_in: 4 weeks
   rules:
     - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
-    # Manual MR rehearsal, same pattern as build:linux-appimage — lets this
-    # job's script be exercised on an MR pipeline before ever pushing the
-    # throwaway prerelease tag (M13).
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - ci/*.yml
-        - .gitlab-ci.yml
-      when: manual
-      allow_failure: true
 
 # Internal, hosted-enabled macOS build — same D2/C8 as above. Invokes
 # buildFutoNotesMacOSInternal in .cirrus.yml, which deliberately never
@@ -130,17 +121,3 @@ build:desktop-internal:macos:
     expire_in: 4 weeks
   rules:
     - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
-    # Manual MR rehearsal, same pattern as build:desktop-internal:linux (M13).
-    # Unlike build:macos (no MR rule at all — it needs MACOS_CERT_PASSWORD,
-    # a protected var unavailable on non-protected-branch MR pipelines), this
-    # job needs zero Apple secrets (see the comment above), so it can safely
-    # run there.
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - ci/*.yml
-        - .gitlab-ci.yml
-        - .cirrus.star
-        - ci/cirrus/*.yml
-        - .cirrus.yml
-      when: manual
-      allow_failure: true

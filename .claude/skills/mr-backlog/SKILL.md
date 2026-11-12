@@ -33,7 +33,7 @@ for m in json.load(sys.stdin):
 ```
 
 Skip drafts unless asked. Then for each MR pull its `detailed_merge_status`,
-`has_conflicts`, head pipeline, and its **comment history** (Step 1b). Two
+`has_conflicts`, and its **comment history** (Step 1b). Two
 buckets:
 
 - **Has unaddressed review comments** → address them (or comment back).
@@ -209,13 +209,11 @@ curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" --request PUT \
   "$API/merge_requests/<B>?target_branch=<A-branch>"
 ```
 
-### Before blaming a stacked MR's red pipeline, check its base is fresh
+### Before blaming a stacked MR's failing check, check its base is fresh
 
-A stacked MR's pipeline runs ITS OWN branch head, which can sit on a **stale
-parent**. !204/!205 were stacked on !203 from before !203's fix commit, so
-`test:e2e:rest` failed on them and the failure was attributed to !203 — whose own
-pipeline was green on that very test. Nothing in the MR view or the job log says
-"this pipeline does not contain the parent MR's current head", and it cost a
+A stacked MR's branch can sit on a **stale parent**. !204/!205 were stacked on
+!203 from before !203's fix commit, so `test:e2e:rest` failed on them and the
+failure was attributed to !203, which passed that very test. It cost a
 multi-hour root-cause hunt.
 
 For a stacked MR (one whose `target_branch` is another open MR's `source_branch`),
@@ -224,12 +222,12 @@ assert the parent's tip is actually in the child's history:
 ```bash
 git fetch --quiet origin
 git merge-base --is-ancestor origin/<target_branch> origin/<source_branch> \
-  && echo "base fresh" || echo "STALE BASE — this pipeline predates its parent's head"
+  && echo "base fresh" || echo "STALE BASE — this branch predates its parent's head"
 ```
 
-A `STALE BASE` means the run tested a base without the parent's current head, so
-**its failures are not attributable to its own diff** — rebase onto the parent and
-re-run before triaging anything.
+A `STALE BASE` means a check run on it tested a base without the parent's current
+head, so **its failures are not attributable to its own diff**: rebase onto the
+parent and re-run before triaging anything.
 
 Scope this to stacked MRs only. Run against `main` it would fire for every MR
 that is merely behind main, which is normal, and the noise would bury the signal.
@@ -249,24 +247,11 @@ Only with explicit authorization. For each MR, in order:
 
 1. Re-check `detailed_merge_status`. After main moves it flips to `checking`
    for a few seconds — poll, don't treat it as blocked.
-2. **Check the jobs yourself.** `only_allow_merge_if_pipeline_succeeds` is
-   **off** on this project, so GitLab will let you merge over a red or unfinished
-   pipeline. Gate on: no `failed` job with `allow_failure=False`, and no
-   `running`/`pending` one either. `manual` and `allow_failure=True` don't block.
-   The macOS runner is serialized at ~8 min/job — that is a wait, not a failure.
+2. **Run `just check` in the MR's worktree on its current head.** Merge requests
+   get no pipeline (the `workflow:` rules in `.gitlab-ci.yml`), so this local run
+   is the only check before the merge. Main's pipeline re-runs the affected
+   suites after it.
 3. Merge, then re-fetch main and re-verify the next MR against it.
-
-`PID` is the MR's `head_pipeline.id`. It can be `null` right after a retarget —
-fall back to `"$API/pipelines?ref=<branch>&per_page=5"`.
-
-```bash
-curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$API/pipelines/$PID/jobs?per_page=100" \
-  | python3 -c "
-import json,sys
-js=json.load(sys.stdin)
-print('open:',[j['name'] for j in js if j['status'] in ('running','pending','created') and not j['allow_failure']] or 'none')
-print('fails:',[j['name'] for j in js if j['status']=='failed' and not j['allow_failure']] or 'none')"
-```
 
 **Closing** an MR is the user's call exactly like merging. Recommend it with
 evidence (`main already has this — git show <sha>`), and never close another
@@ -283,8 +268,8 @@ author's MR yourself; put the recommendation in a comment.
 Before declaring a branch green, the floor is **`pnpm run check:arch-gate:portable`
 plus `just toolbar-spec-check title-spec-check`** — the portable arch gate does
 NOT include those two. `just check` is the real gate when time allows.
-Hand-picking two or three gates is how a branch gets called green and then fails
-its pipeline.
+Hand-picking two or three gates is how a branch gets called green and then turns
+main's pipeline red after the merge.
 
 ## Local commands can have real side effects
 
@@ -337,5 +322,5 @@ it safely (regenerate generated files; watch the ratchet).
 
 Per MR: verdict, what you verified with real command output, defects, what you
 changed. Then the merge order and its reasoning. Corrections belong up front —
-if you called an MR green and its pipeline then failed, say that plainly before
+if you called an MR green and main's pipeline then failed on it, say that plainly before
 anything else. Finish with what is still open and who owns it.

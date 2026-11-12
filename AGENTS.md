@@ -199,9 +199,9 @@ once on device, and commit; the full suites run once, on the merged branch. Repo
 | **7.5**  | Sync             | `crates/futo-notes-sync/AGENTS.md`; preserve push-first                                                  |
 | **7.6**  | iOS              | `apps/ios/AGENTS.md`                                                                                     |
 | **7.7**  | Android          | `apps/android/AGENTS.md`                                                                                 |
-| **7.8**  | CI               | real pipeline + `/ci-doctor`                                                                             |
+| **7.8**  | CI               | `/ci-doctor`; MRs get no pipeline, so watch the main push after merge                                    |
 | **7.9**  | Any regression   | failing regression first, then owner chain                                                               |
-| **7.10** | Before merge     | `just check`; use `just prepush` for broad/risky work                                                    |
+| **7.10** | Before merge     | `just check` (the only pre-merge check: MRs get no pipeline); `just prepush` for broad/risky work        |
 
 ## 8. Testing map
 
