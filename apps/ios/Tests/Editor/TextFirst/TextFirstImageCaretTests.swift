@@ -102,7 +102,11 @@
             #expect(h.controller.engineSelection == end)
             let caret = h.tv.caretRect(for: h.tv.selectedTextRange!.end)
             #expect(abs(caret.minX - frame.maxX) <= 2, "\(caret) vs \(frame)")
-            #expect(abs(caret.maxY - frame.maxY) <= 1)
+            // Text height, level with the text the image stands on (its descent hangs below).
+            #expect(
+                caret.maxY >= frame.maxY - 1
+                    && caret.maxY <= frame.maxY + TextFirstEditorController.bodyFont.lineHeight / 3,
+                "\(caret) vs \(frame)")
             #expect(h.controller.divergences.isEmpty)
         }
 
@@ -176,7 +180,11 @@
             #expect(h.tv.selectedRange == NSRange(location: NSMaxRange(range), length: 0))
             let caret = h.tv.caretRect(for: h.tv.selectedTextRange!.end)
             #expect(abs(caret.minX - frame.maxX) <= 2, "\(caret) vs \(frame)")
-            #expect(abs(caret.maxY - frame.maxY) <= 1)
+            // Text height, level with the text the image stands on (its descent hangs below).
+            #expect(
+                caret.maxY >= frame.maxY - 1
+                    && caret.maxY <= frame.maxY + TextFirstEditorController.bodyFont.lineHeight / 3,
+                "\(caret) vs \(frame)")
         }
 
         @Test(arguments: cases) func theCaretLeavesTheImageEdgeOnceTextIsTypedAfterIt(_ c: Case)

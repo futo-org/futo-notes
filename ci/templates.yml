@@ -222,16 +222,16 @@
 
 .cache-cargo-tauri:
   cache:
-    # One rolling key for every ref, not a Cargo.lock hash: a hash key misses
-    # for every MR whose lockfile differs from the last one cached. Only main
-    # and tag pipelines write it (CARGO_CACHE_POLICY); MRs pull main's last
-    # build and cargo recompiles only what differs, so a branch never stores a
-    # 40-85 GB copy of its own. Bump CARGO_CACHE_EPOCH to drop a bloated target/.
+    # One rolling key, not a Cargo.lock hash: a hash key misses on every
+    # lockfile change and strands a 40-85 GB archive per lockfile. Only main
+    # and tag pipelines run (merge requests get none), so only they write it;
+    # cargo recompiles only what differs. Bump CARGO_CACHE_EPOCH to drop a
+    # bloated target/.
     key: cargo-tauri-$CARGO_CACHE_EPOCH-$CI_DEFAULT_BRANCH
     paths:
       - .cargo-home/
       - target/
-    policy: $CARGO_CACHE_POLICY
+    policy: pull-push
     # Upload even on failure/timeout: a cold compile that dies at the job
     # wall still seeds the cache, so the retry resumes instead of starting
     # cold again (cargo handles partial target/ dirs fine).
@@ -245,12 +245,12 @@
 # the native cargo work its own key.
 .cache-cargo-native:
   cache:
-    # One rolling key written only by main/tags; see .cache-cargo-tauri.
+    # One rolling key; see .cache-cargo-tauri.
     key: native-$CARGO_CACHE_EPOCH-$CI_DEFAULT_BRANCH
     paths:
       - .cargo-home/
       - target/
-    policy: $CARGO_CACHE_POLICY
+    policy: pull-push
     # when: always — see .cache-cargo-tauri. Critical here: this job only
     # runs on tags, so without failure uploads every tag retry starts cold.
     when: always

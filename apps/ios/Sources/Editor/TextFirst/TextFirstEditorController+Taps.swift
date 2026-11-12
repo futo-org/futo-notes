@@ -23,6 +23,18 @@
             return selected.location <= start && NSMaxRange(selected) >= rowEnd ? selected : nil
         }
 
+        /// Whether the selection covers all of `run`, a glyph run in `fragment`'s paragraph.
+        func selectionCovers(
+            _ run: NSRange, in fragment: NSTextLayoutFragment, _ manager: NSTextLayoutManager
+        ) -> Bool {
+            let selected = textView.selectedRange
+            guard selected.length > 0 else { return false }
+            let start = manager.offset(
+                from: manager.documentRange.location, to: fragment.rangeInElement.location)
+            return selected.location <= start + run.location
+                && NSMaxRange(selected) >= start + NSMaxRange(run)
+        }
+
         /// Repaint the rows whose marker highlight may change with the selection.
         func invalidateMarkerHighlights(old: NSRange, new: NSRange) {
             guard old.length > 0 || new.length > 0, let manager = textView.textLayoutManager,

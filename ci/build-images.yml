@@ -31,11 +31,6 @@ build:ci-android-image:
   rules:
     - if: $CI_PIPELINE_SOURCE == "web"
       when: manual
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - ci/android.Dockerfile
-      when: manual
-      allow_failure: true
 
 # Rebuild the pinned Linux test image. Keep this manual until the image build
 # succeeds; consumer jobs switch by digest in a follow-up commit so a broken
@@ -58,11 +53,6 @@ build:ci-test-image:
   rules:
     - if: $CI_PIPELINE_SOURCE == "web"
       when: manual
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - ci/test.Dockerfile
-      when: manual
-      allow_failure: true
 
 build:macos:
   stage: build

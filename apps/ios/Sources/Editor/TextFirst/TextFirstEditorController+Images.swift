@@ -25,6 +25,9 @@
 
         func shutdown() { loader.cancel() }
 
+        /// Whether the note has had an image in it: only then is a line's geometry worth asking.
+        var hasImages: Bool { !atoms.isEmpty }
+
         // MARK: sizes
 
         /// The width a line of text may use (the container's, before any list or quote indent).
@@ -277,11 +280,44 @@
             return plain
         }
 
-        /// Where a caret just after an image's hidden spelling is drawn: against the image's
-        /// trailing edge, as tall as a line of text and level with the bottom of the image's line,
-        /// where the text typed after it sits. Only the drawing: the position is the one UIKit
-        /// reports. Nil when `offset` is not the end of an image or its line is not laid out.
-        func imageTrailingCaret(at offset: Int, width: CGFloat) -> CGRect? {
+        /// A text-height rect standing on the baseline of the image-bearing line that holds the
+        /// text view's `rect`: UIKit sizes carets, selection rects and handles to the line, which
+        /// is as tall as its tallest image. Nil when that line has no image.
+        func onImageLine(_ rect: CGRect) -> CGRect? {
+            guard images.hasImages, let manager = textView.textLayoutManager else { return nil }
+            let y = rect.midY - inset.top
+            guard
+                let f = manager.textLayoutFragment(for: CGPoint(x: 0, y: y))
+                    as? TextFirstLayoutFragment,
+                !f.imageRuns.isEmpty,
+                let baseline = f.imageLineBaseline(atY: y - f.layoutFragmentFrame.minY)
+            else { return nil }
+            return Self.textRect(rect, baseline: baseline + f.layoutFragmentFrame.minY + inset.top)
+        }
+
+        /// `rect` as tall as a line of body text, standing on `baseline` (text view coordinates).
+        private static func textRect(_ rect: CGRect, baseline: CGFloat) -> CGRect {
+            let ascent = ceil(bodyFont.ascender)
+            return CGRect(
+                x: rect.minX, y: baseline - ascent, width: rect.width,
+                height: ceil(bodyFont.lineHeight))
+        }
+
+        /// Where the caret at `offset` is drawn when its line has an image: as tall as a line of
+        /// text, level with the text on the baseline the images stand on. Just after an image it is
+        /// against the image's trailing edge. Only the drawing: the position is the one UIKit
+        /// reports. Nil when the line has no image or is not laid out.
+        func imageLineCaret(at offset: Int, proposed: CGRect) -> CGRect? {
+            if let (x, baseline) = imageTrailingEdge(at: offset) {
+                return Self.textRect(
+                    CGRect(x: x, y: 0, width: proposed.width, height: 0), baseline: baseline)
+            }
+            return onImageLine(proposed)
+        }
+
+        /// The trailing edge of the image that ends at `offset` and its line's baseline, in text
+        /// view coordinates. Nil when `offset` is not the end of an image or its line is not laid out.
+        private func imageTrailingEdge(at offset: Int) -> (x: CGFloat, baseline: CGFloat)? {
             guard let (run, span) = image(endingAt: offset),
                 let manager = textView.textLayoutManager,
                 let content = manager.textContentManager,
@@ -300,11 +336,9 @@
                     $0.span === span && $0.range.location == run.location - start
                 }), let rect = f.imageRect(hit)
             else { return nil }
-            let height = min(rect.height, ceil(Self.bodyFont.lineHeight))
-            return CGRect(
-                x: rect.maxX + inset.left,
-                y: rect.maxY - height + f.layoutFragmentFrame.minY + inset.top,
-                width: width, height: height)
+            return (
+                rect.maxX + inset.left, rect.maxY + f.layoutFragmentFrame.minY + inset.top
+            )
         }
 
         /// The first visible line and how far into view it was, so an image that grows above

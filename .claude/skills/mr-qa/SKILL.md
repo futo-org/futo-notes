@@ -47,8 +47,8 @@ Opus only after a Sonnet attempt failed**:
 - static gates and builds
 - device QA
 - fixes
-- watching and landing pipelines — one subagent can run the wait-and-land loop
-  for a batch of MRs and report back only state changes
+- landing MRs and watching main's pipeline after each merge — one subagent can
+  run the land loop for a batch of MRs and report back only state changes
 - filing issues
 - teardown
 
@@ -101,9 +101,11 @@ drifts mid-session.
   and `git worktree list`. Stale ones from earlier passes are removed by the
   teardown step's procedure, not left to pile up (the disk filled mid-pass once).
 - **Route static-only MRs away from device QA.** A docs- or CI-only MR (e.g.
-  `.gitlab-ci.yml`) is verified by (a) a green pipeline on its head sha AND the
-  specific job it fixes having actually run (not skipped by rules), and (b) a
-  static review against AGENTS.md §6C (M11–M16). No app-qa agents.
+  `.gitlab-ci.yml`) is verified by (a) `just check` in its worktree, which
+  includes the CI contract tests, and (b) a static review against AGENTS.md §6C
+  (M11–M16). No app-qa agents. Merge requests get no pipeline, so a CI change
+  first runs on main after the merge: confirm there that the job it fixes
+  actually ran (not skipped by rules) and passed.
 
 ## Per MR (pipelines run concurrently across MRs)
 
@@ -237,16 +239,18 @@ call:
   isolation layer" is not evidence).
 - Every leg passed on the head sha being merged. A fix pushed mid-QA voids
   the passes before it on every platform the fix touches; re-drive those legs
-  on the new head. Green CI and unit tests do not stand in for the re-drive.
+  on the new head. Green unit tests do not stand in for the re-drive.
   This has already been violated: !407 merged after a fresh-iOS fix that iOS
   never re-ran.
 - No confirmed HIGH Codex finding left unfixed.
 - Coverage actually matched the diff, from this pass or a legitimately
   carried-over one. An `apps/ios` MR whose iOS leg was impossible is NO SHIP
   (insufficient coverage), however clean the desktop leg looked.
-- GitLab says it can merge: green pipeline **on the head sha**, no conflicts,
-  no unresolved discussion threads, not a draft.
-- `just check` passes in the MR's worktree if the diff touches shared code.
+- GitLab says it can merge: no conflicts, no unresolved discussion threads,
+  not a draft.
+- `just check` passes in the MR's worktree on the head sha being merged.
+  Merge requests get no pipeline, so this is the only automated check before
+  the merge.
 
 **The permitted holds are a closed list**: AGENTS.md §11's stop-and-ask items,
 and nothing else — anything under `keys/` or the updater trust boundary, a
@@ -273,21 +277,23 @@ author has it.
 
 ## Attributing a red CI job
 
-"Probably infra" is not evidence — and neither is "it went red on this MR, so
-it's this MR". **Tally the failing scenario across every recent pipeline and
-every branch**, then group by ref:
+Merge requests get no pipeline, so red CI shows up on main after a merge, or on
+a tag. "Probably infra" is not evidence — and neither is "it went red after
+this merge, so it's this MR". **Tally the failing scenario across recent main
+and tag pipelines:**
 
 ```bash
 curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
   "https://gitlab.futo.org/api/v4/projects/futo-notes%2Ffuto-notes/pipelines?per_page=50" \
-  | jq -r '.[] | "\(.ref)\t\(.status)\t\(.id)"'
+  | jq -r '.[] | "\(.ref)\t\(.status)\t\(.sha[0:8])\t\(.id)"'
 ```
 
-Same assertion failing across unrelated branches = a broken gate. Failing only
-here = the MR. The decisive case is a branch carrying **zero runtime code**: a
-docs- or CI-only MR cannot break a runtime assertion, so that job failing
-there proves the gate rather than the branch. One such failure can still be a
-flake — it took two consecutive failures on the same docs-only MR to make it
+The same assertion failing across merges that did not touch it = a broken gate
+or a flake. Failing first on one merge and on every main push after it = that
+merge. The decisive case is a merge carrying **zero runtime code**: a docs- or
+CI-only change cannot break a runtime assertion, so that job failing there
+proves the gate rather than the change. One such failure can still be a flake;
+it took two consecutive failures on the same docs-only change to make it
 conclusive. Write the tally into the report either way, so the next pass
 doesn't redo it, and treat a broken gate as its own finding (report it; M15 —
 never loosen it to get green).

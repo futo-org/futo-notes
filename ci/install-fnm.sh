@@ -48,9 +48,9 @@ done
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-# Retried: this now runs on the job that gates every merge request, where a
-# transient GitHub 5xx or a shared-runner rate limit would otherwise fail an MR
-# that has nothing to do with CI.
+# Retried: this runs at the start of nearly every job, where a transient GitHub
+# 5xx or a shared-runner rate limit would otherwise fail a pipeline that has
+# nothing to do with CI.
 curl -fsSL --retry 3 --retry-connrefused --retry-delay 2 -o "$tmp/fnm.zip" \
   "https://github.com/Schniz/fnm/releases/download/${FNM_VERSION}/${asset}"
 echo "$sha  $tmp/fnm.zip" | sha256sum -c -

@@ -34,33 +34,14 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     expect(iosStoryAvailabilityGate).toContain('iOS DEVICE STORIES SKIPPED');
   });
 
-  it('runs the same iOS unit bundle locally as CI runs on merge requests', () => {
-    // `just test-ios-native` once ran the UI bundle too: minutes of XCUITest per
-    // run for ~12s of unit tests, while the MR tier ran only the unit bundle.
-    const unitRecipe = topLevelBlock(justfile, /^test-ios-native(?=\s|:)[^\n]*$/m);
+  it('builds only the simulator slice in the iOS test job', () => {
     const iosTestTask = topLevelBlock(cirrusTasks, /^test_ios_native_task:$/m);
-    expect(unitRecipe).toContain('just _test-ios FutoNotesNativeTests');
-    expect(justfile).toContain('ONLY_TESTING=("-only-testing:$BUNDLE")');
-    expect(iosTestTask).toContain('ONLY_TESTING=(-only-testing:FutoNotesNativeTests)');
-  });
-
-  it('trims the MR iOS test job to the suites and slices its sources need', () => {
-    const iosTestTask = topLevelBlock(cirrusTasks, /^test_ios_native_task:$/m);
-    const iosTestJob = topLevelBlock(gitlabPipeline, /^test:ios-native:$/m);
     const buildScript = readFileSync(join(ROOT, 'scripts/build-rust-ios.sh'), 'utf8');
 
     // Simulator slice only in the test task; the shared script keeps three triples by default.
     expect(iosTestTask).toContain('FUTO_IOS_SIM_ARM64_ONLY=1 bash scripts/build-rust-ios.sh');
     expect(buildScript).toContain('--target aarch64-apple-ios --profile');
     expect(buildScript).toContain('--target x86_64-apple-ios --profile');
-    // MRs skip the slow suites; main and tags (no CI_MERGE_REQUEST_IID) run them all.
-    expect(iosTestTask).toContain('[ -n "${CI_MERGE_REQUEST_IID:-}" ]');
-    expect(iosTestTask).toContain('SKIPPED_SUITES="TextFirstKillLoopTests"');
-    expect(iosTestTask).toContain('AppIconTests LicensePlateTests AppStorePurchaseTests');
-    expect(iosTestJob).toContain('IOS_UI_PAYMENT_TESTS: "1"');
-    expect(iosTestJob).toContain('- ci/cirrus/ios-test.yml\n      variables:');
-    // Only main and tags upload cargo_target.
-    expect(iosTestTask).toContain('drop_target_on_mr_script:');
   });
 
   it('runs Android instrumentation tests in the required native build job', () => {
@@ -160,68 +141,6 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     expect(androidCheckJob).not.toContain('resource_group');
     expect(macosRustTask).toContain('cargo check -p futo-notes-ffi --target aarch64-apple-ios');
     expect(releaseGate).toContain('- job: test:rust:ffi-android');
-  });
-
-  it('skips the ffi arm64 check on MRs where build:android-native builds the same crate', () => {
-    const paths = (job, from) => {
-      const start = job.indexOf('changes:', from);
-      const block = job.slice(start, job.indexOf('\n    - ', start));
-      return [...block.matchAll(/^ {8}- (\S+)$/gm)].map((m) => m[1]).sort();
-    };
-    const androidCheckJob = topLevelBlock(gitlabPipeline, /^test:rust:ffi-android:$/m);
-    const nativeJob = topLevelBlock(gitlabPipeline, /^build:android-native:$/m);
-    const rulesAt = androidCheckJob.indexOf('  rules:\n');
-    const firstRule = androidCheckJob.slice(rulesAt + '  rules:\n'.length);
-    // The skip rule comes first, so it wins over every rule that follows it.
-    expect(
-      firstRule.replace(/^ {4}#.*\n/gm, '').startsWith('    - if: $CI_MERGE_REQUEST_IID'),
-    ).toBe(true);
-    const skipRule = firstRule.slice(0, firstRule.indexOf('\n    - !reference'));
-    expect(skipRule).toContain('when: never');
-    const nativeStart = nativeJob.indexOf('changes: &native-android-changes');
-    expect(paths(nativeJob, nativeStart).length).toBeGreaterThan(5);
-    expect(paths(androidCheckJob, rulesAt)).toEqual(paths(nativeJob, nativeStart));
-    // Crates that build:android-native does not watch still reach the check.
-    expect(androidCheckJob).toContain('- crates/**/*');
-    expect(androidCheckJob).toContain('$CI_COMMIT_TAG');
-    expect(androidCheckJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
-  });
-
-  it('runs full macOS workspace tests on main and tags but not MR pipelines', () => {
-    const macosRustJob = topLevelBlock(gitlabPipeline, /^test:rust:macos:$/m);
-    const macosRustTask = topLevelBlock(cirrusTasks, /^test_rust_macos_task:$/m);
-
-    // MRs get only the iOS compile check (the workspace suite is the hard
-    // Linux gate); the Cirrus task keys the full run off tag/default-branch.
-    expect(macosRustTask).toContain('/scripts/rust-tests.mjs\" workspace');
-    expect(macosRustTask).toContain('"${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}"');
-    expect(macosRustJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
-  });
-
-  it('keeps MR iOS coverage in one Mac job after dropping build:ios-native from MRs', () => {
-    const iosBuildJob = topLevelBlock(gitlabPipeline, /^build:ios-native:$/m);
-    const iosTestJob = topLevelBlock(gitlabPipeline, /^test:ios-native:$/m);
-    const smokeJob = topLevelBlock(gitlabPipeline, /^test:desktop-smoke:macos:$/m);
-
-    // build:ios-native is main+tag only; test:ios-native carries its former
-    // MR paths so an FFI change still gets an iOS build (plus tests) on MRs.
-    expect(iosBuildJob).not.toContain('$CI_MERGE_REQUEST_IID');
-    expect(iosTestJob).toContain('- crates/futo-notes-ffi/**/*');
-    expect(iosTestJob).toContain('- Cargo.lock');
-    // Desktop smoke auto-runs on main pushes, manual-only on MRs.
-    expect(smokeJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
-    expect(smokeJob).not.toMatch(/\$CI_MERGE_REQUEST_IID\n {6}changes:/);
-  });
-
-  it('keeps iOS tests required for iOS changes while exposing an optional MR run', () => {
-    const iosTestJob = topLevelBlock(gitlabPipeline, /^test:ios-native:$/m);
-
-    expect(iosTestJob).toContain('changes: &native-ios-test-changes');
-    expect(iosTestJob).toMatch(
-      /- \.gitlab-ci\.yml\n    - if: \$CI_MERGE_REQUEST_IID\n      when: manual\n      allow_failure: true/,
-    );
-    expect(iosTestJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
-    expect(iosTestJob).toContain('$CI_COMMIT_TAG');
   });
 
   // RC-21 / L1-005: editor.html is built from vite.editor.config.ts and shipped
