@@ -227,17 +227,13 @@ impl Engine {
     /// What the toolbar shows for the caret's line: its formats, block,
     /// list nesting and history.
     pub(crate) fn toolbar(&self) -> ToolbarState {
-        use crate::lines::{FenceRole, Kind};
+        use crate::lines::Kind;
         let entry = self.caret_line();
         let line = &entry.line;
-        let code = matches!(
-            line.kind,
-            Kind::Fence {
-                role: FenceRole::Code,
-                ..
-            }
-        );
-        let (can_indent, can_outdent) = self.list_indents();
+        let code = matches!(line.kind, Kind::Fence { .. });
+        let (can_indent, can_outdent) = self
+            .code_indent_state()
+            .unwrap_or_else(|| self.list_indents());
         ToolbarState {
             formats: self.active_formats(),
             heading: self.toolbar_heading(),

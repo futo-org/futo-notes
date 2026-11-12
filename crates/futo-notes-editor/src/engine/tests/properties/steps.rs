@@ -141,6 +141,26 @@ pub(super) fn type_step(
         };
         start..engine.source_span(selection.end.0).1
     };
+    // ... except that a fence frame line it cuts goes after the line the
+    // text joins (`kept_frame`), at most through the line after that one.
+    let reach = {
+        let lines = engine.line_of(spanned.start)..engine.line_of(spanned.end) + 1;
+        let cuts_frame = lines.into_iter().any(|index| {
+            matches!(
+                engine.line(index).line.kind,
+                Kind::Fence {
+                    role: FenceRole::Open | FenceRole::Close,
+                    ..
+                }
+            )
+        });
+        let next = (engine.line_of(spanned.end) + 1).min(engine.line_count() - 1);
+        if cuts_frame {
+            engine.line_start(next) + engine.line(next).text.len()
+        } else {
+            spanned.end
+        }
+    };
     let change = engine
         .replace(revision, selection, text, InputAction::Typing, &mut ok)
         .unwrap_or_else(|error| {
@@ -158,8 +178,8 @@ pub(super) fn type_step(
     if !collapsed {
         let edited = change.edit.range.start.0..change.edit.range.end.0;
         assert!(
-            spanned.start <= edited.start && edited.end <= spanned.end,
-            "replacing {selection:?} edited {edited:?}, outside {spanned:?}"
+            spanned.start <= edited.start && edited.end <= reach,
+            "replacing {selection:?} edited {edited:?}, outside {spanned:?} (reach {reach})"
         );
     }
     if collapsed {
