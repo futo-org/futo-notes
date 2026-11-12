@@ -78,7 +78,8 @@ pub(super) fn step(
     view: &mut View,
     random: &mut Random,
 ) -> String {
-    match random.below(10) {
+    match random.below(12) {
+        10 | 11 => command_step(engine, model, view, random),
         0 | 1 => select_step(engine, random),
         2..=4 => type_step(engine, model, view, random),
         5 => delete_step(engine, model, view, random),
@@ -354,4 +355,74 @@ pub(super) fn source_step(
 pub(super) fn engine_ending(source: &str, index: usize) -> String {
     let engine = Engine::open(source);
     engine.empty_line_ending(index)
+}
+
+/// A paragraph key or toolbar block command at the selection, through the
+/// command families and the guard. Properties 3 and 4 hold for commands as
+/// for typing; a cancelled command changes nothing.
+pub(super) fn command_step(
+    engine: &mut Engine,
+    model: &mut Model,
+    view: &mut View,
+    random: &mut Random,
+) -> String {
+    use crate::{BlockCommand, ParagraphKey};
+    let revision = engine.revision();
+    let before = state(engine);
+    let groups = engine.history.undo.len();
+    let range = engine.selection();
+    let (change, name) = if random.below(2) == 0 {
+        let key = [
+            ParagraphKey::Enter,
+            ParagraphKey::ShiftEnter,
+            ParagraphKey::Backspace,
+            ParagraphKey::BackspaceJoiningHeading,
+            ParagraphKey::Delete,
+            ParagraphKey::Tab,
+            ParagraphKey::ShiftTab,
+        ][random.below(7)];
+        (
+            engine.key(revision, range, key, &mut ok).unwrap(),
+            format!("key {key:?} at {range:?}"),
+        )
+    } else {
+        let level = random.below(7) as u8;
+        let command = [
+            BlockCommand::Heading(level),
+            BlockCommand::ToggleHeading(level.max(1)),
+            BlockCommand::Quote,
+            BlockCommand::Indent,
+            BlockCommand::Outdent,
+            BlockCommand::Divider,
+            BlockCommand::ToggleTask,
+            BlockCommand::BulletList,
+            BlockCommand::OrderedList,
+            BlockCommand::TaskList,
+            BlockCommand::CodeBlock,
+            BlockCommand::WrapCodeBlock,
+        ][random.below(12)];
+        (
+            engine.block(revision, range, command, &mut ok).unwrap(),
+            format!("command {command:?} at {range:?}"),
+        )
+    };
+    match change {
+        Some(change) => {
+            view.text
+                .replace_range(change.range.start.0..change.range.end.0, &change.inserted);
+            view.restyled
+                .push(change.projection.range.start.0..change.projection.range.end.0);
+            assert_eq!(change.revision, engine.revision(), "{name}");
+            model.edited(engine, before, groups);
+        }
+        None => {
+            assert_eq!(engine.revision(), revision, "{name} changed nothing");
+            assert_eq!(
+                engine.source_text(),
+                before.source,
+                "{name} changed nothing"
+            );
+        }
+    }
+    name
 }
