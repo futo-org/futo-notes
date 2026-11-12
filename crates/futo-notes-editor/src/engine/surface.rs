@@ -147,6 +147,10 @@ impl Engine {
         }
         self.check_display_range(range)?;
         if let Some(command) = self.key_command(range, key)? {
+            // A command with no edits moves the selection (a table key).
+            if command.edits.is_empty() {
+                return self.moved_view(expected, command.selection).map(Some);
+            }
             let change = self.run(expected, |_| Ok(Some(command)), accept)?;
             return Ok(change.map(|change| self.view(change)));
         }

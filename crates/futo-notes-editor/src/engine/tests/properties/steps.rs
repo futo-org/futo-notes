@@ -427,6 +427,12 @@ pub(super) fn command_step(
         )
     };
     match change {
+        // A table key that only moves the selection.
+        Some(change) if change.revision == revision => {
+            assert!(change.inserted.is_empty(), "{name} moved only");
+            assert_eq!(engine.source_text(), before.source, "{name} moved only");
+            assert_eq!(engine.history.undo.len(), groups, "{name} moved only");
+        }
         Some(change) => {
             view.text
                 .replace_range(change.range.start.0..change.range.end.0, &change.inserted);

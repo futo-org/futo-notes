@@ -9,6 +9,7 @@ mod lists;
 mod projection;
 mod properties;
 mod quick_open;
+mod tables;
 mod wikilinks;
 
 use super::Engine;
