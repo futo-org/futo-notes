@@ -48,7 +48,8 @@ impl EditorSession {
         command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        on_next!(self, nothing);
+        on_next!(self, accept, |e, accept| e
+            .block(expected, range, command, accept));
         match command {
             BlockCommand::Indent => self.indent_command(expected, range, false, accept),
             BlockCommand::Outdent => self.indent_command(expected, range, true, accept),

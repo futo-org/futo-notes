@@ -19,6 +19,10 @@ pub(crate) struct Shown {
     /// The display of every line shown again, in the display after the edit:
     /// what a view restyles, even where the text did not change.
     pub lines: Range<usize>,
+    /// Bytes of source the reader read again.
+    pub parsed: usize,
+    /// Bytes of source copied to build the changed lines.
+    pub materialized: usize,
 }
 
 /// The note's text cut into lines, each with its ending; the last line has
@@ -119,6 +123,7 @@ pub(crate) fn edit(store: &mut Store, range: Range<usize>, inserted: &str) -> Sh
     } else {
         store.get(start).carry.clone()
     };
+    let materialized = text.len();
     let mut read: Vec<Entry> = Vec::new();
     for index in start..first_changed {
         let entry = Entry::read(store.get(index).text.clone(), &mut carry, rest_closes);
@@ -152,6 +157,7 @@ pub(crate) fn edit(store: &mut Store, range: Range<usize>, inserted: &str) -> Sh
     for entry in &mut read {
         entry.read_spans();
     }
+    let parsed: usize = read.iter().map(|entry| entry.text.len()).sum();
 
     // The display of a line depends on the line after it: recompute from one
     // line above the read lines.
@@ -174,7 +180,11 @@ pub(crate) fn edit(store: &mut Store, range: Range<usize>, inserted: &str) -> Sh
         .take(shown_to - shown_from)
         .map(Entry::display)
         .collect();
-    trim(old_start, &old_shown, &new_shown)
+    Shown {
+        parsed,
+        materialized,
+        ..trim(old_start, &old_shown, &new_shown)
+    }
 }
 
 /// Work out line `index`'s display from its neighbors.
@@ -244,5 +254,7 @@ fn trim(start: usize, old: &str, new: &str) -> Shown {
         range: start + prefix..start + old.len() - suffix,
         inserted: new[prefix..new.len() - suffix].to_owned(),
         lines: start..start + new.len(),
+        parsed: 0,
+        materialized: 0,
     }
 }

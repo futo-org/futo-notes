@@ -7,7 +7,7 @@ use crate::{Affinity, DisplayRange};
 use std::ops::Range;
 
 /// A planned text edit and where the caret ends up after it.
-pub(super) struct Plan {
+pub(crate) struct Plan {
     pub range: Range<usize>,
     pub inserted: String,
     /// Source offset of the caret after the edit.
@@ -54,7 +54,7 @@ impl Engine {
     /// the line markers and hidden lines inside it, keeps the syntax of spans
     /// that reach out of it, and drops the syntax of spans left empty; the
     /// text lands where the selection starts, inside spans that start there.
-    pub(super) fn plan(&self, range: DisplayRange, text: &str) -> Plan {
+    pub(crate) fn plan(&self, range: DisplayRange, text: &str) -> Plan {
         let (s, e) = (range.start.0, range.end.0);
         let mut inserted = String::new();
         if s != e || !text.is_empty() {

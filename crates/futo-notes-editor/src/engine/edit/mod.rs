@@ -9,8 +9,8 @@ use super::read::{self, Shown};
 use super::Engine;
 use crate::history::{typing_kind, TypingRun};
 use crate::{
-    Affinity, CaretDirection, DisplayOffset, DisplayRange, EditorError, InputAction, Revision,
-    SourceEdit, SourceOffset, SourceRange,
+    Affinity, CaretDirection, DisplayOffset, DisplayRange, EditWork, EditorError, InputAction,
+    Revision, SourceEdit, SourceOffset, SourceRange,
 };
 use std::ops::Range;
 
@@ -25,19 +25,21 @@ pub(crate) struct Change {
     pub affinity: Affinity,
     /// The display of every line the change showed again, after it.
     pub lines: Range<usize>,
+    pub work: EditWork,
 }
 
 pub(crate) use compose::Marked;
 
 /// Edits applied but not yet accepted, and their combined footprint.
 #[derive(Default)]
-struct Batch {
-    records: Vec<Record>,
+pub(crate) struct Batch {
+    pub(crate) records: Vec<Record>,
     /// Start, end in the text before the batch, end in the text now.
     source: Option<(usize, usize, usize)>,
     display: Option<(usize, usize, usize)>,
     /// The display of the lines shown again, in the display now.
     lines: Option<Range<usize>>,
+    work: EditWork,
 }
 
 /// `lines` (display now) carried through a display edit of `range` that
@@ -77,13 +79,18 @@ fn grow(footprint: &mut Option<(usize, usize, usize)>, range: Range<usize>, inse
 
 impl Engine {
     /// Apply one text edit to the lines, with no acceptance or history.
-    fn raw(&mut self, batch: &mut Batch, range: Range<usize>, inserted: &str) {
+    pub(crate) fn raw(&mut self, batch: &mut Batch, range: Range<usize>, inserted: &str) {
         let removed = self.source_slice(range.clone());
         let Shown {
             range: shown,
             inserted: display,
             lines,
+            parsed,
+            materialized,
         } = read::edit(&mut self.store, range.clone(), inserted);
+        batch.work.parsed_source_bytes += parsed;
+        batch.work.materialized_source_bytes += materialized + removed.len();
+        batch.work.inserted_bytes += inserted.len();
         grow(&mut batch.source, range.clone(), inserted.len());
         regrow(&mut batch.lines, shown.clone(), display.len(), lines);
         grow(&mut batch.display, shown, display.len());
@@ -95,7 +102,7 @@ impl Engine {
     }
 
     /// Undo a batch's edits without a trace.
-    fn revert(&mut self, batch: Batch) {
+    pub(crate) fn revert(&mut self, batch: Batch) {
         let mut scratch = Batch::default();
         for record in batch.records.iter().rev() {
             let range = record.start..record.start + record.inserted.len();
@@ -104,11 +111,12 @@ impl Engine {
     }
 
     /// Accept a batch as one source record, or put the text back.
-    fn accept(
+    pub(crate) fn accept(
         &mut self,
         batch: Batch,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<(SourceEdit, Shown, Vec<Record>)>, EditorError> {
+        let work = batch.work;
         let Some((start, old_end, end)) = batch.source else {
             return Ok(None);
         };
@@ -147,11 +155,13 @@ impl Engine {
             range: dstart..dold,
             inserted: self.display_slice(dstart..dend),
             lines: batch.lines.clone().expect("lines shown with the display"),
+            parsed: work.parsed_source_bytes,
+            materialized: work.materialized_source_bytes + edit.removed.len() + edit.inserted.len(),
         };
         Ok(Some((edit, shown, batch.records)))
     }
 
-    fn point(&self) -> Point {
+    pub(crate) fn point(&self) -> Point {
         Point {
             selection: self.selection,
             affinity: self.affinity,
@@ -160,7 +170,7 @@ impl Engine {
         }
     }
 
-    fn restore(&mut self, point: &Point) {
+    pub(crate) fn restore(&mut self, point: &Point) {
         self.selection = point.selection;
         self.affinity = point.affinity;
         self.formats = point.formats.clone();
@@ -168,7 +178,7 @@ impl Engine {
     }
 
     /// Put the collapsed caret at source offset `at`, pinned there.
-    fn caret_at(&mut self, at: usize) {
+    pub(crate) fn caret_at(&mut self, at: usize) {
         let display = DisplayOffset(self.display_of(at));
         self.selection = DisplayRange {
             start: display,
@@ -191,7 +201,7 @@ impl Engine {
         self.pin = (lo != hi).then_some(at);
     }
 
-    fn change(&self, edit: SourceEdit, shown: Shown) -> Change {
+    pub(crate) fn change(&self, edit: SourceEdit, shown: Shown) -> Change {
         Change {
             edit,
             range: DisplayRange {
@@ -202,6 +212,11 @@ impl Engine {
             selection: self.selection,
             affinity: self.affinity,
             lines: shown.lines,
+            work: EditWork {
+                materialized_source_bytes: shown.materialized,
+                parsed_source_bytes: shown.parsed,
+                ..EditWork::default()
+            },
         }
     }
 

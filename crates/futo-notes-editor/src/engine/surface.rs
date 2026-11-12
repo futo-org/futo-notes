@@ -19,18 +19,19 @@ impl Engine {
             start: DisplayOffset(change.lines.start),
             end: DisplayOffset(change.lines.end),
         };
+        let projection = self.projection(change.edit.revision, lines);
+        let mut work = change.work;
+        work.inserted_bytes = change.edit.inserted.len();
+        count_projection(&projection, &mut work);
         ViewChange {
             previous_revision: change.edit.previous_revision,
             revision: change.edit.revision,
             range: change.range,
-            work: EditWork {
-                inserted_bytes: change.edit.inserted.len(),
-                ..EditWork::default()
-            },
+            work,
             inserted: change.inserted,
             selection: change.selection,
             affinity: change.affinity,
-            projection: self.projection(change.edit.revision, lines),
+            projection,
         }
     }
 
@@ -122,9 +123,9 @@ impl Engine {
         }
     }
 
-    /// Enter writes a line break (the caret line's own, CRLF on a CRLF
-    /// line); Backspace and Delete remove the range or one grapheme. Enter
-    /// on a list line is the list family's (stage 3): today it is a break.
+    /// A paragraph key: the command a family claims it for on the lines it
+    /// is pointed at, else typing (Enter writes the line's own line break;
+    /// Backspace and Delete remove the range or one grapheme).
     pub(crate) fn key(
         &mut self,
         expected: Revision,
@@ -133,15 +134,26 @@ impl Engine {
         accept: Accept,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
+        if self.composition.is_some() {
+            let change = self.run(
+                expected,
+                |engine| match engine.key_command(range, key)? {
+                    Some(command) => Ok(Some(command)),
+                    None => engine.typed_key(range, key),
+                },
+                accept,
+            )?;
+            return Ok(change.map(|change| self.view(change)));
+        }
+        self.check_display_range(range)?;
+        if let Some(command) = self.key_command(range, key)? {
+            let change = self.run(expected, |_| Ok(Some(command)), accept)?;
+            return Ok(change.map(|change| self.view(change)));
+        }
         let change = match key {
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => {
                 let (index, _) = self.line_at_display(super::store::display, range.start.0);
                 let ending = self.empty_line_ending(index);
-                let ending = if ending.is_empty() {
-                    "\n".to_owned()
-                } else {
-                    ending
-                };
                 self.replace(expected, range, &ending, InputAction::Typing, accept)?
             }
             ParagraphKey::Backspace
@@ -159,6 +171,22 @@ impl Engine {
             }
             ParagraphKey::Tab | ParagraphKey::ShiftTab => None,
         };
+        Ok(change.map(|change| self.view(change)))
+    }
+
+    /// A toolbar block command, run behind the guard.
+    pub(crate) fn block(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        command: crate::BlockCommand,
+        accept: Accept,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let change = self.run(
+            expected,
+            |engine| engine.block_command(range, command),
+            accept,
+        )?;
         Ok(change.map(|change| self.view(change)))
     }
 
@@ -231,4 +259,32 @@ impl Engine {
             can_redo: self.can_redo(),
         }
     }
+}
+
+/// Charge a projection's descriptions to `work`: one item per description
+/// built, and the bytes of every target, destination and alt text copied.
+fn count_projection(slice: &ProjectionSlice, work: &mut EditWork) {
+    work.link_metadata_items += slice.runs.len()
+        + slice.correspondence.len()
+        + slice.blocks.len()
+        + slice.links.len()
+        + slice.wikilinks.len()
+        + slice.atoms.len();
+    let title = |title: &Option<String>| title.as_ref().map_or(0, String::len);
+    work.link_copied_bytes += slice
+        .links
+        .iter()
+        .map(|link| link.destination.len() + title(&link.title))
+        .sum::<usize>()
+        + slice
+            .wikilinks
+            .iter()
+            .map(|wikilink| wikilink.target.len() + wikilink.label.len())
+            .sum::<usize>()
+        + slice
+            .atoms
+            .iter()
+            .filter_map(|atom| atom.image.as_ref())
+            .map(|image| image.alt.len() + image.destination.len() + title(&image.title))
+            .sum::<usize>();
 }
