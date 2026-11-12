@@ -369,3 +369,51 @@ fn a_text_service_replacement_never_formats_the_text_it_keeps() {
     }
     assert!(failed.is_empty(), "formatting changed: {failed:#?}");
 }
+
+fn replace_os_over(note: &str, selected: &str, text: &str) -> Result<String, EditorError> {
+    let mut s = EditorSession::open(note);
+    let at = s.display_text().find(selected).unwrap();
+    let selection = range(at, at + selected.len());
+    s.select(s.revision(), selection).unwrap();
+    s.replace_os(s.revision(), selection, text, &[], &mut |_| Ok(()))
+        .map(|_| s.source_text())
+}
+
+/// A dictated phrase over differently formatted words shares only letters the
+/// character diff pairs by chance, so it is written as typing writes it, not
+/// refused as kept text (the keep guard holds stretches of three or more
+/// letters or digits).
+#[test]
+fn a_dictated_phrase_over_mixed_formatting_is_written_as_typing_would() {
+    for (note, selected, text, typed) in [
+        (
+            "- **jumps** **lazy**s, coffee ~~world~~ hello",
+            "jumps lazys, coffee world",
+            "Monday items Monday cant",
+            "- **Monday items Monday cant** hello",
+        ),
+        (
+            "fox it's recieve **hello**s **over** *project*",
+            "fox it's recieve hellos over project",
+            "jumps Monday brown items coffee naïve",
+            "jumps Monday brown items coffee naïve",
+        ),
+    ] {
+        assert_eq!(
+            replace_os_over(note, selected, text).as_deref(),
+            Ok(typed),
+            "{note:?}"
+        );
+    }
+}
+
+/// A kept bold word after a fence is refused; a kept link label there is
+/// not (the guard reads Bold, Italic, Strike and Code, not links), and the
+/// word joins the code line as typing joins it. Pinned as it is on main.
+#[test]
+fn a_kept_link_after_a_fence_joins_the_code_line_as_typing_does() {
+    let bold = replace_os_over("```\ncode\n```\n**Heading** one", "\nHeading", "Heading");
+    assert!(bold.is_err(), "{bold:?}");
+    let link = replace_os_over("```\ncode\n```\n[Heading](u) one", "\nHeading", "Heading");
+    assert_eq!(link.as_deref(), Ok("```\ncodeHeading one\n```"));
+}

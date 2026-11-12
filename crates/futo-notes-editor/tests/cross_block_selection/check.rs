@@ -387,7 +387,8 @@ fn formatted(source: &str) -> Vec<(char, u8)> {
 /// (a one-run plan lands a character the service shares with a code line in
 /// the line it joins). Inside the range a character the diff keeps may gain no
 /// formatting (plain text turned into code, emphasis or a link); it may lose
-/// some, as the diff can pair a repeated letter with another one of its kind.
+/// some, as kept text that joins a code block (as typing joins it) loses its
+/// inline formats. The oracle cannot see code-block text: it reads as plain.
 #[allow(clippy::too_many_arguments)]
 fn unchanged_text_keeps_its_formatting(
     note: &str,

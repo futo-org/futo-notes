@@ -172,7 +172,10 @@ impl EditorSession {
     /// lands at the range's start is. One run puts the kept text there, so
     /// text kept after a code span's closing marker (hidden at its edge) would
     /// turn into inline code (#350). A block's own markers, which the code
-    /// block's frame repair keeps, open no format.
+    /// block's frame repair keeps, open no format. A stretch of fewer than
+    /// three letters or digits is letters the character diff shares by chance
+    /// (dictation over mixed formatting), not text the user kept, and is not
+    /// held to it.
     fn keeps_plain(&self, range: DisplayRange, runs: &[crate::DisplayReplacement]) -> bool {
         let lands = self
             .projection
@@ -186,7 +189,8 @@ impl EditorSession {
                     self.projection.source_bounds(at).1..self.projection.source_bounds(start).0;
                 at = end;
                 let formatted = |formats: Vec<InlineFormat>| {
-                    formats.len() == lands.len() && formats.iter().all(|f| lands.contains(f))
+                    kept.chars().filter(|c| c.is_alphanumeric()).count() < 3
+                        || formats.len() == lands.len() && formats.iter().all(|f| lands.contains(f))
                 };
                 !kept.contains('\n')
                     && (kept.is_empty()
