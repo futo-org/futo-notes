@@ -213,9 +213,21 @@ pub(crate) fn read_line(carry: &mut Carry, source: &str, start: usize) -> Line {
 /// Whether a line of exactly `---` follows in `rest`, the text after line 1:
 /// only then does line 1 open front matter.
 pub(crate) fn closes_front_matter(rest: &str) -> bool {
-    rest.split('\n')
-        .skip(1)
-        .any(|line| line.strip_suffix('\r').unwrap_or(line) == "---")
+    // Only a line ending makes a `\r` before it part of the ending: the
+    // note's last line keeps a lone `\r` as text.
+    let mut lines = rest.split('\n').skip(1).peekable();
+    while let Some(line) = lines.next() {
+        let ended = lines.peek().is_some();
+        let line = if ended {
+            line.strip_suffix('\r').unwrap_or(line)
+        } else {
+            line
+        };
+        if line == "---" {
+            return true;
+        }
+    }
+    false
 }
 
 /// A line inside an open fence: code, or the closing fence.
