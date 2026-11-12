@@ -5,6 +5,7 @@ mod find;
 mod images;
 mod projection;
 mod properties;
+mod quick_open;
 mod wikilinks;
 
 use super::Engine;

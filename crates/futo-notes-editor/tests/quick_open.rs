@@ -59,9 +59,14 @@ fn agrees(name: &str, doc: &str, full: &Whole, limit: usize) -> bool {
         "{name} @{limit}: styles differ for {:?}",
         quick.display
     );
+    // A table starting at the cut is the next screen's.
+    let starting = |mut tables: Vec<futo_notes_editor::TableDescription>| {
+        tables.retain(|table| table.display.start.0 < range.end.0);
+        tables
+    };
     assert_eq!(
-        full.session.inspect_tables(revision, range).unwrap(),
-        quick.tables,
+        starting(full.session.inspect_tables(revision, range).unwrap()),
+        starting(quick.tables),
         "{name} @{limit}: tables differ"
     );
     assert!(quick.source_len <= limit);
@@ -231,6 +236,8 @@ fn front_matter_shows_only_once_it_closes_inside_the_read() {
     every_length("bom", &bom);
 }
 
+/// CommonMark only: the core reads no reference definitions (Linedown).
+#[cfg(not(feature = "engine"))]
 #[test]
 fn a_definition_after_the_cut_declines_when_the_first_screen_can_use_it() {
     let tail = "para\n\n".repeat(200);
@@ -281,8 +288,14 @@ fn long_notes_show_a_first_screen_that_matches() {
             agrees(name, doc, &full, limit);
         }
     }
-    // No empty line to cut after: the whole open shows it.
-    assert!(quick(&lines, futo_notes_editor::QUICK_OPEN_BYTES).is_none());
+    let at = futo_notes_editor::QUICK_OPEN_BYTES;
+    if cfg!(feature = "engine") {
+        // Every line ending is a cut.
+        assert!(agrees("lines", &lines, &whole(&lines), at));
+    } else {
+        // No empty line to cut after: the whole open shows it.
+        assert!(quick(&lines, at).is_none());
+    }
 }
 
 /// Census over a note corpus, one JSON object per line with the body under
