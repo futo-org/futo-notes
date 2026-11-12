@@ -2,6 +2,7 @@
 mod commands;
 mod projection;
 mod properties;
+mod tables;
 
 use super::Engine;
 use crate::{
