@@ -50,6 +50,8 @@ pub(crate) struct Engine {
     clock: Arc<dyn HistoryClock>,
     typing: Option<TypingRun>,
     composition: Option<Marked>,
+    /// Find's query and matches (`commands/find.rs`).
+    find: commands::find::Find,
 }
 
 impl Engine {
@@ -78,6 +80,7 @@ impl Engine {
             clock,
             typing: None,
             composition: None,
+            find: commands::find::Find::new(),
         };
         let body = DisplayOffset(engine.metadata_end().unwrap_or(0));
         engine.selection = DisplayRange {
