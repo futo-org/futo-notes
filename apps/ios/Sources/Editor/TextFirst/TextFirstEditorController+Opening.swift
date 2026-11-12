@@ -7,7 +7,10 @@
     // Enter is queued in order, and replayed on the engine when the session attaches (never early,
     // never dropped). The engine guarantees the first screens are the whole open's byte for byte
     // and style for style, so the handover keeps the view's text, styles, scroll and touches and
-    // appends the rest. docs/spec/editor/performance/android-text-first.md.
+    // appends the rest. Both come from one read of the file (`NoteStore.readForEditor`), so the
+    // queued input always applies to the text it was made on; another writer's change after that
+    // read is the session's first save's to merge or park (#392).
+    // docs/spec/editor/performance/android-text-first.md.
 
     /// What the user did while the note opened, in the view's own coordinates (the text it showed).
     /// A key carries the range UIKit asked to replace and the selection the view had: the view
@@ -140,6 +143,15 @@
             toolbarState.disabledFormats = []
             if toolbarInstalled { syncToolbar() }
             refreshCompletion()
+            // The file moved since the read these screens came from: the session's first save is
+            // due now, to merge or park that write. It runs here, before another key can come: one
+            // made while it ran off the main thread would be refused, as made on the text before.
+            if let due = try? session.saveDelay(), due <= 0 {
+                let epoch = identityEpoch
+                saved(
+                    Result { try session.saveIfDue() }, identity: try? session.noteId(),
+                    epoch: epoch)
+            }
             armSave()
             scheduleNextSlice()
         }

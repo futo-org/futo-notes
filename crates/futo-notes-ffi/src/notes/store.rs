@@ -59,13 +59,31 @@ impl NoteStore {
             .map(Into::into)
     }
 
-    /// `quick_open_editor` with its spans planned in UTF-16 units (`host::plan_quick_open`).
-    pub fn quick_open_view(&self, id: String) -> Option<crate::EditorQuickView> {
-        self.inner
-            .quick_open_editor(&id)
-            .ok()
-            .flatten()
-            .map(Into::into)
+    /// Read a note once for its editor: `quick_open_view` takes these bytes, and so does
+    /// `open_editor_read` once they were shown, so input made on the first screens applies to
+    /// the text it was made on (#392). A failed read has no first screens; the open reports it.
+    /// Blocking file I/O.
+    pub fn read_for_editor(&self, id: String) -> Arc<crate::EditorNoteRead> {
+        Arc::new(crate::EditorNoteRead(self.inner.read_for_editor(&id)))
+    }
+
+    /// The first screens of `read` (`quick_open_editor`), with their spans planned in UTF-16
+    /// units (`host::plan_quick_open`); `None` for a short note or one with no safe cut.
+    pub fn quick_open_view(
+        &self,
+        read: Arc<crate::EditorNoteRead>,
+    ) -> Option<crate::EditorQuickView> {
+        self.inner.quick_open_read(&read.0).map(Into::into)
+    }
+
+    /// `open_editor`, on the bytes `read` holds when its first screens were shown (take them
+    /// first). A write since is then merged or parked by the session's first save, which is due
+    /// at once.
+    pub fn open_editor_read(
+        &self,
+        read: Arc<crate::EditorNoteRead>,
+    ) -> Result<Arc<crate::NativeEditorSession>, crate::EditorSessionError> {
+        crate::NativeEditorSession::open_read(&self.inner, &read.0)
     }
 
     /// Search startup is best effort so index availability never gates the note snapshot.
