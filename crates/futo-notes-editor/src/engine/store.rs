@@ -1,6 +1,7 @@
 //! The note's lines in chunks, with a Fenwick tree over chunk sizes so that
 //! finding the line at an offset, or the offsets before a line, never walks
-//! the note.
+//! the note, and a tree of the chunks' wikilink leaf bits so that finding
+//! the lines a note-id change can affect does not walk it either.
 use super::line::Entry;
 use std::ops::Range;
 
@@ -65,6 +66,8 @@ fn lines(size: &Size) -> usize {
 struct Chunk {
     entries: Vec<Entry>,
     size: Size,
+    /// The entries' wikilink leaf bits, together.
+    links: u64,
 }
 
 impl Chunk {
@@ -72,14 +75,26 @@ impl Chunk {
         let size = entries
             .iter()
             .fold(Size::default(), |sum, e| sum.plus(e.size));
-        Self { entries, size }
+        let links = links(&entries);
+        Self {
+            entries,
+            size,
+            links,
+        }
     }
+}
+
+fn links(entries: &[Entry]) -> u64 {
+    entries.iter().fold(0, |mask, e| mask | e.links)
 }
 
 pub(crate) struct Store {
     chunks: Vec<Chunk>,
     /// Fenwick tree over chunk sizes, 1-based.
     tree: Vec<Size>,
+    /// A binary tree over chunk link bits: node 1 is the root, node `i`'s
+    /// children are `2i` and `2i + 1`, chunk `c` is node `half + c`.
+    links: Vec<u64>,
 }
 
 impl Store {
@@ -88,6 +103,7 @@ impl Store {
         let mut store = Self {
             chunks: cut(entries),
             tree: Vec::new(),
+            links: Vec::new(),
         };
         store.build();
         store
@@ -103,9 +119,17 @@ impl Store {
                 self.tree[parent] = self.tree[parent].plus(self.tree[i]);
             }
         }
+        let half = n.next_power_of_two();
+        self.links = vec![0; 2 * half];
+        for (index, chunk) in self.chunks.iter().enumerate() {
+            self.links[half + index] = chunk.links;
+        }
+        for node in (1..half).rev() {
+            self.links[node] = self.links[2 * node] | self.links[2 * node + 1];
+        }
     }
 
-    /// Replace chunk `index`'s size in the tree.
+    /// Replace chunk `index`'s size and link bits in the trees.
     fn resize(&mut self, index: usize, old: Size) {
         let new = self.chunks[index].size;
         let mut i = index + 1;
@@ -113,6 +137,59 @@ impl Store {
             self.tree[i] = self.tree[i].minus(old).plus(new);
             i += i.isolate_lowest_one();
         }
+        let mut node = self.links.len() / 2 + index;
+        self.links[node] = self.chunks[index].links;
+        while node > 1 {
+            node /= 2;
+            self.links[node] = self.links[2 * node] | self.links[2 * node + 1];
+        }
+    }
+
+    /// Every chunk's link bits, and every node of their tree, are the OR of
+    /// what is below it.
+    #[cfg(test)]
+    pub fn check_links(&self, context: &str) {
+        let half = self.links.len() / 2;
+        assert!(half >= self.chunks.len(), "{context}");
+        for node in 1..2 * half {
+            let want = if node >= half {
+                self.chunks
+                    .get(node - half)
+                    .map_or(0, |c| links(&c.entries))
+            } else {
+                self.links[2 * node] | self.links[2 * node + 1]
+            };
+            assert_eq!(self.links[node], want, "link bits node {node} {context}");
+        }
+    }
+
+    /// Call `visit` with each line (index, entry) whose link bits meet
+    /// `mask`, in order, entering only the chunks whose bits meet it.
+    /// Returns the tree nodes and lines entered.
+    pub fn lines_linking(&self, mask: u64, mut visit: impl FnMut(usize, &Entry)) -> usize {
+        let half = self.links.len() / 2;
+        let mut entered = 0;
+        let mut stack = vec![1];
+        while let Some(node) = stack.pop() {
+            entered += 1;
+            if self.links[node] & mask == 0 {
+                continue;
+            }
+            if node < half {
+                stack.push(2 * node + 1);
+                stack.push(2 * node);
+                continue;
+            }
+            let chunk = node - half;
+            let first = self.prefix(chunk).lines;
+            for (at, entry) in self.chunks[chunk].entries.iter().enumerate() {
+                entered += 1;
+                if entry.links & mask != 0 {
+                    visit(first + at, entry);
+                }
+            }
+        }
+        entered
     }
 
     /// The sizes of the first `count` chunks.
@@ -200,6 +277,7 @@ impl Store {
         change(entry);
         let after = entry.size;
         self.chunks[chunk].size = old.minus(before).plus(after);
+        self.chunks[chunk].links = links(&self.chunks[chunk].entries);
         self.resize(chunk, old);
     }
 

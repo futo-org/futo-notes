@@ -9,6 +9,7 @@ use crate::{
     DisplayRange, ImageDescription, InlineFormat, LinkDescription, ListDescription,
     ProjectionSlice, SemanticRun, SourceOffset, SourceRange, WikilinkDescription,
 };
+use futo_notes_wikilinks::WikilinkIndex;
 
 fn display_range(start: usize, end: usize) -> DisplayRange {
     DisplayRange {
@@ -70,7 +71,7 @@ impl Engine {
                 || (entry.shown_len() == 0 && display >= a && display <= b)
                 || (a == b && display <= a && a < end);
             if touches {
-                describe(entry, source, display, &mut slice);
+                describe(entry, source, display, &self.notes, &mut slice);
             }
             source += entry.size.source;
             display = end;
@@ -115,8 +116,14 @@ impl Engine {
 }
 
 /// Add line `entry`'s descriptions, the line starting at `source` and
-/// `display`, to `slice`.
-fn describe(entry: &Entry, source: usize, display: usize, slice: &mut ProjectionSlice) {
+/// `display`, to `slice`; its wikilinks resolve against `notes`.
+fn describe(
+    entry: &Entry,
+    source: usize,
+    display: usize,
+    notes: &WikilinkIndex,
+    slice: &mut ProjectionSlice,
+) {
     let view = &entry.view;
     let shown = entry.shown_len();
     let block = block_of(entry, display, shown);
@@ -155,12 +162,15 @@ fn describe(entry: &Entry, source: usize, display: usize, slice: &mut Projection
                 destination: destination.clone(),
                 title: None,
             }),
-            SpanKind::Wikilink { target } => slice.wikilinks.push(WikilinkDescription {
-                range: display_range(to_display(span.range.start), to_display(span.range.end)),
-                target: target.clone(),
-                label: target.clone(),
-                note_id: None,
-            }),
+            SpanKind::Wikilink { target } => {
+                let (label, note_id) = resolve(target, notes);
+                slice.wikilinks.push(WikilinkDescription {
+                    range: display_range(to_display(span.range.start), to_display(span.range.end)),
+                    target: target.clone(),
+                    label,
+                    note_id,
+                });
+            }
             SpanKind::Image {
                 alt,
                 destination,
@@ -183,6 +193,15 @@ fn describe(entry: &Entry, source: usize, display: usize, slice: &mut Projection
             }
             _ => {}
         }
+    }
+}
+
+/// A wikilink target's label and note id: a target naming one note shows
+/// that note's shortest unique suffix; any other shows as written.
+pub(crate) fn resolve(target: &str, notes: &WikilinkIndex) -> (String, Option<String>) {
+    match notes.resolve(target) {
+        Some(id) => (notes.display_suffix(id), Some(id.to_owned())),
+        None => (target.to_owned(), None),
     }
 }
 

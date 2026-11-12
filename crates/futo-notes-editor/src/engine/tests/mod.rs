@@ -2,6 +2,7 @@
 mod commands;
 mod projection;
 mod properties;
+mod wikilinks;
 
 use super::Engine;
 use crate::{

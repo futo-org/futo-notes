@@ -27,12 +27,14 @@ impl EditorSession {
     /// Canonical tags (`#name`) of the body, in first-seen order. One on-demand
     /// scan; no edit calls it.
     pub fn tags(&self) -> Vec<String> {
+        on_next!(ref self, |e| e.tags());
         let from = self.source.byte_to_char(self.tag_body_start());
         extract_tags(&self.source.slice(from..).to_string())
     }
 
     /// Canonical tags of the leading header tag block.
     pub fn header_tags(&self) -> Vec<String> {
+        on_next!(ref self, |e| e.header_tags());
         self.read_header().tags
     }
 
@@ -74,6 +76,8 @@ impl EditorSession {
         tag: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        on_next!(self, accept, |e, accept| e
+            .add_header_tag(expected, tag, accept));
         self.check_revision(expected)?;
         let name = normalize_tag_name(tag);
         if !is_valid_tag_name(&name) {
@@ -126,6 +130,8 @@ impl EditorSession {
         tag: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        on_next!(self, accept, |e, accept| e
+            .remove_header_tag(expected, tag, accept));
         self.check_revision(expected)?;
         let name = normalize_tag_name(tag);
         let header = self.read_header();

@@ -71,7 +71,7 @@ impl EditorSession {
         &self,
         expected: Revision,
     ) -> Result<Option<WikilinkCompletion>, EditorError> {
-        on_next!(self, nothing);
+        on_next!(ref self, |e| e.wikilink_completion(expected));
         self.check_revision(expected)?;
         let Some(run) = self.completion_run() else {
             return Ok(None);
@@ -112,6 +112,9 @@ impl EditorSession {
         note_id: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
+        on_next!(self, accept, |e, accept| e.accept_wikilink_completion(
+            expected, range, query, note_id, accept
+        ));
         self.check_revision(expected)?;
         if self.composition().is_some() {
             return Err(EditorError::CompositionActive);

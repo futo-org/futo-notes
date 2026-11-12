@@ -10,6 +10,7 @@ impl EditorSession {
     /// The note a tapped schemeless link destination names, among the delivered note ids, from
     /// the folder of `current_id`; `None` when it names no note.
     pub fn resolve_note_link(&self, current_id: &str, destination: &str) -> Option<String> {
+        on_next!(ref self, |e| e.resolve_note_link(current_id, destination));
         crate::link_target::resolve_note_link(destination, current_id, &self.projection.catalog)
     }
 
@@ -17,6 +18,7 @@ impl EditorSession {
     /// destination naming an existing note stays a note link as typed; otherwise a web-looking
     /// address gains `https://`.
     pub fn normalize_link_destination(&self, current_id: &str, typed: &str) -> String {
+        on_next!(ref self, |e| e.normalize_link_destination(current_id, typed));
         crate::link_target::normalize_link_destination(typed, current_id, &self.projection.catalog)
     }
 
@@ -25,6 +27,7 @@ impl EditorSession {
     /// is proportional to the id list plus the rows holding a link whose last
     /// component matches a changed id; other rows are never visited.
     pub fn update_note_ids(&mut self, note_ids: &[String]) -> NoteIdChange {
+        on_next!(self, |e| e.update_note_ids(note_ids));
         let held = self.projection.catalog.ordered().map(|(id, _)| id);
         if held.eq(note_ids.iter().map(String::as_str)) {
             return NoteIdChange {

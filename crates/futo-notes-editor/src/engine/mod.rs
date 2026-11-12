@@ -50,6 +50,9 @@ pub(crate) struct Engine {
     clock: Arc<dyn HistoryClock>,
     typing: Option<TypingRun>,
     composition: Option<Marked>,
+    /// The vault's note ids, which wikilinks resolve against. The host
+    /// delivers them; they are not text, history or saved state.
+    notes: Arc<futo_notes_wikilinks::WikilinkIndex>,
 }
 
 impl Engine {
@@ -78,6 +81,7 @@ impl Engine {
             clock,
             typing: None,
             composition: None,
+            notes: Arc::default(),
         };
         let body = DisplayOffset(engine.metadata_end().unwrap_or(0));
         engine.selection = DisplayRange {
