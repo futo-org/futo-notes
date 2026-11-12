@@ -110,6 +110,17 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
   - Started: external adoption, lists, heading/quote/divider, inline formatting and links,
     tables, fences, images, wikilinks and tags (with completion, note ids, relinking), find,
     quick open. Paste and clipboard start after lists and tables land.
+  - Merged: the line reader fix for a lone CR on the note's last line (a final `---\r` closed
+    front matter; property seed 424242 case 10331). Find (`engine/commands/find.rs`, a `Find`
+    field on `Engine` fed by one hook in `Engine::accept`; 45 fixture cases): matches follow
+    edits without a rescan; front matter and the divider character are barriers (old bug: find
+    made a match inside front matter current while the caret snapped to the body); every line
+    break is a barrier. Old `host_find_plan` 18/18 on the core; old `tests/find.rs` 4/5, the
+    failure is three rows asserting a CommonMark result (a line break reads as a space).
+    Stage 4: move the public find types out of `session/find.rs`, do not delete them.
+  - Rule kept, noted by the fences lane: typing after a ``` that is the note's last line goes
+    into the empty code block's body (display rule 3), so `js` there writes "```\njs", not a
+    language; mid-note it writes "```js".
 - Stage 4: not started.
 - Stage 5: not started.
 - Surface methods deleted, with reasons: none yet.
