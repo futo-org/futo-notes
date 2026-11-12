@@ -2,7 +2,7 @@
 //! source bytes. Every read is bounds-checked, so no input can panic.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Kind {
+pub(crate) enum Kind {
     /// `www.` (the destination gains `http://`).
     Www,
     /// `http://` or `https://`.
@@ -14,7 +14,7 @@ pub(super) enum Kind {
 }
 
 impl Kind {
-    pub(super) fn prefix(self) -> &'static str {
+    pub(crate) fn prefix(self) -> &'static str {
         match self {
             Self::Www => "http://",
             Self::Email => "mailto:",
@@ -32,7 +32,7 @@ enum Class {
 
 /// Inline content of one block. Bytes at or past `end` read as its end,
 /// which markdown-rs classifies as whitespace.
-pub(super) struct Content<'a> {
+pub(crate) struct Content<'a> {
     pub text: &'a str,
     pub end: usize,
 }
@@ -161,7 +161,7 @@ impl Content<'_> {
 
     /// A `www.` or `http(s)://` literal starting at `at`, after the byte
     /// `previous` (`None` at the start of a line).
-    pub(super) fn literal(&self, at: usize, previous: Option<u8>) -> Option<(usize, Kind)> {
+    pub(crate) fn literal(&self, at: usize, previous: Option<u8>) -> Option<(usize, Kind)> {
         match self.byte(at)? {
             b'w' | b'W'
                 if matches!(
@@ -221,7 +221,7 @@ fn punctuation(char: char) -> bool {
 
 /// Email literals in one run of plain text (markdown-rs's data token), as
 /// ranges relative to `data`.
-pub(super) fn emails(data: &[u8], found: &mut Vec<(usize, usize, Kind)>) {
+pub(crate) fn emails(data: &[u8], found: &mut Vec<(usize, usize, Kind)>) {
     let mut at = 0;
     let mut min = 0;
     while at < data.len() {
