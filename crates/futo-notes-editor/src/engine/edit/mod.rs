@@ -239,6 +239,20 @@ impl Engine {
         action: InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<Change>, EditorError> {
+        self.replace_input(expected, range, text, action, false, accept)
+    }
+
+    /// `replace`; `run` is one explicit run of `replace_runs`, which commits
+    /// marked text and then lands as typing over its range does.
+    fn replace_input(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        text: &str,
+        action: InputAction,
+        run: bool,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<Change>, EditorError> {
         self.check_revision(expected)?;
         if self.composition.is_some() {
             // A host that owns its provisional text cannot also commit
@@ -246,7 +260,7 @@ impl Engine {
             if action == InputAction::CompositionCommit {
                 return Err(EditorError::CompositionActive);
             }
-            return self.input_during_composition(range, text, action, accept);
+            return self.input_during_composition(range, text, action, run, accept);
         }
         self.check_display_range(range)?;
         let range = self.outside_crlf(range);
@@ -317,11 +331,12 @@ impl Engine {
         match runs {
             [] => return Err(EditorError::InvalidRange),
             [one] => {
-                return self.replace(
+                return self.replace_input(
                     expected,
                     one.range,
                     &one.inserted,
                     InputAction::Isolated,
+                    true,
                     accept,
                 )
             }

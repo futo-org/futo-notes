@@ -151,19 +151,19 @@ impl LocalNoteStore {
                 hook(id);
             }
         }
-        // The returned source keeps the draft's own spelling; disk bytes are
-        // compared in saved form, since saving may append a final line ending.
+        // The returned source keeps the draft's own spelling. The disk holds
+        // the draft only as its exact bytes or exactly the bytes saving writes
+        // (`disk_holds`); the base is compared in saved form, since saving may
+        // append a final line ending.
         let mut source = draft.to_owned();
         let flush = match current {
             // Converged is checked BEFORE the base comparison so a draft the
             // disk already holds never rewrites identical bytes (an mtime bump
             // would re-rank the note on every device).
-            Ok(current) if crate::notes::saved_note_source(&current) == content => {
-                Ok(FlushDraftResult {
-                    disposition: FlushDisposition::Converged,
-                    mutation: None,
-                })
-            }
+            Ok(current) if crate::notes::disk_holds(&current, draft) => Ok(FlushDraftResult {
+                disposition: FlushDisposition::Converged,
+                mutation: None,
+            }),
             Ok(current) if crate::notes::saved_note_source(&current) == saved_base => {
                 let metadata = self.write_raw(id, content, None)?;
                 Ok(FlushDraftResult {
@@ -196,7 +196,7 @@ impl LocalNoteStore {
                 if let Some(merged) = merged {
                     if validate(&merged)? {
                         source = merged;
-                        if crate::notes::same_saved_source(&source, &current) {
+                        if crate::notes::disk_holds(&current, &source) {
                             Ok(FlushDraftResult {
                                 disposition: FlushDisposition::Converged,
                                 mutation: None,
@@ -216,7 +216,7 @@ impl LocalNoteStore {
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                self.recreate_missing_draft(id, content)
+                self.recreate_missing_draft(id, draft)
             }
             Err(error) => Err(io_error(error)),
         }?;
@@ -229,7 +229,9 @@ impl LocalNoteStore {
     /// install is atomic no-replace: a live-sync pull that recreated the id
     /// outside the store's serialization is never clobbered — if the id
     /// reappeared, park the draft unless it converged.
-    fn recreate_missing_draft(&self, id: &str, content: &str) -> Result<FlushDraftResult, String> {
+    fn recreate_missing_draft(&self, id: &str, draft: &str) -> Result<FlushDraftResult, String> {
+        let saved = crate::notes::saved_note_source(draft);
+        let content = saved.as_ref();
         // Never recreate at an id that cross-platform-collides (case-insensitive
         // / NFC) with a DIFFERENT surviving note. `create_new_atomic` only fails
         // on an EXACT-path collision, so on a case-sensitive filesystem
@@ -256,12 +258,10 @@ impl LocalNoteStore {
             });
         }
         match self.read_note_file(id) {
-            Ok(current) if crate::notes::same_saved_source(&current, content) => {
-                Ok(FlushDraftResult {
-                    disposition: FlushDisposition::Converged,
-                    mutation: None,
-                })
-            }
+            Ok(current) if crate::notes::disk_holds(&current, draft) => Ok(FlushDraftResult {
+                disposition: FlushDisposition::Converged,
+                mutation: None,
+            }),
             _ => self.park_conflict_draft(id, content),
         }
     }
