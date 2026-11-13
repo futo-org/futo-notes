@@ -163,3 +163,68 @@ fn marked_text_after_a_divider_commits_on_its_own_line() {
     assert_eq!(engine.source_text(), "# H\n***\né");
     assert_eq!(engine.selection(), range(8, 8));
 }
+
+#[test]
+fn input_while_marked_addresses_the_provisional_display_when_the_commit_hides_marks() {
+    // Committing the marked text closes a span, so marks before it and inside
+    // it hide; the input still lands on the character it addressed.
+    // (source, marked range, marked text, input range, source after, caret)
+    for (source, at, text, (start, end), written, caret) in [
+        (
+            "",
+            0,
+            "x *b https://x.test/a* ",
+            (3, 4),
+            "x *B https://x.test/a* ",
+            3,
+        ),
+        (
+            "x *b ",
+            5,
+            "b https://x.test/a* ",
+            (3, 4),
+            "x *B b https://x.test/a* ",
+            3,
+        ),
+        (
+            "x *b ",
+            5,
+            "b https://x.test/a* ",
+            (5, 6),
+            "x *b B https://x.test/a* ",
+            5,
+        ),
+        ("x *b ", 5, "b* tail", (12, 12), "x *b b* tailX", 11),
+        ("x b* tail", 2, "*", (6, 6), "x *b* Xtail", 5),
+    ] {
+        let mut engine = Engine::open(source);
+        engine
+            .compose(engine.revision(), range(at, at), text)
+            .unwrap();
+        let mut accepted = 0;
+        let input = if start == end { "X" } else { "B" };
+        engine
+            .replace(
+                engine.revision(),
+                range(start, end),
+                input,
+                InputAction::Typing,
+                &mut |_| {
+                    accepted += 1;
+                    Ok(())
+                },
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(accepted, 1, "{source:?} {text:?}");
+        assert_eq!(engine.source_text(), written, "{source:?} {text:?}");
+        assert_eq!(
+            engine.selection(),
+            range(caret, caret),
+            "{source:?} {text:?}"
+        );
+        engine.undo(engine.revision(), &mut ok).unwrap().unwrap();
+        engine.undo(engine.revision(), &mut ok).unwrap().unwrap();
+        assert_eq!(engine.source_text(), source, "{source:?} {text:?}");
+    }
+}

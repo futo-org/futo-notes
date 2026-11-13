@@ -572,6 +572,18 @@
    "after": "| a | b |\n| --- | :-: |\n| one two‸ | d |\n"
   },
   {
+   "name": "a committed composition's CRLF in a cell becomes a space",
+   "before": "| a | b |\n| - | - |\n| c‸ | d |",
+   "command": "commit x\r\ny",
+   "after": "| a | b |\n| - | - |\n| cx y‸ | d |"
+  },
+  {
+   "name": "a committed composition's LF in a cell becomes a space",
+   "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+   "command": "commit x\ny",
+   "after": "| a | b |\n| --- | :-: |\n| cx y‸ | d |\n"
+  },
+  {
    "name": "a text service's pipe in a cell lands as given",
    "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
    "command": "service x|y",

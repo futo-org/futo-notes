@@ -2,6 +2,7 @@
 //! isolated action.
 use super::super::history::{Group, Record};
 use super::super::Engine;
+use super::plan::Plan;
 use super::{Batch, Change};
 use crate::history::{typing_kind, TypingRun};
 use crate::{
@@ -15,6 +16,15 @@ pub(crate) struct Marked {
     pub revision: Revision,
     pub range: DisplayRange,
     pub text: String,
+}
+
+/// An offset in the provisional display, before the commit: a source offset
+/// before or after the marked text, or a byte of the marked text.
+#[derive(Clone, Copy)]
+enum Provisional {
+    Before(usize),
+    Marked(usize),
+    After(usize),
 }
 
 impl Engine {
@@ -125,6 +135,13 @@ impl Engine {
         if range.start.0 > range.end.0 || range.end.0 > provisional {
             return Err(EditorError::InvalidRange);
         }
+        let selection = range.start != range.end;
+        let (Some(first), Some(last)) = (
+            self.provisional_at(&marked, range.start.0, selection),
+            self.provisional_at(&marked, range.end.0, false),
+        ) else {
+            return Err(EditorError::InvalidRange);
+        };
         let opening = self.point();
         self.adopt_marked_caret(marked.range);
         let mut batch = Batch::default();
@@ -133,39 +150,15 @@ impl Engine {
         let commit = self.plan_input(commit_range, &marked.text, InputAction::CompositionCommit);
         self.raw(&mut batch, commit.range.clone(), &commit.inserted);
         let commit_records = batch.records.len();
-        let (mstart, mend) = (marked.range.start.0, marked.range.end.0);
-        let (dstart, dold, dend) = batch.display.unwrap_or((mend, mend, mend));
+        let mend = marked.range.end.0;
+        let footprint = batch.display.unwrap_or((mend, mend, mend));
         let saved = opening.clone();
         self.caret_at(commit.caret);
         let after_commit = self.point();
-        // Map the provisional range onto the display after the commit. The
-        // committed text ends at the caret the commit leaves (a line break
-        // written beside it, as next to a divider, is outside it), when it
-        // shows there; an offset after the marked text is one in the
-        // display before it, passed through the commit's display change.
-        let marked_end = mstart + marked.text.len();
-        let text_end = self.selection.start.0;
-        let text_start = text_end.checked_sub(marked.text.len()).filter(|&start| {
-            self.check_display(start).is_ok() && self.display_slice(start..text_end) == marked.text
-        });
-        let after = |at: usize| {
-            if at >= dold {
-                at - dold + dend
-            } else if at <= dstart {
-                at
-            } else {
-                dend
-            }
-        };
-        let map = |at: usize| match text_start {
-            _ if at < mstart => at,
-            Some(start) if at <= marked_end => start + at - mstart,
-            None if at < marked_end => at.min(after(mend)),
-            _ => after(at - marked_end + mend),
-        };
+        let map = |at, provisional| self.committed_at(&marked, &commit, footprint, at, provisional);
         let mapped = DisplayRange {
-            start: DisplayOffset(map(range.start.0)),
-            end: DisplayOffset(map(range.end.0)),
+            start: DisplayOffset(map(first, range.start.0)),
+            end: DisplayOffset(map(last, range.end.0)),
         };
         let valid = self.check_display_range(mapped).is_ok() && !self.touches_metadata(mapped);
         if !valid {
@@ -173,9 +166,12 @@ impl Engine {
             self.restore(&saved);
             return Err(EditorError::InvalidRange);
         }
-        let flat = (action == InputAction::Isolated)
-            .then(|| self.cell_service_text(mapped, text))
-            .flatten();
+        let flat = matches!(
+            action,
+            InputAction::Isolated | InputAction::CompositionCommit
+        )
+        .then(|| self.cell_service_text(mapped, text))
+        .flatten();
         let input = self.plan(self.outside_crlf(mapped), flat.as_deref().unwrap_or(text));
         self.raw(&mut batch, input.range.clone(), &input.inserted);
         let Some((edit, shown, mut records)) = self.accept(batch, accept).inspect_err(|_| {
@@ -220,6 +216,98 @@ impl Engine {
             .flatten();
         self.typing = kind.map(|kind| TypingRun::new(kind, self.selection, now));
         Ok(Some(self.change(edit, shown)))
+    }
+}
+
+impl Engine {
+    /// Where provisional display offset `at` stands before the commit: a
+    /// source offset of the display around the marked text, or a byte of
+    /// it. A selection's start (`high`) is its first character, after the
+    /// hidden marks before it; its end is the last one's end, before those
+    /// after it. `None` when `at` splits a character.
+    fn provisional_at(&self, marked: &Marked, at: usize, high: bool) -> Option<Provisional> {
+        let (mstart, mend) = (marked.range.start.0, marked.range.end.0);
+        let marked_end = mstart + marked.text.len();
+        let old = if at < mstart {
+            at
+        } else if at > marked_end {
+            at - marked_end + mend
+        } else {
+            let byte = at - mstart;
+            return marked
+                .text
+                .is_char_boundary(byte)
+                .then_some(Provisional::Marked(byte));
+        };
+        self.check_display(old).ok()?;
+        let (lo, hi) = self.source_bounds(old);
+        let source = if high { hi } else { lo };
+        Some(if at < mstart {
+            Provisional::Before(source)
+        } else {
+            Provisional::After(source)
+        })
+    }
+
+    /// The display offset after `commit` of provisional offset `provisional`
+    /// (standing at `at`), where the commit changed the display by
+    /// `footprint` (start, end before, end now). The commit may hide or show
+    /// marks around the marked text. Source around the marked text passes
+    /// through the commit's edit. The committed text ends at the caret the
+    /// commit leaves (a line break written beside it, as next to a divider,
+    /// is outside it): its bytes are the source there when it was written
+    /// as given, else the display there when it shows as given (kept
+    /// characters keep their hidden marks).
+    fn committed_at(
+        &self,
+        marked: &Marked,
+        commit: &Plan,
+        (dstart, dold, dend): (usize, usize, usize),
+        at: Provisional,
+        provisional: usize,
+    ) -> usize {
+        let (cstart, cend) = (commit.range.start, commit.range.end);
+        let written_end = cstart + commit.inserted.len();
+        let shift = |at: usize, inside: usize| {
+            if at <= cstart {
+                at
+            } else if at >= cend {
+                at - cend + written_end
+            } else {
+                inside
+            }
+        };
+        let byte = match at {
+            Provisional::Before(source) => return self.display_of(shift(source, cstart)),
+            Provisional::After(source) => return self.display_of(shift(source, written_end)),
+            Provisional::Marked(byte) => byte,
+        };
+        let len = marked.text.len();
+        let caret = commit.caret;
+        if let Some(start) = caret.checked_sub(len).filter(|&start| {
+            self.check_source(start).is_ok() && self.source_slice(start..caret) == marked.text
+        }) {
+            return self.display_of(start + byte);
+        }
+        let text_end = self.selection.start.0;
+        if let Some(start) = text_end.checked_sub(len).filter(|&start| {
+            self.check_display(start).is_ok() && self.display_slice(start..text_end) == marked.text
+        }) {
+            return start + byte;
+        }
+        let mend = marked.range.end.0;
+        let after = if mend >= dold {
+            mend - dold + dend
+        } else if mend <= dstart {
+            mend
+        } else {
+            dend
+        };
+        if byte < len {
+            provisional.min(after)
+        } else {
+            after
+        }
     }
 }
 
