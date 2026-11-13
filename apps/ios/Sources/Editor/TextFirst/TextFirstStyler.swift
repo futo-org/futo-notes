@@ -180,6 +180,10 @@
                     value: noteId == nil ? UIColor.secondaryLabel : UIColor(Theme.primary),
                     range: r)
                 if let noteId { storage.addAttribute(.tfWikilink, value: noteId, range: r) }
+            case .tag(let start, let end):
+                // docs/spec/editor/tags.md: colour only, so the line never shifts.
+                guard let r = range(start, end, length) else { return }
+                storage.addAttribute(.foregroundColor, value: UIColor(Theme.primary), range: r)
             }
         }
 

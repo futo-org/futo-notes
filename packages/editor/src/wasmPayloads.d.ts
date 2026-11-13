@@ -188,6 +188,8 @@ export interface ProjectionSlice {
   links: LinkDescription[];
   wikilinks: WikilinkDescription[];
   atoms: AtomDescription[];
+  /** Each `#tag`'s display range, `#` included: coloured, still plain text. */
+  tags: DisplayRange[];
 }
 
 export interface EditWork {

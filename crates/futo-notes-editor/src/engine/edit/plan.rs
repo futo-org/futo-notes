@@ -242,8 +242,10 @@ impl Engine {
     /// shares keep their source spelling and formats, and the caret ends
     /// after the whole of `text`. A text service's line break inside a table
     /// cell, a committed composition's included, becomes a space
-    /// (`cell_service_text`).
+    /// (`cell_service_text`). Input never lands inside an image
+    /// (`outside_images`).
     pub(crate) fn plan_input(&self, range: DisplayRange, text: &str, action: InputAction) -> Plan {
+        let range = self.outside_images(range);
         let flat = matches!(
             action,
             InputAction::Isolated | InputAction::CompositionCommit

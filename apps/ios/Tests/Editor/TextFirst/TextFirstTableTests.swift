@@ -110,7 +110,7 @@
             let editor = TextFirstCellEditor(controller: h.controller)
             editor.install()
             #expect(editor.field.text == "日本")
-            // Typing, then a pipe (written as \|), are the engine's edits.
+            // Typing, then a pipe (written as typed: the row gains a cell), are the engine's edits.
             _ = editor.textView(
                 editor.field, shouldChangeTextIn: NSRange(location: 2, length: 0),
                 replacementText: "z")
@@ -119,10 +119,10 @@
             _ = editor.textView(
                 editor.field, shouldChangeTextIn: NSRange(location: 3, length: 0),
                 replacementText: "|")
-            #expect(h.source.contains("| 日本z\\| | b |"))
-            #expect(editor.field.text == "日本z|")
-            // The grid shows the new text.
-            #expect(rows(h)[0].1.cells[0].text == "日本z|")
+            #expect(h.source.contains("| 日本z| | b |"))
+            #expect(editor.field.text == "")
+            // The grid shows the new text and the new cell.
+            #expect(rows(h)[0].1.cells.map(\.text) == ["日本z", "", "b"])
             // Undo is the engine's: two steps back.
             h.controller.undo()
             editor.refresh()
@@ -152,6 +152,30 @@
             editor.paste()
             #expect(h.source.contains("| x | yyp q |"))
             #expect(editor.field.text == "yyp q")
+            #expect(h.controller.divergences.isEmpty)
+        }
+
+        /// iOS sim, Tables rows 9-10: a `|` typed at a cell's end gives the row a new cell and
+        /// puts the caret in it; the field stayed over the old cell showing the new one's text.
+        @Test func aTypedPipeMovesTheCellFieldOverTheNewCell() throws {
+            let h = TextFirstHarness("| a | b |\n|---|---|\n| c | d |\n")
+            let hit = try #require(h.controller.tableCellHit(at: point(h, row: 1, column: 0)))
+            h.controller.selectInCell(hit.cell.range)
+            let editor = TextFirstCellEditor(controller: h.controller)
+            editor.install()
+            #expect(editor.field.text == "c")
+            let old = editor.field.frame
+            _ = editor.textView(
+                editor.field, shouldChangeTextIn: NSRange(location: 1, length: 0),
+                replacementText: "|")
+            #expect(h.source.contains("| c| | d |"), "\(h.source.debugDescription)")
+            #expect(editor.field.text == "")
+            let column = try #require(h.controller.tableCell(at: editor.cellStart)).1.column
+            #expect(column == 1)
+            let scroll = h.controller.tableScroll.values.first ?? 0
+            let x = h.tv.textContainerInset.left + TextFirstTableMetrics.cellWidth - scroll
+            #expect(abs(editor.field.frame.minX - x) < 0.5, "\(old) -> \(editor.field.frame)")
+            #expect(editor.field.frame.minY == old.minY)
             #expect(h.controller.divergences.isEmpty)
         }
 
