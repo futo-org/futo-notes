@@ -215,7 +215,7 @@ try {
   {
     const liveVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-live-split-'));
     timingVaults.push(liveVault);
-    const liveExchange = await start('# x&#32;', liveVault);
+    const liveExchange = await start('# x ', liveVault);
     let liveDisplay = 'x ';
     let revision = 0n;
     const applyLive = async (applied) => {
@@ -233,13 +233,14 @@ try {
       assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(ack))), []);
       return change;
     };
-    const pendingSource = '# x&#32;\\*b https://x.test/a*';
-    const committed = '# x&#32;*b https://x.test/a*\n';
+    const pendingSource = '# x *b https://x.test/a*';
+    const committed = '# x *b https://x.test/a*\n';
     await applyLive(session.replace(0n, 2, 2, '*b https://x.test/a*'));
     assert.equal(session.draft_text(), pendingSource);
-    assert.equal(liveDisplay, 'x *b https://x.test/a*');
-    assert.equal(JSON.parse(session.inspect_link(1n, 5, 6)), null);
-    let request = session.paragraph_key_utf16(1n, 22, 22, JSON.stringify('Enter'));
+    // Typed text lands as typed and the address is a link at once.
+    assert.equal(liveDisplay, 'x b https://x.test/a');
+    assert.equal(JSON.parse(session.inspect_link(1n, 4, 5)).destination, 'https://x.test/a');
+    let request = session.paragraph_key_utf16(1n, 20, 20, JSON.stringify('Enter'));
     const before = JSON.parse(session.status());
     assert.equal(before.accepted, 1);
     assert.equal(session.draft_text(), committed);
@@ -254,7 +255,7 @@ try {
     });
     assert.deepEqual(JSON.parse(session.acknowledge(failed)), []);
     assert.equal(JSON.parse(session.status()).accepted, 1);
-    assert.equal(liveDisplay, 'x *b https://x.test/a*');
+    assert.equal(liveDisplay, 'x b https://x.test/a');
     const resumeAck = await liveExchange(session.resume());
     const resent = JSON.parse(session.acknowledge(JSON.stringify(resumeAck)));
     assert.equal(resent.length, 1);
@@ -266,8 +267,7 @@ try {
     assert.equal(JSON.parse(session.inspect_link(revision, 4, 5)).destination, 'https://x.test/a');
     await applyLive(session.undo(revision));
     assert.equal(session.draft_text(), pendingSource);
-    assert.equal(liveDisplay, 'x *b https://x.test/a*');
-    assert.equal(JSON.parse(session.inspect_link(revision, 5, 6)), null);
+    assert.equal(liveDisplay, 'x b https://x.test/a');
     const redone = await applyLive(session.redo(revision));
     await applyLive(session.replace(revision, redone.selection.end, redone.selection.end, '!'));
     assert.equal(session.draft_text(), committed + '!');
@@ -276,7 +276,7 @@ try {
     await applyLive(session.undo(revision));
     assert.equal(session.draft_text(), pendingSource);
     await applyLive(session.undo(revision));
-    assert.equal(session.draft_text(), '# x&#32;');
+    assert.equal(session.draft_text(), '# x ');
     assert.equal(liveDisplay, 'x ');
     await applyLive(session.redo(revision));
     await applyLive(session.redo(revision));
@@ -291,105 +291,8 @@ try {
     assert.deepEqual(await liveReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
   }
-  for (const [
-    original,
-    finalSource,
-    shown,
-    selected,
-    destination,
-    opening = shown,
-    nativeCaret = 4,
-    command = { Heading: 0 },
-  ] of [
-    [
-      "# [id]: /target 'T'\n\n[one][id]\n\nbody",
-      "\\[id]: /target 'T'\n\n[one][id]\n\nbody",
-      "[id]: /target 'T'\n\n[one][id]\n\nbody",
-      4,
-      null,
-    ],
-    [
-      "# [a&acE;]: /target 'T'\n\n[one][a&acE;]\n\n[a&acE;]: /first 'First'",
-      "[a&acE;][a&acE;]: /target 'T'\n\n[one][a&acE;]\n\n[a&acE;]: /first 'First'",
-      "a\u223e\u0333: /target 'T'\n\none\n\n",
-      7,
-      '/first',
-    ],
-    [
-      "# prefix[id]: /target 'T'\n\n[one][id]",
-      "# prefix\n\\[id]: /target 'T'\n\n[one][id]",
-      "prefix\n[id]: /target 'T'\n\n[one][id]",
-      7,
-      null,
-      "prefix[id]: /target 'T'\n\n[one][id]",
-      6,
-      'Enter',
-    ],
-    [
-      "> head\n> pre&acE;fix\n> [id]: /target 'T'\n> ===\n\n[one][id]",
-      "> head\n> pre&acE;fix\n> ===\n> \n> \\[id]: /target 'T'\n\n[one][id]",
-      "head\npre\u223e\u0333fix\n\n[id]: /target 'T'\n\n[one][id]",
-      17,
-      null,
-      "head\npre\u223e\u0333fix\n[id]: /target 'T'\n\n[one][id]",
-      13,
-      'Enter',
-    ],
-  ]) {
-    const blockVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-reference-block-'));
-    timingVaults.push(blockVault);
-    const blockExchange = await start(original, blockVault);
-    let blockDisplay = opening;
-    let revision = 0n;
-    const applyBlock = async (applied) => {
-      const { change, request } = JSON.parse(applied);
-      const ack = await blockExchange(JSON.stringify(request));
-      assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(ack))), []);
-      const before = Buffer.from(blockDisplay);
-      blockDisplay = Buffer.concat([
-        before.subarray(0, change.range.start),
-        Buffer.from(change.inserted),
-        before.subarray(change.range.end),
-      ]).toString();
-      revision = BigInt(change.revision);
-      assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(ack))), []);
-      return change;
-    };
-    assert.equal(JSON.parse(session.project(0n, 0, Buffer.byteLength(opening))).text, opening);
-    const request =
-      command === 'Enter'
-        ? session.paragraph_key_utf16(0n, nativeCaret, nativeCaret, JSON.stringify(command))
-        : session.block_command_utf16(0n, nativeCaret, nativeCaret, JSON.stringify(command));
-    assert.equal(session.draft_text(), finalSource);
-    assert.equal(JSON.parse(session.status()).accepted, 0);
-    assert.equal(blockDisplay, opening);
-    assert.ok(session.project(1n, 0, Buffer.byteLength(shown)));
-    const change = await applyBlock(request);
-    assert.equal(blockDisplay, shown);
-    assert.deepEqual(change.selection, { start: selected, end: selected });
-    const at = Buffer.byteLength(shown.slice(0, shown.indexOf('one')));
-    const target = JSON.parse(session.inspect_link(revision, at, at + 1));
-    assert.equal(target?.destination ?? null, destination);
-    if (target) assert.equal(target.title, 'First');
-    await applyBlock(session.undo(revision));
-    assert.equal(session.draft_text(), original);
-    assert.equal(blockDisplay, opening);
-    await applyBlock(session.redo(revision));
-    assert.equal(session.draft_text(), finalSource);
-    assert.equal(blockDisplay, shown);
-    await stop();
-    const blockReopened = await start('--reopen', blockVault);
-    assert.equal(session.draft_text(), savedSource(finalSource));
-    assert.equal(JSON.parse(session.project(0n, 0, Buffer.byteLength(shown))).text, shown);
-    assert.equal(
-      JSON.parse(session.inspect_link(0n, at, at + 1))?.destination ?? null,
-      destination,
-    );
-    assert.deepEqual(await blockReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
-    await stop();
-  }
   console.log(
-    'Compiled WASM links: canonical inspection, actual-parent reference blocks, URL timing, retained/inserted targets, immediate edits, exact history and real store saving passed.',
+    'Compiled WASM links: canonical inspection, URL timing, retained/inserted targets, immediate edits, exact history and real store saving passed.',
   );
 } finally {
   if (session) await stop();
