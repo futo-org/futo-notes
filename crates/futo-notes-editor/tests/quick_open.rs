@@ -3,8 +3,8 @@
 //! both ways, at every read length, and the first screens compared byte for
 //! byte and style for style.
 use futo_notes_editor::{
-    may_define_reference, quick_open, quick_open_cut, shown_projection, DisplayOffset,
-    DisplayRange, EditorSession, QuickOpen,
+    quick_open, quick_open_cut, shown_projection, DisplayOffset, DisplayRange, EditorSession,
+    QuickOpen,
 };
 
 const IDS: [&str; 3] = ["Alpha", "Projects/Beta", "Archive/Beta"];
@@ -19,9 +19,7 @@ fn quick(doc: &str, limit: usize) -> Option<QuickOpen> {
     while !doc.is_char_boundary(end) {
         end -= 1;
     }
-    let head = &doc[..end];
-    let rest = &doc.as_bytes()[end.saturating_sub(1)..];
-    quick_open(head, || may_define_reference(rest), ids)
+    quick_open(&doc[..end], ids)
 }
 
 struct Whole {
@@ -236,23 +234,6 @@ fn front_matter_shows_only_once_it_closes_inside_the_read() {
     every_length("bom", &bom);
 }
 
-/// CommonMark only: the core reads no reference definitions (Linedown).
-#[cfg(not(feature = "engine"))]
-#[test]
-fn a_definition_after_the_cut_declines_when_the_first_screen_can_use_it() {
-    let tail = "para\n\n".repeat(200);
-    for doc in [
-        format!("see [foo]\n\n{tail}[foo]: https://example.com\n"),
-        format!("text[^1]\n\n{tail}[^1]: the note\n"),
-    ] {
-        assert!(quick(&doc, 600).is_none());
-        every_length("late definition", &doc);
-    }
-    // Without a bracket on screen, nothing it shows can reach a definition.
-    let doc = format!("plain\n\n{tail}[foo]: https://example.com\n");
-    assert!(quick(&doc, 600).is_some());
-}
-
 /// The large notes the app opens: the measured perf note, the progressive-open
 /// instrumentation note, and a note with no blank line at all.
 #[test]
@@ -289,13 +270,8 @@ fn long_notes_show_a_first_screen_that_matches() {
         }
     }
     let at = futo_notes_editor::QUICK_OPEN_BYTES;
-    if cfg!(feature = "engine") {
-        // Every line ending is a cut.
-        assert!(agrees("lines", &lines, &whole(&lines), at));
-    } else {
-        // No empty line to cut after: the whole open shows it.
-        assert!(quick(&lines, at).is_none());
-    }
+    // Every line ending is a cut.
+    assert!(agrees("lines", &lines, &whole(&lines), at));
 }
 
 /// Census over a note corpus, one JSON object per line with the body under

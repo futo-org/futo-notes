@@ -1,6 +1,5 @@
 //! The rebuilt core end to end through the native surface (the `engine` feature): open a
-//! note, type a list item, draw it, save. Run with `--features engine`.
-#![cfg(feature = "engine")]
+//! note, type a list item, draw it, save.
 mod support;
 use futo_notes_ffi::*;
 use support::{path_string, TempTree};

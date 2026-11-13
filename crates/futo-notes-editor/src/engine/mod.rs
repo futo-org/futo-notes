@@ -26,7 +26,6 @@ mod tests;
 mod utf16;
 
 pub(crate) use edit::Marked;
-#[cfg(feature = "engine")]
 pub(crate) use external::Adoption;
 
 use crate::history::{HistoryClock, MonotonicClock, TypingRun};

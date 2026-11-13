@@ -14,23 +14,15 @@ futo-notes-image = { path = "../futo-notes-image" }
 ropey = "1.6"
 web-time = "1"
 similar = { version = "3.2", default-features = false, features = ["text"] }
-pulldown-cmark = { version = "0.13", default-features = false }
 unicode-segmentation = "1.13"
 serde = { version = "1", features = ["derive"] }
-unicase = { version = "2.10.0", default-features = false }
 
 [features]
 # Test-only WASM hook: restore a session with a frozen history clock.
 test-clock = []
-# Sessions run on the rebuilt core (`src/session/next.rs`). For trying it on a
-# device before the cut-over; never enabled in a shipping build.
-engine = []
 
 [lints]
 workspace = true
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rayon = "1.12"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "=0.2.129"

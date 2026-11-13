@@ -13,8 +13,6 @@ pub(crate) mod table;
 pub(crate) mod url;
 
 #[cfg(test)]
-mod compare;
-#[cfg(test)]
 mod tests;
 
 pub(crate) use block::{Carry, FenceRole, FrontMatterRole, Kind, Line, TableRole};

@@ -1,5 +1,4 @@
 //! The session's table surface on the core.
-#![cfg(feature = "engine")]
 use super::super::ok;
 use super::caret;
 use crate::{

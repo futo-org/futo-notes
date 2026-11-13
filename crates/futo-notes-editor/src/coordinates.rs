@@ -1,7 +1,8 @@
+//! The UTF-16 entry points native hosts call. Malformed text and positions
+//! that split a surrogate pair are rejected, never clamped or widened.
 use crate::{
-    DisplayOffset, DisplayRange, DisplayUtf16Offset, DisplayUtf16Range, EditorError, EditorSession,
-    Revision, SelectionChange, SourceEdit, SourceOffset, SourceRange, SourceUtf16Offset,
-    SourceUtf16Range, ViewChange,
+    DisplayOffset, DisplayRange, DisplayUtf16Range, EditorError, EditorSession, Revision,
+    SelectionChange, SourceEdit, SourceRange, SourceUtf16Range, ViewChange,
 };
 
 impl EditorSession {
@@ -20,18 +21,7 @@ impl EditorSession {
         expected: Revision,
         range: DisplayUtf16Range,
     ) -> Result<DisplayRange, EditorError> {
-        on_next!(ref self, |e| e.display_from_utf16(expected, range));
-        self.check_revision(expected)?;
-        if range.start.0 > range.end.0 {
-            return Err(EditorError::InvalidRange);
-        }
-        Ok(DisplayRange {
-            start: DisplayOffset(Self::utf16_to_byte(
-                &self.projection.display,
-                range.start.0,
-            )?),
-            end: DisplayOffset(Self::utf16_to_byte(&self.projection.display, range.end.0)?),
-        })
+        self.engine().display_from_utf16(expected, range)
     }
 
     pub fn display_to_utf16(
@@ -39,23 +29,7 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<DisplayUtf16Range, EditorError> {
-        on_next!(ref self, |e| e.display_to_utf16(expected, range));
-        self.check_revision(expected)?;
-        if range.start.0 > range.end.0 {
-            return Err(EditorError::InvalidRange);
-        }
-        Ok(DisplayUtf16Range {
-            start: DisplayUtf16Offset(
-                self.projection
-                    .display
-                    .char_to_utf16_cu(self.char_index(range.start)?),
-            ),
-            end: DisplayUtf16Offset(
-                self.projection
-                    .display
-                    .char_to_utf16_cu(self.char_index(range.end)?),
-            ),
-        })
+        self.engine().display_to_utf16(expected, range)
     }
 
     pub fn source_from_utf16(
@@ -63,14 +37,7 @@ impl EditorSession {
         expected: Revision,
         range: SourceUtf16Range,
     ) -> Result<SourceRange, EditorError> {
-        self.check_revision(expected)?;
-        if range.start.0 > range.end.0 {
-            return Err(EditorError::InvalidRange);
-        }
-        Ok(SourceRange {
-            start: SourceOffset(Self::utf16_to_byte(&self.source, range.start.0)?),
-            end: SourceOffset(Self::utf16_to_byte(&self.source, range.end.0)?),
-        })
+        self.engine().source_from_utf16(expected, range)
     }
 
     pub fn source_to_utf16(
@@ -78,24 +45,7 @@ impl EditorSession {
         expected: Revision,
         range: SourceRange,
     ) -> Result<SourceUtf16Range, EditorError> {
-        self.check_revision(expected)?;
-        if range.start.0 > range.end.0 {
-            return Err(EditorError::InvalidRange);
-        }
-        let convert = |offset: SourceOffset| {
-            let index = self
-                .source
-                .try_byte_to_char(offset.0)
-                .map_err(|_| EditorError::InvalidRange)?;
-            if self.source.char_to_byte(index) != offset.0 {
-                return Err(EditorError::InvalidRange);
-            }
-            Ok(SourceUtf16Offset(self.source.char_to_utf16_cu(index)))
-        };
-        Ok(SourceUtf16Range {
-            start: convert(range.start)?,
-            end: convert(range.end)?,
-        })
+        self.engine().source_to_utf16(expected, range)
     }
 
     pub fn select_utf16(
@@ -178,25 +128,10 @@ impl EditorSession {
         range: DisplayUtf16Range,
         inserted: &[u16],
     ) -> Result<(DisplayRange, String), EditorError> {
-        on_next!(ref self, |e| Ok((
-            e.input_from_utf16(expected, range)?,
+        Ok((
+            self.engine().input_from_utf16(expected, range)?,
             String::from_utf16(inserted).map_err(|_| EditorError::InvalidText)?,
-        )));
-        self.check_revision(expected)?;
-        let range = if self.composition().is_some() {
-            if range.start.0 > range.end.0 {
-                return Err(EditorError::InvalidRange);
-            }
-            let display = self.provisional_display();
-            DisplayRange {
-                start: DisplayOffset(Self::utf16_to_byte(&display, range.start.0)?),
-                end: DisplayOffset(Self::utf16_to_byte(&display, range.end.0)?),
-            }
-        } else {
-            self.display_from_utf16(expected, range)?
-        };
-        let inserted = String::from_utf16(inserted).map_err(|_| EditorError::InvalidText)?;
-        Ok((range, inserted))
+        ))
     }
 
     pub fn decode_utf16_replacements(
@@ -277,5 +212,27 @@ impl EditorSession {
     ) -> Result<Vec<DisplayRange>, EditorError> {
         let (range, _) = self.decode_utf16_input(expected, range, &[])?;
         self.find_matches(expected, range)
+    }
+
+    pub fn block_command_utf16(
+        &mut self,
+        expected: Revision,
+        range: crate::DisplayUtf16Range,
+        command: crate::BlockCommand,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let (range, _) = self.decode_utf16_input(expected, range, &[])?;
+        self.block_command(expected, range, command, accept)
+    }
+
+    pub fn paragraph_key_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        key: crate::ParagraphKey,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let (range, _) = self.decode_utf16_input(expected, range, &[])?;
+        self.paragraph_key(expected, range, key, accept)
     }
 }

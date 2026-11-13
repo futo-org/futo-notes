@@ -8,7 +8,7 @@
 //! the read is the session's to merge or park when it saves (#392).
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use futo_notes_editor::{may_define_reference, QuickOpen, QUICK_OPEN_BYTES};
+use futo_notes_editor::{QuickOpen, QUICK_OPEN_BYTES};
 
 use crate::{paths, LocalNoteStore};
 
@@ -70,13 +70,8 @@ impl LocalNoteStore {
             end -= 1;
         }
         let head = &source[..end];
-        // From the head's last byte, so a `]:` across the seam is seen.
-        let rest = &source.as_bytes()[end.saturating_sub(1)..];
-        let quick = futo_notes_editor::quick_open(
-            head,
-            || may_define_reference(rest),
-            || super::links::vault_note_ids(&self.root),
-        );
+        let quick =
+            futo_notes_editor::quick_open(head, || super::links::vault_note_ids(&self.root));
         if quick.is_some() {
             read.shown.store(true, Ordering::Release);
         }
