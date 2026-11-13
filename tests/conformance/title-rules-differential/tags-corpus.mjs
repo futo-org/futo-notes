@@ -96,6 +96,32 @@ export function tagContentCorpus() {
     'example.com#section foo#bar',
     `#tag${PARTY} but #clean works`,
   );
+  // The line dialect: code spans end at a line break (`\n` or `\r\n`, never a
+  // lone `\r`), need a closing run of exactly their length and skip escaped
+  // backticks; fences open at any indent, close only on a line of the marker
+  // alone; closed front matter on line 1 is not read.
+  content.push(
+    '`a\n#b c`',
+    '`a\r\n#b c`',
+    '`a\r#b c`',
+    '``#a b',
+    '``a``` #b `',
+    '\\` #a `',
+    '`a\\` #b',
+    '\\\\`a` #b',
+    '```\n#a\n``` #b\n#c\n```\n#d',
+    '- item\n    ```\n    #a\n    ```\n#b',
+    '\t```\n#a\n\t```\n#b',
+    '```\n#a\n```\r\r\n#b',
+    '```\n#a\n```\u00a0\n#b',
+    '> ```\n> #a\n> ```',
+    '---\n#yaml\n---\n#h',
+    '---\r\n#a\r\n---\r\n#b',
+    '---\n#a\n---\r',
+    '---\n#a',
+    'x\n---\n#a\n---',
+    '---\n```\n---\n#a',
+  );
   // Header tag blocks: multi-line runs, blank-line terminators, trailing
   // whitespace, blocks that run to EOF, near-miss lines.
   content.push(
@@ -133,6 +159,10 @@ export function tagContentCorpus() {
     '\r\n',
     '`',
     '~',
+    '\\',
+    '\r',
+    '---',
+    '    ',
     '.',
     ',',
     ')',

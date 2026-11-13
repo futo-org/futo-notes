@@ -177,3 +177,32 @@ fn edit_work_does_not_scale_with_the_note() {
         );
     }
 }
+
+/// The note list and search read tags with `futo_notes_tags::extract_tags`,
+/// which must agree with the line reader about what is code and what is front
+/// matter. Excluded, because the tags crate does not read them: `[` and `<`
+/// (a backtick taken by a wikilink, autolink or link destination) and `|`
+/// (table cells, which end a code span).
+#[test]
+fn the_tags_crate_reads_code_and_front_matter_as_the_line_reader_does() {
+    let pieces = [
+        "`", "``", "```", "~~~", "#a", "#b", "#", "a", " ", "\t", "\n", "\r\n", "\r", "\\", "---",
+        "- ", "> ", "# ", "    ", ".",
+    ];
+    let mut state: u32 = 0x7a67_c0de;
+    let mut next = || {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        state as usize
+    };
+    for _ in 0..20_000 {
+        let len = next() % 18;
+        let source: String = (0..len).map(|_| pieces[next() % pieces.len()]).collect();
+        assert_eq!(
+            EditorSession::open(&source).tags(),
+            futo_notes_tags::extract_tags(&source),
+            "{source:?}"
+        );
+    }
+}

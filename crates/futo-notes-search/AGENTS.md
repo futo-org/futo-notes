@@ -24,7 +24,8 @@ in `futo-notes-store`'s `search.rs`, which is the only crate that should constru
 
 ## Dependencies
 
-It depends on `futo-notes-core` only for `log_to_stderr!`, the non-panicking diagnostic line.
+It depends on `futo-notes-core` only for `log_to_stderr!`, the non-panicking diagnostic line, and
+on `futo-notes-tags` for the `tags` field, so search reads tags and code as the editor does.
 
 Tantivy stops at this crate's boundary. `scripts/check-rust-dependency-boundaries.mjs` fails if
 `tantivy` reaches `futo-notes-core`, `futo-notes-model`, or `futo-notes-sync`, and if the ONNX

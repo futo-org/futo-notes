@@ -376,6 +376,208 @@
           }
         }
       ]
+    },
+    {
+      "op": "extractTags",
+      "fn": "extractTags",
+      "cases": [
+        {
+          "input": "`a\n#b c`",
+          "expected": [
+            "#b"
+          ]
+        },
+        {
+          "input": "`a\r\n#b c`",
+          "expected": [
+            "#b"
+          ]
+        },
+        {
+          "input": "`a\r#b c`",
+          "expected": []
+        },
+        {
+          "input": "x ` #b\n` #c",
+          "expected": [
+            "#b",
+            "#c"
+          ]
+        },
+        {
+          "input": "x `` #a\n`` #b",
+          "expected": [
+            "#a",
+            "#b"
+          ]
+        },
+        {
+          "input": "``#a b",
+          "expected": []
+        },
+        {
+          "input": "#a``",
+          "expected": []
+        },
+        {
+          "input": "``a``` #b `",
+          "expected": [
+            "#b"
+          ]
+        },
+        {
+          "input": "`` ` #a ` ``",
+          "expected": []
+        },
+        {
+          "input": "\\` #a `",
+          "expected": [
+            "#a"
+          ]
+        },
+        {
+          "input": "`a\\` #b",
+          "expected": [
+            "#b"
+          ]
+        },
+        {
+          "input": "`x`#a b",
+          "expected": [
+            "#a"
+          ]
+        },
+        {
+          "input": "#a`x` b",
+          "expected": [
+            "#a"
+          ]
+        },
+        {
+          "input": "# #tag",
+          "expected": [
+            "#tag"
+          ]
+        },
+        {
+          "input": "## Title #a",
+          "expected": [
+            "#a"
+          ]
+        },
+        {
+          "input": "```\n#a\n``` #b\n#c\n```\n#d",
+          "expected": [
+            "#d"
+          ]
+        },
+        {
+          "input": "```\n#a\n    ```\n#b",
+          "expected": [
+            "#b"
+          ]
+        },
+        {
+          "input": "- item\n    ```\n    #a\n    ```\n#b",
+          "expected": [
+            "#b"
+          ]
+        },
+        {
+          "input": "\t```\n#a\n\t```\n#b",
+          "expected": [
+            "#b"
+          ]
+        },
+        {
+          "input": "```\n#a\n```  \n#b",
+          "expected": [
+            "#b"
+          ]
+        },
+        {
+          "input": "```\n#a\n```\r\n#b",
+          "expected": [
+            "#b"
+          ]
+        },
+        {
+          "input": "```\n#a\n```\r\r\n#b",
+          "expected": []
+        },
+        {
+          "input": "```\n#a\n```\u00a0\n#b",
+          "expected": []
+        },
+        {
+          "input": "~~~\n#a\n```\n#b\n~~~\n#c",
+          "expected": [
+            "#c"
+          ]
+        },
+        {
+          "input": "````\n#a\n```\n#b\n````\n#c",
+          "expected": [
+            "#c"
+          ]
+        },
+        {
+          "input": "> ```\n> #a\n> ```",
+          "expected": [
+            "#a"
+          ]
+        },
+        {
+          "input": "- ```\n#a\n- ```",
+          "expected": [
+            "#a"
+          ]
+        },
+        {
+          "input": "---\n#yaml\n---\n#h\n\nbody #b",
+          "expected": [
+            "#h",
+            "#b"
+          ]
+        },
+        {
+          "input": "---\n#a",
+          "expected": [
+            "#a"
+          ]
+        },
+        {
+          "input": "---\r\n#a\r\n---\r\n#b",
+          "expected": [
+            "#b"
+          ]
+        },
+        {
+          "input": "---\n#a\n---\r",
+          "expected": [
+            "#a"
+          ]
+        },
+        {
+          "input": "---\n#a\n--- \n#b",
+          "expected": [
+            "#a",
+            "#b"
+          ]
+        },
+        {
+          "input": "x\n---\n#a\n---",
+          "expected": [
+            "#a"
+          ]
+        },
+        {
+          "input": "---\n```\n---\n#a",
+          "expected": [
+            "#a"
+          ]
+        }
+      ]
     }
   ]
 }

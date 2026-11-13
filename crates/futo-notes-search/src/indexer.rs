@@ -385,29 +385,10 @@ fn folder_of(note_id: &str) -> String {
     }
 }
 
+/// The note's tags for the `tags` field, by the canonical rule the editor
+/// reads with: no tag inside front matter, fenced code or a code span.
 fn extract_tags_inline(body: &str) -> String {
-    let mut out = String::new();
-    let mut chars = body.char_indices().peekable();
-    while let Some((_i, c)) = chars.next() {
-        if c == '#' {
-            let mut tag = String::new();
-            while let Some(&(_, nc)) = chars.peek() {
-                if nc.is_alphanumeric() || nc == '_' || nc == '-' {
-                    tag.push(nc);
-                    chars.next();
-                } else {
-                    break;
-                }
-            }
-            if !tag.is_empty() {
-                if !out.is_empty() {
-                    out.push(' ');
-                }
-                out.push_str(&tag);
-            }
-        }
-    }
-    out
+    futo_notes_tags::extract_tag_names(body).join(" ")
 }
 
 fn cleanup_legacy(notes_root: &Path) {
@@ -437,6 +418,16 @@ mod tests {
             .collect();
 
         assert_eq!(ids, ["a/b"]);
+    }
+
+    // The tags field holds what the editor reads as tags: none in front
+    // matter, fenced code or a code span (which ends at its line), and only at
+    // the canonical boundary.
+    #[test]
+    fn tags_field_skips_code_and_uses_the_tag_boundary() {
+        let body = "---\ntitle: #yaml\n---\n#Plan word#glued `#code` #1x #Plan\n\
+            ```\n#fenced\n```\n`open #open\nclose` #done";
+        assert_eq!(extract_tags_inline(body), "plan open done");
     }
 
     fn make_state(
