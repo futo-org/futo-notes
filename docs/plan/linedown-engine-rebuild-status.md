@@ -152,8 +152,12 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
     `src/engine/`. `node scripts/test-editor-wasm.mjs` stops at its first consumer,
     `wasm-consumer.mjs`, on `&acE;` (the old engine no longer decodes entities; stage 4's
     sort).
-- Stage 4: done once `just check` and the iOS suites below pass (answers 14B, 15A, 16A, 17B,
-  18A applied). On `linedown` since 71e97976c (branch `linedown-cutover`
+- Stage 4: done (answers 14B, 15A, 16A, 17B, 18A applied). `just check` green (full run, all
+  14 steps); `just test-ios-native` 509 passed, 1 failed, 7 skipped (StoreKit): the failure is
+  iOS drawing, an empty last list line's marker sits 0.25-0.5 pt lower than once text is typed
+  (`trailingRow` in `TextFirstLayoutFragments.swift`; `TextFirstEmptyMarkerTests` "ordered-list
+  on the empty last line"); not fixed, scope kept down (maintainer, 2026-11-13). Android has not
+  been built against the new style surface (list rows, tags). On `linedown` since 71e97976c (branch `linedown-cutover`
   fast-forwarded).
   The log of what it did and how it was verified is `docs/plan/linedown-engine-rebuild-stage4.md`.
 - Stage 5: not started.

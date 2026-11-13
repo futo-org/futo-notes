@@ -66,3 +66,10 @@ What the cut-over did and how it was verified. The status file is
   iOS lane's five suites; a final simulator smoke of 71e97976c (not the switch: the core is
   the only engine) drew `3)`, `10)`, uneven indents, a coloured tag, code and a table, and
   saved exactly what was typed.
+- After the answers (2026-11-13): 14B (`\|` in a cell's destination; `\|` in a cell's code is a
+  pipe, reader fixed), 15A (long-line bound; on the Moto every key in a 50,000-character line
+  3.1-3.4 ms median, at most 4.1 ms, after c1a02dd47 stopped a deletion walking the whole line),
+  16A, 17B (the store saves exact bytes, 27c1534dd; sync carries them; the desktop Milkdown editor
+  still ends a note it edits with `\n`), 18A; typing on an empty `>` line writes `> x` (display
+  rule 6). The whole iOS unit suite was then sorted (17351eede): 486 passed, 14 failed and two
+  crashes (stale test mirrors) before; 509 passed, 1 failed after.
