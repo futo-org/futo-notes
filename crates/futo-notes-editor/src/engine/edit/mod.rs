@@ -1,6 +1,7 @@
 //! Changing the note: typing, deletion, exact source records, undo and redo,
 //! and composition. Every change is text edits applied to the lines, then
 //! one host acceptance; a refused acceptance puts the text back.
+mod bulk;
 mod compose;
 mod plan;
 mod spans;

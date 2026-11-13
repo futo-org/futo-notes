@@ -425,10 +425,7 @@ impl Engine {
         } else {
             Some(self.before_command(command, &edits)?)
         };
-        // Last first, so earlier offsets stay valid.
-        for edit in edits.iter().rev() {
-            self.raw(batch, edit.range.clone(), &edit.text);
-        }
+        self.raw_edits(batch, &edits);
         Ok(before.is_none_or(|before| self.guard_holds(&before)))
     }
 

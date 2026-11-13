@@ -461,3 +461,39 @@ fn list_level_work_is_constant_for_typing_and_bounded_by_the_indented_subtree() 
     assert!(large.parsed_source_bytes > small.parsed_source_bytes);
     assert!(large.parsed_source_bytes < 5_000, "{large:?}");
 }
+
+#[test]
+fn renumbering_reads_the_changed_tail_once_and_undo_restores_its_spelling() {
+    for ending in ["\n", "\r\n"] {
+        let source: String = (1..=1_000)
+            .map(|i| format!("{i:04}) item {i}{ending}"))
+            .collect();
+        let mut engine = Engine::open(&source);
+        let display = engine.display_text();
+        let at = display.find("item 500").unwrap() + "item 500".len();
+        let change = engine
+            .key(
+                engine.revision(),
+                range(at, at),
+                ParagraphKey::Enter,
+                &mut ok,
+            )
+            .unwrap()
+            .unwrap();
+        assert!(
+            change.work.parsed_source_bytes < source.len(),
+            "{:?}",
+            change.work
+        );
+        let mut expected: String = (1..=500)
+            .map(|i| format!("{i:04}) item {i}{ending}"))
+            .collect();
+        expected.push_str(&format!("0501) {ending}"));
+        expected.extend((501..=1_000).map(|i| format!("{:04}) item {i}{ending}", i + 1)));
+        assert_eq!(engine.source_text(), expected);
+        engine.undo(engine.revision(), &mut ok).unwrap().unwrap();
+        assert_eq!(engine.source_text(), source);
+        engine.redo(engine.revision(), &mut ok).unwrap().unwrap();
+        assert_eq!(engine.source_text(), expected);
+    }
+}
