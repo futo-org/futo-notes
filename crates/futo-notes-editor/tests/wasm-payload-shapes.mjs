@@ -143,6 +143,14 @@ assert.ok(shape('TableDescription', session.inspect_table(0n, cell.end, cell.end
 shape('TableOutcome | null', session.table_key(0n, 'Tab'));
 shape('string', JSON.stringify(session.copy_markdown(0n, 0, 4)));
 shape('[string, Applied | null]', session.cut_markdown(0n, 0, 0));
+
+const words = new WasmSession(4n, 'one **two** three', 0n);
+assert.equal(words.display_len(), 13);
+shape('DisplayRange', words.word_at(0n, 5));
+assert.equal(words.word_stop(0n, 0, true), 3);
+shape('DisplayRange', words.selection());
+shape('Applied[]', words.move_markdown(0n, 4, 7, 13));
+assert.equal(words.draft_text(), 'one  three**two**');
 assert.equal(typeof session.image_claim(), 'bigint');
 
 const completion = new WasmSession(2n, '[[Ro', 0n);

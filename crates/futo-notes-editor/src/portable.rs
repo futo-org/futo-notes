@@ -9,6 +9,7 @@ mod links;
 mod tables;
 mod tags;
 mod wikilink_completion;
+mod words;
 use serde::{Deserialize, Serialize};
 pub use tables::PortableTableStep;
 
@@ -257,6 +258,12 @@ impl PortableSession {
 
     pub fn draft_text(&self) -> String {
         self.engine.source_text()
+    }
+    pub fn display_len(&self) -> usize {
+        self.engine.display_len()
+    }
+    pub fn selection(&self) -> DisplayRange {
+        self.engine.selection()
     }
     pub fn status(&self) -> PortableStatus {
         PortableStatus {

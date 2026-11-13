@@ -93,8 +93,32 @@ impl EditorSession {
         self.engine.display_text()
     }
 
+    /// The display text's length in bytes.
+    pub fn display_len(&self) -> usize {
+        self.engine.display_len()
+    }
+
     pub fn selection(&self) -> DisplayRange {
         self.engine.selection()
+    }
+
+    /// The word a double click at `offset` selects (`engine/words.rs`).
+    pub fn word_at(
+        &self,
+        expected: Revision,
+        offset: DisplayOffset,
+    ) -> Result<DisplayRange, EditorError> {
+        self.engine.word_at(expected, offset)
+    }
+
+    /// Where Option+Arrow from `offset` stops (`engine/words.rs`).
+    pub fn word_stop(
+        &self,
+        expected: Revision,
+        offset: DisplayOffset,
+        direction: CaretDirection,
+    ) -> Result<DisplayOffset, EditorError> {
+        self.engine.word_stop(expected, offset, direction)
     }
 
     pub fn affinity(&self) -> Affinity {

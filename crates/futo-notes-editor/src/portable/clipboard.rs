@@ -42,4 +42,27 @@ impl PortableSession {
             })?;
         Ok(change.map(|change| self.issue(record.unwrap(), change)))
     }
+
+    /// Drag-to-move (`EditorSession::move_markdown`): each change an edit for
+    /// the host, in the order they landed.
+    pub fn move_markdown(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        to: crate::DisplayOffset,
+    ) -> Result<Vec<Applied>, PortableError> {
+        self.ready()?;
+        let mut records = Vec::new();
+        let changes = self
+            .engine
+            .move_markdown(expected, range, to, &mut |edit| {
+                records.push(edit.clone());
+                Ok(())
+            })?;
+        Ok(records
+            .into_iter()
+            .zip(changes)
+            .map(|(edit, change)| self.issue(edit, change))
+            .collect())
+    }
 }

@@ -24,6 +24,7 @@ mod surface;
 #[cfg(test)]
 mod tests;
 mod utf16;
+mod words;
 
 pub(crate) use edit::Marked;
 pub(crate) use external::Adoption;

@@ -2,8 +2,8 @@
 //! its work to the core's command family of the same name.
 use super::{Accept, EditorSession};
 use crate::{
-    DisplayRange, EditorError, ImageClaim, LinkDescription, NoteIdChange, Revision, TableCommand,
-    TableDescription, TableKey, TableOutcome, ViewChange, WikilinkCompletion,
+    DisplayOffset, DisplayRange, EditorError, ImageClaim, LinkDescription, NoteIdChange, Revision,
+    TableCommand, TableDescription, TableKey, TableOutcome, ViewChange, WikilinkCompletion,
 };
 
 impl EditorSession {
@@ -87,6 +87,19 @@ impl EditorSession {
         accept: Accept,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.run(|e| e.paste_markdown(expected, range, text, accept))
+    }
+
+    /// Drag-to-move: cut display `range` and paste it at display `to` (an
+    /// offset before the move), left selected, as one Undo step. Each half is
+    /// its own accepted edit; a paste that cannot land takes the cut back.
+    pub fn move_markdown(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        to: DisplayOffset,
+        accept: Accept,
+    ) -> Result<Vec<ViewChange>, EditorError> {
+        self.run(|e| e.move_markdown(expected, range, to, accept))
     }
 
     /// Inspect the contiguous run containing the complete selection. A caret at
