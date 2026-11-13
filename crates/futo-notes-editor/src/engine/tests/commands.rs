@@ -257,6 +257,7 @@ fn the_guard_follows_every_unnamed_line_between_many_named_ones() {
             selection: 0..0,
             affinity: None,
             typed: false,
+            carry: None,
         }
     };
     let mut engine = Engine::open(&source);

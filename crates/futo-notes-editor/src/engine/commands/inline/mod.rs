@@ -6,7 +6,8 @@
 //! spelling on a line and keeps it only when the line then reads as
 //! intended (`draft.rs`); house spelling is `**`, `*`, `~~` and backticks.
 //! A collapsed toggle writes nothing: it sets the formats typing at that
-//! caret carries (`typing.rs`), until the caret moves.
+//! caret carries (`typing.rs`), until the caret moves; a deletion that
+//! empties a span sets the span's formats there.
 mod draft;
 mod format;
 mod links;
@@ -176,7 +177,7 @@ impl Engine {
     }
 
     /// The formats every selected visible character carries.
-    fn selection_formats(&self) -> Vec<InlineFormat> {
+    pub(crate) fn selection_formats(&self) -> Vec<InlineFormat> {
         let mut style: Option<u16> = None;
         for body in self.bodies(self.selection) {
             for (glyph, selected) in body.glyphs.iter().zip(&body.selected) {
@@ -195,6 +196,34 @@ impl Engine {
             self.active_formats()
         } else {
             self.selection_formats()
+        }
+    }
+
+    /// The formats a deletion of display `range` (input of no text) keeps
+    /// for the caret: those of its first character, as Cut keeps. `None`
+    /// for other input, and where the caret already carries formats, which
+    /// the deletion keeps.
+    pub(crate) fn deleted_formats(
+        &self,
+        range: DisplayRange,
+        text: &str,
+    ) -> Option<Vec<InlineFormat>> {
+        (text.is_empty() && range.start != range.end && self.formats.is_none())
+            .then(|| self.formats_at(self.source_selection(range).start))
+    }
+
+    /// After a deletion, the caret carries `formats` (`deleted_formats`)
+    /// where it no longer reads them, because the deletion emptied their
+    /// span: the next character typed takes them, as in a rich-text editor.
+    pub(crate) fn carry_deleted(&mut self, formats: Option<Vec<InlineFormat>>) {
+        let Some(formats) = formats else {
+            return;
+        };
+        if self.selection.start == self.selection.end
+            && self.formats.is_none()
+            && self.formats_at(self.caret_source()) != formats
+        {
+            self.formats = Some(formats);
         }
     }
 

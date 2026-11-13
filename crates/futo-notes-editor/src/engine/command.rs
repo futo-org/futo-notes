@@ -15,7 +15,8 @@ use super::line::Entry;
 use super::{read, store, Engine};
 use crate::lines::{block, Carry, FenceRole, FrontMatterRole, Kind, Line, TableRole};
 use crate::{
-    Affinity, DisplayOffset, DisplayRange, EditorError, InputAction, Revision, SourceEdit,
+    Affinity, DisplayOffset, DisplayRange, EditorError, InlineFormat, InputAction, Revision,
+    SourceEdit,
 };
 use std::ops::Range;
 
@@ -54,6 +55,9 @@ pub(crate) struct Command {
     pub affinity: Option<Affinity>,
     /// Typing: a key's plain text edit, which always lands (no guard).
     pub typed: bool,
+    /// A deletion's formats the caret keeps where it no longer reads them
+    /// (`Engine::carry_deleted`).
+    pub carry: Option<Vec<InlineFormat>>,
 }
 
 impl Command {
@@ -66,6 +70,7 @@ impl Command {
             selection,
             affinity: None,
             typed: false,
+            carry: None,
         }
     }
 
@@ -385,6 +390,7 @@ impl Engine {
         if applied {
             let command = command.expect("an applied command");
             self.land(command.selection, command.affinity);
+            self.carry_deleted(command.carry);
         }
         if !records.is_empty() {
             self.history.undo.push(Group {
@@ -466,28 +472,6 @@ impl Engine {
     /// The line holding source offset `at`.
     pub(crate) fn line_of(&self, at: usize) -> usize {
         read::line_at(&self.store, at).0
-    }
-
-    /// The selection in source offsets: a collapsed caret where it maps,
-    /// else from the first visible source after its start to the last
-    /// before its end.
-    pub(crate) fn source_selection(&self, range: DisplayRange) -> Range<usize> {
-        if range.start == range.end {
-            if range == self.selection {
-                let at = self.caret_source();
-                return at..at;
-            }
-            let (lo, hi) = self.source_bounds(range.start.0);
-            let at = if self.affinity == Affinity::Backward {
-                lo
-            } else {
-                hi
-            };
-            return at..at;
-        }
-        let start = self.source_bounds(range.start.0).1;
-        let end = self.source_bounds(range.end.0).0.max(start);
-        start..end
     }
 
     /// The lines display `range` touches. A selection that ends at the very

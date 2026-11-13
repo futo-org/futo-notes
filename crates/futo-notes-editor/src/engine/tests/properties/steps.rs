@@ -217,8 +217,8 @@ pub(super) fn type_step(
                 want.insert_str(selection.start.0, text);
                 let context = format!("typing {text:?} under {formats:?} at {at}");
                 assert_eq!(engine.display_text(), want, "{context}");
-                let unmarked = |text: &str| text.replace(['*', '_', '~', '`'], "");
-                assert_eq!(unmarked(&now), unmarked(&typed_at(at)), "{context}");
+                let (written, typed) = unmarked_difference(&now, &typed_at(at));
+                assert_eq!(written, typed, "{context}: {now:?}");
                 super::inline::typed_formats(
                     engine,
                     selection.start.0,
@@ -233,6 +233,35 @@ pub(super) fn type_step(
     }
     model.edited(engine, before, groups);
     format!("type {text:?} at {selection:?}")
+}
+
+/// Where `a` and `b` differ (without the characters they share at either
+/// end), each without inline marks. A code span's padding space (around
+/// text that starts or ends with a backtick) is part of its marks.
+fn unmarked_difference(a: &str, b: &str) -> (String, String) {
+    let unmarked = |text: &str| {
+        text.replace("` ", "`")
+            .replace(" `", "`")
+            .replace(['*', '_', '~', '`'], "")
+    };
+    let prefix: usize = a
+        .chars()
+        .zip(b.chars())
+        .take_while(|(x, y)| x == y)
+        .map(|(x, _)| x.len_utf8())
+        .sum();
+    let (a, b) = (&a[prefix..], &b[prefix..]);
+    let suffix: usize = a
+        .chars()
+        .rev()
+        .zip(b.chars().rev())
+        .take_while(|(x, y)| x == y)
+        .map(|(x, _)| x.len_utf8())
+        .sum();
+    (
+        unmarked(&a[..a.len() - suffix]),
+        unmarked(&b[..b.len() - suffix]),
+    )
 }
 
 /// Backspace or Delete.

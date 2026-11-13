@@ -72,6 +72,11 @@
   {"name": "a completed word joins a struck word before it", "before": "~~x~~ hel‸", "command": [["strike"], ["replace_word", 3, "hello"]], "after": "~~x hello‸~~"},
   {"name": "a word of mixed formats: only the added letters", "before": "*he*l‸", "command": [["bold"], ["replace_word", 3, "hello"]], "after": "*he*l**lo‸**"},
   {"name": "a caret reading after a bold word keeps the word's bold", "before": "**hel**‸", "command": [["italic"], ["replace_word", 3, "hello"]], "after": "**hel***lo‸*"},
+  {"name": "a completion ending in a space takes a bold turned off after the word was typed", "before": "‸", "command": [["bold"], ["type", "hel"], ["bold"], ["replace_word", 3, "hello "]], "after": "hello ‸"},
+  {"name": "a completion ending in a space takes an italic turned off after the word was typed", "before": "‸", "command": [["italic"], ["type", "hel"], ["italic"], ["replace_word", 3, "hello "]], "after": "hello ‸"},
+  {"name": "a completion ending in a space keeps the carried bold on the word", "before": "‸", "command": [["bold"], ["type", "hel"], ["replace_word", 3, "hello "]], "after": "**hello** ‸", "formats": ["bold"]},
+  {"name": "a word in a link's text takes the carried format whole", "before": "[a hel‸](u)", "command": [["bold"], ["replace_word", 3, "hello"]], "after": "[a **hello‸**](u)"},
+  {"name": "a word that is a whole link's text: only the added letters", "before": "[hel‸](u)", "command": [["bold"], ["replace_word", 3, "hello"]], "after": "[hel**lo‸**](u)"},
 
   {"name": "link the selected text", "before": "read the ⟦docs⟧ now", "command": [["link", "https://x.test"]], "after": "read the [⟦docs⟧](https://x.test) now"},
   {"name": "link formatted text", "before": "read the ⟦__docs__⟧ now", "command": [["link", "https://x.test"]], "after": "read the [__⟦docs⟧__](https://x.test) now"},
@@ -102,5 +107,13 @@
   {"name": "joining keeps the span's own underscore spelling", "before": "__a‸__", "command": [["type", " "], ["type", "b"]], "after": "__a b‸__"},
   {"name": "joining keeps a single underscore italic", "before": "_a‸_", "command": [["type", " "], ["type", "b"]], "after": "_a b‸_"},
   {"name": "a space typed where strike ends lands outside its marks", "before": "~~a‸~~ z", "command": [["type", " "]], "after": "~~a~~ ‸ z"},
-  {"name": "a space typed inside bold stays where it is typed", "before": "**a‸b**", "command": [["type", " "]], "after": "**a ‸b**"}
+  {"name": "a space typed inside bold stays where it is typed", "before": "**a‸b**", "command": [["type", " "]], "after": "**a ‸b**"},
+  {"name": "a space typed where bold ends lands outside its marks when the input is not at the selection", "before": "‸**ab**", "command": [["select", 1, 1], ["type_at", 2, " "]], "after": "**ab** ‸", "formats": ["bold"]},
+
+  {"name": "deleting a selection that empties a bold span keeps bold for the caret", "before": "a **⟦Owner⟧** b", "command": [["key", "backspace"]], "after": "a ‸ b", "formats": ["bold"]},
+  {"name": "the next letter after clearing a bold span is bold", "before": "a **⟦Owner⟧** b", "command": [["key", "delete"], ["type", "x"]], "after": "a **x‸** b"},
+  {"name": "a text service clearing a bold span keeps bold for the caret", "before": "a **⟦Owner⟧** b", "command": [["replace", 2, 7, ""]], "after": "a ‸ b", "formats": ["bold"]},
+  {"name": "clearing a bold table cell keeps bold for the caret", "before": "| Item | **⟦Owner⟧** |\n|:--- | --- |", "command": [["key", "backspace"]], "after": "| Item | ‸ |\n|:--- | --- |", "formats": ["bold"]},
+  {"name": "Backspace emptying a bold span keeps bold for the caret", "before": "a **b‸**", "command": [["key", "backspace"]], "after": "a ‸", "formats": ["bold"]},
+  {"name": "a carried format from a deletion ends when the caret moves", "before": "a **⟦Owner⟧** b", "command": [["key", "backspace"], ["select", 0, 0], ["select", 2, 2], ["type", "x"]], "after": "a x‸ b"}
 ]

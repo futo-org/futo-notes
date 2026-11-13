@@ -91,6 +91,7 @@ impl Engine {
             plan.caret..plan.caret,
         );
         command.typed = true;
+        command.carry = self.deleted_formats(range, &text);
         Ok(Some(command))
     }
 
