@@ -316,3 +316,38 @@ fn grapheme_movement_crosses_rope_chunks_without_splitting_long_clusters() {
         bytes(3192, 3192)
     );
 }
+
+#[test]
+fn typed_text_refuses_control_characters_and_function_key_code_points() {
+    let mut unexpected =
+        |_: &futo_notes_editor::SourceEdit| panic!("refused text reached acceptance");
+    let mut session = EditorSession::open("ab");
+    // Ctrl+Q Ctrl+Q, Ctrl+Option+A, Delete, a quoted Return, C1 NEL, a quoted arrow.
+    for text in [0x11, 0x01, 0x7F, 0x0D, 0x85, 0xF700, 0xF7FF] {
+        assert_eq!(
+            session.replace_utf16(Revision(0), utf16(1, 1), &[0x61, text], &mut unexpected),
+            Err(EditorError::InvalidText),
+            "{text:#x}"
+        );
+    }
+    assert_eq!(session.source_text(), "ab");
+    // A tab, a line feed and the Apple logo (Option+Shift+K) are text.
+    let mut accepted = |_: &futo_notes_editor::SourceEdit| Ok(());
+    session
+        .replace_utf16(
+            Revision(0),
+            utf16(1, 1),
+            &[0x09, 0x0A, 0xF8FF],
+            &mut accepted,
+        )
+        .unwrap();
+    assert_eq!(session.source_text(), "a\t\n\u{F8FF}b");
+    // An isolated replacement (paste, a text service's echo) keeps a note's own CRLF.
+    let mut session = EditorSession::open("ab\r\n");
+    let echo: Vec<u16> = "xb\r\n".encode_utf16().collect();
+    let isolated = futo_notes_editor::InputAction::Isolated;
+    session
+        .replace_utf16_action(Revision(0), utf16(0, 4), &echo, isolated, &mut accepted)
+        .unwrap();
+    assert_eq!(session.source_text(), "xb\r\n");
+}

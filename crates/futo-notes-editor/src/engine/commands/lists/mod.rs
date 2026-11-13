@@ -66,7 +66,7 @@ impl Engine {
                 }
                 self.indent_command(range, key == ParagraphKey::ShiftTab)
             }
-            ParagraphKey::Delete => Ok(None),
+            ParagraphKey::Delete | ParagraphKey::Transpose => Ok(None),
         }
     }
 

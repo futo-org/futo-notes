@@ -11,6 +11,15 @@ use crate::{
 
 type Accept<'a> = &'a mut dyn FnMut(&SourceEdit) -> Result<(), String>;
 
+/// What a typed key can put in a note: not a control character other than tab and line
+/// feed (Ctrl+Option+letter and AppKit's quoted Ctrl+Q keys type them), nor one of Apple's
+/// function-key code points U+F700–U+F7FF (a quoted arrow or F key). A line break is
+/// typed as Enter; a paste or a text service's replacement may carry a note's own CRLF.
+fn typeable(character: char) -> bool {
+    matches!(character, '\t' | '\n')
+        || !(character.is_control() || ('\u{F700}'..='\u{F7FF}').contains(&character))
+}
+
 impl Engine {
     /// A change as a view applies it, with the projection of every line it
     /// showed again.
@@ -71,6 +80,9 @@ impl Engine {
         action: InputAction,
         accept: Accept,
     ) -> Result<ViewChange, EditorError> {
+        if action == InputAction::Typing && !text.chars().all(typeable) {
+            return Err(EditorError::InvalidText);
+        }
         Ok(match self.replace(expected, range, text, action, accept)? {
             Some(change) => self.view(change),
             None => self.unchanged(),
@@ -178,6 +190,12 @@ impl Engine {
                 self.delete(expected, direction, accept)?
             }
             ParagraphKey::Tab | ParagraphKey::ShiftTab => None,
+            ParagraphKey::Transpose => {
+                if range != self.selection {
+                    self.select_with_affinity(expected, range, self.affinity)?;
+                }
+                self.run(expected, |engine| engine.typed_key(range, key), accept)?
+            }
         };
         Ok(change.map(|change| self.view(change)))
     }

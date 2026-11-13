@@ -233,7 +233,8 @@ pub enum EditorSessionError {
     StaleRevision { expected: u64, actual: u64 },
     #[error("invalid editor range")]
     InvalidRange,
-    #[error("invalid UTF-16 input")]
+    /// Malformed UTF-16, or typed text no key can mean (a control character).
+    #[error("invalid input text")]
     InvalidText,
     #[error("editor composition is active")]
     CompositionActive,

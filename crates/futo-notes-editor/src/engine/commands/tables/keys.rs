@@ -39,6 +39,7 @@ impl Engine {
             ParagraphKey::Delete => {
                 return Ok(self.kept_structure(range, CaretDirection::Forward));
             }
+            ParagraphKey::Transpose => return Ok(None),
         };
         Ok(self.cell_key(range, key).map(|(command, _)| command))
     }

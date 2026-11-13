@@ -34,6 +34,8 @@ pub enum ParagraphKey {
     Delete,
     Tab,
     ShiftTab,
+    /// Ctrl+T on Apple (AppKit's `transpose:`).
+    Transpose,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

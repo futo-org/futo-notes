@@ -55,7 +55,10 @@ impl Engine {
             }
             ParagraphKey::Backspace => self.block_backspace(range, false),
             ParagraphKey::BackspaceJoiningHeading => self.block_backspace(range, true),
-            ParagraphKey::Delete | ParagraphKey::Tab | ParagraphKey::ShiftTab => None,
+            ParagraphKey::Delete
+            | ParagraphKey::Tab
+            | ParagraphKey::ShiftTab
+            | ParagraphKey::Transpose => None,
         })
     }
 

@@ -134,9 +134,9 @@ fn native_session_preserves_unicode_nul_and_saves_on_detach() {
 #[test]
 fn native_input_errors_selection_and_history_match_the_direct_session() {
     use futo_notes_editor::{
-        DisplayUtf16Offset, DisplayUtf16Range, EditorError, EditorSession, Revision,
+        DisplayUtf16Offset, DisplayUtf16Range, EditorError, EditorSession, InputAction, Revision,
     };
-    use futo_notes_ffi::EditorSessionError;
+    use futo_notes_ffi::{EditorInputAction, EditorSessionError};
     let tree = TempTree::new();
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
@@ -206,17 +206,28 @@ fn native_input_errors_selection_and_history_match_the_direct_session() {
         Err(EditorSessionError::StaleRevision { .. })
     ));
     let bytes = "日本\0".encode_utf16().collect::<Vec<_>>();
+    // A typed NUL is refused; an isolated replacement (a paste) carries it intact.
+    assert!(matches!(
+        native.replace_utf16(0, EditorUtf16Range { start: 1, end: 3 }, bytes.clone()),
+        Err(EditorSessionError::InvalidText)
+    ));
     let changed = native
-        .replace_utf16(0, EditorUtf16Range { start: 1, end: 3 }, bytes.clone())
+        .replace_utf16_action(
+            0,
+            EditorUtf16Range { start: 1, end: 3 },
+            bytes.clone(),
+            EditorInputAction::Isolated,
+        )
         .unwrap();
     let change = direct
-        .replace_utf16(
+        .replace_utf16_action(
             Revision(0),
             DisplayUtf16Range {
                 start: DisplayUtf16Offset(1),
                 end: DisplayUtf16Offset(3),
             },
             &bytes,
+            InputAction::Isolated,
             &mut |_| Ok(()),
         )
         .unwrap();

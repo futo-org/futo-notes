@@ -38,7 +38,7 @@ impl Engine {
     /// The display line holding display offset `at`, its line break left out. A line
     /// break shows only at the end of a line whose ending shows; hidden lines between
     /// belong to the display line around them.
-    fn display_line(&self, at: usize) -> Range<usize> {
+    pub(super) fn display_line(&self, at: usize) -> Range<usize> {
         let (index, before) = self.line_at_display(store::display, at);
         let mut start = before.display;
         let mut first = index;

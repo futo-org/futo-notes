@@ -11,6 +11,7 @@ mod inline;
 mod lists;
 mod marks;
 mod tables;
+mod transpose;
 mod wikilinks;
 
 use super::command::{Command, Edit};
@@ -47,6 +48,8 @@ impl Engine {
     /// A key's plain text edit, as a command that always lands: Enter writes
     /// the line's own line break, Backspace and Delete remove the range or
     /// one visible grapheme. Used when a key arrives over marked text.
+    /// Transpose is the one exception: its swap goes behind the guard
+    /// (`transpose.rs`).
     pub(crate) fn typed_key(
         &self,
         range: DisplayRange,
@@ -81,6 +84,7 @@ impl Engine {
                 (range, String::new())
             }
             ParagraphKey::Tab | ParagraphKey::ShiftTab => return Ok(None),
+            ParagraphKey::Transpose => return self.transpose_command(range),
         };
         let plan = self.plan(self.outside_crlf(range), &text);
         let first = self.line_of(plan.range.start);
