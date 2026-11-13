@@ -85,7 +85,7 @@ impl Engine {
         let to = if selection.start == selection.end {
             self.grapheme_stop(from, direction)
         } else {
-            from
+            self.grapheme_edge(from, direction)
         };
         let at = DisplayOffset(to);
         self.select_with_affinity(
@@ -96,6 +96,25 @@ impl Engine {
                 CaretDirection::Backward => Affinity::Forward,
             },
         )
+    }
+
+    /// Display offset `at` if it is a grapheme boundary, else the boundary
+    /// of its grapheme in `direction`: a selection collapsed to an edge
+    /// that a native control left inside a cluster never leaves the caret
+    /// inside it.
+    pub(crate) fn grapheme_edge(&self, at: usize, direction: CaretDirection) -> usize {
+        if at == 0 || at == self.display_len() {
+            return at;
+        }
+        let start = self.grapheme_stop(at, CaretDirection::Backward);
+        let end = self.grapheme_stop(start, CaretDirection::Forward);
+        if end <= at {
+            return at;
+        }
+        match direction {
+            CaretDirection::Backward => start,
+            CaretDirection::Forward => end,
+        }
     }
 
     /// The next extended grapheme boundary from display offset `at`. Graphemes

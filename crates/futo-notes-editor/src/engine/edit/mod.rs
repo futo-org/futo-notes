@@ -2,6 +2,7 @@
 //! and composition. Every change is text edits applied to the lines, then
 //! one host acceptance; a refused acceptance puts the text back.
 mod compose;
+mod many;
 mod plan;
 
 use super::history::{Group, Point, Record};

@@ -3,7 +3,7 @@
 use super::super::line::Role;
 use super::super::{read, store, Engine};
 use crate::lines::SpanKind;
-use crate::{Affinity, DisplayRange};
+use crate::DisplayRange;
 use std::ops::Range;
 
 /// A planned text edit and where the caret ends up after it.
@@ -84,14 +84,19 @@ impl Engine {
         }
         inserted.push_str(text);
         if s == e {
+            // Input at a caret the host placed elsewhere stands where a
+            // fresh selection of it would: after hidden syntax only at the
+            // note's start, otherwise before it, so text typed where a span
+            // ends lands inside it. The core's own affinity belongs to its
+            // own selection, not to this offset.
             let at = if range == self.selection {
                 self.caret_source()
             } else {
                 let (lo, hi) = self.source_bounds(s);
-                if self.affinity == Affinity::Backward {
-                    lo
-                } else {
+                if s == 0 {
                     hi
+                } else {
+                    lo
                 }
             };
             return Plan {
