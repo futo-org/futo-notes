@@ -350,8 +350,14 @@ fn formatted(source: &str) -> Vec<(char, u8)> {
             if slice.links.iter().any(|link| within(&link.range, at)) {
                 flags |= LINK;
             }
-            let line = |block: &&BlockDescription| block.range.start.0 <= at && at <= block.range.end.0;
-            if slice.blocks.iter().find(line).is_some_and(|block| block.code) {
+            let line =
+                |block: &&BlockDescription| block.range.start.0 <= at && at <= block.range.end.0;
+            if slice
+                .blocks
+                .iter()
+                .find(line)
+                .is_some_and(|block| block.code)
+            {
                 flags |= CODE_LINE;
             }
             (ch, flags)
