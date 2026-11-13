@@ -28,14 +28,6 @@ macro_rules! on_next {
             }
         }
     };
-    ($session:ident, nothing) => {
-        #[cfg(feature = "engine")]
-        {
-            if $session.next.is_some() {
-                return crate::session::not_yet();
-            }
-        }
-    };
 }
 
 mod coordinates;

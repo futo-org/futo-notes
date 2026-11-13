@@ -2,8 +2,8 @@
 //! range writes, and where the caret lands.
 use super::super::line::Role;
 use super::super::{read, store, Engine};
-use crate::lines::SpanKind;
-use crate::{Affinity, DisplayOffset, DisplayRange, InlineFormat, InputAction};
+use crate::lines::{Kind, SpanKind};
+use crate::{DisplayOffset, DisplayRange, InlineFormat, InputAction};
 use std::ops::Range;
 
 /// A planned text edit and where the caret ends up after it.
@@ -53,6 +53,35 @@ impl Engine {
         (self.store.get(index).view.role == Role::Empty && at == before.display).then_some(index)
     }
 
+    /// Typing at a divider's edge (display rule 5 in `line.rs`): a divider
+    /// line shows only its rule, so the text goes on a line of its own beside
+    /// it, inside the divider's quotes. What to write at source `at`, and the
+    /// caret's offset into it; `None` when `at` is not at a divider's edge
+    /// or the text brings its own line break there.
+    pub(crate) fn beside_divider(&self, at: usize, text: &str) -> Option<(String, usize)> {
+        if text.is_empty() {
+            return None;
+        }
+        let (index, before) = read::line_at(&self.store, at);
+        let entry = self.store.get(index);
+        if entry.line.kind != Kind::Divider {
+            return None;
+        }
+        let body = entry.body();
+        let quotes = &body[..body.find(['-', '*', '_']).unwrap_or(0)];
+        let ending = self.empty_line_ending(index);
+        let local = at - before.source;
+        if local == 0 && !text.ends_with('\n') {
+            Some((format!("{quotes}{text}{ending}"), quotes.len() + text.len()))
+        } else if local == entry.body_len() && !text.starts_with(['\n', '\r']) {
+            let written = format!("{ending}{quotes}{text}");
+            let caret = written.len();
+            Some((written, caret))
+        } else {
+            None
+        }
+    }
+
     /// Replace display `range` with `text`. A collapsed caret inserts exactly
     /// `text` where it maps. A selection removes the visible text in it and
     /// the line markers and hidden lines inside it, keeps the syntax of spans
@@ -77,6 +106,42 @@ impl Engine {
         }
     }
 
+    /// Typing `inserted` at a collapsed `range`: exactly that, where the
+    /// caret maps, unless it is at a divider's edge.
+    fn at_caret(&self, range: DisplayRange, inserted: String) -> Plan {
+        // Input at a caret the host placed elsewhere stands where a fresh
+        // selection of it would: after hidden syntax only at the note's
+        // start, otherwise before it, so text typed where a span ends lands
+        // inside it. The core's own affinity belongs to its own selection,
+        // not to this offset.
+        let at = if range == self.selection {
+            self.caret_source()
+        } else {
+            let (lo, hi) = self.source_bounds(range.start.0);
+            if range.start.0 == 0 {
+                hi
+            } else {
+                lo
+            }
+        };
+        if let Some((written, caret)) = self.beside_divider(at, &inserted) {
+            return Plan {
+                range: at..at,
+                caret: at + caret,
+                inserted: written,
+                parsed: 0,
+                carry: None,
+            };
+        }
+        Plan {
+            range: at..at,
+            caret: at + inserted.len(),
+            inserted,
+            parsed: 0,
+            carry: None,
+        }
+    }
+
     fn replacement(&self, range: DisplayRange, text: &str) -> Plan {
         let (s, e) = (range.start.0, range.end.0);
         let mut inserted = String::new();
@@ -87,24 +152,7 @@ impl Engine {
         }
         inserted.push_str(text);
         if s == e {
-            // Input at a caret the host placed elsewhere stands where a
-            // fresh selection of it would: after hidden syntax only at the
-            // note's start, otherwise before it, so text typed where a span
-            // ends lands inside it. The core's own affinity belongs to its
-            // own selection, not to this offset.
-            let (lo, hi) = self.source_bounds(s);
-            let at = match range == self.selection {
-                true => self.caret_source(),
-                false if s == 0 => hi,
-                false => lo,
-            };
-            return Plan {
-                range: at..at,
-                caret: at + inserted.len(),
-                inserted,
-                parsed: 0,
-                carry: None,
-            };
+            return self.at_caret(range, inserted);
         }
         let (lo_s, _) = self.source_span(s);
         let (_, hi_e) = self.source_span(e);

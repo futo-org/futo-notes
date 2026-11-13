@@ -1,12 +1,10 @@
 mod blocks;
-#[cfg(feature = "engine")]
-mod next;
-#[cfg(feature = "engine")]
-pub(crate) use next::not_yet;
 mod checked_input;
 mod composition;
 mod external;
 mod find;
+#[cfg(feature = "engine")]
+mod next;
 mod written;
 pub use external::ExternalSourceAdoption;
 mod formatting;

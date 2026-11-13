@@ -89,8 +89,3 @@ pub(crate) fn marked_runs(engine: &Engine, range: DisplayRange, text: &str) -> V
         })
         .collect()
 }
-
-/// Unchanged commands: what the core does not have yet.
-pub(crate) fn not_yet<T>() -> Result<Option<T>, EditorError> {
-    Ok(None)
-}
