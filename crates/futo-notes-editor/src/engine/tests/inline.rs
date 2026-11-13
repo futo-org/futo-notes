@@ -1,5 +1,6 @@
 //! Inline formatting and links: the literal cases in
-//! `tests/fixtures/engine/inline.json`, and the work a select-all toggle costs.
+//! `tests/fixtures/engine/inline.json` and `links.json`, and the work a
+//! select-all toggle costs.
 //!
 //! A case's `before` and `after` are note text with the selection marked:
 //! `⟦` and `⟧` around a selection, `‸` at a caret (the link and table
@@ -154,8 +155,13 @@ fn error_name(error: &EditorError) -> String {
 
 #[test]
 fn the_inline_cases_hold() {
-    let cases: Vec<Value> =
-        serde_json::from_str(include_str!("../../../tests/fixtures/engine/inline.json")).unwrap();
+    let cases: Vec<Value> = [
+        include_str!("../../../tests/fixtures/engine/inline.json"),
+        include_str!("../../../tests/fixtures/engine/links.json"),
+    ]
+    .into_iter()
+    .flat_map(|text| serde_json::from_str::<Vec<Value>>(text).unwrap())
+    .collect();
     let mut failures = Vec::new();
     for case in &cases {
         let name = case["name"].as_str().unwrap();

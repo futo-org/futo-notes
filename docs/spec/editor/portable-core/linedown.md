@@ -185,7 +185,7 @@ A table is:
 
 - Every row starts with `|`.
 - Colons in the delimiter row set alignment: `:---` left, `:---:` centre, `---:` right.
-- Cells hold inline text only. `\|` is a literal pipe.
+- Cells hold inline text only. `\|` is a literal pipe, inside inline code too.
 - A row with too few cells is padded. Cells past the header show as new columns: the table is as wide as its widest row.
 - Tables are read only at the top level, not inside quotes or lists.
 - Until the delimiter row exists, `| item | qty |` is a plain line.

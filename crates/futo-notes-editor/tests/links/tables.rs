@@ -10,11 +10,15 @@ const TWO: &str = "| a | b |\n| - | - |\n| c | d |\n";
 const NOTE: &str = "intro\n\n| a |\n| - |\n| b |\n\nafter\n";
 
 fn link(source: &str, at: (usize, usize)) -> (EditorSession, bool) {
+    link_to(source, at, URL)
+}
+
+fn link_to(source: &str, at: (usize, usize), destination: &str) -> (EditorSession, bool) {
     let mut session = EditorSession::open(source);
     let at = range(at.0, at.1);
     session.select(Revision(0), at).unwrap();
     let changed = session
-        .set_link(Revision(0), at, URL, &mut |_| Ok(()))
+        .set_link(Revision(0), at, destination, &mut |_| Ok(()))
         .unwrap()
         .is_some();
     (session, changed)
@@ -41,8 +45,12 @@ fn shape(session: &EditorSession) -> (Vec<Vec<String>>, usize) {
 /// The command is accepted, leaves the table's rows and cells and the display
 /// text as they were, and Undo restores the source.
 fn assert_links(source: &str, at: (usize, usize), expected: &str) {
+    assert_links_to(source, at, URL, expected);
+}
+
+fn assert_links_to(source: &str, at: (usize, usize), destination: &str, expected: &str) {
     let before = EditorSession::open(source);
-    let (mut session, changed) = link(source, at);
+    let (mut session, changed) = link_to(source, at, destination);
     assert!(changed, "{source:?} {at:?}");
     assert_eq!(session.source_text(), expected, "{source:?} {at:?}");
     assert_eq!(shape(&session), shape(&before), "{source:?} {at:?}");
@@ -141,27 +149,23 @@ fn a_link_over_pipes_the_delimiter_row_or_outside_a_cell_changes_nothing() {
     }
 }
 
+/// In a cell a destination's `|` is written `\|`, so it never adds a cell;
+/// Undo restores the exact bytes.
 #[test]
-fn a_destination_with_a_pipe_never_adds_a_cell() {
-    let mut session = EditorSession::open(ONE);
-    session.select(Revision(0), range(2, 3)).unwrap();
-    let changed = session
-        .set_link(Revision(0), range(2, 3), "https://x.y/a|b", &mut |_| Ok(()))
-        .unwrap();
-    assert!(changed.is_none());
-    assert_eq!(session.source_text(), ONE);
-    let mut session = EditorSession::open(ONE);
-    session.select(Revision(0), range(2, 15)).unwrap();
-    let changed = session
-        .set_link(
-            Revision(0),
-            range(2, 15),
-            "https://x.y/a|b",
-            &mut |_| Ok(()),
-        )
-        .unwrap();
-    assert!(changed.is_none());
-    assert_eq!(session.source_text(), ONE);
+fn a_destination_with_a_pipe_is_written_escaped_and_never_adds_a_cell() {
+    let pipe = "https://x.y/a|b";
+    assert_links_to(
+        ONE,
+        (2, 3),
+        pipe,
+        "| [a](https://x.y/a\\|b) |\n| - |\n| b |",
+    );
+    assert_links_to(
+        ONE,
+        (2, 15),
+        pipe,
+        "| [a](https://x.y/a\\|b) |\n| - |\n| [b](https://x.y/a\\|b) |",
+    );
 }
 
 #[test]
@@ -220,20 +224,13 @@ fn a_pipeless_row_links_each_row_never_across_rows_or_a_pipe() {
 }
 
 #[test]
-fn an_edit_that_unescapes_a_kept_pipe_changes_nothing() {
-    let source = "| [a](<https://x.y/a\\|b>) | c |\n| - | - |\n";
-    let mut session = EditorSession::open(source);
-    session.select(Revision(0), range(0, 20)).unwrap();
-    let changed = session
-        .set_link(
-            Revision(0),
-            range(0, 20),
-            "https://x.y/c|b",
-            &mut |_| Ok(()),
-        )
-        .unwrap();
-    assert!(changed.is_none());
-    assert_eq!(session.source_text(), source);
+fn a_new_destination_for_a_link_with_a_kept_pipe_keeps_its_pipes_escaped() {
+    assert_links_to(
+        "| [a](<https://x.y/a\\|b>) | c |\n| - | - |\n",
+        (0, 20),
+        "https://x.y/c|b",
+        "| [a](https://x.y/c\\|b) | [c](https://x.y/c\\|b) |\n| - | - |\n",
+    );
 }
 
 /// A command over text inside existing links keeps the selection on the same
