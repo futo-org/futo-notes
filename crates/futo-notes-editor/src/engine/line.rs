@@ -317,7 +317,7 @@ impl Entry {
 
     /// Whether a caret may stand at source offset `at` around the hidden
     /// pieces (not whether `at` is a character boundary).
-    fn allowed(&self, at: usize) -> bool {
+    pub(crate) fn allowed(&self, at: usize) -> bool {
         self.view.cuts.iter().all(|(range, cut)| match cut {
             Cut::Marker => at >= range.end,
             Cut::Syntax | Cut::Divider => at <= range.start || at >= range.end,

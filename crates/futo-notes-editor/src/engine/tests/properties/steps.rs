@@ -29,7 +29,7 @@ pub(in crate::engine::tests) struct Model {
 
 impl Model {
     /// Record an accepted edit that took the engine from `before`.
-    fn edited(&mut self, engine: &Engine, before: State, groups_before: usize) {
+    pub(super) fn edited(&mut self, engine: &Engine, before: State, groups_before: usize) {
         let after = state(engine);
         if engine.history.undo.len() == groups_before {
             self.undo.last_mut().expect("a joined group").1 = after;
@@ -78,8 +78,9 @@ pub(in crate::engine::tests) fn step(
     view: &mut View,
     random: &mut Random,
 ) -> String {
-    match random.below(12) {
+    match random.below(13) {
         10 | 11 => command_step(engine, model, view, random),
+        12 => inline_step(engine, model, view, random),
         0 | 1 => select_step(engine, random),
         2..=4 => type_step(engine, model, view, random),
         5 => delete_step(engine, model, view, random),
@@ -464,6 +465,12 @@ pub(super) fn command_step(
         )
     };
     match change {
+        // A table key that only moves the selection.
+        Some(change) if change.revision == revision => {
+            assert!(change.inserted.is_empty(), "{name} moved only");
+            assert_eq!(engine.source_text(), before.source, "{name} moved only");
+            assert_eq!(engine.history.undo.len(), groups, "{name} moved only");
+        }
         Some(change) => {
             view.text
                 .replace_range(change.range.start.0..change.range.end.0, &change.inserted);

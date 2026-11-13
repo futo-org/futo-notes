@@ -91,7 +91,14 @@ impl Engine {
         let old = self.source_slice(start..b_start + b.body_len());
         let caret = start + left.len() + a.ending().len() + kept + opens;
         let edits: Vec<Edit> = diff(start, &old, &text).into_iter().collect();
-        Command::new(edits, first..last + 1, caret..caret)
+        // A command with no edits sets the selection (`surface.rs` `key`):
+        // when nothing changes, the selection stays.
+        let selection = if edits.is_empty() {
+            selected
+        } else {
+            caret..caret
+        };
+        Command::new(edits, first..last + 1, selection)
     }
 
     /// Backspace with the caret at a list item's text start takes the

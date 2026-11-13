@@ -89,6 +89,8 @@ impl EditorSession {
         key: TableKey,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<TableOutcome>, EditorError> {
+        on_next!(self, accept, |e, accept| e
+            .press_table_key(expected, key, accept));
         self.check_revision(expected)?;
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);
@@ -232,6 +234,8 @@ impl EditorSession {
         command: TableCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        on_next!(self, accept, |e, accept| e
+            .run_table_command(expected, range, command, accept));
         self.check_revision(expected)?;
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);

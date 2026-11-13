@@ -326,7 +326,7 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<Vec<TableDescription>, EditorError> {
-        on_next!(ref self, |_e| Ok(Vec::new()));
+        on_next!(ref self, |e| e.inspect_tables(expected, range));
         self.check_revision(expected)?;
         self.validate_range(range)?;
         let mut tables: Vec<TableDescription> = Vec::new();
@@ -392,7 +392,7 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<Option<TableDescription>, EditorError> {
-        on_next!(self, nothing);
+        on_next!(ref self, |e| e.inspect_table(expected, range));
         self.check_revision(expected)?;
         self.validate_range(range)?;
         let Some((window, focus)) = self.table_target(range) else {

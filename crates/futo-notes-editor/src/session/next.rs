@@ -72,9 +72,22 @@ impl EditorSession {
             revision: marked.revision,
             range: marked.range,
             text: marked.text.clone(),
-            runs: Vec::new(),
+            runs: marked_runs(engine, marked.range, &marked.text),
         });
     }
+}
+
+/// How marked text draws until it commits, as the surface reports it.
+pub(crate) fn marked_runs(engine: &Engine, range: DisplayRange, text: &str) -> Vec<MarkedRun> {
+    engine
+        .marked_runs(range, text)
+        .into_iter()
+        .map(|(range, formats)| MarkedRun {
+            start: range.start,
+            end: range.end,
+            formats,
+        })
+        .collect()
 }
 
 /// Unchanged commands: what the core does not have yet.

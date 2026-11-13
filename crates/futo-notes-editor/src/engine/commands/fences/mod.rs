@@ -159,7 +159,12 @@ impl Engine {
 
     /// The command that writes `pieces` over lines `lines` (with their
     /// endings) and selects old source `selection` where its text went.
-    fn rewrite(&self, lines: Range<usize>, pieces: &[Piece], selection: Range<usize>) -> Command {
+    fn rewrite_lines(
+        &self,
+        lines: Range<usize>,
+        pieces: &[Piece],
+        selection: Range<usize>,
+    ) -> Command {
         let start = self.line_start(lines.start);
         let end = self.line_start(lines.end - 1) + self.line(lines.end - 1).text.len();
         let mut text = String::new();
@@ -243,7 +248,7 @@ impl Engine {
             // An empty block's one empty line stays, as an empty line.
             let mut piece = Piece::new("", last_ending);
             piece.from = Some((fence.open, None));
-            return self.rewrite(named, &[piece], selection);
+            return self.rewrite_lines(named, &[piece], selection);
         }
         let opening = self.line(fence.open).body().to_owned();
         let ending = self.line(fence.open).ending().to_owned();
@@ -292,7 +297,7 @@ impl Engine {
             }
         }
         pieces.last_mut().expect("a line").ending = last_ending;
-        self.rewrite(named, &pieces, selection)
+        self.rewrite_lines(named, &pieces, selection)
     }
 
     /// Put lines `lines` in one code block, their text exactly as it is. A
@@ -349,6 +354,6 @@ impl Engine {
         body.last_mut().expect("a line").ending = ending;
         pieces.extend(body);
         pieces.push(Piece::new(fence, last_ending));
-        Some(self.rewrite(first..last + 1, &pieces, selection))
+        Some(self.rewrite_lines(first..last + 1, &pieces, selection))
     }
 }

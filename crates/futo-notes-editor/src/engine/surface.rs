@@ -147,6 +147,14 @@ impl Engine {
         }
         self.check_display_range(range)?;
         if let Some(command) = self.key_command(range, key)? {
+            // A command with no edits moves the selection (a table key); one
+            // that leaves it where it is changes nothing.
+            if command.edits.is_empty() {
+                if self.display_range(command.selection.clone()) == self.selection {
+                    return Ok(None);
+                }
+                return self.moved_view(expected, command.selection).map(Some);
+            }
             let change = self.run(expected, |_| Ok(Some(command)), accept)?;
             return Ok(change.map(|change| self.view(change)));
         }
@@ -235,7 +243,7 @@ impl Engine {
             .code_indent_state()
             .unwrap_or_else(|| self.list_indents());
         ToolbarState {
-            formats: self.active_formats(),
+            formats: self.toolbar_formats(),
             heading: self.toolbar_heading(),
             quote: self.toolbar_quote(),
             list: match line.kind {
@@ -246,7 +254,7 @@ impl Engine {
             },
             code,
             mixed: false,
-            inline_allowed: !code,
+            inline_allowed: !code && self.inline_allowed(),
             can_indent,
             can_outdent,
             can_undo: self.can_undo(),

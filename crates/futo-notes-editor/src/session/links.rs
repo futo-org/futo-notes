@@ -9,6 +9,7 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<Option<crate::LinkDescription>, EditorError> {
+        on_next!(ref self, |e| e.inspect_link(expected, range));
         self.inspect_link_with_work(expected, range)
             .map(|(link, _)| link)
     }
@@ -53,6 +54,12 @@ impl EditorSession {
         destination: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        on_next!(self, accept, |e, accept| e.set_link_view(
+            expected,
+            range,
+            destination,
+            accept
+        ));
         self.set_link_label(expected, range, None, destination, accept)
     }
 
@@ -66,6 +73,13 @@ impl EditorSession {
         destination: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        on_next!(self, accept, |e, accept| e.edit_link_view(
+            expected,
+            range,
+            label,
+            destination,
+            accept
+        ));
         self.set_link_label(expected, range, Some(label), destination, accept)
     }
 

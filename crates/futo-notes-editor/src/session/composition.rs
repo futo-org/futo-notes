@@ -36,8 +36,8 @@ impl EditorSession {
             Composition {
                 revision: marked.revision,
                 range: marked.range,
+                runs: next::marked_runs(e, marked.range, &marked.text),
                 text: marked.text,
-                runs: Vec::new(),
             }
         }));
         self.check_revision(expected)?;

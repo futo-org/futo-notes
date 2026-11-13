@@ -84,7 +84,11 @@ impl Engine {
         if let Some(formats) = &self.formats {
             return formats.clone();
         }
-        let at = self.caret_source();
+        self.formats_at(self.caret_source())
+    }
+
+    /// The formats of the spans whose text holds source offset `at`.
+    pub(crate) fn formats_at(&self, at: usize) -> Vec<InlineFormat> {
         let (index, before) = super::read::line_at(&self.store, at);
         let local = at - before.source;
         let mut formats: Vec<InlineFormat> = self

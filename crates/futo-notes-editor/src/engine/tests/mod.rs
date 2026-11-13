@@ -2,14 +2,17 @@
 mod blocks;
 mod clipboard;
 mod commands;
+mod commits;
 mod external;
 mod fences;
 mod find;
 mod images;
+mod inline;
 mod lists;
 mod projection;
 mod properties;
 mod quick_open;
+mod tables;
 mod wikilinks;
 
 use super::Engine;
