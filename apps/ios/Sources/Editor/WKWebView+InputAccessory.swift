@@ -17,6 +17,12 @@ private nonisolated(unsafe) var futoAccessoryClasses: [String: AnyClass] = [:]
 private nonisolated(unsafe) var futoAccessoryOverrideView: UIView?
 
 extension WKWebView {
+    /// The private `WKContentView`: the web content's actual first responder.
+    // swift-format-ignore: AlwaysUseLowerCamelCase
+    var futo_contentView: UIView? {
+        scrollView.subviews.first { String(describing: type(of: $0)).contains("ContentView") }
+    }
+
     /// Replaces the keyboard input-accessory bar (the prev / next / Done
     /// toolbar shown above the keyboard for web content) with `view` — or
     /// with nothing when `view` is nil. There is no public API for this: the
@@ -26,12 +32,7 @@ extension WKWebView {
     // swift-format-ignore: AlwaysUseLowerCamelCase
     func futo_overrideInputAccessoryView(_ view: UIView?) {
         futoAccessoryOverrideView = view
-        guard
-            let contentView = scrollView.subviews.first(where: {
-                let name = String(describing: type(of: $0))
-                return name.hasPrefix("WKContentView") || name.contains("ContentView")
-            })
-        else { return }
+        guard let contentView = futo_contentView else { return }
 
         defer {
             // If the keyboard is already up, make it re-query the accessory.
