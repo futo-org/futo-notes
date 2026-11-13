@@ -23,6 +23,66 @@ import uniffi.futo_notes_ffi.NoteStore
 
 /** Real native cell input, canonical session and persisted source; no Markdown implementation mocks. */
 class TextFirstTableTest {
+    @Test fun cellTypingKeepsUnchangedRowLayoutsAndShiftedCellTargets() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "table-${UUID.randomUUID()}").apply { check(mkdirs()) }
+        val scenario = ActivityScenario.launch(ComponentActivity::class.java)
+        val store = NoteStore(root.path)
+        lateinit var controller: TextFirstController
+        val source = "| Name | Value |\n| --- | --- |\n| first | one |\n| last | tail |\n"
+        try {
+            store.createNote("grid", "", source)
+            withContext(Dispatchers.Main) {
+                suspendCancellableCoroutine<Unit> { done -> scenario.onActivity { activity ->
+                    controller = createTextFirstController(activity, { store }, root)
+                    activity.setContentView(controller.view)
+                    controller.open("grid") { assertNull(it); done.resume(Unit) }
+                } }
+                val editable = controller.view.editableText
+                fun rowAt(text: String): TfTableRow {
+                    val at = editable.toString().indexOf(text)
+                    return editable.getSpans(at, at + text.length, TfTableRow::class.java).single()
+                }
+                val unchanged = rowAt("tail")
+                val changed = rowAt("first")
+                val oldStart = editable.getSpanStart(unchanged)
+                val at = editable.toString().indexOf("first")
+                assertTrue(controller.selectDisplayRange(at, at))
+                val connection = controller.cellView!!.onCreateInputConnection(EditorInfo())
+                val repaints = mutableListOf<Pair<Int, Int>>()
+                val observer = object : android.text.TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) = Unit
+                    override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) { repaints += start to start + count }
+                    override fun afterTextChanged(s: android.text.Editable) = Unit
+                }
+                editable.setSpan(observer, 0, editable.length, android.text.Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+                suspendCancellableCoroutine<Unit> { done -> connection.handler!!.post {
+                    connection.commitText("abc", 1); done.resume(Unit)
+                } }
+                assertEquals(source.replace("first", "abcfirst"), controller.sourceText())
+                val editedRow = rowAt("abcfirst")
+                assertEquals("Only the edited row needs layout notification",
+                    listOf(editable.getSpanStart(editedRow) to editable.getSpanEnd(editedRow)), repaints)
+                editable.removeSpan(observer)
+                assertNotSame("The edited row needs new cell layouts", changed, rowAt("abcfirst"))
+                assertSame("A shifted but unchanged row must keep its measured layouts", unchanged, rowAt("tail"))
+                assertEquals(oldStart + 3, editable.getSpanStart(unchanged))
+                val tail = editable.toString().indexOf("tail")
+                assertTrue(controller.selectDisplayRange(tail, tail + 4))
+                assertEquals("tail", controller.cellView!!.text.toString())
+                assertEquals(tail, controller.view.selectionStart)
+                controller.undo()
+                assertEquals(source, controller.sourceText())
+                assertSame(unchanged, rowAt("tail"))
+                assertEquals(oldStart, editable.getSpanStart(unchanged))
+                assertNotNull(controller.close())
+            }
+        } finally {
+            withContext(Dispatchers.Main) { controller.discard(); controller.dispose() }
+            scenario.close(); store.destroy(); root.deleteRecursively()
+        }
+    }
+
     @Test fun cellCompositionSelectionPasteUndoAndReopenPreserveOtherBytes() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(context.cacheDir, "table-${UUID.randomUUID()}").apply { check(mkdirs()) }

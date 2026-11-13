@@ -20,9 +20,9 @@ internal data class RendererChange(val start: Int, val before: Int, val after: I
  * (and touch, caret and scroll) hold the new one. [view] lets this notice that
  * and ask for the lines below to be redrawn where they now are.
  */
-internal fun Editable.withRendererUpdate(view: TextView, update: UiUpdate, block: () -> Unit) {
+internal fun Editable.withRendererUpdate(view: TextView, update: UiUpdate, windows: List<StyleWindow> = update.windows, block: () -> Unit) {
     val chunked = this as? ChunkedEditable
-    val change = rendererChange(length, update.edits, update.windows)
+    val change = rendererChange(length, update.edits, windows)
     if (chunked == null || change == null) { block(); return }
     check(chunked.rendererChange == null) { "Nested renderer update" }
     val oldLength = length

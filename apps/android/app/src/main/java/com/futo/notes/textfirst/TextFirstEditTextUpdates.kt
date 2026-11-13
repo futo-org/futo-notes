@@ -52,14 +52,15 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
         } else {
             val e = editableText
             val t0 = System.nanoTime()
+            val windows = tableEditWindows(update)
             beginBatchEdit()
             var t1 = t0
             try {
-                e.withRendererUpdate(this, update) {
+                e.withRendererUpdate(this, update, windows) {
                     for (edit in update.edits) e.replace(edit.start, edit.end, edit.text)
                     t1 = System.nanoTime()
                     editsEnd = android.os.SystemClock.elapsedRealtimeNanos()
-                    for (window in update.windows) restyle(e, window)
+                    for (window in windows) restyle(e, window)
                     update.marked?.let { restyleMarked(e, update.composingStart, update.composingEnd, it) }
                 }
             } finally {

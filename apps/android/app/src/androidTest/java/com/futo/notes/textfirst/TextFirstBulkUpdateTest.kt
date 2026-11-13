@@ -18,6 +18,31 @@ import org.junit.Test
 
 /** The attached renderer must publish final text and styles together, rather than one reflow per span. */
 class TextFirstBulkUpdateTest {
+    @Test fun aCellEditCannotHideAStyleChangeInAnotherTableRow() = exercise {
+        val left = uniffi.futo_notes_ffi.EditorTableAlignment.LEFT
+        val right = uniffi.futo_notes_ffi.EditorTableAlignment.RIGHT
+        fun rows(edited: Boolean): List<SpanSpec> {
+            val first = if (edited) "fixrst" else "first"
+            val tail = 10 + first.length + 1
+            fun row(start: Int, text: String, header: Boolean = false,
+                    alignment: uniffi.futo_notes_ffi.EditorTableAlignment = left) =
+                SpanSpec.TableRow(start, start + text.length + 1,
+                    GridRow(listOf(GridCell(start, start + text.length, text, alignment)), 1, header, 0))
+            return listOf(row(0, "head", true), SpanSpec.TableDelimiter(5, 10),
+                row(10, first), row(tail, "last", alignment = if (edited) right else left))
+        }
+        val source = "head\n----\nfirst\nlast\n"
+        view.apply(UiUpdate(2, source, emptyList(), 12, 12, -1, -1,
+            listOf(StyleWindow(0, source.length, rows(false))), 0L))
+        val watcher = observe()
+        view.apply(UiUpdate(3, null, listOf(TextEdit(12, 12, "x")), 13, 13, -1, -1,
+            listOf(StyleWindow(0, source.length + 1, rows(true))), 0L))
+        assertEquals(source.replace("first", "fixrst") + TextFirstEditText.END_SENTINEL, view.text.toString())
+        assertEquals(listOf(Triple(0, source.length + 1, source.length + 2)), watcher.changed)
+        val last = view.editableText.getSpans(17, 21, TfTableRow::class.java).single()
+        assertEquals(right, last.row.cells.single().alignment)
+    }
+
     @Test fun implicitSelectionMovesFollowFinalRendererCallbacksInWatcherPriorityOrder() = exercise {
         Selection.setSelection(view.editableText, 4)
         val source = "packold\n"

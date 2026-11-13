@@ -35,6 +35,20 @@ internal class TfTableRow(
             }).setIncludePad(false).build()
     }
     private val rowHeight = maxOf(look.dp(48f).toInt(), (layouts.maxOfOrNull { it.height } ?: 0) + (padding * 2).toInt())
+    /** Text edits above this row shift all its offsets without changing any cell layout. */
+    fun matches(next: GridRow, nextStart: Int): Boolean {
+        // Keep the factory's table-scroll identity when a table itself moves.
+        if (row.tableStart != next.tableStart || row.header != next.header ||
+            row.columns != next.columns || row.cells.size != next.cells.size) return false
+        val shift = nextStart - displayStart
+        return row.cells.indices.all { i ->
+            val old = row.cells[i]
+            val cell = next.cells[i]
+            old.start + shift == cell.start && old.end + shift == cell.end &&
+                old.text == cell.text && old.alignment == cell.alignment
+        }
+    }
+
     override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
         fm?.apply { ascent = -rowHeight; top = ascent; descent = 0; bottom = 0 }
         return width()
@@ -47,6 +61,10 @@ internal class TfTableRow(
         if (row.header) canvas.drawRect(x, top.toFloat(), x + width(), bottom.toFloat(), Paint().apply { color = look.codeBackground })
         for (column in 0 until row.columns) {
             val left = origin + column * cellWidth
+            // Canvas clipping hides offscreen cells but still records their text drawing.
+            // Include the border's half-stroke at either viewport edge.
+            val edge = border.strokeWidth / 2
+            if (left + cellWidth + edge < x || left - edge > x + width()) continue
             canvas.drawRect(left, top.toFloat(), left + cellWidth, bottom.toFloat(), border)
             val layout = layouts.getOrNull(column) ?: continue
             val cellSave = canvas.save()
