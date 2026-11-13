@@ -139,6 +139,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             }
         #endif
         wv.navigationDelegate = self
+        observeKeyboardDismissal()
 
         loadEditor()
 
