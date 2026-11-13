@@ -19,7 +19,7 @@ fn display_range(start: usize, end: usize) -> DisplayRange {
 }
 
 /// The inline format a span gives the text inside its marks.
-fn format_of(kind: &SpanKind) -> Option<InlineFormat> {
+pub(super) fn format_of(kind: &SpanKind) -> Option<InlineFormat> {
     match kind {
         SpanKind::Bold => Some(InlineFormat::Bold),
         SpanKind::Italic => Some(InlineFormat::Italic),

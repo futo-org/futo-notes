@@ -1,4 +1,5 @@
-//! Enter and Backspace on heading and quote lines.
+//! Enter and Backspace on heading and quote lines, and Enter on a plain
+//! line inside inline marks.
 use super::super::super::command::{Command, Edit};
 use super::super::super::Engine;
 use super::{as_heading, right_side, split, unquote, unquoted};
@@ -47,6 +48,36 @@ impl Engine {
             return Some(self.rejoin(&joined, &out, above.len() + ending.len() + joined.caret));
         }
         let (right, caret) = right_side(&joined.carry, quote, line.quote, &opens, &text[at..]);
+        // A caret after marks that open at the split stays after them.
+        let caret = caret + joined.caret.saturating_sub(at);
+        let left = format!("{}{closes}{ending}", &text[..at]);
+        Some(self.rejoin(&joined, &format!("{left}{right}"), left.len() + caret))
+    }
+
+    /// Enter on an unquoted plain line, the selection removed first, where
+    /// the caret is inside a mark's text or at its edge: the line splits as
+    /// a quoted line does, the marks the caret is inside closing before the
+    /// break and opening again after it (`**bo|ld**` gives `**bo**` and
+    /// `**ld**`); at a mark's text start the break goes before the mark, at
+    /// its text end after it. Anywhere else Enter types its line break.
+    pub(super) fn plain_enter(&self, range: DisplayRange) -> Option<Command> {
+        let plain = |line: &Line| matches!(line.kind, Kind::Plain { .. }) && line.quote == 0;
+        let first = self.line_of(self.source_selection(range).start);
+        if !plain(&self.line(first).line) {
+            return None;
+        }
+        let joined = self.joined(range)?;
+        let line = &joined.line;
+        if !plain(line) {
+            return None;
+        }
+        let text = &joined.text;
+        let (at, closes, opens) = split(text, line, &joined.spans, joined.caret);
+        if at == joined.caret && opens.is_empty() {
+            return None;
+        }
+        let ending = self.empty_line_ending(joined.first);
+        let (right, caret) = right_side(&joined.carry, "", 0, &opens, &text[at..]);
         // A caret after marks that open at the split stays after them.
         let caret = caret + joined.caret.saturating_sub(at);
         let left = format!("{}{closes}{ending}", &text[..at]);
