@@ -119,6 +119,38 @@ fn runs_out_of_order_overlapping_or_missing_change_nothing() {
 }
 
 #[test]
+fn a_text_service_run_while_text_is_marked_replaces_only_what_differs() {
+    // The marked text commits, then the replacement keeps the hidden quote
+    // markers in the stretch it leaves unchanged, as with nothing marked.
+    for (note, at, selected, text, after) in [
+        ("x\n> ab", 0, (0, 5), "!x\nAC", "!x\n> AC"),
+        (
+            "one\n\ntwo\n\nthree\n\n> > \n> ab\n> ===",
+            17,
+            (0, 21),
+            "One\n\ntwo\n\nthree\n\n!\nAC",
+            "One\n\ntwo\n\nthree\n\n> > !\n> AC\n> ===",
+        ),
+    ] {
+        let mut engine = Engine::open(note);
+        engine
+            .compose(engine.revision(), range(at, at), "!")
+            .unwrap();
+        let (start, end) = selected;
+        engine
+            .replace(
+                engine.revision(),
+                range(start, end),
+                text,
+                InputAction::Isolated,
+                &mut ok,
+            )
+            .unwrap();
+        assert_eq!(engine.source_text(), after, "{note:?}");
+    }
+}
+
+#[test]
 fn collapsing_a_selection_never_leaves_the_caret_inside_a_grapheme() {
     let source = "ae\u{301}👩🏽\u{200d}💻z";
     let mut engine = Engine::open(source);

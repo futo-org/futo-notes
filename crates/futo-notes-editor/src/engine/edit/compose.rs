@@ -121,12 +121,16 @@ impl Engine {
 
     /// Input while marked text is pending addresses the display with the
     /// marked text in place. The marked text commits first, then the input
-    /// applies; both go through one acceptance and stay separate undo steps.
+    /// applies as it would with nothing marked (a text service's replacement
+    /// keeps what it shares with the display), or, for one explicit `run`, as
+    /// typing over its range; both go through one acceptance and stay
+    /// separate undo steps.
     pub(super) fn input_during_composition(
         &mut self,
         range: DisplayRange,
         text: &str,
         action: InputAction,
+        run: bool,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<Change>, EditorError> {
         let marked = self.composition.clone().expect("composition pending");
@@ -166,13 +170,13 @@ impl Engine {
             self.restore(&saved);
             return Err(EditorError::InvalidRange);
         }
-        let flat = matches!(
-            action,
-            InputAction::Isolated | InputAction::CompositionCommit
-        )
-        .then(|| self.cell_service_text(mapped, text))
-        .flatten();
-        let input = self.plan(self.outside_crlf(mapped), flat.as_deref().unwrap_or(text));
+        let mapped_in = self.outside_crlf(mapped);
+        let input = if run {
+            let flat = self.cell_service_text(mapped, text);
+            self.plan(mapped_in, flat.as_deref().unwrap_or(text))
+        } else {
+            self.plan_input(mapped_in, text, action)
+        };
         self.raw(&mut batch, input.range.clone(), &input.inserted);
         let Some((edit, shown, mut records)) = self.accept(batch, accept).inspect_err(|_| {
             self.restore(&opening);
