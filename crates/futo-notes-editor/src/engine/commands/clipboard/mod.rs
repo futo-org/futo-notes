@@ -88,20 +88,4 @@ impl Engine {
         let change = self.run(expected, |engine| engine.paste_command(range, text), accept)?;
         Ok(change.map(|change| self.view(change)))
     }
-
-    /// The inline formats of the character at source offset `at`.
-    fn formats_at(&self, at: usize) -> Vec<crate::InlineFormat> {
-        let index = self.line_of(at);
-        let local = at - self.line_start(index);
-        let mut formats: Vec<_> = self
-            .line(index)
-            .spans
-            .iter()
-            .filter(|span| span.open.end <= local && local < span.close.start)
-            .filter_map(|span| super::super::project::format_of(&span.kind))
-            .collect();
-        formats.sort();
-        formats.dedup();
-        formats
-    }
 }

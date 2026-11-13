@@ -36,7 +36,7 @@ use super::super::lists::parts;
 use super::super::marks::split;
 use crate::lines::block::OpenFence;
 use crate::lines::{block, line_spans, Carry, Kind, Line, SpanKind};
-use crate::{DisplayRange, EditorError};
+use crate::{DisplayRange, EditorError, InputAction};
 
 /// `text` with one trailing line ending dropped (unless that is all it
 /// is) and every `\n` or `\r\n` spelled `newline`.
@@ -183,9 +183,10 @@ impl Engine {
         )
     }
 
-    /// The text replacing the selection, exactly as given.
+    /// The text replacing the selection, exactly as given, as typing it
+    /// would land: in the formats the caret carries.
     fn exact(&self, range: DisplayRange, text: &str) -> Command {
-        let plan = self.plan(range, text);
+        let plan = self.plan_input(range, text, InputAction::Typing);
         let first = self.line_of(plan.range.start);
         let last = self.line_of(plan.range.end);
         Command::new(

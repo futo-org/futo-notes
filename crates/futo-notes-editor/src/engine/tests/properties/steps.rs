@@ -383,9 +383,9 @@ const PASTED: &[&str] = &[
     "x",
     "a b\n",
     "x\ny",
-    "\n",
+    "\t\r\n",
     "- a\n  - b",
-    "# h\n\nz",
+    "# h\n>\nz",
     "> q\n> r",
     "```\ncode",
     "~~~\nx\n~~~",
@@ -394,7 +394,6 @@ const PASTED: &[&str] = &[
     "1. one\r\n2) two",
     "**b** [l](u)\n*i",
     "---",
-    "\t \r\n",
 ];
 
 /// Paste a random text, or cut, at `range`.
