@@ -343,18 +343,26 @@
             guard !closed, !engineBusy, !engineComposing, textView.markedTextRange == nil else {
                 return false
             }
+            let handled: Bool
             do {
                 if let change = try session.paragraphKeyUtf16(
                     expected: rev, range: Self.range(range ?? effectiveSelection), key: key)
                 {
                     try accept(change)
-                    return true
+                    handled = true
+                } else {
+                    handled = !onlyIfChanged
                 }
-                return !onlyIfChanged
             } catch {
                 recover(error, context: "paragraph key")
-                return true
+                handled = true
             }
+            // The keyboard asks the delegate about a Backspace before it calls `deleteBackward`;
+            // the engine took the key, so that platform edit never happens. Left pending, it would
+            // hold back every selection report (the toolbar's state, the caret kept out of images)
+            // until the next typed character.
+            if handled { pendingEdit = nil }
+            return handled
         }
 
         func undo() { history(redo: false) }

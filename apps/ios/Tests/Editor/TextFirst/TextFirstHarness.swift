@@ -131,6 +131,17 @@
             }
         }
 
+        /// A software keyboard's Backspace: UIKeyboardImpl asks the delegate about the deletion,
+        /// then calls `deleteBackward`.
+        func keyboardBackspace() {
+            let caret = tv.selectedRange
+            let range =
+                caret.length > 0 ? caret : NSRange(location: max(0, caret.location - 1), length: 1)
+            if tv.delegate?.textView?(tv, shouldChangeTextIn: range, replacementText: "") ?? true {
+                tv.deleteBackward()
+            }
+        }
+
         /// Re-attach a fresh editor to the same vault (the previous one must be detached).
         func reopen(id: String = "note") throws -> TextFirstHarness {
             TextFirstHarness(root: root, id: id)
