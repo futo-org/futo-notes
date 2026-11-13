@@ -81,3 +81,85 @@ fn several_replacements_are_one_action_after_the_marked_text_commits() {
     engine.undo(engine.revision(), &mut ok).unwrap().unwrap();
     assert_eq!(engine.source_text(), "__a__ tail");
 }
+
+#[test]
+fn typing_at_a_dividers_edge_writes_a_line_beside_the_rule() {
+    // (source, caret, typed, source after, display after, caret after)
+    for (source, caret, typed, written, shown, after) in [
+        ("---", 0, "é", "é\n---", "é\n\u{fffc}", 2),
+        ("***", 0, "é", "é\n***", "é\n\u{fffc}", 2),
+        ("---", 3, "Hello", "---\nHello", "\u{fffc}\nHello", 9),
+        (
+            "a\n\n***",
+            6,
+            "Hello",
+            "a\n\n***\nHello",
+            "a\n\n\u{fffc}\nHello",
+            12,
+        ),
+        (
+            "# H\r\n***",
+            6,
+            "x",
+            "# H\r\n***\r\nx",
+            "H\r\n\u{fffc}\r\nx",
+            9,
+        ),
+        ("x\n---\ny", 2, "\n", "x\n\n---\ny", "x\n\n\u{fffc}\ny", 3),
+    ] {
+        let mut engine = Engine::open(source);
+        engine
+            .select_with_affinity(
+                engine.revision(),
+                range(caret, caret),
+                crate::Affinity::Backward,
+            )
+            .unwrap();
+        let at = engine.selection();
+        engine
+            .replace(engine.revision(), at, typed, InputAction::Typing, &mut ok)
+            .unwrap()
+            .unwrap();
+        assert_eq!(engine.source_text(), written, "{source:?}");
+        assert_eq!(engine.display_text(), shown, "{source:?}");
+        assert_eq!(engine.selection(), range(after, after), "{source:?}");
+        engine.undo(engine.revision(), &mut ok).unwrap().unwrap();
+        assert_eq!(engine.source_text(), source, "{source:?}");
+    }
+}
+
+#[test]
+fn marked_text_after_a_divider_commits_on_its_own_line() {
+    // A key while text is marked lands after it.
+    let mut engine = Engine::open("a\n\n---");
+    engine.select(engine.revision(), range(6, 6)).unwrap();
+    engine.compose(engine.revision(), range(6, 6), "e").unwrap();
+    engine
+        .replace(
+            engine.revision(),
+            range(7, 7),
+            " ",
+            InputAction::Typing,
+            &mut ok,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(engine.source_text(), "a\n\n---\ne ");
+    assert_eq!(engine.selection(), range(9, 9));
+    // A text service replacing the marked text.
+    let mut engine = Engine::open("# H\n***");
+    engine.select(engine.revision(), range(5, 5)).unwrap();
+    engine.compose(engine.revision(), range(5, 5), "e").unwrap();
+    engine
+        .replace(
+            engine.revision(),
+            range(5, 6),
+            "é",
+            InputAction::Isolated,
+            &mut ok,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(engine.source_text(), "# H\n***\né");
+    assert_eq!(engine.selection(), range(8, 8));
+}

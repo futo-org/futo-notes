@@ -132,6 +132,8 @@ pub(super) fn type_step(
     let collapsed = selection.start == selection.end;
     let at = engine.caret_source();
     let empty_line = engine.empty_line(selection.start.0);
+    // Typing at a divider's edge writes its own line (display rule 5).
+    let beside_divider = engine.beside_divider(at, text).map(|(written, _)| written);
     // A selection's edit stays inside the source it spans: from the hidden
     // pieces at its start to those at its end (from 0 over front matter).
     let spanned = {
@@ -184,9 +186,10 @@ pub(super) fn type_step(
         );
     }
     if collapsed {
-        let written = match empty_line {
-            Some(index) => format!("{}{text}", engine_ending(&before.source, index)),
-            None => text.to_owned(),
+        let written = match (beside_divider, empty_line) {
+            (Some(written), _) => written,
+            (None, Some(index)) => format!("{}{text}", engine_ending(&before.source, index)),
+            (None, None) => text.to_owned(),
         };
         let mut want = before.source.clone();
         want.insert_str(at, &written);

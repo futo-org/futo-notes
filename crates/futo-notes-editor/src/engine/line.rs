@@ -14,6 +14,8 @@
 //! 3. Typing on such an empty line writes a line ending, then the text, at
 //!    the end of the line's hidden text.
 //! 4. A divider shows as one U+FFFC, which renderers draw as a rule.
+//! 5. Typing at a divider's edge writes the text on a line of its own
+//!    beside the rule (`edit/plan.rs` `beside_divider`), in its quotes.
 //!
 //! Front matter lines show their whole text; a table's delimiter row shows
 //! as typed. Everything else hides its marker (quote, list, heading markers

@@ -135,12 +135,19 @@ impl Engine {
         let commit_records = batch.records.len();
         let (mstart, mend) = (marked.range.start.0, marked.range.end.0);
         let (dstart, dold, dend) = batch.display.unwrap_or((mend, mend, mend));
-        // Map the provisional range onto the display after the commit. An
-        // offset after the marked text is one in the display before it,
-        // passed through the commit's display change; one inside the marked
-        // text keeps its place, since the commit wrote that text there (it
-        // may have kept part of what was already shown).
+        let saved = opening.clone();
+        self.caret_at(commit.caret);
+        let after_commit = self.point();
+        // Map the provisional range onto the display after the commit. The
+        // committed text ends at the caret the commit leaves (a line break
+        // written beside it, as next to a divider, is outside it), when it
+        // shows there; an offset after the marked text is one in the
+        // display before it, passed through the commit's display change.
         let marked_end = mstart + marked.text.len();
+        let text_end = self.selection.start.0;
+        let text_start = text_end.checked_sub(marked.text.len()).filter(|&start| {
+            self.check_display(start).is_ok() && self.display_slice(start..text_end) == marked.text
+        });
         let after = |at: usize| {
             if at >= dold {
                 at - dold + dend
@@ -150,18 +157,12 @@ impl Engine {
                 dend
             }
         };
-        let map = |at: usize| {
-            if at <= mstart {
-                at
-            } else if at < marked_end {
-                at.min(after(mend))
-            } else {
-                after(at - marked_end + mend)
-            }
+        let map = |at: usize| match text_start {
+            _ if at < mstart => at,
+            Some(start) if at <= marked_end => start + at - mstart,
+            None if at < marked_end => at.min(after(mend)),
+            _ => after(at - marked_end + mend),
         };
-        let saved = opening.clone();
-        self.caret_at(commit.caret);
-        let after_commit = self.point();
         let mapped = DisplayRange {
             start: DisplayOffset(map(range.start.0)),
             end: DisplayOffset(map(range.end.0)),
