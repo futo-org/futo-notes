@@ -445,6 +445,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     debouncedSave,
     resumeDraftPersistence: saveQueue.resume,
     flushSave: saveQueue.flush,
+    runBeforePendingSave: serializePersistence,
     runWithSaveLock,
     loadNote: noteLoader.load,
     handleTitleInput: titleController.handleInput,

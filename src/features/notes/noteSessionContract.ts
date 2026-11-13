@@ -51,6 +51,8 @@ export interface NoteSession {
   debouncedSave: (content?: string) => void;
   resumeDraftPersistence: () => void;
   flushSave: () => Promise<void>;
+  /** Serializes an identity handover ahead of pending saves, without flushing the old id. */
+  runBeforePendingSave: <T>(operation: () => Promise<T>) => Promise<T>;
   runWithSaveLock: <T>(operation: () => Promise<T>) => Promise<T>;
   loadNote: (id: string | null) => Promise<void>;
   handleTitleInput: (event: Event) => void;
