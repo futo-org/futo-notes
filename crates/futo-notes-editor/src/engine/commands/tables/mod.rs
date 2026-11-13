@@ -228,6 +228,18 @@ impl Engine {
         })
     }
 
+    /// A text service's or dictation's `text` over display `range` inside
+    /// one cell, with its line breaks made spaces as a paste's are
+    /// (`flatten_for_cell`), so it stays in the cell. Typing is not shaped:
+    /// a typed line break breaks the row. `None` when `text` lands as given.
+    pub(crate) fn cell_service_text(&self, range: DisplayRange, text: &str) -> Option<String> {
+        if !text.contains(['\n', '\r']) {
+            return None;
+        }
+        self.cell_at(range)?;
+        Some(crate::table::flatten_for_cell(text))
+    }
+
     /// The cell display `range` lies in: both ends on one header or body
     /// line, inside one cell's text between its pipes.
     fn cell_at(&self, range: DisplayRange) -> Option<Cell> {

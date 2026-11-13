@@ -242,8 +242,13 @@ impl Engine {
     /// service's replacement (`action` other than typing) replaces only the
     /// stretch of the display that differs from `text`, so characters it
     /// shares keep their source spelling and formats, and the caret ends
-    /// after the whole of `text`.
+    /// after the whole of `text`. A text service's line break inside a table
+    /// cell becomes a space (`cell_service_text`).
     pub(crate) fn plan_input(&self, range: DisplayRange, text: &str, action: InputAction) -> Plan {
+        let flat = (action == InputAction::Isolated)
+            .then(|| self.cell_service_text(range, text))
+            .flatten();
+        let text = flat.as_deref().unwrap_or(text);
         if let Some(typed) = self.formatted_input(range, text) {
             return Plan {
                 range: typed.range,

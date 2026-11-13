@@ -5,8 +5,8 @@
 //! A case's `before` and `after` are source text with the selection marked:
 //! `‸` is a caret, `«` and `»` bound a selection (a table's `|` cannot mark
 //! one). `command` is a table key (`Tab`, `ShiftTab`, `Enter`, `ShiftEnter`,
-//! `ModEnter`), `key <ParagraphKey>`, a `TableCommand` name, `type <text>` or
-//! `paste <text>`. `after: null` means nothing changes: no edit, no history,
+//! `ModEnter`), `key <ParagraphKey>`, a `TableCommand` name, `type <text>`,
+//! `service <text>` (a text service's or dictation's insert) or `paste <text>`. `after: null` means nothing changes: no edit, no history,
 //! the same selection; `error` names the error instead. Every case that edits
 //! is undone (bytes and selection back) and redone. `inspect` describes the
 //! table `inspect_table` finds at the selection (`null`: none); `tables`
@@ -116,6 +116,10 @@ pub(super) fn run(engine: &mut Engine, command: &str) -> Result<bool, EditorErro
     }
     if let Some(text) = command.strip_prefix("type ") {
         engine.replace(revision, selection, text, InputAction::Typing, &mut ok)?;
+        return Ok(engine.revision() != revision);
+    }
+    if let Some(text) = command.strip_prefix("service ") {
+        engine.replace(revision, selection, text, InputAction::Isolated, &mut ok)?;
         return Ok(engine.revision() != revision);
     }
     if let Some(text) = command.strip_prefix("paste ") {

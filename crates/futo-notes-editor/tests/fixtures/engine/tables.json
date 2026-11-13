@@ -554,6 +554,36 @@
    "after": "| a |\n|---|\n| b | cx‸ |"
   },
   {
+   "name": "a typed line break in a cell lands as typed: the row breaks",
+   "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+   "command": "type x\ny",
+   "after": "| a | b |\n| --- | :-: |\n| cx\ny‸ | d |\n"
+  },
+  {
+   "name": "a text service's line break in a cell becomes a space, as paste's does",
+   "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+   "command": "service x\ny",
+   "after": "| a | b |\n| --- | :-: |\n| cx y‸ | d |\n"
+  },
+  {
+   "name": "dictation over a cell's text joins its lines with a space and drops edge line breaks",
+   "before": "| a | b |\n| --- | :-: |\n| «c» | d |\n",
+   "command": "service one\r\n\ntwo\n",
+   "after": "| a | b |\n| --- | :-: |\n| one two‸ | d |\n"
+  },
+  {
+   "name": "a text service's pipe in a cell lands as given",
+   "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+   "command": "service x|y",
+   "after": "| a | b |\n| --- | :-: |\n| cx|y‸ | d |\n"
+  },
+  {
+   "name": "a text service's line break outside a table lands as given",
+   "before": "| a |\n|---|\n\nc‸",
+   "command": "service x\ny",
+   "after": "| a |\n|---|\n\ncx\ny‸"
+  },
+  {
    "name": "insert a row below a body row",
    "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
    "command": "InsertRowBelow",
