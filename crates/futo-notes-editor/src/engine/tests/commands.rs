@@ -281,3 +281,31 @@ fn the_guard_follows_every_unnamed_line_between_many_named_ones() {
     assert!(cancelled.is_none());
     assert_eq!(engine.source_text(), source);
 }
+
+#[test]
+fn marked_text_draws_with_the_formats_it_will_commit_with() {
+    use crate::InlineFormat::{Bold, Italic};
+    // Inside bold, a composed word is bold.
+    let mut engine = Engine::open("**ab**");
+    super::select(&mut engine, 1, 1, crate::Affinity::Backward);
+    assert_eq!(
+        engine.marked_runs(range(1, 1), "xy"),
+        vec![(0..2, vec![Bold])]
+    );
+    // Carried formats at the caret win.
+    let mut engine = Engine::open("plain");
+    super::select(&mut engine, 5, 5, crate::Affinity::Backward);
+    engine.formats = Some(vec![Italic]);
+    assert_eq!(
+        engine.marked_runs(range(5, 5), "x"),
+        vec![(0..1, vec![Italic])]
+    );
+    // Reconverting keeps the shared text's formats; the changed text takes
+    // the formats of what it replaces.
+    let engine = Engine::open("a **bc** d");
+    assert_eq!(
+        engine.marked_runs(range(2, 4), "bX"),
+        vec![(0..1, vec![Bold]), (1..2, vec![Bold])]
+    );
+    assert_eq!(engine.marked_runs(range(0, 1), "z"), vec![]);
+}

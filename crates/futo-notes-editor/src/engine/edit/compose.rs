@@ -188,3 +188,70 @@ impl Engine {
         Ok(Some(self.change(edit, shown)))
     }
 }
+
+impl Engine {
+    /// How marked `text` over display `range` draws until it commits: the
+    /// text it shares with the display at either end keeps its formats; the
+    /// rest is typed text and takes the formats typing there carries (the
+    /// caret's carried formats, else those of the first character it
+    /// replaces). Offsets are bytes of `text`.
+    pub(crate) fn marked_runs(
+        &self,
+        range: DisplayRange,
+        text: &str,
+    ) -> Vec<(std::ops::Range<usize>, Vec<crate::InlineFormat>)> {
+        let old = self.display_slice(range.start.0..range.end.0);
+        let mut prefix = old
+            .bytes()
+            .zip(text.bytes())
+            .take_while(|(a, b)| a == b)
+            .count();
+        while !old.is_char_boundary(prefix) || !text.is_char_boundary(prefix) {
+            prefix -= 1;
+        }
+        let mut suffix = old[prefix..]
+            .bytes()
+            .rev()
+            .zip(text[prefix..].bytes().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        while !old.is_char_boundary(old.len() - suffix)
+            || !text.is_char_boundary(text.len() - suffix)
+        {
+            suffix -= 1;
+        }
+        let shown = self.projection(self.revision, range);
+        let mut runs = Vec::new();
+        // Kept text at `old` offsets `from..to` lands at `text` offset `at`.
+        let mut keep = |from: usize, to: usize, at: usize, runs: &mut Vec<_>| {
+            for run in &shown.runs {
+                // The projection holds whole lines: clip runs to `range`.
+                let start = run.range.start.0.saturating_sub(range.start.0).max(from);
+                let end = run.range.end.0.saturating_sub(range.start.0).min(to);
+                if start < end && !run.formats.is_empty() {
+                    runs.push((start - from + at..end - from + at, run.formats.clone()));
+                }
+            }
+        };
+        keep(0, prefix, 0, &mut runs);
+        let typed = prefix..text.len() - suffix;
+        if !typed.is_empty() {
+            let formats = if range == self.selection && range.start == range.end {
+                self.active_formats()
+            } else {
+                let (low, high) = self.source_bounds(range.start.0 + prefix);
+                self.formats_at(if prefix < old.len() - suffix {
+                    high
+                } else {
+                    low
+                })
+            };
+            if !formats.is_empty() {
+                runs.push((typed.clone(), formats));
+            }
+        }
+        keep(old.len() - suffix, old.len(), typed.end, &mut runs);
+        runs.sort_by_key(|(range, _)| range.start);
+        runs
+    }
+}
