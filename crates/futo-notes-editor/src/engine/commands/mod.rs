@@ -17,6 +17,9 @@ use super::command::{Command, Edit};
 use super::Engine;
 use crate::{BlockCommand, CaretDirection, DisplayOffset, DisplayRange, EditorError, ParagraphKey};
 
+/// A family's claim on a paragraph key: the command it runs, if it claims it.
+type KeyFamily = fn(&Engine, DisplayRange, ParagraphKey) -> Result<Option<Command>, EditorError>;
+
 impl Engine {
     /// The command a paragraph key runs on the lines it is pointed at, when
     /// a family claims the key there.
@@ -26,11 +29,7 @@ impl Engine {
         key: ParagraphKey,
     ) -> Result<Option<Command>, EditorError> {
         self.check_display_range(range)?;
-        let families: [fn(
-            &Self,
-            DisplayRange,
-            ParagraphKey,
-        ) -> Result<Option<Command>, EditorError>; 5] = [
+        let families: [KeyFamily; 5] = [
             Self::image_key,
             Self::table_key,
             Self::fence_key,
