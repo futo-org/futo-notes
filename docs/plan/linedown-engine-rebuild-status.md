@@ -152,40 +152,14 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
     `src/engine/`. `node scripts/test-editor-wasm.mjs` stops at its first consumer,
     `wasm-consumer.mjs`, on `&acE;` (the old engine no longer decodes entities; stage 4's
     sort).
-- Stage 4: in progress (checkpoint 2026-11-13; resume from here).
-  - Work is on branch `linedown-cutover` in worktree `futo-notes-ln-blocks` (not yet merged
-    into `linedown`). Its commits so far: the surface points at the core (`EditorSession` is a
-    thin layer over `engine::Engine`, `src/session.rs` + `src/session/`); the switch is gone
-    (cargo feature, `FUTO_EDITOR_ENGINE`, `on_next!`); old `session/` internals, `inline/`,
-    `movement.rs`, `parallel.rs`, the table scanner, the comparison run (`lines/compare/`),
-    `quick_open/commonmark.rs`, `rest_may_define`/`may_define_reference`, pulldown-cmark,
-    `vendor/pulldown-cmark` and its patch entry are deleted; public find/composition/toolbar
-    types moved to `src/session/{find,types}.rs`.
-  - Old tests: `lists`, `blocks`, `fences`, `inline`, `paragraphs`, `reinterpretation`,
-    `typed_tag_source` deleted (undo/history promises held by
-    `engine::tests::properties::the_five_properties_hold_over_random_edits` and each family's
-    fixture run, which undoes and redoes every case; `tests/inline/work.rs`'s budget by
-    `engine::tests::inline::typing_far_into_a_long_note_costs_no_more_work_than_the_old_engine`).
-    The rest sorted test by test by five agents; chain after the sort 1,011 passed, 44 failed
-    (from 181), the failures being engine bugs and open questions below.
-  - WASM consumers: block and list consumers replay `tests/fixtures/engine/` (blocks, fences,
-    plain Enter, lists: 561 cases) through the compiled session and the store worker with undo
-    and redo (`tests/wasm-fixture-replay.mjs`); the seam consumer is deleted (its CommonMark
-    cases; composition and text-service input through WASM stay covered by
-    `wasm-native-input.mjs` and `wasm-consumer.mjs`).
-  - Core bug fixed: deleting what lies between two touching spans of the same kind and
-    spelling wrote `**ab****cd**` (asterisks shown); they now join (`edit/spans.rs`
-    `seam_joins`).
-  - Running when this was written: the iOS simulator pass (step 1, Mac worktree
-    `~/Developer/futo-notes/futo-notes-linedown`, sim futo-qa-1 claimed, results to
-    `~/.local/state/linedown-stage4/results.md`); fix lanes `linedown-fix-inline`
-    (ln-clipboard), `linedown-fix-links` (ln-fences), `linedown-fix-compose` (ln-tables);
-    tags/search lane `linedown-tags` (ln-wikilinks); the last sort group (cross-block,
-    long_regions, FFI editor tests, store lib) in ln-blocks.
-  - Still to do: merge the lanes; spec sweep (about 40 `→` references in 10 spec files point
-    at deleted old-engine files); `just check`; size report; commit bodies' promise lines.
+- Stage 4: cut over, waiting on the maintainer for five tests (questions 14-18 below); then
+  `just check` and the stage 4 commit. On `linedown` since 71e97976c (branch `linedown-cutover`
+  fast-forwarded).
+  The log of what it did and how it was verified is `docs/plan/linedown-engine-rebuild-stage4.md`.
 - Stage 5: not started.
-- Surface methods deleted, with reasons: none.
+- Surface methods deleted, with reasons: `may_define_reference` and `quick_open`'s
+  `rest_may_define` parameter (they served the CommonMark path's reference definitions; the
+  core reads none). `EditorSession`'s other public methods all remain.
 - Display rules that are not "text minus ranges" (stated in `engine/line.rs`):
   1. Frames: an opening fence or front matter line is hidden with its ending; a closing line
      with its own ending, or, on the note's last line, with the ending before it.
@@ -236,3 +210,35 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
       typed one still breaks the row.
   13. Images keep the old engine's explicit refusals (`<`, `>`, `\` in the reference; backtick,
       `[`, `]`, `\` in the alt) on top of "reads back as exactly that image". Loosen?
+  14. A link destination containing `|` inside a table cell: links.md says write `\|` (it reads
+      back as `|`), tables.md says such a destination changes nothing; the engine refuses with
+      `UnrepresentableFormat`. 14A follow tables.md (`Ok(None)`); 14B escape it as `\|`; 14C keep
+      the refusal and reword tables.md. Failing: `links::tables::a_destination_with_a_pipe_never_adds_a_cell`,
+      `an_edit_that_unescapes_a_kept_pipe_changes_nothing`, and `clipboard`
+      `cell_link_paste_refuses_an_unrepresentable_opaque_code_pipe_atomically` (a pasted
+      `` [`p|q`](…) `` in a cell saves `` `p\|q` ``: is `\|` a literal pipe inside code?).
+  15. Budget: a key in one 50,000-character line costs about 100,000 counted work against about
+      3,500 on the old engine, which cut long lines at words (`long_regions`
+      `keys_in_one_long_line_do_not_scale_with_it`). The core re-reads the edited line whole.
+      15A accept (a line is the reading unit; update the test to bound it by the line); 15B build
+      in-line incremental reading.
+  16. Budget: Enter past a middle table row's closing pipe ends the table there (the old engine
+      did the same), and the core restyles every row below: 97,200 at 2,000 rows against a bound
+      of 1.5 x the 100-row cost (`table_rows` `keys_in_a_middle_table_row_do_not_scale_with_the_table`).
+      16A accept, as a fence opening or closing may cost the rest of the note; 16B make Enter
+      there the table's key (move to the row below).
+  17. The store adds a final line ending to a note that lacks one; Linedown shows a final `\n` as
+      an empty last line, so a note typed as `abc` reopens with an empty line, and deleting
+      that line can never be saved. 17A keep; 17B save the text exactly as typed.
+  18. Surface change outside the two approved kinds: `ProjectionSlice` gained `tags` and
+      `StyleSpec`/`EditorStyleSpan` a `Tag` case, so renderers can colour tags as tags.md
+      promises (nothing coloured them on iOS). Android's renderer needs the new case. Keep or revert?
+  19. Smaller, none failing: a line `\u{feff}---` (byte-order mark) is not front matter; Select
+      All then Delete on a note that starts with a code block leaves an empty code block (the
+      frame rule; the old engine left an unclosed fence); a selection during composition covering
+      only a `*` the commit hides becomes an insertion; typing on an empty `>` line writes `>x`,
+      which reads as plain text; Bold or Code at a divider caret does nothing; tags.md says no
+      tag inside a link destination but the reader reads `#y` in `[a](<x #y>)`; `header_tags`
+      starts after front matter but `extract_header_tag_block` (Rust and TS) at byte 0; the
+      one guard compares only lines a command does not name (a blanket "named lines keep their
+      kind" rule would break Quote over a table; the link commands check cells themselves).
