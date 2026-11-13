@@ -217,16 +217,18 @@ impl Engine {
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
         let mut work = 0;
+        // Marked text commits first; the caret then ends after it.
+        let committed = if self.composition.is_some() {
+            self.run(expected, |_| Ok(None), accept)?
+        } else {
+            None
+        };
         let collapsed = self.selection.start == self.selection.end;
         let change = if collapsed {
-            if self.composition.is_some() {
-                self.run(expected, |_| Ok(None), accept)?
-            } else {
-                None
-            }
+            committed
         } else {
             self.run(
-                expected,
+                self.revision,
                 |engine| engine.format_command(engine.selection, format, &mut work),
                 accept,
             )?

@@ -4,7 +4,9 @@ use super::super::history::{Group, Record};
 use super::super::Engine;
 use super::{Batch, Change};
 use crate::history::{typing_kind, TypingRun};
-use crate::{DisplayOffset, DisplayRange, EditorError, InputAction, Revision, SourceEdit};
+use crate::{
+    Affinity, DisplayOffset, DisplayRange, EditorError, InputAction, Revision, SourceEdit,
+};
 
 /// Marked text: a provisional overlay on a pinned display range. The note
 /// does not change until it commits.
@@ -67,6 +69,8 @@ impl Engine {
             return Ok(None);
         };
         let text = text.unwrap_or(&marked.text);
+        let opening = self.point();
+        self.adopt_marked_caret(marked.range);
         match self.replace(
             expected,
             marked.range,
@@ -76,9 +80,26 @@ impl Engine {
         ) {
             Ok(change) => Ok(change),
             Err(error) => {
+                self.restore(&opening);
                 self.composition = Some(marked);
                 Err(error)
             }
+        }
+    }
+
+    /// Marked text over a collapsed range elsewhere than the selection is
+    /// typing at that caret: the selection moves there first, as a host's
+    /// selection would, on the side of hidden marks typing takes there.
+    pub(crate) fn adopt_marked_caret(&mut self, range: DisplayRange) {
+        if range.start == range.end && range != self.selection {
+            self.selection = range;
+            self.affinity = if range.start.0 == 0 {
+                Affinity::Forward
+            } else {
+                Affinity::Backward
+            };
+            self.pin = None;
+            self.formats = None;
         }
     }
 
@@ -105,34 +126,40 @@ impl Engine {
             return Err(EditorError::InvalidRange);
         }
         let opening = self.point();
+        self.adopt_marked_caret(marked.range);
         let mut batch = Batch::default();
         // Commit.
         let commit_range = self.outside_crlf(marked.range);
-        let commit = self.plan_input(commit_range, &marked.text);
+        let commit = self.plan_input(commit_range, &marked.text, InputAction::CompositionCommit);
         self.raw(&mut batch, commit.range.clone(), &commit.inserted);
         let commit_records = batch.records.len();
-        let (dstart, dold, dend) = batch.display.expect("commit changed the display");
-        // Map the provisional range onto the display after the commit.
-        let marked_end = marked.range.start.0 + marked.text.len();
-        // Provisional offsets become offsets in the display before the
-        // commit, then pass through the commit's display change.
-        let map = |at: usize| {
-            if at <= marked.range.start.0 {
-                return at;
-            }
-            if at < marked_end {
-                return (dstart.max(marked.range.start.0) + at - marked.range.start.0).min(dend);
-            }
-            let committed = at - marked_end + marked.range.end.0;
-            if committed >= dold {
-                committed - dold + dend
-            } else if committed <= dstart {
-                committed
+        let (mstart, mend) = (marked.range.start.0, marked.range.end.0);
+        let (dstart, dold, dend) = batch.display.unwrap_or((mend, mend, mend));
+        // Map the provisional range onto the display after the commit. An
+        // offset after the marked text is one in the display before it,
+        // passed through the commit's display change; one inside the marked
+        // text keeps its place, since the commit wrote that text there (it
+        // may have kept part of what was already shown).
+        let marked_end = mstart + marked.text.len();
+        let after = |at: usize| {
+            if at >= dold {
+                at - dold + dend
+            } else if at <= dstart {
+                at
             } else {
                 dend
             }
         };
-        let saved = self.point();
+        let map = |at: usize| {
+            if at <= mstart {
+                at
+            } else if at < marked_end {
+                at.min(after(mend))
+            } else {
+                after(at - marked_end + mend)
+            }
+        };
+        let saved = opening.clone();
         self.caret_at(commit.caret);
         let after_commit = self.point();
         let mapped = DisplayRange {
@@ -201,29 +228,11 @@ impl Engine {
         text: &str,
     ) -> Vec<(std::ops::Range<usize>, Vec<crate::InlineFormat>)> {
         let old = self.display_slice(range.start.0..range.end.0);
-        let mut prefix = old
-            .bytes()
-            .zip(text.bytes())
-            .take_while(|(a, b)| a == b)
-            .count();
-        while !old.is_char_boundary(prefix) || !text.is_char_boundary(prefix) {
-            prefix -= 1;
-        }
-        let mut suffix = old[prefix..]
-            .bytes()
-            .rev()
-            .zip(text[prefix..].bytes().rev())
-            .take_while(|(a, b)| a == b)
-            .count();
-        while !old.is_char_boundary(old.len() - suffix)
-            || !text.is_char_boundary(text.len() - suffix)
-        {
-            suffix -= 1;
-        }
+        let (prefix, suffix) = super::plan::changed_stretch(&old, text);
         let shown = self.projection(self.revision, range);
         let mut runs = Vec::new();
         // Kept text at `old` offsets `from..to` lands at `text` offset `at`.
-        let mut keep = |from: usize, to: usize, at: usize, runs: &mut Vec<_>| {
+        let keep = |from: usize, to: usize, at: usize, runs: &mut Vec<_>| {
             for run in &shown.runs {
                 // The projection holds whole lines: clip runs to `range`.
                 let start = run.range.start.0.saturating_sub(range.start.0).max(from);

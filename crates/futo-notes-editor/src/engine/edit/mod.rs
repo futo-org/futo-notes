@@ -4,13 +4,14 @@
 mod compose;
 mod plan;
 
+use super::command::{Command, Edit};
 use super::history::{Group, Point, Record};
 use super::read::{self, Shown};
 use super::Engine;
 use crate::history::{typing_kind, TypingRun};
 use crate::{
-    Affinity, CaretDirection, DisplayOffset, DisplayRange, EditWork, EditorError, InputAction,
-    Revision, SourceEdit, SourceOffset, SourceRange,
+    Affinity, CaretDirection, DisplayOffset, DisplayRange, DisplayReplacement, EditWork,
+    EditorError, InputAction, Revision, SourceEdit, SourceOffset, SourceRange,
 };
 use std::ops::Range;
 
@@ -234,6 +235,11 @@ impl Engine {
     ) -> Result<Option<Change>, EditorError> {
         self.check_revision(expected)?;
         if self.composition.is_some() {
+            // A host that owns its provisional text cannot also commit
+            // through the engine's.
+            if action == InputAction::CompositionCommit {
+                return Err(EditorError::CompositionActive);
+            }
             return self.input_during_composition(range, text, action, accept);
         }
         self.check_display_range(range)?;
@@ -245,11 +251,15 @@ impl Engine {
             .then(|| typing_kind(range, text, self.selection))
             .flatten();
         let before = self.point();
-        let plan = self.plan_input(range, text);
+        let plan = self.plan_input(range, text, action);
         let mut batch = Batch::default();
         batch.work.parsed_source_bytes += plan.parsed;
         self.raw(&mut batch, plan.range.clone(), &plan.inserted);
         let Some((edit, shown, records)) = self.accept(batch, accept)? else {
+            // An unchanged commit still finishes at the end of its text.
+            if action != InputAction::Typing && range.start != range.end {
+                self.caret_at(plan.caret);
+            }
             return Ok(None);
         };
         self.caret_at(plan.caret);
@@ -274,6 +284,68 @@ impl Engine {
         }
         self.typing = kind.map(|kind| TypingRun::new(kind, self.selection, now));
         Ok(Some(self.change(edit, shown)))
+    }
+
+    /// Replace several display ranges as one action (a text service
+    /// correcting separate words). The ranges ascend and do not overlap and
+    /// address the display with any marked text in place, which commits
+    /// first as its own undo step. Each replacement keeps what it shares
+    /// with the text it replaces; the caret ends after the last one.
+    pub fn replace_runs(
+        &mut self,
+        expected: Revision,
+        runs: &[DisplayReplacement],
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<Change>, EditorError> {
+        self.check_revision(expected)?;
+        let ordered = runs.iter().all(|run| run.range.start.0 <= run.range.end.0)
+            && runs
+                .windows(2)
+                .all(|pair| pair[0].range.end.0 <= pair[1].range.start.0);
+        match runs {
+            [] => return Err(EditorError::InvalidRange),
+            [one] => {
+                return self.replace(
+                    expected,
+                    one.range,
+                    &one.inserted,
+                    InputAction::Isolated,
+                    accept,
+                )
+            }
+            _ if !ordered => return Err(EditorError::InvalidRange),
+            _ => {}
+        }
+        self.run(
+            expected,
+            |engine| {
+                let mut plans = Vec::new();
+                for run in runs {
+                    engine.check_display_range(run.range)?;
+                    let range = engine.outside_crlf(run.range);
+                    if engine.touches_metadata(range) {
+                        return Err(EditorError::InvalidRange);
+                    }
+                    plans.push(engine.plan_input(range, &run.inserted, InputAction::Isolated));
+                }
+                let (last, earlier) = plans.split_last().expect("two or more runs");
+                let growth: isize = earlier
+                    .iter()
+                    .map(|plan| plan.inserted.len() as isize - plan.range.len() as isize)
+                    .sum();
+                let caret = (last.caret as isize + growth) as usize;
+                let lines =
+                    engine.line_of(plans[0].range.start)..engine.line_of(last.range.end) + 1;
+                let edits = plans
+                    .iter()
+                    .map(|plan| Edit::new(plan.range.clone(), plan.inserted.clone()))
+                    .collect();
+                let mut command = Command::new(edits, lines, caret..caret);
+                command.typed = true;
+                Ok(Some(command))
+            },
+            accept,
+        )
     }
 
     /// Backspace or Delete: remove the selection, or one visible grapheme.

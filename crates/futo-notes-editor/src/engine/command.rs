@@ -14,7 +14,9 @@ use super::history::Group;
 use super::line::Entry;
 use super::{read, store, Engine};
 use crate::lines::{block, Carry, FenceRole, FrontMatterRole, Kind, Line, TableRole};
-use crate::{Affinity, DisplayOffset, DisplayRange, EditorError, Revision, SourceEdit};
+use crate::{
+    Affinity, DisplayOffset, DisplayRange, EditorError, InputAction, Revision, SourceEdit,
+};
 use std::ops::Range;
 
 /// One text edit, in source offsets of the text before the command.
@@ -298,7 +300,12 @@ impl Engine {
         let mut batch = Batch::default();
         let mut committed = None;
         if let Some(marked) = &marked {
-            let commit = self.plan_input(self.outside_crlf(marked.range), &marked.text);
+            self.adopt_marked_caret(marked.range);
+            let commit = self.plan_input(
+                self.outside_crlf(marked.range),
+                &marked.text,
+                InputAction::CompositionCommit,
+            );
             self.raw(&mut batch, commit.range.clone(), &commit.inserted);
             self.caret_at(commit.caret);
             committed = Some((batch.records.len(), self.point()));
@@ -328,7 +335,12 @@ impl Engine {
                     self.composition = None;
                     batch = Batch::default();
                     let marked = marked.as_ref().expect("marked text");
-                    let commit = self.plan_input(self.outside_crlf(marked.range), &marked.text);
+                    self.adopt_marked_caret(marked.range);
+                    let commit = self.plan_input(
+                        self.outside_crlf(marked.range),
+                        &marked.text,
+                        InputAction::CompositionCommit,
+                    );
                     self.raw(&mut batch, commit.range.clone(), &commit.inserted);
                     self.caret_at(commit.caret);
                 }
@@ -347,7 +359,11 @@ impl Engine {
             }
         };
         let Some((edit, shown, mut records)) = accepted else {
-            self.restore(&opening);
+            // Marked text that committed unchanged still leaves the caret at
+            // its end; otherwise nothing moved.
+            if committed.is_none() || applied {
+                self.restore(&opening);
+            }
             return Ok(None);
         };
         self.typing = None;
