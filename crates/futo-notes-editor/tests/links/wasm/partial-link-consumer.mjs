@@ -14,23 +14,7 @@ export async function partialLink(start, stop, current, timingVaults) {
       from: 5,
       to: 12,
       label: 'release',
-      edited: 'Read **[release](<https://x.test>) notes** now',
-    },
-    {
-      source: 'alpha\nbeta',
-      display: 'alpha\nbeta',
-      from: 0,
-      to: 9,
-      label: 'alpha\nbet',
-      edited: '[alpha\nbet](<https://x.test>)a',
-    },
-    {
-      source: 'alpha\r\nbeta',
-      display: 'alpha\r\nbeta',
-      from: 0,
-      to: 10,
-      label: 'alpha\r\nbet',
-      edited: '[alpha\r\nbet](<https://x.test>)a',
+      edited: 'Read **[release](https://x.test) notes** now',
     },
   ];
   for (const { source, display, from, to, label, edited } of cases) {

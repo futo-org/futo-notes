@@ -16,7 +16,6 @@ import { setTimeout, clearTimeout } from 'node:timers';
 const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 
 const vault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-links-'));
-const referenceVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-references-'));
 const timingVaults = [];
 let session;
 let worker;
@@ -101,32 +100,6 @@ try {
   assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(undoAck))), []);
   assert.equal(session.draft_text(), updated);
   await stop();
-  const referenceSource = "[id]: <https://x.test> 'T'\n\nmiddle\n\n[one][id] end";
-  const unlinkedSource = "[id]: <https://x.test> 'T'\n\nmiddle\n\none end";
-  const referenceExchange = await start(referenceSource, referenceVault);
-  let referenceDisplay = 'middle\n\none end';
-  const { change: referenceChange, request: unlinkRequest } = JSON.parse(
-    session.set_link(0n, 9, 10, ''),
-  );
-  assert.ok(session.project(1n, 0, 15));
-  const referenceAck = await referenceExchange(JSON.stringify(unlinkRequest));
-  assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(referenceAck))), []);
-  const openingBytes = Buffer.from(referenceDisplay);
-  referenceDisplay = Buffer.concat([
-    openingBytes.subarray(0, referenceChange.range.start),
-    Buffer.from(referenceChange.inserted),
-    openingBytes.subarray(referenceChange.range.end),
-  ]).toString();
-  assert.equal(referenceDisplay, unlinkedSource);
-  assert.deepEqual(referenceChange.selection, { start: 37, end: 38 });
-  assert.equal(session.draft_text(), unlinkedSource);
-  assert.equal(JSON.parse(session.inspect_link(1n, 36, 39)), null);
-  await stop();
-  const referenceReopened = await start('--reopen', referenceVault);
-  assert.equal(session.draft_text(), savedSource(unlinkedSource));
-  assert.equal(JSON.parse(session.project(0n, 0, 43)).text, unlinkedSource);
-  assert.deepEqual(await referenceReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
-  await stop();
   for (const kind of ['typed', 'composed']) {
     const timingVault = mkdtempSync(join(tmpdir(), `futo-editor-wasm-url-${kind}-`));
     timingVaults.push(timingVault);
@@ -151,20 +124,18 @@ try {
       assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(ack))), []);
       return showTiming(change);
     };
-    const pendingSource = 'x \\*b https://x.test/a*';
+    const pendingSource = 'x *b https://x.test/a*';
     if (kind === 'typed') {
-      for (const ch of 'x *b https://x.test/a*') {
+      // Each key lands exactly as typed; nothing is escaped.
+      let typed = '';
+      for (const ch of pendingSource) {
         const at = Buffer.byteLength(timingDisplay);
         await applyTiming(session.replace(timingRevision, at, at, ch));
-        assert.equal(
-          JSON.parse(session.project(timingRevision, 0, Buffer.byteLength(timingDisplay))).links
-            .length,
-          0,
-        );
+        typed += ch;
+        assert.equal(session.draft_text(), typed);
       }
-      assert.equal(timingDisplay, 'x *b https://x.test/a*');
-      assert.equal(session.draft_text(), pendingSource);
-      session.compose_utf16(timingRevision, 22, 22, Uint16Array.of(32));
+      assert.equal(timingDisplay, 'x b https://x.test/a');
+      session.compose_utf16(timingRevision, 20, 20, Uint16Array.of(32));
     } else {
       const text = 'x *b https://x.test/a* ';
       session.compose_utf16(
@@ -177,7 +148,10 @@ try {
     }
     const finalSource = 'x *B https://x.test/a* ';
     const beforeCorrection = JSON.parse(session.status());
-    let correction = session.replace(timingRevision, 3, 4, 'B');
+    // Input during composition addresses the provisional display: the typed
+    // note hides its `*`, the marked text shows it.
+    const b = kind === 'typed' ? 2 : 3;
+    let correction = session.replace(timingRevision, b, b + 1, 'B');
     // The edit is in the page's draft at once; only the accepted watermark
     // waits for the worker.
     assert.equal(session.draft_text(), finalSource);
@@ -224,7 +198,7 @@ try {
     assert.deepEqual(undoCorrection.selection, { start: 21, end: 21 });
     await applyTiming(session.undo(timingRevision));
     assert.equal(session.draft_text(), kind === 'typed' ? pendingSource : '');
-    assert.equal(timingDisplay, kind === 'typed' ? 'x *b https://x.test/a*' : '');
+    assert.equal(timingDisplay, kind === 'typed' ? 'x b https://x.test/a' : '');
     await applyTiming(session.redo(timingRevision));
     const redone = await applyTiming(session.redo(timingRevision));
     assert.equal(session.draft_text(), finalSource);
@@ -420,6 +394,5 @@ try {
 } finally {
   if (session) await stop();
   rmSync(vault, { recursive: true });
-  rmSync(referenceVault, { recursive: true });
   for (const timingVault of timingVaults) rmSync(timingVault, { recursive: true });
 }

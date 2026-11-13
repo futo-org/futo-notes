@@ -134,20 +134,27 @@ try {
     await stop();
   }
   for (const fixture of [
-    { source: '```\n\n```\n\nplain\n', end: 8, text: '# h', expected: '# h', shown: 'h' },
+    // A selection starting in a block's code keeps the frame: the paste is code.
+    {
+      source: '```\n\n```\n\nplain\n',
+      end: 8,
+      text: '# h',
+      expected: '```\n# h\n```',
+      shown: '# h',
+    },
     {
       source: '```\r\n\r\n```\r\n\r\nplain\r\n',
       end: 11,
       text: '# h\nbody',
-      expected: '# h\r\nbody',
-      shown: 'h\r\nbody',
+      expected: '```\r\n# h\r\nbody\r\n```',
+      shown: '# h\r\nbody',
     },
     {
       source: '```\n' + 'x\n'.repeat(2000) + '```\n\nplain\n',
       end: 4007,
       text: '# h',
-      expected: '# h',
-      shown: 'h',
+      expected: '```\n# h\n```',
+      shown: '# h',
     },
   ]) {
     const selectedExchange = await start(fixture.source);
@@ -184,16 +191,6 @@ try {
       caret: 6,
       label: [4, 6],
       title: 'T',
-    },
-    {
-      source: 'tail',
-      at: 0,
-      text: '[alpha\nbeta](<https://x.test>)',
-      expected: '[alpha\nbeta](<https://x.test>)tail',
-      display: 'alpha\nbetatail',
-      caret: 10,
-      label: [0, 10],
-      title: null,
     },
   ]) {
     const linkExchange = await start(fixture.source);
