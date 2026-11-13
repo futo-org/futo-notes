@@ -435,32 +435,38 @@ fn named_link_paste_preserves_adjacent_image_and_wikilink_roles() {
 }
 
 #[test]
-fn cell_link_paste_refuses_an_unrepresentable_opaque_code_pipe_atomically() {
+fn cell_link_paste_writes_a_code_pipe_as_an_escaped_pipe() {
     let original = "| H | T |\n| - | - |\n| old | keep |\n";
     let start = original.find("old").unwrap();
     let mut session = EditorSession::open(original);
     session
         .select(Revision(0), range(start, start + 3))
         .unwrap();
-    let before = session.display_text();
-    // The canonical inline parser has no GFM table decoding: escaping a pipe
-    // inside Code would add a visible backslash, while leaving it raw creates
-    // another cell. Refuse instead of changing either meaning.
-    assert!(matches!(
-        session.paste_markdown(
+    // A pasted `|` in a cell is written `\|`; inside the cell's code it is
+    // still a pipe, so the code shows `p|q` and the row keeps its cells.
+    session
+        .paste_markdown(
             Revision(0),
             range(start, start + 3),
             "[`p|q`](<https://x.test>)",
-            &mut |_| panic!("refused paste was accepted")
-        ),
-        Err(futo_notes_editor::EditorError::UnrepresentableFormat)
-    ));
-    assert_eq!(session.source_text(), original);
-    assert_eq!(session.display_text(), before);
-    assert_eq!(session.selection(), range(start, start + 3));
-    assert_eq!(session.revision(), Revision(0));
-    assert!(session
-        .undo(Revision(0), &mut |_| Ok(()))
+            &mut |_| Ok(()),
+        )
         .unwrap()
-        .is_none());
+        .unwrap();
+    assert_eq!(
+        session.source_text(),
+        "| H | T |\n| - | - |\n| [`p\\|q`](<https://x.test>) | keep |\n"
+    );
+    assert_eq!(
+        session.display_text(),
+        "| H | T |\n| - | - |\n| p|q | keep |\n"
+    );
+    let projection = session
+        .project(session.revision(), range(0, session.display_text().len()))
+        .unwrap();
+    assert_eq!(projection.links.len(), 1);
+    assert_eq!(projection.links[0].range, range(start, start + 3));
+    assert_eq!(projection.links[0].destination, "https://x.test");
+    session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(session.source_text(), original);
 }

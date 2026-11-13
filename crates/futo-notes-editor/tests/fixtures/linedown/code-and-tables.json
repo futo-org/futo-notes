@@ -89,6 +89,24 @@
    ]
   },
   {
+   "name": "an escaped pipe in a cell's code is a pipe in that code",
+   "rule": "Tables",
+   "input": "| a |\n|---|\n| `p\\|q` | `\\` |",
+   "lines": [
+    "table-header 1 : | a |",
+    "table-delimiter 1",
+    "table-row 1 : | `p\\|q` | `\\` | [code `p\\|q`] [escape \\|] [code `\\`]"
+   ]
+  },
+  {
+   "name": "an escaped pipe in code outside a table stays as typed",
+   "rule": "Tables",
+   "input": "`p\\|q`",
+   "lines": [
+    "plain : `p\\|q` [code `p\\|q`]"
+   ]
+  },
+  {
    "name": "marks do not cross a header's cells",
    "rule": "Tables",
    "input": "| *a | b* |\n|---|---|",

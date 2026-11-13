@@ -3,7 +3,7 @@
 use super::super::line::Role;
 use super::super::{read, store, Engine};
 use super::spans::Kept;
-use crate::lines::Kind;
+use crate::lines::{block, Kind};
 use crate::{DisplayOffset, DisplayRange, InlineFormat, InputAction};
 use std::ops::Range;
 
@@ -74,6 +74,29 @@ impl Engine {
         }
     }
 
+    /// Typing on an empty quote line whose last `>` has no space after it
+    /// (display rule 6 in `line.rs`): the line shows as an empty quoted line,
+    /// so text that as typed would leave it fewer quote levels (`>x` is a
+    /// plain line) gets the space the quote needs first, as Enter in a quote
+    /// writes `> `. Whether text typed at source `at` does.
+    pub(crate) fn quote_space(&self, at: usize, text: &str) -> bool {
+        if text.is_empty() {
+            return false;
+        }
+        let (index, before) = read::line_at(&self.store, at);
+        let entry = self.store.get(index);
+        let line = &entry.line;
+        if line.kind != Kind::Blank
+            || line.quote == 0
+            || at - before.source != line.marker.end
+            || !entry.body().ends_with('>')
+        {
+            return false;
+        }
+        let typed = format!("{}{text}", entry.body());
+        block::read_line(&mut entry.carry.clone(), &typed, 0).quote < line.quote
+    }
+
     /// Replace display `range` with `text`. A collapsed caret inserts exactly
     /// `text` where it maps. A selection removes the visible text in it and
     /// the line markers and hidden lines inside it, keeps the syntax of spans
@@ -116,9 +139,13 @@ impl Engine {
     }
 
     /// Typing `inserted` at a collapsed `range`: exactly that, where the
-    /// caret maps, unless it is at a divider's edge.
-    fn at_caret(&self, range: DisplayRange, inserted: String) -> Plan {
+    /// caret maps, unless it is at a divider's edge or on an empty quote
+    /// line that needs its space.
+    fn at_caret(&self, range: DisplayRange, mut inserted: String) -> Plan {
         let at = self.input_at(range);
+        if self.quote_space(at, &inserted) {
+            inserted.insert(0, ' ');
+        }
         if let Some((written, caret)) = self.beside_divider(at, &inserted) {
             return Plan {
                 range: at..at,
@@ -159,6 +186,9 @@ impl Engine {
         };
         let lo_s = if metadata_start { 0 } else { lo_s };
         let to = self.source_bounds(e).0;
+        if self.quote_space(from, &inserted) {
+            inserted.insert(0, ' ');
+        }
 
         let (kept, mut removed) = self.span_syntax(lo_s..hi_e, from..to, !text.is_empty());
         if inserted.is_empty() {
@@ -279,10 +309,13 @@ impl Engine {
             end: DisplayOffset(range.end.0 - suffix),
         };
         let inserted = &text[prefix..text.len() - suffix];
-        let plan = if stretch.start == stretch.end && self.empty_line(start.0).is_none() {
+        let at = self.source_bounds(start.0).0;
+        let plan = if stretch.start == stretch.end
+            && self.empty_line(start.0).is_none()
+            && !self.quote_space(at, inserted)
+        {
             // Text added between kept characters lands after the one before
             // it, inside the spans that close there, as typing does.
-            let at = self.source_bounds(start.0).0;
             Plan {
                 range: at..at,
                 inserted: inserted.to_owned(),
@@ -358,8 +391,11 @@ impl Engine {
                 end: DisplayOffset(range.start.0 + from.end),
             };
             let inserted = &text[to.clone()];
-            if stretch.start == stretch.end && self.empty_line(stretch.start.0).is_none() {
-                let at = self.source_bounds(stretch.start.0).0;
+            let at = self.source_bounds(stretch.start.0).0;
+            if stretch.start == stretch.end
+                && self.empty_line(stretch.start.0).is_none()
+                && !self.quote_space(at, inserted)
+            {
                 Plan {
                     range: at..at,
                     inserted: inserted.to_owned(),

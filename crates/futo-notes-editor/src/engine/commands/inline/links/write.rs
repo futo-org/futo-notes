@@ -181,7 +181,8 @@ impl Engine {
     }
 
     /// Insert a link to `destination` at the caret: the address itself when
-    /// it reads as one, else `[destination](destination)`.
+    /// it reads as one, else `[destination](destination)`; in a table cell
+    /// its text writes a `|` as `\|`, as its destination does.
     pub(super) fn insert_link(
         &self,
         range: DisplayRange,
@@ -189,11 +190,17 @@ impl Engine {
         work: &mut usize,
     ) -> Result<Option<Command>, EditorError> {
         let mut texts = vec![destination.to_owned()];
-        texts.extend(
-            spellings(destination)
-                .into_iter()
-                .map(|spelled| format!("[{destination}]({spelled})")),
-        );
+        let mut labels = vec![destination.to_owned()];
+        if destination.contains('|') {
+            labels.push(destination.replace('|', "\\|"));
+        }
+        for label in labels {
+            texts.extend(
+                spellings(destination)
+                    .into_iter()
+                    .map(|spelled| format!("[{label}]({spelled})")),
+            );
+        }
         for text in texts {
             if let Some(command) = self.written_link(range, &text, destination, work) {
                 return Ok(Some(command));

@@ -146,6 +146,9 @@ pub(super) fn type_step(
     let empty_line = engine.empty_line(stop.start.0);
     // Typing at a divider's edge writes its own line (display rule 5).
     let beside_divider = engine.beside_divider(at, text).map(|(written, _)| written);
+    // Typing on an empty quote line with no space after its `>` writes that
+    // space first when the text would otherwise unquote it (display rule 6).
+    let quote_space = engine.quote_space(at, text);
     // A selection's edit stays inside the source it spans: from the hidden
     // pieces at its start to those at its end (from 0 over front matter).
     let spanned = {
@@ -201,6 +204,7 @@ pub(super) fn type_step(
         let written = match (beside_divider, empty_line) {
             (Some(written), _) => written,
             (None, Some(index)) => format!("{}{text}", engine_ending(&before.source, index)),
+            (None, None) if quote_space => format!(" {text}"),
             (None, None) => text.to_owned(),
         };
         let now = engine.source_text();

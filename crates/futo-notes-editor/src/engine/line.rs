@@ -16,6 +16,10 @@
 //! 4. A divider shows as one U+FFFC, which renderers draw as a rule.
 //! 5. Typing at a divider's edge writes the text on a line of its own
 //!    beside the rule (`edit/plan.rs` `beside_divider`), in its quotes.
+//! 6. An empty quote line with no space after its last `>` (`>`, `> >`)
+//!    shows as an empty quoted line. Typing there text that as typed would
+//!    take the line out of its quote (`>x` is plain) writes the space the
+//!    quote needs, then the text (`edit/plan.rs` `quote_space`).
 //!
 //! Front matter lines show their whole text; a table's delimiter row shows
 //! as typed. Everything else hides its marker (quote, list, heading markers

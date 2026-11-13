@@ -169,6 +169,8 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
   4. A divider shows as one U+FFFC.
   5. Typing at a divider's edge writes the text on a line of its own beside the rule, in its
      quotes.
+  6. Typing on an empty quote line with no space after its `>` writes that space first when
+     the text as typed would unquote the line (`>` then `x` writes `> x`).
   Front matter lines and a table's delimiter row show their whole text; everything else hides
   its marker and inline syntax.
 - Open questions for the maintainer (each lane took the conservative choice and pinned none):
@@ -210,13 +212,8 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
       typed one still breaks the row.
   13. Images keep the old engine's explicit refusals (`<`, `>`, `\` in the reference; backtick,
       `[`, `]`, `\` in the alt) on top of "reads back as exactly that image". Loosen?
-  14. A link destination containing `|` inside a table cell: links.md says write `\|` (it reads
-      back as `|`), tables.md says such a destination changes nothing; the engine refuses with
-      `UnrepresentableFormat`. 14A follow tables.md (`Ok(None)`); 14B escape it as `\|`; 14C keep
-      the refusal and reword tables.md. Failing: `links::tables::a_destination_with_a_pipe_never_adds_a_cell`,
-      `an_edit_that_unescapes_a_kept_pipe_changes_nothing`, and `clipboard`
-      `cell_link_paste_refuses_an_unrepresentable_opaque_code_pipe_atomically` (a pasted
-      `` [`p|q`](…) `` in a cell saves `` `p\|q` ``: is `\|` a literal pipe inside code?).
+  14. Answered 14B (2026-11-13): in a cell a link destination's `|` is written `\|`; `\|` in a
+      cell's code is a pipe (reader fixed, `lines/table.rs` `code_pipes`).
   15. Budget: a key in one 50,000-character line costs about 100,000 counted work against about
       3,500 on the old engine, which cut long lines at words (`long_regions`
       `keys_in_one_long_line_do_not_scale_with_it`). The core re-reads the edited line whole.
@@ -236,9 +233,8 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
   19. Smaller, none failing: a line `\u{feff}---` (byte-order mark) is not front matter; Select
       All then Delete on a note that starts with a code block leaves an empty code block (the
       frame rule; the old engine left an unclosed fence); a selection during composition covering
-      only a `*` the commit hides becomes an insertion; typing on an empty `>` line writes `>x`,
-      which reads as plain text; Bold or Code at a divider caret does nothing; tags.md says no
-      tag inside a link destination but the reader reads `#y` in `[a](<x #y>)`; `header_tags`
+      only a `*` the commit hides becomes an insertion; Bold or Code at a divider caret does
+      nothing; tags.md says no tag inside a link destination but the reader reads `#y` in `[a](<x #y>)`; `header_tags`
       starts after front matter but `extract_header_tag_block` (Rust and TS) at byte 0; the
       one guard compares only lines a command does not name (a blanket "named lines keep their
       kind" rule would break Quote over a table; the link commands check cells themselves).

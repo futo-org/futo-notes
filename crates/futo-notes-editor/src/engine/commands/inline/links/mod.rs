@@ -25,8 +25,19 @@ struct Found {
 }
 
 /// Ways to write `destination` inside `(…)`, plainest first. The line is
-/// read back to choose: the first that reads as the destination wins.
+/// read back to choose: the first that reads as the destination wins. Each
+/// is also tried with `\|` for a `|`, last, which only a table cell needs:
+/// there a bare `|` ends the cell.
 fn spellings(destination: &str) -> Vec<String> {
+    let mut spelled = plain_spellings(destination);
+    if destination.contains('|') {
+        let piped: Vec<String> = spelled.iter().map(|it| it.replace('|', "\\|")).collect();
+        spelled.extend(piped);
+    }
+    spelled
+}
+
+fn plain_spellings(destination: &str) -> Vec<String> {
     let escaped: String = destination
         .chars()
         .flat_map(|ch| {

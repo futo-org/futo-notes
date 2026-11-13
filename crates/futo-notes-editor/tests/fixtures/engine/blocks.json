@@ -136,5 +136,14 @@
   {"name": "a lone hash is saved as typed", "before": "|", "command": "type #", "after": "#|"},
   {"name": "a space after a hash makes a heading by reading", "before": "#|", "command": "type  ", "after": "# |"},
   {"name": "a quote marker is typed as typed", "before": "|", "command": "type >", "after": ">|"},
+  {"name": "typing on an empty quote line writes the space the quote needs", "before": "> a\n>|", "command": "type x", "after": "> a\n> x|"},
+  {"name": "typing on a lone empty quote line keeps it quoted", "before": ">|", "command": "type x", "after": "> x|"},
+  {"name": "typing on a run-together nested empty quote line", "before": ">>|", "command": "type x", "after": ">> x|"},
+  {"name": "typing on a spaced nested empty quote line keeps both levels", "before": "> >|", "command": "type x", "after": "> > x|"},
+  {"name": "typing on an empty quote line with its space lands as typed", "before": "> > |", "command": "type x", "after": "> > x|"},
+  {"name": "typing on an empty CRLF quote line writes the space", "before": "> a\r\n>|\r\nb", "command": "type x", "after": "> a\r\n> x|\r\nb"},
+  {"name": "a space typed on an empty quote line lands as typed", "before": ">|", "command": "type  ", "after": "> |"},
+  {"name": "a quote marker typed on an empty quote line lands as typed", "before": ">|", "command": "type >", "after": ">>|"},
+  {"name": "typing over a selection that joins text to an empty quote line keeps it quoted", "before": ">[\n> ]foo", "command": "type x", "after": "> x|foo"},
   {"name": "deleting a former setext heading's text leaves a divider", "before": "[title]\n---", "command": "Backspace", "after": "|\n---"}
 ]

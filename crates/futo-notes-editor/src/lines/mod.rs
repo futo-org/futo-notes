@@ -46,7 +46,9 @@ pub(crate) fn line_spans(source: &str, line: &Line) -> Vec<Span> {
             ..
         } => table::cells(text)
             .iter()
-            .flat_map(|cell| inline::read(text, table::trimmed(text, cell)))
+            .flat_map(|cell| {
+                table::code_pipes(text, inline::read(text, table::trimmed(text, cell)))
+            })
             .map(shift)
             .collect(),
         _ => Vec::new(),
