@@ -207,8 +207,8 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
      it writes ```js" is wrong). Neither renderer draws a fence's language, though the
      projection carries it on each code line, so keeping the caret on the hidden fence line
      would make the typed language invisible.
-  10. Code taken back out of a block gets `kept_line`'s `\` where needed, so `# x` comes back
-      as `\# x` (in and out are not exact opposites).
+  10. Answered (maintainer, 2026-11-13): no change. Taking code out of a block preserves how it
+      looks, so `# x` comes out as `\# x` (`kept_line`); in and out are not exact opposites.
   11. Paste: a block pasted into the middle of a numbered item repeats its number on the tail
       (`1. ab`, `- x`, `1. cd`); a block line pasted mid-text starts its own line (a line break
       the user did not paste); copy adds no closing fence when a selection ends inside code.
