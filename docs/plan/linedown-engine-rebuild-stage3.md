@@ -135,6 +135,27 @@ What each family landed, merged into `linedown` in this order. The status file i
   2/1. Being triaged: composition group (inline lane), history/native traces/unicode/
   plain_note/external/portable (external lane), wikilinks/completion/tags (wikilinks lane),
   images (images lane).
+- Must-pass triage, merged:
+  - Images: the old engine's explicit refusals are back on top of read-back (`<`, `>`, `\` in
+    the reference; backtick, `[`, `]`, `\` in the alt). `tests/images.rs` now fails only on
+    CommonMark-only assertions (formatting inside an image's alt, reference images, a
+    4-space-indented line as code).
+  - Composition (inline lane): committing marked text replaces only what differs from the
+    display (`hall**way**` reconverted kept its bold), an unchanged commit writes nothing, a
+    commit at bold's end joins it, multi-run `replace_many` is `Engine::replace_runs` (marked
+    text commits first). composition 17/19; the 2 left: `&amp;` decoding (CommonMark) and Enter
+    at a span's end (clipboard lane's Enter split). compound_composition 0/5, all `&#32;`.
+  - Outside-change lane: input at a caret the host placed now stands where a fresh select
+    would (typing at the end of `__日__` wrote `__日__a`); collapsing a selection never leaves
+    the caret inside a grapheme; a space typed at a bold/italic/strike span's end lands outside
+    its marks and carries the span's formats, so the next letter rejoins it (Decision 3: markers
+    stay hidden). history 12/17 (left: `&amp;` x3, quoted fences, `4. ## x` as a heading),
+    unicode 6/6, native_input_traces fails only on the entity trace, plain_note 2/3 (indent
+    shown as text), external 2/3 (unfinished-URL model), portable 12/14 (clipboard; link
+    destination spelling).
+  - Wikilinks lane: no core bugs; wikilinks 3/5, wikilink_completion 3/4, tags 4/5, all
+    dialect changes (lone CR is not a line end; 4-space code, raw HTML; wikilinks before links;
+    a wikilink's text is its target).
 - The wikilinks merge put `engine/mod.rs` over the size limit: selection and movement moved
   to `engine/selection.rs`, UTF-16 conversions to `engine/utf16.rs`, verbatim.
 - Rule kept, noted by the fences lane: typing after a ``` that is the note's last line goes

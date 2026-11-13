@@ -119,5 +119,11 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
      display start does not touch that line (the old engine made an exception for list items).
   8. A fence typed mid-note: after ``` the line hides and the caret moves into the code, so the
      old "Enter closes a typed fence" cannot trigger.
-  3. Images: "safe to write" is now only "reads back as exactly that image" (see the images
+  9. Property 2 is amended (engine/tests/properties/mod.rs header): with no carried formats,
+     typing writes exactly the typed bytes at a source offset the caret's display point maps
+     to (either side of hidden marks); under carried formats (a toggle, or the formats a space
+     typed at a span's end carries), the display changes by exactly the typed text in those
+     formats and only inline marks are written besides. Chosen because Decision 3 (markers stay
+     hidden) outranks a literal reading: `__a __` shows underscores.
+  3. (Settled: the old refusals were restored on top of read-back.) Images: "safe to write" is now only "reads back as exactly that image" (see the images
      entry); keep, or keep the old engine's blanket refusals of `<`, `\` and backticks too?
