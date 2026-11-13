@@ -317,3 +317,48 @@ fn an_image_shows_its_spelling_and_only_inline_images_are_atoms() {
         assert_eq!(found, expected, "{source:?}");
     }
 }
+
+/// iOS sim: after Backspace removed an image and Undo restored it, an arrow
+/// step left the view's caret one glyph inside the image's hidden source, and
+/// typing wrote `![](image-1.jpgQ)`. An atom's only caret stops are its edges:
+/// input at a caret inside an image lands at the nearer edge.
+#[test]
+fn input_never_lands_inside_an_image() {
+    let image = "![](image-1.jpg)";
+    let source = format!("here{image} x");
+    let (start, end) = (4, 4 + image.len());
+    let input = |at: DisplayRange, text: &str, action| {
+        let mut engine = Engine::open(&source);
+        engine
+            .replace(engine.revision(), at, text, action, &mut ok)
+            .unwrap()
+            .unwrap();
+        engine.source_text()
+    };
+    use crate::InputAction::{Isolated, Typing};
+    // One glyph inside its end (the arrow step), and one inside its start.
+    assert_eq!(
+        input(range(end - 1, end - 1), "Q", Typing),
+        format!("here{image}Q x")
+    );
+    assert_eq!(
+        input(range(start + 1, start + 1), "Q", Typing),
+        format!("hereQ{image} x")
+    );
+    // A text service's insertion at a caret there too.
+    assert_eq!(
+        input(range(end - 2, end - 2), "ab", Isolated),
+        format!("here{image}ab x")
+    );
+    // A composition committed there lands outside it too.
+    let mut engine = Engine::open(&source);
+    let revision = engine.revision();
+    engine
+        .compose(revision, range(end - 1, end - 1), "か")
+        .unwrap();
+    engine
+        .commit_composition(revision, None, &mut ok)
+        .unwrap()
+        .unwrap();
+    assert_eq!(engine.source_text(), format!("here{image}か x"));
+}

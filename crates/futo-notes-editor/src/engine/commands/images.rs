@@ -201,6 +201,33 @@ impl Engine {
         }
     }
 
+    /// A caret strictly inside an image moved to the image's nearer edge
+    /// (after, on a tie): an atom's only caret stops are before and after
+    /// it, so input at a caret never lands in its hidden source. A selection
+    /// is kept as it is, image or not.
+    pub(crate) fn outside_images(&self, range: DisplayRange) -> DisplayRange {
+        if range.start != range.end {
+            return range;
+        }
+        let at = range.start.0;
+        let Some(image) = self
+            .images_in(at, at)
+            .into_iter()
+            .find(|image| image.start.0 < at && at < image.end.0)
+        else {
+            return range;
+        };
+        let edge = if at - image.start.0 < image.end.0 - at {
+            image.start
+        } else {
+            image.end
+        };
+        DisplayRange {
+            start: edge,
+            end: edge,
+        }
+    }
+
     /// The display ranges of the images on the lines showing display offsets
     /// `start` and `end`.
     fn images_in(&self, start: usize, end: usize) -> Vec<DisplayRange> {

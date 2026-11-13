@@ -130,13 +130,20 @@ pub(super) fn type_step(
     let text = random.pick(TYPED);
     let selection = engine.selection();
     let collapsed = selection.start == selection.end;
-    let at = engine.caret_source();
+    // A caret inside an image types at the image's nearer edge (an atom's
+    // only caret stops are its edges).
+    let stop = engine.outside_images(selection);
+    let at = if stop == selection {
+        engine.caret_source()
+    } else {
+        engine.source_bounds(stop.start.0).0
+    };
     // Every source offset that shows at the caret's display point, and
     // what the caret carries and shows before typing.
-    let bounds = engine.source_bounds(selection.start.0);
+    let bounds = engine.source_bounds(stop.start.0);
     let carried = engine.formats.clone();
     let shown = engine.display_text();
-    let empty_line = engine.empty_line(selection.start.0);
+    let empty_line = engine.empty_line(stop.start.0);
     // Typing at a divider's edge writes its own line (display rule 5).
     let beside_divider = engine.beside_divider(at, text).map(|(written, _)| written);
     // A selection's edit stays inside the source it spans: from the hidden
@@ -214,14 +221,14 @@ pub(super) fn type_step(
             // formats, and only inline marks written besides.
             Some(formats) if !plain => {
                 let mut want = shown.clone();
-                want.insert_str(selection.start.0, text);
+                want.insert_str(stop.start.0, text);
                 let context = format!("typing {text:?} under {formats:?} at {at}");
                 assert_eq!(engine.display_text(), want, "{context}");
                 let unmarked = |text: &str| text.replace(['*', '_', '~', '`'], "");
                 assert_eq!(unmarked(&now), unmarked(&typed_at(at)), "{context}");
                 super::inline::typed_formats(
                     engine,
-                    selection.start.0,
+                    stop.start.0,
                     text,
                     formats,
                     &typed_at(at),

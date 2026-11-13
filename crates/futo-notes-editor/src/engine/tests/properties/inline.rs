@@ -112,18 +112,25 @@ fn typing_under_carried_formats_shows_exactly_what_was_typed() {
                 let text = random.pick(&["a", "b", " ", "é", "x y", "😀"]);
                 let shown = engine.display_text();
                 let caret = engine.selection();
+                // A caret inside an image types at its nearer edge.
+                let stop = engine.outside_images(caret);
                 let plain = {
                     let mut plain = engine.source_text();
-                    plain.insert_str(engine.caret_source(), text);
+                    let at = if stop == caret {
+                        engine.caret_source()
+                    } else {
+                        engine.source_bounds(stop.start.0).0
+                    };
+                    plain.insert_str(at, text);
                     plain
                 };
                 // Typing that makes a block of its own (a space opening an
                 // indent, text in front of a divider) is the core's typing,
                 // not the formats'; check typing inside a line's text.
                 let (index, before) =
-                    engine.line_at_display(crate::engine::store::display, caret.start.0);
+                    engine.line_at_display(crate::engine::store::display, stop.start.0);
                 let entry = engine.store.get(index);
-                let inside = caret.start.0 > before.display
+                let inside = stop.start.0 > before.display
                     && entry.view.role == Role::Text
                     && matches!(
                         entry.line.kind,
@@ -148,7 +155,7 @@ fn typing_under_carried_formats_shows_exactly_what_was_typed() {
                     continue;
                 }
                 let mut want = shown.clone();
-                want.insert_str(caret.start.0, text);
+                want.insert_str(stop.start.0, text);
                 if engine.display_text() != want {
                     // Typing that breaks the syntax around it (a space in an
                     // autolink) is plain typing, exactly.
@@ -157,13 +164,13 @@ fn typing_under_carried_formats_shows_exactly_what_was_typed() {
                 }
                 assert_eq!(
                     engine.selection().start.0,
-                    caret.start.0 + text.len(),
+                    stop.start.0 + text.len(),
                     "{context}"
                 );
                 if let Some(carried) = &carried {
                     formatted += usize::from(typed_formats(
                         &engine,
-                        caret.start.0,
+                        stop.start.0,
                         text,
                         carried,
                         &plain,
