@@ -228,8 +228,9 @@ impl Engine {
         })
     }
 
-    /// A text service's or dictation's `text` over display `range` inside
-    /// one cell, with its line breaks made spaces as a paste's are
+    /// A text service's, dictation's or committed composition's `text` over
+    /// display `range` inside one cell, with its line breaks made spaces as
+    /// a paste's are
     /// (`flatten_for_cell`), so it stays in the cell. Typing is not shaped:
     /// a typed line break breaks the row. `None` when `text` lands as given.
     pub(crate) fn cell_service_text(&self, range: DisplayRange, text: &str) -> Option<String> {

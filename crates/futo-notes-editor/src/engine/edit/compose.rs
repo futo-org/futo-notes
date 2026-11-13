@@ -173,9 +173,12 @@ impl Engine {
             self.restore(&saved);
             return Err(EditorError::InvalidRange);
         }
-        let flat = (action == InputAction::Isolated)
-            .then(|| self.cell_service_text(mapped, text))
-            .flatten();
+        let flat = matches!(
+            action,
+            InputAction::Isolated | InputAction::CompositionCommit
+        )
+        .then(|| self.cell_service_text(mapped, text))
+        .flatten();
         let input = self.plan(self.outside_crlf(mapped), flat.as_deref().unwrap_or(text));
         self.raw(&mut batch, input.range.clone(), &input.inserted);
         let Some((edit, shown, mut records)) = self.accept(batch, accept).inspect_err(|_| {
