@@ -144,3 +144,7 @@ prepush: check-full test-rust-full
   pnpm run test:cross-platform
   bash scripts/run-ios-stories-if-available.sh
   echo "prepush green — check + rust workspace + full e2e + cross-platform sync + available iOS stories all passed"
+
+# Engine-only release timings for opening, typing, Backspace and numbered-list Enter.
+bench-editor-engine:
+  cargo run --release -p futo-notes-editor --example engine_perf
