@@ -309,3 +309,33 @@ fn marked_text_draws_with_the_formats_it_will_commit_with() {
     );
     assert_eq!(engine.marked_runs(range(0, 1), "z"), vec![]);
 }
+
+#[test]
+fn an_edit_never_leaves_the_caret_pinned_inside_hidden_syntax() {
+    // Typing `)` closes a link around text typed earlier: the caret, last
+    // at the end of `[l](x`, would sit inside the now hidden destination.
+    let mut engine = Engine::open("[l](x");
+    let at = engine.source_len();
+    engine
+        .edit_source(
+            engine.revision(),
+            crate::SourceRange {
+                start: crate::SourceOffset(at),
+                end: crate::SourceOffset(at),
+            },
+            ")",
+            &mut ok,
+        )
+        .unwrap()
+        .unwrap();
+    // Put the caret back inside the destination, as an edit could.
+    engine.caret_at(4);
+    assert_eq!(engine.pin, None, "no pin inside a link's destination");
+    super::typed(&mut engine, "z");
+    assert_eq!(
+        engine.display_text(),
+        "lz",
+        "typed text shows: {:?}",
+        engine.source_text()
+    );
+}
