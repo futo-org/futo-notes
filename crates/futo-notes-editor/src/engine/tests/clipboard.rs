@@ -1,5 +1,5 @@
 //! Copy, cut and paste: the literal cases in
-//! `tests/fixtures/engine/clipboard.json`, and the rules a table cannot show.
+//! `tests/fixtures/engine/clipboard/`, and the rules a table cannot show.
 //!
 //! Each case marks the selection in its source with `|` (a caret) or `[`
 //! and `]` (`marks` names other characters when the note needs these), runs
@@ -113,10 +113,14 @@ fn run(engine: &mut Engine, case: &Case, view: &mut String) -> String {
 
 #[test]
 fn clipboard_cases() {
-    let cases: Vec<Case> = serde_json::from_str(include_str!(
-        "../../../tests/fixtures/engine/clipboard.json"
-    ))
-    .unwrap();
+    let cases: Vec<Case> = [
+        include_str!("../../../tests/fixtures/engine/clipboard/paste.json"),
+        include_str!("../../../tests/fixtures/engine/clipboard/copy-and-cut.json"),
+        include_str!("../../../tests/fixtures/engine/clipboard/plain-enter.json"),
+    ]
+    .into_iter()
+    .flat_map(|file| serde_json::from_str::<Vec<Case>>(file).unwrap())
+    .collect();
     assert!(cases.len() >= 100, "{} cases", cases.len());
     let mut failures = Vec::new();
     for case in &cases {
@@ -199,13 +203,50 @@ fn cut_carries_the_cut_formats_to_the_next_typed_character() {
     assert!(change.is_some());
     assert_eq!(engine.source_text(), "a  c");
     assert_eq!(engine.active_formats(), vec![InlineFormat::Bold]);
-    // Typing writes `a **x** c` once typing honours carried formats (the
-    // inline family). Undo takes the cut back, formats and all.
+    // Undo takes the cut back; Redo carries the formats again.
     engine.undo(engine.revision(), &mut ok).unwrap().unwrap();
     assert_eq!(engine.source_text(), "a **bold** c");
     assert_eq!(engine.selection(), range(2, 6));
     engine.redo(engine.revision(), &mut ok).unwrap().unwrap();
     assert_eq!(engine.active_formats(), vec![InlineFormat::Bold]);
+    super::typed(&mut engine, "x");
+    assert_eq!(engine.source_text(), "a **x** c");
+    // Cut and typing are two Undo steps.
+    engine.undo(engine.revision(), &mut ok).unwrap().unwrap();
+    assert_eq!(engine.source_text(), "a  c");
+}
+
+#[test]
+fn a_one_line_paste_takes_the_formats_the_caret_carries() {
+    for (format, want) in [
+        (InlineFormat::Bold, "a **x y** b"),
+        (InlineFormat::Code, "a `x y` b"),
+    ] {
+        let mut engine = Engine::open("a  b");
+        super::select(&mut engine, 2, 2, Affinity::Forward);
+        engine
+            .toggle_format_view(engine.revision(), format, &mut ok)
+            .unwrap();
+        engine
+            .paste_markdown(engine.revision(), range(2, 2), "x y", &mut ok)
+            .unwrap()
+            .unwrap();
+        assert_eq!(engine.source_text(), want);
+        engine.undo(engine.revision(), &mut ok).unwrap().unwrap();
+        assert_eq!(engine.source_text(), "a  b");
+    }
+}
+
+#[test]
+fn a_paste_across_table_cells_is_refused() {
+    let note = "| a | b |\n|---|---|\n| x | y |";
+    let mut engine = Engine::open(note);
+    let display = engine.display_text();
+    let (x, y) = (display.find('x').unwrap(), display.find('y').unwrap());
+    let refused = engine.paste_markdown(engine.revision(), range(x, y + 1), "q", &mut ok);
+    assert_eq!(refused, Err(EditorError::UnrepresentableFormat));
+    assert_eq!(engine.source_text(), note);
+    assert!(!engine.can_undo());
 }
 
 #[test]
@@ -347,8 +388,11 @@ fn no_valid_range_is_answered_invalid_range() {
                     let mut engine = Engine::open(note);
                     let pasted = engine.paste_markdown(engine.revision(), at, text, &mut ok);
                     if let Err(error) = pasted {
+                        // A selection across table cells is refused for
+                        // what the paste would do, not as an invalid range.
                         assert!(
-                            engine.touches_metadata(at),
+                            error == EditorError::UnrepresentableFormat
+                                || engine.touches_metadata(at),
                             "paste {text:?} {at:?} of {note:?}: {error:?}"
                         );
                     }

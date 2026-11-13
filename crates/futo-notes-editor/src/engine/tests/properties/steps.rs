@@ -132,6 +132,9 @@ pub(super) fn type_step(
     let collapsed = selection.start == selection.end;
     let at = engine.caret_source();
     let empty_line = engine.empty_line(selection.start.0);
+    // Formats a cut left carried shape what is typed (the inline family's
+    // own property checks that); exact bytes hold for plain typing.
+    let carried = engine.formats.is_some();
     // A selection's edit stays inside the source it spans: from the hidden
     // pieces at its start to those at its end (from 0 over front matter).
     let spanned = {
@@ -183,7 +186,7 @@ pub(super) fn type_step(
             "replacing {selection:?} edited {edited:?}, outside {spanned:?} (reach {reach})"
         );
     }
-    if collapsed {
+    if collapsed && !carried {
         let written = match empty_line {
             Some(index) => format!("{}{text}", engine_ending(&before.source, index)),
             None => text.to_owned(),
@@ -408,8 +411,12 @@ fn clipboard(
         return (change, format!("cut {range:?}"));
     }
     let text = random.pick(PASTED);
-    let change = engine.paste_markdown(revision, range, text, &mut ok);
-    (change.unwrap(), format!("paste {text:?} at {range:?}"))
+    let change = match engine.paste_markdown(revision, range, text, &mut ok) {
+        // A paste across table cells is refused and changes nothing.
+        Err(crate::EditorError::UnrepresentableFormat) => None,
+        change => change.unwrap(),
+    };
+    (change, format!("paste {text:?} at {range:?}"))
 }
 
 /// A paragraph key or toolbar block command at the selection, through the

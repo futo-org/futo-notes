@@ -145,6 +145,16 @@ impl Engine {
         if text.is_empty() && range.start == range.end {
             return Ok(None);
         }
+        // A paste inside one table cell stays in it (the table family's). A
+        // caret on a row outside its cells pastes as it would elsewhere; a
+        // selection across cells would rewrite the grid, and is refused.
+        match self.cell_paste(range, &text) {
+            Ok(Some(command)) => return Ok(Some(command)),
+            Ok(None) => {}
+            Err(EditorError::InvalidRange) if range.start == range.end => {}
+            Err(EditorError::InvalidRange) => return Err(EditorError::UnrepresentableFormat),
+            Err(error) => return Err(error),
+        }
         if let Some(touch) = self.touch(range) {
             return Ok(Some(self.code_paste(range, touch, &text, &newline)));
         }
