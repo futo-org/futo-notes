@@ -3,7 +3,7 @@
 use super::super::line::Role;
 use super::super::{read, store, Engine};
 use crate::lines::SpanKind;
-use crate::{Affinity, DisplayRange};
+use crate::{Affinity, DisplayOffset, DisplayRange, InputAction};
 use std::ops::Range;
 
 /// A planned text edit and where the caret ends up after it.
@@ -184,16 +184,63 @@ impl Engine {
     }
 
     /// Input at display `range`: shaped by the formats the caret carries
-    /// when the inline family takes it, else `plan`.
-    pub(crate) fn plan_input(&self, range: DisplayRange, text: &str) -> Plan {
-        match self.formatted_input(range, text) {
-            Some(typed) => Plan {
+    /// when the inline family takes it. A commit of marked text or a text
+    /// service's replacement (`action` other than typing) replaces only the
+    /// stretch of the display that differs from `text`, so characters it
+    /// shares keep their source spelling and formats, and the caret ends
+    /// after the whole of `text`.
+    pub(crate) fn plan_input(&self, range: DisplayRange, text: &str, action: InputAction) -> Plan {
+        if let Some(typed) = self.formatted_input(range, text) {
+            return Plan {
                 range: typed.range,
                 inserted: typed.inserted,
                 caret: typed.caret,
                 parsed: typed.parsed,
-            },
-            None => self.plan(range, text),
+            };
+        }
+        if action == InputAction::Typing || range.start == range.end {
+            return self.plan(range, text);
+        }
+        let old = self.display_slice(range.start.0..range.end.0);
+        if action == InputAction::Isolated {
+            return self.plan_runs(range, &old, text);
+        }
+        let (prefix, suffix) = changed_stretch(&old, text);
+        // The caret ends where the display range ends, inside spans that
+        // close there.
+        let end = self.source_bounds(range.end.0).0;
+        let start = DisplayOffset(range.start.0 + prefix);
+        let stretch = DisplayRange {
+            start,
+            end: DisplayOffset(range.end.0 - suffix),
+        };
+        let inserted = &text[prefix..text.len() - suffix];
+        let plan = if stretch.start == stretch.end && self.empty_line(start.0).is_none() {
+            // Text added between kept characters lands after the one before
+            // it, inside the spans that close there, as typing does.
+            let at = self.source_bounds(start.0).0;
+            Plan {
+                range: at..at,
+                inserted: inserted.to_owned(),
+                caret: at + inserted.len(),
+                parsed: 0,
+            }
+        } else {
+            self.plan(stretch, inserted)
+        };
+        if suffix == 0 {
+            return plan;
+        }
+        if plan.range.end > end {
+            // The edit reaches past the kept end (a code fence it reopens):
+            // replace through the range's end instead.
+            let rest = DisplayRange { start, ..range };
+            return self.plan(rest, &text[prefix..]);
+        }
+        let growth = plan.inserted.len() as isize - plan.range.len() as isize;
+        Plan {
+            caret: (end as isize + growth) as usize,
+            ..plan
         }
     }
 
@@ -246,4 +293,124 @@ impl Engine {
         kept.sort_by_key(|piece| piece.range.start);
         (kept, gone)
     }
+}
+
+impl Engine {
+    /// A text service's replacement of display `range` (showing `old`)
+    /// with `text`: each separate stretch that differs is replaced on its
+    /// own, so the source between corrected words (hidden marks included)
+    /// stays as it was. One plan spans them all; the caret ends after the
+    /// whole of `text`.
+    fn plan_runs(&self, range: DisplayRange, old: &str, text: &str) -> Plan {
+        let byte = |text: &str| -> Vec<usize> {
+            text.char_indices()
+                .map(|(at, _)| at)
+                .chain([text.len()])
+                .collect()
+        };
+        let (old_at, new_at) = (byte(old), byte(text));
+        let old_chars: Vec<char> = old.chars().collect();
+        let new_chars: Vec<char> = text.chars().collect();
+        let mut stretches: Vec<(Range<usize>, Range<usize>)> = Vec::new();
+        for op in similar::capture_diff_slices(similar::Algorithm::Myers, &old_chars, &new_chars) {
+            let (tag, from, to) = op.as_tag_tuple();
+            if tag == similar::DiffTag::Equal {
+                continue;
+            }
+            let from = old_at[from.start]..old_at[from.end];
+            let to = new_at[to.start]..new_at[to.end];
+            match stretches.last_mut() {
+                Some((was, now)) if was.end == from.start && now.end == to.start => {
+                    was.end = from.end;
+                    now.end = to.end;
+                }
+                _ => stretches.push((from, to)),
+            }
+        }
+        let end = self.source_bounds(range.end.0).0;
+        let Some(last) = stretches.last().cloned() else {
+            return Plan {
+                range: end..end,
+                inserted: String::new(),
+                caret: end,
+                parsed: 0,
+            };
+        };
+        let plans: Vec<Plan> = stretches
+            .iter()
+            .map(|(from, to)| {
+                let stretch = DisplayRange {
+                    start: DisplayOffset(range.start.0 + from.start),
+                    end: DisplayOffset(range.start.0 + from.end),
+                };
+                let inserted = &text[to.clone()];
+                if stretch.start == stretch.end && self.empty_line(stretch.start.0).is_none() {
+                    let at = self.source_bounds(stretch.start.0).0;
+                    Plan {
+                        range: at..at,
+                        inserted: inserted.to_owned(),
+                        caret: at + inserted.len(),
+                        parsed: 0,
+                    }
+                } else {
+                    self.plan(stretch, inserted)
+                }
+            })
+            .collect();
+        let start = plans[0].range.start;
+        let stop = plans[plans.len() - 1].range.end;
+        let mut inserted = String::new();
+        let mut at = start;
+        for plan in &plans {
+            if plan.range.start < at {
+                // Two stretches met in hidden source: replace it whole.
+                return self.plan(range, text);
+            }
+            inserted.push_str(&self.source_slice(at..plan.range.start));
+            inserted.push_str(&plan.inserted);
+            at = plan.range.end;
+        }
+        let reaches_end = last.0.end == old.len() && last.1.end == text.len();
+        if !reaches_end && stop > end {
+            return self.plan(range, text);
+        }
+        let growth = inserted.len() as isize - (stop - start) as isize;
+        let last_plan = &plans[plans.len() - 1];
+        let caret = if reaches_end {
+            (last_plan.caret as isize + growth
+                - (last_plan.inserted.len() as isize - last_plan.range.len() as isize))
+                as usize
+        } else {
+            (end as isize + growth) as usize
+        };
+        Plan {
+            range: start..stop,
+            inserted,
+            caret,
+            parsed: plans.iter().map(|plan| plan.parsed).sum(),
+        }
+    }
+}
+
+/// How many bytes `old` and `new` share at the start, and then at the end:
+/// the stretch between is what a commit replaces.
+pub(crate) fn changed_stretch(old: &str, new: &str) -> (usize, usize) {
+    let mut prefix = old
+        .bytes()
+        .zip(new.bytes())
+        .take_while(|(a, b)| a == b)
+        .count();
+    while !old.is_char_boundary(prefix) || !new.is_char_boundary(prefix) {
+        prefix -= 1;
+    }
+    let mut suffix = old[prefix..]
+        .bytes()
+        .rev()
+        .zip(new[prefix..].bytes().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    while !old.is_char_boundary(old.len() - suffix) || !new.is_char_boundary(new.len() - suffix) {
+        suffix -= 1;
+    }
+    (prefix, suffix)
 }
