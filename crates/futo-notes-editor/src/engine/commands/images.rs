@@ -15,10 +15,15 @@ use crate::{
 use std::ops::Range;
 
 /// `![alt](reference)` for a vault image reference, or `None` for a reference
-/// that is not one and for text holding a control character.
+/// that is not one and for text holding a control character. Characters
+/// that can end or reinterpret the image if later text changes are refused
+/// too, though the text may read back today: `<`, `>` and `\` in the
+/// reference, and `[`, `]`, `\` and a backtick in the alt.
 fn image_text(reference: &str, alt: &str) -> Option<String> {
     if !futo_notes_image::is_vault_image_reference(reference)
         || reference.chars().chain(alt.chars()).any(char::is_control)
+        || reference.contains(['<', '>', '\\'])
+        || alt.contains(['[', ']', '\\', '`'])
     {
         return None;
     }
