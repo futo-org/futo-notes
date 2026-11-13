@@ -152,8 +152,8 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
     `src/engine/`. `node scripts/test-editor-wasm.mjs` stops at its first consumer,
     `wasm-consumer.mjs`, on `&acE;` (the old engine no longer decodes entities; stage 4's
     sort).
-- Stage 4: cut over, waiting on the maintainer for five tests (questions 14-18 below); then
-  `just check` and the stage 4 commit. On `linedown` since 71e97976c (branch `linedown-cutover`
+- Stage 4: done once `just check` and the iOS suites below pass (answers 14B, 15A, 16A, 17B,
+  18A applied). On `linedown` since 71e97976c (branch `linedown-cutover`
   fast-forwarded).
   The log of what it did and how it was verified is `docs/plan/linedown-engine-rebuild-stage4.md`.
 - Stage 5: not started.
@@ -214,22 +214,15 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
       `[`, `]`, `\` in the alt) on top of "reads back as exactly that image". Loosen?
   14. Answered 14B (2026-11-13): in a cell a link destination's `|` is written `\|`; `\|` in a
       cell's code is a pipe (reader fixed, `lines/table.rs` `code_pipes`).
-  15. Budget: a key in one 50,000-character line costs about 100,000 counted work against about
-      3,500 on the old engine, which cut long lines at words (`long_regions`
-      `keys_in_one_long_line_do_not_scale_with_it`). The core re-reads the edited line whole.
-      15A accept (a line is the reading unit; update the test to bound it by the line); 15B build
-      in-line incremental reading.
-  16. Budget: Enter past a middle table row's closing pipe ends the table there (the old engine
-      did the same), and the core restyles every row below: 97,200 at 2,000 rows against a bound
-      of 1.5 x the 100-row cost (`table_rows` `keys_in_a_middle_table_row_do_not_scale_with_the_table`).
-      16A accept, as a fence opening or closing may cost the rest of the note; 16B make Enter
-      there the table's key (move to the row below).
-  17. The store adds a final line ending to a note that lacks one; Linedown shows a final `\n` as
-      an empty last line, so a note typed as `abc` reopens with an empty line, and deleting
-      that line can never be saved. 17A keep; 17B save the text exactly as typed.
-  18. Surface change outside the two approved kinds: `ProjectionSlice` gained `tags` and
-      `StyleSpec`/`EditorStyleSpan` a `Tag` case, so renderers can colour tags as tags.md
-      promises (nothing coloured them on iOS). Android's renderer needs the new case. Keep or revert?
+  15. Answered 15A: a key in a long line re-reads that line (about twice its length in counted
+      work); on the Moto every key in a 50,000-character line takes 3.1-3.4 ms median, at most
+      4.1 ms (long-regions.md), after fixing a deletion that walked the whole line (c1a02dd47).
+  16. Answered 16A: Enter past a middle row's last pipe ends the table; that key is bounded by
+      the table's bytes.
+  17. Answered 17B: the store saves a note's exact bytes (27c1534dd); sync carries them as they
+      are. Open: the desktop Milkdown editor still ends every note it edits with one `\n`
+      (house style, ADR-0002), so a desktop edit brings back the empty last line a phone shows.
+  18. Answered 18A: keep `tags` and the `Tag` style case; Android's renderer needs the case.
   19. Smaller, none failing: a line `\u{feff}---` (byte-order mark) is not front matter; Select
       All then Delete on a note that starts with a code block leaves an empty code block (the
       frame rule; the old engine left an unclosed fence); a selection during composition covering
