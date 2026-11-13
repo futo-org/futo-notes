@@ -2,7 +2,8 @@
 //!
 //! Each case marks the selection in its source with `|` (a caret) or `[`
 //! and `]` (`marks` names other characters when the note needs these), runs
-//! one command or key, and states the source and selection after it. When
+//! one command or key (`type:` text typed, `os:` a text service's
+//! replacement of the selection), and states the source and selection after it. When
 //! `typed` is set, that text is typed at the selection first (setup, not
 //! checked). Every case that changes the note also undoes to the exact
 //! bytes and selection, and redoes to the result.
@@ -84,6 +85,10 @@ fn run(engine: &mut Engine, command: &str) {
     if let Some(text) = command.strip_prefix("type:") {
         engine
             .replace(revision, selection, text, InputAction::Typing, &mut ok)
+            .unwrap();
+    } else if let Some(text) = command.strip_prefix("os:") {
+        engine
+            .replace(revision, selection, text, InputAction::Isolated, &mut ok)
             .unwrap();
     } else if let Some(command) = block(command) {
         engine.block(revision, selection, command, &mut ok).unwrap();

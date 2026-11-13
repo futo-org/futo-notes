@@ -338,7 +338,7 @@ impl Engine {
             }
         }
         let end = self.source_bounds(range.end.0).0;
-        let Some(last) = stretches.last().cloned() else {
+        if stretches.is_empty() {
             return Plan {
                 range: end..end,
                 inserted: String::new(),
@@ -346,45 +346,66 @@ impl Engine {
                 parsed: 0,
                 carry: None,
             };
-        };
-        let plans: Vec<Plan> = stretches
-            .iter()
-            .map(|(from, to)| {
-                let stretch = DisplayRange {
-                    start: DisplayOffset(range.start.0 + from.start),
-                    end: DisplayOffset(range.start.0 + from.end),
-                };
-                let inserted = &text[to.clone()];
-                if stretch.start == stretch.end && self.empty_line(stretch.start.0).is_none() {
-                    let at = self.source_bounds(stretch.start.0).0;
-                    Plan {
-                        range: at..at,
-                        inserted: inserted.to_owned(),
-                        caret: at + inserted.len(),
-                        parsed: 0,
-                        carry: None,
-                    }
-                } else {
-                    self.plan(stretch, inserted)
+        }
+        let plan_stretch = |from: &Range<usize>, to: &Range<usize>| {
+            let stretch = DisplayRange {
+                start: DisplayOffset(range.start.0 + from.start),
+                end: DisplayOffset(range.start.0 + from.end),
+            };
+            let inserted = &text[to.clone()];
+            if stretch.start == stretch.end && self.empty_line(stretch.start.0).is_none() {
+                let at = self.source_bounds(stretch.start.0).0;
+                Plan {
+                    range: at..at,
+                    inserted: inserted.to_owned(),
+                    caret: at + inserted.len(),
+                    parsed: 0,
+                    carry: None,
                 }
-            })
-            .collect();
+            } else {
+                self.plan(stretch, inserted)
+            }
+        };
+        // Stretches whose edits meet in the source (one reaches past the
+        // next, as a fence line a joined line moves does) are one stretch,
+        // so the source outside them stays as it was.
+        type Planned = Vec<(Range<usize>, Range<usize>, Plan)>;
+        let push = |planned: &mut Planned, mut from: Range<usize>, mut to: Range<usize>| {
+            let mut plan = plan_stretch(&from, &to);
+            while let Some((was, now, before)) = planned.last() {
+                if plan.range.start >= before.range.end {
+                    break;
+                }
+                from = was.start..from.end;
+                to = now.start..to.end;
+                planned.pop();
+                plan = plan_stretch(&from, &to);
+            }
+            planned.push((from, to, plan));
+        };
+        let mut planned: Planned = Vec::new();
+        for (from, to) in stretches {
+            push(&mut planned, from, to);
+        }
+        let (from, to, last) = planned.last().expect("a stretch");
+        if last.range.end > end && (from.end, to.end) != (old.len(), text.len()) {
+            // The last edit reaches past the kept end (a code fence it
+            // moves): it replaces through the range's end instead.
+            let (from, to) = (from.start..old.len(), to.start..text.len());
+            planned.pop();
+            push(&mut planned, from, to);
+        }
+        let (from, to, _) = planned.last().expect("a stretch");
+        let reaches_end = (from.end, to.end) == (old.len(), text.len());
+        let plans: Vec<Plan> = planned.into_iter().map(|(_, _, plan)| plan).collect();
         let start = plans[0].range.start;
         let stop = plans[plans.len() - 1].range.end;
         let mut inserted = String::new();
         let mut at = start;
         for plan in &plans {
-            if plan.range.start < at {
-                // Two stretches met in hidden source: replace it whole.
-                return self.plan(range, text);
-            }
             inserted.push_str(&self.source_slice(at..plan.range.start));
             inserted.push_str(&plan.inserted);
             at = plan.range.end;
-        }
-        let reaches_end = last.0.end == old.len() && last.1.end == text.len();
-        if !reaches_end && stop > end {
-            return self.plan(range, text);
         }
         let growth = inserted.len() as isize - (stop - start) as isize;
         let last_plan = &plans[plans.len() - 1];
