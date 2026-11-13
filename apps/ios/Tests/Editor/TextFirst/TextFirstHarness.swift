@@ -43,7 +43,7 @@
             _ = tv.becomeFirstResponder()
         }
 
-        /// The store writes every note with a final line ending; the rows are written without one.
+        /// Rows are compared without a single final line ending (a final blank line is kept).
         static func trimmed(_ text: String) -> String {
             text.hasSuffix("\n") && !text.hasSuffix("\n\n") ? String(text.dropLast()) : text
         }

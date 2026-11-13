@@ -16,14 +16,14 @@ fn recovery_of_an_unfinished_www_word_does_not_restore_its_typing_origin() {
     editor.checkpoint().unwrap();
     drop(editor);
     let mut recovered = store.open_editor("typed-recover").unwrap();
-    assert_eq!(recovered.source_text(), "<www.x.test/path\n");
+    assert_eq!(recovered.source_text(), "<www.x.test/path");
     recovered
         .replace(recovered.revision(), range(16, 16), ">")
         .unwrap();
     recovered
         .replace(recovered.revision(), range(17, 17), " ")
         .unwrap();
-    assert_eq!(recovered.display_text(), "<www.x.test/path> \n");
+    assert_eq!(recovered.display_text(), "<www.x.test/path> ");
     assert!(recovered
         .project(recovered.revision(), range(0, 18))
         .unwrap()

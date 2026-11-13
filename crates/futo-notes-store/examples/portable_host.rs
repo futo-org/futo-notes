@@ -8,9 +8,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = std::env::args_os().nth(1).ok_or("scratch vault required")?;
     let store = LocalNoteStore::new(root.into());
     // The lifecycle fixture, captured literal sources and reopen mode all
-    // use the same public store open workflow. A literal source is planted
-    // byte for byte: `create` is an authored write, which would append the
-    // final line ending a captured source may deliberately lack.
+    // use the same public store open workflow. A literal source replaces
+    // whatever an earlier run of the same scratch vault left at `plain`.
     let fixture = std::env::args().nth(2);
     let reopen_id = fixture
         .as_deref()

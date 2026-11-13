@@ -58,7 +58,7 @@ fn an_edit_is_due_after_500ms_and_continued_edits_are_saved_by_the_2s_max_wait()
     // First edit at t=0: the max wait lands at 2000 ms, so the save happens on
     // the first edit at or after it (t = 499 + 400 * 4 = 2099).
     assert_eq!(saved_at, Some(2099));
-    assert_eq!(store.read("plain").unwrap(), "abbbb\n");
+    assert_eq!(store.read("plain").unwrap(), "abbbb");
     assert_eq!(editor.save_delay(), None);
 }
 
@@ -81,7 +81,7 @@ fn save_if_due_writes_the_markdown_and_clears_the_delay() {
     let result = editor.save_if_due().unwrap().unwrap();
     assert_eq!(result.disposition, FlushDisposition::Wrote);
     assert_eq!(result.mutation.unwrap().final_id.as_deref(), Some("plain"));
-    assert_eq!(store.read("plain").unwrap(), "xy\n");
+    assert_eq!(store.read("plain").unwrap(), "xy");
     assert_eq!(editor.save_delay(), None);
     let status = editor.save_status();
     assert_eq!((status.revision, status.saved), (Revision(1), Revision(1)));
@@ -134,12 +134,12 @@ fn close_saves_unsaved_edits() {
     store.create("", "plain", "base").unwrap();
     let mut editor = store.open_editor("plain").unwrap();
     editor.replace(Revision(0), range(4, 4), "!").unwrap();
-    assert_eq!(store.read("plain").unwrap(), "base\n");
+    assert_eq!(store.read("plain").unwrap(), "base");
     let result = editor.close().unwrap();
     assert_eq!(result.disposition, FlushDisposition::Wrote);
-    assert_eq!(store.read("plain").unwrap(), "base!\n");
+    assert_eq!(store.read("plain").unwrap(), "base!");
     // The note can be attached again once the session closed.
-    assert_eq!(store.open_editor("plain").unwrap().source_text(), "base!\n");
+    assert_eq!(store.open_editor("plain").unwrap().source_text(), "base!");
 }
 
 #[test]
@@ -150,8 +150,8 @@ fn a_dropped_session_loses_its_unsaved_edits_like_a_crash() {
     let mut editor = store.open_editor("plain").unwrap();
     editor.replace(Revision(0), range(4, 4), "!").unwrap();
     drop(editor);
-    assert_eq!(store.read("plain").unwrap(), "base\n");
-    assert_eq!(store.open_editor("plain").unwrap().source_text(), "base\n");
+    assert_eq!(store.read("plain").unwrap(), "base");
+    assert_eq!(store.open_editor("plain").unwrap().source_text(), "base");
 }
 
 #[test]
@@ -184,13 +184,13 @@ fn a_failed_save_keeps_the_session_attached_and_accepting_input() {
         Err(EditorStoreError::SessionAlreadyOpen)
     ));
     editor.replace(Revision(1), range(5, 5), "?").unwrap();
-    assert_eq!(editor.source_text(), "base!?\n");
+    assert_eq!(editor.source_text(), "base!?");
     std::fs::remove_dir(root.0.join("plain.md")).unwrap();
     assert_eq!(
         editor.close().unwrap().disposition,
         FlushDisposition::Recreated
     );
-    assert_eq!(store.read("plain").unwrap(), "base!?\n");
+    assert_eq!(store.read("plain").unwrap(), "base!?");
 }
 
 #[test]
@@ -205,14 +205,14 @@ fn an_outside_write_while_dirty_parks_a_conflict_copy_and_leaves_the_disk_versio
     let FlushDisposition::ParkedConflict { parked_id } = result.disposition else {
         panic!("a draft over a peer's change must park");
     };
-    assert_eq!(store.read("plain").unwrap(), "peer\n");
-    assert_eq!(store.read(&parked_id).unwrap(), "base!\n");
+    assert_eq!(store.read("plain").unwrap(), "peer");
+    assert_eq!(store.read(&parked_id).unwrap(), "base!");
     // The session follows the parked note.
     assert_eq!(editor.id(), parked_id);
     editor.replace(Revision(1), range(5, 5), "?").unwrap();
     editor.checkpoint().unwrap();
-    assert_eq!(store.read(&parked_id).unwrap(), "base!?\n");
-    assert_eq!(store.read("plain").unwrap(), "peer\n");
+    assert_eq!(store.read(&parked_id).unwrap(), "base!?");
+    assert_eq!(store.read("plain").unwrap(), "peer");
 }
 
 #[test]
@@ -224,10 +224,10 @@ fn rename_while_dirty_keeps_the_draft_and_saves_under_the_new_id() {
     editor.replace(Revision(0), range(4, 4), "!").unwrap();
     store.rename("old", "new").unwrap();
     assert_eq!(editor.id(), "new");
-    assert_eq!(editor.source_text(), "base!\n");
-    assert_eq!(store.read("new").unwrap(), "base\n");
+    assert_eq!(editor.source_text(), "base!");
+    assert_eq!(store.read("new").unwrap(), "base");
     editor.checkpoint().unwrap();
-    assert_eq!(store.read("new").unwrap(), "base!\n");
+    assert_eq!(store.read("new").unwrap(), "base!");
     assert_eq!(store.read_existing("old").unwrap(), None);
 }
 
@@ -239,40 +239,45 @@ fn rename_while_clean_adopts_the_rewritten_links_as_one_undo_step() {
     let mut editor = store.open_editor("old").unwrap();
     store.rename("old", "long name").unwrap();
     assert_eq!(editor.id(), "long name");
-    assert_eq!(editor.source_text(), "[[long name]] tail\n");
+    assert_eq!(editor.source_text(), "[[long name]] tail");
     assert_eq!(editor.take_coordinated_changes().unwrap().len(), 1);
     // Adopting the rewrite left the draft equal to the file: nothing to save.
     assert!(editor.save_delay().is_none());
     assert_eq!(editor.checkpoint().unwrap().mutation, None);
     editor.undo(editor.revision()).unwrap().unwrap();
-    assert_eq!(editor.source_text(), "[[old]] tail\n");
+    assert_eq!(editor.source_text(), "[[old]] tail");
     assert!(editor.undo(editor.revision()).unwrap().is_none());
 }
 
 #[test]
-fn a_relink_after_a_save_keeps_the_drafts_missing_final_line_ending() {
+fn a_note_is_saved_exactly_as_typed() {
+    // Decision 17B: the file holds what was typed, no final line ending added.
     let root = TestRoot::new();
     let store = store(&root);
-    plant_note(&root, "old", "[[old]]");
-    let mut editor = store.open_editor("old").unwrap();
-    editor.replace(Revision(0), range(7, 7), "!").unwrap();
-    editor.checkpoint().unwrap();
-    assert_eq!(store.read("old").unwrap(), "[[old]]!\n");
-    store.rename("old", "long name").unwrap();
-    // The saved ending is not an edit the user made: the draft keeps its own
-    // spelling, while the file holds the rewritten saved bytes.
-    assert_eq!(editor.source_text(), "[[long name]]!");
-    assert_eq!(store.read("long name").unwrap(), "[[long name]]!\n");
-    assert_eq!(editor.checkpoint().unwrap().mutation, None);
-    editor.undo(editor.revision()).unwrap().unwrap();
-    assert_eq!(editor.source_text(), "[[old]]!");
-}
+    store.create("", "typed", "").unwrap();
+    let mut editor = store.open_editor("typed").unwrap();
+    editor.replace(Revision(0), range(0, 0), "abc").unwrap();
+    assert!(editor.checkpoint().unwrap().mutation.is_some());
+    assert_eq!(fs::read_to_string(root.0.join("typed.md")).unwrap(), "abc");
+    drop(editor);
+    assert_eq!(store.open_editor("typed").unwrap().source_text(), "abc");
 
-#[test]
-fn a_draft_that_differs_from_the_disk_only_by_its_final_line_ending_is_written() {
+    // Deleting a final empty line is saved, and the note reopens without it.
+    plant_note(&root, "plain", "x\n");
+    let mut editor = store.open_editor("plain").unwrap();
+    editor.replace(Revision(0), range(1, 2), "").unwrap();
+    assert_eq!(editor.source_text(), "x");
+    assert!(editor.checkpoint().unwrap().mutation.is_some());
+    assert_eq!(fs::read_to_string(root.0.join("plain.md")).unwrap(), "x");
+    drop(editor);
+    assert_eq!(store.open_editor("plain").unwrap().source_text(), "x");
+    // The same through a host with its own baseline, and both ways.
+    store.flush_draft_unattached("plain", "x", "x\n").unwrap();
+    assert_eq!(fs::read_to_string(root.0.join("plain.md")).unwrap(), "x\n");
+    store.flush_draft_unattached("plain", "x\n", "x").unwrap();
+    assert_eq!(fs::read_to_string(root.0.join("plain.md")).unwrap(), "x");
+
     // A line break typed at the end of a note with no final line ending.
-    let root = TestRoot::new();
-    let store = store(&root);
     plant_note(&root, "list", "- a\nb");
     let mut editor = store.open_editor("list").unwrap();
     editor.replace(Revision(0), range(3, 3), "\n").unwrap();
@@ -282,21 +287,6 @@ fn a_draft_that_differs_from_the_disk_only_by_its_final_line_ending_is_written()
         fs::read_to_string(root.0.join("list.md")).unwrap(),
         "- a\nb\n"
     );
-    drop(editor);
-    let editor = store.open_editor("list").unwrap();
-    assert_eq!(editor.source_text(), "- a\nb\n");
-    drop(editor);
-    // The same draft flushed by a host with its own baseline.
-    plant_note(&root, "plain", "x");
-    store.flush_draft_unattached("plain", "x", "x\n").unwrap();
-    assert_eq!(fs::read_to_string(root.0.join("plain.md")).unwrap(), "x\n");
-    // Removing a final line ending writes nothing: saving puts it back, and
-    // the disk already holds those bytes.
-    let mut editor = store.open_editor("plain").unwrap();
-    editor.replace(Revision(0), range(1, 2), "").unwrap();
-    assert_eq!(editor.source_text(), "x");
-    assert_eq!(editor.checkpoint().unwrap().mutation, None);
-    assert_eq!(fs::read_to_string(root.0.join("plain.md")).unwrap(), "x\n");
 }
 
 #[test]
@@ -319,7 +309,7 @@ fn deleting_an_attached_note_ends_the_session() {
     assert_eq!(store.read_existing("plain").unwrap(), None);
     // The draft is discarded and the id is free again.
     store.create("", "plain", "fresh").unwrap();
-    assert_eq!(store.open_editor("plain").unwrap().source_text(), "fresh\n");
+    assert_eq!(store.open_editor("plain").unwrap().source_text(), "fresh");
 }
 
 #[test]
@@ -349,7 +339,7 @@ fn a_failed_delete_leaves_the_session_alive() {
         .is_err());
     editor.replace(Revision(0), range(4, 4), "!").unwrap();
     editor.checkpoint().unwrap();
-    assert_eq!(store.read("plain").unwrap(), "base!\n");
+    assert_eq!(store.read("plain").unwrap(), "base!");
 }
 
 #[test]
@@ -375,7 +365,7 @@ fn the_portable_host_saves_through_the_same_schedule() {
     assert_eq!(host.save_delay(), ms(500));
     clock.advance(500);
     assert!(host.save_if_due().unwrap().is_some());
-    assert_eq!(store.read("plain").unwrap(), "plain!?\n");
+    assert_eq!(store.read("plain").unwrap(), "plain!?");
     assert_eq!(host.save_delay(), None);
     // Closing releases the note.
     host.close().unwrap();

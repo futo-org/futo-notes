@@ -237,8 +237,8 @@ export async function waitForAndroidConflictCopy(android, id, expectedText, time
 
 // A note another client or the server wrote WITHOUT a final line ending must
 // stay byte-for-byte as it is when Android scans, syncs, opens, focuses and blurs
-// it: the canonical final newline applies to authored writes only. A rewrite here
-// would make every client on a different version churn the same note forever.
+// it. A rewrite here would make every client on a different version churn the
+// same note forever.
 export async function androidDoesNotRewriteARawNote(desktop, android, server) {
   await desktop.connectSync(server.url, server.password);
   await android.connectSync(server.url, server.password);

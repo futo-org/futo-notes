@@ -31,7 +31,7 @@ fn reported_remote_rename_retains_draft_selection_history_and_merges_at_final_id
         Some("wanted (2)")
     );
     assert_eq!(store.read_existing("old").unwrap(), None);
-    assert_eq!(store.read("wanted").unwrap(), "unrelated collision\n");
+    assert_eq!(store.read("wanted").unwrap(), "unrelated collision");
     assert_eq!(store.read("wanted (2)").unwrap(), "REMOTE\n\nLOCAL\n");
     editor.undo(editor.revision()).unwrap().unwrap();
     assert_eq!(editor.source_text(), "REMOTE\n\nsecond\n");
@@ -64,10 +64,10 @@ fn reported_rename_overlap_parks_both_versions_and_replayed_completion_cannot_re
     );
     store.refresh_external_changes(&[], &[], &[rename]).unwrap();
     assert_eq!(editor.id(), parked_id);
-    assert_eq!(store.read("remote").unwrap(), "peer\n");
-    assert_eq!(store.read(&parked_id).unwrap(), "local\n");
+    assert_eq!(store.read("remote").unwrap(), "peer");
+    assert_eq!(store.read(&parked_id).unwrap(), "local");
     editor.undo(editor.revision()).unwrap().unwrap();
-    assert_eq!(editor.source_text(), "base\n");
+    assert_eq!(editor.source_text(), "base");
     assert_eq!(store.read_existing("old").unwrap(), None);
 }
 
@@ -89,13 +89,13 @@ fn failed_external_rename_keeps_attachment_source_and_history_for_retry() {
         .refresh_external_changes(&[], &[], &[rename.clone()])
         .is_err());
     assert_eq!(editor.id(), "old");
-    assert_eq!(editor.source_text(), "base draft\n");
+    assert_eq!(editor.source_text(), "base draft");
     assert_eq!(editor.revision(), Revision(1));
     drop(destination);
     store.refresh_external_changes(&[], &[], &[rename]).unwrap();
     assert_eq!(editor.id(), "new");
     editor.undo(Revision(1)).unwrap().unwrap();
-    assert_eq!(editor.source_text(), "base\n");
+    assert_eq!(editor.source_text(), "base");
 }
 
 #[test]
@@ -110,7 +110,7 @@ fn updated_ids_never_imply_rename_identity() {
         .refresh_external_changes(&["old (2)".into()], &["old".into()], &[])
         .unwrap();
     assert_eq!(editor.id(), "old");
-    assert_eq!(editor.source_text(), "base draft\n");
+    assert_eq!(editor.source_text(), "base draft");
 }
 
 #[test]
@@ -137,11 +137,11 @@ fn portable_pending_completion_after_remote_rename_saves_and_undoes_at_final_id(
     assert_eq!(host.handle(pending.request), ack);
     host.checkpoint().unwrap();
     assert_eq!(host.id(), "final");
-    assert_eq!(store.read("final").unwrap(), "base draft\n");
+    assert_eq!(store.read("final").unwrap(), "base draft");
     let undo = page.undo(Revision(1)).unwrap().unwrap();
     page.acknowledge(host.handle(undo.request)).unwrap();
     host.checkpoint().unwrap();
-    assert_eq!(store.read("final").unwrap(), "base\n");
+    assert_eq!(store.read("final").unwrap(), "base");
     assert_eq!(store.read_existing("old").unwrap(), None);
 }
 
@@ -207,7 +207,7 @@ fn rename_then_delete_in_one_sync_cycle_refreshes_and_keeps_the_draft_attached()
     assert_eq!(editor.id(), "old");
     // The draft is never abandoned: saving recreates it (edit wins).
     editor.checkpoint().unwrap();
-    assert_eq!(store.read("old").unwrap(), "local\n");
+    assert_eq!(store.read("old").unwrap(), "local");
 }
 
 #[test]

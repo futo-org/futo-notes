@@ -139,10 +139,6 @@ impl LocalNoteStore {
         merge: bool,
         validate: &mut dyn FnMut(&str) -> Result<bool, String>,
     ) -> Result<crate::MergedDraftResult, String> {
-        let draft = content;
-        let saved_content = crate::notes::saved_note_source(draft);
-        let content = saved_content.as_ref();
-        let saved_base = crate::notes::saved_note_source(base);
         paths::note_path(&self.root, id)?;
         let current = self.read_note_file(id);
         #[cfg(test)]
@@ -151,20 +147,17 @@ impl LocalNoteStore {
                 hook(id);
             }
         }
-        // The returned source keeps the draft's own spelling. The disk holds
-        // the draft only as its exact bytes or exactly the bytes saving writes
-        // (`disk_holds`); the base is compared in saved form, since saving may
-        // append a final line ending.
-        let mut source = draft.to_owned();
+        // Every comparison is exact: the file holds what was typed.
+        let mut source = content.to_owned();
         let flush = match current {
             // Converged is checked BEFORE the base comparison so a draft the
             // disk already holds never rewrites identical bytes (an mtime bump
             // would re-rank the note on every device).
-            Ok(current) if crate::notes::disk_holds(&current, draft) => Ok(FlushDraftResult {
+            Ok(current) if current == content => Ok(FlushDraftResult {
                 disposition: FlushDisposition::Converged,
                 mutation: None,
             }),
-            Ok(current) if crate::notes::saved_note_source(&current) == saved_base => {
+            Ok(current) if current == base => {
                 let metadata = self.write_raw(id, content, None)?;
                 Ok(FlushDraftResult {
                     disposition: FlushDisposition::Wrote,
@@ -177,17 +170,8 @@ impl LocalNoteStore {
             // disk is left intact and the edit survives as a new note.
             Ok(current) => {
                 let merged = if merge {
-                    match futo_notes_core::merge::three_way_merge(
-                        &saved_base,
-                        &crate::notes::saved_note_source(&current),
-                        content,
-                    ) {
-                        futo_notes_core::merge::MergeResult::Clean(merged) => {
-                            Some(crate::notes::draft_spelling(
-                                crate::notes::saved_note_source(&merged).into_owned(),
-                                draft,
-                            ))
-                        }
+                    match futo_notes_core::merge::three_way_merge(base, &current, content) {
+                        futo_notes_core::merge::MergeResult::Clean(merged) => Some(merged),
                         futo_notes_core::merge::MergeResult::Conflict => None,
                     }
                 } else {
@@ -196,7 +180,7 @@ impl LocalNoteStore {
                 if let Some(merged) = merged {
                     if validate(&merged)? {
                         source = merged;
-                        if crate::notes::disk_holds(&current, &source) {
+                        if source == current {
                             Ok(FlushDraftResult {
                                 disposition: FlushDisposition::Converged,
                                 mutation: None,
@@ -216,7 +200,7 @@ impl LocalNoteStore {
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                self.recreate_missing_draft(id, draft)
+                self.recreate_missing_draft(id, content)
             }
             Err(error) => Err(io_error(error)),
         }?;
@@ -229,9 +213,7 @@ impl LocalNoteStore {
     /// install is atomic no-replace: a live-sync pull that recreated the id
     /// outside the store's serialization is never clobbered — if the id
     /// reappeared, park the draft unless it converged.
-    fn recreate_missing_draft(&self, id: &str, draft: &str) -> Result<FlushDraftResult, String> {
-        let saved = crate::notes::saved_note_source(draft);
-        let content = saved.as_ref();
+    fn recreate_missing_draft(&self, id: &str, content: &str) -> Result<FlushDraftResult, String> {
         // Never recreate at an id that cross-platform-collides (case-insensitive
         // / NFC) with a DIFFERENT surviving note. `create_new_atomic` only fails
         // on an EXACT-path collision, so on a case-sensitive filesystem
@@ -258,7 +240,7 @@ impl LocalNoteStore {
             });
         }
         match self.read_note_file(id) {
-            Ok(current) if crate::notes::disk_holds(&current, draft) => Ok(FlushDraftResult {
+            Ok(current) if current == content => Ok(FlushDraftResult {
                 disposition: FlushDisposition::Converged,
                 mutation: None,
             }),
@@ -278,8 +260,6 @@ impl LocalNoteStore {
         id: &str,
         content: &str,
     ) -> Result<FlushDraftResult, String> {
-        let content = crate::notes::saved_note_source(content);
-        let content = content.as_ref();
         let (folder, title) = split_id(id);
         let date = current_conflict_date();
         let sibling_titles: Vec<String> = vault::note_paths(&self.root)

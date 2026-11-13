@@ -3,7 +3,8 @@
 //! save after it, and a rename landing between the scan and the pull's write.
 //! The stub server is stateless, so each test asserts only what its single
 //! object and the local journal must show; whole flows run against the real
-//! server in `tests/server_integration/round_trip.rs`.
+//! server in `tests/server_integration/round_trip.rs`. `exact_saves` drives
+//! store saves through the same harness.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -14,6 +15,7 @@ use futo_notes_core::hash::hash_sha256;
 
 use crate::checkpoint::{self, ConnectedState, ObjectState};
 
+mod exact_saves;
 mod failures;
 mod identity;
 

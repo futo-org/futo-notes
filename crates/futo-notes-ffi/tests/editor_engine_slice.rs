@@ -129,9 +129,8 @@ fn a_typed_list_item_draws_its_marker_as_typed_and_saves_exactly_what_was_typed(
     let typed = "1) one\n   - three spaces\n - one space\n3) third\n  note";
     assert_eq!(session.source_text().unwrap(), typed);
     session.checkpoint().unwrap();
-    // Saving ends a nonempty note with a line ending (the store's rule).
     let file = std::fs::read_to_string(tree.path("vault").join("n.md")).unwrap();
-    assert_eq!(file, format!("{typed}\n"));
+    assert_eq!(file, typed);
     // Undo walks back to the opened bytes.
     while let Some(change) = session.undo(rev).unwrap() {
         rev = change.revision;

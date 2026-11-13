@@ -131,8 +131,7 @@ fn a_twenty_thousand_line_note_keeps_a_representative_local_history_after_merge(
     let root = TestRoot::new();
     let store = store(&root);
     let base = format!("first\n\n{}\nlast", "x\n".repeat(20_000));
-    // A peer's note without a final line ending; local typing extends it.
-    plant_note(&root, "plain", &base);
+    store.create("", "plain", &base).unwrap();
     let mut editor = store.open_editor("plain").unwrap();
     for step in 0..32 {
         let at = base.len() + step;
@@ -160,11 +159,11 @@ fn a_twenty_thousand_line_note_keeps_a_representative_local_history_after_merge(
 fn oversized_merge_preflight_parks_without_changing_or_dropping_local_history() {
     let root = TestRoot::new();
     let store = store(&root);
-    let base = format!("first\n\n{}\n", "x".repeat(1024 * 1024));
+    let base = format!("first\n\n{}", "x".repeat(1024 * 1024));
     store.create("", "plain", &base).unwrap();
     let mut editor = store.open_editor("plain").unwrap();
     editor
-        .replace(Revision(0), range(base.len() - 1, base.len() - 1), "!")
+        .replace(Revision(0), range(base.len(), base.len()), "!")
         .unwrap();
     let remote = base.replacen("first", "REMOTE", 1);
     store.write("plain", &remote, None).unwrap();
@@ -173,10 +172,7 @@ fn oversized_merge_preflight_parks_without_changing_or_dropping_local_history() 
         panic!("unbounded preflight must preserve both versions")
     };
     assert_eq!(store.read("plain").unwrap(), remote);
-    assert_eq!(
-        store.read(&parked_id).unwrap(),
-        format!("{}!\n", &base[..base.len() - 1])
-    );
+    assert_eq!(store.read(&parked_id).unwrap(), format!("{base}!"));
     editor.undo(editor.revision()).unwrap().unwrap();
     assert_eq!(editor.source_text(), base);
 }

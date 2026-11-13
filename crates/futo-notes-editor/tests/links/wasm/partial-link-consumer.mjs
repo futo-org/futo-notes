@@ -4,7 +4,6 @@ import { Buffer } from 'node:buffer';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { savedSource } from '../../wasm-saved-source.mjs';
 
 export async function partialLink(start, stop, current, timingVaults) {
   const cases = [
@@ -41,7 +40,7 @@ export async function partialLink(start, stop, current, timingVaults) {
     await stop();
     const reopened = await start('--reopen', vault);
     session = current();
-    assert.equal(session.draft_text(), savedSource(edited));
+    assert.equal(session.draft_text(), edited);
     assert.equal(JSON.parse(session.inspect_link(0n, from, to)).destination, 'https://x.test');
     assert.deepEqual(await reopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
