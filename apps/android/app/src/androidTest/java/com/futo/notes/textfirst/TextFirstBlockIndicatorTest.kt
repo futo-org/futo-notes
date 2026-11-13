@@ -25,8 +25,7 @@ class TextFirstBlockIndicatorTest {
         "# heading\n\n**bold** and *italic*\n\n- item\n\n```\ncode\n```\n\n| a | b |\n| --- | --- |\n| c | d |\n",
     ) { controller ->
         val view = controller.view
-        val original = controller.sourceText()
-        val display = view.editableText.toString()
+        val original = controller.sourceText()!!
         assertTrue(controller.selectDisplayRange(0, view.length() - 1))
         runToolbar(controller, "code-block")
         val wrapped = controller.sourceText()!!
@@ -34,9 +33,10 @@ class TextFirstBlockIndicatorTest {
             wrapped.lineSequence().count { it == "```" })
         assertTrue(wrapped.startsWith("```\n"))
         assertTrue(wrapped.endsWith("\n```\n"))
-        // One terminal body ending belongs to the hidden fence frame (fenced-code.md).
-        val written = display.removeSuffix(TextFirstEditText.END_SENTINEL).removeSuffix("\n")
-        assertEquals("the native projection retains every written line", written + TextFirstEditText.END_SENTINEL,
+        // Code shows every wrapped line as written, markers included; the old block's own fence
+        // lines go (fenced-code.md).
+        assertEquals("the code block shows every written line as typed",
+            original.replace("```\ncode\n```", "code") + TextFirstEditText.END_SENTINEL,
             view.editableText.toString())
         assertEquals("whole-note conversion is accepted", 0, controller.imeResets)
         controller.undo()

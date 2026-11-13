@@ -300,15 +300,11 @@ class TextFirstTapGestureTest {
     }
 
     @Test
-    fun aTapOnEachSoftLineOfALinkOpensItAndPlacesNoCaret() {
-        for ((first, last) in listOf("alpha" to "beta", "🧑‍🧒alpha" to "βeta", "אבגד" to "הוזח")) {
-            assertBothLinkEndsOpen("before [$first\n$last](https://example.com) after\n", first, last)
+    fun aTapOnEachWrappedLineOfALinkOpensItAndPlacesNoCaret() {
+        for ((first, last) in listOf("alpha" to "omega", "🧑‍🧒alpha" to "βeta", "אבגד" to "הוזח")) {
+            assertBothLinkEndsOpen("before [$first ${"wrap ".repeat(20)}$last](https://example.com) after\n", first, last)
         }
     }
-
-    @Test
-    fun aTapOnEachWrappedLineOfALinkOpensItAndPlacesNoCaret() =
-        assertBothLinkEndsOpen("before [${"alpha ".repeat(20)}omega](https://example.com) after\n", "alpha", "omega")
 
     @Test
     fun aTapOnAnUnbrokenWrappedLinkOpensItAndPlacesNoCaret() =

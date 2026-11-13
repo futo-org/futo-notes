@@ -79,8 +79,8 @@ class TextFirstCaretFollowTest {
     }
 
     /**
-     * Chaos lane-1-07: Enter twice at the end of a last task leaves the list, and the caret on the
-     * new plain line sits at the margin, not at the task text's indent the empty task row had.
+     * Chaos lane-1-07: Enter twice at the end of a last task leaves the list (the empty task loses
+     * its marker, no blank line is written), and the caret on the plain line sits at the margin, not at the task text's indent the empty task row had.
      */
     @Test
     fun enterTwiceAtTheEndOfATaskListPutsTheCaretAtTheMargin() = exercise("$longNote\n\n- [ ] eggs\n- [ ] lemons (3)\n") {
@@ -99,7 +99,7 @@ class TextFirstCaretFollowTest {
         compose.runOnUiThread {
             val text: android.text.Spanned = view.text!!
             val caret = view.selectionEnd
-            assertTrue("the caret is on an empty line after a blank one", text.toString().substring(0, caret).endsWith("lemons (3)\n\n"))
+            assertTrue("the caret is on the line after the list", text.toString().substring(0, caret).endsWith("lemons (3)\n"))
             val margins = text.getSpans(caret, caret, TfList::class.java)
                 .filter { text.getSpanEnd(it) > caret || text.getSpanStart(it) == caret }
             assertTrue("no list row styles the plain line: $margins", margins.isEmpty())
