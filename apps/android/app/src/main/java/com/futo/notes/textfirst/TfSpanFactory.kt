@@ -7,7 +7,8 @@ internal class TfSpanFactory(private val style: TextFirstStyle, private val mark
         is SpanSpec.Inline -> TfInline(style, spec.bold, spec.italic, spec.strike, spec.code)
         is SpanSpec.Heading -> TfHeading(style, spec.level)
         is SpanSpec.Quote -> TfQuote(style, spec.depth)
-        is SpanSpec.ListRow -> TfList(style, spec.depth, spec.marker, spec.number, spec.checked, spec.first)
+        is SpanSpec.ListRow -> TfList(style, spec.depth, spec.marker, spec.label, spec.checked, spec.first)
+        is SpanSpec.Indent -> TfIndent(style, spec.depth)
         is SpanSpec.Code -> TfCodeBlock(style)
         is SpanSpec.Metadata -> TfMetadata(style)
         is SpanSpec.Link -> TfLink(style, spec.destination)
@@ -22,7 +23,8 @@ internal class TfSpanFactory(private val style: TextFirstStyle, private val mark
         is SpanSpec.Inline -> span is TfInline && span.bold == spec.bold && span.italic == spec.italic && span.strike == spec.strike && span.code == spec.code
         is SpanSpec.Heading -> span is TfHeading && span.level == spec.level
         is SpanSpec.Quote -> span is TfQuote && span.depth == spec.depth
-        is SpanSpec.ListRow -> span is TfList && span.sameAs(TfList(style, spec.depth, spec.marker, spec.number, spec.checked, spec.first))
+        is SpanSpec.ListRow -> span is TfList && span.sameAs(TfList(style, spec.depth, spec.marker, spec.label, spec.checked, spec.first))
+        is SpanSpec.Indent -> span is TfIndent && span.depth == spec.depth
         is SpanSpec.Code -> span is TfCodeBlock
         is SpanSpec.Metadata -> span is TfMetadata
         is SpanSpec.Link -> span is TfLink && span.destination == spec.destination

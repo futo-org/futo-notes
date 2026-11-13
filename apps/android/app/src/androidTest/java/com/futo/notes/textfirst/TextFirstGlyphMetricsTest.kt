@@ -135,7 +135,7 @@ class TextFirstGlyphMetricsTest {
         val body = "alpha beta gamma"
         for (kind in listOf(ListMarker.Ordered, ListMarker.Bullet, ListMarker.Task)) for (depth in 0..1) for (dir in listOf(1, -1)) {
             val text = ChunkedEditable.from(body + "\n" + TextFirstEditText.END_SENTINEL)
-            val marker = TfList(look, depth = depth, marker = kind, number = 12L, checked = false, first = true)
+            val marker = TfList(look, depth = depth, marker = kind, label = "12.", checked = false, first = true)
             text.setSpan(marker, 0, body.length + 1, TF_SPAN_FLAGS)
             val bitmap = Bitmap.createBitmap((look.listIndent * 3).toInt(), (look.textSizePx * 1.55f).toInt(), Bitmap.Config.ARGB_8888)
             bitmap.eraseColor(Color.WHITE)
@@ -159,7 +159,7 @@ class TextFirstGlyphMetricsTest {
             for (depth in listOf(0, 1, 4, 7, 14, 20)) for (rtl in listOf(false, true)) for (number in listOf(9L, 10L, 99L, 100L, 999999999L)) {
                 val view = TextFirstEditText(context, look, images)
                 view.apply(UiUpdate(1, if (rtl) "אבג\n" else "Box\n", emptyList(), 0, 0, -1, -1,
-                    listOf(StyleWindow(0, 4, listOf(SpanSpec.ListRow(0, 4, depth, ListMarker.Ordered, number, false, true)))), 0L))
+                    listOf(StyleWindow(0, 4, listOf(SpanSpec.ListRow(0, 4, depth, ListMarker.Ordered, "$number.", false, true)))), 0L))
                 val width = look.dp(360f).toInt()
                 val height = look.dp(160f).toInt()
                 layOut(view, width, height)
@@ -206,7 +206,7 @@ class TextFirstGlyphMetricsTest {
             val view = TextFirstEditText(context, look, images)
             val body = "Parcel ".repeat(10) + "\n"
             fun windows(number: Long) = listOf(StyleWindow(0, body.length,
-                listOf(SpanSpec.ListRow(0, body.length, 0, ListMarker.Ordered, number, false, true))))
+                listOf(SpanSpec.ListRow(0, body.length, 0, ListMarker.Ordered, "$number.", false, true))))
             view.apply(UiUpdate(1, body, emptyList(), 0, 0, -1, -1, windows(9), 0L))
             val width = view.totalPaddingLeft + view.totalPaddingRight + kotlin.math.ceil(look.listIndent + view.paint.measureText("Parcel Parcel")).toInt() + 1
             val height = look.dp(500f).toInt()
@@ -234,8 +234,8 @@ class TextFirstGlyphMetricsTest {
                 val view = TextFirstEditText(context, look, images)
                 view.apply(UiUpdate(1, body, emptyList(), 0, 0, -1, -1,
                     listOf(StyleWindow(0, body.length, listOf(
-                        SpanSpec.ListRow(0, line.length, depth, kind, 1L, false, true),
-                        SpanSpec.ListRow(line.length, body.length, depth, kind, 1L, false, false),
+                        SpanSpec.ListRow(0, line.length, depth, kind, "1.", false, true),
+                        SpanSpec.ListRow(line.length, body.length, depth, kind, "1.", false, false),
                     ))), 0L))
                 val width = look.dp(360f).toInt()
                 val height = look.dp(120f).toInt()

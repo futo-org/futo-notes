@@ -15,7 +15,10 @@ internal sealed class SpanSpec(val start: Int, val end: Int) {
     class Inline(start: Int, end: Int, val bold: Boolean, val italic: Boolean, val strike: Boolean, val code: Boolean) : SpanSpec(start, end)
     class Heading(start: Int, end: Int, val level: Int) : SpanSpec(start, end)
     class Quote(start: Int, end: Int, val depth: Int) : SpanSpec(start, end)
-    class ListRow(start: Int, end: Int, val depth: Int, val marker: ListMarker, val number: Long?, val checked: Boolean, val first: Boolean) : SpanSpec(start, end)
+    /** [label] is the item's marker as typed (`3)`, `09.`); only an ordered item draws it. */
+    class ListRow(start: Int, end: Int, val depth: Int, val marker: ListMarker, val label: String, val checked: Boolean, val first: Boolean) : SpanSpec(start, end)
+    /** An indented plain line under a list: it takes the list's display level and draws no marker. */
+    class Indent(start: Int, end: Int, val depth: Int) : SpanSpec(start, end)
     class Code(start: Int, end: Int) : SpanSpec(start, end)
     class Metadata(start: Int, end: Int) : SpanSpec(start, end)
     class Link(start: Int, end: Int, val destination: String) : SpanSpec(start, end)
@@ -116,19 +119,8 @@ internal fun planSpans(p: EditorProjection, startUtf16: Int, outside: (Int) -> I
     }
     val out = ArrayList<SpanSpec>(p.runs.size + p.blocks.size + p.atoms.size)
     val codeBodies = p.blocks.filter { it.code && it.range.start < it.range.end }.sortedBy { it.range.start }
-    // Keep canonical first-item metadata from hidden openers when their paint
-    // row is coalesced with the visible body. Only equal descriptors at the
-    // same display point share it; continuation rows retain their own role.
-    val codeMarkers = p.blocks.filter {
-        it.code && it.range.start == it.range.end && it.list?.first == true
-    }.toSet()
     var previous: uniffi.futo_notes_ffi.EditorBlockDescription? = null
-    for (block in p.blocks) {
-        val marker = if (block.code && block.list != null) block.copy(
-            range = block.range.copy(end = block.range.start),
-            list = block.list?.copy(first = true),
-        ) else null
-        val b = if (marker in codeMarkers) block.copy(list = marker?.list) else block
+    for (b in p.blocks) {
         // Hidden fence rows can share the first/last body's display point.
         // They are not extra paragraphs with another code/quote margin.
         if (b.code && b.range.start == b.range.end) {
@@ -148,13 +140,17 @@ internal fun planSpans(p: EditorProjection, startUtf16: Int, outside: (Int) -> I
         }
         if (b.quoteDepth > 0u) out.add(SpanSpec.Quote(s, e, b.quoteDepth.toInt()))
         b.list?.let { list ->
+            val depth = list.level.toInt()
             val marker = when {
+                list.marker.isEmpty() -> null
                 list.checked != null -> ListMarker.Task
-                list.number != null -> ListMarker.Ordered
+                list.ordered -> ListMarker.Ordered
                 else -> ListMarker.Bullet
             }
-            // The engine counts list nesting from 1.
-            out.add(SpanSpec.ListRow(s, e, (list.depth.toInt() - 1).coerceAtLeast(0), marker, list.number?.toLong(), list.checked == true, list.first))
+            out.add(
+                if (marker == null) SpanSpec.Indent(s, e, depth)
+                else SpanSpec.ListRow(s, e, depth, marker, list.marker, list.checked == true, list.first),
+            )
         }
     }
     for (r in p.runs) {
@@ -210,7 +206,8 @@ private fun SpanSpec.slice(start: Int, end: Int, first: Boolean): SpanSpec = whe
     is SpanSpec.Inline -> SpanSpec.Inline(start, end, bold, italic, strike, code)
     is SpanSpec.Heading -> SpanSpec.Heading(start, end, level)
     is SpanSpec.Quote -> SpanSpec.Quote(start, end, depth)
-    is SpanSpec.ListRow -> SpanSpec.ListRow(start, end, depth, marker, number, checked, this.first && first)
+    is SpanSpec.ListRow -> SpanSpec.ListRow(start, end, depth, marker, label, checked, this.first && first)
+    is SpanSpec.Indent -> SpanSpec.Indent(start, end, depth)
     is SpanSpec.Code -> SpanSpec.Code(start, end)
     is SpanSpec.Metadata -> SpanSpec.Metadata(start, end)
     is SpanSpec.Link -> SpanSpec.Link(start, end, destination)

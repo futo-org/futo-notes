@@ -108,7 +108,7 @@ internal fun TextFirstEditText.addSpans(target: Spannable, specs: List<SpanSpec>
 }
 
 private fun setRendererSpan(target: Spannable, span: TfSpan, start: Int, end: Int) {
-    val block = span is TfHeading || span is TfQuote || span is TfList || span is TfCodeBlock || span is TfMetadata
+    val block = span is TfHeading || span is TfQuote || span is TfList || span is TfIndent || span is TfCodeBlock || span is TfMetadata
     // Composition supplies raw text without new semantic windows. Keep the
     // existing block style on text inserted at its start or unfinished end.
     // A terminating newline belongs to this span, but the next line does not.

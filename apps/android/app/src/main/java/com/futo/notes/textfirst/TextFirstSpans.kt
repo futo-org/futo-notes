@@ -158,11 +158,22 @@ internal fun leadingSpan(x: Int, dir: Int, from: Float, to: Float): Pair<Float, 
 
 internal enum class ListMarker { Bullet, Ordered, Task }
 
+// The own marker column supplies level one. Add three full steps and
+// four half steps, then retain a complete marker at the capped body edge.
+private fun listLead(look: TextFirstStyle, depth: Int): Float =
+    look.listIndent * (depth.coerceIn(0, 3) + (depth - 3).coerceIn(0, 4) * 0.5f)
+
+internal class TfIndent(private val look: TextFirstStyle, val depth: Int) : LeadingMarginSpan, TfSpan {
+    override fun slice(head: Boolean): TfSpan = if (head) this else TfIndent(look, depth)
+    override fun getLeadingMargin(first: Boolean) = listLead(look, depth).toInt()
+    override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) = Unit
+}
+
 internal class TfList(
     private val look: TextFirstStyle,
     val depth: Int,
     val marker: ListMarker,
-    val number: Long?,
+    val label: String,
     val checked: Boolean,
     /** This row opens its item (draw the marker); continuation rows only indent. */
     val first: Boolean,
@@ -173,17 +184,15 @@ internal class TfList(
     private val markerColumn = if (marker == ListMarker.Ordered) {
         paint.textSize = look.textSizePx
         paint.typeface = look.regular
-        val required = paint.measureText("${number ?: 1}.") + look.dp(5f)
+        val required = paint.measureText(label) + look.dp(5f)
         if (required > look.listIndent) kotlin.math.ceil(required) else look.listIndent
     } else look.listIndent
 
-    // The own marker column supplies level one. Add three full steps and
-    // four half steps, then retain a complete marker at the capped body edge.
-    private val markerLead = look.listIndent * (depth.coerceIn(0, 3) + (depth - 3).coerceIn(0, 4) * 0.5f)
+    private val markerLead = listLead(look, depth)
 
-    override fun slice(head: Boolean): TfSpan = if (head) this else TfList(look, depth, marker, number, checked, false)
+    override fun slice(head: Boolean): TfSpan = if (head) this else TfList(look, depth, marker, label, checked, false)
 
-    fun sameAs(other: TfList) = depth == other.depth && marker == other.marker && number == other.number && checked == other.checked && first == other.first
+    fun sameAs(other: TfList) = depth == other.depth && marker == other.marker && label == other.label && checked == other.checked && first == other.first
 
     override fun updateDrawState(tp: TextPaint) {
         if (marker == ListMarker.Task && checked) {
@@ -202,7 +211,7 @@ internal class TfList(
         paint.style = Paint.Style.FILL
         paint.textSize = look.textSizePx
         paint.typeface = look.regular
-        val numberStart = if (marker == ListMarker.Ordered) lead + unit - look.dp(5f) - paint.measureText("${number ?: 1}.") else lead
+        val numberStart = if (marker == ListMarker.Ordered) lead + unit - look.dp(5f) - paint.measureText(label) else lead
         // Layout starts the native body highlight at the integer leading margin.
         // A fractional gutter end would blend over its first pixel a second time.
         val (left, right) = leadingSpan(x, dir, minOf(lead, numberStart), getLeadingMargin(true).toFloat())
@@ -232,7 +241,7 @@ internal class TfList(
                 // The number ends beside the text, whichever side that is.
                 paint.textAlign = if (dir < 0) Paint.Align.LEFT else Paint.Align.RIGHT
                 paint.color = look.mutedColor
-                c.drawText("${number ?: 1}.", leadingX(x, dir, lead + unit - look.dp(5f)), baseline.toFloat(), paint)
+                c.drawText(label, leadingX(x, dir, lead + unit - look.dp(5f)), baseline.toFloat(), paint)
                 paint.textAlign = Paint.Align.LEFT
             }
             ListMarker.Task -> {

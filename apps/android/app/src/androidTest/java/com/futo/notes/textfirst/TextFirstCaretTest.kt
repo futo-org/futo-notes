@@ -139,9 +139,9 @@ class TextFirstCaretTest {
                         val body = newline + label + newline + ending
                         view.apply(UiUpdate(seq++, body, emptyList(), 0, 0, -1, -1,
                             listOf(StyleWindow(0, body.length, listOf(
-                                SpanSpec.ListRow(0, middle, 0, kind, 1L, false, true),
-                                SpanSpec.ListRow(middle, last, 0, kind, 2L, false, true),
-                                SpanSpec.ListRow(last, body.length, 0, kind, 3L, false, true),
+                                SpanSpec.ListRow(0, middle, 0, kind, "1.", false, true),
+                                SpanSpec.ListRow(middle, last, 0, kind, "2.", false, true),
+                                SpanSpec.ListRow(last, body.length, 0, kind, "3.", false, true),
                             ))), 0L))
                         committedFrame(view)
                         assertTrue(view.isHardwareAccelerated)
