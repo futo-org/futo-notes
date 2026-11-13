@@ -5,10 +5,33 @@ use super::{store, Engine};
 use crate::{
     Affinity, CaretDirection, DisplayOffset, DisplayRange, EditorError, Revision, SelectionChange,
 };
+use std::ops::Range;
 use unicode_segmentation::GraphemeCursor;
 
 impl Engine {
     // ---- Selection and movement ----
+
+    /// The selection in source offsets: a collapsed caret where it maps,
+    /// else from the first visible source after its start to the last
+    /// before its end.
+    pub(crate) fn source_selection(&self, range: DisplayRange) -> Range<usize> {
+        if range.start == range.end {
+            if range == self.selection {
+                let at = self.caret_source();
+                return at..at;
+            }
+            let (lo, hi) = self.source_bounds(range.start.0);
+            let at = if self.affinity == Affinity::Backward {
+                lo
+            } else {
+                hi
+            };
+            return at..at;
+        }
+        let start = self.source_bounds(range.start.0).1;
+        let end = self.source_bounds(range.end.0).0.max(start);
+        start..end
+    }
 
     /// A caret between a CRLF's CR and LF acts at the end of its line, and a
     /// selection end there widens over the whole line break.

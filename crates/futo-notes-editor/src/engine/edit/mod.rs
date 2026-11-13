@@ -257,6 +257,7 @@ impl Engine {
             .then(|| typing_kind(range, text, self.selection))
             .flatten();
         let before = self.point();
+        let deleted = self.deleted_formats(range, text);
         let plan = self.plan_input(range, text, action);
         let mut batch = Batch::default();
         batch.work.parsed_source_bytes += plan.parsed;
@@ -272,6 +273,7 @@ impl Engine {
         if plan.carry.is_some() {
             self.formats = plan.carry;
         }
+        self.carry_deleted(deleted);
         let now = self.clock.now();
         let continues = kind.is_some_and(|kind| {
             self.typing
@@ -352,6 +354,8 @@ impl Engine {
                     .collect();
                 let mut command = Command::new(edits, lines, caret..caret);
                 command.typed = true;
+                let last = &runs[runs.len() - 1];
+                command.carry = engine.deleted_formats(last.range, &last.inserted);
                 Ok(Some(command))
             },
             accept,

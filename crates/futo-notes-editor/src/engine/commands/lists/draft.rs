@@ -180,6 +180,7 @@ impl<'a> Draft<'a> {
             selection,
             affinity: None,
             typed: false,
+            carry: None,
         })
     }
 }

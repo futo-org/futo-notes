@@ -82,18 +82,18 @@ impl Engine {
         formats_of(style)
     }
 
-    /// The formats a space typed at the collapsed caret may carry unseen
-    /// (bold, italic, strike), read from where the caret stands.
+    /// The formats a space typed at collapsed `range` may carry unseen
+    /// (bold, italic, strike), read from where the input lands, whether or
+    /// not the selection is there.
     fn space_formats(&self, range: DisplayRange, text: &str) -> Option<Vec<InlineFormat>> {
         if range.start != range.end
-            || range != self.selection
             || text.is_empty()
             || !text.chars().all(|ch| ch == ' ' || ch == '\t')
         {
             return None;
         }
         let formats: Vec<InlineFormat> = self
-            .read_formats()
+            .formats_at(self.input_at(range))
             .into_iter()
             .filter(|format| bit(*format) & UNSEEN_ON_SPACE != 0)
             .collect();
@@ -116,11 +116,13 @@ impl Engine {
             (None, Some(Some(formats))) => formats,
             _ => return None,
         };
-        let caret = self.selection.start.0;
+        // Carried formats belong to the caret; a space read where it lands
+        // needs no caret there.
+        let caret = range.end.0;
+        let at_caret = self.selection.start.0 == caret && self.selection.end.0 == caret;
         if text.is_empty()
             || text.contains(['\n', '\r'])
-            || self.selection.end.0 != caret
-            || range.end.0 != caret
+            || (self.formats.is_some() && !at_caret)
             || self.empty_line(caret).is_some()
         {
             return None;
@@ -133,7 +135,7 @@ impl Engine {
         let glyphs = glyphs(entry);
         let at = glyphs.partition_point(|glyph| before.display + glyph.display < caret);
         if range.start == range.end {
-            let pin = self.caret_source() - before.source;
+            let pin = self.input_at(range) - before.source;
             let mut places = gap(entry, &glyphs, at);
             places.sort_by_key(|&place| place != pin);
             let typed = typed_in(
@@ -164,7 +166,7 @@ impl Engine {
         let whole = word
             .iter()
             .all(|glyph| glyph.style == style && !glyph.space())
-            && style & MARKS == 0
+            && !holds_link(entry, &(word[0].src..word[word.len() - 1].end))
             && formats_of(style) == self.read_formats();
         let old: String = word.iter().map(|glyph| glyph.ch).collect();
         let added = text.strip_prefix(old.as_str());
@@ -308,6 +310,71 @@ impl Engine {
     }
 }
 
+/// Whether a link, wikilink, image or tag lies wholly in source `range` of
+/// `entry`. A word inside a link's text is the link's to keep; a word
+/// holding a whole one is not one word to rewrite.
+fn holds_link(entry: &Entry, range: &Range<usize>) -> bool {
+    entry.spans.iter().any(|span| {
+        let text = super::draft::inside(span);
+        super::draft::span_bit(&span.kind) & MARKS != 0
+            && range.start <= text.start
+            && text.end <= range.end
+    })
+}
+
+/// `entry`'s text without glyphs `removed`, and `places` (offsets of the
+/// line once those glyphs' source is gone) moved to match. The marks of a
+/// bold, italic, strike or code span left with no glyph go too, as a
+/// replaced selection drops them: the text is written in its formats
+/// afresh, and marks left around it would no longer pair.
+fn without(
+    entry: &Entry,
+    glyphs: &[Glyph],
+    removed: &Range<usize>,
+    places: &[usize],
+) -> (String, Vec<usize>) {
+    let mut base = entry.text.clone();
+    let mut places = places.to_vec();
+    if removed.is_empty() {
+        return (base, places);
+    }
+    let cut = glyphs[removed.start].src..glyphs[removed.end - 1].end;
+    base.replace_range(cut.clone(), "");
+    let after = |at: usize| if at <= cut.start { at } else { at - cut.len() };
+    let mut marks: Vec<Range<usize>> = entry
+        .spans
+        .iter()
+        .filter(|span| {
+            matches!(
+                span.kind,
+                SpanKind::Bold | SpanKind::Italic | SpanKind::Strike | SpanKind::Code
+            )
+        })
+        .filter(|span| {
+            let text = super::draft::inside(span);
+            let mut held = glyphs
+                .iter()
+                .enumerate()
+                .filter(|(_, g)| text.contains(&g.src));
+            held.clone().next().is_some() && held.all(|(i, _)| removed.contains(&i))
+        })
+        .flat_map(|span| [span.open.clone(), span.close.clone()])
+        .filter(|mark| !mark.is_empty() && (mark.end <= cut.start || mark.start >= cut.end))
+        .map(|mark| after(mark.start)..after(mark.end))
+        .collect();
+    marks.sort_by_key(|mark| std::cmp::Reverse(mark.start));
+    for mark in marks {
+        base.replace_range(mark.clone(), "");
+        for place in &mut places {
+            if *place > mark.start {
+                *place = (*place).max(mark.end) - mark.len();
+            }
+        }
+    }
+    places.dedup();
+    (base, places)
+}
+
 /// Replace glyphs `removed` of `entry` (whose line starts at source
 /// `start`) with `text`, written at the first of `places` (source offsets
 /// of the line once those glyphs' source is gone) where the line can read
@@ -322,10 +389,7 @@ fn typed_in(
     formats: &[InlineFormat],
 ) -> Option<Typed> {
     let draft = Draft::of(entry);
-    let mut base = entry.text.clone();
-    if !removed.is_empty() {
-        base.replace_range(glyphs[removed.start].src..glyphs[removed.end - 1].end, "");
-    }
+    let (base, places) = without(entry, glyphs, &removed, places);
     let typed: Vec<char> = text.chars().collect();
     let wanted = formats.iter().fold(0, |style, format| style | bit(*format));
     let at = removed.start;
@@ -339,14 +403,21 @@ fn typed_in(
     expect.extend(glyphs[removed.end..].iter().map(Expect::same));
     let mut work = 0;
     // What the typed text makes of the line, written plainly where the
-    // caret is: marks must not change it.
+    // caret is: marks must not change it, nor move the text into or out of
+    // a link, wikilink, image or tag.
     let mut line_shape = None;
-    for &place in places {
+    let mut plain_marks = None;
+    for &place in &places {
         let mut written = base.clone();
         written.insert_str(place, text);
         let written = draft.with_text(written);
         let read = written.read(&mut work);
         let line_shape = line_shape.get_or_insert_with(|| shape(&read)).clone();
+        let plain_marks: &Option<Vec<u16>> = plain_marks.get_or_insert_with(|| {
+            let plain = super::draft::glyphs(&read);
+            (plain.len() == expect.len())
+                .then(|| plain[new.clone()].iter().map(|g| g.style & MARKS).collect())
+        });
         if shape(&read) != line_shape || !matches(&super::draft::glyphs(&read), &expect) {
             continue;
         }
@@ -387,12 +458,14 @@ fn typed_in(
         let mut done = expect.clone();
         for (i, want) in done.iter_mut().enumerate() {
             if new.contains(&i) {
-                want.style = wanted;
-                want.mask = if want.ch.is_whitespace() {
-                    !(UNSEEN_ON_SPACE | MARKS)
+                let marks = plain_marks.as_ref().map(|marks| marks[i - new.start]);
+                want.style = wanted | marks.unwrap_or(0);
+                let unseen = if want.ch.is_whitespace() {
+                    UNSEEN_ON_SPACE
                 } else {
-                    !MARKS
+                    0
                 };
+                want.mask = !(unseen | if marks.is_some() { 0 } else { MARKS });
             }
         }
         let (current, read) = current;

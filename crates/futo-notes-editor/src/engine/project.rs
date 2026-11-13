@@ -79,10 +79,14 @@ impl Engine {
         slice
     }
 
-    /// The formats typing at the caret carries.
+    /// The formats typing at the caret carries; over a selection, those
+    /// every selected character carries.
     pub fn active_formats(&self) -> Vec<InlineFormat> {
         if let Some(formats) = &self.formats {
             return formats.clone();
+        }
+        if self.selection.start != self.selection.end {
+            return self.selection_formats();
         }
         self.formats_at(self.caret_source())
     }

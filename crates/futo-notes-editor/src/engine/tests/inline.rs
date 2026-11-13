@@ -106,6 +106,17 @@ fn run(engine: &mut Engine, step: &[Value]) -> Result<(), EditorError> {
                 &mut ok,
             )?;
         }
+        "type_at" => {
+            // A host's keystroke at a caret other than the selection.
+            let at = number(step, 1);
+            engine.replace(
+                revision,
+                display(at, at),
+                text(step, 2),
+                InputAction::Typing,
+                &mut ok,
+            )?;
+        }
         "replace_word" => {
             let caret = selection.start.0;
             let range = display(caret - number(step, 1), caret);
@@ -323,4 +334,34 @@ fn typing_far_into_a_long_note_costs_no_more_work_than_the_old_engine() {
         measured[0], measured[1],
         "the work does not grow with the note"
     );
+}
+
+/// Decision 5: undo and redo restore the formats a deletion left carried.
+#[test]
+fn history_restores_the_formats_a_cleared_span_left_carried() {
+    let mut engine = Engine::open("a **Owner** b");
+    engine.select(engine.revision(), display(2, 7)).unwrap();
+    assert_eq!(engine.active_formats(), vec![InlineFormat::Bold]);
+    engine
+        .key(
+            engine.revision(),
+            display(2, 7),
+            ParagraphKey::Backspace,
+            &mut ok,
+        )
+        .unwrap();
+    assert_eq!(engine.source_text(), "a  b");
+    assert_eq!(engine.formats, Some(vec![InlineFormat::Bold]));
+    engine.undo(engine.revision(), &mut ok).unwrap();
+    assert_eq!(engine.source_text(), "a **Owner** b");
+    assert_eq!(engine.selection(), display(2, 7));
+    assert_eq!(engine.formats, None);
+    engine.redo(engine.revision(), &mut ok).unwrap();
+    assert_eq!(engine.selection(), display(2, 2));
+    assert_eq!(engine.formats, Some(vec![InlineFormat::Bold]));
+    let at = engine.selection();
+    engine
+        .replace(engine.revision(), at, "x", InputAction::Typing, &mut ok)
+        .unwrap();
+    assert_eq!(engine.source_text(), "a **x** b");
 }

@@ -98,24 +98,27 @@ impl Engine {
         }
     }
 
+    /// The source offset input at collapsed display `range` lands at. Input
+    /// at a caret the host placed elsewhere stands where a fresh selection
+    /// of it would: after hidden syntax only at the note's start, otherwise
+    /// before it, so text typed where a span ends lands inside it. The
+    /// core's own affinity belongs to its own selection, not to this offset.
+    pub(crate) fn input_at(&self, range: DisplayRange) -> usize {
+        if range == self.selection {
+            return self.caret_source();
+        }
+        let (lo, hi) = self.source_bounds(range.start.0);
+        if range.start.0 == 0 {
+            hi
+        } else {
+            lo
+        }
+    }
+
     /// Typing `inserted` at a collapsed `range`: exactly that, where the
     /// caret maps, unless it is at a divider's edge.
     fn at_caret(&self, range: DisplayRange, inserted: String) -> Plan {
-        // Input at a caret the host placed elsewhere stands where a fresh
-        // selection of it would: after hidden syntax only at the note's
-        // start, otherwise before it, so text typed where a span ends lands
-        // inside it. The core's own affinity belongs to its own selection,
-        // not to this offset.
-        let at = if range == self.selection {
-            self.caret_source()
-        } else {
-            let (lo, hi) = self.source_bounds(range.start.0);
-            if range.start.0 == 0 {
-                hi
-            } else {
-                lo
-            }
-        };
+        let at = self.input_at(range);
         if let Some((written, caret)) = self.beside_divider(at, &inserted) {
             return Plan {
                 range: at..at,
