@@ -104,20 +104,6 @@ fn run(s: &NativeEditorSession, case: &Seam, view: &mut String) -> EditorViewCha
     }
 }
 
-/// Source after an authored save: a nonempty note without a final line
-/// ending gains its own (portable-core/recovery.md).
-fn saved(source: &str) -> String {
-    if source.is_empty() || source.ends_with('\n') {
-        return source.to_owned();
-    }
-    let ending = if source.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
-    };
-    format!("{source}{ending}")
-}
-
 fn shown(source: &str) -> String {
     futo_notes_editor::EditorSession::open(source).display_text()
 }
@@ -172,12 +158,15 @@ fn native_structural_seams_and_raw_composition_keep_exact_saves_and_carets() {
         );
         s.checkpoint().unwrap();
         s.detach().unwrap();
-        let saved = saved(case.expected);
         let recovered = store.open_editor("seam".into()).unwrap();
-        assert_eq!(recovered.source_text().unwrap(), saved, "{name}");
-        assert_eq!(recovered.display_text().unwrap(), shown(&saved), "{name}");
+        assert_eq!(recovered.source_text().unwrap(), case.expected, "{name}");
+        assert_eq!(
+            recovered.display_text().unwrap(),
+            shown(case.expected),
+            "{name}"
+        );
         recovered.checkpoint().unwrap();
-        assert_eq!(store.read("seam".into()).unwrap(), saved, "{name}");
+        assert_eq!(store.read("seam".into()).unwrap(), case.expected, "{name}");
     }
     assert!(failed.is_empty(), "{}", failed.join("\n"));
 }

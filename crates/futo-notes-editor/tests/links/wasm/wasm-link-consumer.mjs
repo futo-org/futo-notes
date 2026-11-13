@@ -7,7 +7,6 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
-import { savedSource } from '../../wasm-saved-source.mjs';
 import { Buffer } from 'node:buffer';
 import { partialLink } from './partial-link-consumer.mjs';
 import process from 'node:process';
@@ -205,7 +204,7 @@ try {
     assert.deepEqual(redone.selection, { start: 3, end: 3 });
     await stop();
     const timingReopened = await start('--reopen', timingVault);
-    assert.equal(session.draft_text(), savedSource(finalSource));
+    assert.equal(session.draft_text(), finalSource);
     assert.equal(JSON.parse(session.project(0n, 0, 21)).text, 'x B https://x.test/a ');
     assert.equal(JSON.parse(session.inspect_link(0n, 4, 20)).destination, 'https://x.test/a');
     assert.equal(JSON.parse(session.undo(0n)), null);
@@ -284,7 +283,7 @@ try {
     assert.equal(session.draft_text(), committed + '!');
     await stop();
     const liveReopened = await start('--reopen', liveVault);
-    assert.equal(session.draft_text(), savedSource(committed + '!'));
+    assert.equal(session.draft_text(), committed + '!');
     assert.equal(JSON.parse(session.project(0n, 0, 22)).text, 'x b https://x.test/a\n!');
     assert.equal(JSON.parse(session.inspect_link(0n, 4, 5)).destination, 'https://x.test/a');
     assert.equal(JSON.parse(session.undo(0n)), null);

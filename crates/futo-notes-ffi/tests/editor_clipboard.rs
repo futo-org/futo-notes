@@ -8,7 +8,7 @@ fn native_clipboard_copies_cuts_and_pastes_exact_markdown() {
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
     store
-        .create_note("clip".into(), "".into(), "- ab **cd**\n".into())
+        .create_note("clip".into(), "".into(), "- ab **cd**".into())
         .unwrap();
     let session = store.open_editor("clip".into()).unwrap();
     let at = |start, end| EditorByteRange { start, end };
@@ -17,17 +17,14 @@ fn native_clipboard_copies_cuts_and_pastes_exact_markdown() {
         .paste_markdown(0, at(3, 3), "- x\n- y\n".into())
         .unwrap()
         .unwrap();
-    assert_eq!(
-        session.source_text().unwrap(),
-        "- ab \n- x\n- y\n- **cd**\n"
-    );
+    assert_eq!(session.source_text().unwrap(), "- ab \n- x\n- y\n- **cd**");
     let cut = session.cut_markdown(1, at(8, 10)).unwrap();
     assert_eq!(cut.markdown, "- **cd**");
     assert!(cut.change.is_some());
-    assert_eq!(session.source_text().unwrap(), "- ab \n- x\n- y\n- \n");
+    assert_eq!(session.source_text().unwrap(), "- ab \n- x\n- y\n- ");
     session.undo(2).unwrap().unwrap();
     session.undo(3).unwrap().unwrap();
-    assert_eq!(session.source_text().unwrap(), "- ab **cd**\n");
+    assert_eq!(session.source_text().unwrap(), "- ab **cd**");
 }
 
 #[test]
@@ -134,6 +131,6 @@ fn native_block_paste_from_code_over_prose_keeps_the_frame() {
     session.checkpoint().unwrap();
     drop(session);
     let reopened = store.open_editor("selected-code".into()).unwrap();
-    assert_eq!(reopened.source_text().unwrap(), "```\n# h\n```\n");
-    assert_eq!(reopened.display_text().unwrap(), "# h\n");
+    assert_eq!(reopened.source_text().unwrap(), "```\n# h\n```");
+    assert_eq!(reopened.display_text().unwrap(), "# h");
 }

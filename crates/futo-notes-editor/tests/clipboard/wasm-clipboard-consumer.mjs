@@ -7,7 +7,6 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
-import { savedSource } from '../wasm-saved-source.mjs';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import console from 'node:console';
@@ -76,7 +75,7 @@ try {
   await accept(session.redo(3n));
   await stop();
   const reopened = await start('--reopen');
-  assert.equal(session.draft_text(), savedSource(finalSource));
+  assert.equal(session.draft_text(), finalSource);
   assert.equal(JSON.parse(session.project(0n, 0, Buffer.byteLength(display))).text, display);
   assert.deepEqual(await reopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
@@ -101,7 +100,7 @@ try {
   assert.deepEqual(await codeExchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
   await start('--reopen');
-  assert.equal(session.draft_text(), savedSource(fencedSource));
+  assert.equal(session.draft_text(), fencedSource);
   assert.equal(
     JSON.parse(session.project(0n, 0, Buffer.byteLength(literalCode))).text,
     literalCode,
@@ -129,7 +128,7 @@ try {
     assert.deepEqual(await emptyExchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
     await start('--reopen');
-    assert.equal(session.draft_text(), savedSource(expected));
+    assert.equal(session.draft_text(), expected);
     assert.equal(JSON.parse(session.project(0n, 0, caret)).text, text);
     await stop();
   }
@@ -177,7 +176,7 @@ try {
     assert.deepEqual(await selectedExchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
     await start('--reopen');
-    assert.equal(session.draft_text(), savedSource(fixture.expected));
+    assert.equal(session.draft_text(), fixture.expected);
     assert.equal(JSON.parse(session.project(0n, 0, caret)).text, fixture.shown);
     await stop();
   }
@@ -220,7 +219,7 @@ try {
     assert.deepEqual(await linkExchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
     await start('--reopen');
-    assert.equal(session.draft_text(), savedSource(fixture.expected));
+    assert.equal(session.draft_text(), fixture.expected);
     const reopenedLink = JSON.parse(session.project(0n, fixture.label[0], fixture.label[1]));
     assert.equal(reopenedLink.links[0].destination, 'https://x.test');
     await stop();

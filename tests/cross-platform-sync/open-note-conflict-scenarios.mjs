@@ -7,7 +7,6 @@ import { sleep } from '../lib/mcp-client.mjs';
 import {
   assert,
   assertEqual,
-  assertSavedEqual,
   waitForEditorContent,
   waitForOpenNoteTitle,
   waitForSaveIdle,
@@ -56,16 +55,8 @@ export async function collisionPlacementFollowsOpenNote(a, b, server) {
   assert(conflictFile, `B should keep both rivals, got ${JSON.stringify(bFiles)}`);
   const conflictId = conflictFile.replace(/\.md$/, '');
 
-  assertSavedEqual(
-    await b.readNote('shared'),
-    '# from A',
-    'canonical name should hold A’s content',
-  );
-  assertSavedEqual(
-    await b.readNote(conflictId),
-    '# from B',
-    'conflict copy should hold B’s content',
-  );
+  assertEqual(await b.readNote('shared'), '# from A', 'canonical name should hold A’s content');
+  assertEqual(await b.readNote(conflictId), '# from B', 'conflict copy should hold B’s content');
   assert(!(await b.noteExists('stuff/shared')), 'B should not keep the pre-move path');
 
   // The relocation is reported in the summary itself — never inferred by the
@@ -78,7 +69,7 @@ export async function collisionPlacementFollowsOpenNote(a, b, server) {
 
   const state = await waitForOpenNoteTitle(b, conflictId);
   assertEqual(state.originalId, conflictId, 'open note should follow the collision placement');
-  assertSavedEqual(state.editorContent, '# from B', 'editor should keep showing B’s own content');
+  assertEqual(state.editorContent, '# from B', 'editor should keep showing B’s own content');
   assertEqual(
     state.hash,
     `#/note/${encodeURIComponent(conflictId)}`,
@@ -114,12 +105,8 @@ export async function collisionPlacementFollowsOpenNote(a, b, server) {
     aFiles.includes(conflictFile),
     `A should mint the identical conflict name, got ${JSON.stringify(aFiles)}`,
   );
-  assertSavedEqual(await a.readNote('shared'), '# from A', 'A canonical should hold A’s content');
-  assertSavedEqual(
-    await a.readNote(conflictId),
-    '# from B',
-    'A conflict copy should hold B’s content',
-  );
+  assertEqual(await a.readNote('shared'), '# from A', 'A canonical should hold A’s content');
+  assertEqual(await a.readNote(conflictId), '# from B', 'A conflict copy should hold B’s content');
 }
 
 export async function collisionNameUsesFullObjectIdentity(a, b, server) {
@@ -140,8 +127,8 @@ export async function collisionNameUsesFullObjectIdentity(a, b, server) {
   const bFiles = (await b.listNotes()).map((file) => file.filename || file.name || file);
   const copy = bFiles.find((name) => /^shared \(conflict [0-9a-f]{32}\)\.md$/.test(name));
   assert(copy, `collision copy should carry all UUID bits, got ${JSON.stringify(bFiles)}`);
-  assertSavedEqual(await b.readNote('shared'), 'older object', 'winner body');
-  assertSavedEqual(await b.readNote(copy.replace(/\.md$/, '')), 'later object', 'loser body');
+  assertEqual(await b.readNote('shared'), 'older object', 'winner body');
+  assertEqual(await b.readNote(copy.replace(/\.md$/, '')), 'later object', 'loser body');
   await a.syncNow();
   const aFiles = (await a.listNotes()).map((file) => file.filename || file.name || file);
   assert(aFiles.includes(copy), 'both clients should converge on the same collision name');
@@ -192,7 +179,7 @@ export async function focusedOpenNoteDefersPeerEditUntilBlur(a, b, server) {
     `B downloaded=${bResult.summary.downloaded}, expected 1`,
   );
   const deferredState = await b.getOpenNoteState();
-  assertSavedEqual(
+  assertEqual(
     deferredState.editorContent,
     '# Version 1',
     'focused editor should defer a peer update',
@@ -276,7 +263,7 @@ export async function editDuringSyncKeepsLocalDraft(a, b, server) {
   await b.syncNow();
   await a.syncNow();
   const aContent = await a.readNote('during sync');
-  assertSavedEqual(
+  assertEqual(
     aContent,
     '# Remote update',
     'the pulled remote update must survive the protected draft settling',
@@ -284,7 +271,7 @@ export async function editDuringSyncKeepsLocalDraft(a, b, server) {
   const aFiles = (await a.listNotes()).map((f) => f.filename || f.name || f);
   const conflictCopy = aFiles.find((name) => String(name).includes('conflict'));
   assert(conflictCopy, `the protected draft must reach the peer as a conflict copy: ${aFiles}`);
-  assertSavedEqual(
+  assertEqual(
     await a.readNote(String(conflictCopy).replace(/\.md$/, '')),
     draftDuringSync,
     'the conflict copy must hold the draft that was protected during sync',

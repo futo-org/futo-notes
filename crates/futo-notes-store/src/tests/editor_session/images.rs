@@ -7,7 +7,7 @@ fn image_insertion_is_one_edit_and_a_reopened_session_rejects_old_claims() {
     store.create("", "pics", "ab").unwrap();
     let mut session = store.open_editor("pics").unwrap();
     let claim = session.image_claim().unwrap();
-    assert_eq!(session.source_text(), "ab\n");
+    assert_eq!(session.source_text(), "ab");
     session
         .insert_image(Revision(0), claim, "image-1.png", "")
         .unwrap()
@@ -21,7 +21,7 @@ fn image_insertion_is_one_edit_and_a_reopened_session_rejects_old_claims() {
     drop(session);
 
     let mut recovered = store.open_editor("pics").unwrap();
-    assert_eq!(recovered.source_text(), "![](image-1.png)ab\n");
+    assert_eq!(recovered.source_text(), "![](image-1.png)ab");
     assert!(matches!(
         recovered.insert_image(recovered.revision(), claim, "image-2.png", ""),
         Err(EditorStoreError::Editor(

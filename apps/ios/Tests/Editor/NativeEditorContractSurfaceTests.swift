@@ -36,14 +36,14 @@ struct NativeEditorContractSurfaceTests {
     @Test("tags, find and clipboard keep exact bytes")
     func tagsFindClipboard() async throws {
         try await Task.detached {
-            let tagged = try Self.scenario("#a\n\nbody\n") { _, s in
+            let tagged = try Self.scenario("#a\n\nbody") { _, s in
                 _ = try #require(try s.addHeaderTag(expected: 0, tag: "b"))
                 #expect(try s.headerTags() == ["#a", "#b"])
                 #expect(try s.tags() == ["#a", "#b"])
             }
-            #expect(tagged == "#a #b\n\nbody\n")
+            #expect(tagged == "#a #b\n\nbody")
 
-            let front = "---\ntitle: x\n---\nbody\n"
+            let front = "---\ntitle: x\n---\nbody"
             let framed = try Self.scenario(front) { _, s in
                 let text = try s.displayText()
                 let blocks = try s.project(
@@ -54,7 +54,7 @@ struct NativeEditorContractSurfaceTests {
             }
             #expect(framed == front)
 
-            let found = try Self.scenario("a **bo**ld Bold\r\n\r\nBOLD\r\n") { _, s in
+            let found = try Self.scenario("a **bo**ld Bold\r\n\r\nBOLD") { _, s in
                 let report = try s.findSetQuery(expected: 0, query: "bold")
                 #expect((report.total, report.current) == (3, 1))
                 #expect(report.reveal == Self.at(2, 6))
@@ -71,18 +71,18 @@ struct NativeEditorContractSurfaceTests {
                 #expect((rescanned.total, rescanned.stale) == (3, false))
                 #expect(try s.findClose().open == false)
             }
-            #expect(found == "x a **bo**ld Bold\r\n\r\nBOLD\r\n")
+            #expect(found == "x a **bo**ld Bold\r\n\r\nBOLD")
 
-            let clipped = try Self.scenario("- ab **cd**\n") { _, s in
+            let clipped = try Self.scenario("- ab **cd**") { _, s in
                 #expect(try s.copyMarkdown(expected: 0, range: Self.at(4, 5)) == "**d**")
                 _ = try #require(
                     try s.pasteMarkdown(expected: 0, range: Self.at(3, 3), text: "- x\n- y\n"))
-                #expect(try s.sourceText() == "- ab \n- x\n- y\n- **cd**\n")
+                #expect(try s.sourceText() == "- ab \n- x\n- y\n- **cd**")
                 let cut = try s.cutMarkdown(expected: 1, range: Self.at(8, 10))
                 #expect(cut.markdown == "- **cd**")
                 #expect(cut.change != nil)
             }
-            #expect(clipped == "- ab \n- x\n- y\n- \n")
+            #expect(clipped == "- ab \n- x\n- y\n- ")
         }.value
     }
 
@@ -113,7 +113,7 @@ struct NativeEditorContractSurfaceTests {
             let seed: (NoteStore) throws -> Void = {
                 _ = try $0.createNote(title: "Roadmap", folder: "Projects", content: "")
             }
-            let roles = try Self.scenario("[[Roadmap]] ab\n", seed: seed) { store, s in
+            let roles = try Self.scenario("[[Roadmap]] ab", seed: seed) { store, s in
                 let before = try s.project(expected: 0, range: Self.at(0, 11)).wikilinks[0]
                 #expect((before.label, before.noteId) == ("Roadmap", "Projects/Roadmap"))
                 _ = try store.createNote(title: "Roadmap", folder: "Archive", content: "")
@@ -122,9 +122,9 @@ struct NativeEditorContractSurfaceTests {
                 let after = try s.project(expected: 0, range: Self.at(0, 11)).wikilinks[0]
                 #expect((after.label, after.noteId) == ("Roadmap", nil))
             }
-            #expect(roles == "[[Roadmap]] ab\n")
+            #expect(roles == "[[Roadmap]] ab")
 
-            let completed = try Self.scenario("see [[Ro\n", seed: seed) { _, s in
+            let completed = try Self.scenario("see [[Ro", seed: seed) { _, s in
                 _ = try s.selectWithAffinity(expected: 0, range: Self.at(8, 8), affinity: .forward)
                 let found = try #require(try s.wikilinkCompletion(expected: 0))
                 #expect((found.range, found.query) == (Self.at(4, 8), "Ro"))
@@ -137,9 +137,9 @@ struct NativeEditorContractSurfaceTests {
                 _ = try s.acceptWikilinkCompletion(
                     expected: 0, range: found.range, query: found.query, noteId: "Projects/Roadmap")
             }
-            #expect(completed == "see [[Projects/Roadmap]]\n")
+            #expect(completed == "see [[Projects/Roadmap]]")
 
-            let pictured = try Self.scenario("a ![x](image-1.png) b\n") { _, s in
+            let pictured = try Self.scenario("a ![x](image-1.png) b") { _, s in
                 let atom = try #require(
                     try s.project(expected: 0, range: Self.at(0, 21)).atoms.first)
                 #expect(atom.range == Self.at(2, 19) && atom.image?.destination == "image-1.png")
@@ -150,7 +150,7 @@ struct NativeEditorContractSurfaceTests {
                     try s.insertImage(
                         expected: 0, claim: claim, reference: "image-2.png", alt: ""))
             }
-            #expect(pictured == "a ![x](image-1.png) b![](image-2.png)\n")
+            #expect(pictured == "a ![x](image-1.png) b![](image-2.png)")
         }.value
     }
 }

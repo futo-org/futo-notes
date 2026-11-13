@@ -7,7 +7,6 @@ import { conflictCopiesOf } from './peer-edit-copy-scenarios.mjs';
 import {
   assert,
   assertEqual,
-  assertSavedEqual,
   waitForEditorContent,
   waitForOpenNoteState,
   waitForSaveIdle,
@@ -73,7 +72,7 @@ async function switchWhoseFlushParks(a, b, variant) {
   await a.syncNow();
   const pulled = await b.syncNow();
   assertEqual(pulled.summary.downloaded, 1, `[${variant}] B downloaded`);
-  assertSavedEqual(
+  assertEqual(
     (await b.getOpenNoteState()).editorContent,
     '# Base',
     `[${variant}] a focused editor defers the peer edit`,
@@ -120,7 +119,7 @@ async function switchWhoseFlushParks(a, b, variant) {
   );
   const copyBody = await b.readNote(copies[0].replace(/\.md$/, ''));
   assert(copyBody.includes('zulu'), `[${variant}] the copy holds the typed word: ${copyBody}`);
-  assertSavedEqual(await b.readNote(id), '# Base\nPeer edit', `[${variant}] peer bytes at the id`);
+  assertEqual(await b.readNote(id), '# Base\nPeer edit', `[${variant}] peer bytes at the id`);
 }
 
 export async function parkInsideAKeyboardSwitchLeavesTheSwitchAlone(a, b, server) {

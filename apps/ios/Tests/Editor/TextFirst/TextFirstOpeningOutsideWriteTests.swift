@@ -70,9 +70,7 @@
             units.append(contentsOf: b[first.end..<second.start])
             units.append(contentsOf: second.middle)
             units.append(contentsOf: b[second.end...])
-            let merged = String(decoding: units, as: UTF16.self)
-            // A save ends a nonempty note with a line ending (recovery.md).
-            return merged.isEmpty || merged.hasSuffix("\n") ? merged : merged + "\n"
+            return String(decoding: units, as: UTF16.self)
         }
 
         /// Both versions kept, the typed input exactly where it was made on what was shown: the

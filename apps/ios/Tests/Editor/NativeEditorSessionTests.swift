@@ -13,9 +13,9 @@ struct NativeEditorSessionTests {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: root) }
             let store = NoteStore(notesRoot: root.path)
-            _ = try store.createNote(title: "old", folder: "", content: "[[old]]\n")
+            _ = try store.createNote(title: "old", folder: "", content: "[[old]]")
             let session = try store.openEditor(id: "old")
-            var view = Array("[[old]]\n".utf8)
+            var view = Array("[[old]]".utf8)
             var revision: UInt64 = 0
             func apply(_ change: EditorViewChange) {
                 #expect(change.previousRevision == revision)
@@ -34,22 +34,22 @@ struct NativeEditorSessionTests {
             #expect(changes.count == 1)
             for change in changes { apply(change) }
             #expect(try session.takeCoordinatedChanges().isEmpty)
-            #expect(String(decoding: view, as: UTF8.self) == "[[long name]]!\n")
+            #expect(String(decoding: view, as: UTF8.self) == "[[long name]]!")
             // A relink is one ordinary Undo step: Undo restores the old link
             // text, then the earlier typed "!" undoes as usual.
             apply(try #require(try session.undo(expected: revision)))
-            #expect(String(decoding: view, as: UTF8.self) == "[[old]]!\n")
+            #expect(String(decoding: view, as: UTF8.self) == "[[old]]!")
             apply(try #require(try session.undo(expected: revision)))
-            #expect(String(decoding: view, as: UTF8.self) == "[[old]]\n")
+            #expect(String(decoding: view, as: UTF8.self) == "[[old]]")
             _ = try store.delete(id: "long name")
-            _ = try store.createNote(title: "long name", folder: "", content: "fresh\n")
+            _ = try store.createNote(title: "long name", folder: "", content: "fresh")
             do {
                 _ = try session.checkpoint()
                 Issue.record("deleted session checkpoint accepted")
             } catch EditorSessionError.SessionDeleted {}
             _ = try session.detach()
             let fresh = try store.openEditor(id: "long name")
-            #expect(try fresh.sourceText() == "fresh\n")
+            #expect(try fresh.sourceText() == "fresh")
             _ = try fresh.detach()
         }.value
     }
@@ -77,18 +77,18 @@ struct NativeEditorSessionTests {
             apply(
                 try session.paragraphKeyUtf16(
                     expected: 0, range: EditorUtf16Range(start: 3, end: 3), key: .shiftEnter))
-            #expect(String(decoding: view, as: UTF8.self) == "a😀\r\nb\r\ntail  \r\n")
-            #expect(try session.sourceText() == "__a😀\r\nb__\r\ntail  \r\n")
+            #expect(String(decoding: view, as: UTF8.self) == "a😀\nb\r\ntail  \r\n")
+            #expect(try session.sourceText() == "__a😀\nb__\r\ntail  \r\n")
             apply(
                 try session.paragraphKeyUtf16(
-                    expected: 1, range: EditorUtf16Range(start: 5, end: 5), key: .backspace))
+                    expected: 1, range: EditorUtf16Range(start: 4, end: 4), key: .backspace))
             #expect(String(decoding: view, as: UTF8.self) == "a😀b\r\ntail  \r\n")
             apply(try session.undo(expected: 2))
-            #expect(try session.sourceText() == "__a😀\r\nb__\r\ntail  \r\n")
+            #expect(try session.sourceText() == "__a😀\nb__\r\ntail  \r\n")
             _ = try session.detach()
-            #expect(try store.read(id: "lines") == "__a😀\r\nb__\r\ntail  \r\n")
+            #expect(try store.read(id: "lines") == "__a😀\nb__\r\ntail  \r\n")
             let reopened = try store.openEditor(id: "lines")
-            #expect(try reopened.sourceText() == "__a😀\r\nb__\r\ntail  \r\n")
+            #expect(try reopened.sourceText() == "__a😀\nb__\r\ntail  \r\n")
             _ = try reopened.detach()
         }.value
     }
@@ -162,9 +162,9 @@ struct NativeEditorSessionTests {
             #expect(projection.text == "日😀 tail\r\n")
             #expect(projection.runs.first?.formats == [.bold])
             _ = try inline.detach()
-            _ = try store.createNote(title: "entity", folder: "", content: "&acE;\n")
+            _ = try store.createNote(title: "entity", folder: "", content: "&acE;")
             let entity = try store.openEditor(id: "entity")
-            #expect(try entity.displayText() == "∾\u{0333}\n")
+            #expect(try entity.displayText() == "∾\u{0333}")
             #expect(
                 try entity.sourceAt(
                     expected: 0, offset: EditorDisplayByteOffset(offset: 3), affinity: .backward
@@ -261,7 +261,7 @@ struct NativeEditorSessionTests {
             #expect(try reopened.sourceText() == final)
             #expect(try reopened.undo(expected: 0) == nil)
             _ = try reopened.detach()
-            _ = try store.createNote(title: "echo", folder: "", content: "__a__\n")
+            _ = try store.createNote(title: "echo", folder: "", content: "__a__")
             let echo = try store.openEditor(id: "echo")
             _ = try echo.selectWithAffinity(
                 expected: 0, range: EditorByteRange(start: 1, end: 1), affinity: .backward)
@@ -272,7 +272,7 @@ struct NativeEditorSessionTests {
             _ = try echo.replaceUtf16Action(
                 expected: 1, range: EditorUtf16Range(start: 2, end: 2), inserted: [98],
                 action: .typing)
-            #expect(try echo.sourceText() == "__a b__\n")
+            #expect(try echo.sourceText() == "__a b__")
             #expect(try echo.activeFormats() == [.bold])
             _ = try echo.detach()
 

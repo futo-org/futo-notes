@@ -20,8 +20,7 @@ mod tables;
 mod tags;
 mod wikilinks;
 
-/// A root note holding exactly `source`, which may lack the final line ending
-/// every authored write appends (recovery.md): a peer's or an older note.
+/// A root note holding exactly `source`.
 fn plant_note(root: &TestRoot, id: &str, source: &str) {
     fs::write(root.0.join(format!("{id}.md")), source).unwrap();
 }
@@ -38,7 +37,7 @@ fn unchanged_editor_open_close_creates_no_note_write() {
     let root = TestRoot::new();
     let observer = Arc::new(RecordingObserver::default());
     let store = LocalNoteStore::with_before_write(root.0.clone(), observer.clone());
-    plant_note(&root, "plain", "  first\r\nlast\t ");
+    store.create("", "plain", "  first\r\nlast\t ").unwrap();
     observer.0.lock().unwrap().clear();
     let before = store.snapshot();
     let editor = store.open_editor("plain").unwrap();
@@ -71,26 +70,20 @@ fn legacy_writes_are_refused_by_lease_under_any_case() {
     store
         .save_draft_as_unattached("other", "plain", "x", "z")
         .unwrap_err();
-    assert_eq!(
-        store.read_existing("plain").unwrap().as_deref(),
-        Some("ab\n")
-    );
+    assert_eq!(store.read_existing("plain").unwrap().as_deref(), Some("ab"));
     store
         .save_unattached(Some("other"), "other", "y", None)
         .unwrap();
     drop(editor);
     store.flush_draft_unattached("plain", "ab", "z").unwrap();
-    assert_eq!(
-        store.read_existing("plain").unwrap().as_deref(),
-        Some("z\n")
-    );
+    assert_eq!(store.read_existing("plain").unwrap().as_deref(), Some("z"));
 }
 
 #[test]
 fn checkpoint_returns_the_complete_store_mutation() {
     let root = TestRoot::new();
     let store = store(&root);
-    plant_note(&root, "plain", "one\r\ntwo  ");
+    store.create("", "plain", "one\r\ntwo  ").unwrap();
     let mut editor = store.open_editor("plain").unwrap();
     let change = editor.replace(Revision(0), range(5, 8), "three").unwrap();
     assert_eq!(change.revision, Revision(1));
@@ -101,11 +94,10 @@ fn checkpoint_returns_the_complete_store_mutation() {
     let mutation = result.mutation.unwrap();
     assert_eq!(mutation.final_id.as_deref(), Some("plain"));
     assert_eq!(mutation.upserted[0].note.id, "plain");
-    // The save appends the note's own CRLF ending.
-    assert_eq!(store.read("plain").unwrap(), "one\r\nthree  \r\n");
+    assert_eq!(store.read("plain").unwrap(), "one\r\nthree  ");
     drop(editor);
     let reopened = store.open_editor("plain").unwrap();
-    assert_eq!(reopened.source_text(), "one\r\nthree  \r\n");
+    assert_eq!(reopened.source_text(), "one\r\nthree  ");
     assert_eq!(reopened.revision(), Revision(0));
     assert_eq!(store.snapshot().notes.len(), 1);
 }
@@ -129,8 +121,8 @@ fn session_checkpoint_preserves_a_competing_note_and_follows_the_parked_id() {
     assert_eq!(editor.id(), parked_id);
     editor.replace(Revision(1), range(6, 6), "?").unwrap();
     editor.checkpoint().unwrap();
-    assert_eq!(store.read("plain").unwrap(), "peer\n");
-    assert_eq!(store.read(&parked_id).unwrap(), "plain!?\n");
+    assert_eq!(store.read("plain").unwrap(), "peer");
+    assert_eq!(store.read(&parked_id).unwrap(), "plain!?");
 }
 
 #[test]
@@ -170,10 +162,10 @@ fn owned_editor_outlives_its_opening_store_handle() {
     let mut editor = opening_store.open_owned_editor("plain").unwrap();
     drop(opening_store);
     editor.replace(Revision(0), range(5, 5), "!").unwrap();
-    assert_eq!(editor.source_text(), "hello!\n");
+    assert_eq!(editor.source_text(), "hello!");
     editor.close().unwrap();
     let store = store(&root);
-    assert_eq!(store.read("plain").unwrap(), "hello!\n");
+    assert_eq!(store.read("plain").unwrap(), "hello!");
 }
 
 #[test]

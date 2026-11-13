@@ -1,6 +1,7 @@
 ### Edits, deletes and renames
 
 - A dirty merge combines independent line or Unicode-word contributions through the shared exact-source three-way merge; changes to different words in one paragraph can coexist without rewriting untouched bytes. → crates/futo-notes-merge/src/lib.rs (`independent_words_merge_without_reserializing_untouched_source`), crates/futo-notes-sync/src/sync/conflict_resolution/clean_merge.rs
+- Sync carries a note's exact bytes, final line ending or none: a change that only adds or removes the final line ending reaches the peer once, merges cleanly when the other side left the end of the note alone, and the next cycle on either device pushes and pulls nothing. → crates/futo-notes-sync/src/sync/local_rename_tests/exact_saves.rs, crates/futo-notes-merge/src/lib.rs (`a_removed_final_line_ending_merges_with_an_edit_elsewhere`)
 - Ambiguous dirty merges, including competing word replacements, same-position insertions and delete/edit overlap, park the local edits in a `note (conflict YYYY-MM-DD).md` copy while preserving the remote version. → crates/futo-notes-sync/src/sync/conflict_resolution/, crates/futo-notes-store/src/tests/flush_draft.rs (`one_paragraph_merge_preserves_source_bytes_and_parks_ambiguous_edits`)
 - **A local edit to a note a peer deleted is preserved, not discarded.** When a
   dirty local edit is pushed but the server object was tombstoned by a peer, the

@@ -13,7 +13,7 @@ fn every_identity_workflow_preserves_the_attached_draft_and_exact_history() {
         let root = tempfile::tempdir().unwrap();
         let store = LocalNoteStore::new(root.path().to_owned());
         store.create("folder", "old", "__日__\r\n").unwrap();
-        store.create("", "old", "occupied\n").unwrap();
+        store.create("", "old", "occupied").unwrap();
         store.create_folder("dest").unwrap();
         store.create_folder("archive").unwrap();
         let mut editor = store.open_editor("folder/old").unwrap();
@@ -53,7 +53,7 @@ fn every_identity_workflow_preserves_the_attached_draft_and_exact_history() {
             "{action}"
         );
         assert_eq!(store.read(expected).unwrap(), "__日😀!__\r\n");
-        assert_eq!(store.read("old").unwrap(), "occupied\n");
+        assert_eq!(store.read("old").unwrap(), "occupied");
         drop(editor);
         assert_eq!(
             store.open_editor(expected).unwrap().source_text(),

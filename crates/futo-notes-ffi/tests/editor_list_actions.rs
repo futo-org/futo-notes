@@ -189,20 +189,6 @@ fn run(s: &NativeSession, command: &str, at: EditorByteRange) -> Option<EditorVi
     s.block_command_utf16(0, native, command).unwrap()
 }
 
-/// Source after an authored save of `source`: a nonempty note without a
-/// final line ending gains its own (CRLF or LF; portable-core/recovery.md).
-fn saved(source: &str) -> String {
-    if source.is_empty() || source.ends_with('\n') {
-        return source.to_owned();
-    }
-    let ending = if source.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
-    };
-    format!("{source}{ending}")
-}
-
 #[test]
 fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
     let cases: Vec<Value> = [
@@ -216,8 +202,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
     .flat_map(|file| serde_json::from_str::<Vec<Value>>(file).unwrap())
     .collect();
     assert!(cases.len() >= 150, "{} cases", cases.len());
-    // A typed final line ending a planted note lacked is not saved (the store
-    // counts the draft as on disk already); collected, so every case runs.
+    // A save that does not write exactly the draft; collected, so every case runs.
     let mut unsaved = Vec::new();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
@@ -264,17 +249,16 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
 
         s.checkpoint().unwrap();
         s.detach().unwrap();
-        let saved = saved(&after);
         let read = store.read("lists".into()).unwrap();
-        if read != saved {
+        if read != after {
             unsaved.push(format!("{name}: {after:?} saved as {read:?}"));
             continue;
         }
         let recovered = store.open_editor("lists".into()).unwrap();
-        assert_eq!(recovered.source_text().unwrap(), saved, "{name}");
+        assert_eq!(recovered.source_text().unwrap(), after, "{name}");
         assert_eq!(
             recovered.display_text().unwrap(),
-            EditorSession::open(&saved).display_text(),
+            EditorSession::open(&after).display_text(),
             "{name}"
         );
         let revision = recovered.revision().unwrap();

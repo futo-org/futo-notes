@@ -106,33 +106,26 @@ impl IdentityTransition {
         let Some(rewritten) = self.rewritten.take() else {
             return;
         };
-        let rewritten = crate::notes::saved_note_source(&rewritten).into_owned();
-        let draft = state.engine.source_text();
-        if crate::notes::same_saved_source(&draft, &self.before) {
-            // The draft adopts the rewrite in its own spelling: the final line
-            // ending saving appended is not an edit the user made.
-            let adopted = crate::notes::draft_spelling(rewritten.clone(), &draft);
+        if state.engine.source_text() == self.before {
             let revision = state.engine.revision();
             if state.portable {
                 // The page adopts the rewrite itself, as one Undo step.
-                if adopted != self.before {
+                if rewritten != self.before {
                     state.relink_offer = Some(futo_notes_editor::RelinkOffer {
                         revision,
-                        source: adopted,
+                        source: rewritten.clone(),
                     });
                 }
             } else if state.engine.composition().is_none() {
                 if let Ok(Some(change)) =
                     state
                         .engine
-                        .apply_own_relink(revision, &adopted, &mut |_| Ok(()))
+                        .apply_own_relink(revision, &rewritten, &mut |_| Ok(()))
                 {
                     state.coordinated.push(change);
                 }
             }
-            if state.relink_offer.is_some()
-                || crate::notes::same_saved_source(&state.engine.source_text(), &rewritten)
-            {
+            if state.relink_offer.is_some() || state.engine.source_text() == rewritten {
                 state.mark_saved();
             }
         }
