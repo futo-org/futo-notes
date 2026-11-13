@@ -96,12 +96,17 @@ fn keys(rows: usize) -> [EditWork; 3] {
     [typed, deleted, entered]
 }
 
+/// Typing and Backspace in a middle cell cost the same at 2,000 rows as at
+/// 100. Enter past the row's last pipe ends the table there (tables.md), so
+/// every row below reads again as a plain line: it costs about the bytes of
+/// the table, never more (maintainer decision 16A, 2026-11-13, as a fence
+/// opening or closing may cost the rest of the note).
 #[test]
 fn keys_in_a_middle_table_row_do_not_scale_with_the_table() {
     let small = keys(100).map(|work| total(&work));
     assert!(small.iter().all(|work| *work < 64 * 1024), "{small:?}");
     let large = keys(2_000).map(|work| total(&work));
-    for (key, (large, small)) in ["type", "backspace", "enter"]
+    for (key, (large, small)) in ["type", "backspace"]
         .iter()
         .zip(large.iter().zip(small))
     {
@@ -110,6 +115,12 @@ fn keys_in_a_middle_table_row_do_not_scale_with_the_table() {
             "{key}: {small} at 100 rows, {large} at 2,000"
         );
     }
+    let bytes = table(2_000).len();
+    assert!(
+        large[2] <= 2 * bytes + 1024,
+        "enter: {} at 2,000 rows of {bytes} bytes",
+        large[2]
+    );
 }
 
 // Single-character rows need 2,000 rows to exceed the ordinary partition

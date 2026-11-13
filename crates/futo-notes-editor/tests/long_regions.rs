@@ -163,12 +163,15 @@ fn local_keys_in_one_giant_region_do_not_scale_with_it() {
 }
 
 /// A paragraph that is one long line, like corpus note 882329: a typed key,
-/// Backspace, Enter and the Backspace that rejoins the line cost work near
-/// their 2,000-character size at 50,000 characters (word seams, #314). Enter
-/// goes after the space that ends the word, so the new line has no indent
-/// for the rejoining Backspace to take off.
+/// Backspace, Enter and the Backspace that rejoins the line each re-read the
+/// line, the reading unit, so they cost about twice its length and nothing
+/// beyond it (maintainer decision 15A, 2026-11-13: of 90,346 vault lines one
+/// is over 5,000 characters; the time per key on the Moto is in
+/// long-regions.md). At 2,000 characters that is about 4,000, as on the old
+/// engine. Enter goes after the space that ends the word, so the new line has
+/// no indent for the rejoining Backspace to take off.
 #[test]
-fn keys_in_one_long_line_do_not_scale_with_it() {
+fn keys_in_one_long_line_cost_work_in_proportion_to_the_line() {
     const WORDS: [&str; 8] = [
         "duck",
         "eggs",
@@ -189,7 +192,6 @@ fn keys_in_one_long_line_do_not_scale_with_it() {
         }
         source
     };
-    let mut small: Option<Vec<usize>> = None;
     for len in [2_000, 50_000] {
         let source = line(len);
         let mut session = EditorSession::open(&source);
@@ -220,19 +222,11 @@ fn keys_in_one_long_line_do_not_scale_with_it() {
         expected.remove(at + 1);
         assert_eq!(session.source_text(), expected, "{len} after rejoining");
         assert_eq!(session.display_text(), expected, "{len} display");
-        match &small {
-            Some(small) => {
-                for (key, (large, small)) in work.iter().zip(small).enumerate() {
-                    assert!(
-                        *large <= small * 3 / 2 + 1024,
-                        "key {key}: {small} at 2k, {large} at 50k ({work:?})"
-                    );
-                }
-            }
-            None => {
-                assert!(work.iter().all(|work| *work < 64 * 1024), "{work:?}");
-                small = Some(work);
-            }
+        for (key, measured) in work.iter().enumerate() {
+            assert!(
+                *measured <= 2 * len + 1024,
+                "key {key} at {len} characters: {measured} ({work:?})"
+            );
         }
     }
 }
