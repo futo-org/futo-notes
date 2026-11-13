@@ -4,7 +4,7 @@
 
 import { HARNESS_NOTE_PREFIX } from '../lib/android-native-instance.mjs';
 import { sleep } from '../lib/mcp-client.mjs';
-import { asSaved, assert, assertEqual } from './waits-and-assertions.mjs';
+import { assert, assertEqual } from './waits-and-assertions.mjs';
 
 // ── Android-leg scenarios ───────────────────────────────────────
 //
@@ -33,7 +33,7 @@ export async function androidReceivesDesktopNoteLive(desktop, android, server) {
   await desktop.syncNow();
 
   // The phone is never touched from here on: its Rust live loop has to pull…
-  await android.waitForNoteContent(ANDROID_SHARED_NOTE, asSaved(body));
+  await android.waitForNoteContent(ANDROID_SHARED_NOTE, body);
   // …and the pull has to refresh the Compose list (SyncManager.onLivePull →
   // NotesStore.reload), which is the glue a desktop-only mesh cannot see.
   await android.waitForNoteInList(ANDROID_SHARED_NOTE);
@@ -46,7 +46,7 @@ export async function desktopReceivesAndroidEditorEdit(desktop, android, server)
   const base = '# shared\nbase text';
   await desktop.writeNote(ANDROID_SHARED_NOTE, base);
   await desktop.syncNow();
-  await android.waitForNoteContent(ANDROID_SHARED_NOTE, asSaved(base));
+  await android.waitForNoteContent(ANDROID_SHARED_NOTE, base);
 
   // A real editor edit on the phone: the WebView posts the bridge `change`
   // message, the shell debounces a write, and NotesStore's mutation hook tells
@@ -66,7 +66,7 @@ export async function androidDefersFocusedPeerEditUntilBlur(desktop, android, se
   const base = '# focused on Android\nbase text';
   await desktop.writeNote(id, base);
   await desktop.syncNow();
-  await android.waitForNoteContent(id, asSaved(base));
+  await android.waitForNoteContent(id, base);
 
   await android.openNoteInEditor(id);
   await android.focusOpenEditor();
@@ -79,14 +79,10 @@ export async function androidDefersFocusedPeerEditUntilBlur(desktop, android, se
     focused: true,
     afterCursor: deferCursor,
   });
-  assertEqual(
-    android.readNote(id),
-    asSaved(peerEdit),
-    'Android vault should contain the peer edit',
-  );
+  assertEqual(android.readNote(id), peerEdit, 'Android vault should contain the peer edit');
   assertEqual(
     await android.readOpenEditorContent(),
-    asSaved(base),
+    base,
     'focused Android editor should not immediately adopt a peer edit',
   );
 
@@ -112,7 +108,7 @@ export async function androidDefersFocusedPeerEditUntilBlur(desktop, android, se
     focused: false,
     afterCursor: adoptCursor,
   });
-  await android.waitForOpenEditorContent(asSaved(peerEdit));
+  await android.waitForOpenEditorContent(peerEdit);
   assertEqual(
     android.openNoteDispositionsSince(adoptCursor, 'Adopt').length,
     1,
@@ -133,7 +129,7 @@ export async function androidDefersFocusedPeerEditUntilBlur(desktop, android, se
   const secondPeerEdit = '# focused on Android\nsecond peer edit';
   await desktop.writeNote(id, secondPeerEdit);
   await desktop.syncNow();
-  await android.waitForOpenEditorContent(asSaved(secondPeerEdit));
+  await android.waitForOpenEditorContent(secondPeerEdit);
   assertEqual(
     android.openNoteDispositionsSince(secondEdgeCursor, 'Adopt').length,
     1,
@@ -164,7 +160,7 @@ export async function androidKeepsADraftTypedWhileAPeerEditIsDeferred(desktop, a
   const base = '# deferred draft\nbase text';
   await desktop.writeNote(id, base);
   await desktop.syncNow();
-  await android.waitForNoteContent(id, asSaved(base));
+  await android.waitForNoteContent(id, base);
 
   await android.openNoteInEditor(id);
   await android.focusOpenEditor();
@@ -192,12 +188,12 @@ export async function androidKeepsADraftTypedWhileAPeerEditIsDeferred(desktop, a
     'a draft typed while a peer edit was deferred must not be clobbered on blur',
   );
   const conflictId = await waitForAndroidConflictCopy(android, id, localDraft);
-  await android.waitForNoteContent(id, asSaved(peerEdit));
+  await android.waitForNoteContent(id, peerEdit);
 
   // And it is not a phone-only survival: both texts reach the fleet, so no
   // client is left having lost either edit.
   await waitForDesktopNoteContent(desktop, conflictId, localDraft);
-  await waitForDesktopNoteContent(desktop, id, asSaved(peerEdit));
+  await waitForDesktopNoteContent(desktop, id, peerEdit);
 }
 
 /** Poll the desktop client for content the phone pushed. Each iteration runs a
