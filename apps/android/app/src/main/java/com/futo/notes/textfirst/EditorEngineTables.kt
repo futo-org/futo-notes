@@ -25,14 +25,19 @@ internal fun EditorEngine.tableSpans(tables: List<EditorTableDescription>): List
     for (table in tables) {
         val tableStart = mirror.toUtf16(table.display.start.toInt())
         for ((i, row) in table.rows.withIndex()) {
+            val line = table.rowLines[i]
+            val start = mirror.toUtf16(line.start.toInt())
+            val end = mirror.toUtf16(line.end.toInt())
+            // Cell boundaries arrive in row order. Walk Unicode text forward once,
+            // instead of rescanning the row from its start for every boundary.
+            val offsets = LocalOffsets(mirror.text.substring(start, end), line.start.toInt(), start, mirror::toUtf16)
             val cells = row.map { cell ->
-                val a = mirror.toUtf16(cell.content.start.toInt())
-                val b = mirror.toUtf16(cell.content.end.toInt())
+                val a = offsets.utf16(cell.content.start.toInt())
+                val b = offsets.utf16(cell.content.end.toInt())
                 GridCell(a, b, mirror.text.substring(a, b), table.alignments[cell.column.toInt()])
             }
             if (cells.isEmpty()) continue
-            val line = table.rowLines[i]
-            out += SpanSpec.TableRow(mirror.toUtf16(line.start.toInt()), mirror.toUtf16(line.end.toInt()), GridRow(cells, table.columns.toInt(), i == 0, tableStart))
+            out += SpanSpec.TableRow(start, end, GridRow(cells, table.columns.toInt(), i == 0, tableStart))
             if (i == 0) table.delimiterLine?.let { out += SpanSpec.TableDelimiter(mirror.toUtf16(it.start.toInt()), mirror.toUtf16(it.end.toInt())) }
         }
     }
