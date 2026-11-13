@@ -224,14 +224,6 @@ impl Engine {
         if cut.end > entry.body_len() || !inline_line(entry) {
             return None;
         }
-        let glyphs = glyphs(entry);
-        let removed = glyph_range(&glyphs, &cut);
-        let expect: Vec<Expect> = glyphs[..removed.start]
-            .iter()
-            .chain(&glyphs[removed.end..])
-            .map(Expect::same)
-            .collect();
-        let draft = Draft::of(entry);
         let mut text = entry.text.clone();
         text.replace_range(cut.clone(), "");
         let map = |at: usize| {
@@ -270,6 +262,16 @@ impl Engine {
         if !spans.iter().any(edged) {
             return None;
         }
+        // Only now read the line glyph by glyph: most deletions leave no
+        // span edged, and a long line is costly to walk.
+        let glyphs = glyphs(entry);
+        let removed = glyph_range(&glyphs, &cut);
+        let expect: Vec<Expect> = glyphs[..removed.start]
+            .iter()
+            .chain(&glyphs[removed.end..])
+            .map(Expect::same)
+            .collect();
+        let draft = Draft::of(entry);
         // Innermost first: a closing mark before the others it nests in.
         spans.sort_by_key(|(_, close)| close.start);
         for (open, close) in &spans {
