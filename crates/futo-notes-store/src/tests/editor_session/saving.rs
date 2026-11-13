@@ -269,6 +269,37 @@ fn a_relink_after_a_save_keeps_the_drafts_missing_final_line_ending() {
 }
 
 #[test]
+fn a_draft_that_differs_from_the_disk_only_by_its_final_line_ending_is_written() {
+    // A line break typed at the end of a note with no final line ending.
+    let root = TestRoot::new();
+    let store = store(&root);
+    plant_note(&root, "list", "- a\nb");
+    let mut editor = store.open_editor("list").unwrap();
+    editor.replace(Revision(0), range(3, 3), "\n").unwrap();
+    assert_eq!(editor.source_text(), "- a\nb\n");
+    assert!(editor.checkpoint().unwrap().mutation.is_some());
+    assert_eq!(
+        fs::read_to_string(root.0.join("list.md")).unwrap(),
+        "- a\nb\n"
+    );
+    drop(editor);
+    let editor = store.open_editor("list").unwrap();
+    assert_eq!(editor.source_text(), "- a\nb\n");
+    drop(editor);
+    // The same draft flushed by a host with its own baseline.
+    plant_note(&root, "plain", "x");
+    store.flush_draft_unattached("plain", "x", "x\n").unwrap();
+    assert_eq!(fs::read_to_string(root.0.join("plain.md")).unwrap(), "x\n");
+    // Removing a final line ending writes nothing: saving puts it back, and
+    // the disk already holds those bytes.
+    let mut editor = store.open_editor("plain").unwrap();
+    editor.replace(Revision(0), range(1, 2), "").unwrap();
+    assert_eq!(editor.source_text(), "x");
+    assert_eq!(editor.checkpoint().unwrap().mutation, None);
+    assert_eq!(fs::read_to_string(root.0.join("plain.md")).unwrap(), "x\n");
+}
+
+#[test]
 fn deleting_an_attached_note_ends_the_session() {
     let root = TestRoot::new();
     let store = store(&root);

@@ -67,8 +67,9 @@ impl Attachment {
         // changed outside follows that source: it is never a draft, so it is
         // never parked. A missing clean note has no draft to persist: never
         // feed it to the edit-wins recreate arm.
-        let clean =
-            crate::notes::same_saved_source(&source, &self.base) && self.pending_merge.is_none();
+        // Clean is the exact baseline: a draft that differs from it only by a
+        // final line ending is an edit, written unless the disk holds it.
+        let clean = source == self.base && self.pending_merge.is_none();
         let outside = if clean && !self.portable && self.relink_offer.is_none() {
             store
                 .read_existing(&self.id)

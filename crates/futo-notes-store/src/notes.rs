@@ -29,9 +29,17 @@ pub(crate) fn saved_note_source(source: &str) -> std::borrow::Cow<'_, str> {
 }
 
 /// Two sources that save as the same bytes: they differ at most by the final
-/// line ending that saving appends.
+/// line ending that saving appends. Never a reason to skip a write: whether
+/// the disk already holds a draft is `disk_holds`.
 pub(crate) fn same_saved_source(a: &str, b: &str) -> bool {
     saved_note_source(a) == saved_note_source(b)
+}
+
+/// Whether `disk` already holds `draft`: its exact bytes, or exactly the bytes
+/// saving it writes. A draft that differs from the disk in any other way, a
+/// final line ending typed or removed included, is written.
+pub(crate) fn disk_holds(disk: &str, draft: &str) -> bool {
+    disk == draft || disk == saved_note_source(draft)
 }
 
 /// A saved-form merge spelled for a draft that has no final line ending, so
