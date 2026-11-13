@@ -7,6 +7,7 @@ mod fences;
 mod find;
 mod images;
 mod inline;
+mod input;
 mod lists;
 mod projection;
 mod properties;

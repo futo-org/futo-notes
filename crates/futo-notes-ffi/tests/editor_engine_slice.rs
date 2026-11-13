@@ -75,7 +75,8 @@ fn a_typed_list_item_draws_its_marker_as_typed_and_saves_exactly_what_was_typed(
         rows(&session, rev).last(),
         Some(&(0, EditorListMarker::Ordered, "3)".to_owned()))
     );
-    // Enter writes a line break, and an indented plain line draws at its own indent.
+    // Enter continues the numbered list with the next number; Enter on that
+    // empty item takes its marker off, leaving a plain line.
     let change = session
         .paragraph_key_utf16(
             rev,
@@ -89,6 +90,24 @@ fn a_typed_list_item_draws_its_marker_as_typed_and_saves_exactly_what_was_typed(
         .display_to_utf16(rev, change.selection)
         .unwrap()
         .start;
+    assert_eq!(
+        rows(&session, rev).last(),
+        Some(&(0, EditorListMarker::Ordered, "4)".to_owned()))
+    );
+    let change = session
+        .paragraph_key_utf16(
+            rev,
+            EditorUtf16Range { start: at, end: at },
+            EditorParagraphKey::Enter,
+        )
+        .unwrap()
+        .unwrap();
+    rev = change.revision;
+    at = session
+        .display_to_utf16(rev, change.selection)
+        .unwrap()
+        .start;
+    // An indented plain line draws at its own indent.
     for ch in "  note".chars() {
         let change = session
             .replace_utf16_action(

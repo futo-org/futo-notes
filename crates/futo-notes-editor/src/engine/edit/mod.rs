@@ -299,9 +299,10 @@ impl Engine {
     ) -> Result<Option<Change>, EditorError> {
         self.check_revision(expected)?;
         let ordered = runs.iter().all(|run| run.range.start.0 <= run.range.end.0)
-            && runs
-                .windows(2)
-                .all(|pair| pair[0].range.end.0 <= pair[1].range.start.0);
+            && runs.windows(2).all(|pair| {
+                pair[0].range.end.0 <= pair[1].range.start.0
+                    && pair[0].range.start != pair[1].range.start
+            });
         match runs {
             [] => return Err(EditorError::InvalidRange),
             [one] => {

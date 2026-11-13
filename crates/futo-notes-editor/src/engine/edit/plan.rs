@@ -3,7 +3,7 @@
 use super::super::line::Role;
 use super::super::{read, store, Engine};
 use crate::lines::{Kind, SpanKind};
-use crate::{Affinity, DisplayOffset, DisplayRange, InputAction};
+use crate::{DisplayOffset, DisplayRange, InputAction};
 use std::ops::Range;
 
 /// A planned text edit and where the caret ends up after it.
@@ -106,14 +106,19 @@ impl Engine {
     /// Typing `inserted` at a collapsed `range`: exactly that, where the
     /// caret maps, unless it is at a divider's edge.
     fn at_caret(&self, range: DisplayRange, inserted: String) -> Plan {
+        // Input at a caret the host placed elsewhere stands where a fresh
+        // selection of it would: after hidden syntax only at the note's
+        // start, otherwise before it, so text typed where a span ends lands
+        // inside it. The core's own affinity belongs to its own selection,
+        // not to this offset.
         let at = if range == self.selection {
             self.caret_source()
         } else {
             let (lo, hi) = self.source_bounds(range.start.0);
-            if self.affinity == Affinity::Backward {
-                lo
-            } else {
+            if range.start.0 == 0 {
                 hi
+            } else {
+                lo
             }
         };
         if let Some((written, caret)) = self.beside_divider(at, &inserted) {

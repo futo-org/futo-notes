@@ -115,6 +115,26 @@ What each family landed, merged into `linedown` in this order. The status file i
   column whose only cell was open left `|  `. Budgets: the pipeless-tail case 4,041 -> 37
   (those lines are plain now); typing in a middle cell of a 20,000-row table 3,201 -> 302,
   the same as at 100 rows.
+- Merged: inline formatting and links (`engine/commands/inline/`, 94 cases). A collapsed toggle
+  sets the carried formats; typing there writes the marks around what is typed (a space at a
+  span's end lands outside, the next letter rejoins). A selection toggle works per line and per
+  table cell; each spelling is read back on its line and kept only if the visible text and every
+  other character's formats are unchanged; nothing is escaped; `__`/`_` only where `*` cannot
+  open or close. Links: inspect, set, edit, unlink; destination plain, else `<...>`, else `\`
+  escapes, chosen by read-back. Old bug fixed: deleting `c` from `**b c**` left `**b **`; it now
+  writes `**b** ` (except at a line start, where the space would indent the line). Budgets:
+  select-all bold over 1,000 sections, metadata items 883,613 -> 17,000; distant typing 501-602
+  -> 18. Spec: formatting lines moved to the new `inline-formatting.md`.
+- Fixed after the inline merge: marked text draws in the formats it will commit with
+  (`Engine::marked_runs`); under the switch compositions reported no runs.
+- Old tests the brief says must pass unchanged, on the core after the inline merge
+  (passed/failed): native_input_traces 0/1, composition 11/8, compound_composition 0/5,
+  compose_after_break 1/0, compose_after_break_review 0/4, history 8/9, find 4/1 (3 rows
+  CommonMark), host_mirror 11/0, host_find_plan 18/0, unicode 4/2, external 2/1, portable 12/2,
+  wikilinks 3/2, wikilink_completion 3/1, images 5/2, tags 4/1, link_target 8/0, plain_note
+  2/1. Being triaged: composition group (inline lane), history/native traces/unicode/
+  plain_note/external/portable (external lane), wikilinks/completion/tags (wikilinks lane),
+  images (images lane).
 - The wikilinks merge put `engine/mod.rs` over the size limit: selection and movement moved
   to `engine/selection.rs`, UTF-16 conversions to `engine/utf16.rs`, verbatim.
 - Rule kept, noted by the fences lane: typing after a ``` that is the note's last line goes
