@@ -37,7 +37,6 @@
                     .compose(["k", "か"], .unmark, .keyboard),
                     .input(.insert("日"), .keyboard),
                 ]),
-            // Open engine bugs (docs/plan/next-steps-2026-11-09.md, engine fix lane).
             // Fixed in this lane: after a refused edit the view kept the caret where the dropped
             // edit left it (here inside the emoji), so the next key named an invalid range.
             RandomInputRow(
@@ -48,18 +47,16 @@
                     .tool("code-block"), .input(.select(7, 44), .keyboard),
                     .input(.insert("w"), .keyboard), .enter,
                 ]),
+            // The rows below that once carried a next-steps item pass on the core (#423).
             RandomInputRow(
                 name: "typing over a selection from a paragraph into a list",
-                ops: [.input(.select(69, 108), .keyboard), .input(.insert("."), .keyboard)],
-                knownIssue: crossBlock),
+                ops: [.input(.select(69, 108), .keyboard), .input(.insert("."), .keyboard)]),
             RandomInputRow(
                 name: "Enter over a selection from a paragraph into a list",
-                ops: [.input(.select(69, 108), .keyboard), .enter],
-                knownIssue: crossBlock),
+                ops: [.input(.select(69, 108), .keyboard), .enter]),
             RandomInputRow(
                 name: "pasting over a selection from a paragraph into a list",
-                ops: [.input(.select(69, 108), .keyboard), .paste("plain")],
-                knownIssue: crossBlock),
+                ops: [.input(.select(69, 108), .keyboard), .paste("plain")]),
             // Fixed in the engine (a selection across a code block's boundary keeps the code
             // lines it leaves; docs/spec/editor/portable-core/interpretation-and-input.md).
             RandomInputRow(
@@ -114,8 +111,7 @@
                 ops: [
                     .input(.select(55, 151), .keyboard), .enter,
                     .input(.insert(" "), .keyboard), .input(.backspace, .keyboard),
-                ],
-                knownIssue: backspace),
+                ]),
             // Fixed by main's engine (merged into ios-text-first 2026-11-09).
             RandomInputRow(
                 name: "Enter in a task item holding a pasted code block",
@@ -124,35 +120,30 @@
                 name: "Enter after Backspace in a numbered item holding a pasted quote",
                 ops: [
                     .tool("ordered-list"), .paste("> q"), .input(.backspace, .keyboard), .enter,
-                ],
-                knownIssue: atCaret),
+                ]),
             RandomInputRow(
                 name: "dictation after a list marker typed over a selection",
                 ops: [
                     .input(.dictation([" spoken", " words"]), .keyboard),
                     .input(.replace(32, 46, "1. "), .keyboard),
                     .input(.dictation([" spoken", " words"]), .keyboard),
-                ],
-                knownIssue: atCaret),
+                ]),
             RandomInputRow(
                 name: "replacing a word below a task item holding a pasted code block",
                 ops: [
                     .tool("task-list"), .enter, .enter, .paste("```\ncode\n```"),
                     .input(.replace(48, 52, "hello"), .keyboard),
-                ],
-                knownIssue: word),
+                ]),
             RandomInputRow(
                 name: "pasting a list at the start of a table row",
-                ops: [.input(.select(203, 203), .keyboard), .paste("- a\n- b")],
-                knownIssue: invalidRange),
+                ops: [.input(.select(203, 203), .keyboard), .paste("- a\n- b")]),
             RandomInputRow(
                 name: "Enter over a list item's line break before lazy text",
                 ops: [
                     .input(.select(0, 12), .keyboard), .tool("ordered-list"),
                     .input(.insert("é"), .bare), .input(.insert(" "), .keyboard),
                     .input(.select(1, 3), .keyboard), .enter,
-                ],
-                knownIssue: invalidRange),
+                ]),
             RandomInputRow(
                 name: "a composition committed at a caret after an undo",
                 ops: [
@@ -160,8 +151,7 @@
                     .input(.insert("-"), .keyboard), .input(.insert("the"), .keyboard), .undo,
                     .input(.insert("😀"), .keyboard), .input(.select(40, 40), .keyboard),
                     .input(.backspace, .keyboard), .compose(["k"], .unmark, .keyboard),
-                ],
-                knownIssue: commit),
+                ]),
         ]
 
         /// The open bug (a next-steps item) a failed check is an instance of, if any. Each is an

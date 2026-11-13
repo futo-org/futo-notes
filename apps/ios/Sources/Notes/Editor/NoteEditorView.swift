@@ -286,7 +286,8 @@ struct NoteEditorView: View {
                 // nothing behind (list.md).
                 var shouldReleaseDraft = true
                 if !session.isClosing && isUntouchedCapture {
-                    store.deleteAsync(noteId, ownerToken: draftToken)
+                    // Only if still empty: a peer's write may have landed on it meanwhile.
+                    store.deleteAsync(noteId, ownerToken: draftToken, onlyIfEmpty: true)
                 } else if session.shouldFlushOnLeave(
                     loaded: loaded,
                     content: content,

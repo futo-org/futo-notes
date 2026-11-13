@@ -7,7 +7,7 @@ fn native_isolated_input_and_compound_runs_preserve_exact_history_and_validate_e
     let tree = TempTree::new();
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
-    let opening = "__cat__ &amp; _dog_\r\n";
+    let opening = "__cat__ & _dog_\r\n";
     store
         .create_note("history".into(), "".into(), opening.into())
         .unwrap();
@@ -27,7 +27,7 @@ fn native_isolated_input_and_compound_runs_preserve_exact_history_and_validate_e
             ],
         )
         .unwrap();
-    assert_eq!(session.source_text().unwrap(), "__kitten__ &amp; _ox_\r\n");
+    assert_eq!(session.source_text().unwrap(), "__kitten__ & _ox_\r\n");
     session
         .replace_utf16_action(
             1,
@@ -36,10 +36,7 @@ fn native_isolated_input_and_compound_runs_preserve_exact_history_and_validate_e
             EditorInputAction::CompositionCommit,
         )
         .unwrap();
-    assert_eq!(
-        session.source_text().unwrap(),
-        "__kitten__ &amp; _ox日本_\r\n"
-    );
+    assert_eq!(session.source_text().unwrap(), "__kitten__ & _ox日本_\r\n");
     session
         .replace_utf16_action(
             2,
@@ -48,10 +45,7 @@ fn native_isolated_input_and_compound_runs_preserve_exact_history_and_validate_e
             EditorInputAction::Isolated,
         )
         .unwrap();
-    assert_eq!(
-        session.source_text().unwrap(),
-        "__kitten__ &amp; _ox日本!_\r\n"
-    );
+    assert_eq!(session.source_text().unwrap(), "__kitten__ & _ox日本!_\r\n");
     assert!(matches!(
         session.replace_many_utf16(
             3,
@@ -70,8 +64,8 @@ fn native_isolated_input_and_compound_runs_preserve_exact_history_and_validate_e
     ));
     assert_eq!(session.revision().unwrap(), 3);
     for (revision, expected) in [
-        (3, "__kitten__ &amp; _ox日本_\r\n"),
-        (4, "__kitten__ &amp; _ox_\r\n"),
+        (3, "__kitten__ & _ox日本_\r\n"),
+        (4, "__kitten__ & _ox_\r\n"),
         (5, opening),
     ] {
         session.undo(revision).unwrap().unwrap();
@@ -81,15 +75,12 @@ fn native_isolated_input_and_compound_runs_preserve_exact_history_and_validate_e
     for revision in 6..9 {
         session.redo(revision).unwrap().unwrap();
     }
-    assert_eq!(
-        session.source_text().unwrap(),
-        "__kitten__ &amp; _ox日本!_\r\n"
-    );
+    assert_eq!(session.source_text().unwrap(), "__kitten__ & _ox日本!_\r\n");
     session.detach().unwrap();
     let reopened = store.open_editor("history".into()).unwrap();
     assert_eq!(
         reopened.source_text().unwrap(),
-        "__kitten__ &amp; _ox日本!_\r\n"
+        "__kitten__ & _ox日本!_\r\n"
     );
     assert!(reopened.undo(0).unwrap().is_none());
 }

@@ -45,10 +45,7 @@ impl LocalNoteStore {
         paths::note_path(&self.root, id)?;
         paths::note_path(&self.root, wanted_id)?;
         match self.read_note_file(id) {
-            Ok(current)
-                if !crate::notes::same_saved_source(&current, base)
-                    && !crate::notes::same_saved_source(&current, content) =>
-            {
+            Ok(current) if current != base && current != content => {
                 let parked = self.park_conflict_draft(wanted_id, content)?;
                 if let Some(mutation) = parked.mutation {
                     return Ok(mutation);
@@ -61,7 +58,7 @@ impl LocalNoteStore {
                 Ok(self.upsert_mutation(metadata))
             }
             Ok(current) => {
-                if !crate::notes::same_saved_source(&current, content) {
+                if current != content {
                     self.write_raw(id, content, None)?;
                 }
                 self.rename_raw(id, wanted_id)

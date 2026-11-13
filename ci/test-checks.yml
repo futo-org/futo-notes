@@ -1,25 +1,24 @@
-# Included by .gitlab-ci.yml: the main test job, release-notes checks, and the audit reporters.
+# Included by .gitlab-ci.yml: the main test job, the release-notes check, and the audit reporters.
 
 # ─────────────────────────────────────────────────────────────
 # Tests
-# Release tag pipelines run the full validation set automatically. MR
-# pipelines auto-run every suite whose `changes:` paths the MR touches; a
-# trailing manual+allow_failure rule keeps each suite one click away on
-# unrelated MRs. Manual-only is reserved for jobs that publish something
-# (build:ci-android-image) or need protected secrets that don't exist on MR
-# pipelines (the Windows Proxmox chain — see windows:provision).
+# Merge requests get NO pipeline (experiment from 2026-11-11, workflow: in
+# .gitlab-ci.yml): whoever opens an MR runs `just check` locally. Main pushes
+# re-run each suite whose `changes:` paths the merge touched, so a break
+# surfaces within minutes of merging; release tag pipelines run the full
+# validation set and release:gate still blocks publication on it.
 # ─────────────────────────────────────────────────────────────
 
 test:
   extends: .ci-test-image
   stage: test
-  # Runner 71 (dind_fast), like the three Playwright jobs below. Untagged, ~75%
+  # Runner 112 ($LINUX_RUNNER_TAG), like the three Playwright jobs below. Untagged, ~75%
   # of these jobs landed on runner 55, which ran this one at a 7m15 median
-  # against 1m27 on runner 71 (14 days to 2026-10-08): 55 is locked to
+  # against 1m27 on a fast runner (14 days to 2026-10-08): 55 is locked to
   # pull_policy always (130-320s re-pulling the image every job), its pnpm
   # store cache misses (all 449 packages downloaded every job), and it runs up
-  # to 11 jobs at once. Runner 71 caps out at five concurrent jobs, so these
-  # can queue behind it there; they no longer queue behind a slow box.
+  # to 11 jobs at once. Runner 112 runs two jobs at once, so these can queue
+  # behind it; they no longer queue behind a slow box.
   tags:
     - $LINUX_RUNNER_TAG
   # No resource_group: the cross-pipeline lock queued every MR behind one job
@@ -28,10 +27,10 @@ test:
   # starved runner (pipelines 39228, 39298), killing jobs with 2-6 min of script.
   timeout: 25m
   # No scope classifier: this job always runs the full script. A documentation
-  # MR pays the pnpm install, and in exchange there is exactly one path that can
+  # merge pays the pnpm install, and in exchange there is exactly one path that can
   # be reasoned about. The docs gates it used to shortcut to (check-agent-docs,
   # check-qa-input-safety) run here inside check:arch-gate:portable, so nothing
-  # a Markdown-only MR could break goes unchecked — which is the db31586c
+  # a Markdown-only change could break goes unchecked — which is the db31586c
   # regression this repo already paid for once (M24).
   # `test:` deliberately keeps NO before_script of its own: the override only
   # existed to defer pnpm/Corepack for the deleted docs fast path. Inheriting
@@ -48,7 +47,7 @@ test:
     - pnpm run lint:platform
     - pnpm run check:svelte
     - pnpm run format:check
-    # Keep portable anti-duplication gates in the first mandatory MR job.
+    # Keep portable anti-duplication gates in the first test job.
     # Rust-only dependency boundaries live with the Rust workspace suite.
     - pnpm run check:arch-gate:portable
     - pnpm run test:full
@@ -58,7 +57,6 @@ test:
     - pnpm exec vite build --config vite.editor.config.ts
   rules:
     - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 # Store release notes must exist, and fit, BEFORE anything is built.
@@ -73,24 +71,12 @@ test:
 check:release-notes:
   stage: test
   needs: []
+  tags:
+    - $LIGHT_RUNNER_TAG
   script:
     - node scripts/release-notes.mjs --tag "$CI_COMMIT_TAG" --check
   rules:
     - if: $CI_COMMIT_TAG
-
-# The same validation on the MR that WRITES the notes, where a fix is an edit
-# rather than a re-tag. Checks every committed file, not just the new one.
-check:release-notes:mr:
-  stage: test
-  needs: []
-  script:
-    - node scripts/release-notes.mjs --all
-  rules:
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - release-notes/**/*
-        - scripts/release-notes.mjs
-        - scripts/lib/release-notes.mjs
 
 # ── Dependency vulnerability scan ──
 # Fails only on a vulnerability in code that ships — a production npm package or a crate
@@ -102,6 +88,8 @@ check:release-notes:mr:
 test:audit:
   stage: test
   needs: []
+  tags:
+    - $LIGHT_RUNNER_TAG
   allow_failure: true
   variables:
     CARGO_AUDIT_VERSION: '0.22.2'
@@ -146,6 +134,8 @@ test:audit:
 test:localization-audit:
   stage: test
   needs: []
+  tags:
+    - $LIGHT_RUNNER_TAG
   cache:
     - !reference [.cache-pnpm, cache]
   script:
@@ -154,14 +144,6 @@ test:localization-audit:
   rules:
     - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - languages/**/*
-        - scripts/language-catalogs.mjs
-        - package.json
-        - pnpm-lock.yaml
-        - ci/*.yml
-        - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
         - languages/**/*
@@ -178,6 +160,8 @@ test:localization-audit:
 test:puppet-gates:
   stage: test
   needs: []
+  tags:
+    - $LIGHT_RUNNER_TAG
   allow_failure: true
   rules:
     - !reference [.not-scheduled, rules]

@@ -14,9 +14,9 @@ import {
 } from './ci-wait.mjs';
 
 describe('parseTarget', () => {
-  it('tells an MR, a sha, and a branch apart', () => {
-    expect(parseTarget('mr:291')).toEqual({ kind: 'mr', iid: 291 });
-    expect(parseTarget('!291')).toEqual({ kind: 'mr', iid: 291 });
+  it('tells a sha and a branch apart, and rejects an MR (MRs get no pipeline)', () => {
+    expect(parseTarget('mr:291')).toBeNull();
+    expect(parseTarget('!291')).toBeNull();
     expect(parseTarget('6d59965d')).toEqual({ kind: 'sha', sha: '6d59965d' });
     expect(parseTarget('chore/agent-dx')).toEqual({ kind: 'ref', ref: 'chore/agent-dx' });
     expect(parseTarget(undefined)).toBeNull();
@@ -90,14 +90,6 @@ function fakeApi(script) {
 }
 
 describe('findPipeline', () => {
-  it('uses the MR head pipeline, falling back to the MR pipelines list', async () => {
-    const api = fakeApi([
-      ['/merge_requests/5/pipelines', [[{ id: 9, status: 'running' }]]],
-      ['/merge_requests/5', [{ iid: 5, head_pipeline: null }]],
-    ]);
-    expect(await findPipeline({ kind: 'mr', iid: 5 }, api)).toEqual({ id: 9, status: 'running' });
-  });
-
   it('queries by sha and by ref', async () => {
     const api = fakeApi([['/pipelines?', [[{ id: 1 }]]]]);
     await findPipeline({ kind: 'sha', sha: 'abc1234' }, api);
@@ -189,17 +181,16 @@ describe('waitForPipeline', () => {
 });
 
 describe('formatMrLine', () => {
-  it('shows draft state, head pipeline, and conflicts on one line', () => {
+  it('shows draft state and conflicts on one line', () => {
     const line = formatMrLine({
       iid: 290,
       draft: false,
-      head_pipeline: { status: 'success' },
       created_at: '2026-09-04T18:00:00Z',
       source_branch: 'chore/repo-fat-audit',
       title: 'chore(repo): trim historical docs and agent scaffolding',
       has_conflicts: true,
     });
-    expect(line).toMatch(/^!290\s+ready\s+success\s+2026-09-04\s+chore\/repo-fat-audit/);
+    expect(line).toMatch(/^!290\s+ready\s+2026-09-04\s+chore\/repo-fat-audit/);
     expect(line).toContain('CONFLICTS');
   });
 });

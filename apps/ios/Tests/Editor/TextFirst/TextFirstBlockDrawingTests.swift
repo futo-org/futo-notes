@@ -149,7 +149,7 @@
         @Test func listRowsCarryTheirMarkerNumberAndTaskState() {
             let h = TextFirstHarness("- bullet\n\n1. first\n2. second\n\n- [ ] open\n- [x] done\n")
             #expect(block(h, atLineStartingWith: "bullet")?.list?.marker == .bullet)
-            #expect(block(h, atLineStartingWith: "second")?.list?.number == 2)
+            #expect(block(h, atLineStartingWith: "second")?.list?.text == "2.")
             #expect(block(h, atLineStartingWith: "open")?.list?.marker == .task)
             #expect(block(h, atLineStartingWith: "open")?.list?.checked == false)
             #expect(block(h, atLineStartingWith: "done")?.list?.checked == true)
@@ -172,13 +172,27 @@
 
         @Test func nestedListsIndentAndQuotesDrawBars() {
             let h = TextFirstHarness("- a\n  - nested\n\n> > deep\n")
-            #expect(block(h, atLineStartingWith: "nested")?.list?.depth == 1)
+            let nested = block(h, atLineStartingWith: "nested")?.list
+            #expect(nested?.indent == 2)
             #expect(block(h, atLineStartingWith: "deep")?.quoteDepth == 2)
             let at = (h.tv.text as NSString).range(of: "nested").location
             let style =
                 h.controller.storage.attribute(.paragraphStyle, at: at, effectiveRange: nil)
                 as! NSParagraphStyle
-            #expect(style.headIndent == TextFirstMetrics.listIndent(depth: 1))
+            #expect(nested.map { style.headIndent == TextFirstMetrics.listIndent($0) } == true)
+        }
+
+        @Test func equivalentListWhitespaceUsesTheSameNestingGeometry() {
+            for whitespace in ["  ", "    ", "\t"] {
+                let source = "- root\n\(whitespace)- child\n\(whitespace)\(whitespace)- grandchild"
+                let h = TextFirstHarness(source)
+                for (word, level) in [("root", 0), ("child", 1), ("grandchild", 2)] {
+                    let row = block(h, atLineStartingWith: word)?.list
+                    #expect(row?.level == level)
+                    #expect(row.map(TextFirstMetrics.listIndent) == 30 + CGFloat(level) * 24)
+                }
+                #expect(h.source == source)
+            }
         }
 
         @Test func codeBlocksAndDividersAreDrawnNotTyped() {
@@ -190,6 +204,39 @@
                 h.controller.storage.attribute(.tfBlock, at: divider, effectiveRange: nil)
                 as? TextFirstBlockAttribute
             #expect(b?.divider == true)
+        }
+
+        @Test func codeLanguageIsDrawnOnceFromTheProjection() {
+            let h = TextFirstHarness("```swift\nlet answer = 42\nprint(answer)\n```")
+            #expect(block(h, atLineStartingWith: "let answer")?.codeLanguage == "swift")
+            #expect(block(h, atLineStartingWith: "print")?.codeLanguage == nil)
+            #expect(h.source == "```swift\nlet answer = 42\nprint(answer)\n```")
+        }
+
+        @Test func aCodeLanguageHasHeaderSpaceAboveALongFirstLine() {
+            let h = TextFirstHarness(
+                "```swift\n" + String(repeating: "long code ", count: 30) + "\n```")
+            h.tv.layoutIfNeeded()
+            let manager = h.tv.textLayoutManager!
+            var found = false
+            manager.enumerateTextLayoutFragments(
+                from: manager.documentRange.location, options: [.ensuresLayout]
+            ) { fragment in
+                guard let row = fragment as? TextFirstLayoutFragment, row.block.codeLanguage != nil
+                else { return true }
+                found = true
+                #expect(row.topMargin >= 16)
+                #expect(row.textLineFragments.first!.typographicBounds.minY >= 16)
+                return true
+            }
+            #expect(found)
+        }
+
+        @Test func adjacentCodeBlocksEachDrawTheirLanguage() {
+            let h = TextFirstHarness("```swift\nfirst\n```\n```rust\nsecond\nthird\n```")
+            #expect(block(h, atLineStartingWith: "first")?.codeLanguage == "swift")
+            #expect(block(h, atLineStartingWith: "second")?.codeLanguage == "rust")
+            #expect(block(h, atLineStartingWith: "third")?.codeLanguage == nil)
         }
 
         @Test func tappingACheckboxTogglesThroughTheEngineAndKeepsTheCaret() {
@@ -253,7 +300,7 @@
             h.select(3, 3)
             #expect(h.controller.paragraphKey(.tab, onlyIfChanged: true))
             #expect(h.source.hasPrefix("- a\n\t- b"))
-            #expect(block(h, atLineStartingWith: "b")?.list?.depth == 1)
+            #expect((block(h, atLineStartingWith: "b")?.list?.indent ?? 0) > 0)
             #expect(h.controller.paragraphKey(.shiftTab, onlyIfChanged: true))
             #expect(h.source.hasPrefix("- a\n- b"))
             // Outside a list the key is UIKit's.
@@ -270,6 +317,68 @@
             #expect(h.source.hasPrefix("- item\n- "))
             #expect(block(h, atLineStartingWith: "item")?.list?.marker == .bullet)
             #expect(h.controller.divergences.isEmpty)
+        }
+
+        /// iOS sim, Fences row 5: after Enter left a code block at the note's end, the empty
+        /// last line (where the caret is) was drawn inside the code background. The engine says
+        /// that line is no code; TextKit lays it out in the code paragraph's fragment.
+        @Test func theEmptyLineAfterACodeBlockIsNotDrawnAsCode() throws {
+            let h = TextFirstHarness("```\ncode line\n```\n")
+            #expect((h.tv.text as NSString).hasSuffix("\n"))
+            #expect(h.controller.trailingBlock == nil)
+            h.window.overrideUserInterfaceStyle = .light
+            h.tv.layoutIfNeeded()
+            let manager = h.tv.textLayoutManager!
+            let fragment = try #require(
+                manager.textLayoutFragment(for: manager.documentRange.location)
+                    as? TextFirstLayoutFragment)
+            #expect(fragment.block.code)
+            let lines = fragment.textLineFragments
+            try #require(lines.count == 2 && lines[1].characterRange.length == 0)
+            // The fragment drawn alone, its frame's origin at the image's.
+            let size = CGSize(
+                width: fragment.containerWidth, height: fragment.layoutFragmentFrame.height)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            let image = UIGraphicsImageRenderer(size: size, format: format).image { c in
+                UIColor.white.setFill()
+                c.fill(CGRect(origin: .zero, size: size))
+                fragment.draw(
+                    at: CGPoint(x: fragment.layoutFragmentFrame.minX, y: 0), in: c.cgContext)
+            }
+            let cg = image.cgImage!
+            var pixels = [UInt8](repeating: 0, count: cg.width * cg.height * 4)
+            let context = CGContext(
+                data: &pixels, width: cg.width, height: cg.height, bitsPerComponent: 8,
+                bytesPerRow: cg.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+            // Right of any text: grey on the code line, white on the empty line below it.
+            func red(_ y: CGFloat) -> Int { Int(pixels[(Int(y) * cg.width + cg.width - 20) * 4]) }
+            let code = red(lines[0].typographicBounds.midY)
+            let empty = red(lines[1].typographicBounds.midY)
+            #expect(code < 250, "code line \(code)")
+            #expect(empty >= 250, "empty line \(empty) at \(lines[1].typographicBounds)")
+        }
+
+        /// iOS sim, Tags: `#todo` was drawn as plain text. A tag is coloured, nothing else;
+        /// inside inline code it is no tag.
+        @Test func tagsAreColouredAndStayText() {
+            let h = TextFirstHarness("plain #todo and `#no`")
+            let text = h.tv.text as NSString
+            #expect(text.contains("#todo"))
+            let traits = h.tv.traitCollection
+            func colour(_ word: String) -> UIColor? {
+                (h.controller.storage.attribute(
+                    .foregroundColor, at: text.range(of: word).location, effectiveRange: nil)
+                    as? UIColor)?.resolvedColor(with: traits)
+            }
+            let primary = UIColor(Theme.primary).resolvedColor(with: traits)
+            #expect(colour("#todo") == primary)
+            #expect(colour("odo") == primary)
+            #expect(colour("plain") != primary)
+            #expect(colour("#no") != primary)
+            #expect(h.source == "plain #todo and `#no`")
         }
     }
 #endif

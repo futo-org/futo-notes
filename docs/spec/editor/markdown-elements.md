@@ -9,6 +9,7 @@
   fetched the first time a fence uses it. A fence in any other language still
   renders as a code block, just uncoloured.
   → src/features/editor/codeFenceLanguages.ts
+- *(Android text-first editor)* Every code-body line has the same inset, including lines added with Enter; hidden fence rows do not add another inset to the first or last body line. → apps/android/app/src/main/java/com/futo/notes/textfirst/SpanPlan.kt
 - Links: `[text](url)`, autolinks `<url>`, and bare GFM URLs.
 - Blockquotes, including nested: each level renders as an indented block with a
   muted left rule, whatever `>` characters and lazy continuations CommonMark
@@ -16,6 +17,8 @@
   when the caret enters a quote. → src/features/editor/milkdown/
   milkdownEditor.css `.ProseMirror blockquote`,
   tests/blockquote-continuation.spec.ts
+- *(Android text-first editor)* Empty editable lines have the same height as ordinary text lines, including between a quote line and the next line; typing on an empty line does not expand the gap. → apps/android/app/src/main/java/com/futo/notes/textfirst/SpanPlan.kt
+- *(Android text-first editor)* Block styling remains visible while the keyboard composes a word, including the first character on an empty quote, heading or code line; a quote's margin does not extend into the following plain line. → apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstBlockIndicatorTest.kt
 - Lists: ordered, unordered, nested, and task checkboxes (checked / unchecked /
   uppercase `X`).
 - *(Android text-first editor)* A right-to-left paragraph (Hebrew, Arabic) draws its list number, bullet, task checkbox and quote bars on its right, beside where its text starts, and a tap there toggles the checkbox. The toggle's touch area is the checkbox's own visual row in the leading margin up to where the text starts: taps on blank padding, below the content, in a wrapped continuation's gutter or on the text (its first letter included) place the caret and leave the task as it was. → apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstSpans.kt, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstCheckbox.kt, apps/android/app/src/test/java/com/futo/notes/textfirst/RtlListMarkerTest.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstTapGestureTest.kt

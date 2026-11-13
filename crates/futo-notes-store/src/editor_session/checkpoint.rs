@@ -8,9 +8,11 @@ impl Attachment {
     /// The merged source this portable worker is waiting for its page to adopt.
     /// Once the worker's draft equals it, the merge is the saved baseline.
     pub(super) fn adopt_delivered_merge(&mut self) {
-        if self.pending_merge.as_deref().is_some_and(|merged| {
-            crate::notes::same_saved_source(&self.engine.source_text(), merged)
-        }) {
+        if self
+            .pending_merge
+            .as_deref()
+            .is_some_and(|merged| self.engine.source_text() == merged)
+        {
             self.base = self.pending_merge.take().unwrap_or_default();
         }
     }
@@ -54,7 +56,7 @@ impl Attachment {
             && store
                 .read_existing(&self.id)
                 .map_err(EditorStoreError::Checkpoint)?
-                .is_some_and(|disk| !crate::notes::same_saved_source(&disk, &self.base));
+                .is_some_and(|disk| disk != self.base);
         if outside_write {
             if let Some(change) = self.commit_composition(self.engine.revision(), None)? {
                 self.coordinated.push(change);
@@ -67,13 +69,12 @@ impl Attachment {
         // changed outside follows that source: it is never a draft, so it is
         // never parked. A missing clean note has no draft to persist: never
         // feed it to the edit-wins recreate arm.
-        let clean =
-            crate::notes::same_saved_source(&source, &self.base) && self.pending_merge.is_none();
+        let clean = source == self.base && self.pending_merge.is_none();
         let outside = if clean && !self.portable && self.relink_offer.is_none() {
             store
                 .read_existing(&self.id)
                 .map_err(EditorStoreError::Checkpoint)?
-                .filter(|disk| !crate::notes::same_saved_source(disk, &self.base))
+                .filter(|disk| *disk != self.base)
         } else {
             None
         };

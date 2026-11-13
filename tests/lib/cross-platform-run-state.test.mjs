@@ -29,3 +29,21 @@ console.log(JSON.stringify({ ports, root: REPO_ROOT }));`,
     }
   });
 });
+
+describe('cross-platform scenario registry', () => {
+  it('loads every registered scenario before starting clients or checking device availability', () => {
+    const moduleUrl = new URL('../cross-platform-sync/scenario-registry.mjs', import.meta.url).href;
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `const { scenarios } = await import(${JSON.stringify(moduleUrl)});
+console.log(scenarios.length);`,
+      ],
+      { encoding: 'utf8', timeout: 5_000 },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(Number(result.stdout.trim())).toBeGreaterThan(0);
+  });
+});

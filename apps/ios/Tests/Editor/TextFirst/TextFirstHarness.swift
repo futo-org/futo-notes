@@ -43,7 +43,7 @@
             _ = tv.becomeFirstResponder()
         }
 
-        /// The store writes every note with a final line ending; the rows are written without one.
+        /// Rows are compared without a single final line ending (a final blank line is kept).
         static func trimmed(_ text: String) -> String {
             text.hasSuffix("\n") && !text.hasSuffix("\n\n") ? String(text.dropLast()) : text
         }
@@ -87,6 +87,38 @@
 
         func select(_ a: Int, _ b: Int) { tv.selectedRange = NSRange(location: a, length: b - a) }
 
+        /// The laid-out heights of the visual lines of the paragraph holding UTF-16 offset `i`.
+        func lineHeights(at i: Int = 0) -> [CGFloat] {
+            tv.layoutIfNeeded()
+            let manager = tv.textLayoutManager!
+            guard
+                let location = manager.location(manager.documentRange.location, offsetBy: i),
+                let fragment = manager.textLayoutFragment(for: location)
+            else { return [] }
+            return fragment.textLineFragments.map { $0.typographicBounds.height }
+        }
+
+        /// The visual lines of the paragraph holding UTF-16 offset `i`: the display characters each
+        /// holds (newline included) and its laid-out height. The empty line after a final newline is
+        /// left out.
+        func visualLines(at i: Int = 0) -> [(range: NSRange, text: String, height: CGFloat)] {
+            tv.layoutIfNeeded()
+            let manager = tv.textLayoutManager!
+            guard
+                let location = manager.location(manager.documentRange.location, offsetBy: i),
+                let fragment = manager.textLayoutFragment(for: location)
+            else { return [] }
+            let start = manager.offset(
+                from: manager.documentRange.location, to: fragment.rangeInElement.location)
+            let text = (tv.text ?? "") as NSString
+            return fragment.textLineFragments.filter { $0.characterRange.length > 0 }.map { line in
+                let range = NSRange(
+                    location: start + line.characterRange.location,
+                    length: line.characterRange.length)
+                return (range, text.substring(with: range), line.typographicBounds.height)
+            }
+        }
+
         /// One keyboard key: the delegate is asked first, as UIKeyboardImpl does, then UIKit inserts.
         func type(_ text: String) {
             for character in text {
@@ -96,6 +128,17 @@
                 {
                     tv.insertText(s)
                 }
+            }
+        }
+
+        /// A software keyboard's Backspace: UIKeyboardImpl asks the delegate about the deletion,
+        /// then calls `deleteBackward`.
+        func keyboardBackspace() {
+            let caret = tv.selectedRange
+            let range =
+                caret.length > 0 ? caret : NSRange(location: max(0, caret.location - 1), length: 1)
+            if tv.delegate?.textView?(tv, shouldChangeTextIn: range, replacementText: "") ?? true {
+                tv.deleteBackward()
             }
         }
 

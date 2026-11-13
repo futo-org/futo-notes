@@ -1,4 +1,4 @@
-//! Front matter, raw HTML and unfamiliar Markdown keep their exact bytes, and
+//! Front matter, HTML-looking text and unfamiliar Markdown keep their exact bytes, and
 //! edits beside them never reinterpret them (#300).
 mod common;
 use common::ReferenceView;
@@ -44,10 +44,12 @@ fn front_matter_is_inert_metadata_and_the_caret_starts_in_the_body() {
     let mut session = EditorSession::open(source);
     let mut view = ReferenceView::new("title: x\ntags: [a, b]\nBody\n");
     assert_eq!(session.display_text(), view.text);
+    // Each line is its own block: both metadata lines are described as metadata.
     let described = blocks(&session);
-    assert!(described[0].metadata);
-    assert_eq!(described[0].range, range(0, 21));
-    assert_eq!((described[1].heading, described[1].metadata), (1, false));
+    assert!(described[0].metadata && described[1].metadata);
+    assert_eq!(described[0].range, range(0, 8));
+    assert_eq!(described[1].range, range(9, 21));
+    assert_eq!((described[2].heading, described[2].metadata), (1, false));
     assert_eq!(session.selection(), range(22, 22));
 
     // Selection never rests inside metadata; select-all still covers it.
@@ -97,14 +99,9 @@ fn front_matter_is_inert_metadata_and_the_caret_starts_in_the_body() {
 }
 
 #[test]
-fn only_the_shipping_front_matter_shape_is_metadata() {
+fn only_the_exact_front_matter_shape_is_metadata() {
     // Empty metadata has nothing to show, so it has no description.
     for (source, shown, described) in [
-        (
-            "\u{feff}--- \r\na: 1\r\n\r\nb: [x]\r\n---\t\r\nbody",
-            "a: 1\r\n\r\nb: [x]\r\nbody",
-            true,
-        ),
         ("---\n[a]: /x\n---\n[a]\n", "[a]: /x\n[a]\n", true),
         ("---\n---\nbody\n", "body\n", false),
     ] {
@@ -117,7 +114,9 @@ fn only_the_shipping_front_matter_shape_is_metadata() {
         assert_eq!(session.source_text(), format!("{source}!"));
         assert_fresh(&session);
     }
+    // Line 1 must be exactly `---`: a BOM or spaces after it make no front matter.
     for source in [
+        "\u{feff}--- \r\na: 1\r\n\r\nb: [x]\r\n---\t\r\nbody",
         "----\na\n---\n",
         " ---\na\n---\n",
         "---\na\n",
@@ -155,7 +154,6 @@ fn a_metadata_only_note_has_an_editable_empty_body() {
 #[test]
 fn front_matter_appears_and_disappears_only_through_its_own_fences() {
     // An unclosed opener is a divider; a recorded closer makes metadata.
-    // (Typed `---` after text is spelled `***`, so it cannot close one.)
     let mut session = EditorSession::open("---\ntitle: [x]\n\nbody *b*\n");
     assert_eq!(session.display_text(), "\u{fffc}\ntitle: [x]\n\nbody b\n");
     session
@@ -173,9 +171,10 @@ fn front_matter_appears_and_disappears_only_through_its_own_fences() {
     assert_eq!(session.source_text(), "---\ntitle: [x]\n---\nbody *b*\n");
     assert_eq!(session.display_text(), "title: [x]\nbody b\n");
     assert_fresh(&session);
-    // Editing input covering all of it changes only the body.
+    // Deleting the body leaves the metadata. (A selection covering all of it takes the
+    // metadata too: engine::tests::front_matter_is_metadata_and_the_caret_starts_in_the_body.)
     let change = session
-        .replace(Revision(1), range(0, 18), "", &mut accept)
+        .replace(Revision(1), range(11, 18), "", &mut accept)
         .unwrap();
     assert_eq!(session.source_text(), "---\ntitle: [x]\n---\n");
     assert_eq!(change.selection, range(11, 11));
@@ -214,112 +213,14 @@ fn front_matter_appears_and_disappears_only_through_its_own_fences() {
 }
 
 #[test]
-fn raw_html_blocks_follow_commonmark_start_and_end_conditions() {
-    // (source, display, display offset of a heading line that must exist, if any)
-    for (source, shown, heading) in [
-        // Recorded #300 failure: a fence line inside <pre> opened code.
-        (
-            "<pre>\na\n\n```\nb\n</pre>\n\nafter *x*\n",
-            "<pre>\na\n\n```\nb\n</pre>\n\nafter x\n",
-            None,
-        ),
-        (
-            "<!--\n\n# not\n\n-->\ntext\n",
-            "<!--\n\n# not\n\n-->\ntext\n",
-            None,
-        ),
-        (
-            "<pre>\n\n# never closed\n",
-            "<pre>\n\n# never closed\n",
-            None,
-        ),
-        ("<div>\n# in\n\n# out\n", "<div>\n# in\n\nout\n", Some(12)),
-        (
-            "<script>a</script>\n# h\n",
-            "<script>a</script>\nh\n",
-            Some(19),
-        ),
-    ] {
-        let mut session = EditorSession::open(source);
-        assert_eq!(session.display_text(), shown, "{source:?}");
-        let described = blocks(&session);
-        assert!(described.iter().all(|block| !block.code), "{source:?}");
-        let headings: Vec<_> = described
-            .iter()
-            .filter(|block| block.heading > 0)
-            .map(|block| block.range.start.0)
-            .collect();
-        assert_eq!(
-            headings,
-            heading.into_iter().collect::<Vec<_>>(),
-            "{source:?}"
-        );
-        type_at_end(&mut session, "z");
-        assert_eq!(session.source_text(), format!("{source}z"));
-        assert_fresh(&session);
-    }
-}
-
-#[test]
-fn opening_or_closing_raw_html_reinterprets_the_rows_it_now_owns() {
-    let source = "a\n\n```\nb\n```\n\nc *d*\n";
-    let mut session = EditorSession::open(source);
-    session
-        .replace(Revision(0), range(0, 0), "<pre>", &mut accept)
-        .unwrap();
-    assert_eq!(session.display_text(), "<pre>a\n\n```\nb\n```\n\nc *d*\n");
-    assert_fresh(&session);
-    session.undo(Revision(1), &mut accept).unwrap();
-    assert_eq!(session.source_text(), source);
-    assert_fresh(&session);
-
-    let source = "<pre>\nx\n</pre>\n\n# h\n\nz\n";
-    let mut session = EditorSession::open(source);
-    session
-        .replace(Revision(0), range(8, 14), "", &mut accept)
-        .unwrap();
-    assert_eq!(session.source_text(), "<pre>\nx\n\n\n# h\n\nz\n");
-    assert_eq!(session.display_text(), "<pre>\nx\n\n\n# h\n\nz\n");
-    assert_fresh(&session);
-}
-
-#[test]
-fn markdown_shortcuts_typed_inside_raw_html_stay_literal() {
-    for (source, at, typed) in [
-        ("<pre>\nx\n\ny\n</pre>\n", 8, "``` "),
-        ("<pre>\nx\n\ny\n</pre>\n", 8, "---"),
-        ("<div>\nx\n</div>\n", 8, "# "),
-        ("<div>\nx\n</div>\n", 8, "> "),
-        ("<div>\nx\n</div>\n", 8, "- "),
-    ] {
-        let mut session = EditorSession::open(source);
-        for (offset, ch) in typed.char_indices() {
-            let at = at + offset;
-            session
-                .replace(
-                    session.revision(),
-                    range(at, at),
-                    &ch.to_string(),
-                    &mut accept,
-                )
-                .unwrap();
-        }
-        let mut expected = source.to_owned();
-        expected.insert_str(at, typed);
-        assert_eq!(session.source_text(), expected, "{typed:?}");
-        assert_eq!(session.display_text(), expected, "{typed:?}");
-        assert_fresh(&session);
-    }
-}
-
-#[test]
 fn footnotes_references_and_unfamiliar_markdown_stay_visible_and_exact() {
     for (source, shown) in [
         (
             "x[^1] and \\[^1]\n\n[^1]: note\n  lazy\n\n    second\n",
-            "x[^1] and [^1]\n\n[^1]: note\n  lazy\n\n    second\n",
+            "x[^1] and [^1]\n\n[^1]: note\nlazy\n\nsecond\n",
         ),
-        ("[a]\n\n[a]: /x \"t\"\n", "a\n\n"),
+        // A reference definition is literal text, and so is the reference.
+        ("[a]\n\n[a]: /x \"t\"\n", "[a]\n\n[a]: /x \"t\"\n"),
         (
             "| a | b |\n|---|---|\n| 1 | 2 |\n",
             "| a | b |\n|---|---|\n| 1 | 2 |\n",

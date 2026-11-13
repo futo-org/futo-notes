@@ -32,6 +32,10 @@ pub use toolbar::{EditorToolbarList, EditorToolbarSnapshot};
 mod tables;
 pub use tables::*;
 
+/// A note read once for its editor (`NoteStore.read_for_editor`).
+#[derive(uniffi::Object)]
+pub struct EditorNoteRead(pub(crate) futo_notes_store::EditorNoteRead);
+
 /// Blocking store endpoint. Call on the native I/O worker, including append
 /// acceptance before displaying a returned change. No callbacks cross this lock.
 #[derive(uniffi::Object)]
@@ -46,6 +50,15 @@ impl NativeEditorSession {
     ) -> Result<Arc<Self>, EditorSessionError> {
         Ok(Arc::new(Self {
             inner: Mutex::new(Some(store.open_owned_editor(id)?)),
+        }))
+    }
+
+    pub(crate) fn open_read(
+        store: &Arc<LocalNoteStore>,
+        read: &futo_notes_store::EditorNoteRead,
+    ) -> Result<Arc<Self>, EditorSessionError> {
+        Ok(Arc::new(Self {
+            inner: Mutex::new(Some(store.open_owned_editor_read(read)?)),
         }))
     }
 

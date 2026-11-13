@@ -7,7 +7,6 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
-import { savedSource } from '../wasm-saved-source.mjs';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import console from 'node:console';
@@ -76,7 +75,7 @@ try {
   await accept(session.redo(3n));
   await stop();
   const reopened = await start('--reopen');
-  assert.equal(session.draft_text(), savedSource(finalSource));
+  assert.equal(session.draft_text(), finalSource);
   assert.equal(JSON.parse(session.project(0n, 0, Buffer.byteLength(display))).text, display);
   assert.deepEqual(await reopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
@@ -101,7 +100,7 @@ try {
   assert.deepEqual(await codeExchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
   await start('--reopen');
-  assert.equal(session.draft_text(), savedSource(fencedSource));
+  assert.equal(session.draft_text(), fencedSource);
   assert.equal(
     JSON.parse(session.project(0n, 0, Buffer.byteLength(literalCode))).text,
     literalCode,
@@ -129,25 +128,32 @@ try {
     assert.deepEqual(await emptyExchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
     await start('--reopen');
-    assert.equal(session.draft_text(), savedSource(expected));
+    assert.equal(session.draft_text(), expected);
     assert.equal(JSON.parse(session.project(0n, 0, caret)).text, text);
     await stop();
   }
   for (const fixture of [
-    { source: '```\n\n```\n\nplain\n', end: 8, text: '# h', expected: '# h', shown: 'h' },
+    // A selection starting in a block's code keeps the frame: the paste is code.
+    {
+      source: '```\n\n```\n\nplain\n',
+      end: 8,
+      text: '# h',
+      expected: '```\n# h\n```',
+      shown: '# h',
+    },
     {
       source: '```\r\n\r\n```\r\n\r\nplain\r\n',
       end: 11,
       text: '# h\nbody',
-      expected: '# h\r\nbody',
-      shown: 'h\r\nbody',
+      expected: '```\r\n# h\r\nbody\r\n```',
+      shown: '# h\r\nbody',
     },
     {
       source: '```\n' + 'x\n'.repeat(2000) + '```\n\nplain\n',
       end: 4007,
       text: '# h',
-      expected: '# h',
-      shown: 'h',
+      expected: '```\n# h\n```',
+      shown: '# h',
     },
   ]) {
     const selectedExchange = await start(fixture.source);
@@ -170,7 +176,7 @@ try {
     assert.deepEqual(await selectedExchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
     await start('--reopen');
-    assert.equal(session.draft_text(), savedSource(fixture.expected));
+    assert.equal(session.draft_text(), fixture.expected);
     assert.equal(JSON.parse(session.project(0n, 0, caret)).text, fixture.shown);
     await stop();
   }
@@ -184,16 +190,6 @@ try {
       caret: 6,
       label: [4, 6],
       title: 'T',
-    },
-    {
-      source: 'tail',
-      at: 0,
-      text: '[alpha\nbeta](<https://x.test>)',
-      expected: '[alpha\nbeta](<https://x.test>)tail',
-      display: 'alpha\nbetatail',
-      caret: 10,
-      label: [0, 10],
-      title: null,
     },
   ]) {
     const linkExchange = await start(fixture.source);
@@ -223,7 +219,7 @@ try {
     assert.deepEqual(await linkExchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
     await start('--reopen');
-    assert.equal(session.draft_text(), savedSource(fixture.expected));
+    assert.equal(session.draft_text(), fixture.expected);
     const reopenedLink = JSON.parse(session.project(0n, fixture.label[0], fixture.label[1]));
     assert.equal(reopenedLink.links[0].destination, 'https://x.test');
     await stop();

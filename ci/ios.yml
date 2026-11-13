@@ -1,8 +1,8 @@
 # Included by .gitlab-ci.yml: native iOS build and tests.
 
 # Native iOS build on the macscript runner via Cirrus (see .cirrus.yml,
-# task buildFutoNotesIOSNative). Tags build a signed Release IPA; branch/MR
-# pipelines run an unsigned simulator compile check.
+# task buildFutoNotesIOSNative). Tags build a signed Release IPA; main builds
+# the signed dogfood IPA for TestFlight.
 build:ios-native:
   stage: build
   needs: []
@@ -46,11 +46,10 @@ build:ios-native:
 
 # Native iOS tests on a concrete simulator via Cirrus. This separately
 # enforces the FutoNotesNativeTests target that build:ios-native only compiles.
-# Keep this hard gate for iOS-impacting MRs and releases while the single
-# macscript runner is constrained. Other MRs retain an optional manual run.
-# MR pipelines run the unit bundle only; main pushes and tags add the 8 UI
-# tests (~3 of the ~4 minutes of testing) — testFutoNotesIOSNative in
-# .cirrus.yml owns the tiers and the per-bundle outcome arbiter.
+# Runs on iOS-impacting main pushes and on tags. A Linux agent cannot compile
+# Swift, so an iOS MR gets its Swift check from the Mac before merge
+# (`just ios-native` there). testFutoNotesIOSNative (ci/cirrus/ios-test.yml)
+# owns the test tiers and the per-bundle outcome arbiter.
 test:ios-native:
   stage: test
   needs: []
@@ -71,16 +70,8 @@ test:ios-native:
     expire_in: 1 week
   rules:
     - !reference [.not-scheduled, rules]
-    # An MR that touches the iOS app also runs the UI bundle (the full tier,
-    # +173 s): the Macs 110/111 averaged under 30 min of work a day in
-    # October, so the MR can afford what used to wait for the main push.
-    - if: $CI_MERGE_REQUEST_IID
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
-        - apps/ios/**/*
-      variables:
-        IOS_UI_TESTS: "1"
-    - if: $CI_MERGE_REQUEST_IID
-      changes: &native-ios-test-changes
         - apps/ios/**/*
         # FFI paths formerly covered by build:ios-native's MR rule — this job
         # builds the same xcframework + app and runs the Swift tests on top.
@@ -96,7 +87,7 @@ test:ios-native:
         # .cirrus.yml builds editor.html (vite.editor.config.ts) and the Swift
         # bridge tests run against it, so every input of that bundle counts —
         # not just bridge.ts (RC-21 / L1-005). Same set as
-        # test:e2e:editor-embed's MR `changes:` (parity-tested).
+        # test:e2e:editor-embed's main `changes:`.
         - src/editor-embed/**/*
         - src/features/editor/**/*
         - src/styles/**/*
@@ -118,9 +109,4 @@ test:ios-native:
         - .cirrus.yml
         - ci/*.yml
         - .gitlab-ci.yml
-    - if: $CI_MERGE_REQUEST_IID
-      when: manual
-      allow_failure: true
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: *native-ios-test-changes
     - if: $CI_COMMIT_TAG

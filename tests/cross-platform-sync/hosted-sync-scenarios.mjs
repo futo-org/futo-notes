@@ -14,7 +14,7 @@ import {
   waitForSyncedNote,
 } from './hosted-sync-helpers.mjs';
 import { REPO_ROOT } from './run-state.mjs';
-import { assert, assertEqual, assertSavedEqual, sameSavedText } from './waits-and-assertions.mjs';
+import { assert, assertEqual } from './waits-and-assertions.mjs';
 
 /**
  * Stories 6, 7, 8, 10, 22 and 24: a brand-new account subscribes, chooses a
@@ -270,7 +270,7 @@ export async function hostedSignOutKeepsTheNotesOnDisk(a, _b, server) {
   assertEqual(after.step, 'signIn', 'signing out puts the wizard back at its first screen');
   assertEqual(after.email, '', 'nobody is signed in after a sign out');
 
-  assertSavedEqual(await a.readNote(noteId), body, 'signing out must not touch the notes');
+  assertEqual(await a.readNote(noteId), body, 'signing out must not touch the notes');
   const files = await a.listNotes();
   assert(
     files.some((file) => file.name === `${noteId}.md`),
@@ -300,7 +300,7 @@ async function waitForLaunchSync(client, id, expected, since, timeoutMs = 90_000
     const status = await client.syncStatus().catch(() => null);
     lastSyncedAt = status?.appState?.lastSyncedAt ?? lastSyncedAt;
     body = await client.readNote(id).catch(() => null);
-    if (sameSavedText(body, expected) && lastSyncedAt !== since) return;
+    if (body === expected && lastSyncedAt !== since) return;
     await sleep(1_000);
   }
   throw new Error(

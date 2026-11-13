@@ -16,7 +16,7 @@ are scenarios, not measured distributions.
    or actual OS composition. A note-id refresh during composition
    changes only wikilink semantics (docs/spec/editor/portable-core/wikilinks.md); the separate
    #294 physical adapter work remains parked.
-3. **Coordinate and semantic changes.** Source `__😀__ &amp;` displays `😀 &`. Emoji UTF-16
+3. **Coordinate and semantic changes.** Source `__😀__ &amp;` displays `😀 &amp;` (entities are literal in Linedown). Emoji UTF-16
    `[0,2]` means display bytes `[0,4]`, never source offsets. Reject surrogate splits. A
    replacement addresses the old display; its returned selection addresses the new display.
    Apply the new semantic replacement even if visible bytes are equal. Ordered engine ranges

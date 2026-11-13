@@ -110,7 +110,7 @@ fn clean_refresh_with_ambiguous_saved_undo_follows_disk_without_a_conflict_copy(
 fn oversized_clean_session_follows_a_peer_edit_instead_of_parking_its_stale_text() {
     let root = TestRoot::new();
     let store = store(&root);
-    let base = format!("first\n\n{}\n", "x".repeat(1024 * 1024));
+    let base = format!("first\n\n{}", "x".repeat(1024 * 1024));
     store.create("", "plain", &base).unwrap();
     let mut editor = store.open_editor("plain").unwrap();
     let remote = base.replacen("first", "REMOTE", 1);

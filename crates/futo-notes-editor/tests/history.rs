@@ -26,7 +26,8 @@ fn range(a: usize, z: usize) -> DisplayRange {
     }
 }
 /// Chaos finding lane-1-11: every Undo after a heading shortcut typed into an
-/// ordered item returns to a state that was on screen while typing.
+/// ordered item returns to a state that was on screen while typing. `## ` in an
+/// item converts nothing, so the typed run is one typing group.
 #[test]
 fn undo_after_a_typed_heading_in_an_item_walks_back_through_typed_states() {
     use futo_notes_editor::{InputAction, ParagraphKey};
@@ -49,7 +50,7 @@ fn undo_after_a_typed_heading_in_an_item_walks_back_through_typed_states() {
         states.push((s.source_text(), s.selection()));
     }
     assert_eq!(states[2].0, "1. first step\n2. \n3. \n4. second step");
-    for (index, ch) in "## Sub heading".chars().enumerate() {
+    for ch in "## Sub heading".chars() {
         view.apply(
             s.replace_action(
                 s.revision(),
@@ -60,18 +61,13 @@ fn undo_after_a_typed_heading_in_an_item_walks_back_through_typed_states() {
             )
             .unwrap(),
         );
-        // The typed `##`, the triggering space, and the typed words.
-        if matches!(index, 1 | 2) {
-            states.push((s.source_text(), s.selection()));
-        }
     }
     assert_eq!(
         s.source_text(),
         "1. first step\n2. \n3. \n4. ## Sub headingsecond step"
     );
-    assert_eq!(view.text, "first step\n\n\nSub headingsecond step");
-    assert_eq!(states[3].0, "1. first step\n2. \n3. \n4. ##second step");
-    assert_eq!(states[4].0, "1. first step\n2. \n3. \n4. ## second step");
+    // A list item holds no heading: `## ` after a number is the item's text.
+    assert_eq!(view.text, "first step\n\n\n## Sub headingsecond step");
     for (source, selection) in states.into_iter().rev() {
         view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), source);

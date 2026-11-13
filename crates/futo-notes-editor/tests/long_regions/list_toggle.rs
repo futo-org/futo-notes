@@ -21,7 +21,7 @@ fn removing_one_middle_bullet_reads_only_its_neighboring_rows() {
             .unwrap();
         assert_eq!(
             session.source_text(),
-            source.replacen(&format!("- {needle}\n"), &format!("\n{needle}\n"), 1)
+            source.replacen(&format!("- {needle}\n"), &format!("{needle}\n"), 1)
         );
         let measured = total(&change.work);
         if let Some(small) = small {

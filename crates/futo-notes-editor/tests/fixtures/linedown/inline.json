@@ -1,0 +1,203 @@
+{
+ "about": "Linedown reading fixtures (inline): per line, what the reader reports. See tests/fixtures/README.md.",
+ "cases": [
+  {
+   "name": "every inline mark",
+   "rule": "Inline",
+   "input": "**b** __b__ *i* _i_ ~~s~~ `c` [l](u) https://example.com <https://example.com> ![a](s) [[note]] #tag \\*",
+   "lines": [
+    "plain : **b** __b__ *i* _i_ ~~s~~ `c` [l](u) https://example.com <https://example.com> ![a](s) [[note]] #tag \\* [bold **b**] [bold __b__] [italic *i*] [italic _i_] [strike ~~s~~] [code `c`] [link [l](u)] [url https://example.com] [url <https://example.com>] [image ![a](s)] [wikilink [[note]]] [tag #tag] [escape \\*]"
+   ]
+  },
+  {
+   "name": "snake_case_word is not italic",
+   "rule": "Inline",
+   "input": "snake_case_word",
+   "lines": [
+    "plain : snake_case_word"
+   ]
+  },
+  {
+   "name": "bold left open does not carry to the next line",
+   "rule": "Inline / Differences from CommonMark and GFM row 7",
+   "input": "**this is not bold\nand neither is this**",
+   "lines": [
+    "plain : **this is not bold",
+    "plain : and neither is this**"
+   ]
+  },
+  {
+   "name": "inline marks open and close on one line",
+   "rule": "Inline",
+   "input": "*a\nb* `c\nd`",
+   "lines": [
+    "plain : *a",
+    "plain : b* `c",
+    "plain : d`"
+   ]
+  },
+  {
+   "name": "a single tilde is not strikethrough",
+   "rule": "Inline",
+   "input": "~x~ ~~~y~~~",
+   "lines": [
+    "plain : ~x~ ~~~y~~~"
+   ]
+  },
+  {
+   "name": "bold and italic nest",
+   "rule": "Inline",
+   "input": "***a*** **b *c* d**",
+   "lines": [
+    "plain : ***a*** **b *c* d** [italic ***a***] [bold **a**] [bold **b *c* d**] [italic *c*]"
+   ]
+  },
+  {
+   "name": "code beats emphasis and tags",
+   "rule": "Inline",
+   "input": "`*a* #x` #y",
+   "lines": [
+    "plain : `*a* #x` #y [code `*a* #x`] [tag #y]"
+   ]
+  },
+  {
+   "name": "a link inside a link: the inner one wins",
+   "rule": "Inline",
+   "input": "[a [b](c)](d)",
+   "lines": [
+    "plain : [a [b](c)](d) [link [b](c)]"
+   ]
+  },
+  {
+   "name": "a link with a title and an angle destination",
+   "rule": "Inline",
+   "input": "[a](<b c> \"t\") [d](e 'f')",
+   "lines": [
+    "plain : [a](<b c> \"t\") [d](e 'f') [link [a](<b c> \"t\")] [link [d](e 'f')]"
+   ]
+  },
+  {
+   "name": "emphasis inside link text pairs only there",
+   "rule": "Inline",
+   "input": "*a [b* c](d)",
+   "lines": [
+    "plain : *a [b* c](d) [link [b* c](d)]"
+   ]
+  },
+  {
+   "name": "an image is one unit",
+   "rule": "Inline",
+   "input": "![a *b*](c) after",
+   "lines": [
+    "plain : ![a *b*](c) after [image ![a *b*](c)]"
+   ]
+  },
+  {
+   "name": "escapes",
+   "rule": "Inline",
+   "input": "\\# not heading\n- \\# todo\n\\*a\\*",
+   "lines": [
+    "plain : \\# not heading [escape \\#]",
+    "bullet i0 - : \\# todo [escape \\#]",
+    "plain : \\*a\\* [escape \\*] [escape \\*]"
+   ]
+  },
+  {
+   "name": "a backslash before a letter is a backslash",
+   "rule": "Inline",
+   "input": "a\\b",
+   "lines": [
+    "plain : a\\b"
+   ]
+  },
+  {
+   "name": "tags follow whitespace",
+   "rule": "Inline",
+   "input": "a#b #c-d,#e (#f) #1x",
+   "lines": [
+    "plain : a#b #c-d,#e (#f) #1x [tag #c-d]"
+   ]
+  },
+  {
+   "name": "a zero-width space is neither space nor punctuation",
+   "rule": "Inline",
+   "input": "a _​the web_​, b",
+   "lines": [
+    "plain : a _​the web_​, b"
+   ]
+  },
+  {
+   "name": "a link's angle destination is read before any autolink in it",
+   "rule": "Inline",
+   "input": "[a](<https://x.com/a_(b)>) c",
+   "lines": [
+    "plain : [a](<https://x.com/a_(b)>) c [link [a](<https://x.com/a_(b)>)]"
+   ]
+  },
+  {
+   "name": "a backtick in a link destination is the destination's",
+   "rule": "Inline",
+   "input": "[a `b` c](x#`y`-z)",
+   "lines": [
+    "plain : [a `b` c](x#`y`-z) [link [a `b` c](x#`y`-z)] [code `b`]"
+   ]
+  },
+  {
+   "name": "bold around CJK text holding a URL",
+   "rule": "Inline",
+   "input": "(**比赛的网址是https://www.kaggle.com/c/cifar-10**)",
+   "lines": [
+    "plain : (**比赛的网址是https://www.kaggle.com/c/cifar-10**) [bold **比赛的网址是https://www.kaggle.com/c/cifar-10**] [url https://www.kaggle.com/c/cifar-10]"
+   ]
+  },
+  {
+   "name": "a wikilink's text is its target, not markdown",
+   "rule": "Inline",
+   "input": "[[#_class_ x|**y**]] and ![[a*b*.png]]",
+   "lines": [
+    "plain : [[#_class_ x|**y**]] and ![[a*b*.png]] [wikilink [[#_class_ x|**y**]]] [wikilink [[a*b*.png]]]"
+   ]
+  },
+  {
+   "name": "a wikilink before a parenthesis stays a wikilink",
+   "rule": "Inline",
+   "input": "[[1]](https://example.com)",
+   "lines": [
+    "plain : [[1]](https://example.com) [wikilink [[1]]] [url https://example.com]"
+   ]
+  },
+  {
+   "name": "www and email literals",
+   "rule": "Inline",
+   "input": "www.example.com me@example.com",
+   "lines": [
+    "plain : www.example.com me@example.com [url www.example.com] [url me@example.com]"
+   ]
+  },
+  {
+   "name": "a URL keeps its underscores",
+   "rule": "Inline",
+   "input": "https://x.com/a_b_c_d",
+   "lines": [
+    "plain : https://x.com/a_b_c_d [url https://x.com/a_b_c_d]"
+   ]
+  },
+  {
+   "name": "emphasis around a URL",
+   "rule": "Inline",
+   "input": "**https://example.com**",
+   "lines": [
+    "plain : **https://example.com** [bold **https://example.com**] [url https://example.com]"
+   ]
+  },
+  {
+   "name": "inline marks in headings and list items",
+   "rule": "Inline",
+   "input": "# a **b**\n- [ ] *c*",
+   "lines": [
+    "h1 : a **b** [bold **b**]",
+    "task i0 - [ ] : *c* [italic *c*]"
+   ]
+  }
+ ]
+}

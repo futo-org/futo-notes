@@ -17,10 +17,12 @@
             }.joined()
         }
 
-        /// An editor opened the long way round: the quick view first, the session separately.
+        /// An editor opened the long way round, as the note screen opens it: one read, its quick
+        /// view first, the session on the same read separately.
         @MainActor final class Opening {
             let root: URL
             let store: NoteStore
+            let read: EditorNoteRead
             let controller: TextFirstEditorController
             let window: UIWindow
             var tv: TextFirstTextView { controller.textView }
@@ -32,7 +34,8 @@
                     at: root, withIntermediateDirectories: true)
                 store = NoteStore(notesRoot: root.path)
                 _ = try store.createNote(title: id, folder: "", content: source)
-                let quick = try #require(store.quickOpenView(id: id))
+                read = store.readForEditor(id: id)
+                let quick = try #require(store.quickOpenView(read: read))
                 controller = try TextFirstEditorController(
                     noteId: id, quick: quick, imageRoot: root)
                 window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
@@ -42,8 +45,17 @@
                 tv.layoutIfNeeded()
             }
 
-            func land(id: String = "long") throws {
-                try controller.attach(session: try store.openEditor(id: id))
+            /// The engine's open lands; `between` runs after it opened, before it attaches.
+            func land(id: String = "long", between: () throws -> Void = {}) throws {
+                let session = try store.openEditorRead(read: read)
+                try between()
+                try controller.attach(session: session)
+            }
+
+            /// Another writer replaces the note's file.
+            func write(_ text: String, id: String = "long") throws {
+                try text.write(
+                    to: root.appendingPathComponent("\(id).md"), atomically: true, encoding: .utf8)
             }
 
             func type(_ text: String) {
@@ -74,7 +86,7 @@
             // A short note has no quick open.
             let short = NoteStore(notesRoot: o.root.path)
             _ = try short.createNote(title: "short", folder: "", content: "# small\n")
-            #expect(short.quickOpenView(id: "short") == nil)
+            #expect(short.quickOpenView(read: short.readForEditor(id: "short")) == nil)
         }
 
         @Test func theHandoverAppendsTheRestAndKeepsWhatTheViewShowed() async throws {
@@ -166,8 +178,8 @@
             let source = Self.note()
             let o = try Opening(source)
             o.type("q")
-            let store = o.store
-            o.controller.opener = Task { try store.openEditor(id: "long") }
+            let (store, read) = (o.store, o.read)
+            o.controller.opener = Task { try store.openEditorRead(read: read) }
             let result = await o.controller.close()
             guard case .success = result else {
                 Issue.record("the leave failed: \(result)")

@@ -245,8 +245,19 @@
         func cellFrame(start: Int) -> CGRect? {
             guard let (span, cell) = tableCell(at: start), let manager = textView.textLayoutManager,
                 let content = manager.textContentManager,
-                let location = content.location(manager.documentRange.location, offsetBy: start),
-                let f = manager.textLayoutFragment(for: location) as? TextFirstLayoutFragment,
+                let location = content.location(manager.documentRange.location, offsetBy: start)
+            else { return nil }
+            // An edit in the row (a typed `|` that adds a cell) restyled it with a new span; until
+            // the row is laid out again its fragment still holds the old one.
+            let row = (storage.string as NSString).paragraphRange(
+                for: NSRange(location: start, length: 0))
+            if let from = content.location(manager.documentRange.location, offsetBy: row.location),
+                let to = content.location(from, offsetBy: row.length),
+                let range = NSTextRange(location: from, end: to)
+            {
+                manager.ensureLayout(for: range)
+            }
+            guard let f = manager.textLayoutFragment(for: location) as? TextFirstLayoutFragment,
                 let run = f.tableRuns.first(where: { $0.span === span }),
                 let rect = f.tableRect(run)
             else { return nil }

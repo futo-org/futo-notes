@@ -1,6 +1,10 @@
 default:
-  # Every Linux job lands on an office runner (71 futocoredebianrunner1 and
-  # 112 futonotesdebianrunner1 carry dind_fast). Runner 55, the
+  # Heavy Linux jobs ($LINUX_RUNNER_TAG = futo_notes_debian1) run on 112
+  # (futonotesdebianrunner1) and 114 (futonotesdebianrunner2, concurrency 2); 113
+  # also has the tag but is locked to the server project. No job may need a host
+  # to itself. Short script jobs ($LIGHT_RUNNER_TAG = dind_fast) run on shared
+  # runner 71 or 112: under load 71 ran `test` in 27 min against 90 s on 112 and
+  # test:rust:workspace in 50 min against 16, so nothing heavy goes there. Runner 55, the
   # DigitalOcean box, is the outage path only: it re-pulls the image every
   # job, misses the pnpm store every job, and ran the unit job at 7m15
   # against 1m27 here. To use it, run the pipeline with LINUX_RUNNER_TAG=dind.
@@ -27,12 +31,10 @@ default:
     - export PATH="$CARGO_HOME/bin:$PATH"
 
 variables:
-  LINUX_RUNNER_TAG: dind_fast
+  LINUX_RUNNER_TAG: futo_notes_debian1
+  # Short script-only jobs (audits, lint-style checks): runner 71 or 112.
+  LIGHT_RUNNER_TAG: dind_fast
   CARGO_HOME: $CI_PROJECT_DIR/.cargo-home
-  # Main/tag pipelines seed the shared Cargo archives (one key per cache, see
-  # ci/templates.yml). MRs only consume them, lockfile changes included: a
-  # per-branch upload is 40-85 GB per branch on the runner's local cache.
-  CARGO_CACHE_POLICY: pull-push
   # Part of every rolling Rust cache key (ci/templates.yml). Those keys do not
   # reset when Cargo.lock changes, so stale dependency builds pile up
   # in target/; bump this to start every Rust cache fresh.
@@ -82,7 +84,6 @@ variables:
 workflow:
   rules:
     - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 stages:

@@ -78,7 +78,10 @@
             UIPasteboard.general.string = ""
             h.tv.cut(nil)
             #expect(UIPasteboard.general.string == "**bold**")
-            #expect(h.display.hasPrefix(" and code"))
+            // The space the cut leaves leads the line: it is the line's own indent, which the
+            // view draws as an indent rather than holding as text.
+            #expect(h.source == " and `code` x")
+            #expect(h.display == "and code x")
             #expect(h.controller.divergences.isEmpty)
         }
 

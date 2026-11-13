@@ -39,7 +39,7 @@ build_ios_native_task:
     - rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
     - pnpm install --frozen-lockfile
     # Hosted sync is on for the internal dogfood build (default branch →
-    # TestFlight) and off for tag/MR builds, per ADR 0003 decision 13 (the
+    # TestFlight) and off for tag builds, per ADR 0003 decision 13 (the
     # archive step below re-derives the same condition for
     # HOSTED_SYNC_CONDITION). Determined here, before the Rust FFI build, so
     # the dogfood build's xcframework also bakes the staging hosted address

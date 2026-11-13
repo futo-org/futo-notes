@@ -419,16 +419,20 @@ pub struct EditorProjection {
 }
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorListDescription {
-    pub depth: u64,
-    pub number: Option<u64>,
+    pub indent: u64,
+    pub level: u64,
+    pub marker: String,
+    pub ordered: bool,
     pub checked: Option<bool>,
     pub first: bool,
 }
 impl From<editor::ListDescription> for EditorListDescription {
     fn from(value: editor::ListDescription) -> Self {
         Self {
-            depth: value.depth as u64,
-            number: value.number,
+            indent: value.indent as u64,
+            level: value.level as u64,
+            marker: value.marker,
+            ordered: value.ordered,
             checked: value.checked,
             first: value.first,
         }

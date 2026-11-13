@@ -9,8 +9,6 @@ test:rust:workspace:
   # the R2 distributed cache is configured on every runner manager.
   tags:
     - $LINUX_RUNNER_TAG
-  variables:
-    CARGO_CACHE_POLICY: pull
   cache:
     - !reference [.cache-cargo-tauri, cache]
     - !reference [.cache-pnpm, cache]
@@ -56,10 +54,8 @@ test:rust:workspace:
   rules:
     - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_TAG
-      variables:
-        CARGO_CACHE_POLICY: pull-push
-    - if: $CI_MERGE_REQUEST_IID
-      changes: &rust-workspace-changes
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
         - Cargo.toml
         - Cargo.lock
         - rust-toolchain.toml
@@ -72,7 +68,7 @@ test:rust:workspace:
         - crates/**/*
         # Every TypeScript copy the note-rule differential runs against Rust
         # (tests/conformance/title-rules-differential.mjs). Listing only
-        # filename.ts left a tags/preview/image/wikilink drift able to merge
+        # filename.ts left a tags/preview/image/wikilink drift able to land
         # without this job ever running.
         - packages/editor/src/filename.ts
         - packages/editor/src/tags.ts
@@ -85,8 +81,6 @@ test:rust:workspace:
         - apps/cli/**/*
         # The CLI reads its text from the catalog at build time.
         - languages/en.json
-        - scripts/lib/sync-server.mjs
-        - scripts/sync-server-pin.json
         - src/features/sync/syncContract.generated.ts
         - scripts/build-rust-android.sh
         - scripts/build-rust-ios.sh
@@ -98,10 +92,6 @@ test:rust:workspace:
         # workspace tests so an environment break is caught on that change.
         - ci/*.yml
         - .gitlab-ci.yml
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: *rust-workspace-changes
-      variables:
-        CARGO_CACHE_POLICY: pull-push
 
 test:rust:macos:
   stage: test
@@ -121,14 +111,9 @@ test:rust:macos:
   rules:
     - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_TAG
-    # No auto MR rule: the MR run was only an allow_failure iOS compile check
-    # (test:rust:workspace is the hard Linux gate, test:ios-native builds the
-    # FFI crate for iOS), so main pushes and tags take it; MRs can start it
-    # by hand below.
     # Full macOS workspace tests on Rust-touching main pushes, so a macOS-only
     # break surfaces before tag time (M13) instead of first failing on the tag.
-    # All of crates/ and the desktop crate: this is the full test run, not the
-    # MR compile check.
+    # All of crates/ and the desktop crate: this is the full test run.
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
         - Cargo.toml
@@ -146,9 +131,6 @@ test:rust:macos:
         - .cirrus.yml
         - ci/*.yml
         - .gitlab-ci.yml
-    - if: $CI_MERGE_REQUEST_IID
-      when: manual
-      allow_failure: true
 
 # The full native app builds only run when a shell or futo-notes-ffi itself
 # changes, but every futo-notes crate sits in the FFI dependency tree — an
@@ -164,16 +146,12 @@ test:rust:macos:
 test:rust:ffi-android:
   stage: test
   needs: []
-  # A shared-slot runner. The sync suites run alone on the serial runner now,
-  # so this full-tree compile can no longer starve them (pipeline 31084's
-  # "rapid reconnect" flake was that overlap); the project-wide lock and the
-  # needs: ordering that kept the two apart are gone with it.
   tags:
     - $LINUX_RUNNER_TAG
   extends: .ci-android-image
   # Own single-ABI cache namespace instead of the fat 3-ABI + host `native`
   # archive: restoring that one costs more than this job's warm compile.
-  # Two MRs may upload this key at once; GitLab replaces the archive whole,
+  # Two pipelines may upload this key at once; GitLab replaces the archive whole,
   # so the loser's upload is wasted, never corrupting.
   cache:
     key:
@@ -205,31 +183,10 @@ test:rust:ffi-android:
   # office-runner path is minutes.
   timeout: 60m
   rules:
-    # build:android-native builds this same crate (arm64 included) whenever
-    # these paths change; keep the list equal to its native-android-changes
-    # (premerge-test-parity asserts it).
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - apps/android/**/*
-        - crates/futo-notes-ffi/**/*
-        - Cargo.lock
-        - languages/**/*
-        - tests/localization/**/*
-        - scripts/generate-native-language-resources.mjs
-        - scripts/build-rust-android.sh
-        - scripts/ci-android-instrumentation.sh
-        - scripts/ci-android-emulator.sh
-        - scripts/ci-android-sync-leg.sh
-        - tests/cross-platform-sync.mjs
-        - tests/cross-platform-sync/**/*
-        - tests/lib/**/*
-        - scripts/sync-server-pin.json
-        - scripts/lib/sync-server.mjs
-      when: never
     - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      changes: &rust-ffi-mobile-changes
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
         - Cargo.toml
         - Cargo.lock
         - rust-toolchain.toml
@@ -242,8 +199,3 @@ test:rust:ffi-android:
         - scripts/build-rust-android.sh
         - ci/*.yml
         - .gitlab-ci.yml
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: *rust-ffi-mobile-changes
-    - if: $CI_MERGE_REQUEST_IID
-      when: manual
-      allow_failure: true

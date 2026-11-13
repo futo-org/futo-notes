@@ -53,6 +53,14 @@ impl Attachment {
         self.save = SaveSchedule::clean(self.engine.revision());
     }
 
+    /// The file changed under this draft before anything was saved: the next
+    /// save is due now.
+    pub(super) fn save_now(&mut self) {
+        let now = self.clock.now();
+        self.save.max_deadline = Some(now);
+        self.save.idle_deadline = Some(now);
+    }
+
     /// A failed save is retried in 2 s so a host loop does not spin.
     pub(super) fn schedule_retry(&mut self) {
         let retry = self.clock.now() + MAX_WAIT;

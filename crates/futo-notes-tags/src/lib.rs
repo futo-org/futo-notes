@@ -2,9 +2,10 @@
 //! `packages/editor/src/tags.ts`.
 //!
 //! Tag syntax: `#[a-z][a-z0-9_-]*` (≤ 50 chars after `#`), must follow
-//! whitespace or start-of-line, must not sit inside a code fence or inline
-//! code. The TS `TAG_REGEX` uses a lookbehind + lookahead, which the `regex`
-//! crate cannot express, so this module uses `fancy-regex`.
+//! whitespace or start-of-line, must not sit inside front matter, a code fence
+//! or a code span, read line by line as the text-first editor reads them
+//! (`code_regions`). Matching is a linear hand-scan; only the header
+//! tag-line test is a (`fancy-regex`) pattern.
 //!
 //! Offsets: `extract_header_tag_block` returns a **byte** offset (Rust UTF-8),
 //! whereas the TS reference returns a UTF-16 code-unit offset. They agree for
@@ -161,9 +162,9 @@ pub fn normalize_tag_name(name: &str) -> String {
     out
 }
 
-/// Extract all unique tags from note content, excluding tags inside code
-/// blocks/fences. Returns canonical tags WITH the `#` prefix, in first-seen
-/// order. Matches TS `extractTags`.
+/// Extract all unique tags from note content, excluding front matter, fenced
+/// code and code spans. Returns canonical tags WITH the `#` prefix, in
+/// first-seen order. Matches TS `extractTags`.
 pub fn extract_tags(content: &str) -> Vec<String> {
     extract_tag_names(content)
         .into_iter()
@@ -184,11 +185,11 @@ pub fn extract_tags(content: &str) -> Vec<String> {
 /// to spaces (as `packages/editor/src/tags.ts` does): a `#` inside a code
 /// region is skipped, and a position inside one counts as whitespace for the
 /// boundary checks, which is what the blanked copy would have held there. A
-/// name can never run into a region, since a fence starts after `\n` and
-/// inline code at a backtick.
+/// name can never run into a region, since fences and front matter start a
+/// line and a code span starts at a backtick.
 pub fn extract_tag_names(content: &str) -> Vec<String> {
     let bytes = content.as_bytes();
-    let regions = code_regions(content, bytes);
+    let regions = code_regions(content);
     let cursor = RegionCursor::new(&regions);
 
     let mut seen = std::collections::HashSet::new();
@@ -205,6 +206,22 @@ pub fn extract_tag_names(content: &str) -> Vec<String> {
         i = next;
     }
     names
+}
+
+/// Byte ranges of the tag names (without `#`) in one line of text, by the same
+/// grammar as [`extract_tag_names`], with the caller's code regions (sorted,
+/// non-overlapping byte ranges) in place of this crate's own code reader.
+pub fn tag_name_ranges(line: &str, code: &[(usize, usize)]) -> Vec<std::ops::Range<usize>> {
+    let bytes = line.as_bytes();
+    let cursor = RegionCursor::new(code);
+    let mut ranges = Vec::new();
+    let mut i = 0usize;
+    while let Some(offset) = memchr::memchr(b'#', &bytes[i..]) {
+        let (tag, next) = tag_at(line, &cursor, i + offset);
+        ranges.extend(tag);
+        i = next;
+    }
+    ranges
 }
 
 /// The tag name after the `#` at `hash`, if one starts there, and where the

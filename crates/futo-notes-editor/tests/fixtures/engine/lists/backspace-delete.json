@@ -1,0 +1,116 @@
+[
+ {
+  "name": "Backspace at an item's text start takes the marker off",
+  "before": "* ab\n* ‸cd",
+  "command": "Backspace",
+  "after": "* ab\n‸cd"
+ },
+ {
+  "name": "Backspace at the first item's start",
+  "before": "- ‸ab",
+  "command": "Backspace",
+  "after": "‸ab"
+ },
+ {
+  "name": "Backspace keeps the item's indent",
+  "before": "- a\n  - ‸b",
+  "command": "Backspace",
+  "after": "- a\n  ‸b"
+ },
+ {
+  "name": "Backspace takes a task's box off with its marker",
+  "before": "- [x] ‸done",
+  "command": "Backspace",
+  "after": "‸done"
+ },
+ {
+  "name": "Backspace on a numbered item renumbers nothing",
+  "before": "1. ‸a\n2. b",
+  "command": "Backspace",
+  "after": "‸a\n2. b"
+ },
+ {
+  "name": "Backspace keeps the item's quotes",
+  "before": "> - ‸a",
+  "command": "Backspace",
+  "after": "> ‸a"
+ },
+ {
+  "name": "Backspace writes a backslash so the text stays plain",
+  "before": "- ‸# todo",
+  "command": "Backspace",
+  "after": "‸\\# todo"
+ },
+ {
+  "name": "Backspace on a bullet whose text is a bullet",
+  "before": "- ‸- a",
+  "command": "Backspace",
+  "after": "‸\\- a"
+ },
+ {
+  "name": "Backspace on a bullet whose text is a number",
+  "before": "  - ‸1. x",
+  "command": "Backspace",
+  "after": "  ‸1\\. x"
+ },
+ {
+  "name": "Backspace on an empty item leaves an empty line",
+  "before": "- a\n- ‸",
+  "command": "Backspace",
+  "after": "- a\n‸"
+ },
+ {
+  "name": "Backspace on an empty indented item leaves an empty line",
+  "before": "- a\n  - ‸",
+  "command": "Backspace",
+  "after": "- a\n‸"
+ },
+ {
+  "name": "Backspace on an empty quoted item keeps the quote",
+  "before": "> - ‸",
+  "command": "BackspaceJoiningHeading",
+  "after": "> ‸"
+ },
+ {
+  "name": "A second Backspace joins the line above",
+  "before": "- a\n  ‸b",
+  "command": "Backspace",
+  "after": "- a‸b"
+ },
+ {
+  "name": "Backspace inside an item's text deletes a character",
+  "before": "- a‸b",
+  "command": "Backspace",
+  "after": "- ‸b"
+ },
+ {
+  "name": "Backspace at a plain line's start under an item joins it",
+  "before": "- a\n‸b",
+  "command": "Backspace",
+  "after": "- a‸b"
+ },
+ {
+  "name": "Delete at an item's end joins the next item's text",
+  "before": "- a‸\n- b",
+  "command": "Delete",
+  "after": "- a‸b"
+ },
+ {
+  "name": "Delete at a nested item's end joins its sibling",
+  "before": "- a\n  - b‸\n  - c",
+  "command": "Delete",
+  "after": "- a\n  - b‸c"
+ },
+ {
+  "name": "Delete at an item's end before an empty item",
+  "before": "- a‸\n- ",
+  "command": "Delete",
+  "after": "- a‸"
+ },
+ {
+  "name": "Delete at a task's end joins the next task's text",
+  "before": "- [ ] a‸\n- [x] b",
+  "command": "Delete",
+  "after": "- [ ] a‸b"
+ }
+]

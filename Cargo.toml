@@ -19,10 +19,6 @@ members = [
   "apps/cli",
 ]
 
-# pulldown-cmark with one local change: vendor/pulldown-cmark/PATCH.md.
-[patch.crates-io]
-pulldown-cmark = { path = "vendor/pulldown-cmark" }
-
 # Shipped code logs through `futo_notes_core::log_to_stderr!`: `println!`/`eprintln!`
 # panic once stdout/stderr is gone (the launching terminal closed: EPIPE/EIO) and the
 # desktop release profile aborts on panic. clippy.toml still lets tests print. Every

@@ -28,6 +28,7 @@ pub(crate) use identity::IdentityTransition;
 use lease::EditorLease;
 pub(crate) use lease::{refuse_attached, terminate_deleted};
 pub use portable::StoreEditorHost;
+pub use quick_open::EditorNoteRead;
 
 /// Where the session stands relative to the markdown file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,7 +112,7 @@ impl LocalNoteStore {
         id: &str,
         clock: Arc<dyn EditorClock>,
     ) -> Result<StoreEditorSession<'_>, EditorStoreError> {
-        StoreEditorSession::open(StoreHandle::Borrowed(self), id, clock)
+        StoreEditorSession::open(StoreHandle::Borrowed(self), id, None, clock)
     }
 
     /// Retains this store for a foreign worker/session lifetime without borrowing
@@ -123,15 +124,49 @@ impl LocalNoteStore {
         StoreEditorSession::open(
             StoreHandle::Owned(Arc::clone(self)),
             id,
+            None,
+            Arc::new(clock::MonotonicClock::default()),
+        )
+    }
+
+    /// Open on the bytes `read` holds when its first screens were shown (a
+    /// host may have taken input on them); otherwise as `open_editor`. When the
+    /// note changed since those screens, the session's saved base is still
+    /// their bytes and its first save is due at once: it merges or parks the
+    /// outside write as for any write after the open (recovery.md).
+    pub fn open_editor_read(
+        &self,
+        read: &EditorNoteRead,
+    ) -> Result<StoreEditorSession<'_>, EditorStoreError> {
+        StoreEditorSession::open(
+            StoreHandle::Borrowed(self),
+            &read.id,
+            read.shown(),
+            Arc::new(clock::MonotonicClock::default()),
+        )
+    }
+
+    /// [`Self::open_editor_read`] retaining this store, for a foreign worker.
+    pub fn open_owned_editor_read(
+        self: &Arc<Self>,
+        read: &EditorNoteRead,
+    ) -> Result<StoreEditorSession<'static>, EditorStoreError> {
+        StoreEditorSession::open(
+            StoreHandle::Owned(Arc::clone(self)),
+            &read.id,
+            read.shown(),
             Arc::new(clock::MonotonicClock::default()),
         )
     }
 }
 
 impl<'store> StoreEditorSession<'store> {
+    /// `seen`: the bytes a host already showed (`EditorNoteRead::shown`),
+    /// opened on in place of the file's when the two differ.
     fn open(
         store: StoreHandle<'store>,
         id: &str,
+        seen: Option<&str>,
         clock: Arc<dyn EditorClock>,
     ) -> Result<Self, EditorStoreError> {
         let _gate = store.lock_gate().map_err(EditorStoreError::Open)?;
@@ -139,10 +174,14 @@ impl<'store> StoreEditorSession<'store> {
             futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Open)?;
         paths::note_path(&store.root, id).map_err(EditorStoreError::Open)?;
         let lease = EditorLease::acquire(&store.root, id)?;
-        let base = store
+        let disk = store
             .read_existing(id)
             .map_err(EditorStoreError::Open)?
             .ok_or_else(|| EditorStoreError::Open(NOTE_NOT_FOUND.to_owned()))?;
+        let (base, behind) = match seen {
+            Some(seen) if seen != disk => (seen.to_owned(), true),
+            _ => (disk, false),
+        };
         let mut engine =
             EditorSession::open_with_clock(&base, Arc::new(clock::GroupingClock(clock.clone())));
         // The engine starts without note ids; the store owns delivering them.
@@ -160,11 +199,13 @@ impl<'store> StoreEditorSession<'store> {
             portable: false,
             relink_offer: None,
         }));
-        state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .lease
-            .bind(&state);
+        {
+            let mut attachment = state.lock().unwrap_or_else(PoisonError::into_inner);
+            attachment.lease.bind(&state);
+            if behind {
+                attachment.save_now();
+            }
+        }
         drop(_gate);
         Ok(StoreEditorSession { store, state })
     }

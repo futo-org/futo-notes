@@ -4,12 +4,15 @@ import {
   controlledPromise,
   emptySummary,
   makeManager,
+  makeLiveNoteSession,
+  managerFor,
   makeSession,
   openNoteMocks,
   resetSyncManagerHarness,
   yieldMicrotasks,
 } from './__test__/syncManagerHarness';
 import { updateAppState } from '$shared/state/appState';
+import { refreshNotesAfterSync, updateNote } from '$features/notes/notes.svelte';
 
 beforeEach(resetSyncManagerHarness);
 
@@ -203,4 +206,43 @@ describe('rename disposition races', () => {
     expect(bundle.applyRemoteRename).not.toHaveBeenCalled();
     expect(bundle.onRename).toHaveBeenCalledExactlyOnceWith('Old', 'New', 'New');
   });
+});
+
+describe('pending saves during a reported rename', () => {
+  it.each(['list refresh', 'rename classification'])(
+    'does not recreate the old name while awaiting %s',
+    async (phase) => {
+      vi.useFakeTimers();
+      const disk = new Map([['New', 'base']]);
+      vi.mocked(updateNote).mockImplementation(async (id, content) => {
+        disk.set(id, content);
+        return { id, mtime: 0, disposition: 'wrote' };
+      });
+      const gate = controlledPromise<void>();
+      vi.mocked(refreshNotesAfterSync).mockReturnValueOnce(
+        phase === 'list refresh' ? gate.promise : Promise.resolve(),
+      );
+      openNoteMocks.classifyOpenNote.mockImplementationOnce(async () => {
+        if (phase === 'rename classification') await gate.promise;
+        return { kind: 'followRename', toId: 'New' };
+      });
+      const live = makeLiveNoteSession('Old', 'base');
+      const manager = managerFor(live.session);
+      live.editContent('base typed');
+      const completion = manager.handleSyncComplete({
+        ...emptySummary,
+        renamed: [{ fromId: 'Old', toId: 'New' }],
+      });
+      await vi.advanceTimersByTimeAsync(600);
+      const recreatedOldName = disk.has('Old');
+      gate.resolve();
+      await completion;
+      await live.session.flushSave();
+      live.session.cancelAndClear();
+
+      expect(recreatedOldName).toBe(false);
+      expect(disk.has('Old')).toBe(false);
+      expect(disk.get('New')).toBe('base typed');
+    },
+  );
 });

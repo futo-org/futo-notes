@@ -2,8 +2,8 @@
     import UIKit
 
     /// Owns the image atoms of one open note: interned per destination so a restyle finds a
-    /// loaded bitmap, loads them, and writes their geometry (the glyph kern and the paragraph's
-    /// minimum line height) into the text storage.
+    /// loaded bitmap, loads them, and writes their geometry (the glyph kern and the baseline lift
+    /// that makes the image's own line as tall as the image) into the text storage.
     @MainActor
     final class TextFirstImages {
         weak var controller: TextFirstEditorController?
@@ -25,6 +25,9 @@
 
         func shutdown() { loader.cancel() }
 
+        /// Whether the note has had an image in it: only then is a line's geometry worth asking.
+        var hasImages: Bool { !atoms.isEmpty }
+
         // MARK: sizes
 
         /// The width a line of text may use (the container's, before any list or quote indent).
@@ -43,9 +46,7 @@
                 as? TextFirstBlockAttribute
             {
                 indent = TextFirstMetrics.quoteIndent(depth: block.quoteDepth)
-                if let list = block.list {
-                    indent += TextFirstMetrics.listIndent(depth: list.depth)
-                }
+                indent += block.listIndent
             }
             return max(40, containerWidth - indent)
         }
@@ -86,31 +87,26 @@
             request(atom)
         }
 
-        /// Write every image of `r`'s paragraph into its glyphs and line height.
+        /// Write every image of `r`'s paragraph into its glyphs: the kern that gives the hidden
+        /// spelling the image's width, and the baseline lift that makes the image's own line as
+        /// tall as the image. The height is the run's, not the paragraph's, so the text sharing
+        /// the paragraph (before the image, or wrapped after it) keeps ordinary lines.
         func layoutParagraph(_ storage: NSTextStorage, containing r: NSRange) {
             let paragraph = (storage.string as NSString).paragraphRange(for: r)
             let room = available(at: paragraph, in: storage)
-            var height: CGFloat = 0
             storage.enumerateAttribute(.tfImage, in: paragraph) { value, run, _ in
                 guard let span = value as? TextFirstImageSpan else { return }
                 let size = TextFirstImageMetrics.size(of: span.atom, available: room)
                 span.size = size
-                height = max(height, size.height)
                 // The hidden spelling still has a small advance. Reserving the entire image
                 // width in addition to it wraps a full-width photo onto a second, equally tall line.
                 let spelling = (storage.string as NSString).substring(with: run)
-                storage.addAttribute(
-                    .kern, value: max(0, size.width - TextFirstImageMetrics.textAdvance(spelling)),
-                    range: NSRange(location: run.location, length: 1))
+                storage.addAttributes(
+                    [
+                        .kern: max(0, size.width - TextFirstImageMetrics.textAdvance(spelling)),
+                        .baselineOffset: size.height,
+                    ], range: NSRange(location: run.location, length: 1))
             }
-            guard height > 0 else { return }
-            let old =
-                storage.attribute(.paragraphStyle, at: paragraph.location, effectiveRange: nil)
-                as? NSParagraphStyle
-            let style =
-                (old?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
-            style.minimumLineHeight = height
-            storage.addAttribute(.paragraphStyle, value: style, range: paragraph)
         }
 
         // MARK: loading
@@ -277,15 +273,49 @@
                 plain[.foregroundColor] = baseAttributes[.foregroundColor]
             }
             plain[.kern] = nil
+            plain[.baselineOffset] = nil
             plain[.tfImage] = nil
             return plain
         }
 
-        /// Where a caret just after an image's hidden spelling is drawn: against the image's
-        /// trailing edge, as tall as a line of text and level with the bottom of the image's line,
-        /// where the text typed after it sits. Only the drawing: the position is the one UIKit
-        /// reports. Nil when `offset` is not the end of an image or its line is not laid out.
-        func imageTrailingCaret(at offset: Int, width: CGFloat) -> CGRect? {
+        /// A text-height rect standing on the baseline of the image-bearing line that holds the
+        /// text view's `rect`: UIKit sizes carets, selection rects and handles to the line, which
+        /// is as tall as its tallest image. Nil when that line has no image.
+        func onImageLine(_ rect: CGRect) -> CGRect? {
+            guard images.hasImages, let manager = textView.textLayoutManager else { return nil }
+            let y = rect.midY - inset.top
+            guard
+                let f = manager.textLayoutFragment(for: CGPoint(x: 0, y: y))
+                    as? TextFirstLayoutFragment,
+                !f.imageRuns.isEmpty,
+                let baseline = f.imageLineBaseline(atY: y - f.layoutFragmentFrame.minY)
+            else { return nil }
+            return Self.textRect(rect, baseline: baseline + f.layoutFragmentFrame.minY + inset.top)
+        }
+
+        /// `rect` as tall as a line of body text, standing on `baseline` (text view coordinates).
+        private static func textRect(_ rect: CGRect, baseline: CGFloat) -> CGRect {
+            let ascent = ceil(bodyFont.ascender)
+            return CGRect(
+                x: rect.minX, y: baseline - ascent, width: rect.width,
+                height: ceil(bodyFont.lineHeight))
+        }
+
+        /// Where the caret at `offset` is drawn when its line has an image: as tall as a line of
+        /// text, level with the text on the baseline the images stand on. Just after an image it is
+        /// against the image's trailing edge. Only the drawing: the position is the one UIKit
+        /// reports. Nil when the line has no image or is not laid out.
+        func imageLineCaret(at offset: Int, proposed: CGRect) -> CGRect? {
+            if let (x, baseline) = imageTrailingEdge(at: offset) {
+                return Self.textRect(
+                    CGRect(x: x, y: 0, width: proposed.width, height: 0), baseline: baseline)
+            }
+            return onImageLine(proposed)
+        }
+
+        /// The trailing edge of the image that ends at `offset` and its line's baseline, in text
+        /// view coordinates. Nil when `offset` is not the end of an image or its line is not laid out.
+        private func imageTrailingEdge(at offset: Int) -> (x: CGFloat, baseline: CGFloat)? {
             guard let (run, span) = image(endingAt: offset),
                 let manager = textView.textLayoutManager,
                 let content = manager.textContentManager,
@@ -304,11 +334,9 @@
                     $0.span === span && $0.range.location == run.location - start
                 }), let rect = f.imageRect(hit)
             else { return nil }
-            let height = min(rect.height, ceil(Self.bodyFont.lineHeight))
-            return CGRect(
-                x: rect.maxX + inset.left,
-                y: rect.maxY - height + f.layoutFragmentFrame.minY + inset.top,
-                width: width, height: height)
+            return (
+                rect.maxX + inset.left, rect.maxY + f.layoutFragmentFrame.minY + inset.top
+            )
         }
 
         /// The first visible line and how far into view it was, so an image that grows above

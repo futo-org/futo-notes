@@ -96,13 +96,19 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
       followedRenameFromIds: new Set(),
       keptDraftId: null,
     };
-    if (!openId) return syncResult;
+    if (!openId) {
+      await projectSyncChanges(summary);
+      return syncResult;
+    }
     const rename = summary.renamed.find((pair) => pair.fromId === openId);
     const isAffected =
       rename !== undefined ||
       summary.deletedIds.includes(openId) ||
       summary.updatedIds.includes(openId);
-    if (!isAffected) return syncResult;
+    if (!isAffected) {
+      await projectSyncChanges(summary);
+      return syncResult;
+    }
 
     // No flush here: the coordinator settles a pending save itself, outside its
     // queue, and only once any reported rename has been followed — flushing
@@ -115,10 +121,19 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     for (let pass = 0; pass < maxPasses && !seenIds.has(currentId); pass += 1) {
       seenIds.add(currentId);
       const currentRename = summary.renamed.find((pair) => pair.fromId === currentId);
-      const result = await externalChanges.reconcileOpenNote(currentId, {
-        editedDuringCycle: dependencies.session.editVersion !== syncStartEditVersion,
-        renamedTo: currentRename?.toId ?? null,
-      });
+      const reconcile = async () => {
+        if (pass === 0) await projectSyncChanges(summary);
+        return externalChanges.reconcileOpenNote(currentId, {
+          editedDuringCycle: dependencies.session.editVersion !== syncStartEditVersion,
+          renamedTo: currentRename?.toId ?? null,
+        });
+      };
+      // A save timer can fire during either the projection IPC or classification.
+      // Keep both ahead of pending saves until the committed rename is followed.
+      // Release before the next pass, which may itself need to flush a save.
+      const result = currentRename
+        ? await dependencies.session.runBeforePendingSave(reconcile)
+        : await reconcile();
       syncResult.keptDraftId = result.keptDraftId;
       if (!result.followedRenameTo) return syncResult;
       syncResult.followedRenameFromIds.add(currentId);
@@ -143,7 +158,6 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     });
 
     recordSyncedFiles(summary);
-    await projectSyncChanges(summary);
     const openNoteResult = await reconcileOpenNote(summary, syncStartEditVersion);
     projectReportedRenames(summary, openNoteResult.followedRenameFromIds);
 

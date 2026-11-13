@@ -3,17 +3,15 @@ use super::{paste, range, EditorSession, Revision};
 
 #[test]
 fn block_paste_in_an_empty_fence_stays_literal() {
-    for (source, expected) in [
-        ("```\n\n```", "```\n# h\n```"),
-        ("```\n\n```\n", "```\n# h\n```\n"),
-        ("```\n```", "```\n# h\n```"),
-        ("```", "```\n# h"),
-        ("> ```\n> \n> ```", "> ```\n> # h\n> ```"),
-        ("- ```\n  \n  ```", "- ```\n  # h\n  ```"),
+    for (source, expected, shown) in [
+        ("```\n\n```", "```\n# h\n```", "# h"),
+        ("```\n\n```\n", "```\n# h\n```\n", "# h\n"),
+        ("```\n```", "```\n# h\n```", "# h"),
+        ("```", "```\n# h", "# h"),
     ] {
         let pasted = paste(source, range(0, 0), "# h", Some(3));
         assert_eq!(pasted.source_text(), expected);
-        assert_eq!(pasted.display_text(), "# h");
+        assert_eq!(pasted.display_text(), shown);
         assert!(pasted.toolbar_state().code);
     }
 }
@@ -22,7 +20,7 @@ fn block_paste_in_an_empty_fence_stays_literal() {
 fn block_paste_at_saved_code_end_stays_literal() {
     let pasted = paste("```\nx\n```\n", range(1, 1), "# h", Some(4));
     assert_eq!(pasted.source_text(), "```\nx# h\n```\n");
-    assert_eq!(pasted.display_text(), "x# h");
+    assert_eq!(pasted.display_text(), "x# h\n");
     assert!(pasted.toolbar_state().code);
 }
 
@@ -37,13 +35,19 @@ fn block_paste_after_genuine_code_separator_remains_prose() {
 
 #[test]
 fn empty_fence_plain_paste_and_nonempty_fence_block_paste_controls() {
-    for (source, selected, text, expected) in [
-        ("```\n\n```", range(0, 0), "a\nb", "```\na\nb\n```"),
-        ("```\nx\n```\n", range(0, 1), "# h", "```\n# h\n```\n"),
+    for (source, selected, text, expected, shown) in [
+        ("```\n\n```", range(0, 0), "a\nb", "```\na\nb\n```", "a\nb"),
+        (
+            "```\nx\n```\n",
+            range(0, 1),
+            "# h",
+            "```\n# h\n```\n",
+            "# h\n",
+        ),
     ] {
         let pasted = paste(source, selected, text, Some(3));
         assert_eq!(pasted.source_text(), expected);
-        assert_eq!(pasted.display_text(), text);
+        assert_eq!(pasted.display_text(), shown);
         assert!(pasted.toolbar_state().code);
     }
 }
@@ -103,37 +107,24 @@ fn empty_fences_beside_real_prose_do_not_take_its_paste() {
     }
 }
 
+/// A selection that starts in a block's code and runs past it is replaced
+/// as typing replaces it (fenced-code.md): the pasted text joins the code
+/// line it starts on and the closing line moves after it; a later block
+/// with no code line left goes whole.
 #[test]
-fn indented_code_keeps_its_existing_literal_paste_path() {
-    let pasted = paste("    x\n", range(1, 1), "# h", Some(4));
-    assert_eq!(pasted.source_text(), "    x# h\n");
-    assert_eq!(pasted.display_text(), "x# h\n");
-    assert!(pasted.toolbar_state().code);
-}
-
-#[test]
-fn block_paste_retires_an_empty_frame_selected_with_prose() {
+fn block_paste_from_code_over_prose_keeps_the_frame() {
     for (source, selected) in [
         ("```\n\n```\n\nplain\n", range(0, 8)),
         ("```\n\n```\n\nplain", range(0, 7)),
+        ("```\nx\n```\n\nplain\n", range(0, 9)),
+        ("```\nx\n```\n\nmiddle\n\n```\ny\n```", range(0, 12)),
     ] {
-        let pasted = paste(source, selected, "# h", None);
-        assert_eq!(pasted.source_text(), "# h");
-        assert_eq!(pasted.display_text(), "h");
-        assert_eq!(pasted.selection(), range(1, 1));
-        assert!(!pasted.toolbar_state().code);
-        assert_eq!(pasted.toolbar_state().heading, Some(1));
+        let pasted = paste(source, selected, "# h", Some(3));
+        assert_eq!(pasted.source_text(), "```\n# h\n```", "{source:?}");
+        assert_eq!(pasted.display_text(), "# h");
+        assert!(pasted.toolbar_state().code);
+        assert_eq!(pasted.toolbar_state().heading, None);
     }
-}
-
-#[test]
-fn block_paste_retires_a_nonempty_frame_selected_with_prose() {
-    let pasted = paste("```\nx\n```\n\nplain\n", range(0, 9), "# h", None);
-    assert_eq!(pasted.source_text(), "# h");
-    assert_eq!(pasted.display_text(), "h");
-    assert_eq!(pasted.selection(), range(1, 1));
-    assert!(!pasted.toolbar_state().code);
-    assert_eq!(pasted.toolbar_state().heading, Some(1));
 }
 
 #[test]
@@ -150,18 +141,9 @@ fn block_paste_retires_a_complete_selected_frame_after_prose() {
 }
 
 #[test]
-fn block_paste_retires_separate_complete_selected_frames() {
-    let source = "```\nx\n```\n\nmiddle\n\n```\ny\n```";
-    let pasted = paste(source, range(0, 12), "# h", None);
-    assert_eq!(pasted.source_text(), "# h");
-    assert_eq!(pasted.display_text(), "h");
-    assert_eq!(pasted.selection(), range(1, 1));
-}
-
-#[test]
 fn selected_frame_paste_keeps_unselected_prose_exact() {
     for (selected, expected, shown, caret) in [
-        (range(8, 16), "before\n\n# h", "before\n\nh", 9),
+        (range(8, 16), "before\n\n```\n# h\n```", "before\n\n# h", 11),
         (range(0, 9), "# h\n\nafter", "h\n\nafter", 1),
     ] {
         let pasted = paste("before\n\n```\nx\n```\n\nafter", selected, "# h", None);
@@ -194,17 +176,17 @@ fn selected_frame_paste_keeps_the_opening_carets_line_ending() {
         "```\r\n\r\n```\r\n\r\nplain\r\n",
         range(0, 11),
         "# h\nbody",
-        Some(7),
+        Some(9),
     );
-    assert_eq!(pasted.source_text(), "# h\r\nbody");
-    assert_eq!(pasted.display_text(), "h\r\nbody");
+    assert_eq!(pasted.source_text(), "```\r\n# h\r\nbody\r\n```");
+    assert_eq!(pasted.display_text(), "# h\r\nbody");
 }
 
 #[test]
 fn selected_frame_paste_drops_only_one_copied_trailing_ending() {
-    let pasted = paste("```\n\n```\n\nplain\n", range(0, 8), "# h\n\n", Some(2));
-    assert_eq!(pasted.source_text(), "# h\n");
-    assert_eq!(pasted.display_text(), "h\n");
+    let pasted = paste("```\n\n```\n\nplain\n", range(0, 8), "# h\n\n", Some(4));
+    assert_eq!(pasted.source_text(), "```\n# h\n\n```");
+    assert_eq!(pasted.display_text(), "# h\n");
 }
 
 #[test]
@@ -225,9 +207,9 @@ fn selected_frame_paste_keeps_unicode_boundaries_and_payload() {
         assert_eq!(session.selection(), range(0, 19));
         assert_eq!(session.revision(), Revision(0));
     }
-    let pasted = paste(source, range(0, 19), "# 猫\nbody", Some(8));
-    assert_eq!(pasted.source_text(), "# 猫\nbody");
-    assert_eq!(pasted.display_text(), "猫\nbody");
+    let pasted = paste(source, range(0, 19), "# 猫\nbody", Some(10));
+    assert_eq!(pasted.source_text(), "```\n# 猫\nbody\n```");
+    assert_eq!(pasted.display_text(), "# 猫\nbody");
 }
 
 #[test]
@@ -258,14 +240,14 @@ fn rejected_selected_frame_paste_retains_source_selection_and_history() {
 }
 
 #[test]
-fn selected_frame_paste_retires_partitioned_fences_with_exact_endings() {
+fn selected_frame_paste_keeps_a_long_fence_with_exact_endings() {
     for eol in ["\n", "\r\n"] {
         let body = format!("x{eol}").repeat(2_000);
         let source = format!("```{eol}{body}```{eol}{eol}plain{eol}");
         let shown = format!("{body}{eol}plain{eol}");
         assert_eq!(EditorSession::open(&source).display_text(), shown);
-        let pasted = paste(&source, range(0, shown.len()), "# h", Some(1));
-        assert_eq!(pasted.source_text(), "# h");
-        assert_eq!(pasted.display_text(), "h");
+        let pasted = paste(&source, range(0, shown.len()), "# h", Some(3));
+        assert_eq!(pasted.source_text(), format!("```{eol}# h{eol}```"));
+        assert_eq!(pasted.display_text(), "# h");
     }
 }

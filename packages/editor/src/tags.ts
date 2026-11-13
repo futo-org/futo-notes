@@ -5,7 +5,8 @@
  * - Must start with a letter after #
  * - Canonical names are lowercase; user-entered whitespace normalizes to _
  * - Preceded by whitespace or start of line
- * - Not inside code blocks/fences or inline code
+ * - Not inside front matter, a code fence or a code span, read line by line as
+ *   the text-first editor reads them (`stripCodeRegions`)
  *
  * This is a DELIBERATE TS copy of the canonical Rust rule
  * (`crates/futo-notes-tags/src/lib.rs`), kept in lockstep via
@@ -53,69 +54,133 @@ export function normalizeTagName(name: string): string {
 }
 
 /**
- * Strip regions that are inside fenced code blocks (``` or ~~~) or inline code (`).
- * Returns content with those regions replaced by spaces (to preserve offsets).
+ * Blank front matter, fenced code and code spans to spaces (offsets kept), as
+ * the text-first editor's line reader reads them
+ * (docs/spec/editor/portable-core/linedown.md). A line ends at `\n` or
+ * `\r\n`; a lone `\r` is an ordinary character. Fences and front matter are
+ * whole lines; a code span never crosses a line. Mirrors `code_regions.rs`.
  */
 function stripCodeRegions(content: string): string {
-  const chars = content.split('');
-
-  // First pass: fenced code blocks (``` or ~~~)
-  const fenceRe = /^( {0,3})(```+|~~~+)(.*)$/gm;
-  let match: RegExpExecArray | null;
-  const fences: Array<{ start: number; end: number }> = [];
-  const openFences: Array<{ pos: number; marker: string }> = [];
-
-  // Find all fence lines
-  const fenceLines: Array<{ index: number; indent: string; marker: string; rest: string }> = [];
-  while ((match = fenceRe.exec(content)) !== null) {
-    fenceLines.push({
-      index: match.index,
-      indent: match[1],
-      marker: match[2],
-      rest: match[3],
-    });
+  if (!/[`~]/.test(content) && !content.startsWith('---')) return content;
+  const regions: Array<[number, number]> = [];
+  const lines = splitLines(content);
+  let index = 0;
+  const frontMatterEnd = closedFrontMatterEnd(content, lines);
+  if (frontMatterEnd !== null) {
+    regions.push([0, frontMatterEnd]);
+    while (index < lines.length && lines[index].start < frontMatterEnd) index++;
   }
-
-  for (const fence of fenceLines) {
-    const baseChar = fence.marker[0];
-    const len = fence.marker.length;
-
-    if (openFences.length > 0) {
-      const open = openFences[openFences.length - 1];
-      const openChar = open.marker[0];
-      const openLen = open.marker.length;
-      // Closing fence must use same char and be at least as long
-      if (baseChar === openChar && len >= openLen && fence.rest.trim() === '') {
-        fences.push({
-          start: open.pos,
-          end: fence.index + fence.marker.length + fence.indent.length + fence.rest.length,
-        });
-        openFences.pop();
-        continue;
+  let fence: { ch: string; len: number; start: number } | null = null;
+  for (; index < lines.length; index++) {
+    const { start, end } = lines[index];
+    const own = content.slice(start, end).replace(/^[ \t]+/, '');
+    if (fence) {
+      const body = own.replace(/[ \t]+$/, '');
+      if (body.length >= fence.len && body === fence.ch.repeat(body.length)) {
+        regions.push([fence.start, end]);
+        fence = null;
       }
-    }
-
-    // Opening fence
-    openFences.push({ pos: fence.index, marker: fence.marker });
-  }
-
-  // Unclosed fences extend to end of document
-  for (const open of openFences) {
-    fences.push({ start: open.pos, end: content.length });
-  }
-
-  // Blank out fenced regions
-  for (const { start, end } of fences) {
-    for (let i = start; i < end && i < chars.length; i++) {
-      if (chars[i] !== '\n') chars[i] = ' ';
+    } else {
+      const run = /^(`{3,}|~{3,})/.exec(own);
+      if (run) fence = { ch: run[1][0], len: run[1].length, start };
+      else codeSpans(content, start, end, regions);
     }
   }
+  if (fence) regions.push([fence.start, content.length]);
 
-  // Second pass: inline code (backticks)
-  const result = chars.join('');
-  return result.replace(/(`+)([^`]*?)\1/g, (m) => {
-    return m.replace(/[^\n]/g, ' ');
-  });
+  const chars = content.split('');
+  for (const [start, end] of regions) {
+    for (let i = start; i < end; i++) if (chars[i] !== '\n') chars[i] = ' ';
+  }
+  return chars.join('');
+}
+
+/** Each line's start and the end of its text (before `\n` or `\r\n`). */
+function splitLines(content: string): Array<{ start: number; end: number }> {
+  const lines: Array<{ start: number; end: number }> = [];
+  let start = 0;
+  for (;;) {
+    const newline = content.indexOf('\n', start);
+    if (newline === -1) {
+      lines.push({ start, end: content.length });
+      return lines;
+    }
+    const end = newline > start && content[newline - 1] === '\r' ? newline - 1 : newline;
+    lines.push({ start, end });
+    start = newline + 1;
+  }
+}
+
+/** Where closed front matter ends: line 1 is exactly `---` and a later line is too. */
+function closedFrontMatterEnd(
+  content: string,
+  lines: Array<{ start: number; end: number }>,
+): number | null {
+  const isRule = ({ start, end }: { start: number; end: number }) =>
+    content.slice(start, end) === '---';
+  if (!isRule(lines[0])) return null;
+  const close = lines.slice(1).find(isRule);
+  return close ? close.end : null;
+}
+
+const ASCII_PUNCTUATION = /[!-/:-@[-`{-~]/;
+
+/**
+ * The code spans of one line, read left to right: a `\` before ASCII
+ * punctuation is an escape; a backtick run opens a span closed by the next run
+ * of exactly its length and is literal text when none follows. Linear: each run
+ * length keeps a cursor into its own list of runs.
+ */
+function codeSpans(
+  content: string,
+  start: number,
+  end: number,
+  regions: Array<[number, number]>,
+): void {
+  const first = content.indexOf('`', start);
+  if (first === -1 || first >= end) return;
+  const runEnd = (at: number) => {
+    while (at < end && content[at] === '`') at++;
+    return at;
+  };
+  const runs = new Map<number, { starts: number[]; cursor: number }>();
+  for (let at = first; at < end;) {
+    if (content[at] !== '`') {
+      at++;
+      continue;
+    }
+    const stop = runEnd(at);
+    const list = runs.get(stop - at) ?? { starts: [], cursor: 0 };
+    list.starts.push(at);
+    runs.set(stop - at, list);
+    at = stop;
+  }
+  let i = start;
+  while (i < end) {
+    const ch = content[i];
+    if (ch === '\\' && i + 1 < end && ASCII_PUNCTUATION.test(content[i + 1])) {
+      i += 2;
+    } else if (ch === '`') {
+      const openEnd = runEnd(i);
+      const len = openEnd - i;
+      const list = runs.get(len);
+      let close: number | undefined;
+      if (list) {
+        while (list.cursor < list.starts.length && list.starts[list.cursor] < openEnd) {
+          list.cursor++;
+        }
+        close = list.starts[list.cursor];
+      }
+      if (close === undefined) {
+        i = openEnd;
+      } else {
+        regions.push([i, close + len]);
+        i = close + len;
+      }
+    } else {
+      i++;
+    }
+  }
 }
 
 /** A `TAG_REGEX` match: the captured name (group 1) and its byte offsets in the
@@ -213,8 +278,8 @@ export function tagRegexMatches(content: string): string[] {
 }
 
 /**
- * Extract all unique tags from note content, excluding tags inside code blocks/fences.
- * Returns canonical tags with the # prefix.
+ * Extract all unique tags from note content, excluding front matter, fenced
+ * code and code spans. Returns canonical tags with the # prefix.
  */
 export function extractTags(content: string): string[] {
   const cleaned = stripCodeRegions(content);

@@ -7,7 +7,6 @@ import { sleep } from '../lib/mcp-client.mjs';
 import {
   assert,
   assertEqual,
-  assertSavedEqual,
   externalWriteNote,
   waitForEditorContent,
   waitForSaveIdle,
@@ -54,11 +53,7 @@ export async function dirtyDraftSurvivesAPeerEditThenSettles(a, b, server) {
   await waitForSaveIdle(b);
   const typed = (await b.getOpenNoteState()).editorContent;
   assert(typed.includes('Local draft'), `B should hold the typed draft, got: ${typed}`);
-  assertSavedEqual(
-    await b.readNote('sync dirty draft'),
-    '# Base',
-    'the held draft must not be on disk',
-  );
+  assertEqual(await b.readNote('sync dirty draft'), '# Base', 'the held draft must not be on disk');
 
   await a.writeNote('sync dirty draft', '# Base\nPeer edit');
   await a.syncNow();
@@ -87,7 +82,7 @@ export async function dirtyDraftSurvivesAPeerEditThenSettles(a, b, server) {
     settled.editorContent.includes('Local draft') || settled.editorContent.includes('Peer edit'),
     `the settle must leave the editor on real content, got: ${settled.editorContent}`,
   );
-  assertSavedEqual(
+  assertEqual(
     await b.readNote('sync dirty draft'),
     '# Base\nPeer edit',
     "the peer's edit must survive the settle of the local draft",

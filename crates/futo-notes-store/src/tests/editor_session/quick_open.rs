@@ -48,8 +48,10 @@ fn a_long_note_shows_the_first_screen_its_session_will_show() {
         .is_some());
 }
 
+/// No reference definitions: a definition-shaped line after the cut is
+/// literal text and the first screen still shows.
 #[test]
-fn a_definition_anywhere_after_the_cut_declines_a_first_screen_that_could_use_it() {
+fn a_definition_shaped_line_after_the_cut_changes_nothing_before_it() {
     let root = TestRoot::new();
     let store = store(&root);
     let mut body = "See [it] here.\n\n".repeat(QUICK_OPEN_BYTES / 16 + 1);
@@ -57,12 +59,12 @@ fn a_definition_anywhere_after_the_cut_declines_a_first_screen_that_could_use_it
     plant_note(&root, "plain", &body);
     agrees_with_open(&store, "plain");
 
-    // Far past the read, and across a scan window's seam.
+    // Far past the read.
     let seam = QUICK_OPEN_BYTES + 1 + 64 * 1024;
     body.truncate(seam - 1);
     body += "]: https://example.com\n";
     plant_note(&root, "defined", &body);
-    assert_eq!(store.quick_open_editor("defined").unwrap(), None);
+    agrees_with_open(&store, "defined");
 }
 
 #[test]
@@ -73,4 +75,69 @@ fn a_short_or_missing_note_has_no_quick_open() {
     assert_eq!(store.quick_open_editor("short").unwrap(), None);
     assert_eq!(store.quick_open_editor("missing").unwrap(), None);
     assert!(store.quick_open_editor("../escape").is_err());
+}
+
+/// Seeded: another writer changes the note between its read and its open
+/// (#392). Unshown, the read changes nothing: the session opens on the file as
+/// `open_editor` does, nothing is due and an edit saves in place. Shown, the
+/// session opens on what was shown; its first save is due at once exactly
+/// when the file moved, and with nothing typed it follows the file. Neither
+/// ever makes a conflict copy here.
+#[test]
+fn an_outside_write_between_the_read_and_the_open_reaches_the_session() {
+    let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut next = |n: usize| {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        (state % n as u64) as usize
+    };
+    for round in 0..60 {
+        let root = TestRoot::new();
+        let store = store(&root);
+        let sections = [3, 700][next(2)];
+        let mut body: String = (0..sections)
+            .map(|i| format!("## Section {i}\n\nBody {i} with words.\n\n"))
+            .collect();
+        if next(3) == 0 {
+            // A definition after the cut declines the first screens.
+            body = body.replace("words", "a [ref][r]") + "[r]: https://x.test\n";
+        }
+        plant_note(&root, "n", &body);
+        let read = store.read_for_editor("n");
+        let shown = next(4) != 0 && store.quick_open_read(&read).is_some();
+        let outside = match next(4) {
+            0 => body.clone(),
+            1 => format!("# PEER\n\n{body}"),
+            2 => format!("{body}PEER tail\n"),
+            _ => body.replacen("Body 1 ", "Body PEER ", 1),
+        };
+        plant_note(&root, "n", &outside);
+        let mut session = store.open_editor_read(&read).unwrap();
+        let moved = outside != body;
+        let at = format!("round {round}, shown {shown}, moved {moved}");
+        if shown {
+            assert_eq!(session.source_text(), body, "{at}");
+            assert_eq!(session.save_delay().is_some(), moved, "{at}");
+            session.save_if_due().unwrap();
+            assert_eq!(session.source_text(), outside, "{at}");
+        } else {
+            assert_eq!(session.source_text(), outside, "{at}");
+            assert_eq!(session.save_delay(), None, "{at}");
+            session
+                .replace(session.revision(), range(0, 0), "typed ")
+                .unwrap();
+            session.checkpoint().unwrap();
+            assert!(
+                store
+                    .read("n")
+                    .unwrap()
+                    .ends_with(&outside[outside.len() - 20..]),
+                "{at}"
+            );
+        }
+        session.close().unwrap();
+        let notes = fs::read_dir(&root.0).unwrap().count();
+        assert_eq!(notes, 1, "{at}: a conflict copy");
+    }
 }

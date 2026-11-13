@@ -59,7 +59,8 @@
         }
 
         // The empty line keeps the container's indents: the caret sits where the typed line will.
-        @Test(arguments: ["> ", "- ", "1. "])
+        // A quote is the one container a heading sits in (`- # x` is a bullet holding "# x").
+        @Test(arguments: ["> "])
         func anEmptyHeadingInAContainerKeepsItsIndentOnTheFirstKeystroke(prefix: String) {
             let h = ready("abc\n")
             h.type(prefix)

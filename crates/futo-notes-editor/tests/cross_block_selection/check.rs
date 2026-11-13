@@ -1,9 +1,8 @@
 //! The cross-block selection checker, shared by the integration tests and
-//! the in-crate property run (`session/blocks/cross_code_tests.rs`), and its
-//! block oracle: pulldown-cmark read on its own, not the engine.
+//! its oracle: what a fresh session on the resulting text reads, line by line
+//! and character by character.
 #![allow(dead_code)] // each includer uses its own part
 use super::*;
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 pub(crate) fn range(a: usize, b: usize) -> DisplayRange {
     DisplayRange {
@@ -28,6 +27,9 @@ pub(crate) enum Input {
     /// A text service's correction: the selection with `z` after its first
     /// letter, everything else kept.
     Fixed,
+    /// A text service's correction that drops the selection's first line (its
+    /// first half on one line) and keeps the rest.
+    Tail,
     /// Two runs (`replace_many`): the range's halves, typed `d` and `e`.
     Many,
 }
@@ -55,6 +57,10 @@ impl Input {
                     format!("{}z{}", &selected[..after], &selected[after..])
                 }
                 None => format!("z{selected}"),
+            },
+            Input::Tail => match selected.find('\n') {
+                Some(at) => selected[at + 1..].into(),
+                None => selected[selected.len() / 2..].into(),
             },
             Input::Many => "de".into(),
             Input::Enter => "\n".into(),
@@ -93,7 +99,7 @@ pub(crate) fn apply(
         Input::Delete => s
             .paragraph_key(rev, at, ParagraphKey::Delete, accept)
             .map(drop),
-        Input::Os(_) | Input::Kept | Input::Fixed => {
+        Input::Os(_) | Input::Kept | Input::Fixed | Input::Tail => {
             let selected = s.display_text()[at.start.0..at.end.0].to_owned();
             let text = input.shown(&selected);
             s.replace_os(rev, at, &text, &[], accept).map(drop)
@@ -118,92 +124,74 @@ pub(crate) fn apply(
     }
 }
 
-/// A shown line's block, read from the parser on its own: code, heading
-/// level, quote depth and list nesting.
+/// A shown line's block, as a fresh session reads it: code, heading level,
+/// quote depth, divider, front matter, the line's own indent and its list
+/// marker (ordered or not, task state). A number is left out: Enter in a
+/// numbered item may renumber the items below it.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Kind {
     code: bool,
     heading: u8,
     quote: u8,
-    list: u8,
-    /// The line begins its paragraph, heading, item or code block.
+    divider: bool,
+    metadata: bool,
+    indent: usize,
+    /// `Some(ordered)` on a list item.
+    list: Option<bool>,
+    checked: Option<bool>,
+    /// The line begins its code block, or is not code. Two code blocks
+    /// whose hidden fences touch read as one here.
     starts: bool,
 }
 
-/// Each nonblank shown line's text and `Kind`.
+/// A fresh session's projection of the whole of `source`.
+fn fresh(source: &str) -> ProjectionSlice {
+    let session = EditorSession::open(source);
+    let end = DisplayOffset(session.display_text().len());
+    session
+        .project(
+            session.revision(),
+            DisplayRange {
+                start: DisplayOffset(0),
+                end,
+            },
+        )
+        .unwrap()
+}
+
+/// Each nonblank shown line's text and `Kind`, as a fresh session reads them.
 pub(crate) fn lines(source: &str) -> Vec<(String, Kind)> {
-    let options = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
-    let mut out: Vec<(String, Kind)> = Vec::new();
-    let mut line = String::new();
-    let mut kind = Kind {
-        code: false,
-        heading: 0,
-        quote: 0,
-        list: 0,
-        starts: false,
-    };
-    // The kind of the line being read, and whether a block began before it.
-    let mut line_kind = kind.clone();
-    let mut fresh = false;
-    let mut flush = |line: &mut String, kind: &Kind, fresh: &mut bool| {
-        let text = line.trim_end_matches('\r');
+    let slice = fresh(source);
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut previous_code = false;
+    for text in slice.text.split('\n') {
+        let block = slice
+            .blocks
+            .iter()
+            .find(|block| block.range.start.0 <= start && start <= block.range.end.0);
+        let code = block.is_some_and(|block| block.code);
+        let list = block.and_then(|block| block.list.as_ref());
+        let item = list.filter(|list| !list.marker.is_empty());
         if !text.trim().is_empty() {
-            let starts = std::mem::take(fresh);
             out.push((
-                text.to_owned(),
+                text.trim_end_matches('\r').to_owned(),
                 Kind {
-                    starts,
-                    ..kind.clone()
+                    code,
+                    heading: block.map_or(0, |block| block.heading),
+                    quote: block.map_or(0, |block| block.quote_depth as u8),
+                    divider: block.is_some_and(|block| block.divider),
+                    metadata: block.is_some_and(|block| block.metadata),
+                    indent: list.map_or(0, |list| list.indent),
+                    list: item.map(|list| list.ordered),
+                    checked: item.and_then(|list| list.checked),
+                    starts: !(code && previous_code),
                 },
             ));
         }
-        line.clear();
-    };
-    for event in Parser::new_ext(source, options) {
-        match event {
-            Event::Start(tag) => {
-                match tag {
-                    Tag::CodeBlock(_) => kind.code = true,
-                    Tag::Heading { level, .. } => kind.heading = level as u8,
-                    Tag::BlockQuote(_) => kind.quote += 1,
-                    Tag::Item => kind.list += 1,
-                    _ => {}
-                }
-                if matches!(
-                    tag,
-                    Tag::Paragraph | Tag::Heading { .. } | Tag::CodeBlock(_) | Tag::Item
-                ) {
-                    flush(&mut line, &line_kind, &mut fresh);
-                    fresh = true;
-                }
-                line_kind = kind.clone();
-            }
-            Event::End(end) => {
-                flush(&mut line, &line_kind, &mut fresh);
-                match end {
-                    TagEnd::CodeBlock => kind.code = false,
-                    TagEnd::Heading(_) => kind.heading = 0,
-                    TagEnd::BlockQuote(_) => kind.quote -= 1,
-                    TagEnd::Item => kind.list -= 1,
-                    _ => {}
-                }
-                line_kind = kind.clone();
-            }
-            Event::Text(text) | Event::Code(text) if line_kind.code => {
-                let mut parts = text.split('\n').peekable();
-                while let Some(part) = parts.next() {
-                    line.push_str(part);
-                    if parts.peek().is_some() {
-                        flush(&mut line, &line_kind, &mut fresh);
-                    }
-                }
-            }
-            Event::Text(text) | Event::Code(text) => line.push_str(&text),
-            Event::SoftBreak | Event::HardBreak => flush(&mut line, &line_kind, &mut fresh),
-            _ => {}
-        }
+        previous_code = code;
+        start += text.len() + 1;
     }
-    flush(&mut line, &line_kind, &mut fresh);
     out
 }
 
@@ -282,6 +270,12 @@ fn exactly_replaced(
         "{label}\nsource {source:?}\nshows {shown:?}\nexpected {:?}",
         expected(&input.shown(&old[a..b]))
     );
+    if matches!(
+        input,
+        Input::Os(_) | Input::Kept | Input::Fixed | Input::Tail
+    ) {
+        unchanged_text_keeps_its_formatting(note, old, a, b, input, source, shown, label);
+    }
     let (old_lines, new_lines) = (lines(note), lines(source));
     let nonblank = |text: &str| {
         text.split('\n')
@@ -289,10 +283,13 @@ fn exactly_replaced(
             .count()
     };
     // The oracle reads lines as the display shows them, or it is no oracle.
-    if old_lines.iter().map(|line| line.0.as_str()).eq(old
-        .split('\n')
-        .map(|line| line.trim_end_matches('\r'))
-        .filter(|line| !line.trim().is_empty()))
+    assert!(
+        old_lines.iter().map(|line| line.0.as_str()).eq(old
+            .split('\n')
+            .map(|line| line.trim_end_matches('\r'))
+            .filter(|line| !line.trim().is_empty())),
+        "{label}: the oracle's lines are not the display's"
+    );
     {
         let before = nonblank(&old[..old[..a].rfind('\n').map_or(0, |at| at + 1)]);
         let after = old[b..]
@@ -319,4 +316,147 @@ fn exactly_replaced(
             "{label}\nsource {source:?}\nlines {old_lines:?}\nbecame {new_lines:?}"
         );
     }
+}
+
+/// Inline formatting a fresh session gives one character.
+const CODE: u8 = 1;
+const EMPHASIS: u8 = 2;
+const STRONG: u8 = 4;
+const STRIKE: u8 = 8;
+const LINK: u8 = 16;
+/// Not a format: the character is on a code line.
+const CODE_LINE: u8 = 32;
+
+/// Each nonblank shown character of `source`, with its formatting.
+fn formatted(source: &str) -> Vec<(char, u8)> {
+    let slice = fresh(source);
+    let within = |range: &DisplayRange, at: usize| range.start.0 <= at && at < range.end.0;
+    slice
+        .text
+        .char_indices()
+        .filter(|(_, ch)| !ch.is_whitespace())
+        .map(|(at, ch)| {
+            let mut flags = 0;
+            for run in slice.runs.iter().filter(|run| within(&run.range, at)) {
+                for format in &run.formats {
+                    flags |= match format {
+                        InlineFormat::Code => CODE,
+                        InlineFormat::Italic => EMPHASIS,
+                        InlineFormat::Bold => STRONG,
+                        InlineFormat::Strike => STRIKE,
+                    };
+                }
+            }
+            if slice.links.iter().any(|link| within(&link.range, at)) {
+                flags |= LINK;
+            }
+            let line =
+                |block: &&BlockDescription| block.range.start.0 <= at && at <= block.range.end.0;
+            if slice
+                .blocks
+                .iter()
+                .find(line)
+                .is_some_and(|block| block.code)
+            {
+                flags |= CODE_LINE;
+            }
+            (ch, flags)
+        })
+        .collect()
+}
+
+/// A text service keeps the characters its replacement shares with the
+/// selection, so each keeps its formatting: the characters outside the range,
+/// and those the character diff keeps inside it, are read by the parser as
+/// they were (#350). Inserted characters take whatever formatting results,
+/// and only inline formatting is compared: a block's kind is the lines check's
+/// (a one-run plan lands a character the service shares with a code line in
+/// the line it joins). Inside the range a character the diff keeps may gain no
+/// formatting (plain text turned into code, emphasis or a link), and may lose
+/// it only on a code line: kept text that joins a code block (as typing joins
+/// it) loses its inline formats.
+#[allow(clippy::too_many_arguments)]
+fn unchanged_text_keeps_its_formatting(
+    note: &str,
+    old: &str,
+    a: usize,
+    b: usize,
+    input: Input,
+    source: &str,
+    shown: &str,
+    label: &str,
+) {
+    let (before, after) = (formatted(note), formatted(source));
+    let nonblank = |text: &str| {
+        text.chars()
+            .filter(|ch| !ch.is_whitespace())
+            .collect::<Vec<_>>()
+    };
+    // The oracle reads text as the display shows it, or it is no oracle.
+    assert!(
+        before.iter().map(|c| c.0).eq(nonblank(old))
+            && after.iter().map(|c| c.0).eq(nonblank(shown)),
+        "{label}: the oracle's characters are not the display's"
+    );
+    let inserted = input.shown(&old[a..b]);
+    // Per nonblank character of the new display: the formatting it keeps from
+    // the old one, or none if inserted.
+    let mut old_flags = before.iter().map(|c| Some(c.1));
+    let mut expected: Vec<Option<(u8, bool)>> = Vec::new();
+    expected.extend(
+        old_flags
+            .by_ref()
+            .take(nonblank(&old[..a]).len())
+            .map(|f| f.map(|f| (f, true))),
+    );
+    let mut inside: Vec<Option<(u8, bool)>> = old_flags
+        .by_ref()
+        .take(nonblank(&old[a..b]).len())
+        .map(|f| f.map(|f| (f, false)))
+        .collect();
+    let diff = similar::TextDiff::from_chars(&old[a..b], inserted.as_str());
+    let changes: Vec<_> = diff.iter_all_changes().collect();
+    // A kept stretch of fewer than three letters or digits is shared by
+    // chance (dictation), and the engine does not hold it to its formatting.
+    let mut held = vec![false; changes.len()];
+    let mut start = 0;
+    while start < changes.len() {
+        let equal = |at: usize| changes[at].tag() == similar::ChangeTag::Equal;
+        let end = (start..changes.len())
+            .find(|&at| !equal(at))
+            .unwrap_or(changes.len());
+        let letters = (start..end)
+            .filter(|&at| changes[at].value().chars().any(char::is_alphanumeric))
+            .count();
+        held[start..end].fill(letters >= 3);
+        start = end.max(start + 1);
+    }
+    for (at, change) in changes.iter().enumerate() {
+        let blank = change.value().chars().all(char::is_whitespace);
+        match change.tag() {
+            similar::ChangeTag::Equal if !blank => {
+                let flags = inside.remove(0);
+                expected.push(flags.filter(|_| held[at]));
+            }
+            similar::ChangeTag::Delete if !blank => drop(inside.remove(0)),
+            similar::ChangeTag::Insert if !blank => expected.push(None),
+            _ => {}
+        }
+    }
+    expected.extend(old_flags.map(|f| f.map(|f| (f, true))));
+    let holds = expected.len() == after.len()
+        && expected.iter().zip(&after).all(|(want, got)| {
+            want.is_none_or(|(flags, exact)| {
+                let (was, now) = (flags & !CODE_LINE, got.1 & !CODE_LINE);
+                if exact {
+                    was == now
+                } else {
+                    now & !was == 0 && (now == was || got.1 & CODE_LINE != 0)
+                }
+            })
+        });
+    assert!(
+        holds,
+        "{label}\nsource {source:?}\nunchanged text changed formatting\nwas {before:?}\nnow {after:?}"
+    );
 }

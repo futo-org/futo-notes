@@ -89,10 +89,10 @@
             guard fingerIsDown, let side = side(of: position) else {
                 let proposed = super.caretRect(for: position)
                 guard let controller, side(of: position) == nil,
-                    let trailing = controller.imageTrailingCaret(
-                        at: offset(from: beginningOfDocument, to: position), width: proposed.width)
+                    let drawn = controller.imageLineCaret(
+                        at: offset(from: beginningOfDocument, to: position), proposed: proposed)
                 else { return proposed }
-                return trailing
+                return drawn
             }
             return CGRect(
                 x: textContainerInset.left,
@@ -104,7 +104,13 @@
             if fingerIsDown, let side = side(of: range.start), side == self.side(of: range.end) {
                 return []
             }
-            return super.selectionRects(for: range)
+            let rects = super.selectionRects(for: range)
+            guard let controller else { return rects }
+            // On an image's line the rects, and the handles drawn from them, are as tall as text.
+            return rects.map { rect in
+                controller.onImageLine(rect.rect).map { TextFirstSelectionRect(rect, drawnAs: $0) }
+                    ?? rect
+            }
         }
 
         // While the engine has not landed UIKit must never change the frozen view: a keyboard's
@@ -196,6 +202,22 @@
             }
             super.pressesBegan(presses, with: event)
         }
+    }
+
+    /// UIKit's selection rect with a different frame.
+    final class TextFirstSelectionRect: UITextSelectionRect {
+        private let source: UITextSelectionRect
+        private let frame: CGRect
+        init(_ source: UITextSelectionRect, drawnAs frame: CGRect) {
+            self.source = source
+            self.frame = frame
+            super.init()
+        }
+        override var rect: CGRect { frame }
+        override var writingDirection: NSWritingDirection { source.writingDirection }
+        override var containsStart: Bool { source.containsStart }
+        override var containsEnd: Bool { source.containsEnd }
+        override var isVertical: Bool { source.isVertical }
     }
 
     /// Reports a finger on the text view, from its first touch down to the end of the last, and

@@ -8,7 +8,7 @@ fn native_clipboard_copies_cuts_and_pastes_exact_markdown() {
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
     store
-        .create_note("clip".into(), "".into(), "- ab **cd**\n".into())
+        .create_note("clip".into(), "".into(), "- ab **cd**".into())
         .unwrap();
     let session = store.open_editor("clip".into()).unwrap();
     let at = |start, end| EditorByteRange { start, end };
@@ -17,17 +17,14 @@ fn native_clipboard_copies_cuts_and_pastes_exact_markdown() {
         .paste_markdown(0, at(3, 3), "- x\n- y\n".into())
         .unwrap()
         .unwrap();
-    assert_eq!(
-        session.source_text().unwrap(),
-        "- ab \n- x\n- y\n- **cd**\n"
-    );
+    assert_eq!(session.source_text().unwrap(), "- ab \n- x\n- y\n- **cd**");
     let cut = session.cut_markdown(1, at(8, 10)).unwrap();
     assert_eq!(cut.markdown, "- **cd**");
     assert!(cut.change.is_some());
-    assert_eq!(session.source_text().unwrap(), "- ab \n- x\n- y\n- \n");
+    assert_eq!(session.source_text().unwrap(), "- ab \n- x\n- y\n- ");
     session.undo(2).unwrap().unwrap();
     session.undo(3).unwrap().unwrap();
-    assert_eq!(session.source_text().unwrap(), "- ab **cd**\n");
+    assert_eq!(session.source_text().unwrap(), "- ab **cd**");
 }
 
 #[test]
@@ -48,7 +45,7 @@ fn native_block_paste_in_an_empty_fence_stays_literal() {
     assert_eq!(change.selection, at(3, 3));
     let expected = "```\n# h\n```\n";
     assert_eq!(session.source_text().unwrap(), expected);
-    assert_eq!(session.display_text().unwrap(), "# h");
+    assert_eq!(session.display_text().unwrap(), "# h\n");
     assert!(session.toolbar_state().unwrap().code);
     assert_eq!(session.undo(1).unwrap().unwrap().selection, at(0, 0));
     assert_eq!(session.source_text().unwrap(), original);
@@ -57,7 +54,7 @@ fn native_block_paste_in_an_empty_fence_stays_literal() {
     drop(session);
     let reopened = store.open_editor("empty-code".into()).unwrap();
     assert_eq!(reopened.source_text().unwrap(), expected);
-    assert_eq!(reopened.display_text().unwrap(), "# h");
+    assert_eq!(reopened.display_text().unwrap(), "# h\n");
 }
 
 #[test]
@@ -102,8 +99,10 @@ fn native_named_link_paste_maps_visible_caret_and_survives_history_and_reopen() 
     );
 }
 
+/// Pasting over a selection from a block's code past it writes what typing
+/// writes: the frame stays and the pasted line is code (fenced-code.md).
 #[test]
-fn native_block_paste_retires_selected_fence_and_prose() {
+fn native_block_paste_from_code_over_prose_keeps_the_frame() {
     let tree = TempTree::new();
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
@@ -120,18 +119,18 @@ fn native_block_paste_retires_selected_fence_and_prose() {
         .paste_markdown(0, at(0, 8), "# h".into())
         .unwrap()
         .unwrap();
-    assert_eq!(change.selection, at(1, 1));
-    assert_eq!(session.source_text().unwrap(), "# h");
-    assert_eq!(session.display_text().unwrap(), "h");
+    assert_eq!(change.selection, at(3, 3));
+    assert_eq!(session.source_text().unwrap(), "```\n# h\n```");
+    assert_eq!(session.display_text().unwrap(), "# h");
     let toolbar = session.toolbar_state().unwrap();
-    assert!(!toolbar.code);
-    assert_eq!(toolbar.heading, Some(1));
+    assert!(toolbar.code);
+    assert_eq!(toolbar.heading, None);
     assert_eq!(session.undo(1).unwrap().unwrap().selection, at(0, 8));
     assert_eq!(session.source_text().unwrap(), original);
-    assert_eq!(session.redo(2).unwrap().unwrap().selection, at(1, 1));
+    assert_eq!(session.redo(2).unwrap().unwrap().selection, at(3, 3));
     session.checkpoint().unwrap();
     drop(session);
     let reopened = store.open_editor("selected-code".into()).unwrap();
-    assert_eq!(reopened.source_text().unwrap(), "# h\n");
-    assert_eq!(reopened.display_text().unwrap(), "h\n");
+    assert_eq!(reopened.source_text().unwrap(), "```\n# h\n```");
+    assert_eq!(reopened.display_text().unwrap(), "# h");
 }

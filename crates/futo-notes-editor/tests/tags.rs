@@ -57,7 +57,8 @@ fn add_spells_canonically_and_touches_only_the_header() {
         ("body", "Work Stuff", "#work_stuff\n\nbody"),
         ("", "#a", "#a"),
         ("body\r\nmore", "a", "#a\r\n\r\nbody\r\nmore"),
-        ("body\rmore", "a", "#a\r\rbody\rmore"),
+        // A lone CR is an ordinary character, not a line ending.
+        ("body\rmore", "a", "#a\n\nbody\rmore"),
         ("#a\r#b", "c", "#a\r#b #c"),
         ("#a\n\nbody", " #B ", "#a #b\n\nbody"),
         ("#a   \n#b  \nbody", "c", "#a   \n#b #c  \nbody"),
@@ -173,6 +174,35 @@ fn edit_work_does_not_scale_with_the_note() {
             change.work.materialized_source_bytes < 4_096,
             "{:?}",
             change.work
+        );
+    }
+}
+
+/// The note list and search read tags with `futo_notes_tags::extract_tags`,
+/// which must agree with the line reader about what is code and what is front
+/// matter. Excluded, because the tags crate does not read them: `[` and `<`
+/// (a backtick taken by a wikilink, autolink or link destination) and `|`
+/// (table cells, which end a code span).
+#[test]
+fn the_tags_crate_reads_code_and_front_matter_as_the_line_reader_does() {
+    let pieces = [
+        "`", "``", "```", "~~~", "#a", "#b", "#", "a", " ", "\t", "\n", "\r\n", "\r", "\\", "---",
+        "- ", "> ", "# ", "    ", ".",
+    ];
+    let mut state: u32 = 0x7a67_c0de;
+    let mut next = || {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        state as usize
+    };
+    for _ in 0..20_000 {
+        let len = next() % 18;
+        let source: String = (0..len).map(|_| pieces[next() % pieces.len()]).collect();
+        assert_eq!(
+            EditorSession::open(&source).tags(),
+            futo_notes_tags::extract_tags(&source),
+            "{source:?}"
         );
     }
 }

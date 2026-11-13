@@ -102,7 +102,11 @@
             #expect(h.controller.engineSelection == end)
             let caret = h.tv.caretRect(for: h.tv.selectedTextRange!.end)
             #expect(abs(caret.minX - frame.maxX) <= 2, "\(caret) vs \(frame)")
-            #expect(abs(caret.maxY - frame.maxY) <= 1)
+            // Text height, level with the text the image stands on (its descent hangs below).
+            #expect(
+                caret.maxY >= frame.maxY - 1
+                    && caret.maxY <= frame.maxY + TextFirstEditorController.bodyFont.lineHeight / 3,
+                "\(caret) vs \(frame)")
             #expect(h.controller.divergences.isEmpty)
         }
 
@@ -176,7 +180,11 @@
             #expect(h.tv.selectedRange == NSRange(location: NSMaxRange(range), length: 0))
             let caret = h.tv.caretRect(for: h.tv.selectedTextRange!.end)
             #expect(abs(caret.minX - frame.maxX) <= 2, "\(caret) vs \(frame)")
-            #expect(abs(caret.maxY - frame.maxY) <= 1)
+            // Text height, level with the text the image stands on (its descent hangs below).
+            #expect(
+                caret.maxY >= frame.maxY - 1
+                    && caret.maxY <= frame.maxY + TextFirstEditorController.bodyFont.lineHeight / 3,
+                "\(caret) vs \(frame)")
         }
 
         @Test(arguments: cases) func theCaretLeavesTheImageEdgeOnceTextIsTypedAfterIt(_ c: Case)
@@ -214,6 +222,27 @@
             #expect(drawn[.kern] == nil)
             h.tv.unmarkText()
             #expect(h.source.contains("![](\(c.file))\u{3042}"), "\(h.source.debugDescription)")
+            #expect(h.controller.divergences.isEmpty)
+        }
+
+        /// iOS sim, Images row 7: after a keyboard Backspace removed an image and Undo brought it
+        /// back, one ArrowLeft left the caret inside the image's hidden source and typing wrote
+        /// into its file name. The Backspace's unanswered delegate edit held back the selection
+        /// report that keeps the caret out of an image.
+        @Test func afterABackspaceAndUndoAnArrowStepStillCrossesTheImage() {
+            let h = TextFirstHarness("here ![](p.png)\n")
+            let image = (h.tv.text as NSString).range(of: "![](p.png)")
+            h.select(NSMaxRange(image), NSMaxRange(image))
+            h.keyboardBackspace()
+            #expect(!h.source.contains("p.png"))
+            h.controller.undo()
+            #expect(h.source.contains("![](p.png)"))
+            #expect(h.tv.selectedRange == NSRange(location: NSMaxRange(image), length: 0))
+            h.tv.selectedRange = NSRange(location: NSMaxRange(image) - 1, length: 0)
+            #expect(h.tv.selectedRange == NSRange(location: image.location, length: 0))
+            #expect(h.controller.engineSelection == h.tv.selectedRange)
+            h.type("Q")
+            #expect(h.source.hasPrefix("here Q![](p.png)"), "\(h.source.debugDescription)")
             #expect(h.controller.divergences.isEmpty)
         }
     }

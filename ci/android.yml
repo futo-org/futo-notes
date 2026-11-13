@@ -3,20 +3,18 @@
 # ─────────────────────────────────────────────────────────────
 # Native app shells (Compose / SwiftUI) — NOT Tauri. Same Rust core
 # (futo-notes-ffi via UniFFI) + the embedded editor.html bundle. These are the
-# release mobile apps on tags; on MRs/default-branch pushes they remain
-# build-only verification jobs with no device install.
+# release mobile apps on tags; on default-branch pushes they remain build-only
+# verification jobs with no device install.
 # ─────────────────────────────────────────────────────────────
 
 build:android-native:
   stage: build
-  # Pin to the office runner via the dind_fast tag (only runner 71 has it; the
-  # DigitalOcean dind droplet has just `dind`). It keeps a warm local cargo
+  # Pin to our own runner via the futo_notes_debian1 tag (only runner 112 has
+  # it; the DigitalOcean dind droplet has just `dind`). It keeps a warm local cargo
   # cache and has far faster CPU — ~5m here vs ~88m cold on the droplet.
-  # Trade-off: every dind_fast job shares that one box and loses the droplet
-  # as failover. It runs at most five jobs at once (14 days to 2026-10-08: no
-  # sixth ever started, and a job starting as the fifth waited a median 11s
-  # vs 1-2s otherwise), and since the JavaScript jobs moved here too (`test`,
-  # test:e2e:*) those five slots are this repo's main MR bottleneck.
+  # Trade-off: every Linux job shares that one box and loses the droplet
+  # as failover. It runs two jobs at once, and since the JavaScript jobs moved
+  # here too (`test`, test:e2e:*) those slots are this repo's main MR bottleneck.
   tags:
     - $LINUX_RUNNER_TAG
   # Native verification is independent of the JavaScript suite; starting it
@@ -31,7 +29,6 @@ build:android-native:
     # Gradle wrapper dist + dependency cache (GRADLE_USER_HOME below).
     - !reference [.cache-gradle-native, cache]
   variables:
-    CARGO_CACHE_POLICY: pull
     ANDROID_HOME: /opt/android-sdk
     ANDROID_SDK_ROOT: /opt/android-sdk
     JAVA_HOME: /opt/jdk-21
@@ -121,9 +118,8 @@ build:android-native:
     # exactly one consumer, so neither the play APK nor the direct AAB is built.
     # Off tags, both flavors' DEBUG APKs are assembled — that is the only thing
     # that compiles a play-only source set or buildConfigField before release
-    # day, and directDebug is also the APK test:cross-platform-sync:android
-    # installs. The pure-logic JVM unit tests run for BOTH flavors whenever this
-    # job runs — MR/default pipelines via its changes gate, and ALWAYS on tag
+    # day, and the pure-logic JVM unit tests run for BOTH flavors whenever this
+    # job runs — default-branch pushes via its changes gate, and ALWAYS on tag
     # builds — so a release can't ship past a red unit test, and
     # DistributionFlavorTest's per-flavor assertions are evaluated on both
     # sides. This job is a release:gate dependency, so a failure here blocks
@@ -193,11 +189,8 @@ build:android-native:
   timeout: 90m
   rules:
     - !reference [.not-scheduled, rules]
-    # The trailing entries are this job's own triggers plus everything that can
-    # make test:cross-platform-sync:android run: that job consumes the debug APK
-    # built here, so it must never run in a pipeline where this job did not.
-    - if: $CI_MERGE_REQUEST_IID
-      changes: &native-android-changes
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
         - apps/android/**/*
         - crates/futo-notes-ffi/**/*
         - Cargo.lock
@@ -207,16 +200,4 @@ build:android-native:
         - scripts/build-rust-android.sh
         - scripts/ci-android-instrumentation.sh
         - scripts/ci-android-emulator.sh
-        - scripts/ci-android-sync-leg.sh
-        - tests/cross-platform-sync.mjs
-        - tests/cross-platform-sync/**/*
-        - tests/lib/**/*
-        - scripts/sync-server-pin.json
-        - scripts/lib/sync-server.mjs
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: *native-android-changes
-      variables:
-        CARGO_CACHE_POLICY: pull-push
     - if: $CI_COMMIT_TAG
-      variables:
-        CARGO_CACHE_POLICY: pull-push

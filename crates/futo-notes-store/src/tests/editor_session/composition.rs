@@ -11,7 +11,7 @@ fn active_composition_survives_own_relink_with_exact_source_and_new_identity() {
     assert_eq!(mutation.relinked, ["long name"]);
     assert_eq!(editor.id(), "long name");
     assert!(editor.take_coordinated_changes().unwrap().is_empty());
-    assert_eq!(editor.source_text(), "[[old]]\n");
+    assert_eq!(editor.source_text(), "[[old]]");
     assert_eq!(editor.composition().unwrap().text, "にほん");
     let change = editor
         .commit_composition(Revision(0), Some("日本"))
@@ -20,14 +20,14 @@ fn active_composition_survives_own_relink_with_exact_source_and_new_identity() {
     let mut view = "[[old]]".to_owned();
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
     assert_eq!(view, "[[old]]日本");
-    assert_eq!(editor.source_text(), "[[old]]日本\n");
+    assert_eq!(editor.source_text(), "[[old]]日本");
     assert_eq!(
         editor.checkpoint().unwrap().disposition,
         FlushDisposition::Wrote
     );
-    assert_eq!(store.read("long name").unwrap(), "[[old]]日本\n");
+    assert_eq!(store.read("long name").unwrap(), "[[old]]日本");
     editor.undo(Revision(1)).unwrap().unwrap();
-    assert_eq!(editor.source_text(), "[[old]]\n");
+    assert_eq!(editor.source_text(), "[[old]]");
     assert_eq!(store.read_existing("old").unwrap(), None);
 }
 
@@ -36,12 +36,12 @@ fn marked_text_is_not_recovered_but_final_correction_is_exact_and_protected() {
     let root = TestRoot::new();
     let store = store(&root);
     store
-        .create("", "input", "teh __middle__ &amp; wrng\r\n")
+        .create("", "input", "teh __middle__ & wrng\r\n")
         .unwrap();
     {
         let mut editor = store.open_editor("input").unwrap();
         editor.compose(Revision(0), range(0, 3), "discard").unwrap();
-        assert_eq!(editor.source_text(), "teh __middle__ &amp; wrng\r\n");
+        assert_eq!(editor.source_text(), "teh __middle__ & wrng\r\n");
     }
     {
         let mut editor = store.open_editor("input").unwrap();
@@ -60,19 +60,16 @@ fn marked_text_is_not_recovered_but_final_correction_is_exact_and_protected() {
             )
             .unwrap()
             .unwrap();
-        assert_eq!(editor.source_text(), "the __middle__ &amp; wrong\r\n");
+        assert_eq!(editor.source_text(), "the __middle__ & wrong\r\n");
         editor.undo(editor.revision()).unwrap().unwrap();
-        assert_eq!(editor.source_text(), "the __middle__ &amp; wrng\r\n");
+        assert_eq!(editor.source_text(), "the __middle__ & wrng\r\n");
         editor.redo(editor.revision()).unwrap().unwrap();
         editor.checkpoint().unwrap();
     }
     let mut recovered = store.open_editor("input").unwrap();
-    assert_eq!(recovered.source_text(), "the __middle__ &amp; wrong\r\n");
+    assert_eq!(recovered.source_text(), "the __middle__ & wrong\r\n");
     recovered.checkpoint().unwrap();
-    assert_eq!(
-        store.read("input").unwrap(),
-        "the __middle__ &amp; wrong\r\n"
-    );
+    assert_eq!(store.read("input").unwrap(), "the __middle__ & wrong\r\n");
 }
 
 #[test]

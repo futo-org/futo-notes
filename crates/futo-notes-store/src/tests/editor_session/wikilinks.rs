@@ -26,12 +26,12 @@ fn store_note_ids_reach_a_composing_session_and_save_keeps_exact_bytes() {
         .commit_composition(Revision(0), None)
         .unwrap()
         .unwrap();
-    assert_eq!(session.source_text(), "[[Roadmap]] abか\n");
+    assert_eq!(session.source_text(), "[[Roadmap]] abか");
     session.checkpoint().unwrap();
     drop(session);
 
     let mut recovered = store.open_editor("home").unwrap();
-    assert_eq!(recovered.source_text(), "[[Roadmap]] abか\n");
+    assert_eq!(recovered.source_text(), "[[Roadmap]] abか");
     recovered.refresh_note_ids().unwrap();
     let roles = recovered
         .project(recovered.revision(), range(0, 17))
@@ -39,7 +39,7 @@ fn store_note_ids_reach_a_composing_session_and_save_keeps_exact_bytes() {
         .wikilinks;
     assert_eq!(roles[0].note_id, None);
     recovered.checkpoint().unwrap();
-    assert_eq!(store.read("home").unwrap(), "[[Roadmap]] abか\n");
+    assert_eq!(store.read("home").unwrap(), "[[Roadmap]] abか");
     assert_eq!(store.read("Projects/Roadmap").unwrap(), "");
 }
 
@@ -81,7 +81,7 @@ fn completion_accepts_one_recovered_edit_and_refused_acceptance_changes_nothing(
     let found = session.wikilink_completion(Revision(0)).unwrap().unwrap();
     assert_eq!(found.candidates[0].note_id, "Projects/Roadmap");
 
-    assert_eq!(session.source_text(), "see [[Ro\n");
+    assert_eq!(session.source_text(), "see [[Ro");
     session
         .accept_wikilink_completion(Revision(0), found.range, &found.query, "Projects/Roadmap")
         .unwrap();
@@ -92,5 +92,5 @@ fn completion_accepts_one_recovered_edit_and_refused_acceptance_changes_nothing(
     session.checkpoint().unwrap();
     drop(session);
     let recovered = store.open_editor("home").unwrap();
-    assert_eq!(recovered.source_text(), "see [[Projects/Roadmap]]\n");
+    assert_eq!(recovered.source_text(), "see [[Projects/Roadmap]]");
 }

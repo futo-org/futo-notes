@@ -1,4 +1,4 @@
-use super::code_regions::{inline_code_regions, scan_fence_lines};
+use super::code_regions::code_regions;
 use super::*;
 use std::time::Instant;
 
@@ -123,72 +123,39 @@ fn large_backtick_note_extracts_fast_and_correct() {
     );
 }
 
+// One ~2 MB line of backtick runs of 2,000 different lengths, so none
+// closes: each opener finds (no) closing run through a per-length cursor,
+// not by rescanning the rest of the line.
 #[test]
-fn fence_scan_matches_the_fence_regex() {
-    let fence = Regex::new(r"(?m)^( {0,3})(`{3,}|~{3,})(.*)$").unwrap();
-    let alphabet = ['`', '~', ' ', '\n', 'a'];
-    for len in 0usize..=7 {
-        for mut encoded in 0..alphabet.len().pow(len as u32) {
-            let mut input = String::with_capacity(len);
-            for _ in 0..len {
-                input.push(alphabet[encoded % alphabet.len()]);
-                encoded /= alphabet.len();
-            }
-            let expected: Vec<_> = fence
-                .captures_iter(&input)
-                .flatten()
-                .map(|caps| {
-                    let whole = caps.get(0).unwrap();
-                    (
-                        whole.start(),
-                        whole.end(),
-                        caps.get(2).unwrap().as_str().as_bytes()[0],
-                        caps.get(2).unwrap().as_str().len(),
-                        caps.get(3).unwrap().as_str().trim().is_empty(),
-                    )
-                })
-                .collect();
-            let actual: Vec<_> = scan_fence_lines(&input, input.as_bytes())
-                .iter()
-                .map(|line| {
-                    (
-                        line.index,
-                        line.end_of_line,
-                        line.marker_char,
-                        line.marker_len,
-                        line.rest_blank,
-                    )
-                })
-                .collect();
-            assert_eq!(actual, expected, "input={input:?}");
-        }
+fn a_long_line_of_unclosed_backtick_runs_is_linear() {
+    let mut line = String::new();
+    for len in 1..=2_000 {
+        line.push_str(&"`".repeat(len));
+        line.push_str(" #a ");
     }
+    assert!(line.len() > 2_000_000);
+    let t = Instant::now();
+    let tags = extract_tags(&line);
+    let elapsed = t.elapsed();
+    assert_eq!(tags, ["#a"]);
+    assert!(
+        elapsed.as_secs() < 3,
+        "code spans on one long line must be read in linear time (was {elapsed:?})"
+    );
 }
 
 #[test]
-fn linear_inline_scan_matches_backreference_regex() {
-    let old = Regex::new(r"(`+)([^`]*?)\1").unwrap();
-    let alphabet = ['`', 'a', '\n', 'é'];
-
-    for len in 0usize..=8 {
-        let cases = alphabet.len().pow(len as u32);
-        for mut encoded in 0..cases {
-            let mut input = String::with_capacity(len);
-            for _ in 0..len {
-                input.push(alphabet[encoded % alphabet.len()]);
-                encoded /= alphabet.len();
-            }
-
-            let expected: Vec<(usize, usize)> = old
-                .find_iter(&input)
-                .flatten()
-                .map(|matched| (matched.start(), matched.end()))
-                .collect();
-            assert_eq!(
-                inline_code_regions(input.as_bytes(), &[]),
-                expected,
-                "input={input:?}"
-            );
-        }
+fn tag_name_ranges_find_the_names_tag_extraction_finds() {
+    for line in [
+        "#a b #c-d, x#e (#f) #1x #g.",
+        "`#code` #after `x`#glued",
+        "#é #ok\t#tab",
+    ] {
+        let code = code_regions(line);
+        let names: Vec<String> = crate::tag_name_ranges(line, &code)
+            .into_iter()
+            .map(|range| crate::normalize_tag_name(&line[range]))
+            .collect();
+        assert_eq!(names, crate::extract_tag_names(line), "{line:?}");
     }
 }

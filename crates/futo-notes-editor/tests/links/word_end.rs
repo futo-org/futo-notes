@@ -1,7 +1,41 @@
 use super::*;
 
+/// Type `text` one character at a time at the end of the view: each key
+/// writes exactly its bytes, and the view always equals a fresh open's.
+fn type_each(session: &mut EditorSession, view: &mut ReferenceView, text: &str) {
+    for ch in text.chars() {
+        let before = session.source_text();
+        let at = view.text.len();
+        view.apply(
+            session
+                .replace(
+                    session.revision(),
+                    range(at, at),
+                    &ch.to_string(),
+                    &mut |_| Ok(()),
+                )
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), format!("{before}{ch}"));
+        assert_eq!(
+            view.text,
+            EditorSession::open(&session.source_text()).display_text()
+        );
+    }
+}
+
+fn links(session: &EditorSession, len: usize) -> Vec<(DisplayRange, String)> {
+    session
+        .project(session.revision(), range(0, len))
+        .unwrap()
+        .links
+        .into_iter()
+        .map(|link| (link.range, link.destination))
+        .collect()
+}
+
 #[test]
-fn typing_a_bare_url_waits_for_word_end_and_keeps_bare_source_through_history() {
+fn a_typed_bare_url_is_a_link_at_once_and_keeps_its_source_through_history() {
     let mut session = EditorSession::open("");
     let mut view = ReferenceView::new("");
     view.apply(
@@ -14,13 +48,10 @@ fn typing_a_bare_url_waits_for_word_end_and_keeps_bare_source_through_history() 
             )
             .unwrap(),
     );
+    let youtube = vec![(range(4, 23), "https://youtube.com".to_owned())];
     assert_eq!(view.text, "see https://youtube.com");
     assert_eq!(session.source_text(), "see https://youtube.com");
-    assert!(session
-        .project(Revision(1), range(0, 23))
-        .unwrap()
-        .links
-        .is_empty());
+    assert_eq!(links(&session, 23), youtube);
     view.apply(
         session
             .replace(Revision(1), range(23, 23), " ok", &mut |_| Ok(()))
@@ -28,137 +59,188 @@ fn typing_a_bare_url_waits_for_word_end_and_keeps_bare_source_through_history() 
     );
     assert_eq!(view.text, "see https://youtube.com ok");
     assert_eq!(session.source_text(), "see https://youtube.com ok");
-    let links = session.project(Revision(2), range(0, 26)).unwrap().links;
-    assert_eq!(links.len(), 1);
-    assert_eq!(links[0].range, range(4, 23));
-    assert_eq!(links[0].destination, "https://youtube.com");
+    assert_eq!(links(&session, 26), youtube);
     view.apply(session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), "see https://youtube.com");
     assert_eq!(view.text, "see https://youtube.com");
-    assert!(session
-        .project(Revision(3), range(0, 23))
-        .unwrap()
-        .links
-        .is_empty());
+    assert_eq!(links(&session, 23), youtube);
     view.apply(session.redo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), "see https://youtube.com ok");
+    assert_eq!(links(&session, 26), youtube);
+}
+
+#[test]
+fn hand_typed_link_syntax_saves_as_typed_and_reads_as_a_link() {
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    type_each(&mut session, &mut view, "[t](https://x.test)");
+    assert_eq!(view.text, "t");
     assert_eq!(
-        session
-            .project(Revision(4), range(0, 26))
-            .unwrap()
-            .links
-            .len(),
-        1
+        links(&session, 1),
+        vec![(range(0, 1), "https://x.test".to_owned())]
+    );
+    type_each(&mut session, &mut view, " ok");
+    assert_eq!(view.text, "t ok");
+    assert_eq!(session.source_text(), "[t](https://x.test) ok");
+    assert_eq!(
+        links(&session, 4),
+        vec![(range(0, 1), "https://x.test".to_owned())]
     );
 }
 
 #[test]
-fn hand_typed_link_syntax_keeps_literal_outer_text_around_only_the_bare_url() {
+fn a_hand_typed_angle_address_saves_as_typed_and_hides_its_brackets() {
     let mut session = EditorSession::open("");
     let mut view = ReferenceView::new("");
-    for ch in "[t](https://x.test)".chars() {
-        let at = view.text.len();
+    type_each(&mut session, &mut view, "<https://x.test>");
+    let address = vec![(range(0, 14), "https://x.test".to_owned())];
+    assert_eq!(view.text, "https://x.test");
+    assert_eq!(links(&session, 14), address);
+    type_each(&mut session, &mut view, " ok");
+    assert_eq!(view.text, "https://x.test ok");
+    assert_eq!(session.source_text(), "<https://x.test> ok");
+    assert_eq!(links(&session, 17), address);
+}
+
+#[test]
+fn a_typed_emphasis_closer_at_url_end_reads_at_once_with_exact_history() {
+    use std::sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    };
+    struct Clock(AtomicU64);
+    impl futo_notes_editor::HistoryClock for Clock {
+        fn now(&self) -> std::time::Duration {
+            std::time::Duration::from_millis(self.0.load(Ordering::Relaxed))
+        }
+    }
+    for (typed, display, bold) in [
+        ("x *b https://x.test/a*", "x b https://x.test/a", false),
+        ("x **b https://x.test/a**", "x b https://x.test/a", true),
+    ] {
+        let clock = Arc::new(Clock(AtomicU64::new(0)));
+        let mut session = EditorSession::open_with_clock("", clock.clone());
+        let mut view = ReferenceView::new("");
+        type_each(&mut session, &mut view, typed);
+        assert_eq!(view.text, display);
+        let url = vec![(range(4, 20), "https://x.test/a".to_owned())];
+        assert_eq!(links(&session, 20), url);
+        let format = if bold {
+            futo_notes_editor::InlineFormat::Bold
+        } else {
+            futo_notes_editor::InlineFormat::Italic
+        };
+        assert!(session
+            .project(session.revision(), range(0, 20))
+            .unwrap()
+            .runs
+            .iter()
+            .filter(|run| run.range.start.0 >= 2 && run.range.end.0 <= 20)
+            .all(|run| run.formats.contains(&format)));
+        clock.0.store(500, Ordering::Relaxed);
         view.apply(
             session
-                .replace(
-                    session.revision(),
-                    range(at, at),
-                    &ch.to_string(),
-                    &mut |_| Ok(()),
-                )
+                .replace(session.revision(), range(20, 20), " ", &mut |_| Ok(()))
                 .unwrap(),
         );
-        assert!(session
-            .project(session.revision(), range(0, view.text.len()))
-            .unwrap()
-            .links
-            .is_empty());
+        assert_eq!(view.text, format!("{display} "));
+        assert_eq!(session.source_text(), format!("{typed} "));
+        assert_eq!(links(&session, 21), url);
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(view.text, display);
+        assert_eq!(session.source_text(), typed);
+        view.apply(
+            session
+                .redo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(view.text, format!("{display} "));
+        assert_eq!(session.source_text(), format!("{typed} "));
     }
-    assert_eq!(view.text, "[t](https://x.test)");
-    let at = view.text.len();
+}
+
+#[test]
+fn bold_over_a_typed_italic_url_keeps_both_through_history() {
+    use futo_notes_editor::InlineFormat;
+    let standard = EditorSession::open("__x \\*b https://x.test/a*__");
+    assert_eq!(standard.display_text(), "x *b https://x.test/a*");
+    let bold: Vec<_> = standard
+        .project(Revision(0), range(0, 22))
+        .unwrap()
+        .runs
+        .into_iter()
+        .filter(|run| run.formats.contains(&InlineFormat::Bold))
+        .map(|run| run.range)
+        .collect();
+    assert_eq!(bold, vec![range(0, 22)]);
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    type_each(&mut session, &mut view, "x *b https://x.test/a*");
+    session.select(session.revision(), range(0, 20)).unwrap();
     view.apply(
         session
-            .replace(session.revision(), range(at, at), " ok", &mut |_| Ok(()))
+            .toggle_format(session.revision(), InlineFormat::Bold, &mut |_| Ok(()))
+            .unwrap()
             .unwrap(),
     );
-    assert_eq!(view.text, "[t](https://x.test) ok");
-    assert_eq!(session.source_text(), "\\[t](https://x.test) ok");
-    let reopened = EditorSession::open(&session.source_text());
-    assert_eq!(
-        reopened
-            .project(Revision(0), range(0, view.text.len()))
-            .unwrap()
-            .links
-            .len(),
-        1,
-        "fresh-open literal bracket source must retain its inner URL"
-    );
-    let links = session
-        .project(session.revision(), range(0, view.text.len()))
-        .unwrap()
-        .links;
-    assert_eq!(
-        links.len(),
-        1,
-        "active word-end semantics must match fresh open"
-    );
-    assert_eq!(links[0].range, range(4, 18));
-    assert_eq!(links[0].destination, "https://x.test");
-    assert_eq!(
-        EditorSession::open(&session.source_text()).display_text(),
-        view.text
-    );
-}
-
-#[test]
-fn hand_typed_angle_link_saves_literal_brackets_around_the_inner_autolink() {
-    let mut session = EditorSession::open("");
-    let mut view = ReferenceView::new("");
-    for ch in "<https://x.test>".chars() {
-        let at = view.text.len();
-        view.apply(
-            session
-                .replace(
-                    session.revision(),
-                    range(at, at),
-                    &ch.to_string(),
-                    &mut |_| Ok(()),
-                )
-                .unwrap(),
-        );
-        assert!(session
-            .project(session.revision(), range(0, view.text.len()))
-            .unwrap()
-            .links
-            .is_empty());
-    }
-    let at = view.text.len();
+    assert_eq!(view.text, "x b https://x.test/a");
+    assert_eq!(session.source_text(), "**x *b https://x.test/a***");
+    session.select(session.revision(), range(20, 20)).unwrap();
     view.apply(
         session
-            .replace(session.revision(), range(at, at), " ok", &mut |_| Ok(()))
-            .unwrap_or_else(|error| {
-                let source = session.source_text();
-                let loaded = EditorSession::open(&source);
-                panic!(
-                    "angle word end rejected: {error:?}; source={source:?}; loaded-link={:?}",
-                    loaded.inspect_link(loaded.revision(), range(1, 2))
-                );
-            }),
+            .replace(session.revision(), range(20, 20), " ", &mut |_| Ok(()))
+            .unwrap(),
     );
-    assert_eq!(view.text, "<https://x.test> ok");
-    assert_eq!(session.source_text(), "<<https://x.test>> ok");
-    let links = session
+    assert_eq!(view.text, "x b https://x.test/a ");
+    assert_eq!(session.source_text(), "**x *b https://x.test/a*** ");
+    let projection = session
         .project(session.revision(), range(0, view.text.len()))
-        .unwrap()
-        .links;
-    assert_eq!(links.len(), 1);
-    assert_eq!(links[0].range, range(1, 15));
-    assert_eq!(links[0].destination, "https://x.test");
-    assert_eq!(
-        EditorSession::open(&session.source_text()).display_text(),
-        view.text
+        .unwrap();
+    assert_eq!(projection.links[0].destination, "https://x.test/a");
+    let italic: Vec<_> = projection
+        .runs
+        .iter()
+        .filter(|run| run.formats.contains(&InlineFormat::Italic))
+        .map(|run| run.range)
+        .collect();
+    assert_eq!(italic, vec![range(2, 20)]);
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
     );
+    assert_eq!(session.source_text(), "**x *b https://x.test/a***");
+    assert_eq!(view.text, "x b https://x.test/a");
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "x *b https://x.test/a*");
+    view.apply(
+        session
+            .redo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "**x *b https://x.test/a***");
+    view.apply(
+        session
+            .replace(session.revision(), range(20, 20), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "x b https://x.test/a ");
+    assert_eq!(session.source_text(), "**x *b https://x.test/a*** ");
 }
+
 #[test]
 fn delimiters_inside_typed_urls_remain_url_characters_and_only_trailing_ones_are_trimmed() {
     for (typed, href) in [
@@ -195,83 +277,6 @@ fn delimiters_inside_typed_urls_remain_url_characters_and_only_trailing_ones_are
             typed
         );
     }
-}
-
-#[test]
-fn an_outside_emphasis_closer_at_url_end_waits_for_word_end_including_exact_history() {
-    use std::sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    };
-    struct Clock(AtomicU64);
-    impl futo_notes_editor::HistoryClock for Clock {
-        fn now(&self) -> std::time::Duration {
-            std::time::Duration::from_millis(self.0.load(Ordering::Relaxed))
-        }
-    }
-    let clock = Arc::new(Clock(AtomicU64::new(0)));
-    let mut session = EditorSession::open_with_clock("", clock.clone());
-    let mut view = ReferenceView::new("");
-    let mut typed = String::new();
-    for ch in "x *b https://x.test/a*".chars() {
-        let at = view.text.len();
-        typed.push(ch);
-        view.apply(
-            session
-                .replace(
-                    session.revision(),
-                    range(at, at),
-                    &ch.to_string(),
-                    &mut |_| Ok(()),
-                )
-                .unwrap(),
-        );
-        assert_eq!(
-            view.text, typed,
-            "delimiter conversion occurred before word end"
-        );
-        assert!(session
-            .project(session.revision(), range(0, view.text.len()))
-            .unwrap()
-            .links
-            .is_empty());
-    }
-    assert_eq!(session.source_text(), "x \\*b https://x.test/a*");
-    assert_eq!(
-        EditorSession::open(&session.source_text()).display_text(),
-        view.text
-    );
-    clock.0.store(500, Ordering::Relaxed);
-    view.apply(
-        session
-            .replace(session.revision(), range(22, 22), " ", &mut |_| Ok(()))
-            .unwrap(),
-    );
-    assert_eq!(view.text, "x b https://x.test/a ");
-    assert_eq!(session.source_text(), "x *b https://x.test/a* ");
-    let links = session
-        .project(session.revision(), range(0, 21))
-        .unwrap()
-        .links;
-    assert_eq!(links.len(), 1);
-    assert_eq!(links[0].range, range(4, 20));
-    assert_eq!(links[0].destination, "https://x.test/a");
-    view.apply(
-        session
-            .undo(session.revision(), &mut |_| Ok(()))
-            .unwrap()
-            .unwrap(),
-    );
-    assert_eq!(view.text, "x *b https://x.test/a*");
-    assert_eq!(session.source_text(), "x \\*b https://x.test/a*");
-    view.apply(
-        session
-            .redo(session.revision(), &mut |_| Ok(()))
-            .unwrap()
-            .unwrap(),
-    );
-    assert_eq!(view.text, "x b https://x.test/a ");
-    assert_eq!(session.source_text(), "x *b https://x.test/a* ");
 }
 
 #[test]
@@ -322,193 +327,4 @@ fn loaded_or_reopened_escaped_openers_keep_literal_intent_at_url_word_end() {
             view.text
         );
     }
-}
-
-#[test]
-fn outside_strong_url_closers_wait_for_word_end_as_one_marker_pair() {
-    let mut session = EditorSession::open("");
-    let mut view = ReferenceView::new("");
-    let mut typed = String::new();
-    for ch in "x **b https://x.test/a**".chars() {
-        typed.push(ch);
-        let at = view.text.len();
-        view.apply(
-            session
-                .replace(
-                    session.revision(),
-                    range(at, at),
-                    &ch.to_string(),
-                    &mut |_| Ok(()),
-                )
-                .unwrap(),
-        );
-        assert_eq!(view.text, typed);
-        assert!(session
-            .project(session.revision(), range(0, view.text.len()))
-            .unwrap()
-            .links
-            .is_empty());
-    }
-    assert_eq!(session.source_text(), "x \\*\\*b https://x.test/a**");
-    let at = view.text.len();
-    session.select(session.revision(), range(0, 0)).unwrap();
-    session.select(session.revision(), range(at, at)).unwrap();
-    view.apply(
-        session
-            .replace(session.revision(), range(at, at), " ", &mut |_| Ok(()))
-            .unwrap(),
-    );
-    assert_eq!(view.text, "x b https://x.test/a ");
-    assert_eq!(session.source_text(), "x **b https://x.test/a** ");
-    let projection = session
-        .project(session.revision(), range(0, view.text.len()))
-        .unwrap();
-    assert_eq!(projection.links.len(), 1);
-    assert_eq!(projection.links[0].destination, "https://x.test/a");
-    assert!(projection
-        .runs
-        .iter()
-        .filter(|run| run.range.start.0 >= 2 && run.range.end.0 <= 20)
-        .all(|run| run.formats.contains(&futo_notes_editor::InlineFormat::Bold)));
-    view.apply(
-        session
-            .undo(session.revision(), &mut |_| Ok(()))
-            .unwrap()
-            .unwrap(),
-    );
-    assert_eq!(view.text, "x **b https://x.test/a**");
-    assert_eq!(session.source_text(), "x \\*\\*b https://x.test/a**");
-    view.apply(
-        session
-            .redo(session.revision(), &mut |_| Ok(()))
-            .unwrap()
-            .unwrap(),
-    );
-    assert_eq!(view.text, "x b https://x.test/a ");
-    assert_eq!(session.source_text(), "x **b https://x.test/a** ");
-}
-
-#[test]
-fn selected_format_rewrites_retain_owned_pending_url_delimiters_through_history() {
-    use futo_notes_editor::InlineFormat;
-    let standard = EditorSession::open("__x \\*b https://x.test/a*__");
-    assert_eq!(standard.display_text(), "x *b https://x.test/a*");
-    let bold: Vec<_> = standard
-        .project(Revision(0), range(0, 22))
-        .unwrap()
-        .runs
-        .into_iter()
-        .filter(|run| run.formats.contains(&InlineFormat::Bold))
-        .map(|run| run.range)
-        .collect();
-    assert_eq!(bold, vec![range(0, 22)]);
-    let mut session = EditorSession::open("");
-    let mut view = ReferenceView::new("");
-    for ch in "x *b https://x.test/a*".chars() {
-        let at = view.text.len();
-        view.apply(
-            session
-                .replace(
-                    session.revision(),
-                    range(at, at),
-                    &ch.to_string(),
-                    &mut |_| Ok(()),
-                )
-                .unwrap(),
-        );
-    }
-    session.select(session.revision(), range(0, 22)).unwrap();
-    view.apply(
-        session
-            .toggle_format(session.revision(), InlineFormat::Bold, &mut |_| Ok(()))
-            .unwrap()
-            .unwrap(),
-    );
-    assert_eq!(view.text, "x *b https://x.test/a*");
-    assert_eq!(session.source_text(), "__x \\*b https://x.test/a*__");
-    session.select(session.revision(), range(22, 22)).unwrap();
-    view.apply(
-        session
-            .replace(session.revision(), range(22, 22), " ", &mut |_| Ok(()))
-            .unwrap(),
-    );
-    assert_eq!(view.text, "x b https://x.test/a ");
-    assert_eq!(session.source_text(), "__x *b https://x.test/a*__ ");
-    let projection = session
-        .project(session.revision(), range(0, view.text.len()))
-        .unwrap();
-    assert_eq!(projection.links[0].destination, "https://x.test/a");
-    let italic: Vec<_> = projection
-        .runs
-        .iter()
-        .filter(|run| run.formats.contains(&InlineFormat::Italic))
-        .map(|run| run.range)
-        .collect();
-    assert_eq!(italic, vec![range(2, 20)]);
-    view.apply(
-        session
-            .undo(session.revision(), &mut |_| Ok(()))
-            .unwrap()
-            .unwrap(),
-    );
-    assert_eq!(session.source_text(), "__x \\*b https://x.test/a*__");
-    assert_eq!(view.text, "x *b https://x.test/a*");
-    view.apply(
-        session
-            .undo(session.revision(), &mut |_| Ok(()))
-            .unwrap()
-            .unwrap(),
-    );
-    assert_eq!(session.source_text(), "x \\*b https://x.test/a*");
-    view.apply(
-        session
-            .redo(session.revision(), &mut |_| Ok(()))
-            .unwrap()
-            .unwrap(),
-    );
-    assert_eq!(session.source_text(), "__x \\*b https://x.test/a*__");
-    view.apply(
-        session
-            .replace(session.revision(), range(22, 22), " ", &mut |_| Ok(()))
-            .unwrap(),
-    );
-    assert_eq!(view.text, "x b https://x.test/a ");
-    assert_eq!(session.source_text(), "__x *b https://x.test/a*__ ");
-}
-
-#[test]
-fn hand_typed_angle_before_word_end_reopens_with_clean_inner_url() {
-    let mut session = EditorSession::open("");
-    let mut view = ReferenceView::new("");
-    for ch in "<https://x.test>".chars() {
-        let at = view.text.len();
-        view.apply(
-            session
-                .replace(
-                    session.revision(),
-                    range(at, at),
-                    &ch.to_string(),
-                    &mut |_| Ok(()),
-                )
-                .unwrap(),
-        );
-    }
-    assert_eq!(view.text, "<https://x.test>");
-    assert!(session
-        .project(session.revision(), range(0, view.text.len()))
-        .unwrap()
-        .links
-        .is_empty());
-    // Transient live timing is deliberately absent on reopen; standard source
-    // must still own the intended literal pair and clean destination.
-    let source = session.source_text();
-    let reopened = EditorSession::open(&source);
-    assert_eq!(reopened.display_text(), view.text);
-    let links = reopened
-        .project(reopened.revision(), range(0, view.text.len()))
-        .unwrap()
-        .links;
-    assert_eq!(links.len(), 1, "source={source:?}");
-    assert_eq!(links[0].destination, "https://x.test", "source={source:?}");
-    assert_eq!(links[0].range, range(1, 15));
 }

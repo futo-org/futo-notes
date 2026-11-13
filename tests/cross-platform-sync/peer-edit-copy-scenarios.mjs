@@ -6,7 +6,6 @@ import { sleep } from '../lib/mcp-client.mjs';
 import {
   assert,
   assertEqual,
-  assertSavedEqual,
   waitForEditorContent,
   waitForSaveIdle,
 } from './waits-and-assertions.mjs';
@@ -42,7 +41,7 @@ export async function focusedTypistAfterDeferredPeerEditMintsOneCopy(a, b, serve
   await a.syncNow();
   const pulled = await b.syncNow();
   assertEqual(pulled.summary.downloaded, 1, `B downloaded=${pulled.summary.downloaded}`);
-  assertSavedEqual(
+  assertEqual(
     (await b.getOpenNoteState()).editorContent,
     '# Base',
     'a focused editor defers the peer edit',
@@ -61,7 +60,7 @@ export async function focusedTypistAfterDeferredPeerEditMintsOneCopy(a, b, serve
   for (const word of ['alpha', 'bravo', 'charlie']) {
     assert(copyBody.includes(word), `the copy must hold every typed word, got ${copyBody}`);
   }
-  assertSavedEqual(
+  assertEqual(
     await b.readNote('focused typist'),
     '# Base\nPeer edit',
     "the peer's bytes stay at the note's own id",

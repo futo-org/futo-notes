@@ -1,212 +1,172 @@
+//! Native input paths across line seams (text-service runs, marked text,
+//! explicit runs, typing sequences, code lines): each case's exact source,
+//! caret, history, and the bytes a save writes and a reopen reads. Ported
+//! from the CommonMark-era `structural-seams.json` and
+//! `fence-physical-rows.json`: entities became the characters they spelled,
+//! fences left quotes (a fence is not recognised after `>`), and the rows
+//! that pinned a setext, entity or `***` repair now land as typed.
 mod support;
 use futo_notes_ffi::*;
 use support::{path_string, TempTree};
+
 fn range(a: u64, z: u64) -> EditorUtf16Range {
     EditorUtf16Range { start: a, end: z }
 }
 
-/// A note holding exactly `source`, which may lack the final line ending every
-/// authored write appends (portable-core/recovery.md).
-fn plant_note(tree: &TempTree, id: &str, source: &str) {
-    std::fs::write(tree.path(&format!("vault/{id}.md")), source).unwrap();
-}
+#[path = "editor_seams/cases.rs"]
+mod cases;
+use cases::{Mode, Seam, CASES};
 
-/// Source and display after an authored save of `source`: a nonempty note
-/// without a final line ending gains its own (CRLF or LF). The gained ending's
-/// display is the editor's own projection of the saved bytes.
-fn saved_forms(source: &str, display: &str) -> (String, String) {
-    if source.is_empty() || source.ends_with('\n') {
-        return (source.to_owned(), display.to_owned());
-    }
-    let ending = if source.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
+/// Runs the case's input, applying each view change to `view`.
+fn run(s: &NativeEditorSession, case: &Seam, view: &mut String) -> EditorViewChange {
+    let mut apply = |change: EditorViewChange| {
+        let replaced = change.range.start as usize..change.range.end as usize;
+        view.replace_range(replaced, &change.inserted);
+        change
     };
-    let saved = format!("{source}{ending}");
-    let shown = futo_notes_editor::EditorSession::open(&saved).display_text();
-    (saved, shown)
-}
-
-#[test]
-fn native_structural_seams_and_raw_composition_keep_exact_saves_and_carets() {
-    let cases: Vec<serde_json::Value> = [
-        include_str!("../../futo-notes-editor/tests/fixtures/structural-seams.json"),
-        include_str!("../../futo-notes-editor/tests/fixtures/fence-physical-rows.json"),
-    ]
-    .into_iter()
-    .flat_map(|source| serde_json::from_str::<Vec<serde_json::Value>>(source).unwrap())
-    .collect();
-    assert_eq!(cases.len(), 69);
-    for case in &cases {
-        let text = |key: &str| case[key].as_str().unwrap();
-        let tree = TempTree::new();
-        std::fs::create_dir_all(tree.path("vault")).unwrap();
-        let store = NoteStore::new(path_string(&tree.path("vault")));
-        plant_note(&tree, "seam", text("source"));
-        let s = store.open_editor("seam".into()).unwrap();
-        let mut view = text("display").to_owned();
-        let mut last = None;
-        let mut apply = |change: EditorViewChange| {
-            view.replace_range(
-                change.range.start as usize..change.range.end as usize,
-                &change.inserted,
-            );
-            last = Some(change.selection);
+    let selected = range(case.range.0, case.range.1);
+    let text: Vec<u16> = case.text.encode_utf16().collect();
+    let runs = || -> Vec<EditorUtf16Replacement> {
+        if case.runs.is_empty() {
+            return vec![EditorUtf16Replacement {
+                range: selected,
+                inserted: text.clone(),
+            }];
+        }
+        let run = |&(a, z, text): &(u64, u64, &str)| EditorUtf16Replacement {
+            range: range(a, z),
+            inserted: text.encode_utf16().collect(),
         };
-        let selected = range(
-            case["range"][0].as_u64().unwrap(),
-            case["range"][1].as_u64().unwrap(),
-        );
-        let inserted: Vec<_> = text("text").encode_utf16().collect();
-        let mode = text("mode");
-        if mode == "composition_commit" {
+        case.runs.iter().map(run).collect()
+    };
+    match case.mode {
+        Mode::Typing => apply(
+            s.replace_utf16_action(0, selected, text, EditorInputAction::Isolated)
+                .unwrap(),
+        ),
+        Mode::Os => apply(
+            s.replace_os_utf16(0, selected, text, vec![])
+                .unwrap()
+                .unwrap(),
+        ),
+        Mode::Commit => {
             for value in ["に", "日本"] {
                 let marked = s
                     .compose_utf16(0, selected, value.encode_utf16().collect())
                     .unwrap();
                 assert_eq!(marked.text, value);
-                assert_eq!(s.source_text().unwrap(), text("source"));
+                assert_eq!(s.source_text().unwrap(), case.source);
                 assert_eq!(s.revision().unwrap(), 0);
             }
             s.cancel_composition(0).unwrap();
             assert!(s.composition().unwrap().is_none());
-            s.compose_utf16(0, selected, inserted).unwrap();
-            apply(s.commit_composition_utf16(0, None).unwrap().unwrap());
-        } else if mode == "composition_batch" {
-            s.compose_utf16(0, selected, inserted).unwrap();
-            assert_eq!(s.source_text().unwrap(), text("source"));
-            let replacements = case["replacements"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|run| EditorUtf16Replacement {
-                    range: range(run[0].as_u64().unwrap(), run[1].as_u64().unwrap()),
-                    inserted: run[2].as_str().unwrap().encode_utf16().collect(),
-                })
-                .collect();
-            apply(s.replace_many_utf16(0, replacements).unwrap());
+            s.compose_utf16(0, selected, text).unwrap();
+            apply(s.commit_composition_utf16(0, None).unwrap().unwrap())
+        }
+        Mode::MarkedRuns => {
+            s.compose_utf16(0, selected, text.clone()).unwrap();
+            assert_eq!(s.source_text().unwrap(), case.source);
+            let change = s.replace_many_utf16(0, runs()).unwrap();
             assert_eq!(s.revision().unwrap(), 1);
-        } else if matches!(mode, "composition_os" | "distant_composition_os") {
-            s.compose_utf16(
-                0,
-                range(
-                    if mode == "distant_composition_os" {
-                        17
-                    } else {
-                        0
-                    },
-                    if mode == "distant_composition_os" {
-                        17
-                    } else {
-                        0
-                    },
-                ),
-                vec![33],
-            )
-            .unwrap();
-            apply(
-                s.replace_os_utf16(0, selected, inserted, vec![])
-                    .unwrap()
-                    .unwrap(),
-            );
+            apply(change)
+        }
+        Mode::MarkedOs(at) => {
+            s.compose_utf16(0, range(at, at), vec![33]).unwrap();
+            let change = s.replace_os_utf16(0, selected, text, vec![]).unwrap();
             assert_eq!(s.revision().unwrap(), 1);
-        } else if mode == "os" {
-            apply(
-                s.replace_os_utf16(s.revision().unwrap(), selected, inserted, vec![])
-                    .unwrap()
-                    .unwrap(),
-            );
-        } else if mode == "typing_sequence" {
-            if let Some(format) = case["format"].as_str() {
-                let format = match format {
-                    "Bold" => EditorInlineFormat::Bold,
-                    "Code" => EditorInlineFormat::Code,
-                    _ => panic!("invalid fixture format"),
-                };
+            apply(change.unwrap())
+        }
+        Mode::Runs => apply(s.replace_many_utf16(0, runs()).unwrap()),
+        Mode::Sequence(format) => {
+            if let Some(format) = format {
                 assert!(s.toggle_format(0, format).unwrap().is_none());
             }
             let mut caret = selected;
-            for input in case["inputs"].as_array().unwrap() {
-                let action = match input[0].as_str().unwrap() {
-                    "Typing" => EditorInputAction::Typing,
-                    "Isolated" => EditorInputAction::Isolated,
-                    _ => panic!("invalid fixture action"),
+            let mut last = None;
+            for &(isolated, input) in case.inputs {
+                let action = if isolated {
+                    EditorInputAction::Isolated
+                } else {
+                    EditorInputAction::Typing
                 };
+                let revision = s.revision().unwrap();
+                let input = input.encode_utf16().collect();
                 let change = s
-                    .replace_utf16_action(
-                        s.revision().unwrap(),
-                        caret,
-                        input[1].as_str().unwrap().encode_utf16().collect(),
-                        action,
-                    )
+                    .replace_utf16_action(revision, caret, input, action)
                     .unwrap();
                 caret = s
-                    .display_to_utf16(s.revision().unwrap(), change.selection)
+                    .display_to_utf16(change.revision, change.selection.clone())
                     .unwrap();
-                apply(change);
+                last = Some(apply(change));
             }
-        } else if mode == "typing" {
-            apply(
-                s.replace_utf16_action(0, selected, inserted, EditorInputAction::Isolated)
-                    .unwrap(),
-            );
-        } else if mode == "explicit" {
-            let replacements: Vec<_> = if let Some(runs) = case["replacements"].as_array() {
-                runs.iter()
-                    .map(|run| EditorUtf16Replacement {
-                        range: range(run[0].as_u64().unwrap(), run[1].as_u64().unwrap()),
-                        inserted: run[2].as_str().unwrap().encode_utf16().collect(),
-                    })
-                    .collect()
-            } else {
-                vec![EditorUtf16Replacement {
-                    range: selected,
-                    inserted,
-                }]
-            };
-            apply(s.replace_many_utf16(0, replacements).unwrap());
-        } else if mode == "batch" {
-            let replacements = [(0, 1, "!"), (1, 2, "?"), (3, 5, "AC")].map(|(a, z, text)| {
-                EditorUtf16Replacement {
-                    range: range(a, z),
-                    inserted: text.encode_utf16().collect(),
-                }
-            });
-            apply(s.replace_many_utf16(0, replacements.into()).unwrap());
+            last.unwrap()
         }
-        assert_eq!(view, text("expectedDisplay"), "{}", text("name"));
-        assert_eq!(s.source_text().unwrap(), text("expectedSource"));
+    }
+}
+
+fn shown(source: &str) -> String {
+    futo_notes_editor::EditorSession::open(source).display_text()
+}
+
+#[test]
+fn native_structural_seams_and_raw_composition_keep_exact_saves_and_carets() {
+    let mut failed = Vec::new();
+    for case in CASES {
+        let tree = TempTree::new();
+        std::fs::create_dir_all(tree.path("vault")).unwrap();
+        let store = NoteStore::new(path_string(&tree.path("vault")));
+        // Exactly these bytes, which may lack a final line ending.
+        std::fs::write(tree.path("vault/seam.md"), case.source).unwrap();
+        let s = store.open_editor("seam".into()).unwrap();
+        let mut view = s.display_text().unwrap();
+        assert_eq!(view, shown(case.source), "{}", case.name);
+        let change = run(&s, case, &mut view);
         let caret = s
-            .display_to_utf16(s.revision().unwrap(), last.unwrap())
+            .display_to_utf16(change.revision, change.selection.clone())
             .unwrap();
-        assert_eq!(caret.start, case["caret"].as_u64().unwrap());
-        assert_eq!(caret.start, caret.end);
-        for _ in 0..case["history"].as_u64().unwrap() {
+        let got = s.source_text().unwrap();
+        if got != case.expected || caret != range(case.caret, case.caret) {
+            failed.push(format!(
+                "{}: {got:?} caret {caret:?}, expected {:?} caret {}",
+                case.name, case.expected, case.caret
+            ));
+            continue;
+        }
+        let name = case.name;
+        assert_eq!(
+            view,
+            shown(case.expected),
+            "{name}: the view is a fresh read"
+        );
+        for _ in 0..case.history {
             s.undo(s.revision().unwrap()).unwrap().unwrap();
         }
-        assert_eq!(s.source_text().unwrap(), text("source"));
+        assert_eq!(s.source_text().unwrap(), case.source, "{name}: undo");
+        assert!(s.undo(s.revision().unwrap()).unwrap().is_none(), "{name}");
         let mut redone = None;
-        for _ in 0..case["history"].as_u64().unwrap() {
+        for _ in 0..case.history {
             redone = s.redo(s.revision().unwrap()).unwrap();
         }
-        assert_eq!(s.source_text().unwrap(), text("expectedSource"));
-        let caret = case["redoCaret"]
-            .as_u64()
-            .unwrap_or(case["caret"].as_u64().unwrap());
+        assert_eq!(s.source_text().unwrap(), case.expected, "{name}: redo");
+        let caret = case.redo_caret.unwrap_or(case.caret);
+        let revision = s.revision().unwrap();
         assert_eq!(
-            s.display_to_utf16(s.revision().unwrap(), redone.unwrap().selection)
+            s.display_to_utf16(revision, redone.unwrap().selection)
                 .unwrap(),
-            range(caret, caret)
+            range(caret, caret),
+            "{name}: redo caret"
         );
         s.checkpoint().unwrap();
         s.detach().unwrap();
-        // The save appended the note's final line ending, if it had none.
-        let (saved, shown) = saved_forms(text("expectedSource"), text("expectedDisplay"));
         let recovered = store.open_editor("seam".into()).unwrap();
-        assert_eq!(recovered.source_text().unwrap(), saved);
-        assert_eq!(recovered.display_text().unwrap(), shown);
+        assert_eq!(recovered.source_text().unwrap(), case.expected, "{name}");
+        assert_eq!(
+            recovered.display_text().unwrap(),
+            shown(case.expected),
+            "{name}"
+        );
         recovered.checkpoint().unwrap();
-        assert_eq!(store.read("seam".into()).unwrap(), saved);
+        assert_eq!(store.read("seam".into()).unwrap(), case.expected, "{name}");
     }
+    assert!(failed.is_empty(), "{}", failed.join("\n"));
 }

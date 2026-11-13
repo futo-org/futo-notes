@@ -4,7 +4,22 @@
     // The embedded content a layout fragment draws over its text: image bitmaps and table grids.
 
     extension TextFirstLayoutFragment {
-        /// An image's rect in this fragment's coordinates (x in container coordinates).
+        /// The baseline of the line holding the fragment-local vertical position `y`, when that
+        /// line has an image on it: the text on the line sits on it, and so does every image.
+        func imageLineBaseline(atY y: CGFloat) -> CGFloat? {
+            guard
+                let line = textLineFragments.first(where: {
+                    $0.typographicBounds.minY <= y && y < $0.typographicBounds.maxY
+                }) ?? textLineFragments.last,
+                imageRuns.contains(where: {
+                    NSLocationInRange($0.range.location, line.characterRange)
+                })
+            else { return nil }
+            return line.typographicBounds.minY + line.glyphOrigin.y
+        }
+
+        /// An image's rect in this fragment's coordinates (x in container coordinates). It stands
+        /// on its line's baseline, with the text; the tallest image's top is the line's top.
         func imageRect(_ run: (range: NSRange, span: TextFirstImageSpan)) -> CGRect? {
             guard
                 let line = textLineFragments.first(where: {
@@ -24,8 +39,9 @@
                 line.typographicBounds.minX + indent
                 + line.locationForCharacter(at: run.range.location).x
             let size = run.span.size
+            let baseline = line.typographicBounds.minY + line.glyphOrigin.y
             return CGRect(
-                x: x, y: line.typographicBounds.minY, width: size.width, height: size.height)
+                x: x, y: baseline - size.height, width: size.width, height: size.height)
         }
 
         /// A table row's grid rect in this fragment's coordinates (x in container coordinates).
@@ -90,6 +106,19 @@
             }
         }
 
+        /// The selection's colour over an image the selection covers whole: the system's own
+        /// highlight is drawn under the bitmap, where it cannot be seen.
+        private func tintIfSelected(
+            _ run: (range: NSRange, span: TextFirstImageSpan), rect: CGRect, in context: CGContext
+        ) {
+            guard let host, let manager = textLayoutManager,
+                MainActor.assumeIsolated({ host.selectionCovers(run.range, in: self, manager) })
+            else { return }
+            (MainActor.assumeIsolated { host.textView.tintColor } ?? accent)
+                .withAlphaComponent(0.35).setFill()
+            context.fill(rect)
+        }
+
         func drawImages(at point: CGPoint, in context: CGContext) {
             UIGraphicsPushContext(context)
             defer { UIGraphicsPopContext() }
@@ -98,6 +127,7 @@
                     continue
                 }
                 let atom = run.span.atom
+                defer { tintIfSelected(run, rect: rect, in: context) }
                 if let image = atom.image {
                     image.draw(in: rect)
                     continue

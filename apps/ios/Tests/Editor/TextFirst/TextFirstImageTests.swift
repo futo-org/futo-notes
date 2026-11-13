@@ -73,26 +73,52 @@
             let h = TextFirstHarness(
                 "![](wide-line.png)\n\nafter",
                 files: ["wide-line.png": TextFirstHarness.png(1800, 2400)])
-            #expect(await h.until { self.lineHeight(h, at: 0) > 400 })
-            h.tv.layoutIfNeeded()
+            #expect(await h.until { h.lineHeights().contains { $0 > 400 } })
+            let heights = h.lineHeights()
+            #expect(heights.count == 1, "\(heights)")
             let manager = h.tv.textLayoutManager!
             let fragment = manager.textLayoutFragment(for: manager.documentRange.location)!
+            #expect(fragment.layoutFragmentFrame.height < (heights.max() ?? 0) + 40)
+        }
+
+        /// An image inserted after text on the same line (the toolbar and a paste put it at the
+        /// caret) must not turn the text's own lines photo-tall: only the line holding the image is.
+        @Test func textBeforeAnImageOnItsLineAddsNoPhotoHeightOfItsOwn() async {
+            let h = TextFirstHarness(
+                "Hello world![](wide-inline.png)\n",
+                files: ["wide-inline.png": TextFirstHarness.png(1800, 2400)])
+            #expect(await h.until { h.lineHeights().contains { $0 > 400 } })
+            let heights = h.lineHeights()
             #expect(
-                fragment.textLineFragments.count == 1,
-                "\(fragment.textLineFragments.map { $0.typographicBounds })")
-            #expect(fragment.layoutFragmentFrame.height < lineHeight(h, at: 0) + 40)
+                heights.filter { $0 > 40 }.count == 1,
+                "only the image's line may be photo-tall, got \(heights)")
+            #expect(
+                heights.reduce(0, +) < (heights.max() ?? 0) + 100,
+                "the text's lines add \(heights.reduce(0, +) - (heights.max() ?? 0)) pt: \(heights)"
+            )
+        }
+
+        @Test func textWrappedAfterAnImageKeepsOrdinaryLines() async {
+            let h = TextFirstHarness(
+                "![](wide-caption.png) a caption long enough to wrap onto more lines than one\n",
+                files: ["wide-caption.png": TextFirstHarness.png(1800, 2400)])
+            #expect(await h.until { h.lineHeights().contains { $0 > 400 } })
+            let heights = h.lineHeights()
+            #expect(heights.filter { $0 > 40 }.count == 1, "got \(heights)")
         }
 
         @Test func enteringAfterAPhotoDoesNotCarryItsHeightOrKern() async {
             let h = TextFirstHarness(
                 "![](tall.png)\n", files: ["tall.png": TextFirstHarness.png(900, 1800)])
-            #expect(await h.until { self.lineHeight(h, at: 0) > 400 })
+            #expect(await h.until { h.lineHeights().contains { $0 > 400 } })
             h.select(13, 13)
             h.type("\nafter")
             let at = (h.tv.text as NSString).range(of: "after").location
             #expect(at != NSNotFound)
             if at != NSNotFound {
-                #expect(lineHeight(h, at: at) < 30)
+                let heights = h.lineHeights(at: at)
+                #expect(
+                    !heights.isEmpty && heights.allSatisfy { $0 < 30 }, "the new lines: \(heights)")
                 #expect(kern(h, at: at) == 0)
                 #expect(
                     h.controller.storage.attribute(.tfImage, at: at, effectiveRange: nil) == nil)
@@ -122,10 +148,10 @@
             return kern + TextFirstImageMetrics.textAdvance(spelling)
         }
 
+        /// The baseline lift written on the glyph at `i` (what `layoutParagraph` sets for an image).
         private func lineHeight(_ h: TextFirstHarness, at i: Int) -> CGFloat {
-            (h.controller.storage.attribute(.paragraphStyle, at: i, effectiveRange: nil)
-                as? NSParagraphStyle)?
-                .minimumLineHeight ?? 0
+            h.controller.storage.attribute(.baselineOffset, at: i, effectiveRange: nil) as? CGFloat
+                ?? 0
         }
 
         @Test func anImageKeepsItsSpellingAndIsDrawnAsOneHiddenUnit() async {
@@ -333,8 +359,9 @@
         }
 
         @Test func anImageInsertedInsideCodeIsRefusedWithoutAFile() async throws {
+            // The fences show no text, so the display is "code\n": the caret inside "code".
             let h = TextFirstHarness("```\ncode\n```\n")
-            h.select(5, 5)
+            h.select(2, 2)
             let claim = try #require(h.controller.beginImageInsertion())
             #expect(
                 !(await h.controller.insertImage(

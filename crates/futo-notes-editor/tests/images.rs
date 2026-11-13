@@ -63,9 +63,10 @@ fn image(glyphs: &str, alt: &str, destination: &str, extra: Option<&str>, vault:
 fn atom_roles_keep_spelling_and_classify_vault_references() {
     for (source, expected) in [
         (
+            // Nothing inside an image is read: its alt shows its asterisks.
             "a ![alt *x*](image-1.png) b",
             vec![image(
-                "![alt x](image-1.png)",
+                "![alt *x*](image-1.png)",
                 "alt *x*",
                 "image-1.png",
                 None,
@@ -81,13 +82,6 @@ fn atom_roles_keep_spelling_and_classify_vault_references() {
                 Some("T"),
                 true,
             )],
-        ),
-        (
-            "![r][id] and ![c][]\n\n[id]: pics/a.png\n[c]: c.PNG",
-            vec![
-                image("![r][id]", "r", "pics/a.png", Some("id"), true),
-                image("![c][]", "c", "c.PNG", Some("c"), true),
-            ],
         ),
         (
             "![x](https://x.test/a.png) ![y](note.md)",
@@ -106,8 +100,12 @@ fn atom_roles_keep_spelling_and_classify_vault_references() {
             "a\n\n---\n\nb",
             vec![(AtomKind::Divider, "\u{fffc}".into(), None)],
         ),
-        // Code, escapes and unresolved references are not atoms.
+        // Code, escapes and reference-style images (not read) are not atoms.
         ("`![a](b.png)` \\![a](b.png) ![u][nope]", vec![]),
+        (
+            "![r][id] and ![c][]\n\n[id]: pics/a.png\n[c]: c.PNG",
+            vec![],
+        ),
         ("```\n![a](b.png)\n```", vec![]),
     ] {
         let editor = EditorSession::open(source);
@@ -282,7 +280,7 @@ fn stale_claims_and_unwritable_inserts_change_nothing() {
     assert!(matches!(refused, Err(EditorError::Persistence(_))));
     assert_eq!(editor.source_text(), "ab");
     assert!(editor.undo(Revision(0), &mut |_| Ok(())).unwrap().is_none());
-    for (source, caret) in [("```\nab\n```", 1), ("`ab`", 1), ("    ab", 1)] {
+    for (source, caret) in [("```\nab\n```", 1), ("`ab`", 1)] {
         let mut editor = EditorSession::open(source);
         editor.select(Revision(0), range(caret, caret)).unwrap();
         let claim = editor.image_claim();

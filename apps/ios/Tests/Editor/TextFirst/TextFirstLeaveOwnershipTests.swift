@@ -212,7 +212,7 @@
             rig.controller.discard()  // ...Discard confirmed before the retry starts
             held.signal()
             try await Task.sleep(nanoseconds: 1_000_000_000)
-            #expect(rig.disk("note") == "keep me\n")
+            #expect(rig.disk("note") == "keep me")
             #expect(rig.checkpoints.isEmpty)
             #expect(rig.failures.isEmpty)
         }
@@ -229,7 +229,7 @@
             #expect(rig.controller.closed)
             rig.allowWrites()
             #expect(!(await rig.checkpoint()))
-            #expect(rig.disk("note") == "keep me\n")
+            #expect(rig.disk("note") == "keep me")
         }
     }
 #endif

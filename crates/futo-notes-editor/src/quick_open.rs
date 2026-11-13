@@ -1,23 +1,22 @@
-//! Quick open: the first screens of a long note, parsed from its leading
-//! bytes alone, for a host to show read-only while the whole note opens.
+//! Quick open: the first screens of a long note, read from its leading bytes
+//! alone, for a host to show read-only while the whole note opens.
 //!
-//! The prefix ends where its parse is exactly the whole note's, so the
-//! handover to the full session changes nothing on screen. Block parsing
-//! reads forward: what a line is depends on the lines before it and, for a
-//! setext underline or a table delimiter, the one after. A cut therefore
-//! stands at the start of a column-0 top-level block that follows an empty
-//! line, with that block's own line inside the bytes read: every block
-//! before it was closed by that empty line on the same lines the whole note
-//! has. Two things reach backwards and are checked apart from the scan:
-//! front matter, which must close inside the bytes read, and link reference
-//! and footnote definitions, which resolve document-wide — a shown `[` with a
-//! `]:` anywhere after the cut declines. A lone CR ends the scan, as it does
-//! the desktop's chunk planner (docs/spec/editor/performance.md).
-use pulldown_cmark::{Event, Parser};
+//! A line's reading depends only on the lines above it, plus
+//! one look-back: a delimiter row makes the line above it a table header.
+//! A line's display looks one line ahead (an opening fence followed by its
+//! closing fence shows as one empty line). So the head reads every whole line
+//! of the bytes read and shows all of them but the last: each shown line then
+//! reads and shows exactly as in the whole note. Two things move the cut:
+//!
+//! - Line 1 `---` opens front matter only if a later line is `---`. When no
+//!   such line is in the head, the rest of the note decides, so the note
+//!   opens whole.
+//! - A table is described whole (its rows and extent), so the shown lines
+//!   never end inside one: a table at the cut is left for the whole open.
 
-use crate::{
-    DisplayOffset, DisplayRange, EditorSession, ProjectionSlice, Revision, TableDescription,
-};
+use crate::engine::Engine;
+use crate::lines::Kind;
+use crate::{ProjectionSlice, TableDescription};
 
 /// How many leading bytes of a note a host reads for its first screens.
 pub const QUICK_OPEN_BYTES: usize = 16 * 1024;
@@ -35,135 +34,79 @@ pub struct QuickOpen {
     pub tables: Vec<TableDescription>,
 }
 
-/// Where `head`'s first screens end, ignoring definitions after them;
-/// `None` when no cut stands.
+/// Where the first screens of `head`, the leading bytes of a longer note,
+/// end; `None` when no cut stands.
 pub fn quick_open_cut(head: &str) -> Option<usize> {
-    let boundaries = boundaries(head);
-    let last = boundaries.len().checked_sub(2)?;
-    Some(boundaries[last])
+    shown_len(&Engine::open(&head[..parsed_len(head)?]))
 }
 
-/// Every place `head` may be cut, ascending. A boundary is a top-level block
-/// starting at column 0 after an empty line, on a line wholly inside `head`.
-fn boundaries(head: &str) -> Vec<usize> {
-    if head.starts_with('\u{feff}') {
-        return Vec::new();
-    }
-    let mut region = &head[..head.rfind('\n').map_or(0, |at| at + 1)];
-    if let Some(cr) = lone_cr(region) {
-        region = &region[..region[..cr].rfind('\n').map_or(0, |at| at + 1)];
-    }
-    let metadata = crate::inline::front_matter::len(region.bytes());
-    if metadata == 0 && crate::inline::front_matter::opener_end(region.bytes()).is_some() {
-        // Unclosed in what was read; the whole note may still close it.
-        return Vec::new();
-    }
-    let bytes = region.as_bytes();
-    let mut depth = 0usize;
-    let mut found = Vec::new();
-    let parser = Parser::new_ext(&region[metadata..], crate::inline::parser_options());
-    for (event, range) in parser.into_offset_iter() {
-        let top = depth == 0;
-        match event {
-            Event::Start(_) => depth += 1,
-            Event::End(_) => depth = depth.saturating_sub(1),
-            _ => {}
-        }
-        let at = metadata + range.start;
-        if top
-            && at > metadata
-            && !matches!(bytes.get(at), Some(b' ' | b'\t') | None)
-            && (region[..at].ends_with("\n\n") || region[..at].ends_with("\n\r\n"))
-        {
-            found.push(at);
-        }
-    }
-    found
+/// The head's whole lines: through its last `\n`, so a cut never splits a
+/// CRLF or a character.
+pub(crate) fn parsed_len(head: &str) -> Option<usize> {
+    head.rfind('\n').map(|at| at + 1)
 }
 
-fn lone_cr(text: &str) -> Option<usize> {
-    let bytes = text.as_bytes();
-    (0..bytes.len()).find(|&at| bytes[at] == b'\r' && bytes.get(at + 1) != Some(&b'\n'))
-}
-
-/// Whether `bytes` may hold a link reference or footnote definition.
-pub fn may_define_reference(bytes: &[u8]) -> bool {
-    bytes.windows(2).any(|pair| pair == b"]:")
-}
-
-/// The first screens of a note from its leading bytes `head`.
-/// `rest_may_define` answers [`may_define_reference`] for the note's bytes
-/// after `head`, starting from `head`'s last byte; `note_ids` are the vault's,
-/// as the whole note's session receives them. Each runs only when needed.
-pub fn quick_open(
-    head: &str,
-    rest_may_define: impl FnOnce() -> bool,
-    note_ids: impl FnOnce() -> Vec<String>,
-) -> Option<QuickOpen> {
-    let boundaries = boundaries(head);
-    let mut rest_may_define = Some(rest_may_define);
-    let mut note_ids = Some(note_ids);
-    let mut ids = None;
-    // Show up to one boundary and parse to the next: the block after the cut
-    // is parsed though never shown, so the shown rows are followed by the same
-    // block they are in the whole note. Should the engine's rows cross the
-    // cut, an earlier one is tried.
-    for pair in boundaries.windows(2).rev().take(4) {
-        let (end, parsed) = (pair[0], pair[1]);
-        let shown = &head[..end];
-        if shown.contains('[') {
-            if may_define_reference(&head.as_bytes()[end..]) {
-                return None;
-            }
-            if rest_may_define.take().is_some_and(|rest| rest()) {
-                return None;
-            }
-        }
-        let mut session = EditorSession::open(&head[..parsed]);
-        if shown.contains("[[") {
-            let ids = ids.get_or_insert_with(|| note_ids.take().map_or_else(Vec::new, |f| f()));
-            session.update_note_ids(ids);
-        }
-        let Some(display_end) = row_boundary(&session, end) else {
-            continue;
-        };
-        let range = DisplayRange {
-            start: DisplayOffset(0),
-            end: DisplayOffset(display_end),
-        };
-        let revision = session.revision();
-        debug_assert_eq!(revision, Revision(0));
-        let projection = shown_projection(session.project(revision, range).ok()?);
-        // A table row holds a pipe; the search costs as much as the parse.
-        let tables = if shown.contains('|') {
-            session.inspect_tables(revision, range).ok()?
-        } else {
-            Vec::new()
-        };
-        return Some(QuickOpen {
-            source_len: end,
-            display: projection.text.clone(),
-            projection,
-            tables,
-        });
+/// Where the shown lines end in the source of `engine`, opened on a head's
+/// whole lines; `None` when no line can be shown.
+pub(crate) fn shown_len(engine: &Engine) -> Option<usize> {
+    // The head's text ends in `\n`, so its last line is the empty one after
+    // it. The line before that is read but not shown: a delimiter row there
+    // makes the line above it a header, a closing fence makes an opening
+    // fence above it an empty line.
+    let mut shown = engine.line_count().checked_sub(2)?;
+    let first = engine.line(0);
+    if without_ending(&first.text) == "---" && !matches!(first.line.kind, Kind::FrontMatter(_)) {
+        return None;
     }
-    None
+    while shown > 0 && matches!(engine.line(shown - 1).line.kind, Kind::Table { .. }) {
+        shown -= 1;
+    }
+    (shown > 0).then(|| engine.line_start(shown))
 }
 
-/// The display offset of `source` when it ends one of `session`'s rows.
-fn row_boundary(session: &EditorSession, source: usize) -> Option<usize> {
-    let (row, start, display, _) = session.projection.rows.source_row_with_work(source);
-    if start == source {
-        Some(display)
-    } else if start + row.source_len == source {
-        Some(display + row.display.len())
+/// A line without its `\n` or `\r\n` (a lone CR is an ordinary character).
+fn without_ending(line: &str) -> &str {
+    match line.strip_suffix('\n') {
+        Some(line) => line.strip_suffix('\r').unwrap_or(line),
+        None => line,
+    }
+}
+
+/// The first screens of a note from its leading bytes `head`. `note_ids` are
+/// the vault's, as the whole note's session receives them; they are asked for
+/// only when the shown lines hold a wikilink. `None` when no cut stands.
+pub fn quick_open(head: &str, note_ids: impl FnOnce() -> Vec<String>) -> Option<QuickOpen> {
+    use crate::{DisplayOffset, DisplayRange, EditorSession};
+    let mut session = EditorSession::open(&head[..parsed_len(head)?]);
+    let engine = session.engine();
+    let source_len = shown_len(engine)?;
+    let range = DisplayRange {
+        start: DisplayOffset(0),
+        end: DisplayOffset(engine.display_of(source_len)),
+    };
+    let shown = &head[..source_len];
+    if shown.contains("[[") {
+        session.update_note_ids(&note_ids());
+    }
+    let revision = session.revision();
+    let projection = shown_projection(session.project(revision, range).ok()?);
+    // A table row holds a pipe; the search costs as much as the read.
+    let mut tables = if shown.contains('|') {
+        session.inspect_tables(revision, range).ok()?
     } else {
-        None
-    }
+        Vec::new()
+    };
+    tables.retain(|table| table.display.start.0 < range.end.0);
+    Some(QuickOpen {
+        source_len,
+        display: projection.text.clone(),
+        projection,
+        tables,
+    })
 }
 
 /// What a renderer draws of `slice` within its range: anything starting at or
-/// after the range's end belongs to the block after it, which is not shown.
+/// after the range's end belongs to the line after it, which is not shown.
 /// Correspondence maps coordinates for edits, so it is not carried.
 pub fn shown_projection(mut slice: ProjectionSlice) -> ProjectionSlice {
     let end = slice.range.end.0;
@@ -173,5 +116,6 @@ pub fn shown_projection(mut slice: ProjectionSlice) -> ProjectionSlice {
     slice.links.retain(|link| link.range.start.0 < end);
     slice.wikilinks.retain(|link| link.range.start.0 < end);
     slice.atoms.retain(|atom| atom.range.start.0 < end);
+    slice.tags.retain(|tag| tag.start.0 < end);
     slice
 }

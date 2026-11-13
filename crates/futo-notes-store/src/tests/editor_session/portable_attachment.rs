@@ -15,20 +15,20 @@ fn native_relink_adoption_completes_before_a_portable_attachment() {
     assert!(renamed.warnings.is_empty(), "{renamed:?}");
     let mut host = editor.into_portable_host(SessionToken(292)).unwrap();
     let opening = host.snapshot();
-    assert_eq!(opening.source, "[[long name]]!\n");
+    assert_eq!(opening.source, "[[long name]]!");
     assert!(!opening.paused);
     let mut page = PortableSession::from_snapshot(opening).unwrap();
     let resumed = host.handle(page.resume().unwrap());
     assert!(resumed.error.is_none(), "{resumed:?}");
     page.acknowledge(resumed).unwrap();
-    assert_eq!(page.draft_text(), "[[long name]]!\n");
+    assert_eq!(page.draft_text(), "[[long name]]!");
     let revision = page.status().local;
     let request = page.replace(revision, range(14, 14), "?").unwrap().request;
     page.acknowledge(host.handle(request)).unwrap();
     assert_eq!(page.status().outstanding, 0);
     host.checkpoint().unwrap();
     drop(host);
-    assert_eq!(store.read("long name").unwrap(), "[[long name]]!?\n");
+    assert_eq!(store.read("long name").unwrap(), "[[long name]]!?");
 }
 
 #[test]
@@ -111,21 +111,21 @@ fn portable_attachment_cannot_open_before_a_prepared_native_relink_finishes() {
             "a prepared native relink must not advance past the portable opening snapshot: {ack:?}"
         );
         page.acknowledge(ack).unwrap();
-        assert_eq!(page.draft_text(), "[[long name]]\n");
-        assert_eq!(host.snapshot().source, "[[long name]]\n");
+        assert_eq!(page.draft_text(), "[[long name]]");
+        assert_eq!(host.snapshot().source, "[[long name]]");
         let applied = page.replace(Revision(1), range(13, 13), "!").unwrap();
         assert_eq!(applied.change.inserted, "!");
         page.acknowledge(host.handle(applied.request)).unwrap();
         let undo = page.undo(Revision(2)).unwrap().unwrap();
         page.acknowledge(host.handle(undo.request)).unwrap();
-        assert_eq!(page.draft_text(), "[[long name]]\n");
+        assert_eq!(page.draft_text(), "[[long name]]");
         let redo = page.redo(Revision(3)).unwrap().unwrap();
         page.acknowledge(host.handle(redo.request)).unwrap();
-        assert_eq!(page.draft_text(), "[[long name]]!\n");
+        assert_eq!(page.draft_text(), "[[long name]]!");
         host.checkpoint().unwrap();
     });
     assert_eq!(
         store.open_editor("long name").unwrap().source_text(),
-        "[[long name]]!\n"
+        "[[long name]]!"
     );
 }

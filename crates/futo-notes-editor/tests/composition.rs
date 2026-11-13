@@ -37,21 +37,22 @@ fn japanese_marked_replacement_is_provisional_until_changed_commit() {
 }
 
 #[test]
-fn whole_field_correction_keeps_unchanged_marker_and_entity_spelling() {
+fn whole_field_correction_keeps_unchanged_marker_spelling_and_entity_text() {
+    // `&amp;` is literal text, never decoded.
     let mut session = EditorSession::open("teh __middle__ &amp; wrng\r\n");
-    let mut view = ReferenceView::new("teh middle & wrng\r\n");
+    let mut view = ReferenceView::new("teh middle &amp; wrng\r\n");
     let change = session
         .replace_os(
             Revision(0),
             range(0, view.text.len()),
-            "the middle & wrong\r\n",
+            "the middle &amp; wrong\r\n",
             &[],
             &mut |_| Ok(()),
         )
         .unwrap()
         .unwrap();
     view.apply(change);
-    assert_eq!(view.text, "the middle & wrong\r\n");
+    assert_eq!(view.text, "the middle &amp; wrong\r\n");
     assert_eq!(session.source_text(), "the __middle__ &amp; wrong\r\n");
     view.apply(
         session
@@ -259,7 +260,8 @@ fn compound_command_during_composition_uses_provisional_ranges_in_one_acceptance
 #[test]
 fn paragraph_keys_use_the_provisional_display_and_commit_one_protected_action() {
     for (key, source, display, caret) in [
-        (ParagraphKey::Enter, "**bか**\n x", "bか\n x", 5),
+        // The space is the new line's indent, not text.
+        (ParagraphKey::Enter, "**bか**\n x", "bか\nx", 5),
         (ParagraphKey::Backspace, "**b** x", "b x", 1),
         (ParagraphKey::Delete, "**bか**x", "bかx", 4),
     ] {

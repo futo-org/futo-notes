@@ -11,7 +11,6 @@ import {
   cirrusTasks,
   androidInstrumentationScript,
   androidEmulatorScript,
-  androidSyncLegScript,
   androidRunScript,
   fdroidIndexScript,
   iosStoryAvailabilityGate,
@@ -35,14 +34,14 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     expect(iosStoryAvailabilityGate).toContain('iOS DEVICE STORIES SKIPPED');
   });
 
-  it('runs the same iOS unit bundle locally as CI runs on merge requests', () => {
-    // `just test-ios-native` once ran the UI bundle too: minutes of XCUITest per
-    // run for ~12s of unit tests, while the MR tier ran only the unit bundle.
-    const unitRecipe = topLevelBlock(justfile, /^test-ios-native(?=\s|:)[^\n]*$/m);
+  it('builds only the simulator slice in the iOS test job', () => {
     const iosTestTask = topLevelBlock(cirrusTasks, /^test_ios_native_task:$/m);
-    expect(unitRecipe).toContain('just _test-ios FutoNotesNativeTests');
-    expect(justfile).toContain('ONLY_TESTING=("-only-testing:$BUNDLE")');
-    expect(iosTestTask).toContain('ONLY_TESTING=(-only-testing:FutoNotesNativeTests)');
+    const buildScript = readFileSync(join(ROOT, 'scripts/build-rust-ios.sh'), 'utf8');
+
+    // Simulator slice only in the test task; the shared script keeps three triples by default.
+    expect(iosTestTask).toContain('FUTO_IOS_SIM_ARM64_ONLY=1 bash scripts/build-rust-ios.sh');
+    expect(buildScript).toContain('--target aarch64-apple-ios --profile');
+    expect(buildScript).toContain('--target x86_64-apple-ios --profile');
   });
 
   it('runs Android instrumentation tests in the required native build job', () => {
@@ -66,25 +65,6 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     expect(androidInstrumentationScript).toContain(
       'Android instrumentation results contain no testcases',
     );
-  });
-
-  it('runs the desktop<->Android sync leg on a booted emulator and gates the release on it', () => {
-    const androidSyncJob = topLevelBlock(gitlabPipeline, /^test:cross-platform-sync:android:$/m);
-    const releaseGate = topLevelBlock(gitlabPipeline, /^release:gate:$/m);
-
-    expect(androidSyncJob).toContain('bash "$CI_PROJECT_DIR/scripts/ci-android-sync-leg.sh"');
-    expect(androidSyncJob).toContain('- job: build:android-native');
-    // Alone on a serial runner, like the desktop mesh; overlapping starves both.
-    expect(androidSyncJob).toContain('    - futo_notes_serial');
-    expect(releaseGate).toContain('- job: test:cross-platform-sync:android');
-    // The APK producer's gate must be a superset of this job's, so neither may
-    // trigger on a path the other ignores (build:android-native excludes
-    // .gitlab-ci.yml and docs, per the test above).
-    expect(androidSyncJob).not.toContain('- .gitlab-ci.yml');
-    expect(androidSyncJob).not.toContain('- docs/**/*');
-    // A run that finds no usable device must fail, not report green (M11).
-    expect(androidSyncLegScript).toContain('--android-only');
-    expect(androidEmulatorScript).toContain('service check package');
   });
 
   it('builds both Android distribution flavors and routes each to its own consumer', () => {
@@ -133,9 +113,6 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     expect(publishAndroidJob).not.toContain('outputs/bundle/release');
     expect(releaseJob).toContain('apps/android/app/build/outputs/apk/direct/release');
     expect(fdroidIndexScript).toContain('apps/android/app/build/outputs/apk/direct/release/*.apk');
-    expect(androidSyncLegScript).toContain(
-      'apps/android/app/build/outputs/apk/direct/debug/app-direct-debug.apk',
-    );
 
     // Local recipes follow the same split, and the dev loop stays on direct.
     expect(buildRecipe).toContain(':app:assembleDirectDebug :app:assemblePlayDebug');
@@ -160,75 +137,10 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
 
     expect(androidCheckJob).toContain('- crates/**/*');
     expect(androidCheckJob).toContain('build -p futo-notes-ffi --profile release-ffi');
-    // On the shared slots, not the serial runner the sync suites own: a
-    // concurrent full-tree compile used to flake their timing-sensitive
-    // scenarios, which the serial runners now rule out without a lock.
     expect(androidCheckJob).toContain('    - $LINUX_RUNNER_TAG');
     expect(androidCheckJob).not.toContain('resource_group');
     expect(macosRustTask).toContain('cargo check -p futo-notes-ffi --target aarch64-apple-ios');
     expect(releaseGate).toContain('- job: test:rust:ffi-android');
-  });
-
-  it('skips the ffi arm64 check on MRs where build:android-native builds the same crate', () => {
-    const paths = (job, from) => {
-      const start = job.indexOf('changes:', from);
-      const block = job.slice(start, job.indexOf('\n    - ', start));
-      return [...block.matchAll(/^ {8}- (\S+)$/gm)].map((m) => m[1]).sort();
-    };
-    const androidCheckJob = topLevelBlock(gitlabPipeline, /^test:rust:ffi-android:$/m);
-    const nativeJob = topLevelBlock(gitlabPipeline, /^build:android-native:$/m);
-    const rulesAt = androidCheckJob.indexOf('  rules:\n');
-    const firstRule = androidCheckJob.slice(rulesAt + '  rules:\n'.length);
-    // The skip rule comes first, so it wins over every rule that follows it.
-    expect(
-      firstRule.replace(/^ {4}#.*\n/gm, '').startsWith('    - if: $CI_MERGE_REQUEST_IID'),
-    ).toBe(true);
-    const skipRule = firstRule.slice(0, firstRule.indexOf('\n    - !reference'));
-    expect(skipRule).toContain('when: never');
-    const nativeStart = nativeJob.indexOf('changes: &native-android-changes');
-    expect(paths(nativeJob, nativeStart).length).toBeGreaterThan(10);
-    expect(paths(androidCheckJob, rulesAt)).toEqual(paths(nativeJob, nativeStart));
-    // Crates that build:android-native does not watch still reach the check.
-    expect(androidCheckJob).toContain('- crates/**/*');
-    expect(androidCheckJob).toContain('$CI_COMMIT_TAG');
-    expect(androidCheckJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
-  });
-
-  it('runs full macOS workspace tests on main and tags but not MR pipelines', () => {
-    const macosRustJob = topLevelBlock(gitlabPipeline, /^test:rust:macos:$/m);
-    const macosRustTask = topLevelBlock(cirrusTasks, /^test_rust_macos_task:$/m);
-
-    // MRs get only the iOS compile check (the workspace suite is the hard
-    // Linux gate); the Cirrus task keys the full run off tag/default-branch.
-    expect(macosRustTask).toContain('/scripts/rust-tests.mjs\" workspace');
-    expect(macosRustTask).toContain('"${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}"');
-    expect(macosRustJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
-  });
-
-  it('keeps MR iOS coverage in one Mac job after dropping build:ios-native from MRs', () => {
-    const iosBuildJob = topLevelBlock(gitlabPipeline, /^build:ios-native:$/m);
-    const iosTestJob = topLevelBlock(gitlabPipeline, /^test:ios-native:$/m);
-    const smokeJob = topLevelBlock(gitlabPipeline, /^test:desktop-smoke:macos:$/m);
-
-    // build:ios-native is main+tag only; test:ios-native carries its former
-    // MR paths so an FFI change still gets an iOS build (plus tests) on MRs.
-    expect(iosBuildJob).not.toContain('$CI_MERGE_REQUEST_IID');
-    expect(iosTestJob).toContain('- crates/futo-notes-ffi/**/*');
-    expect(iosTestJob).toContain('- Cargo.lock');
-    // Desktop smoke auto-runs on main pushes, manual-only on MRs.
-    expect(smokeJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
-    expect(smokeJob).not.toMatch(/\$CI_MERGE_REQUEST_IID\n {6}changes:/);
-  });
-
-  it('keeps iOS tests required for iOS changes while exposing an optional MR run', () => {
-    const iosTestJob = topLevelBlock(gitlabPipeline, /^test:ios-native:$/m);
-
-    expect(iosTestJob).toContain('changes: &native-ios-test-changes');
-    expect(iosTestJob).toMatch(
-      /- \.gitlab-ci\.yml\n    - if: \$CI_MERGE_REQUEST_IID\n      when: manual\n      allow_failure: true/,
-    );
-    expect(iosTestJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
-    expect(iosTestJob).toContain('$CI_COMMIT_TAG');
   });
 
   // RC-21 / L1-005: editor.html is built from vite.editor.config.ts and shipped

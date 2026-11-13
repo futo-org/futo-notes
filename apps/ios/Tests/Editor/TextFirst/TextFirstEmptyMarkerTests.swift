@@ -86,9 +86,11 @@
                     source: "- [ ] a\r\n- [ ] \r\n- [ ] b",
                     at: { ($0 as NSString).range(of: "\r\n\r\n").location + 2 }, action: .none,
                     band: 1),
+                // The empty task is the note's last line: the empty line after the display's
+                // final CRLF.
                 Row(
-                    name: "an empty CRLF task at the end", source: "- [ ] a\r\n- [ ] ",
-                    at: { ($0 as NSString).range(of: "\r\n\r\n").location + 2 }, action: .none),
+                    name: "an empty CRLF task at the end", source: "- [ ] a\r\n- [ ] ", at: end,
+                    action: .none),
                 Row(
                     name: "code block on the empty last line", source: "abc\n", at: end,
                     action: .toolbar("code-block"), code: true),

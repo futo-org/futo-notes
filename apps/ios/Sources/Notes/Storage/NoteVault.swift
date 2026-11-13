@@ -27,12 +27,23 @@ actor NoteVault {
 
     func scan() -> NoteSnapshot { core.scan() }
 
-    /// A long note's first screens (nil for a short one): read-only file I/O that must not queue
-    /// behind `openEditor` on this actor, since it is what shows while that runs.
-    nonisolated func quickOpenView(_ id: String) -> EditorQuickView? { core.quickOpenView(id: id) }
+    /// One read of a note for its editor: its first screens and its session both come from it
+    /// (#392). Read-only file I/O that must not queue behind `openEditor` on this actor, since
+    /// what it shows is what shows while that runs.
+    nonisolated func readForEditor(_ id: String) -> EditorNoteRead {
+        core.readForEditor(id: id)
+    }
 
-    /// The Rust editor session owns the note's exact bytes and saves them itself.
-    func openEditor(_ id: String) throws -> NativeEditorSession { try core.openEditor(id: id) }
+    /// A long note's first screens (nil for a short one).
+    nonisolated func quickOpenView(_ read: EditorNoteRead) -> EditorQuickView? {
+        core.quickOpenView(read: read)
+    }
+
+    /// The Rust editor session owns the note's exact bytes and saves them itself: here the bytes
+    /// `read` holds, and a write since is merged or parked by its first save.
+    func openEditor(_ read: EditorNoteRead) throws -> NativeEditorSession {
+        try core.openEditorRead(read: read)
+    }
 
     /// A missing note reads as empty; one that exists but cannot be decoded
     /// throws, so it never opens as a blank page.
@@ -89,9 +100,9 @@ actor NoteVault {
         return try core.createNote(title: title, folder: folder, content: "")
     }
 
-    func delete(_ id: String, epoch: UInt64) throws -> NoteMutation {
+    func delete(_ id: String, epoch: UInt64, onlyIfEmpty: Bool = false) throws -> NoteMutation {
         try requireGeneration(epoch)
-        return try core.delete(id: id)
+        return onlyIfEmpty ? try core.deleteIfEmpty(id: id) : try core.delete(id: id)
     }
 
     func rename(oldId: String, newId: String, epoch: UInt64) throws -> NoteMutation {

@@ -1,139 +1,89 @@
 use futo_notes_editor::{
-    DisplayRange, DisplayReplacement, EditorError, EditorSession, ParagraphKey, Revision,
-    SourceEdit,
+    DisplayOffset, DisplayRange, DisplayReplacement, EditorError, EditorSession, ParagraphKey,
+    Revision, SourceEdit,
 };
 
-#[test]
-fn clearing_an_outer_pipeless_header_cell_keeps_the_table_and_its_neighbor() {
-    let source = "Item | Owner\n:--- | ---";
-    let mut session = EditorSession::open(source);
-    let table = session
-        .inspect_table(Revision(0), DisplayRange::default())
+fn range(start: usize, end: usize) -> DisplayRange {
+    DisplayRange {
+        start: DisplayOffset(start),
+        end: DisplayOffset(end),
+    }
+}
+
+type Clear = fn(
+    &mut EditorSession,
+    DisplayRange,
+    &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+) -> Result<(), EditorError>;
+
+/// Every input path that can clear a selected cell.
+const PATHS: &[(&str, Clear)] = &[
+    ("backspace", |s, at, accept| {
+        s.paragraph_key(s.revision(), at, ParagraphKey::Backspace, accept)
+            .map(|_| ())
+    }),
+    ("delete", |s, at, accept| {
+        s.paragraph_key(s.revision(), at, ParagraphKey::Delete, accept)
+            .map(|_| ())
+    }),
+    ("replace", |s, at, accept| {
+        s.replace(s.revision(), at, "", accept).map(|_| ())
+    }),
+    ("compound", |s, at, accept| {
+        s.replace_many(
+            s.revision(),
+            &[DisplayReplacement {
+                range: at,
+                inserted: String::new(),
+            }],
+            accept,
+        )
+        .map(|_| ())
+    }),
+    ("composition", |s, at, accept| {
+        s.compose(s.revision(), at, "")?;
+        s.commit_composition(s.revision(), None, accept).map(|_| ())
+    }),
+    ("os replacement", |s, at, accept| {
+        s.replace_os(s.revision(), at, "", &[], accept).map(|_| ())
+    }),
+];
+
+fn cell(s: &EditorSession, row: usize, column: usize) -> DisplayRange {
+    s.inspect_table(s.revision(), DisplayRange::default())
         .unwrap()
-        .unwrap();
-    let selected = table.rows[0][0].content;
-    session.select(Revision(0), selected).unwrap();
-    session
-        .paragraph_key(Revision(0), selected, ParagraphKey::Backspace, &mut |_| {
-            Ok(())
-        })
         .unwrap()
-        .unwrap();
-    let cleared = session
-        .inspect_table(session.revision(), session.selection())
-        .unwrap()
-        .expect("clearing a cell must retain the table");
-    assert_eq!(cleared.columns, 2);
-    assert_eq!(cleared.rows[0].len(), 2);
-    assert_eq!(
-        cleared.focus.map(|focus| (focus.row, focus.column)),
-        Some((0, 0))
-    );
-    assert_eq!(
-        cleared.rows[0][0].content.start,
-        cleared.rows[0][0].content.end
-    );
-    let neighbor = cleared.rows[0][1].content;
-    assert_eq!(
-        &session.display_text()[neighbor.start.0..neighbor.end.0],
-        "Owner"
-    );
-    session
-        .undo(session.revision(), &mut |_| Ok(()))
-        .unwrap()
-        .unwrap();
-    assert_eq!(session.source_text(), source);
-    assert_eq!(session.selection(), selected);
+        .rows[row][column]
+        .content
 }
 
 #[test]
-fn clearing_edge_cells_keeps_their_caret_formats_and_exact_history_in_every_input_path() {
-    type Clear = fn(
-        &mut EditorSession,
-        DisplayRange,
-        &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
-    ) -> Result<(), EditorError>;
-    let paths: &[(&str, Clear)] = &[
-        ("backspace", |s, at, accept| {
-            s.paragraph_key(s.revision(), at, ParagraphKey::Backspace, accept)
-                .map(|_| ())
-        }),
-        ("delete", |s, at, accept| {
-            s.paragraph_key(s.revision(), at, ParagraphKey::Delete, accept)
-                .map(|_| ())
-        }),
-        ("replace", |s, at, accept| {
-            s.replace(s.revision(), at, "", accept).map(|_| ())
-        }),
-        ("compound", |s, at, accept| {
-            s.replace_many(
-                s.revision(),
-                &[DisplayReplacement {
-                    range: at,
-                    inserted: String::new(),
-                }],
-                accept,
-            )
-            .map(|_| ())
-        }),
-        ("composition", |s, at, accept| {
-            s.compose(s.revision(), at, "")?;
-            s.commit_composition(s.revision(), None, accept).map(|_| ())
-        }),
-        ("os replacement", |s, at, accept| {
-            s.replace_os(s.revision(), at, "", &[], accept).map(|_| ())
-        }),
-    ];
+fn clearing_a_cell_keeps_its_table_focus_and_exact_history_in_every_input_path() {
     let cases = [
         (
-            "Item | **Owner**\n:--- | ---",
-            0,
-            0,
-            "| | **Owner**\n:--- | ---",
-        ),
-        (
-            "**Owner** | *Item*\r\n:--- | ---\r\n",
+            "| Item | **Owner** |\n|:--- | --- |",
             0,
             1,
-            "**Owner** | |\r\n:--- | ---\r\n",
+            "| Item |  |\n|:--- | --- |",
         ),
         (
-            "| Item | Owner |\n| --- | --- |\n| Draft",
-            1,
+            "| **Owner** | *Item* |\r\n|:--- | --- |\r\n",
             0,
-            "| Item | Owner |\n| --- | --- |\n| |",
+            1,
+            "| **Owner** |  |\r\n|:--- | --- |\r\n",
         ),
         (
-            "| Item | Owner |\n| --- | --- |\n`Draft`",
+            "| Item | Owner |\n| --- | --- |\n| Draft | **Sam**",
             1,
             0,
-            "| Item | Owner |\n| --- | --- |\n||",
-        ),
-        (
-            "| Item | Owner |\n| --- | --- |\nDraft | **Sam**",
-            1,
-            0,
-            "| Item | Owner |\n| --- | --- |\n| | **Sam**",
+            "| Item | Owner |\n| --- | --- |\n|  | **Sam**",
         ),
     ];
     for &(source, row, column, expected) in &cases {
-        for &(name, clear) in paths {
+        for &(name, clear) in PATHS {
             let mut s = EditorSession::open(source);
-            let before = s
-                .inspect_table(s.revision(), DisplayRange::default())
-                .unwrap()
-                .unwrap();
-            let selected = before.rows[row][column].content;
+            let selected = cell(&s, row, column);
             s.select(s.revision(), selected).unwrap();
-            let formats = s
-                .project(s.revision(), selected)
-                .unwrap()
-                .runs
-                .into_iter()
-                .find(|run| {
-                    run.range.start.0 <= selected.start.0 && selected.start.0 < run.range.end.0
-                })
-                .map_or_else(Vec::new, |run| run.formats);
             let mut accepted = 0;
             clear(&mut s, selected, &mut |_| {
                 accepted += 1;
@@ -152,21 +102,15 @@ fn clearing_edge_cells_keeps_their_caret_formats_and_exact_history_in_every_inpu
                 "{name}: {source}"
             );
             assert_eq!(s.selection().start, s.selection().end);
-            assert_eq!(s.active_formats(), formats, "{name}: {source}");
             let empty = s.selection();
             s.replace(s.revision(), empty, "X", &mut |_| Ok(()))
                 .unwrap();
-            let typed = s
-                .inspect_table(s.revision(), s.selection())
-                .unwrap()
-                .unwrap();
-            let content = typed.rows[row][column].content;
+            let content = cell(&s, row, column);
             assert_eq!(
                 &s.display_text()[content.start.0..content.end.0],
                 "X",
                 "{name}: {source}"
             );
-            assert_eq!(s.active_formats(), formats);
             s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
             assert_eq!(s.source_text(), expected);
             assert_eq!(s.selection(), empty);
@@ -189,16 +133,27 @@ fn clearing_edge_cells_keeps_their_caret_formats_and_exact_history_in_every_inpu
     }
 }
 
+/// Clearing a whole formatted cell, then typing, writes the typed text in the
+/// cell's formats.
 #[test]
-fn refused_edge_cell_clear_preserves_source_selection_and_history() {
-    let source = "Item | Owner\n:--- | ---";
+fn clearing_a_formatted_cell_keeps_its_caret_formats() {
+    let source = "| Item | **Owner** |\n|:--- | --- |";
+    for &(name, clear) in PATHS {
+        let mut s = EditorSession::open(source);
+        let selected = cell(&s, 0, 1);
+        s.select(s.revision(), selected).unwrap();
+        let formats = s.active_formats();
+        assert_eq!(formats, vec![futo_notes_editor::InlineFormat::Bold]);
+        clear(&mut s, selected, &mut |_| Ok(())).unwrap();
+        assert_eq!(s.active_formats(), formats, "{name}");
+    }
+}
+
+#[test]
+fn refused_cell_clear_preserves_source_selection_and_history() {
+    let source = "| Item | Owner |\n|:--- | --- |";
     let mut s = EditorSession::open(source);
-    let selected = s
-        .inspect_table(s.revision(), DisplayRange::default())
-        .unwrap()
-        .unwrap()
-        .rows[0][0]
-        .content;
+    let selected = cell(&s, 0, 0);
     s.select(s.revision(), selected).unwrap();
     let error = s
         .replace(s.revision(), selected, "", &mut |_| {
@@ -213,27 +168,18 @@ fn refused_edge_cell_clear_preserves_source_selection_and_history() {
 }
 
 #[test]
-fn an_escaped_pipe_in_an_edge_cell_is_ordinary_text_not_a_separator() {
+fn an_escaped_pipe_in_a_last_cell_is_ordinary_text_not_a_separator() {
     // (source, row, column); the only source `y` is the cell's last display char.
     let cases = [
-        ("a | b\n--- | ---\nc | x \\| y", 1, 1),
-        ("a | x \\| y\n--- | ---", 0, 1),
-        ("a | b\n--- | ---\nc | x\\|y", 1, 1),
-        ("a | b\n--- | ---\n| c | x \\| y", 1, 1),
+        ("| a | b |\n| --- | --- |\n| c | x \\| y", 1, 1),
+        ("| a | x \\| y\n| --- | --- |", 0, 1),
+        ("| a | b |\n| --- | --- |\n| c | x\\|y", 1, 1),
     ];
     for (source, row, column) in cases {
         for inserted in ["", " "] {
             let mut s = EditorSession::open(source);
-            let content = s
-                .inspect_table(s.revision(), DisplayRange::default())
-                .unwrap()
-                .unwrap()
-                .rows[row][column]
-                .content;
-            let y = DisplayRange {
-                start: futo_notes_editor::DisplayOffset(content.end.0 - 1),
-                end: content.end,
-            };
+            let content = cell(&s, row, column);
+            let y = range(content.end.0 - 1, content.end.0);
             s.select(s.revision(), y).unwrap();
             let result = if inserted.is_empty() {
                 s.paragraph_key(s.revision(), y, ParagraphKey::Backspace, &mut |_| Ok(()))
@@ -249,17 +195,18 @@ fn an_escaped_pipe_in_an_edge_cell_is_ordinary_text_not_a_separator() {
     }
 }
 
+/// An entity is literal text: `S&#97;m` shows as typed and is never decoded.
 #[test]
-fn a_compound_clear_keeps_duplicate_entities_and_the_other_cells_link_identity() {
+fn a_compound_clear_keeps_literal_entities_and_the_other_cells_link_identity() {
     let source =
-        "**S&#97;m** | [*Sam*](<https://example.test/owner>)\n:--- | ---\nKeep | S&#97;m\n";
+        "| **S&#97;m** | [*Sam*](<https://example.test/owner>) |\n|:--- | --- |\n| Keep | S&#97;m |\n";
     let mut s = EditorSession::open(source);
-    let table = s
-        .inspect_table(s.revision(), DisplayRange::default())
-        .unwrap()
-        .unwrap();
-    let selected = table.rows[0][0].content;
-    let end = table.rows[1][1].content.end;
+    let selected = cell(&s, 0, 0);
+    let end = cell(&s, 1, 1).end;
+    assert_eq!(
+        &s.display_text()[selected.start.0..selected.end.0],
+        "S&#97;m"
+    );
     s.select(s.revision(), selected).unwrap();
     let mut accepted = 0;
     s.replace_many(
@@ -283,7 +230,7 @@ fn a_compound_clear_keeps_duplicate_entities_and_the_other_cells_link_identity()
     assert_eq!(accepted, 1);
     assert_eq!(
         s.source_text(),
-        "| | [*Sam*](<https://example.test/owner>)\n:--- | ---\nKeep | S&#97;m!\n"
+        "|  | [*Sam*](<https://example.test/owner>) |\n|:--- | --- |\n| Keep | S&#97;m! |\n"
     );
     let table = s
         .inspect_table(s.revision(), s.selection())
@@ -295,31 +242,35 @@ fn a_compound_clear_keeps_duplicate_entities_and_the_other_cells_link_identity()
     );
     let neighbor = table.rows[0][1].content;
     let projection = s.project(s.revision(), neighbor).unwrap();
-    assert_eq!(projection.text, "Sam");
-    assert_eq!(projection.links.len(), 1);
-    assert_eq!(
-        projection.links[0].destination,
-        "https://example.test/owner"
-    );
-    assert_eq!(
-        projection.runs[0].formats,
-        vec![futo_notes_editor::InlineFormat::Italic]
-    );
+    let links: Vec<_> = projection
+        .links
+        .iter()
+        .filter(|link| link.range == neighbor)
+        .collect();
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].destination, "https://example.test/owner");
+    let run = projection
+        .runs
+        .iter()
+        .find(|run| run.range == neighbor)
+        .unwrap();
+    assert_eq!(run.formats, vec![futo_notes_editor::InlineFormat::Italic]);
     s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
     assert_eq!(s.source_text(), source);
     assert_eq!(s.selection(), selected);
 }
 
 #[test]
-fn edge_cell_ownership_survives_mid_run_headers_and_tracks_structural_edits() {
-    for prefix in ["intro\n", "intro | text\nnot a delimiter\n", "# intro\n"] {
-        let source = format!("{prefix}Item | Owner\n:--- | ---\nx | y\n");
+fn a_header_is_read_after_any_line_and_tracks_edits_to_its_delimiter_row() {
+    for prefix in [
+        "intro\n",
+        "| intro | text |\nnot a delimiter\n",
+        "# intro\n",
+    ] {
+        let source = format!("{prefix}| Item | Owner |\n|:--- | --- |\n| x | y |\n");
         let mut s = EditorSession::open(&source);
         let at = s.display_text().find("Item").unwrap();
-        let selected = DisplayRange {
-            start: futo_notes_editor::DisplayOffset(at),
-            end: futo_notes_editor::DisplayOffset(at + 4),
-        };
+        let selected = range(at, at + 4);
         assert!(s.inspect_table(s.revision(), selected).unwrap().is_some());
         s.select(s.revision(), selected).unwrap();
         s.paragraph_key(s.revision(), selected, ParagraphKey::Backspace, &mut |_| {
@@ -329,7 +280,7 @@ fn edge_cell_ownership_survives_mid_run_headers_and_tracks_structural_edits() {
         .unwrap();
         assert_eq!(
             s.source_text(),
-            format!("{prefix}| | Owner\n:--- | ---\nx | y\n")
+            format!("{prefix}|  | Owner |\n|:--- | --- |\n| x | y |\n")
         );
         assert_eq!(
             s.inspect_table(s.revision(), s.selection())
@@ -340,109 +291,34 @@ fn edge_cell_ownership_survives_mid_run_headers_and_tracks_structural_edits() {
             Some((0, 0))
         );
     }
-    // Changing a delimiter removes ownership immediately; Undo restores it.
-    let mut s = EditorSession::open("Item | Owner\n:--- | ---\nx | y\n");
+    // Changing the delimiter row ends the table at once; Undo restores it.
+    let mut s = EditorSession::open("| Item | Owner |\n|:--- | --- |\n| x | y |\n");
     let at = s.display_text().find(":---").unwrap();
-    let delimiter = DisplayRange {
-        start: futo_notes_editor::DisplayOffset(at),
-        end: futo_notes_editor::DisplayOffset(at + 4),
-    };
-    s.replace(s.revision(), delimiter, "invalid", &mut |_| Ok(()))
+    s.replace(s.revision(), range(at, at + 4), "invalid", &mut |_| Ok(()))
         .unwrap();
     assert!(s
         .inspect_table(s.revision(), DisplayRange::default())
         .unwrap()
         .is_none());
     s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
-    let table = s
-        .inspect_table(s.revision(), DisplayRange::default())
-        .unwrap()
-        .unwrap();
-    let cell = table.rows[1][0].content;
+    let cell = cell(&s, 1, 0);
     s.select(s.revision(), cell).unwrap();
     s.paragraph_key(s.revision(), cell, ParagraphKey::Backspace, &mut |_| Ok(()))
         .unwrap()
         .unwrap();
-    assert_eq!(s.source_text(), "Item | Owner\n:--- | ---\n| | y\n");
-    // A block interruption ends the old table even without a blank line.
-    let source = "Item | Owner\n:--- | ---\nx | y\n# stop\nBody | Tail\n";
+    assert_eq!(
+        s.source_text(),
+        "| Item | Owner |\n|:--- | --- |\n|  | y |\n"
+    );
+    // A line that is not a row ends the table; a pipe line after it is plain.
+    let source = "| Item | Owner |\n|:--- | --- |\n| x | y |\n# stop\n| Body | Tail |\n";
     let mut s = EditorSession::open(source);
     let at = s.display_text().find("Body").unwrap();
-    let body = DisplayRange {
-        start: futo_notes_editor::DisplayOffset(at),
-        end: futo_notes_editor::DisplayOffset(at + 4),
-    };
+    let body = range(at, at + 4);
     assert!(s.inspect_table(s.revision(), body).unwrap().is_none());
     s.replace(s.revision(), body, "", &mut |_| Ok(())).unwrap();
     assert_eq!(
         s.source_text(),
-        "Item | Owner\n:--- | ---\nx | y\n# stop\n | Tail\n"
+        "| Item | Owner |\n|:--- | --- |\n| x | y |\n# stop\n|  | Tail |\n"
     );
-}
-
-#[test]
-fn a_distant_later_header_becomes_owner_only_after_the_first_rule_is_invalidated() {
-    let prefix = "h|t\n-|-\n";
-    let source = format!("{prefix}{}c|d|e\n-|-|-\nx|y|z", "a|b\n".repeat(2_000));
-    let mut s = EditorSession::open(&source);
-    let at = s.display_text().rfind('z').unwrap();
-    let target = DisplayRange {
-        start: futo_notes_editor::DisplayOffset(at),
-        end: futo_notes_editor::DisplayOffset(at + 1),
-    };
-    assert!(s
-        .inspect_table(s.revision(), target)
-        .unwrap()
-        .unwrap()
-        .focus
-        .is_none());
-    let rule = DisplayRange {
-        start: futo_notes_editor::DisplayOffset(4),
-        end: futo_notes_editor::DisplayOffset(7),
-    };
-    s.replace(s.revision(), rule, "invalid", &mut |_| Ok(()))
-        .unwrap();
-    let at = s.display_text().rfind('z').unwrap();
-    let selected = DisplayRange {
-        start: futo_notes_editor::DisplayOffset(at),
-        end: futo_notes_editor::DisplayOffset(at + 1),
-    };
-    assert_eq!(
-        s.inspect_table(s.revision(), selected)
-            .unwrap()
-            .unwrap()
-            .focus
-            .unwrap()
-            .column,
-        2
-    );
-    s.select(s.revision(), selected).unwrap();
-    s.paragraph_key(s.revision(), selected, ParagraphKey::Backspace, &mut |_| {
-        Ok(())
-    })
-    .unwrap()
-    .unwrap();
-    assert!(s.source_text().ends_with("x|y||"));
-    s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
-    s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
-    assert_eq!(s.source_text(), source);
-    let at = s.display_text().rfind('z').unwrap();
-    let target = DisplayRange {
-        start: futo_notes_editor::DisplayOffset(at),
-        end: futo_notes_editor::DisplayOffset(at + 1),
-    };
-    assert!(s
-        .inspect_table(s.revision(), target)
-        .unwrap()
-        .unwrap()
-        .focus
-        .is_none());
-    s.select(s.revision(), target).unwrap();
-    s.paragraph_key(s.revision(), target, ParagraphKey::Backspace, &mut |_| {
-        Ok(())
-    })
-    .unwrap()
-    .unwrap();
-    assert!(s.source_text().ends_with("x|y|"));
-    assert!(!s.source_text().ends_with("x|y||"));
 }

@@ -72,6 +72,26 @@
             #expect(h.controller.divergences.isEmpty)
         }
 
+        /// iOS sim, Lists row 13: after a keyboard Backspace the toolbar's state stopped following
+        /// the caret (Outdent stayed lit on an unindented item) until the next typed character.
+        @Test func theToolbarFollowsTheCaretAfterAKeyboardBackspace() {
+            let h = TextFirstHarness("- one\n\t- two\n")
+            h.controller.installToolbar(localization: Localization.system())
+            let text = h.tv.text as NSString
+            let two = NSMaxRange(text.range(of: "two"))
+            let one = NSMaxRange(text.range(of: "one"))
+            h.select(two, two)
+            h.type("x")
+            h.keyboardBackspace()
+            #expect(h.source == "- one\n\t- two")
+            #expect(!h.controller.toolbarState.disabledFormats.contains("outdent"))
+            h.select(one, one)
+            #expect(h.controller.engineSelection == NSRange(location: one, length: 0))
+            #expect(h.controller.toolbarState.disabledFormats.contains("outdent"))
+            h.select(two, two)
+            #expect(!h.controller.toolbarState.disabledFormats.contains("outdent"))
+        }
+
         @Test func aCollapsedBoldToggleStylesTheNextCharacter() {
             let h = TextFirstHarness("ab")
             h.controller.installToolbar(localization: Localization.system())

@@ -88,14 +88,9 @@ final class TextFirstKillLoopTests: XCTestCase {
             let typed = Int(last[0])
         else { return "run \(run): no keystroke logged" }
         let onDisk = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
-        // The Store ends every note it writes with a line ending; the seeded file has none.
-        guard
-            let kept = (0...typed + 1).last(where: {
-                expected($0) == onDisk || expected($0) + "\n" == onDisk
-            })
-        else {
-            return
-                "run \(run): CORRUPT: the file the kill left is not the note plus a prefix of the keys"
+        guard let kept = (0...typed + 1).last(where: { expected($0) == onDisk }) else {
+            return "run \(run): CORRUPT: the file the kill left is not the note plus "
+                + "a prefix of the keys"
         }
 
         launch(name, typing: false)

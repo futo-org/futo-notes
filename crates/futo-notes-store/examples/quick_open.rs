@@ -9,7 +9,7 @@
 //! Each repetition, in a fresh vault holding the note:
 //! - `whole`: `open_editor` + `display_text`, as the Android open does before
 //!   it shows anything;
-//! - `quick`: `quick_open_editor`, which reads the first 16 KB and parses them.
+//! - `quick`: `quick_open_editor`, which reads the note and parses its first 16 KB.
 //!   Times are wall clock around the call, file I/O included (page cache warm).
 #![allow(clippy::print_stdout)] // A developer benchmark: the report is its output.
 use std::time::Instant;

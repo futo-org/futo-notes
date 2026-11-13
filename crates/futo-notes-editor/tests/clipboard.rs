@@ -71,7 +71,7 @@ fn paste_keeps_copied_characters_and_places_blocks() {
         ("hello", (5, 5), "    world", "hello    world"),
         // A marker alone is its characters; the line stays whole.
         ("abcd", (2, 2), "#", "ab#cd"),
-        ("", (0, 0), "-", "&#45;"),
+        ("", (0, 0), "-", "-"),
         // A block takes its own line; text either side keeps its block.
         ("abcd", (2, 2), "# Title", "ab\n# Title\ncd"),
         ("## Head", (4, 4), "# Title", "## Head\n# Title"),
@@ -81,14 +81,14 @@ fn paste_keeps_copied_characters_and_places_blocks() {
             "abcd",
             (2, 2),
             "1986. A great year",
-            "ab\n\n1986. A great year\n\ncd",
+            "ab\n1986. A great year\ncd",
         ),
-        ("abc\ndef", (4, 4), "2. x", "abc\n\n2. x\n\ndef"),
-        ("> abc\n> def", (4, 4), "2. x", "> abc\n>\n> 2. x\n>\n> def"),
-        ("abc\n# def", (4, 4), "2. x", "abc\n\n2. x\n\n# def"),
+        ("abc\ndef", (4, 4), "2. x", "abc\n2. x\ndef"),
+        ("> abc\n> def", (4, 4), "2. x", "> abc\n> 2. x\n> def"),
+        ("abc\n# def", (4, 4), "2. x", "abc\n2. x\n# def"),
         ("abcd", (2, 2), "```\ncode", "ab\n```\ncode\n```\ncd"),
-        // Inside containers: nested under the item, siblings for a list.
-        ("- item", (4, 4), "# Title", "- item\n  # Title"),
+        // Inside containers: a heading leaves the item, a list is siblings.
+        ("- item", (4, 4), "# Title", "- item\n# Title"),
         ("- item", (4, 4), "- x\n- y", "- item\n- x\n- y"),
         ("- abcd", (2, 2), "- x\n- y", "- ab\n- x\n- y\n- cd"),
         ("> q", (1, 1), "a\n\nb", "> qa\n>\n> b"),
@@ -109,18 +109,6 @@ fn paste_keeps_copied_characters_and_places_blocks() {
             "````\nalpha\n```\nomega\n```\n````",
         ),
         (
-            "> ```\n> ab\n> ```",
-            (1, 1),
-            "x\n```\ny",
-            "> ````\n> ax\n> ```\n> yb\n> ````",
-        ),
-        (
-            "- ```\n  ab\n  ```",
-            (1, 1),
-            "x\n```\ny",
-            "- ````\n  ax\n  ```\n  yb\n  ````",
-        ),
-        (
             "~~~\nab\n~~~",
             (1, 1),
             "x\n~~~~\ny",
@@ -134,14 +122,11 @@ fn paste_keeps_copied_characters_and_places_blocks() {
             "````\r\nax\r\n```\r\nyb\r\n````\r\n",
         ),
         ("```\ncode\n\n```", (5, 5), "\n\n", "```\ncode\n\n\n```"),
-        ("    ab", (1, 1), "x\n```\ny", "    ax\n    ```\n    yb"),
-        ("    code", (2, 2), "x\n# y", "    cox\n    # yde"),
-        (
-            "    co\n    de",
-            (2, 2),
-            "x\n\ny",
-            "    cox\n\n    y\n    de",
-        ),
+        // An indented plain line: later lines take no indent; text after
+        // a block or a closed fence keeps the line's indent.
+        ("    ab", (1, 1), "x\n```\ny", "    ax\n```\ny\n```\n    b"),
+        ("    code", (2, 2), "x\n# y", "    cox\n# y\n    de"),
+        ("    co\n    de", (2, 2), "x\n\ny", "    cox\n\ny\n    de"),
         // A selection is replaced; inline text carries its first format.
         ("a **bold** c", (2, 6), "*it*", "a ***it*** c"),
         ("**abcd**", (1, 3), "# T", "**a**\n# T\n**d**"),
@@ -149,11 +134,6 @@ fn paste_keeps_copied_characters_and_places_blocks() {
         ("[ab](u)", (1, 1), "x\n\ny", "[ax](u)\n\n[yb](u)"),
         ("**ab** c", (1, 1), "# T\n\nz", "**a**\n# T\n\n**zb** c"),
         ("ab", (1, 1), "\n", "a\nb"),
-        // A pasted span beside the same style joins it.
-        ("x **a** y", (3, 3), "**b**", "x **ab** y"),
-        ("x **a** y", (2, 2), "**b**", "x **ba** y"),
-        ("x *a* y", (3, 3), "*b*", "x *ab* y"),
-        ("**abc**", (2, 2), "__x__", "**abxc**"),
     ] {
         let s = paste(source, range(a, b), text, None);
         assert_eq!(s.source_text(), expected, "{source:?} + {text:?}");
@@ -162,8 +142,10 @@ fn paste_keeps_copied_characters_and_places_blocks() {
 
 #[test]
 fn pasted_soft_lines_keep_their_whitespace() {
+    // The tab is kept in the source; an indented line shows at its indent.
     let s = paste("ab", range(1, 1), "x  \n\ty z", None);
-    assert_eq!(s.display_text(), "ax  \n\ty zb");
+    assert_eq!(s.source_text(), "ax  \n\ty zb");
+    assert_eq!(s.display_text(), "ax  \ny zb");
 }
 
 #[test]
@@ -246,18 +228,6 @@ fn copied_named_links_paste_as_markdown_with_their_real_destination() {
             "[alpha](<https://x.test>)",
             "alpha",
             "[alpha](<https://x.test>)",
-            None,
-        ),
-        (
-            "[alpha\nbeta](<https://x.test>)\n",
-            "alpha\nbeta",
-            "[alpha\nbeta](<https://x.test>)",
-            None,
-        ),
-        (
-            "[alpha\r\nbeta](<https://x.test>)\r\n",
-            "alpha\nbeta",
-            "[alpha\nbeta](<https://x.test>)",
             None,
         ),
         (
@@ -465,32 +435,38 @@ fn named_link_paste_preserves_adjacent_image_and_wikilink_roles() {
 }
 
 #[test]
-fn cell_link_paste_refuses_an_unrepresentable_opaque_code_pipe_atomically() {
+fn cell_link_paste_writes_a_code_pipe_as_an_escaped_pipe() {
     let original = "| H | T |\n| - | - |\n| old | keep |\n";
     let start = original.find("old").unwrap();
     let mut session = EditorSession::open(original);
     session
         .select(Revision(0), range(start, start + 3))
         .unwrap();
-    let before = session.display_text();
-    // The canonical inline parser has no GFM table decoding: escaping a pipe
-    // inside Code would add a visible backslash, while leaving it raw creates
-    // another cell. Refuse instead of changing either meaning.
-    assert!(matches!(
-        session.paste_markdown(
+    // A pasted `|` in a cell is written `\|`; inside the cell's code it is
+    // still a pipe, so the code shows `p|q` and the row keeps its cells.
+    session
+        .paste_markdown(
             Revision(0),
             range(start, start + 3),
             "[`p|q`](<https://x.test>)",
-            &mut |_| panic!("refused paste was accepted")
-        ),
-        Err(futo_notes_editor::EditorError::UnrepresentableFormat)
-    ));
-    assert_eq!(session.source_text(), original);
-    assert_eq!(session.display_text(), before);
-    assert_eq!(session.selection(), range(start, start + 3));
-    assert_eq!(session.revision(), Revision(0));
-    assert!(session
-        .undo(Revision(0), &mut |_| Ok(()))
+            &mut |_| Ok(()),
+        )
         .unwrap()
-        .is_none());
+        .unwrap();
+    assert_eq!(
+        session.source_text(),
+        "| H | T |\n| - | - |\n| [`p\\|q`](<https://x.test>) | keep |\n"
+    );
+    assert_eq!(
+        session.display_text(),
+        "| H | T |\n| - | - |\n| p|q | keep |\n"
+    );
+    let projection = session
+        .project(session.revision(), range(0, session.display_text().len()))
+        .unwrap();
+    assert_eq!(projection.links.len(), 1);
+    assert_eq!(projection.links[0].range, range(start, start + 3));
+    assert_eq!(projection.links[0].destination, "https://x.test");
+    session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(session.source_text(), original);
 }
