@@ -53,6 +53,7 @@
   futo-notes-sync sync module
 - Renames are paired — a rename is not seen as delete + create. → migration plan
   Phase 5
+- [Desktop] When sync reports a rename of the open note, pending saves wait for the note-list refresh and rename classification to finish, then save under the followed identity. → `reconcileSyncCompletion.ts`, `syncManagerPeerProjections.test.ts`
 - **Sync reports rename intent; shells never infer renames from id patterns.**
   Every relocation the sync engine performs — paired local moves, mapping
   relocations, merge-target moves, and collision placements that relocate a

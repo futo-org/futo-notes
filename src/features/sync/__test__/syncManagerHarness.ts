@@ -147,6 +147,7 @@ export function makeSession(overrides: Partial<SessionState> = {}) {
     get lastEditTime() {
       return state.lastEditTime;
     },
+    runBeforePendingSave: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
     flushSave: vi.fn(async () => {}),
     resumeDraftPersistence: vi.fn(),
     applyExternalContent,
