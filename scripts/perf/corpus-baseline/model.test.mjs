@@ -50,3 +50,16 @@ suite('corpus structure measurements', () => {
     }
   });
 });
+it('retains indented tables in the census but does not select them as native cell trials', () => {
+  const notes = [
+    note('prose\n\n- item\n\n    | a | b |\n    |---|---|\n    | c | d |', 'a'),
+    note('prose\n\n- item\n\n| a | b | c |\n|---|---|---|\n| d | e | f |', 'b'),
+  ];
+  const records = notes.map(describe);
+  expect(records[0].tableCells).toBe(4);
+  expect(
+    select(records, notes, 1)
+      .filter((p) => p.metric === 'tableCells')
+      .every((p) => p.hash === 'b'),
+  ).toBe(true);
+});

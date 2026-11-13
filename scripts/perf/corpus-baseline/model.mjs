@@ -86,6 +86,12 @@ export function describe(note) {
         : 0;
       const rows = descendants(node, 'TableRow').length + 1;
       tables.push({
+        nativeCellCandidate:
+          node.parent?.name === 'Document' &&
+          body
+            .slice(body.lastIndexOf('\n', node.from - 1) + 1, node.to)
+            .split('\n')
+            .every((line) => line.startsWith('|')),
         value: rows * columns,
         from: node.from,
         to: node.to,
@@ -157,7 +163,8 @@ export function select(records, notes, perQuantile = 3) {
       let count = 0;
       for (const r of candidates) {
         const block = r.blocks[metric];
-        if (!block?.ends.length) continue;
+        if (!block?.ends.length || (metric === 'tableCells' && !block.nativeCellCandidate))
+          continue;
         const end = block.ends[Math.floor((block.ends.length - 1) / 2)];
         const note = byHash.get(r.hash);
         picks.push({

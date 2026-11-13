@@ -37,7 +37,9 @@ matching structure in each note, conditioned on that feature being present:
   including empty cells.
 
 Lezer CommonMark + GFM supplies corpus descriptors, not application editing rules.
-Its interpretation can differ from the canonical engine. Device setup therefore
+Its interpretation can differ from the canonical engine. The census retains all
+GFM tables, but cell-edit fixtures require top-level rows beginning with `|`, as
+specified by Linedown; indented/quoted and pipe-less GFM tables are ineligible. Device setup therefore
 requires the source target to map to literal text through Rust's correspondence
 and requires a table target to open an actual cell. Invalid targets fail visibly.
 
