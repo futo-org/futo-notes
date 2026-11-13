@@ -166,9 +166,9 @@ pub enum CorrespondenceKind {
     Literal,
     /// Source with no display (markers, hidden syntax); `display` is empty.
     Hidden,
-    /// One indivisible source piece shown as other text (a decoded entity, a
-    /// divider glyph). Interior offsets map only to its whole source range,
-    /// even when the two lengths happen to match.
+    /// One indivisible source piece shown as other text (a divider's
+    /// glyph). Interior offsets map only to its whole source range, even
+    /// when the two lengths happen to match.
     Replaced,
 }
 

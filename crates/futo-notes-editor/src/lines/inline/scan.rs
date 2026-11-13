@@ -263,7 +263,7 @@ pub(super) fn autolink(text: &str, at: usize) -> Option<(usize, String)> {
 }
 
 /// `(destination "title")` starting at `at`: where it ends, the destination
-/// and title with backslash escapes removed. Entities stay as written.
+/// and title with backslash escapes removed; nothing else is decoded.
 pub(super) fn inline_link(text: &str, at: usize) -> Option<(usize, String, Option<String>)> {
     let bytes = text.as_bytes();
     if bytes.get(at) != Some(&b'(') {
