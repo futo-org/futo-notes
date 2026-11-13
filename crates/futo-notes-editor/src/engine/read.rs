@@ -38,15 +38,13 @@ pub(crate) fn split(text: &str) -> Vec<String> {
 /// Read a whole note.
 pub(crate) fn open(text: &str) -> Store {
     let texts = split(text);
-    let closes = texts.iter().skip(1).any(|line| trimmed(line) == "---");
+    let closes =
+        trimmed(&texts[0]) == "---" && texts.iter().skip(1).any(|line| trimmed(line) == "---");
     let mut carry = Carry::start();
     let mut entries = Vec::with_capacity(texts.len());
     for text in texts {
         let entry = Entry::read(text, &mut carry, closes);
         place(&mut entries, entry);
-    }
-    for entry in &mut entries {
-        entry.read_spans();
     }
     let count = entries.len();
     for index in 0..count {
@@ -55,6 +53,7 @@ pub(crate) fn open(text: &str) -> Store {
             next: next.as_ref(),
             next_is_last: index + 2 == count,
         };
+        entries[index].read_spans();
         entries[index].show(neighbors, index + 1 == count);
     }
     Store::new(entries)

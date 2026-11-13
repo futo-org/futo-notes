@@ -207,14 +207,28 @@ impl Entry {
             Vec::new()
         };
         self.view = View { role, ending, cuts };
-        let shown = self.display();
-        self.size = Size {
-            lines: 1,
-            source: self.text.len(),
-            display: shown.len(),
-            source16: self.text.encode_utf16().count(),
-            display16: shown.encode_utf16().count(),
+        // Sizes come from the source minus hidden pieces; opening a note
+        // need not allocate a display string for every line just to count it.
+        let ending16 = self.ending().encode_utf16().count();
+        let (mut display, mut display16) = if role == Role::Text {
+            (self.body_len(), self.size.source16 - ending16)
+        } else {
+            (0, 0)
         };
+        for (range, cut) in &self.view.cuts {
+            display -= range.len();
+            display16 -= self.text[range.clone()].encode_utf16().count();
+            if *cut == Cut::Divider {
+                display += DIVIDER.len();
+                display16 += 1;
+            }
+        }
+        if ending {
+            display += self.ending().len();
+            display16 += ending16;
+        }
+        self.size.display = display;
+        self.size.display16 = display16;
     }
 
     fn cuts(&self) -> Vec<(Range<usize>, Cut)> {

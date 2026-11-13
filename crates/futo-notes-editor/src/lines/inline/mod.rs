@@ -54,6 +54,17 @@ pub(crate) struct Span {
 /// line is read only to decide whether a tag's `#` follows whitespace.
 pub(crate) fn read(line: &str, content: Range<usize>) -> Vec<Span> {
     let text = &line[content.clone()];
+    // Every inline construct needs one of these ASCII bytes (including
+    // dots/colons for URLs and @ for email). Plain prose needs no scratch
+    // bitmap, delimiter scan or tag scan.
+    if !text.bytes().any(|byte| {
+        matches!(
+            byte,
+            b'\\' | b'`' | b'<' | b'[' | b'!' | b'*' | b'_' | b'~' | b'#' | b'.' | b':' | b'@'
+        )
+    }) {
+        return Vec::new();
+    }
     let mut spans = read_text(text);
     let code: Vec<(usize, usize)> = spans
         .iter()
