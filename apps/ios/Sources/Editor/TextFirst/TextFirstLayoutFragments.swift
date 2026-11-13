@@ -129,7 +129,9 @@
             let font: UIFont
         }
 
-        /// The paragraph's own block, over its first line and the whole fragment.
+        /// The paragraph's own block, over its first line and the whole fragment except the
+        /// note's empty last line, which TextKit lays out at the end of the last paragraph's
+        /// fragment: that line is not this paragraph's (its block, if any, is `trailingBlock`).
         private var ownRow: Row {
             let font =
                 textLineFragments.first.flatMap { line in
@@ -138,8 +140,13 @@
                             as? UIFont
                         : nil
                 } ?? MainActor.assumeIsolated { TextFirstEditorController.bodyFont }
-            return Row(
-                top: 0, height: layoutFragmentFrame.height, baseline: firstBaseline, font: font)
+            var height = layoutFragmentFrame.height
+            if textLineFragments.count > 1, let last = textLineFragments.last,
+                last.characterRange.length == 0
+            {
+                height = last.typographicBounds.minY
+            }
+            return Row(top: 0, height: height, baseline: firstBaseline, font: font)
         }
 
         /// The empty last line of the note: TextKit lays it out as a zero-length line fragment at
@@ -241,7 +248,7 @@
                     decorationRect(at: point, row: row, x: point.x - 4, width: containerWidth + 8))
             }
             if block.divider {
-                let y = point.y + layoutFragmentFrame.height / 2
+                let y = point.y + row.top + row.height / 2
                 UIColor.opaqueSeparator.setStroke()
                 context.setLineWidth(1)
                 context.move(to: CGPoint(x: point.x, y: y))
