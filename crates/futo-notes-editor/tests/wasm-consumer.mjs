@@ -232,7 +232,9 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     assert.equal(text, '😀z日本 b\r\n');
     assert.equal(page.draft_text(), '###### __~~😀z日本 b~~__\r\n');
     assert.equal(JSON.parse(page.commit_composition_utf16(24n)), null);
-    for (const [revision, command, expected] of [[24n, '"Quote"', '> __~~😀z日本 b~~__\r\n']]) {
+    for (const [revision, command, expected] of [
+      [24n, '"Quote"', '> ###### __~~😀z日本 b~~__\r\n'],
+    ]) {
       const request = JSON.parse(page.block_command_utf16(revision, 0, 0, command));
       apply(await send(request));
       assert.equal(page.draft_text(), expected);
@@ -242,7 +244,7 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     const dividerChange = await send(divider);
     apply(dividerChange);
     // A divider is never quoted: it sits at column 0 between the quote lines.
-    assert.equal(page.draft_text(), '> __~~😀z日本 b~~__\r\n---\r\n> \r\n');
+    assert.equal(page.draft_text(), '> ###### __~~😀z日本 b~~__\r\n---\r\n> \r\n');
     assert.equal(text, '😀z日本 b\r\n\ufffc\r\n\r\n');
     assert.ok(dividerChange.projection.blocks.some((block) => block.divider));
   } finally {

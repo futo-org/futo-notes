@@ -257,10 +257,10 @@ fn typing_at_the_end_rereads_little() {
     assert_eq!(reading, Reading::new(&source));
 }
 
-/// No list state is carried: indenting one bullet re-reads that line and the
-/// one above it (the table-header look-back), and nothing below.
+/// An indent change settles at the next sibling after reading its subtree
+/// and the table-header look-back.
 #[test]
-fn indenting_a_bullet_settles_on_the_same_line() {
+fn indenting_a_bullet_settles_at_the_next_sibling() {
     let mut source = String::new();
     for index in 0..2_000 {
         source.push_str(&format!("- item {index}\n"));
@@ -269,7 +269,7 @@ fn indenting_a_bullet_settles_on_the_same_line() {
     let at = source.find("- item 1000").unwrap();
     source.insert_str(at, "    ");
     let read = reading.update(&source, at, 0, 4);
-    assert!(read.len() <= 2, "{read:?}");
+    assert!(read.len() <= 3, "{read:?}");
     assert_eq!(reading, Reading::new(&source));
     assert!(matches!(
         reading.lines[1000].kind,

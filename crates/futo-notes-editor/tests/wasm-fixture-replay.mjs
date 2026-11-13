@@ -128,6 +128,7 @@ function toDisplay(slice, at) {
 }
 
 const units = (text, bytes) => Buffer.from(text).subarray(0, bytes).toString().length;
+const utf16 = (text) => Uint16Array.from({ length: text.length }, (_, i) => text.charCodeAt(i));
 
 /// Replay `cases`, each marked with `marks` (caret, selection start, end)
 /// unless the case names its own.
@@ -148,7 +149,7 @@ export async function replay(WasmSession, workerPath, cases, marks) {
         const ack = await host.exchange(request);
         assert.deepEqual(JSON.parse(page.acknowledge(JSON.stringify(ack))), [], item.name);
         revision = BigInt(change.revision);
-        return true;
+        return change;
       };
       const slice = displayText(page, revision, before.text);
       const start = toDisplay(slice, before.from);
@@ -159,16 +160,18 @@ export async function replay(WasmSession, workerPath, cases, marks) {
         end.at,
         JSON.stringify(before.from === before.to ? start.affinity : 'Forward'),
       );
-      const [a, b] = [units(slice.text, start.at), units(slice.text, end.at)];
+      let [a, b] = [units(slice.text, start.at), units(slice.text, end.at)];
+      if (item.typed !== undefined) {
+        const setup = await send(page.replace_utf16(revision, a, b, utf16(item.typed)));
+        assert.ok(setup, `${item.name}: typed setup`);
+        const shown = displayText(page, revision, page.draft_text());
+        [a, b] = [units(shown.text, setup.selection.start), units(shown.text, setup.selection.end)];
+      }
+      const opening = page.draft_text();
       const run = command(item.command);
       const changed = await send(
         run.type !== undefined
-          ? page.replace_utf16(
-              revision,
-              a,
-              b,
-              Uint16Array.from(run.type, (_, i) => run.type.charCodeAt(i)),
-            )
+          ? page.replace_utf16(revision, a, b, utf16(run.type))
           : run.block !== undefined
             ? page.block_command_utf16(revision, a, b, JSON.stringify(run.block))
             : page.paragraph_key_utf16(revision, a, b, JSON.stringify(run.key)),
@@ -176,7 +179,7 @@ export async function replay(WasmSession, workerPath, cases, marks) {
       assert.equal(page.draft_text(), after.text, `${item.name}: saved bytes`);
       if (!changed) continue;
       await send(page.undo(revision));
-      assert.equal(page.draft_text(), before.text, `${item.name}: undo`);
+      assert.equal(page.draft_text(), opening, `${item.name}: undo`);
       await send(page.redo(revision));
       assert.equal(page.draft_text(), after.text, `${item.name}: redo`);
     } finally {

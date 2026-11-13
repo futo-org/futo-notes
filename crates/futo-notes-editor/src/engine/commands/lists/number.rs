@@ -110,6 +110,22 @@ impl Draft<'_> {
         None
     }
 
+    /// Whether a new item after numbered line `index` repeats its number
+    /// instead of counting up: the numbered sibling below carries the same
+    /// number (a list numbered `1.` on every item), or, with none below,
+    /// the one above does.
+    pub fn repeats(&self, index: usize, level: Level, number: i128, delimiter: u8) -> bool {
+        let below = (index + 1..self.count())
+            .find_map(|below| match step(self.line(below), level) {
+                Step::Under => None,
+                Step::Sibling => Some(ordinal(self.body(below), self.line(below))),
+                Step::End => Some(None),
+            })
+            .flatten();
+        let neighbor = below.or_else(|| self.number_above(index, level).map(|(_, n, d)| (n, d)));
+        neighbor == Some((number, delimiter))
+    }
+
     /// Write `number` as line `index`'s number (an ordered item).
     pub fn set_number(&mut self, index: usize, number: i128) {
         let Kind::List { text, .. } = &self.line(index).kind else {

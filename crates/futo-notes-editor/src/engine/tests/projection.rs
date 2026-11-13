@@ -143,3 +143,62 @@ fn a_change_projects_every_line_it_read_again() {
     assert_eq!(view.projection.range, range(0, 3));
     assert!(view.projection.blocks.iter().all(|b| b.code));
 }
+
+#[test]
+fn list_levels_normalize_tabs_two_and_four_spaces_without_changing_source() {
+    for unit in ["\t", "  ", "    "] {
+        let source = format!(
+            "- root\n{unit}- child\n{unit}{unit}- leaf\n\n{unit}plain\n{unit}- sibling\n- end"
+        );
+        let slice = projected(&source);
+        let levels: Vec<_> = slice
+            .blocks
+            .iter()
+            .filter_map(|b| b.list.as_ref().map(|l| l.level))
+            .collect();
+        assert_eq!(levels, [0, 1, 2, 1, 1, 0], "{unit:?}");
+        assert_eq!(Engine::open(&source).source_text(), source);
+    }
+}
+
+#[test]
+fn list_levels_reset_at_other_blocks_and_quote_boundaries() {
+    for separator in [
+        "plain",
+        "# heading",
+        "---",
+        "```\ncode\n```",
+        "| h |\n|---|\n| row |",
+    ] {
+        let source = format!("- root\n  - child\n{separator}\n    - new");
+        let levels: Vec<_> = projected(&source)
+            .blocks
+            .into_iter()
+            .filter_map(|b| b.list.map(|l| l.level))
+            .collect();
+        assert_eq!(levels, [0, 1, 0], "{separator:?}");
+    }
+    let levels: Vec<_> = projected("- root\n>   - quoted\n\n>     - child\n    - outside")
+        .blocks
+        .into_iter()
+        .filter_map(|b| b.list.map(|l| l.level))
+        .collect();
+    assert_eq!(levels, [0, 0, 1, 0]);
+}
+
+#[test]
+fn explicit_quote_blank_resets_list_ancestors_only_when_quote_depth_changes() {
+    for (source, expected) in [
+        ("- root\n  - child\n>\n    - outside", vec![0, 1, 0]),
+        ("> - root\n>   - child\n>>\n>     - new", vec![0, 1, 0]),
+        ("> - root\n>   - child\n>\n>     - leaf", vec![0, 1, 2]),
+        ("> - root\n>   - child\n \t\n>     - leaf", vec![0, 1, 2]),
+    ] {
+        let levels: Vec<_> = projected(source)
+            .blocks
+            .into_iter()
+            .filter_map(|block| block.list.map(|list| list.level))
+            .collect();
+        assert_eq!(levels, expected, "{source:?}");
+    }
+}

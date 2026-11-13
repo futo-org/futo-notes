@@ -1,6 +1,7 @@
 //! The note reader: every line is one block, read by its own text and a small
-//! carry from the lines above (open fence, open front matter, an open table).
-//! A list line's indent is its own leading whitespace. The one look back is
+//! carry from the lines above (fence, front matter, table and list ancestors).
+//! A list line's source indent is its own leading whitespace; its display level
+//! counts narrower ancestors. The one look back is
 //! the table header: a delimiter row makes the line directly above it a header.
 //!
 //! The dialect is `docs/spec/editor/portable-core/linedown.md`; the cases are

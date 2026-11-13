@@ -372,14 +372,14 @@ fn quote_over_a_long_selection_does_no_more_work_than_the_old_engine() {
     let headings = |lines: usize| -> (String, String) {
         (
             (0..lines).map(|i| format!("# row {i}\n")).collect(),
-            (0..lines).map(|i| format!("> row {i}\n")).collect(),
+            (0..lines).map(|i| format!("> # row {i}\n")).collect(),
         )
     };
     let code = |lines: usize| -> (String, String) {
         let code: String = (0..lines).map(|i| format!("opaque code {i}\n")).collect();
         (
             format!("# heading\n\n```\n{code}```\n"),
-            format!("> heading\n\n```\n{code}```\n"),
+            format!("> # heading\n\n```\n{code}```\n"),
         )
     };
     for ((source, expected), old_items, old_total) in [
@@ -403,5 +403,44 @@ fn quote_over_a_long_selection_does_no_more_work_than_the_old_engine() {
         engine.undo(engine.revision(), &mut ok).unwrap().unwrap();
         assert_eq!(engine.source_text(), source);
         assert_eq!(engine.selection(), all);
+    }
+}
+
+/// Quote is an exact toggle: quoting whole lines and quoting again returns
+/// the note's bytes, whatever blocks the lines are.
+#[test]
+fn quote_twice_returns_the_exact_bytes() {
+    for note in [
+        "## Title",
+        "- a\n  - b\n\t- c\n    1) d",
+        "- [x] done\n- [ ] todo",
+        "> q\n# h\n- i\nplain\n  indented",
+        "# a\r\n- b\r\n3. c",
+        "###### six\n\n1. one",
+    ] {
+        let mut engine = Engine::open(note);
+        let all = range(0, engine.display_text().len());
+        engine.select(engine.revision(), all).unwrap();
+        for step in ["on", "off"] {
+            let selection = engine.selection();
+            let changed = engine
+                .block(engine.revision(), selection, BlockCommand::Quote, &mut ok)
+                .unwrap();
+            assert!(changed.is_some(), "{note:?}: quote {step}");
+            if step == "on" {
+                let quoted: Vec<String> = note
+                    .split('\n')
+                    .map(|line| {
+                        if line.is_empty() {
+                            "> ".into()
+                        } else {
+                            format!("> {line}")
+                        }
+                    })
+                    .collect();
+                assert_eq!(engine.source_text(), quoted.join("\n"), "{note:?}");
+            }
+        }
+        assert_eq!(engine.source_text(), note, "{note:?}");
     }
 }

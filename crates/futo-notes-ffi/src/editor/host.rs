@@ -247,6 +247,7 @@ pub enum EditorStyleSpan {
         start: u64,
         end: u64,
         indent: u64,
+        level: u64,
         marker: EditorListMarker,
         text: String,
         checked: bool,
@@ -344,6 +345,7 @@ impl From<StyleSpec> for EditorStyleSpan {
                 start,
                 end,
                 indent,
+                level,
                 marker,
                 text,
                 checked,
@@ -352,6 +354,7 @@ impl From<StyleSpec> for EditorStyleSpan {
                 start: u(start),
                 end: u(end),
                 indent: u(indent),
+                level: u(level),
                 marker: match marker {
                     ListMarker::Bullet => EditorListMarker::Bullet,
                     ListMarker::Ordered => EditorListMarker::Ordered,

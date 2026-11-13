@@ -41,16 +41,17 @@ A line ends at `\n` or `\r\n`. A lone `\r` is an ordinary character.
 
 A line is read by its own text, with these exceptions. No others exist.
 
-An earlier line affects later lines in three cases:
+An earlier line affects later lines in four cases:
 
 1. **Code fence.** After an opening fence, every line is code until the closing fence. With no closing fence, code runs to the end of the note.
 2. **Front matter.** If line 1 is `---` and a later line is `---`, every line between them is front matter.
 3. **Table rows.** A line starting with `|` is a table row only when it follows a table's header and delimiter row.
+4. **List levels.** Earlier list indents determine display nesting as described below; they never change the source bytes or block kind.
 
 A later line affects an earlier line in two cases:
 
-4. **Table header.** A delimiter row turns the single line directly above it into a table header.
-5. **Front matter close.** A `---` line closes front matter that line 1 opened. Until it exists, line 1 is a divider and every line is read as usual.
+5. **Table header.** A delimiter row turns the single line directly above it into a table header.
+6. **Front matter close.** A `---` line closes front matter that line 1 opened. Until it exists, line 1 is a divider and every line is read as usual.
 
 These are the only cases where a line changes the meaning of a line before it.
 
@@ -58,19 +59,19 @@ These are the only cases where a line changes the meaning of a line before it.
 
 Every line is exactly one of these.
 
-| Block | Looks like | Rule |
-|-------|------------|------|
-| Plain line | `some text` | Anything that is not one of the blocks below. |
-| Blank line |            | Empty, or only whitespace. |
-| Heading | `# Title`  | One to six `#`, then a space. Starts at column 0. |
-| Bullet | `- item`   | `-`, `*` or `+`, then a space. May be indented. |
-| Numbered item | `1. item`  | Digits, then `.` or `)`, then a space. May be indented. |
-| Task  | `- [ ] item` | A bullet followed by `[ ]`, `[x]` or `[X]`, then a space. |
-| Quote | `> text`   | `>`, then a space. A `>` alone on a line is an empty quote line. |
-| Divider | `---`      | Three or more of the same character, `-`, `*` or `_`, and nothing else on the line. Starts at column 0. |
-| Code fence | three backticks | See "Code". |
-| Front matter | `---` on line 1 | See "Front matter". |
-| Table | rows starting with a pipe | See "Tables". |
+| Block         | Looks like                | Rule                                                                                                    |
+| ------------- | ------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Plain line    | `some text`               | Anything that is not one of the blocks below.                                                           |
+| Blank line    |                           | Empty, or only whitespace.                                                                              |
+| Heading       | `# Title`                 | One to six `#`, then a space. Starts at column 0.                                                       |
+| Bullet        | `- item`                  | `-`, `*` or `+`, then a space. May be indented.                                                         |
+| Numbered item | `1. item`                 | Digits, then `.` or `)`, then a space. May be indented.                                                 |
+| Task          | `- [ ] item`              | A bullet followed by `[ ]`, `[x]` or `[X]`, then a space.                                               |
+| Quote         | `> text`                  | `>`, then a space. A `>` alone on a line is an empty quote line.                                        |
+| Divider       | `---`                     | Three or more of the same character, `-`, `*` or `_`, and nothing else on the line. Starts at column 0. |
+| Code fence    | three backticks           | See "Code".                                                                                             |
+| Front matter  | `---` on line 1           | See "Front matter".                                                                                     |
+| Table         | rows starting with a pipe | See "Tables".                                                                                           |
 
 ### A marker needs a space
 
@@ -106,22 +107,11 @@ A divider has no spaces in it: `- - -` is a bullet with the text `- -`.
 
 These are two lines: a bullet and an indented plain line. Each stands alone.
 
-**Indent is the line's own.** A line's indent is the width of its leading whitespace: a space is 1 column and a tab is 4. A list line is drawn that far in. Nothing above it is consulted, so there is no "depth" that depends on other lines.
+**Indent is the line's own; level is for display.** Leading whitespace has a width in columns: a space is 1 and a tab is 4. The reader carries an increasing stack of list-item indent widths. A list item's level is the number of entries narrower than its indent; entries at or above that indent are then removed and its own indent is pushed. Root level is zero, including a first item that starts indented.
 
-```
-- People
-  - Mason
-    - White
-  - Aran
-    - White
-- Animals
-```
+The same three-level list written with tabs, two spaces or four spaces draws at the same levels. An uneven list such as `- A`, `    - B`, `  - C` gives levels 0, 1, 1. Reading never rewrites its whitespace.
 
-Each line here says how far in it sits, so the list draws as typed. "Animals" has no indent and sits at the left edge, whatever came before it.
-
-A list looks right when its author indents consistently, which is almost always. Linedown does not tidy a list that is indented unevenly: it draws what the file says.
-
-**Indented plain lines** are also drawn at their own indent. In the milk example the plain line is indented 2 columns, and the bullet's text also starts at column 2, so the two line up without any rule connecting them.
+Whitespace-only blank lines keep the stack open, including between quoted list items. A blank line with explicit quote markers keeps the stack only at the same quote depth; a different quote depth starts a fresh stack. An indented plain line takes the number of stack entries narrower than its own indent as its display level, without changing the stack or belonging to an item. With no open list it has level zero. An unindented plain line, a heading, divider, table, code fence or front matter ends the stack. A change in quote depth also starts a fresh stack; quoted lists nest independently.
 
 **Numbers show as typed.** `3. item` shows a 3, whatever is above it. Nothing is renumbered when the note is read.
 
@@ -194,18 +184,18 @@ A table is:
 
 Inline marks open and close on the same line. A line break ends them.
 
-| Mark | Looks like |
-|------|------------|
-| Bold | `**text**` or `__text__` |
-| Italic | `*text*` or `_text_` |
-| Strikethrough | `~~text~~` |
-| Inline code | `` `text` `` |
-| Link | `[text](url)` |
-| Bare URL | `https://example.com` or `<https://example.com>` |
-| Image | `![alt](src)` |
-| Wikilink | `[[note]]` |
-| Tag  | `#tag`     |
-| Escape | `\*` shows a literal `*` |
+| Mark          | Looks like                                       |
+| ------------- | ------------------------------------------------ |
+| Bold          | `**text**` or `__text__`                         |
+| Italic        | `*text*` or `_text_`                             |
+| Strikethrough | `~~text~~`                                       |
+| Inline code   | `` `text` ``                                     |
+| Link          | `[text](url)`                                    |
+| Bare URL      | `https://example.com` or `<https://example.com>` |
+| Image         | `![alt](src)`                                    |
+| Wikilink      | `[[note]]`                                       |
+| Tag           | `#tag`                                           |
+| Escape        | `\*` shows a literal `*`                         |
 
 The rules for when `*`, `_` and `~` open and close are CommonMark's, applied to one line. So `snake_case_word` is not italic.
 
@@ -218,20 +208,20 @@ and neither is this**
 
 ## Differences from CommonMark and GFM
 
-| Text | CommonMark | Linedown |
-|------|------------|----------|
-| `title` with `---`, `===` or `-` under it | Heading    | Plain line, then a divider, plain line or bullet |
-| `foo` then `bar` on the next line | One paragraph; many renderers join the lines | Two lines |
-| Several blank lines in a row | Collapsed to one gap | Shown as written |
-| Plain line under a bullet | Part of the bullet | Its own line |
-| Plain line under a `>` line | Part of the quote | Its own line, not quoted |
-| Text indented 4 spaces | Code block | Plain line, or list nesting |
-| `**bold` across two lines | Bold       | Literal asterisks |
-| `1.` `1.` `1.` | Shows 1, 2, 3 | Shows 1, 1, 1 |
-| `-` or `#` with nothing after | Empty bullet, empty heading | Plain line |
-| `>text` with no space | Quote      | Plain line |
-| Table row with no leading pipe | Table row  | Plain line |
-| `- - -` | Divider    | Bullet   |
+| Text                                      | CommonMark                                   | Linedown                                         |
+| ----------------------------------------- | -------------------------------------------- | ------------------------------------------------ |
+| `title` with `---`, `===` or `-` under it | Heading                                      | Plain line, then a divider, plain line or bullet |
+| `foo` then `bar` on the next line         | One paragraph; many renderers join the lines | Two lines                                        |
+| Several blank lines in a row              | Collapsed to one gap                         | Shown as written                                 |
+| Plain line under a bullet                 | Part of the bullet                           | Its own line                                     |
+| Plain line under a `>` line               | Part of the quote                            | Its own line, not quoted                         |
+| Text indented 4 spaces                    | Code block                                   | Plain line, or list nesting                      |
+| `**bold` across two lines                 | Bold                                         | Literal asterisks                                |
+| `1.` `1.` `1.`                            | Shows 1, 2, 3                                | Shows 1, 1, 1                                    |
+| `-` or `#` with nothing after             | Empty bullet, empty heading                  | Plain line                                       |
+| `>text` with no space                     | Quote                                        | Plain line                                       |
+| Table row with no leading pipe            | Table row                                    | Plain line                                       |
+| `- - -`                                   | Divider                                      | Bullet                                           |
 
 ## Not in version 1
 
@@ -279,29 +269,6 @@ You add an empty bullet under a line of text. A blank line is inserted above it,
 
 Each of these is a patch over one rule: a line's meaning can depend on the lines around it. Every patch leaves text in the file that the author did not write and that other apps display. Linedown removes the rule, so the patches have nothing to fix. A note holds what you typed.
 
-### Why list indent is read from the line alone
+### Why list levels are separate from source indent
 
-An earlier draft of Linedown gave each list line a depth worked out from the list lines above it. That was the only look-back we chose, not one we were forced into, so it was removed. Three rules were considered.
-
-**CommonMark's rule** is that a nested item must be indented to the column where its parent's text starts. That column depends on the parent's marker:
-
-```
-1. fruit
-  - apples
-```
-
-Here "apples" is indented two spaces, but the text of `1. fruit` starts at column three. So CommonMark does not nest it: "apples" becomes a separate list. Under `10. fruit` it would take four spaces. The author has to count columns, and the answer changes when a number gains a digit.
-
-**Relative depth** says a list line is one level deeper than the nearest list line above it with less indent. It turns two-space, four-space and tab notes into the same tidy levels. But the reader has to carry a stack of indents down the note, it needs a rule for what ends a list, and changing one bullet's indent changes the depth of every bullet under it. It also has an odd case:
-
-```
-- A
-    - B
-  - C
-```
-
-B and C are indented differently, but both come out one level under A, so they draw at the same level and the picture disagrees with the file.
-
-**Linedown's rule** has no depth. A line is drawn as far in as it is indented. Every list line is read alone, there is nothing to carry and nothing that ends a list, and the example above draws exactly as typed. A note indented by four spaces draws with wider steps than one indented by two. That is what the file says.
-
-The cost falls on lists that are indented unevenly, which draw unevenly. We accept that: you have to make a good list, and people almost always do.
+Display levels normalize consistent tabs, two-space and four-space lists without changing their bytes. The stack carries only ancestor indent widths, independent of marker width or number spelling. A text edit that leaves an item's indent unchanged settles locally; changing an indent re-reads only its subtree and the boundary where the stack settles.

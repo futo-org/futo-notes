@@ -23,11 +23,9 @@
 //! - One pasted line holding a link never lands inside another link's
 //!   text: that link closes before it and opens again after it.
 //!
-//! A paste is a command, not typing: it runs behind the one guard, naming
-//! the lines it writes and the line above them (so a pasted delimiter row
-//! may make that line a table header). A paste that would change how any
-//! other line reads, such as rows below a table cell it splits, is
-//! cancelled.
+//! Outside table lines a paste lands without the command guard, like typing.
+//! A table-cell paste keeps the table family's rules, and a paste elsewhere
+//! on a table line remains guarded.
 use super::super::super::command::{Command, Edit};
 use super::super::super::Engine;
 use super::super::blocks::Joined;
@@ -156,13 +154,16 @@ impl Engine {
             Err(error) => return Err(error),
         }
         if let Some(touch) = self.touch(range) {
-            return Ok(Some(self.code_paste(range, touch, &text, &newline)));
+            let mut command = self.code_paste(range, touch, &text, &newline);
+            command.typed = true;
+            return Ok(Some(command));
         }
         let pasted: Vec<&str> = text.split(newline.as_str()).collect();
         let first = read_alone(pasted[0]);
         let shaped = pasted.len() > 1 || is_block(&first);
         if !shaped {
-            if let Some(command) = self.carried_paste(range, &text) {
+            if let Some(mut command) = self.carried_paste(range, &text) {
+                command.typed = true;
                 return Ok(Some(command));
             }
         }
@@ -184,7 +185,9 @@ impl Engine {
                 None
             }
         });
-        Ok(Some(command.unwrap_or_else(|| self.exact(range, &text))))
+        let mut command = command.unwrap_or_else(|| self.exact(range, &text));
+        command.typed = !matches!(self.line(caret_line).line.kind, Kind::Table { .. });
+        Ok(Some(command))
     }
 
     /// The joined line rewritten as `out`, the caret at `caret` in it. The

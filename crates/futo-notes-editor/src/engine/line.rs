@@ -12,7 +12,8 @@
 //!    it. So does front matter closed on the note's last line, where the
 //!    empty line is the note's body.
 //! 3. Typing on such an empty line writes a line ending, then the text, at
-//!    the end of the line's hidden text.
+//!    the end of the line's hidden text, except immediately after typing an
+//!    opening fence, when the caret stays on its hidden language.
 //! 4. A divider shows as one U+FFFC, which renderers draw as a rule.
 //! 5. Typing at a divider's edge writes the text on a line of its own
 //!    beside the rule (`edit/plan.rs` `beside_divider`), in its quotes.

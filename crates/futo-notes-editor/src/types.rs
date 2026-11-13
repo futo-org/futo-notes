@@ -230,6 +230,8 @@ impl Correspondence {
 pub struct ListDescription {
     /// Columns of the line's own leading whitespace (space 1, tab 4).
     pub indent: usize,
+    /// Display nesting from the open list ancestors, root level zero.
+    pub level: usize,
     /// The list marker as typed (`-`, `3)`, `10.`); empty on a plain line.
     pub marker: String,
     pub ordered: bool,

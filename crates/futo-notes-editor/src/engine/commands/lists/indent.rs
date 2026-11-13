@@ -1,5 +1,6 @@
 //! Indent and Outdent. A line's indent is its own leading whitespace (a
-//! space is one column, a tab four); there is no depth. Indent gives the
+//! space is one column, a tab four); display level is derived by the reader.
+//! Indent gives the
 //! line the leading whitespace of the sub-list it joins (the first item
 //! under the item above it at its indent), so it lines up with its new
 //! siblings; with no sub-list it writes one tab after the line's quote

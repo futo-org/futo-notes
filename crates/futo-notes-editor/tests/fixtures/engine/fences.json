@@ -92,5 +92,8 @@
   {"name": "#348 P1: a block line over a block's end stays code, closed", "before": "```\na[bc\n```\nd]ef", "command": "type:- x", "after": "```\na- x|ef\n```"},
   {"name": "#348: code ending the note on a multibyte character", "before": "```\na[\n]é", "command": "type:x", "after": "```\nax|é"},
   {"name": "#348 window: text from one fence's code past its end", "before": "```\n\npara one end\n\n~~~\ntil a\n```\ntil [b\n~~~\n\npara ]one end\n\n- far item\n\nfar para end", "command": "type:d", "after": "```\n\npara one end\n\n~~~\ntil a\n```\ntil d|one end\n~~~\n\n- far item\n\nfar para end"},
-  {"name": "W1: a text service's run from prose into code keeps the kept text before it", "before": "a [_fox_ b\nx\n```\ncode o]ne\n```\n", "command": "os:fox b\nczo", "after": "a _fox_ b\nczo|ne\n"}
+  {"name": "W1: a text service's run from prose into code keeps the kept text before it", "before": "a [_fox_ b\nx\n```\ncode o]ne\n```\n", "command": "os:fox b\nczo", "after": "a _fox_ b\nczo|ne\n"},
+  {"name": "typed opening fence takes language at end", "before": "|", "typed": "```", "command": "type:js", "after": "```js|"},
+  {"name": "typed opening fence takes language mid note", "before": "|\nb", "typed": "```", "command": "type:js", "after": "```js|\nb"},
+  {"name": "enter after typed fence language starts code", "before": "|", "typed": "```js", "command": "Enter", "after": "```js\n|"}
 ]

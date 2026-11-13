@@ -142,3 +142,40 @@ fn a_typed_list_item_draws_its_marker_as_typed_and_saves_exactly_what_was_typed(
         body
     );
 }
+
+#[test]
+fn native_style_surface_projects_list_levels_without_rewriting_indent() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    let source = "- root\n  - child\n    - leaf\n  plain\n";
+    store
+        .create_note("levels".into(), "".into(), source.into())
+        .unwrap();
+    let session = store.open_editor("levels".into()).unwrap();
+    let rev = session.revision().unwrap();
+    let end = session.display_text().unwrap().len() as u64;
+    let rows: Vec<_> = session
+        .style_plan(rev, EditorByteRange { start: 0, end })
+        .unwrap()
+        .into_iter()
+        .filter_map(|span| match span {
+            EditorStyleSpan::ListRow {
+                indent,
+                level,
+                marker,
+                ..
+            } => Some((indent, level, marker)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (0, 0, EditorListMarker::Bullet),
+            (2, 1, EditorListMarker::Bullet),
+            (4, 2, EditorListMarker::Bullet),
+            (2, 1, EditorListMarker::Plain)
+        ]
+    );
+}

@@ -1,6 +1,6 @@
 //! Copy: the exact source of a display selection.
 use super::super::super::{store, Engine};
-use crate::lines::Span;
+use crate::lines::{block, Carry, Span};
 use crate::DisplayRange;
 
 /// A mark a selection boundary can cut: one with syntax on both sides of
@@ -62,6 +62,27 @@ impl Engine {
         out.push_str(&body[skip..keep]);
         out.push_str(&closes);
         out.push_str(&body[keep..]);
+        // Close only a fence opened by the copied text itself.
+        let mut carry = Carry::default();
+        let mut indent = String::new();
+        for line in out.split_inclusive('\n') {
+            let was_open = carry.fence.is_some();
+            block::read_line(&mut carry, line, 0);
+            if !was_open && carry.fence.is_some() {
+                indent = line
+                    .chars()
+                    .take_while(|c| matches!(c, ' ' | '\t'))
+                    .collect();
+            }
+        }
+        if let Some(fence) = carry.fence {
+            let newline = if out.contains("\r\n") { "\r\n" } else { "\n" };
+            if !out.ends_with('\n') {
+                out.push_str(newline);
+            }
+            out.push_str(&indent);
+            out.push_str(&(fence.ch as char).to_string().repeat(fence.len));
+        }
         out
     }
 

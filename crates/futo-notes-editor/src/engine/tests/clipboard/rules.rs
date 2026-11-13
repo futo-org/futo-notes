@@ -66,6 +66,20 @@ fn paste_and_cut_are_each_their_own_undo_step() {
 }
 
 #[test]
+fn paste_can_restyle_later_lines_and_undo_exactly() {
+    let mut engine = Engine::open("a\nb");
+    super::super::select(&mut engine, 0, 0, Affinity::Forward);
+    engine
+        .paste_markdown(engine.revision(), engine.selection(), "```\nx", &mut ok)
+        .unwrap()
+        .unwrap();
+    assert!(engine.source_text().contains("```"));
+    engine.undo(engine.revision(), &mut ok).unwrap().unwrap();
+    assert_eq!(engine.source_text(), "a\nb");
+    assert_eq!(engine.selection(), range(0, 0));
+}
+
+#[test]
 fn paste_over_marked_text_commits_it_first() {
     let mut engine = Engine::open("a");
     super::super::select(&mut engine, 1, 1, Affinity::Forward);

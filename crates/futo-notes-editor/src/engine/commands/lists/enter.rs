@@ -46,6 +46,16 @@ impl Engine {
                 .map(|edit| Command::new(vec![edit], first..first + 1, caret..caret)));
         }
         let number = ordinal(body, &entry.line);
+        let mut draft = Draft::new(self);
+        let level = Level::of(&entry.line);
+        // The number the item after this one takes.
+        let next = number.map(|(n, delimiter)| {
+            if draft.repeats(first, level, n, delimiter) {
+                n
+            } else {
+                n + 1
+            }
+        });
         let ending = match entry.ending() {
             "" => self.empty_line_ending(first),
             ending => ending.to_owned(),
@@ -55,21 +65,22 @@ impl Engine {
         let (text, caret) = if at_start {
             // An empty item above; this one keeps its state and moves down.
             let above = item_prefix(body, &entry.line, &part, number.map(|(n, _)| n));
-            let here = match number {
-                Some((n, _)) => numbered_prefix(body, &part, n + 1),
+            let here = match next {
+                Some(next) => numbered_prefix(body, &part, next),
                 None => body[..part.content].to_owned(),
             };
             let caret = above.len() + ending.len() + here.len() + opens;
             (format!("{above}{ending}{here}{right}"), caret)
         } else {
             let left = left_part(entry, selected.start - start);
-            let next = item_prefix(body, &entry.line, &part, number.map(|(n, _)| n + 1));
-            let caret = left.len() + ending.len() + next.len() + opens;
-            (format!("{left}{ending}{next}{right}"), caret)
+            let below = item_prefix(body, &entry.line, &part, next);
+            let caret = left.len() + ending.len() + below.len() + opens;
+            (format!("{left}{ending}{below}{right}"), caret)
         };
-        let mut draft = Draft::new(self);
-        if let Some((n, delimiter)) = number {
-            draft.bump(first + 1, Level::of(&entry.line), delimiter, n, n + 1);
+        if let (Some((n, delimiter)), Some(next)) = (number, next) {
+            if next != n {
+                draft.bump(first + 1, level, delimiter, n, next);
+            }
         }
         let main = diff(start, body, &text).map(|edit| (edit, first..first + 1));
         Ok(draft.finish(main, start + caret..start + caret))

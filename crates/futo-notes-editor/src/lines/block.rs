@@ -1,7 +1,7 @@
 //! What each line of a note is. One pass over lines with a small carry; a line
 //! never looks at a line after it, except that a delimiter row makes the line
 //! directly above it a table header.
-use std::ops::Range;
+use std::{ops::Range, sync::Arc};
 
 /// What the lines above hand to the next line.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -16,6 +16,9 @@ pub(crate) struct Carry {
     /// The line above starts with `|` at the top level outside a table, so a
     /// delimiter row here makes it a header with this many cells.
     pub header_above: Option<usize>,
+    /// Increasing ancestor indent widths. Shared snapshots keep unchanged edits local.
+    pub list_indents: Arc<Vec<usize>>,
+    pub list_quote: usize,
 }
 
 impl Carry {
@@ -102,6 +105,8 @@ pub(crate) struct Line {
     pub ending: usize,
     pub kind: Kind,
     pub quote: usize,
+    /// Display nesting; independent of the source indent and block class.
+    pub list_level: usize,
     /// Syntax before the content: quote markers, a list or heading marker and
     /// the space after it, the leading whitespace of a list or indented plain line.
     pub marker: Range<usize>,
@@ -167,6 +172,7 @@ impl Place {
             ending: self.ending,
             kind,
             quote,
+            list_level: 0,
             marker: self.start + marker.start..self.start + marker.end,
             content: self.start + content.start..self.start + content.end,
         }
@@ -207,7 +213,39 @@ pub(crate) fn read_line(carry: &mut Carry, source: &str, start: usize) -> Line {
     if let Some(open) = carry.fence.clone() {
         return fenced(carry, open, &place, text);
     }
-    read_block(carry, &place, text, header_above)
+    let mut line = read_block(carry, &place, text, header_above);
+    list_level(carry, &mut line);
+    line
+}
+
+/// Whitespace-only blanks retain a list; explicit quote markers still change
+/// its quote context. An indented plain line borrows its level but never adds
+/// an ancestor. Other blocks and quote-depth changes end the stack.
+fn list_level(carry: &mut Carry, line: &mut Line) {
+    if matches!(line.kind, Kind::Blank) && line.quote == 0 {
+        return;
+    }
+    if line.quote != carry.list_quote {
+        carry.list_indents = Arc::default();
+        carry.list_quote = line.quote;
+    }
+    match line.kind {
+        Kind::List { indent, .. } => {
+            let level = carry.list_indents.partition_point(|&width| width < indent);
+            line.list_level = level;
+            // Reusing an identical stack also makes the usual text-only edit cheap.
+            if level + 1 != carry.list_indents.len() || carry.list_indents.last() != Some(&indent) {
+                let stack = Arc::make_mut(&mut carry.list_indents);
+                stack.truncate(level);
+                stack.push(indent);
+            }
+        }
+        Kind::Plain { indent } if indent > 0 => {
+            line.list_level = carry.list_indents.partition_point(|&width| width < indent);
+        }
+        Kind::Blank => {}
+        _ => carry.list_indents = Arc::default(),
+    }
 }
 
 /// Whether a line of exactly `---` follows in `rest`, the text after line 1:

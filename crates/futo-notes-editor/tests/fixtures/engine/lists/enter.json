@@ -42,10 +42,46 @@
   "after": "1. a\n2. ‸\n3. b\n4. c"
  },
  {
-  "name": "Enter leaves items that were not in sequence",
+  "name": "Enter in a list numbered alike repeats the number",
   "before": "1. a‸\n1. b\n1. c",
   "command": "Enter",
-  "after": "1. a\n2. ‸\n1. b\n1. c"
+  "after": "1. a\n1. ‸\n1. b\n1. c"
+ },
+ {
+  "name": "Enter on the last item of a list numbered alike repeats the number",
+  "before": "1. a\n1. b‸",
+  "command": "Enter",
+  "after": "1. a\n1. b\n1. ‸"
+ },
+ {
+  "name": "Enter counts up when the item below has another number",
+  "before": "1. a\n1. b‸\n2. c",
+  "command": "Enter",
+  "after": "1. a\n1. b\n2. ‸\n3. c"
+ },
+ {
+  "name": "Enter at the text start in a list numbered alike repeats the number",
+  "before": "1. a\n1. ‸b\n1. c",
+  "command": "Enter",
+  "after": "1. a\n1. \n1. ‸b\n1. c"
+ },
+ {
+  "name": "The same number with another delimiter below does not repeat",
+  "before": "1. a‸\n1) b",
+  "command": "Enter",
+  "after": "1. a\n2. ‸\n1) b"
+ },
+ {
+  "name": "Repeating looks past the lines under the item",
+  "before": "7. a‸\n   - x\n7. b",
+  "command": "Enter",
+  "after": "7. a\n7. ‸\n   - x\n7. b"
+ },
+ {
+  "name": "A bullet below is no numbered item: the item above decides",
+  "before": "3. a\n3. b‸\n- c",
+  "command": "Enter",
+  "after": "3. a\n3. b\n3. ‸\n- c"
  },
  {
   "name": "Bumping stops at the first item out of sequence",

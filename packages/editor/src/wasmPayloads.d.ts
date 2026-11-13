@@ -126,6 +126,8 @@ export interface Correspondence {
 export interface ListDescription {
   /** Columns of the line's own leading whitespace (space 1, tab 4). */
   indent: number;
+  /** Display nesting from the open list ancestors, root level zero. */
+  level: number;
   /** The list marker as typed (`-`, `3)`, `10.`); empty on a plain line. */
   marker: string;
   ordered: boolean;

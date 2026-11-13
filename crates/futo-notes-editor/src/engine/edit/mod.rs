@@ -205,8 +205,16 @@ impl Engine {
         // destination); a caret never stands there, so it takes its display
         // point instead of a pin.
         let (index, before) = read::line_at(&self.store, at);
-        let stands = self.store.get(index).allowed(at - before.source);
-        self.pin = (lo != hi && lo <= at && at <= hi && stands).then_some(at);
+        let entry = self.store.get(index);
+        let fence_end = matches!(
+            entry.line.kind,
+            crate::lines::Kind::Fence {
+                role: crate::lines::FenceRole::Open,
+                ..
+            }
+        ) && at - before.source == entry.body_len();
+        let stands = fence_end || entry.allowed(at - before.source);
+        self.pin = (fence_end || (lo != hi && lo <= at && at <= hi && stands)).then_some(at);
     }
 
     pub(crate) fn change(&self, edit: SourceEdit, shown: Shown) -> Change {

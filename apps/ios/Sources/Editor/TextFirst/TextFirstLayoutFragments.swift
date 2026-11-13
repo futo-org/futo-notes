@@ -21,6 +21,7 @@
     final class TextFirstBlockAttribute: NSObject {
         var quoteDepth = 0
         var code = false
+        var codeLanguage: String?
         var divider = false
         /// The heading level of an empty last line (0 elsewhere: a heading's own characters carry
         /// its font), so the line starts as the heading it is.
@@ -38,16 +39,14 @@
     }
 
     typealias TextFirstListRow = (
-        indent: Int, marker: EditorListMarker, text: String, checked: Bool
+        indent: Int, level: Int, marker: EditorListMarker, text: String, checked: Bool
     )
 
     enum TextFirstMetrics {
-        /// One column of a line's own leading whitespace (space 1, tab 4).
-        static let column: CGFloat = 12
-        /// The text's leading edge: the indent's columns, then a marker's gutter. Nothing here
-        /// works out nesting: uneven indents draw unevenly.
+        /// The engine's nesting level determines layout, independent of source whitespace.
+        static let listLevel: CGFloat = 24
         static func listIndent(_ row: TextFirstListRow) -> CGFloat {
-            (row.marker == .plain ? 0 : 30) + CGFloat(row.indent) * column
+            (row.marker == .plain ? 0 : 30) + CGFloat(row.level) * listLevel
         }
         static func quoteIndent(depth: Int) -> CGFloat {
             depth > 0 ? 14 + CGFloat(depth - 1) * 14 : 0
@@ -90,6 +89,15 @@
 
         required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+        override var topMargin: CGFloat {
+            // TextKit reserves the header before measuring and wrapping the code text.
+            let label =
+                block.codeLanguage
+                ?? ((textElement as? NSTextParagraph)?.attributedString.length == 0
+                    ? MainActor.assumeIsolated { host?.trailingBlock?.codeLanguage } : nil)
+            return super.topMargin + (label?.isEmpty == false ? 16 : 0)
+        }
+
         override var renderingSurfaceBounds: CGRect {
             // Gutter art lives left of the text and code backgrounds span the full width. The
             // empty last line's art may run a line's spacing past the frame TextKit measured.
@@ -122,7 +130,7 @@
         /// A line the block art is drawn against, in the fragment's coordinates: the vertical
         /// extent the art fills, the baseline a marker hangs from, and the font its capitals come
         /// from.
-        private struct Row {
+        struct Row {
             let top: CGFloat
             let height: CGFloat
             let baseline: CGFloat
@@ -174,9 +182,6 @@
                 baseline: bounds.minY + line.glyphOrigin.y, font: font)
         }
 
-        /// Where a bullet or box is centered: the middle of the row's capital letters.
-        private func markerCenterY(_ row: Row) -> CGFloat { row.baseline - row.font.capHeight / 2 }
-
         /// Adjacent fragments share pixel edges, so the block reads as one surface even at
         /// fractional text baselines. An opaque fill avoids darker overlapping edges.
         private func decorationRect(at point: CGPoint, row: Row, x: CGFloat, width: CGFloat)
@@ -187,20 +192,6 @@
             let top = ((point.y + row.top) * scale).rounded(.down) / scale
             let bottom = ((point.y + row.top + row.height) * scale).rounded(.up) / scale
             return CGRect(x: x, y: top, width: width, height: bottom - top)
-        }
-
-        /// The leading edge of the list text, in container coordinates.
-        private func textIndent(of block: TextFirstBlockAttribute) -> CGFloat {
-            guard block.list != nil else { return 0 }
-            return TextFirstMetrics.quoteIndent(depth: block.quoteDepth) + block.listIndent
-        }
-
-        private func checkboxRect(of block: TextFirstBlockAttribute, row: Row) -> CGRect? {
-            guard let list = block.list, block.showsMarker, list.marker == .task else { return nil }
-            let side = TextFirstMetrics.checkboxSide
-            return CGRect(
-                x: textIndent(of: block) - side - 8, y: markerCenterY(row) - side / 2, width: side,
-                height: side)
         }
 
         /// The checkbox's rect: x in container coordinates, y relative to the fragment.
@@ -247,6 +238,25 @@
                 context.fill(
                     decorationRect(at: point, row: row, x: point.x - 4, width: containerWidth + 8))
             }
+            if let language = block.codeLanguage, !language.isEmpty {
+                let label = NSAttributedString(
+                    string: language,
+                    attributes: [
+                        .font: UIFont.monospacedSystemFont(ofSize: 11, weight: .medium),
+                        .foregroundColor: UIColor.secondaryLabel,
+                    ])
+                let width = max(0, min(label.size().width, containerWidth / 2 - 6))
+                let paragraph = NSMutableParagraphStyle()
+                paragraph.lineBreakMode = .byTruncatingTail
+                let bounded = NSMutableAttributedString(attributedString: label)
+                bounded.addAttribute(
+                    .paragraphStyle, value: paragraph,
+                    range: NSRange(location: 0, length: bounded.length))
+                bounded.draw(
+                    in: CGRect(
+                        x: point.x + containerWidth - width - 6,
+                        y: point.y + row.top + 2, width: width, height: label.size().height))
+            }
             if block.divider {
                 let y = point.y + row.top + row.height / 2
                 UIColor.opaqueSeparator.setStroke()
@@ -267,56 +277,6 @@
             }
         }
 
-        private func drawListMarker(
-            _ list: TextFirstListRow,
-            of block: TextFirstBlockAttribute, row: Row, at point: CGPoint, in context: CGContext
-        ) {
-            switch list.marker {
-            case .task:
-                guard let box = checkboxRect(of: block, row: row) else { return }
-                let r = box.offsetBy(dx: point.x, dy: point.y)
-                let path = UIBezierPath(roundedRect: r, cornerRadius: 4)
-                context.saveGState()
-                if list.checked {
-                    accent.setFill()
-                    path.fill()
-                    UIColor.white.setStroke()
-                    let tick = UIBezierPath()
-                    tick.move(to: CGPoint(x: r.minX + 4.5, y: r.midY + 0.5))
-                    tick.addLine(to: CGPoint(x: r.minX + 7.7, y: r.maxY - 5))
-                    tick.addLine(to: CGPoint(x: r.maxX - 4, y: r.minY + 5))
-                    tick.lineWidth = 2
-                    tick.lineCapStyle = .round
-                    tick.lineJoinStyle = .round
-                    tick.stroke()
-                } else {
-                    UIColor.secondaryLabel.setStroke()
-                    path.lineWidth = 1.5
-                    path.stroke()
-                }
-                context.restoreGState()
-            case .ordered:
-                let font = UIFont.monospacedDigitSystemFont(ofSize: 17, weight: .regular)
-                let text = NSAttributedString(
-                    string: list.text,
-                    attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
-                let size = text.size()
-                text.draw(
-                    at: CGPoint(
-                        x: point.x + textIndent(of: block) - size.width - 6,
-                        y: point.y + row.baseline - font.ascender))
-            case .bullet:
-                let d: CGFloat = 6
-                let r = CGRect(
-                    x: point.x + textIndent(of: block) - 14 - d / 2,
-                    y: point.y + markerCenterY(row) - d / 2,
-                    width: d, height: d)
-                UIColor.secondaryLabel.setFill()
-                context.fillEllipse(in: r)
-            case .plain:
-                break
-            }
-        }
     }
 
     /// Hands TextKit a `TextFirstLayoutFragment` for every paragraph that draws something.

@@ -5,7 +5,7 @@ fn whole_note_block_commands_bound_selected_boundary_membership_work() {
     use futo_notes_editor::BlockCommand;
     for lines in [1_000usize, 4_000] {
         let source: String = (0..lines).map(|i| format!("# row {i}\n")).collect();
-        let expected: String = (0..lines).map(|i| format!("> row {i}\n")).collect();
+        let expected: String = (0..lines).map(|i| format!("> # row {i}\n")).collect();
         let mut session = EditorSession::open(&source);
         let selected = DisplayRange {
             start: DisplayOffset(0),
@@ -47,7 +47,7 @@ fn mixed_prose_and_code_quotes_bound_physical_row_selection_work() {
     let code: String = (0..lines).map(|i| format!("opaque code {i}\n")).collect();
     let source = format!("# heading\n\n```\n{code}```\n");
     // Quote leaves a blank line at the selection's edge alone and skips code.
-    let expected = format!("> heading\n\n```\n{code}```\n");
+    let expected = format!("> # heading\n\n```\n{code}```\n");
     let mut session = EditorSession::open(&source);
     let selected = DisplayRange {
         start: DisplayOffset(0),

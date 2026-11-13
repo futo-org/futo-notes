@@ -42,11 +42,12 @@ pub enum StyleSpec {
     },
     /// A list line, or an indented plain line (`ListMarker::Plain`). `indent` is the line's own
     /// leading whitespace in columns (space 1, tab 4); `text` is the marker as typed (`-`, `3)`),
-    /// empty on a plain line. Nothing is computed from other lines.
+    /// empty on a plain line. `level` is the display nesting from list ancestors.
     ListRow {
         start: usize,
         end: usize,
         indent: usize,
+        level: usize,
         marker: ListMarker,
         text: String,
         checked: bool,
@@ -288,6 +289,7 @@ pub fn plan_styles(
                 start: s,
                 end: e,
                 indent: list.indent,
+                level: list.level,
                 marker,
                 text: list.marker.clone(),
                 checked: list.checked == Some(true),

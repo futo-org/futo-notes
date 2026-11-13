@@ -389,3 +389,75 @@ fn a_whole_note_list_toggle_costs_no_more_than_before() {
     assert_eq!(engine.source_text(), source);
     assert_eq!(engine.selection(), selected);
 }
+
+/// Text-only edits settle without traversing the remaining list; structural
+/// indent commands revisit only their descendants and the settling boundary.
+#[test]
+fn list_level_work_is_constant_for_typing_and_bounded_by_the_indented_subtree() {
+    let measure = |count: usize, children: usize, command: Option<BlockCommand>| {
+        let outdent = command == Some(BlockCommand::Outdent);
+        let mut source = if outdent {
+            "- prior\n  - target\n"
+        } else {
+            "- prior\n- target\n"
+        }
+        .to_owned();
+        source.push_str(
+            &if outdent {
+                "    - child\n"
+            } else {
+                "  - child\n"
+            }
+            .repeat(children),
+        );
+        source.push_str(&"- sibling\n".repeat(count));
+        let mut engine = Engine::open(&source);
+        let at = engine.display_text().find("target").unwrap();
+        select_source(
+            &mut engine,
+            source.find("target").unwrap()..source.find("target").unwrap(),
+        );
+        let change = if let Some(command) = command {
+            engine
+                .block(engine.revision(), range(at, at), command, &mut ok)
+                .unwrap()
+                .unwrap()
+        } else {
+            engine
+                .input(
+                    engine.revision(),
+                    range(at, at),
+                    "x",
+                    InputAction::Typing,
+                    &mut ok,
+                )
+                .unwrap()
+        };
+        let fresh = Engine::open(&engine.source_text());
+        assert_eq!(
+            engine
+                .project(engine.revision(), range(0, engine.display_len()))
+                .unwrap()
+                .blocks,
+            fresh
+                .project(fresh.revision(), range(0, fresh.display_len()))
+                .unwrap()
+                .blocks
+        );
+        change.work
+    };
+    for command in [
+        None,
+        Some(BlockCommand::Indent),
+        Some(BlockCommand::Outdent),
+    ] {
+        let small = measure(1_000, 7, command);
+        let large = measure(20_000, 7, command);
+        assert_eq!(small, large, "{command:?}");
+        assert!(small.parsed_source_bytes < 640, "{small:?}");
+    }
+    let small = measure(20_000, 7, Some(BlockCommand::Indent));
+    let large = measure(20_000, 70, Some(BlockCommand::Indent));
+    assert!(large.parsed_source_bytes > small.parsed_source_bytes);
+    assert!(large.parsed_source_bytes < 5_000, "{large:?}");
+}

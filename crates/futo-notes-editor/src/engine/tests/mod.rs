@@ -194,6 +194,23 @@ fn a_caret_never_stands_inside_a_marker_or_an_escape() {
 }
 
 #[test]
+fn typed_fence_keeps_language_on_opening_line() {
+    for (source, caret, expected) in [("", 0, "```js"), ("\nb", 0, "```js\nb")] {
+        let mut engine = Engine::open(source);
+        select(&mut engine, caret, caret, Affinity::Backward);
+        for ch in "```js".chars() {
+            typed(&mut engine, &ch.to_string());
+        }
+        assert_eq!(engine.source_text(), expected);
+        typed(&mut engine, "\n");
+        assert_eq!(
+            engine.source_text(),
+            expected.replacen("```js", "```js\n", 1)
+        );
+    }
+}
+
+#[test]
 fn typing_markdown_one_character_at_a_time_writes_exactly_what_was_typed() {
     for typed_text in ["**a**b", "*a*_b_", "[a](u)x", "`c`d", "- # x", "\\*a"] {
         let mut engine = Engine::open("");

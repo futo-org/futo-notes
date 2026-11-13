@@ -127,7 +127,7 @@ impl Engine {
     /// Quote: when every touched line with text is quoted, one level off
     /// each quoted line, each keeping its block. Otherwise one level on each
     /// line from the first with text to the last (blank lines between them
-    /// too); a heading or list item becomes quoted text.
+    /// too), each keeping its block and marker.
     fn quote(&self, range: DisplayRange) -> Option<Command> {
         let lines = self.targets(range, true);
         let changes = if self.all_quoted(&lines) {
@@ -351,21 +351,21 @@ fn as_heading(entry: &Entry, level: u8) -> Option<String> {
     ))
 }
 
-/// A line with one more quote level. A heading or list item becomes quoted
-/// text; any other line keeps its text as it is.
+/// A line with one more quote level: `> ` before the line as it is, so a
+/// heading or list item keeps its marker and taking the level off again
+/// returns the exact bytes.
 fn quoted(entry: &Entry) -> String {
     let line = &entry.line;
-    let body = entry.body();
     let depth = line.quote + 1;
-    let keeps = |read: &Line| plain(read, depth);
-    match line.kind {
-        Kind::Heading { .. } | Kind::List { .. } => {
-            let quote = &body[..quote_end(body, line.quote)];
-            let text = &body[line.content.start..];
-            kept_line(&entry.carry, &format!("> {quote}"), text, keeps)
-        }
-        _ => kept_line(&entry.carry, "> ", body, keeps),
-    }
+    let keeps = |read: &Line| {
+        read.quote == depth
+            && match (&line.kind, &read.kind) {
+                (Kind::Heading { level }, Kind::Heading { level: now }) => level == now,
+                (Kind::List { .. }, Kind::List { .. }) => true,
+                _ => plain(read, depth),
+            }
+    };
+    kept_line(&entry.carry, "> ", entry.body(), keeps)
 }
 
 /// A quoted line with one quote level fewer, keeping its block: the first

@@ -242,6 +242,7 @@ fn block_of(entry: &Entry, display: usize, shown: usize) -> BlockDescription {
         } => {
             block.list = Some(ListDescription {
                 indent: *indent,
+                level: line.list_level,
                 marker: entry.text[text.clone()].to_owned(),
                 ordered: *ordered,
                 checked: *task,
@@ -251,6 +252,7 @@ fn block_of(entry: &Entry, display: usize, shown: usize) -> BlockDescription {
         Kind::Plain { indent } if *indent > 0 => {
             block.list = Some(ListDescription {
                 indent: *indent,
+                level: line.list_level,
                 marker: String::new(),
                 ordered: false,
                 checked: None,

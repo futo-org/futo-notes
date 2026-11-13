@@ -41,6 +41,9 @@ impl Engine {
     /// Whether display offset `at` is on a line that shows with no text
     /// behind it, and that line's index.
     pub(crate) fn empty_line(&self, at: usize) -> Option<usize> {
+        if self.pin.is_some() && self.selection.start.0 == at {
+            return None;
+        }
         let (index, before) = self.line_at_display(store::display, at);
         (self.store.get(index).view.role == Role::Empty && at == before.display).then_some(index)
     }

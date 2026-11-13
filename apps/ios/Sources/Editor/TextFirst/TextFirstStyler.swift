@@ -47,9 +47,10 @@
                 case .quote(let start, let end, let depth):
                     here(start, end)?.quoteDepth = Int(depth)
                 case .listRow(
-                    let start, let end, let indent, let marker, let text, let checked, let first):
+                    let start, let end, let indent, let level, let marker, let text, let checked,
+                    let first):
                     if let b = here(start, end) {
-                        b.list = (Int(indent), marker, text, checked)
+                        b.list = (Int(indent), Int(level), marker, text, checked)
                         b.showsMarker = first
                     }
                 case .code(let start, let end):
@@ -119,9 +120,10 @@
                 indent(storage, r)
                 storage.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: r)
             case .listRow(
-                let start, let end, let columns, let marker, let text, let checked, let first):
+                let start, let end, let columns, let level, let marker, let text, let checked,
+                let first):
                 guard let r = range(start, end, length) else { return }
-                block(storage, r).list = (Int(columns), marker, text, checked)
+                block(storage, r).list = (Int(columns), Int(level), marker, text, checked)
                 block(storage, r).showsMarker = first
                 indent(storage, r)
                 if marker == .task && checked {

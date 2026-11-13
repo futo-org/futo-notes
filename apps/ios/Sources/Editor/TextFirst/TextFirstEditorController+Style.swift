@@ -28,6 +28,9 @@
                 TextFirstStyler.apply(
                     specs, to: storage, window: NSRange(location: from, length: to - from),
                     images: images)
+                styleCodeLanguages(
+                    try session.project(
+                        expected: rev, range: EditorByteRange(start: startByte, end: endByte)))
                 styledThrough = to
             } catch {
                 print("text-first: style plan failed: \(error)")
@@ -68,6 +71,30 @@
                 DispatchQueue.main.asyncAfter(deadline: .now() + gap, execute: work)
             } else {
                 DispatchQueue.main.async(execute: work)
+            }
+        }
+
+        /// Code language is user-authored metadata from the engine's projection. Keep its
+        /// drawing on the first code row, without interpreting the fence in the native shell.
+        func styleCodeLanguages(_ projection: EditorProjection) {
+            let hiddenStarts = Set(
+                projection.correspondence.lazy.filter {
+                    $0.kind == .hidden
+                }.map { $0.display.start })
+            for line in projection.blocks where line.code {
+                guard let start = try? mirror.byteToUtf16(byte: line.range.start) else { continue }
+                let at = Int(start)
+                let block =
+                    at < storage.length
+                    ? storage.attribute(.tfBlock, at: at, effectiveRange: nil)
+                        as? TextFirstBlockAttribute
+                    : trailingBlock
+                let previous =
+                    at > 0
+                    ? storage.attribute(.tfBlock, at: at - 1, effectiveRange: nil)
+                        as? TextFirstBlockAttribute : nil
+                let startsBlock = hiddenStarts.contains(line.range.start)
+                block?.codeLanguage = previous?.code != true || startsBlock ? line.language : nil
             }
         }
 
@@ -225,6 +252,7 @@
                 TextFirstStyler.apply(
                     specs, to: storage, window: NSRange(location: from, length: to - from),
                     images: images)
+                styleCodeLanguages(change.projection)
                 continueStylingIfTheGridChangesAt(to, specs: specs)
             } catch {
                 print("text-first: restyle failed: \(error)")

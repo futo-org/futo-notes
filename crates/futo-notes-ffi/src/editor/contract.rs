@@ -420,6 +420,7 @@ pub struct EditorProjection {
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorListDescription {
     pub indent: u64,
+    pub level: u64,
     pub marker: String,
     pub ordered: bool,
     pub checked: Option<bool>,
@@ -429,6 +430,7 @@ impl From<editor::ListDescription> for EditorListDescription {
     fn from(value: editor::ListDescription) -> Self {
         Self {
             indent: value.indent as u64,
+            level: value.level as u64,
             marker: value.marker,
             ordered: value.ordered,
             checked: value.checked,

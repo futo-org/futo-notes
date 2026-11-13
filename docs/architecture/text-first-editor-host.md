@@ -9,6 +9,9 @@ defaults, bridge schemas, AppState and sync are unchanged.** The portable-core s
 `docs/spec/editor/portable-core/` are the behavioral authority; this file is the map.
 Source/evidence attribution: [MR !558](https://gitlab.futo.org/futo-notes/futo-notes/-/merge_requests/558).
 
+For the current Linedown projection, client readiness and adoption steps, see
+[editor engine adoption](editor-engine-adoption.md).
+
 Not renderer, IME, physical-keyboard or cutover acceptance: transport tests do not
 establish renderer usability.
 

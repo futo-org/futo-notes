@@ -182,6 +182,19 @@
             #expect(nested.map { style.headIndent == TextFirstMetrics.listIndent($0) } == true)
         }
 
+        @Test func equivalentListWhitespaceUsesTheSameNestingGeometry() {
+            for whitespace in ["  ", "    ", "\t"] {
+                let source = "- root\n\(whitespace)- child\n\(whitespace)\(whitespace)- grandchild"
+                let h = TextFirstHarness(source)
+                for (word, level) in [("root", 0), ("child", 1), ("grandchild", 2)] {
+                    let row = block(h, atLineStartingWith: word)?.list
+                    #expect(row?.level == level)
+                    #expect(row.map(TextFirstMetrics.listIndent) == 30 + CGFloat(level) * 24)
+                }
+                #expect(h.source == source)
+            }
+        }
+
         @Test func codeBlocksAndDividersAreDrawnNotTyped() {
             let h = TextFirstHarness("```\ncode line\n```\n\n---\n\nafter")
             #expect(block(h, atLineStartingWith: "code line")?.code == true)
@@ -191,6 +204,39 @@
                 h.controller.storage.attribute(.tfBlock, at: divider, effectiveRange: nil)
                 as? TextFirstBlockAttribute
             #expect(b?.divider == true)
+        }
+
+        @Test func codeLanguageIsDrawnOnceFromTheProjection() {
+            let h = TextFirstHarness("```swift\nlet answer = 42\nprint(answer)\n```")
+            #expect(block(h, atLineStartingWith: "let answer")?.codeLanguage == "swift")
+            #expect(block(h, atLineStartingWith: "print")?.codeLanguage == nil)
+            #expect(h.source == "```swift\nlet answer = 42\nprint(answer)\n```")
+        }
+
+        @Test func aCodeLanguageHasHeaderSpaceAboveALongFirstLine() {
+            let h = TextFirstHarness(
+                "```swift\n" + String(repeating: "long code ", count: 30) + "\n```")
+            h.tv.layoutIfNeeded()
+            let manager = h.tv.textLayoutManager!
+            var found = false
+            manager.enumerateTextLayoutFragments(
+                from: manager.documentRange.location, options: [.ensuresLayout]
+            ) { fragment in
+                guard let row = fragment as? TextFirstLayoutFragment, row.block.codeLanguage != nil
+                else { return true }
+                found = true
+                #expect(row.topMargin >= 16)
+                #expect(row.textLineFragments.first!.typographicBounds.minY >= 16)
+                return true
+            }
+            #expect(found)
+        }
+
+        @Test func adjacentCodeBlocksEachDrawTheirLanguage() {
+            let h = TextFirstHarness("```swift\nfirst\n```\n```rust\nsecond\nthird\n```")
+            #expect(block(h, atLineStartingWith: "first")?.codeLanguage == "swift")
+            #expect(block(h, atLineStartingWith: "second")?.codeLanguage == "rust")
+            #expect(block(h, atLineStartingWith: "third")?.codeLanguage == nil)
         }
 
         @Test func tappingACheckboxTogglesThroughTheEngineAndKeepsTheCaret() {
