@@ -62,7 +62,7 @@ fn typing_the_closing_line_opens_front_matter_and_breaking_it_closes_it() {
 #[test]
 fn removing_the_closing_line_turns_line_one_back_into_a_divider() {
     let source = "---\ntitle: x\n---\nbody";
-    let mut session = EditorSession::open(source);
+    let session = EditorSession::open(source);
     assert_eq!(session.display_text(), "title: x\nbody");
     let start = source.find("\n---\n").unwrap();
     let edit_end = start + 4;
