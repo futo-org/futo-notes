@@ -177,11 +177,16 @@ impl Draft {
 
 pub(super) fn shape(entry: &Entry) -> Shape {
     let line = &entry.line;
+    // Only a table line has cells: a `|` line outside a table is plain text.
+    let cells = match line.kind {
+        Kind::Table { .. } => table::cells(entry.body()).len(),
+        _ => 0,
+    };
     (
         std::mem::discriminant(&line.kind),
         line.quote,
         line.marker.clone(),
-        table::cells(entry.body()).len(),
+        cells,
     )
 }
 
