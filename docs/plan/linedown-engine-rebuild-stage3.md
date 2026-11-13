@@ -174,6 +174,7 @@ What each family landed, merged into `linedown` in this order. The status file i
   inside a link's destination, where typed text did not show); the "not yet" stub went.
 - The wikilinks merge put `engine/mod.rs` over the size limit: selection and movement moved
   to `engine/selection.rs`, UTF-16 conversions to `engine/utf16.rs`, verbatim.
-- Rule kept, noted by the fences lane: typing after a ``` that is the note's last line goes
-  into the empty code block's body (display rule 3), so `js` there writes "```\njs", not a
-  language; mid-note it writes "```js".
+- Rule kept, noted by the fences lane: typing after a ``` goes to the line below it (into the
+  empty block's body at the note's end, display rule 3), so `js` there writes "```\njs", not a
+  language. The same holds mid-note (checked after the review: a blank line above `b` gives
+  "```\njsb"); open question 9 in the status file.

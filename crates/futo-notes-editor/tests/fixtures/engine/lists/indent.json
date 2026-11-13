@@ -54,6 +54,48 @@
   "after": "* parent\n\t* «one\n\t* two»\n* keep"
  },
  {
+  "name": "Indent into a two-space sub-list lines up with its items",
+  "before": "- a\n  - b\n- ‸c",
+  "command": "Indent",
+  "after": "- a\n  - b\n  - ‸c"
+ },
+ {
+  "name": "Indent takes the sub-list's first item's whitespace, past deeper and blank lines",
+  "before": "- a\n    - b\n        - x\n\n- ‸c",
+  "command": "Indent",
+  "after": "- a\n    - b\n        - x\n\n    - ‸c"
+ },
+ {
+  "name": "Indent into a sub-list moves the lines under the item by the same whitespace",
+  "before": "- a\n  - b\n- ‸c\n  - d\n  e",
+  "command": "Indent",
+  "after": "- a\n  - b\n  - ‸c\n    - d\n    e"
+ },
+ {
+  "name": "Indent an indented item into its sibling's sub-list",
+  "before": "- a\n  - b\n      - c\n  - ‸d",
+  "command": "Indent",
+  "after": "- a\n  - b\n      - c\n      - ‸d"
+ },
+ {
+  "name": "Indent a numbered item into a numbered sub-list counts on",
+  "before": "1. a\n   1. b\n2. ‸c\n3. d",
+  "command": "Indent",
+  "after": "1. a\n   1. b\n   2. ‸c\n2. d"
+ },
+ {
+  "name": "Indent into a quoted sub-list keeps the quotes",
+  "before": "> - a\n>   - b\n> - ‸c",
+  "command": "Indent",
+  "after": "> - a\n>   - b\n>   - ‸c"
+ },
+ {
+  "name": "Indent selected items into a sub-list lines each up with it",
+  "before": "- a\n  - b\n- «c\n- d»",
+  "command": "Indent",
+  "after": "- a\n  - b\n  - «c\n  - d»"
+ },
+ {
   "name": "Indent a numbered item: a new sub-list counts from 1 and the rest close up",
   "before": "1. a\n2. b\n3. ‸c\n4. d",
   "command": "Indent",

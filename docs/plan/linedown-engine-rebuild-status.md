@@ -112,7 +112,8 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
     `--test editor_engine_slice` 1 passed; `cargo clippy -p futo-notes-editor --features engine
     --all-targets` no warnings in `src/engine/`.
   - For stage 4's sort, the must-pass old tests on the core (passed/failed):
-    native_input_traces 0/1, composition 17/2, compound_composition 0/5, compose_after_break
+    native_input_traces 0/1 (1/0 after the review), composition 17/2, compound_composition 0/5
+    (5/0 after the review), compose_after_break
     1/0, compose_after_break_review 1/3, history 12/5, find 4/1, host_mirror 11/0,
     host_find_plan 18/0, unicode 6/0, external 2/1, portable 13/1, wikilinks 3/2,
     wikilink_completion 3/1, images 5/2, tags 4/1, link_target 8/0, plain_note 2/1. Every
@@ -125,6 +126,32 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
     them); delete `quick_open`'s `rest_may_define`, `may_define_reference`,
     `quick_open/commonmark.rs` and their feature-gated tests; point the wasm consumers at
     `tests/fixtures/engine/`.
+- After the stage 3 review (2026-11-13, a second agent checked stage 3):
+  - The keyboard-input tests run on the core. `native_input_traces` (six real iOS keyboard
+    recordings: Japanese, Korean, autocorrect, suggestion, paste) opened notes holding `&amp;`;
+    the cases now write `&`, which shows the same, so every recorded range and result is
+    unchanged and the raw captures keep their bytes. `compound_composition` used `&#32;` for
+    two look-alike spaces: now literal spaces, the `\!` rows kept, two quote rows that pinned
+    CommonMark's quote repair rewritten as Linedown quotes. Its "unchanged batch" test now
+    states the core's rule: a batch that changes nothing writes nothing and leaves no undo
+    step (the old engine saved once and kept an empty undo step).
+  - Old bug fixed: a text-service batch during composition that changed nothing put the caret
+    back where it was before composing, not after the input (`edit/compose.rs`).
+  - Maintainer answers: 1A (property 2 as amended), 3A (a text service's or dictation's line
+    break in a table cell becomes a space, as paste's does; `cell_service_text`), 4A (Indent
+    takes the joined sub-list's whitespace, else a tab; `sub_list_space`). 2A (a language
+    typed after a fence) is asked back: see open question 9.
+  - The brief's stage 4 now opens with a simulator pass over every command family.
+  - Verified: `cargo test -p futo-notes-editor --features engine --lib engine::` 133 passed,
+    1 ignored; TYPING_CASES=20000 properties on seeds 1 and 99, 5 passed, 1 ignored each;
+    `--features engine` `native_input_traces` 1/0, `compound_composition` 5/0, `composition`
+    17/2 (unchanged); the store's `native_input_traces` 1/0 with and without the switch; the
+    wasm `wasm-native-input.mjs` consumer passes (old engine); the chain with
+    `--no-fail-fast` 991 passed, 383 failed, 4 ignored (the six fewer failures are these two
+    files on the old engine); clippy `--features engine --all-targets`: nothing in
+    `src/engine/`. `node scripts/test-editor-wasm.mjs` stops at its first consumer,
+    `wasm-consumer.mjs`, on `&acE;` (the old engine no longer decodes entities; stage 4's
+    sort).
 - Stage 4: not started.
 - Stage 5: not started.
 - Surface methods deleted, with reasons: none.
@@ -140,12 +167,12 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
   Front matter lines and a table's delimiter row show their whole text; everything else hides
   its marker and inline syntax.
 - Open questions for the maintainer (each lane took the conservative choice and pinned none):
-  1. Property 2 is amended (header of `engine/tests/properties/mod.rs`): with no carried formats,
-     typing writes exactly the typed bytes at a source offset the caret's display point maps
-     to (either side of hidden marks); under carried formats (a toggle, or the formats a space
-     typed at a span's end carries) the display changes by exactly the typed text in those
-     formats and only inline marks are written besides. Chosen because Decision 3 (markers stay
-     hidden) outranks a literal reading: `__a __` shows underscores.
+  1. Answered 1A (approved): property 2 as amended (header of
+     `engine/tests/properties/mod.rs`): with no carried formats, typing writes exactly the
+     typed bytes at a source offset the caret's display point maps to (either side of hidden
+     marks); under carried formats (a toggle, or the formats a space typed at a span's end
+     carries) the display changes by exactly the typed text in those formats and only inline
+     marks are written besides, because `__a __` would show underscores.
   2. Paste goes through the guard (cut does not: it is Backspace's deletion). A paste writes
      many lines at once and could restyle lines the user is not looking at; it names its lines
      plus the line above, so a pasted delimiter row still makes a header.
@@ -157,22 +184,24 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
   5. Lists: Enter in `1. a` above `1. b` writes `2.` (the Decision read literally), so a list
      numbered `1.` throughout gains a `2.`; Enter over two numbered items leaves the second's
      number as written.
-  6. Lists: Indent always writes a tab, so an item indented into a two-space sub-list sits at 4
-     columns beside siblings at 2 (the old engine used the sub-list's column).
+  6. Answered 4A: Indent takes the whitespace of the sub-list it joins, else writes a tab.
   7. Quote on a heading or list item makes plain quoted text (`## T` -> `> T`), as before;
      Linedown could write `> ## T`, making Quote an exact toggle. Quote leaves blank lines at a
      selection's edges unquoted; a selection ending at a line's display start does not touch
      that line.
   8. Divider: where `---` would make line 1 open front matter, it writes `----`.
-  9. A fence typed mid-note: after ``` the line hides and the caret moves into the code, so the
-     old "Enter closes a typed fence" cannot trigger. At the note's end, typing after ``` goes
-     into the empty block (display rule 3), so `js` there is code, not a language.
+  9. OPEN (2A asked back). After a typed ``` the line hides and the caret moves to the line
+     below, so a typed `js` is code, not a language: at the note's end (```` ```\njs ````) and
+     also mid-note (a blank line above `b` gives ```` ```\njsb ````; the stage 3 log's "mid-note
+     it writes ```js" is wrong). Neither renderer draws a fence's language, though the
+     projection carries it on each code line, so keeping the caret on the hidden fence line
+     would make the typed language invisible.
   10. Code taken back out of a block gets `kept_line`'s `\` where needed, so `# x` comes back
       as `\# x` (in and out are not exact opposites).
   11. Paste: a block pasted into the middle of a numbered item repeats its number on the tail
       (`1. ab`, `- x`, `1. cd`); a block line pasted mid-text starts its own line (a line break
       the user did not paste); copy adds no closing fence when a selection ends inside code.
-  12. A typed line break in a table cell breaks the row (only paste flattens it to spaces);
-      the old engine flattened a text service's insert too.
+  12. Answered 3A: a text service's or dictation's line break in a cell becomes a space; a
+      typed one still breaks the row.
   13. Images keep the old engine's explicit refusals (`<`, `>`, `\` in the reference; backtick,
       `[`, `]`, `\` in the alt) on top of "reads back as exactly that image". Loosen?

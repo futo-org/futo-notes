@@ -162,8 +162,14 @@ keep a "found, not fixed" list.
 
 ### Stage 4: cut over and delete
 
-1. Point the surface at the new engine. Remove the stage 2 switch.
-2. Sort the old tests by file. A starting sort, to be confirmed by reading each file:
+1. Before anything is deleted, run each stage 3 command family on an iOS simulator with the
+   `engine` switch on (`FUTO_EDITOR_ENGINE=1`, `just puppet`, as in stage 2): lists, heading
+   and quote, divider, inline formatting and links, paste and clipboard, tables, fences and
+   code, images, wikilinks and tags, find, and an outside change to an open note. Every stage 3
+   result so far is a Rust test. Record per family what was pressed, a screenshot, and the saved
+   file's bytes. A family that misbehaves is fixed before step 2.
+2. Point the surface at the new engine. Remove the stage 2 switch.
+3. Sort the old tests by file. A starting sort, to be confirmed by reading each file:
    - **Must pass unchanged** (they do not depend on the dialect): `native_input_traces`,
      `composition`, `compound_composition`, `compose_after_break*`, `history`, `find`,
      `host_mirror`, `host_find_plan`, `unicode`, `external`, `portable`, `wikilinks`,
@@ -174,12 +180,15 @@ keep a "found, not fixed" list.
    - **Mixed, go test by test:** `clipboard`, `tables`, `cross_block_selection`, `long_regions`.
    The same sort applies to the store's `editor_session` tests (104), the FFI editor tests (66)
    and the shared list fixtures (224 cases).
-3. Before deleting a test about saving, undo, crash recovery, external changes or merge, write
+   A test of keyboard input (`native_input_traces`, replaying real iOS keyboard recordings,
+   with its store and wasm copies; `composition`, `compound_composition`) is ported, never
+   deleted for a dialect difference: change the note text it opens, not the recorded input.
+4. Before deleting a test about saving, undo, crash recovery, external changes or merge, write
    one line in the commit body saying which new test now holds that promise.
-4. Delete the old `session/` internals, `inline/`, the `pulldown-cmark` dependency,
+5. Delete the old `session/` internals, `inline/`, the `pulldown-cmark` dependency,
    `vendor/pulldown-cmark` and its `[patch.crates-io]` entry. Move the comparison run's old
    reader out with it; the run's last result is on #423.
-5. Then the remaining items of the plan: tags and search agree with the editor (Rust, the
+6. Then the remaining items of the plan: tags and search agree with the editor (Rust, the
    TypeScript mirror and `tests/conformance/tags.json` in one commit; `packages/editor/AGENTS.md`
    owns the procedure), and step 3's "nothing mentions setext, lazy continuation, reference
    definitions, footnotes or entities" check.
