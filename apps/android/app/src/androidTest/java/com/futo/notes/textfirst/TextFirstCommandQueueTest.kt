@@ -41,7 +41,7 @@ class TextFirstCommandQueueTest {
             engine.close { closed.countDown() }
         } finally { resume.countDown() }
         assertTrue(closed.await(10, TimeUnit.SECONDS))
-        assertEquals("plain\n", storeForCheck!!.read("n"))
+        assertEquals("plain", storeForCheck!!.read("n"))
     }
 
     @Test fun leavingKeepsAcceptedKeyboardInputWhileCancellingToolbarWork() = exercise { engine ->
@@ -58,7 +58,7 @@ class TextFirstCommandQueueTest {
             engine.close { closed.countDown() }
         } finally { resume.countDown() }
         assertTrue(closed.await(10, TimeUnit.SECONDS))
-        assertEquals("xplain\n", storeForCheck!!.read("n"))
+        assertEquals("xplain", storeForCheck!!.read("n"))
     }
 
     private var storeForCheck: NoteStore? = null

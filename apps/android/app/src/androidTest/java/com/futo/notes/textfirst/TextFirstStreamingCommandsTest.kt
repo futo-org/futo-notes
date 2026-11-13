@@ -46,7 +46,7 @@ class TextFirstStreamingCommandsTest {
         barrier()
         awaitComplete()
         runBlocking { controller.checkpoint() }
-        assertEquals("x\n", store.read("n"))
+        assertEquals("x", store.read("n"))
         val display = display()
         ui {
             assertEquals(display + TextFirstEditText.END_SENTINEL, controller.view.text.toString())
@@ -61,7 +61,7 @@ class TextFirstStreamingCommandsTest {
         barrier()
         awaitComplete()
         runBlocking { controller.checkpoint() }
-        assertEquals("**x**\n", store.read("n"))
+        assertEquals("**x**", store.read("n"))
         val display = display()
         ui { assertEquals(display + TextFirstEditText.END_SENTINEL, controller.view.text.toString()) }
     }
@@ -102,7 +102,7 @@ class TextFirstStreamingCommandsTest {
             }
         } finally { resume.countDown() }
         assertNotNull(runBlocking { withTimeout(10_000) { closed.await() } })
-        assertEquals("x\n", store.read("n"))
+        assertEquals("x", store.read("n"))
         ui { assertTrue(trace.appendSizes.all { it <= OpenSlices.NEXT_CHARS * 2 }) }
     }
 
@@ -137,7 +137,7 @@ class TextFirstStreamingCommandsTest {
         barrier()
         awaitComplete()
         runBlocking { controller.checkpoint() }
-        assertEquals("x\n", store.read("n"))
+        assertEquals("x", store.read("n"))
         val display = display()
         ui { assertEquals(display + TextFirstEditText.END_SENTINEL, controller.view.text.toString()) }
     }
@@ -280,7 +280,7 @@ class TextFirstStreamingCommandsTest {
         barrier()
         awaitComplete()
         runBlocking { controller.checkpoint() }
-        assertEquals("x\n", store.read("n"))
+        assertEquals("x", store.read("n"))
     }
 
     @Test fun anImeRequestForANewCollapsedCaretRemainsValidDuringClippedSelection() = exercise {
@@ -320,7 +320,7 @@ class TextFirstStreamingCommandsTest {
         awaitComplete()
         assertEquals("x", source())
         runBlocking { controller.checkpoint() }
-        assertEquals("x\n", store.read("n"))
+        assertEquals("x", store.read("n"))
     }
 
     /** Over the ~1 MB binder limit the clipboard throws; Cut must refuse, not crash or remove. */

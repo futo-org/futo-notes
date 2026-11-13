@@ -20,13 +20,13 @@ class TextFirstExitTest {
             endBatchEdit()
             endBatchEdit()
         }
-        assertEquals("Pack. \n", c.sourceText())
+        assertEquals("Pack. ", c.sourceText())
         c.undo()
-        assertEquals("Pack \n", c.sourceText())
+        assertEquals("Pack ", c.sourceText())
         assertEquals(5, c.view.selectionStart)
         assertEquals(5, c.view.selectionEnd)
         textFirstIme(c) { commitText("now", 1) }
-        assertEquals("Pack now\n", c.sourceText())
+        assertEquals("Pack now", c.sourceText())
     }
 
     @Test fun keyboardReplacementSelectionIsOrdinaryOutsideItsPairedCommit() {
@@ -38,9 +38,9 @@ class TextFirstExitTest {
                 if (kind == "selection-only") { endBatchEdit(); endBatchEdit() }
                 commitText(". ", 1)
             }
-            assertEquals("Pack. \n", c.sourceText())
+            assertEquals("Pack. ", c.sourceText())
             c.undo()
-            assertEquals("Pack \n", c.sourceText())
+            assertEquals("Pack ", c.sourceText())
             assertEquals("$kind start", 4, c.view.selectionStart)
             assertEquals("$kind end", 5, c.view.selectionEnd)
         }
@@ -55,7 +55,7 @@ class TextFirstExitTest {
             setSelection(4, 5)
             assertEquals(" ", getSelectedText(0).toString())
             assertEquals("Pack", getTextBeforeCursor(20, 0).toString())
-            assertEquals("more\n", getTextAfterCursor(20, 0).toString())
+            assertEquals("more", getTextAfterCursor(20, 0).toString())
             val extracted = getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)!!
             assertEquals(4, extracted.selectionStart)
             assertEquals(5, extracted.selectionEnd)
@@ -64,13 +64,13 @@ class TextFirstExitTest {
             endBatchEdit()
             endBatchEdit()
         }
-        assertEquals("Pack. more\n", c.sourceText())
+        assertEquals("Pack. more", c.sourceText())
         c.undo()
-        assertEquals("Pack more\n", c.sourceText())
+        assertEquals("Pack more", c.sourceText())
         assertEquals(5, c.view.selectionStart)
         assertEquals(5, c.view.selectionEnd)
         textFirstIme(c) { commitText("now ", 1) }
-        assertEquals("Pack now more\n", c.sourceText())
+        assertEquals("Pack now more", c.sourceText())
     }
 
     @Test fun echoingTheKeyboardReplacementRangeKeepsTheOpeningCaret() = textFirstSession("Pack ") { c ->
@@ -88,9 +88,9 @@ class TextFirstExitTest {
             endBatchEdit()
             endBatchEdit()
         }
-        assertEquals("Pack. \n", c.sourceText())
+        assertEquals("Pack. ", c.sourceText())
         c.undo()
-        assertEquals("Pack \n", c.sourceText())
+        assertEquals("Pack ", c.sourceText())
         assertEquals(5, c.view.selectionStart)
         assertEquals(5, c.view.selectionEnd)
     }
@@ -122,11 +122,11 @@ class TextFirstExitTest {
             commitText("Pack", 1)
             endBatchEdit()
         }
-        assertEquals("Pack more\n", c.sourceText())
+        assertEquals("Pack more", c.sourceText())
         assertEquals(4, c.view.selectionStart)
         assertEquals(4, c.view.selectionEnd)
         c.undo()
-        assertEquals("Pack more\n", c.sourceText())
+        assertEquals("Pack more", c.sourceText())
         assertEquals(4, c.view.selectionStart)
     }
 
@@ -142,12 +142,12 @@ class TextFirstExitTest {
                 commitText(". ", 1)
                 endBatchEdit()
             }
-            assertEquals(if (edit) "Pack X\n" else "Pack \n", c.sourceText())
+            assertEquals(if (edit) "Pack X" else "Pack ", c.sourceText())
             assertEquals(if (edit) 6 else 0, c.view.selectionStart)
             assertEquals(c.view.selectionStart, c.view.selectionEnd)
             if (edit) {
                 c.undo()
-                assertEquals("Pack \n", c.sourceText())
+                assertEquals("Pack ", c.sourceText())
                 assertEquals(5, c.view.selectionStart)
                 assertEquals(5, c.view.selectionEnd)
             }
@@ -213,9 +213,9 @@ class TextFirstExitTest {
             deleteSurroundingText(7, 0)
             endBatchEdit()
         }
-        assertEquals("\n", c.sourceText())
+        assertEquals("", c.sourceText())
         c.undo()
-        assertEquals("Meeting\n", c.sourceText())
+        assertEquals("Meeting", c.sourceText())
         assertEquals(0, c.view.selectionStart)
         assertEquals(7, c.view.selectionEnd)
     }
@@ -228,9 +228,9 @@ class TextFirstExitTest {
             commitText("!", 1)
             endBatchEdit()
         }
-        assertEquals("Meeting!\n", c.sourceText())
+        assertEquals("Meeting!", c.sourceText())
         c.undo()
-        assertEquals("Meeting\n", c.sourceText())
+        assertEquals("Meeting", c.sourceText())
         assertEquals(7, c.view.selectionStart)
         assertEquals(7, c.view.selectionEnd)
     }
@@ -238,7 +238,7 @@ class TextFirstExitTest {
     @Test fun batchedCaretCollapseWithoutDeletionStillMovesTheCaret() = textFirstSession("Meeting") { c ->
         c.select(0, 7)
         textFirstIme(c) { beginBatchEdit(); setSelection(7, 7); endBatchEdit() }
-        assertEquals("Meeting\n", c.sourceText())
+        assertEquals("Meeting", c.sourceText())
         assertEquals(7, c.view.selectionStart)
         assertEquals(7, c.view.selectionEnd)
     }
@@ -251,9 +251,9 @@ class TextFirstExitTest {
             deleteSurroundingTextInCodePoints(1, 0)
             endBatchEdit()
         }
-        assertEquals("ab\n", c.sourceText())
+        assertEquals("ab", c.sourceText())
         c.undo()
-        assertEquals("a\uD83D\uDE00b\n", c.sourceText())
+        assertEquals("a\uD83D\uDE00b", c.sourceText())
         assertEquals(1, c.view.selectionStart)
         assertEquals(3, c.view.selectionEnd)
     }
@@ -266,9 +266,9 @@ class TextFirstExitTest {
             deleteSurroundingText(1, 0)
             endBatchEdit()
         }
-        assertEquals("Meetin\n", c.sourceText())
+        assertEquals("Meetin", c.sourceText())
         c.undo()
-        assertEquals("Meeting\n", c.sourceText())
+        assertEquals("Meeting", c.sourceText())
         assertEquals(7, c.view.selectionStart)
     }
 
@@ -281,21 +281,21 @@ class TextFirstExitTest {
     @Test fun enterOnTheEmptyLastCodeLineLeavesTheFence() = textFirstSession("```\ncode\n\n```") { c ->
         c.select(5)
         enter(c)
-        assertEquals("```\ncode\n```\n\n", c.sourceText())
+        assertEquals("```\ncode\n```\n", c.sourceText())
     }
 
     @Test fun enterOnAWholeCodeBodySelectionKeepsItsText() = textFirstSession("```\ndeploy\n```") { c ->
         c.select(0, 6)
         enter(c)
-        assertEquals("```\ndeploy\n```\n\n", c.sourceText())
+        assertEquals("```\ndeploy\n```\n", c.sourceText())
     }
 
     @Test fun hardwareEnterOnAWholeCodeBodySelectionKeepsItsText() = textFirstSession("```\ndeploy\n```") { c ->
         c.select(0, 6)
         hardwareEnter(c)
-        assertEquals("```\ndeploy\n```\n\n", c.sourceText())
-        c.undo()
         assertEquals("```\ndeploy\n```\n", c.sourceText())
+        c.undo()
+        assertEquals("```\ndeploy\n```", c.sourceText())
         assertEquals(0, c.view.selectionStart)
         assertEquals(6, c.view.selectionEnd)
     }
@@ -303,15 +303,15 @@ class TextFirstExitTest {
     @Test fun softReturnOnAWholeCodeBodySelectionKeepsItsText() = textFirstSession("```\ndeploy\n```") { c ->
         c.select(0, 6)
         textFirstIme(c) { commitText("\n", 1) }
-        assertEquals("```\ndeploy\n```\n\n", c.sourceText())
+        assertEquals("```\ndeploy\n```\n", c.sourceText())
     }
 
     @Test fun hardwareEnterReplacesAPartialCodeSelection() = textFirstSession("```\ndeploy\n```") { c ->
         c.select(0, 3)
         hardwareEnter(c)
-        assertEquals("```\n\nloy\n```\n", c.sourceText())
+        assertEquals("```\n\nloy\n```", c.sourceText())
         c.undo()
-        assertEquals("```\ndeploy\n```\n", c.sourceText())
+        assertEquals("```\ndeploy\n```", c.sourceText())
         assertEquals(0, c.view.selectionStart)
         assertEquals(3, c.view.selectionEnd)
     }
@@ -324,9 +324,9 @@ class TextFirstExitTest {
             deleteSurroundingText(6, 0)
             endBatchEdit()
         }
-        assertEquals("```\n\n```\n", c.sourceText())
+        assertEquals("```\n\n```", c.sourceText())
         c.undo()
-        assertEquals("```\ndeploy\n```\n", c.sourceText())
+        assertEquals("```\ndeploy\n```", c.sourceText())
         assertEquals(0, c.view.selectionStart)
         assertEquals(6, c.view.selectionEnd)
     }
