@@ -314,5 +314,25 @@
             #expect(code < 250, "code line \(code)")
             #expect(empty >= 250, "empty line \(empty) at \(lines[1].typographicBounds)")
         }
+
+        /// iOS sim, Tags: `#todo` was drawn as plain text. A tag is coloured, nothing else;
+        /// inside inline code it is no tag.
+        @Test func tagsAreColouredAndStayText() {
+            let h = TextFirstHarness("plain #todo and `#no`")
+            let text = h.tv.text as NSString
+            #expect(text.contains("#todo"))
+            let traits = h.tv.traitCollection
+            func colour(_ word: String) -> UIColor? {
+                (h.controller.storage.attribute(
+                    .foregroundColor, at: text.range(of: word).location, effectiveRange: nil)
+                    as? UIColor)?.resolvedColor(with: traits)
+            }
+            let primary = UIColor(Theme.primary).resolvedColor(with: traits)
+            #expect(colour("#todo") == primary)
+            #expect(colour("odo") == primary)
+            #expect(colour("plain") != primary)
+            #expect(colour("#no") != primary)
+            #expect(h.source == "plain #todo and `#no`")
+        }
     }
 #endif

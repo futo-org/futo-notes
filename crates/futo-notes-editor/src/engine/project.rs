@@ -48,6 +48,7 @@ impl Engine {
             links: Vec::new(),
             wikilinks: Vec::new(),
             atoms: Vec::new(),
+            tags: Vec::new(),
         };
         let (first, before) = self.line_at_display(super::store::display, a);
         let first = (0..first)
@@ -195,6 +196,10 @@ fn describe(
                     }),
                 });
             }
+            SpanKind::Tag => slice.tags.push(display_range(
+                to_display(span.range.start),
+                to_display(span.range.end),
+            )),
             _ => {}
         }
     }

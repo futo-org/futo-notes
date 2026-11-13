@@ -271,6 +271,11 @@ pub enum EditorStyleSpan {
         label: String,
         note_id: Option<String>,
     },
+    /// A `#tag`, `#` included: coloured, still plain text.
+    Tag {
+        start: u64,
+        end: u64,
+    },
     Divider {
         start: u64,
         end: u64,
@@ -384,6 +389,10 @@ impl From<StyleSpec> for EditorStyleSpan {
                 end: u(end),
                 label,
                 note_id,
+            },
+            StyleSpec::Tag { start, end } => Self::Tag {
+                start: u(start),
+                end: u(end),
             },
             StyleSpec::Divider { start, end } => Self::Divider {
                 start: u(start),

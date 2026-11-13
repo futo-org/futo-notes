@@ -71,6 +71,11 @@ pub enum StyleSpec {
         label: String,
         note_id: Option<String>,
     },
+    /// A `#tag`, `#` included: coloured, still plain text.
+    Tag {
+        start: usize,
+        end: usize,
+    },
     Divider {
         start: usize,
         end: usize,
@@ -114,6 +119,7 @@ impl StyleSpec {
             | Self::Metadata { start, end }
             | Self::Link { start, end, .. }
             | Self::Wikilink { start, end, .. }
+            | Self::Tag { start, end }
             | Self::Image { start, end, .. }
             | Self::TableRow { start, end, .. }
             | Self::TableDelimiter { start, end }
@@ -131,6 +137,7 @@ impl StyleSpec {
             | Self::Metadata { start, end }
             | Self::Link { start, end, .. }
             | Self::Wikilink { start, end, .. }
+            | Self::Tag { start, end }
             | Self::Image { start, end, .. }
             | Self::TableRow { start, end, .. }
             | Self::TableDelimiter { start, end }
@@ -315,6 +322,12 @@ pub fn plan_styles(
             end: local.utf16(w.range.end.0, outside),
             label: w.label.clone(),
             note_id: w.note_id.clone(),
+        });
+    }
+    for tag in &slice.tags {
+        out.push(StyleSpec::Tag {
+            start: local.utf16(tag.start.0, outside),
+            end: local.utf16(tag.end.0, outside),
         });
     }
     for atom in &slice.atoms {

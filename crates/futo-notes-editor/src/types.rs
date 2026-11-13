@@ -266,6 +266,10 @@ pub struct ProjectionSlice {
     pub wikilinks: Vec<WikilinkDescription>,
     #[serde(default)]
     pub atoms: Vec<AtomDescription>,
+    /// Each `#tag`'s display range, `#` included: a renderer colours it and
+    /// nothing else (it stays plain text).
+    #[serde(default)]
+    pub tags: Vec<DisplayRange>,
 }
 
 /// What an atom is. Renderers draw it as one unit and keep the caret outside it.
