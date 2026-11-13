@@ -286,7 +286,8 @@ fn native_projection_preserves_rich_semantics_and_source_correspondence() {
         .iter()
         .map(|part| part.kind)
         .collect();
-    assert_eq!(kinds, [Hidden, Literal, Hidden, Literal]);
+    // The line break is a part of its own.
+    assert_eq!(kinds, [Hidden, Literal, Hidden, Literal, Literal]);
 }
 
 #[test]
@@ -316,37 +317,38 @@ fn native_save_failure_keeps_the_session_attached_and_accepting_input() {
 }
 
 #[test]
-fn native_entity_point_mapping_retains_source_boundary_affinity() {
+fn native_hidden_point_mapping_retains_source_boundary_affinity() {
     use futo_notes_ffi::{EditorAffinity, EditorDisplayByteOffset};
     let tree = TempTree::new();
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
     store
-        .create_note("entity".into(), "".into(), "&acE;\n".into())
+        .create_note("hidden".into(), "".into(), "a**b**\n".into())
         .unwrap();
-    let session = store.open_editor("entity".into()).unwrap();
-    assert_eq!(session.display_text().unwrap(), "∾\u{0333}\n");
+    // Entities are literal text; hidden marks are where a point has two sides.
+    let session = store.open_editor("hidden".into()).unwrap();
+    assert_eq!(session.display_text().unwrap(), "ab\n");
     assert_eq!(
         session
             .source_at(
                 0,
-                EditorDisplayByteOffset { offset: 3 },
+                EditorDisplayByteOffset { offset: 1 },
                 EditorAffinity::Backward
             )
             .unwrap()
             .offset,
-        0
+        1
     );
     assert_eq!(
         session
             .source_at(
                 0,
-                EditorDisplayByteOffset { offset: 3 },
+                EditorDisplayByteOffset { offset: 1 },
                 EditorAffinity::Forward
             )
             .unwrap()
             .offset,
-        5
+        3
     );
 }
 

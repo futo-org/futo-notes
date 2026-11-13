@@ -48,8 +48,10 @@ fn a_long_note_shows_the_first_screen_its_session_will_show() {
         .is_some());
 }
 
+/// No reference definitions: a definition-shaped line after the cut is
+/// literal text and the first screen still shows.
 #[test]
-fn a_definition_anywhere_after_the_cut_declines_a_first_screen_that_could_use_it() {
+fn a_definition_shaped_line_after_the_cut_changes_nothing_before_it() {
     let root = TestRoot::new();
     let store = store(&root);
     let mut body = "See [it] here.\n\n".repeat(QUICK_OPEN_BYTES / 16 + 1);
@@ -62,7 +64,7 @@ fn a_definition_anywhere_after_the_cut_declines_a_first_screen_that_could_use_it
     body.truncate(seam - 1);
     body += "]: https://example.com\n";
     plant_note(&root, "defined", &body);
-    assert_eq!(store.quick_open_editor("defined").unwrap(), None);
+    agrees_with_open(&store, "defined");
 }
 
 #[test]

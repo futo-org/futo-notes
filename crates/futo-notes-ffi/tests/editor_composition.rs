@@ -8,7 +8,7 @@ fn native_composition_and_os_correction_forward_exact_source_and_errors() {
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
     store
-        .create_note("input".into(), "".into(), "__teh__ &amp; wrng\r\n".into())
+        .create_note("input".into(), "".into(), "__teh__ & wrng\r\n".into())
         .unwrap();
     let session = store.open_editor("input".into()).unwrap();
     let marked = session
@@ -19,7 +19,7 @@ fn native_composition_and_os_correction_forward_exact_source_and_errors() {
         )
         .unwrap();
     assert_eq!(marked.text, "て");
-    assert_eq!(session.source_text().unwrap(), "__teh__ &amp; wrng\r\n");
+    assert_eq!(session.source_text().unwrap(), "__teh__ & wrng\r\n");
     assert!(matches!(
         session.compose_utf16(0, EditorUtf16Range { start: 0, end: 3 }, vec![0xd800]),
         Err(EditorSessionError::InvalidText)
@@ -46,9 +46,9 @@ fn native_composition_and_os_correction_forward_exact_source_and_errors() {
         )
         .unwrap()
         .unwrap();
-    assert_eq!(session.source_text().unwrap(), "__the__ &amp; wrong\r\n");
+    assert_eq!(session.source_text().unwrap(), "__the__ & wrong\r\n");
     session.detach().unwrap();
     let recovered = store.open_editor("input".into()).unwrap();
-    assert_eq!(recovered.source_text().unwrap(), "__the__ &amp; wrong\r\n");
+    assert_eq!(recovered.source_text().unwrap(), "__the__ & wrong\r\n");
     assert!(recovered.composition().unwrap().is_none());
 }

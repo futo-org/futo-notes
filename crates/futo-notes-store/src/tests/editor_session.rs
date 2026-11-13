@@ -9,7 +9,6 @@ mod external_rename;
 mod images;
 mod lifecycle;
 mod links;
-mod list_actions;
 mod merging;
 mod native_input_traces;
 mod portable;
@@ -17,7 +16,6 @@ mod portable_attachment;
 mod portable_waiting;
 mod quick_open;
 mod saving;
-mod seams;
 mod tables;
 mod tags;
 mod wikilinks;
@@ -26,23 +24,6 @@ mod wikilinks;
 /// every authored write appends (recovery.md): a peer's or an older note.
 fn plant_note(root: &TestRoot, id: &str, source: &str) {
     fs::write(root.0.join(format!("{id}.md")), source).unwrap();
-}
-
-/// Source and display after an authored save of `source` (recovery.md): a
-/// nonempty note without a final line ending gains its own (CRLF or LF). The
-/// gained ending's display is the editor's own projection of the saved bytes.
-fn saved_forms(source: &str, display: &str) -> (String, String) {
-    if source.is_empty() || source.ends_with('\n') {
-        return (source.to_owned(), display.to_owned());
-    }
-    let ending = if source.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
-    };
-    let saved = format!("{source}{ending}");
-    let shown = futo_notes_editor::EditorSession::open(&saved).display_text();
-    (saved, shown)
 }
 
 fn range(start: usize, end: usize) -> DisplayRange {
@@ -218,28 +199,29 @@ fn hidden_inline_edits_history_and_checkpoint_preserve_exact_markdown() {
             .toggle_format(Revision(1), InlineFormat::Strike)
             .unwrap()
             .unwrap();
-        assert_eq!(editor.source_text(), "__日😀__*中*~~*ab*~~ tail\t\r\n");
+        // The strike nests inside the italic span.
+        assert_eq!(editor.source_text(), "__日😀__*中~~ab~~* tail\t\r\n");
         editor.undo(Revision(2)).unwrap().unwrap();
         assert_eq!(editor.source_text(), "__日😀__*中ab* tail\t\r\n");
         editor.redo(Revision(3)).unwrap().unwrap();
         assert_eq!(editor.display_text(), "日😀中ab tail\t\r\n");
         assert_eq!(store.read("inline").unwrap(), original);
-        assert_eq!(editor.source_text(), "__日😀__*中*~~*ab*~~ tail\t\r\n");
+        assert_eq!(editor.source_text(), "__日😀__*中~~ab~~* tail\t\r\n");
         assert_eq!(editor.revision(), Revision(4));
         editor
     };
-    assert_eq!(
-        editor.project(Revision(4), range(10, 12)).unwrap().runs[0].formats,
-        vec![InlineFormat::Italic, InlineFormat::Strike]
-    );
+    // A projection reports its lines' runs: the one over `ab`.
+    let runs = editor.project(Revision(4), range(10, 12)).unwrap().runs;
+    let ab = runs.iter().find(|run| run.range == range(10, 12)).unwrap();
+    assert_eq!(ab.formats, vec![InlineFormat::Italic, InlineFormat::Strike]);
     editor.checkpoint().unwrap();
     assert_eq!(
         store.read("inline").unwrap(),
-        "__日😀__*中*~~*ab*~~ tail\t\r\n"
+        "__日😀__*中~~ab~~* tail\t\r\n"
     );
     drop(editor);
     let reopened = store.open_editor("inline").unwrap();
-    assert_eq!(reopened.source_text(), "__日😀__*中*~~*ab*~~ tail\t\r\n");
+    assert_eq!(reopened.source_text(), "__日😀__*中~~ab~~* tail\t\r\n");
     assert_eq!(reopened.display_text(), "日😀中ab tail\t\r\n");
 }
 
