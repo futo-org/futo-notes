@@ -19,19 +19,19 @@ use std::ops::Range;
 /// A fence's lines: its opening line, and the line after its code (the
 /// closing line, or the note's line count when nothing closes it).
 #[derive(Clone, Copy, Debug)]
-struct Fence {
-    open: usize,
-    end: usize,
-    closed: bool,
+pub(super) struct Fence {
+    pub open: usize,
+    pub end: usize,
+    pub closed: bool,
 }
 
 impl Fence {
-    fn code(&self) -> Range<usize> {
+    pub(super) fn code(&self) -> Range<usize> {
         self.open + 1..self.end
     }
 
     /// The fence's last line.
-    fn last(&self) -> usize {
+    pub(super) fn last(&self) -> usize {
         if self.closed {
             self.end
         } else {
@@ -42,7 +42,7 @@ impl Fence {
 
 /// What a range touches inside fences.
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum Touch {
+pub(super) enum Touch {
     /// Code lines of one fence.
     Code(Range<usize>),
     /// The one empty line of a fence with no code line (its opening line).
@@ -100,7 +100,7 @@ impl Engine {
     }
 
     /// The fence holding line `index` (an opening, code or closing line).
-    fn fence_around(&self, index: usize) -> Option<Fence> {
+    pub(super) fn fence_around(&self, index: usize) -> Option<Fence> {
         let mut open = index;
         match self.role(index)? {
             FenceRole::Open => {}
@@ -122,7 +122,7 @@ impl Engine {
 
     /// The fence lines display `range` touches, when it touches only code
     /// lines of one fence, or only an empty code block's line.
-    fn touch(&self, range: DisplayRange) -> Option<Touch> {
+    pub(super) fn touch(&self, range: DisplayRange) -> Option<Touch> {
         let lines = self.lines_of(range);
         let first = self.line(lines.start);
         if lines.len() == 1

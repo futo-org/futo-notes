@@ -12,6 +12,7 @@ mod keys;
 use super::super::command::{kept_line, Command, Edit};
 use super::super::line::Entry;
 use super::super::Engine;
+use super::marks::split;
 use crate::lines::{block, line_spans, Carry, Kind, Line, Span};
 use crate::{BlockCommand, DisplayRange, EditorError, ParagraphKey};
 
@@ -170,7 +171,7 @@ impl Engine {
 
     /// The line a key or the divider acts on, as it reads once the
     /// selection is removed: the touched lines joined into one.
-    fn joined(&self, range: DisplayRange) -> Option<Joined> {
+    pub(super) fn joined(&self, range: DisplayRange) -> Option<Joined> {
         let selection = self.source_selection(range);
         if range.start == range.end {
             let first = self.line_of(selection.start);
@@ -190,7 +191,9 @@ impl Engine {
         let (first, last) = (self.line_of(plan.range.start), self.line_of(plan.range.end));
         let start = self.line_start(first);
         let end = self.line_start(last) + self.line(last).body_len();
-        if plan.range.end > end {
+        // A fence line the selection cuts is kept on a line of its own
+        // (`Engine::plan`), so the lines do not join into one.
+        if plan.range.end > end || plan.inserted.contains('\n') {
             return None;
         }
         let mut text = self.source_slice(start..plan.range.start);
@@ -212,7 +215,7 @@ impl Engine {
 
     /// A command replacing the joined lines with `text`, the caret at
     /// `caret` in it.
-    fn rejoin(&self, joined: &Joined, text: &str, caret: usize) -> Command {
+    pub(super) fn rejoin(&self, joined: &Joined, text: &str, caret: usize) -> Command {
         let start = self.line_start(joined.first);
         let end = self.line_start(joined.last) + self.line(joined.last).body_len();
         let old = self.source_slice(start..end);
@@ -238,18 +241,18 @@ fn mapped(command: &Command, at: usize) -> usize {
 }
 
 /// The touched lines of a key or the divider, joined into one line.
-struct Joined {
-    first: usize,
-    last: usize,
+pub(super) struct Joined {
+    pub first: usize,
+    pub last: usize,
     /// The joined line's text, without an ending.
-    text: String,
+    pub text: String,
     /// The caret, as an offset into `text`.
-    caret: usize,
+    pub caret: usize,
     /// The carry before the first line.
-    carry: Carry,
+    pub carry: Carry,
     /// The reading of `text`, offsets into it.
-    line: Line,
-    spans: Vec<Span>,
+    pub line: Line,
+    pub spans: Vec<Span>,
 }
 
 impl Joined {
@@ -386,45 +389,6 @@ fn unquote(carry: &Carry, body: &str, line: &Line) -> String {
             }
     };
     kept_line(carry, &rest[..quote], &rest[quote..], keeps)
-}
-
-/// Where a line splits for a caret at `at`, and the marks the split closes
-/// on the left and opens again on the right. A caret at a mark's text start
-/// splits before the mark, at its text end after it, so a mark is only
-/// closed and opened again when the caret is inside its text.
-fn split(text: &str, line: &Line, spans: &[Span], at: usize) -> (usize, String, String) {
-    let marks: Vec<&Span> = spans
-        .iter()
-        .filter(|span| !span.open.is_empty() && !span.close.is_empty())
-        .collect();
-    let mut at = at.max(line.content.start);
-    for _ in 0..=marks.len() * 2 {
-        let out = marks.iter().find_map(|span| {
-            if span.open.end == at && span.open.start < at {
-                Some(span.open.start)
-            } else if span.close.start == at && span.close.end > at {
-                Some(span.close.end)
-            } else {
-                None
-            }
-        });
-        match out {
-            Some(moved) => at = moved,
-            None => break,
-        }
-    }
-    let mut inside: Vec<&Span> = marks
-        .into_iter()
-        .filter(|span| span.open.end < at && at < span.close.start)
-        .collect();
-    inside.sort_by_key(|span| span.open.start);
-    let opens: String = inside.iter().map(|span| &text[span.open.clone()]).collect();
-    let closes: String = inside
-        .iter()
-        .rev()
-        .map(|span| &text[span.close.clone()])
-        .collect();
-    (at, closes, opens)
 }
 
 /// The right side of a split line: plain text at the line's quote depth,

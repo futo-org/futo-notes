@@ -9,6 +9,7 @@ pub(super) mod find;
 mod images;
 mod inline;
 mod lists;
+mod marks;
 mod tables;
 mod wikilinks;
 

@@ -11,6 +11,7 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<String, EditorError> {
+        on_next!(ref self, |e| e.copy_markdown(expected, range));
         self.check_revision(expected)?;
         self.validate_range(range)?;
         if range.start == range.end {
@@ -68,6 +69,8 @@ impl EditorSession {
         range: DisplayRange,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<(String, Option<ViewChange>), EditorError> {
+        on_next!(self, accept, |e, accept| e
+            .cut_markdown(expected, range, accept));
         let copied = self.copy_markdown(expected, range)?;
         if copied.is_empty() {
             return Ok((copied, None));

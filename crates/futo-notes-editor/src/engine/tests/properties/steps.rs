@@ -377,6 +377,41 @@ pub(super) fn engine_ending(source: &str, index: usize) -> String {
     engine.empty_line_ending(index)
 }
 
+/// Pasted texts: lines, blocks, fences, table syntax and line endings.
+const PASTED: &[&str] = &[
+    "x",
+    "a b\n",
+    "x\ny",
+    "\n",
+    "- a\n  - b",
+    "# h\n\nz",
+    "> q\n> r",
+    "```\ncode",
+    "~~~\nx\n~~~",
+    "|---|---|",
+    "| a | b |\r\n| c |",
+    "1. one\r\n2) two",
+    "**b** [l](u)\n*i",
+    "---",
+    "\t \r\n",
+];
+
+/// Paste a random text, or cut, at `range`.
+fn clipboard(
+    engine: &mut Engine,
+    range: DisplayRange,
+    random: &mut Random,
+) -> (Option<crate::ViewChange>, String) {
+    let revision = engine.revision();
+    if random.below(4) == 0 {
+        let (_, change) = engine.cut_markdown(revision, range, &mut ok).unwrap();
+        return (change, format!("cut {range:?}"));
+    }
+    let text = random.pick(PASTED);
+    let change = engine.paste_markdown(revision, range, text, &mut ok);
+    (change.unwrap(), format!("paste {text:?} at {range:?}"))
+}
+
 /// A paragraph key or toolbar block command at the selection, through the
 /// command families and the guard. Properties 3 and 4 hold for commands as
 /// for typing; a cancelled command changes nothing.
@@ -391,7 +426,9 @@ pub(super) fn command_step(
     let before = state(engine);
     let groups = engine.history.undo.len();
     let range = engine.selection();
-    let (change, name) = if random.below(2) == 0 {
+    let (change, name) = if random.below(4) == 0 {
+        clipboard(engine, range, random)
+    } else if random.below(2) == 0 {
         let key = [
             ParagraphKey::Enter,
             ParagraphKey::ShiftEnter,

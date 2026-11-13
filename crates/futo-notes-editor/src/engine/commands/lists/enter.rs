@@ -2,10 +2,11 @@
 use super::super::super::command::{Command, Edit};
 use super::super::super::line::{Entry, Role};
 use super::super::super::{store, Engine};
+use super::super::marks::split;
 use super::draft::{diff, Draft};
 use super::number::{ordinal, spell, Level};
 use super::{is_item, lifted, parts, Parts};
-use crate::lines::{Kind, Span, SpanKind};
+use crate::lines::Kind;
 use crate::{DisplayRange, EditorError};
 use std::ops::Range;
 
@@ -155,78 +156,21 @@ fn numbered_prefix(body: &str, part: &Parts, number: i128) -> String {
     )
 }
 
-/// Marks that close at a line break and open again on the next line when
-/// Enter splits their text.
-fn splits(span: &Span) -> bool {
-    matches!(
-        span.kind,
-        SpanKind::Bold
-            | SpanKind::Italic
-            | SpanKind::Strike
-            | SpanKind::Code
-            | SpanKind::Link { .. }
-    ) && !span.open.is_empty()
-        && !span.close.is_empty()
-}
-
-/// The marks of `entry` whose text runs across line offset `at`.
-fn across(entry: &Entry, at: usize) -> Vec<&Span> {
-    let mut spans: Vec<&Span> = entry
-        .spans
-        .iter()
-        .filter(|span| splits(span) && span.open.end <= at && at <= span.close.start)
-        .collect();
-    spans.sort_by_key(|span| span.open.start);
-    spans
-}
-
-/// `body` without the `cuts` (sorted, inside `from..to`), from `from` to `to`.
-fn without(body: &str, from: usize, to: usize, cuts: &[Range<usize>]) -> String {
-    let mut out = String::with_capacity(to - from);
-    let mut at = from;
-    for cut in cuts {
-        out.push_str(&body[at..cut.start]);
-        at = cut.end;
-    }
-    out.push_str(&body[at..to]);
-    out
-}
-
 /// The line's text before line offset `at`, with the marks that run across
-/// `at` closed there; a mark with no text before `at` loses its opening.
+/// `at` closed there (`marks::split`).
 fn left_part(entry: &Entry, at: usize) -> String {
     let body = entry.body();
-    let spans = across(entry, at);
-    let cuts: Vec<Range<usize>> = spans
-        .iter()
-        .filter(|span| span.open.end == at)
-        .map(|span| span.open.clone())
-        .collect();
-    let mut out = without(body, 0, at, &cuts);
-    for span in spans.iter().rev().filter(|span| span.open.end < at) {
-        out.push_str(&body[span.close.clone()]);
-    }
-    out
+    let (at, closes, _) = split(body, &entry.line, &entry.spans, at.min(body.len()));
+    format!("{}{closes}", &body[..at])
 }
 
 /// The line's text after line offset `at`, with the marks that run across
-/// `at` opened again first; a mark with no text after `at` loses its
-/// closing. Also the length of the marks written first.
+/// `at` opened again first; also where `at` is in it (after the marks
+/// written first, and after marks that open at `at`).
 fn right_part(entry: &Entry, at: usize) -> (String, usize) {
     let body = entry.body();
     let at = at.min(body.len());
-    let spans = across(entry, at);
-    let mut out = String::new();
-    for span in spans.iter().filter(|span| span.close.start > at) {
-        out.push_str(&body[span.open.clone()]);
-    }
-    let opens = out.len();
-    let mut cuts: Vec<Range<usize>> = spans
-        .iter()
-        .filter(|span| span.close.start == at)
-        .map(|span| span.close.clone())
-        .collect();
-    cuts.sort_by_key(|cut| cut.start);
-    out.push_str(&without(body, at, body.len(), &cuts));
-    (out, opens)
+    let (split_at, _, opens) = split(body, &entry.line, &entry.spans, at);
+    let caret = opens.len() + at.saturating_sub(split_at);
+    (format!("{opens}{}", &body[split_at..]), caret)
 }

@@ -58,6 +58,8 @@ impl EditorSession {
         text: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        on_next!(self, accept, |e, accept| e
+            .paste_markdown(expected, range, text, accept));
         let shown = crate::inline::Expected::Pasted(range.start.0..range.end.0, text.to_owned());
         self.checked_input(shown, accept, |session, accept| {
             session.paste_input(expected, range, PasteInput::Clipboard(text), accept)
