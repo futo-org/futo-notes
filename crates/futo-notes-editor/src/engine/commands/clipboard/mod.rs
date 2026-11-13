@@ -5,6 +5,7 @@
 //! deletion Backspace makes over the selection, as its own undo step, and
 //! carries the cut text's formats to the next typed character. Paste writes
 //! the pasted text as it is, behind the one guard (`paste.rs`).
+mod carried;
 mod copy;
 mod paste;
 
