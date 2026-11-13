@@ -243,6 +243,19 @@ impl Engine {
     /// The cell display `range` lies in: both ends on one header or body
     /// line, inside one cell's text between its pipes.
     fn cell_at(&self, range: DisplayRange) -> Option<Cell> {
+        let (index, column) = self.column_at(range)?;
+        let table = self.table_at(index)?;
+        let row = index - table.lines[0].index;
+        Some(Cell {
+            table,
+            row: row.saturating_sub(1),
+            column,
+        })
+    }
+
+    /// The line and column of the cell display `range` lies in, as
+    /// `cell_at` finds it, reading only that line.
+    fn column_at(&self, range: DisplayRange) -> Option<(usize, usize)> {
         let source = self.source_selection(range);
         let index = self.line_of(source.start);
         let entry = self.line(index);
@@ -257,13 +270,16 @@ impl Engine {
             .cells
             .iter()
             .position(|cell| cell.start <= source.start && source.end <= cell.end)?;
-        let table = self.table_at(index)?;
-        let row = index - table.lines[0].index;
-        Some(Cell {
-            table,
-            row: row.saturating_sub(1),
-            column,
-        })
+        Some((index, column))
+    }
+
+    /// Whether display `range` touches a table line without lying inside
+    /// one cell: over a pipe, on the delimiter row, across cells, or before
+    /// a row's first pipe or past its last.
+    pub(crate) fn outside_one_cell(&self, range: DisplayRange) -> bool {
+        self.lines_of(range)
+            .any(|index| role(self.line(index)).is_some())
+            && self.column_at(range).is_none()
     }
 
     pub(crate) fn display_range(&self, source: Range<usize>) -> DisplayRange {

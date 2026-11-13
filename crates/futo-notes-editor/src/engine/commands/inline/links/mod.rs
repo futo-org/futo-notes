@@ -219,14 +219,21 @@ impl Engine {
             if label.contains(['\r', '\n']) {
                 return Err(EditorError::InvalidText);
             }
+            if found.is_none() && self.outside_one_cell(target) {
+                return Ok(None);
+            }
             return self.relabel(found, target, label, destination, work);
         }
         let Some(found) = found else {
-            if destination.is_empty() {
-                return Ok(None);
-            }
             if range.start == range.end {
+                // A caret on a table line outside every cell links nothing.
+                if destination.is_empty() || self.outside_one_cell(range) {
+                    return Ok(None);
+                }
                 return self.insert_link(range, destination, work);
+            }
+            if destination.is_empty() {
+                return self.unlink_selection(range, work);
             }
             return self.link_selection(range, destination, work);
         };
@@ -305,5 +312,55 @@ impl Engine {
             }
         }
         Err(EditorError::UnrepresentableFormat)
+    }
+    /// Remove every link whose text the selection touches, keeping the
+    /// text and its formats; a web address has no syntax to remove.
+    fn unlink_selection(
+        &self,
+        range: DisplayRange,
+        work: &mut usize,
+    ) -> Result<Option<Command>, EditorError> {
+        let mut edited = BTreeMap::new();
+        let mut refused = false;
+        for body in self.bodies(range) {
+            let mut expect: Vec<Expect> = body.glyphs.iter().map(Expect::same).collect();
+            let mut cuts = Vec::new();
+            for span in &body.entry.spans {
+                if !matches!(span.kind, SpanKind::Link { .. }) {
+                    continue;
+                }
+                let label = glyph_range(&body.glyphs, &inside(span));
+                if !label.clone().any(|i| body.selected[i]) {
+                    continue;
+                }
+                for i in label {
+                    expect[i].style &= !(LINK | URL);
+                }
+                cuts.extend([span.open.clone(), span.close.clone()]);
+            }
+            if cuts.is_empty() {
+                continue;
+            }
+            cuts.sort_by_key(|cut| std::cmp::Reverse(cut.start));
+            let mut text = body.entry.text.clone();
+            for cut in cuts {
+                text.replace_range(cut, "");
+            }
+            let draft = Draft::of(body.entry).with_text(text);
+            let read = draft.read(work);
+            if shape(&read) == shape(body.entry) && matches(&glyphs(&read), &expect) {
+                edited.insert(body.index, (draft, read));
+            } else {
+                refused = true;
+            }
+        }
+        if edited.is_empty() {
+            return if refused {
+                Err(EditorError::UnrepresentableFormat)
+            } else {
+                Ok(None)
+            };
+        }
+        Ok(self.rewrite(range, edited))
     }
 }
