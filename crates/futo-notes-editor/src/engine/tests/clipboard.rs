@@ -3,13 +3,14 @@
 //!
 //! Each case marks the selection in its source with `|` (a caret) or `[`
 //! and `]` (`marks` names other characters when the note needs these), runs
-//! `copy`, `cut` or `paste` (of `text`) there, and states the source and
+//! `copy`, `cut`, `paste` (of `text`) or a plain line's `Enter` or
+//! `ShiftEnter` there, and states the source and
 //! selection after it, and what `copy` and `cut` copied. Every case that
 //! changes the note also checks the view change a renderer applies, undoes
 //! to the exact bytes and selection, and redoes to the result.
 use super::super::Engine;
 use super::{ok, range};
-use crate::{Affinity, DisplayRange, EditorError, InlineFormat, SourceEdit};
+use crate::{Affinity, DisplayRange, EditorError, InlineFormat, ParagraphKey, SourceEdit};
 
 #[derive(serde::Deserialize)]
 struct Case {
@@ -88,6 +89,15 @@ fn run(engine: &mut Engine, case: &Case, view: &mut String) -> String {
             let change = engine
                 .paste_markdown(revision, selection, text, &mut count)
                 .unwrap();
+            (String::new(), change)
+        }
+        "Enter" | "ShiftEnter" => {
+            let key = if case.command == "Enter" {
+                ParagraphKey::Enter
+            } else {
+                ParagraphKey::ShiftEnter
+            };
+            let change = engine.key(revision, selection, key, &mut count).unwrap();
             (String::new(), change)
         }
         other => panic!("unknown command {other:?}"),
@@ -399,4 +409,21 @@ fn a_paste_mid_note_reads_only_its_own_lines() {
         small.materialized_source_bytes,
         large.materialized_source_bytes
     );
+}
+
+#[test]
+fn enter_at_a_bold_end_during_composition_splits_after_the_bold() {
+    // The old composition test's Enter row: the marked text commits inside
+    // the bold, then Enter breaks the line after the bold's closing.
+    let mut engine = Engine::open("**b** x");
+    super::select(&mut engine, 1, 1, Affinity::Backward);
+    engine
+        .compose(engine.revision(), range(1, 1), "か")
+        .unwrap();
+    engine
+        .key(engine.revision(), range(4, 4), ParagraphKey::Enter, &mut ok)
+        .unwrap()
+        .unwrap();
+    assert_eq!(engine.source_text(), "**bか**\n x");
+    assert_eq!(engine.selection(), range(5, 5));
 }

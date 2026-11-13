@@ -96,5 +96,5 @@
   {"name": "edit_link with no text at a caret does nothing", "before": "see ‸", "command": [["edit_link", "", "/target"]], "after": "see ‸"},
   {"name": "a label that cannot be a link's text is refused", "before": "⟦a⟧", "command": [["edit_link", "x]y", "/u"]], "error": "InvalidText"},
   {"name": "a label with a line break is refused", "before": "⟦a⟧", "command": [["edit_link", "x\ny", "/u"]], "error": "InvalidText"},
-  {"name": "#353: Enter in a link's text, then Backspace, gives the link back", "before": "[ab‸cd](u)", "command": [["key", "enter"], ["key", "backspace"]], "after": "[ab‸cd](u)"}
+  {"name": "#353: Enter in a link's text splits it, then Backspace joins the two links", "before": "[ab‸cd](u)", "command": [["key", "enter"], ["key", "backspace"]], "after": "[ab](u)‸[cd](u)"}
 ]

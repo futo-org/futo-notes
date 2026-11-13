@@ -50,7 +50,9 @@ impl Engine {
         key: ParagraphKey,
     ) -> Result<Option<Command>, EditorError> {
         Ok(match key {
-            ParagraphKey::Enter | ParagraphKey::ShiftEnter => self.block_enter(range),
+            ParagraphKey::Enter | ParagraphKey::ShiftEnter => {
+                self.block_enter(range).or_else(|| self.plain_enter(range))
+            }
             ParagraphKey::Backspace => self.block_backspace(range, false),
             ParagraphKey::BackspaceJoiningHeading => self.block_backspace(range, true),
             ParagraphKey::Delete | ParagraphKey::Tab | ParagraphKey::ShiftTab => None,
