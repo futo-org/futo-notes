@@ -4,7 +4,6 @@ import android.content.pm.ApplicationInfo
 import android.graphics.Color
 import android.os.Build
 import android.os.SystemClock
-import android.view.Choreographer
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -60,7 +59,9 @@ class TextFirstTypingBenchmarkTest {
         // process (even with FLAG_DONT_USE_ACCESSIBILITY), so every key paid
         // for accessibility events no ordinary user's phone sends. (Files adb
         // pushes into the app's own external dir are EACCES to the app.)
-        val fixtures = File("/data/local/tmp/tf-bench")
+        val baseline = args.getString("textFirstBenchBaseline") == "true"
+        val fixtures = File(args.getString("textFirstBenchDirectory") ?: "/data/local/tmp/tf-bench")
+        val targets = mutableMapOf<String, JSONObject>()
         fun shellRead(name: String): String = File(fixtures, name).readText()
         val notes = if (options.externalSource != null) {
             listOf("external-fixture" to options.externalSource)
@@ -70,7 +71,7 @@ class TextFirstTypingBenchmarkTest {
             val manifest = JSONArray(shellRead("manifest.json"))
             List(manifest.length()) { index ->
                 val entry = manifest.getJSONObject(index)
-                entry.getString("label") to shellRead(entry.getString("file"))
+                entry.getString("label").also { targets[it] = entry } to shellRead(entry.getString("file"))
             }
         }
         val vault = File(context.cacheDir, "tf-bench-vault-$runId-${java.util.UUID.randomUUID()}").apply { check(mkdirs()) }
@@ -85,7 +86,7 @@ class TextFirstTypingBenchmarkTest {
                 val id = "bench-$i"
                 store.createNote(id, "", source)
                 val result = try {
-                    measureNote(scenario, store, id, label, plan, options, selectedActions)
+                    measureNote(scenario, store, id, label, plan, options, selectedActions, if (baseline) targets.getValue(label) else null)
                 } catch (e: Throwable) {
                     failed = true
                     // One failing note is a finding, not a reason to lose the run.
@@ -124,20 +125,32 @@ class TextFirstTypingBenchmarkTest {
         plan: KeyPlan,
         options: TextFirstBenchmarkOptions,
         selectedActions: Set<String>,
+        target: JSONObject?,
     ): JSONObject {
         lateinit var controller: TextFirstController
         val drawn = arrayOfNulls<CountDownLatch>(1)
         val drawnAt = LongArray(1)
+        val awaitingInput = java.util.concurrent.atomic.AtomicLong(0)
+        val firstTextAt = java.util.concurrent.atomic.AtomicLong(0)
         var lastTimings: KeyTimings? = null
         val opened = CountDownLatch(1)
         val openStarted = SystemClock.elapsedRealtimeNanos()
         var openNs = 0L
+        var originalChars = 0
+        var targetOffset = 0
+        var originalSource = ""
+        var setupError: Throwable? = null
         scenario.onActivity { activity ->
             controller = TextFirstController(activity, { store }, activity.cacheDir, style(activity))
+            controller.view.onRenderFrame = { at ->
+                if (controller.view.length() > 1) firstTextAt.compareAndSet(0, at)
+            }
             controller.view.onFrameDrawn = { timings ->
-                drawnAt[0] = SystemClock.elapsedRealtimeNanos()
-                lastTimings = timings
-                drawn[0]?.countDown()
+                if (awaitingInput.get() > 0 && timings.input >= awaitingInput.get()) {
+                    drawnAt[0] = SystemClock.elapsedRealtimeNanos()
+                    lastTimings = timings
+                    drawn[0]?.countDown()
+                }
             }
             activity.setContentView(FrameLayout(activity).apply {
                 addView(controller.view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -157,18 +170,37 @@ class TextFirstTypingBenchmarkTest {
         val selectionBegan = SystemClock.elapsedRealtimeNanos()
         val engine = controller.view.engine!!
         engine.handler.post {
-            val text = engine.text
-            val mid = options.offset?.also { require(it <= text.length) { "Benchmark display offset is outside the note" } }
-                ?: text.indexOf('\n', text.length / 2).let { if (it < 0) text.length else it }
-            engine.select(mid, mid, false)
-            engine.ui.post {
-                controller.view.requestFocus()
-                controller.view.bringPointIntoView(mid)
-                ic = controller.view.onCreateInputConnection(EditorInfo())!!
-                controller.view.postOnAnimation { positioned.countDown() }
-            }
+            try {
+                val text = engine.text
+                originalChars = text.length
+                originalSource = engine.session!!.sourceText()
+                val mid = if (target != null) {
+                    val sourceByte = target.getLong("sourceByte").toULong()
+                    val projection = engine.session!!.project(engine.rev, engine.mirror.byteRange(0, text.length))
+                    val run = projection.correspondence.firstOrNull {
+                        it.kind == uniffi.futo_notes_ffi.EditorCorrespondenceKind.LITERAL &&
+                            sourceByte > it.source.start && sourceByte <= it.source.end
+                    } ?: error("Target is not literal text in canonical projection")
+                    engine.mirror.toUtf16((run.display.start + sourceByte - run.source.start).toInt())
+                } else options.offset?.also { require(it <= text.length) }
+                    ?: text.indexOf('\n', text.length / 2).let { if (it < 0) text.length else it }
+                targetOffset = mid
+                if (target?.optBoolean("cell") == true) engine.showDisplayRange(mid, mid)
+                else engine.select(mid, mid, false)
+                engine.ui.post {
+                    try {
+                        controller.view.requestFocus()
+                        controller.view.bringPointIntoView(mid)
+                        val inputView = if (target?.optBoolean("cell") == true)
+                            checkNotNull(controller.cellView) { "Table target did not open a cell" } else controller.view
+                        ic = inputView.onCreateInputConnection(EditorInfo())!!
+                    } catch (error: Throwable) { setupError = error }
+                    controller.view.postOnAnimation { positioned.countDown() }
+                }
+            } catch (error: Throwable) { setupError = error; positioned.countDown() }
         }
         check(positioned.await(options.timeoutSeconds, TimeUnit.SECONDS)) { "$label selection timed out" }
+        setupError?.let { throw it }
         val selectionSetupNs = SystemClock.elapsedRealtimeNanos() - selectionBegan
         val handler = ic.handler!!
         val vsyncs = VsyncRecorder()
@@ -188,12 +220,14 @@ class TextFirstTypingBenchmarkTest {
             lastTimings = null
             val resets = controller.imeResets
             val started = SystemClock.elapsedRealtimeNanos()
+            awaitingInput.set(started)
             handler.post { action(ic) }
             var ok = false
             while (!ok && SystemClock.elapsedRealtimeNanos() - started < KEY_TIMEOUT_NS) {
                 ok = latch.await(5, TimeUnit.MILLISECONDS)
                 if (controller.imeResets != resets) break
             }
+            awaitingInput.set(0)
             drawn[0] = null
             SystemClock.sleep(plan.settleMs + phase.nextLong(17))
             val t = lastTimings
@@ -212,6 +246,25 @@ class TextFirstTypingBenchmarkTest {
                 if (t.engine > 0) t.posted - t.engine else -1,
             )
         }
+        fun restore() {
+            if (target == null || timedOut) return
+            val restored = CountDownLatch(1)
+            var failure: Throwable? = null
+            engine.handler.post {
+                try {
+                    val change = engine.session!!.undo(engine.rev) ?: error("Trial made no undoable edit")
+                    engine.accept(change)
+                    check(engine.session!!.sourceText() == originalSource) { "Undo failed to restore exact fixture" }
+                    if (target.optBoolean("cell")) engine.showDisplayRange(targetOffset, targetOffset)
+                    else engine.select(targetOffset, targetOffset, false)
+                    engine.ui.post {
+                        controller.view.postOnAnimation { controller.view.post { restored.countDown() } }
+                    }
+                } catch (error: Throwable) { failure = error; restored.countDown() }
+            }
+            check(restored.await(options.timeoutSeconds, TimeUnit.SECONDS)) { "Restore timed out" }
+            failure?.let { throw it }
+        }
         fun series(name: String, count: Int, action: (InputConnection) -> Unit): JSONObject {
             val samples = mutableListOf<LongArray>()
             val began = SystemClock.elapsedRealtimeNanos()
@@ -221,10 +274,13 @@ class TextFirstTypingBenchmarkTest {
             ) {
                 samples += key(action)
                 if (timedOut) break
+                restore()
             }
             val timed = samples.filter { it.size > 1 }
             fun p(values: List<Long>, q: Int) = values[((values.size - 1) * q + 50) / 100]
             val result = JSONObject().put("action", name).put("samples", timed.size)
+                .put("requested", count)
+                .put("rawNs", JSONArray(timed.map { JSONArray(it.toList()) }))
                 .put("refused", samples.count { it[0] == REFUSED })
                 .put("timedOut", samples.count { it[0] == TIMED_OUT })
             if (timed.isEmpty()) return result
@@ -243,22 +299,27 @@ class TextFirstTypingBenchmarkTest {
                 .put("onTime", late.count { it == 0L })
                 .put("stagesNs", stageP50)
         }
-        repeat(plan.warmup) { if (!timedOut) key { it.commitText("w", 1) } }
+        repeat(plan.warmup) { if (!timedOut) { key { it.commitText("w", 1) }; restore() } }
         val actions = JSONArray()
         if ("type" in selectedActions) actions.put(series("type", plan.type) { it.commitText("a", 1) })
-        if ("enter" in selectedActions) actions.put(series("enter", plan.enter) { it.commitText("\n", 1) })
+        if ("enter" in selectedActions && target?.optBoolean("cell") != true) actions.put(series("enter", plan.enter) { it.commitText("\n", 1) })
         if ("backspace" in selectedActions) actions.put(series("backspace", plan.backspace) { it.deleteSurroundingText(1, 0) })
         scenario.onActivity { vsyncs.stop() }
         // Off the main thread: close() answers through a main-thread post.
         kotlinx.coroutines.runBlocking { kotlinx.coroutines.withTimeout(options.timeoutSeconds * 1_000L) { controller.close() } }
+        if (target != null && !timedOut) check(store.read(id) == originalSource) { "Saved fixture differs after restored trials" }
         scenario.onActivity { activity ->
             controller.dispose()
             activity.setContentView(FrameLayout(activity))
         }
         return JSONObject()
             .put("label", label)
-            .put("chars", controller.view.length())
+            .put("chars", originalChars)
+            .put("targetDisplayUtf16", targetOffset)
+            .put("restoredEachTrial", target != null)
+            .put("cellInput", target?.optBoolean("cell") == true)
             .put("openNs", openNs)
+            .put("firstTextDrawNs", firstTextAt.get() - openStarted)
             .put("privateFixture", options.externalSource != null)
             .put("selectionSetupNs", selectionSetupNs)
             .put("actions", actions)
@@ -273,47 +334,6 @@ class TextFirstTypingBenchmarkTest {
         val seriesBudgetNs: Long,
         val settleMs: Long,
     )
-
-    /**
-     * Vsyncs while a note is measured, in elapsedRealtimeNanos, so a key can
-     * say how many frames it missed: 0 = drawn in the first frame that began
-     * after the key was handed over. A blocked main thread delivers no
-     * callbacks, so missed frames are counted in refresh periods, not callbacks.
-     */
-    private class VsyncRecorder : Choreographer.FrameCallback {
-        private val times = LongArray(1 shl 16)
-        @Volatile private var count = 0
-        private var running = false
-        private var periodNs = 16_666_667L
-
-        fun start(refreshRate: Float) {
-            periodNs = (1e9 / refreshRate).toLong()
-            running = true
-            Choreographer.getInstance().postFrameCallback(this)
-        }
-        fun stop() { running = false }
-
-        override fun doFrame(frameTimeNanos: Long) {
-            // Choreographer's clock is System.nanoTime; the key timings use elapsedRealtimeNanos.
-            val vsync = SystemClock.elapsedRealtimeNanos() - (System.nanoTime() - frameTimeNanos)
-            times[count and (times.size - 1)] = vsync
-            count += 1
-            if (running) Choreographer.getInstance().postFrameCallback(this)
-        }
-
-        fun framesLate(input: Long, drawStart: Long): Int {
-            // The last vsync at or before the input, then the first after it.
-            val n = count
-            var before = input - periodNs
-            for (i in n - 1 downTo maxOf(0, n - times.size)) {
-                val v = times[i and (times.size - 1)]
-                if (v <= input) { before = v; break }
-            }
-            var first = before + periodNs
-            while (first <= input) first += periodNs
-            return if (drawStart < first) 0 else ((drawStart - first) / periodNs).toInt()
-        }
-    }
 
     private companion object {
         const val KEY_TIMEOUT_NS = 2_000_000_000L

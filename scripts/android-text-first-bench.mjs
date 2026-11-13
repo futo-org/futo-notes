@@ -3,17 +3,18 @@
 // on an explicitly claimed physical phone. Installs the separate non-debuggable
 // perf app (com.futo.notes.perf.dev), so the dev app and its data are untouched,
 // runs TextFirstTypingBenchmarkTest, prints p50/p95 per note and action, then
-// uninstalls. The budget is one 60 fps frame: 16.7 ms.
+// uninstalls. 16.7 ms is a diagnostic reference, not a performance gate.
 //
 //   ANDROID_SERIAL=… node scripts/android-text-first-bench.mjs [--random N] [--typed N]
 //   ANDROID_SERIAL=… node scripts/android-text-first-bench.mjs --quick   (~8 notes, about a minute)
 //   --profile N: simpleperf the app for the first N s of measuring; the trace
 //   lands next to the report (`simpleperf report -i … --comms futo-editor`).
 //   FUTO_NOTES_CORPUS overrides ../futo-notes-ml/dataset/notes_corpus.jsonl.gz
+import { Buffer } from 'node:buffer';
 import { spawnSync } from 'node:child_process';
 import console from 'node:console';
-import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomUUID, createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -99,6 +100,28 @@ export function selectNotes(notes, randomCount) {
   return [...picks.values()];
 }
 
+/** Collection completeness is separate from performance; a slow valid run is evidence. */
+export function validateCollection(report, manifest, baseline) {
+  if (report.notes.length !== manifest.length) throw new Error('Missing fixture results');
+  for (const [i, note] of report.notes.entries()) {
+    if (note.label !== manifest[i].label) throw new Error('Fixture identity mismatch');
+    if (note.error) throw new Error(`Fixture failed: ${note.label}`);
+    const expected =
+      baseline && manifest[i].cell ? ['type', 'backspace'] : ['type', 'enter', 'backspace'];
+    if (JSON.stringify(note.actions?.map((a) => a.action)) !== JSON.stringify(expected))
+      throw new Error('Missing action results');
+    for (const action of note.actions) {
+      if (
+        action.timedOut ||
+        action.refused ||
+        !action.samples ||
+        (baseline && action.samples !== action.requested)
+      )
+        throw new Error(`Incomplete trials: ${note.label}:${action.action}`);
+    }
+  }
+}
+
 function main() {
   const serial = process.env.ANDROID_SERIAL;
   // --allow-emulator: find which stage is slow; budgets are judged on a physical phone only.
@@ -111,21 +134,44 @@ function main() {
     (serial.startsWith('emulator-') && !allowEmulator)
   )
     throw new Error('Select an explicitly claimed physical Android phone (ANDROID_SERIAL)');
-  const corpus =
-    process.env.FUTO_NOTES_CORPUS ??
-    path.resolve(ROOT, '../futo-notes-ml/dataset/notes_corpus.jsonl.gz');
-  const notes = gunzipSync(readFileSync(corpus))
-    .toString('utf8')
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line));
-  // --only a,b: just the notes whose label starts with one of these (e.g. most-lines-4b72d2).
-  const onlyAt = process.argv.indexOf('--only');
-  const only = onlyAt >= 0 ? process.argv[onlyAt + 1].split(',') : quick ? QUICK : null;
-  const selected = selectNotes(notes, arg('--random', 40)).filter(
-    ({ label, note }) =>
-      !only || only.some((o) => `${label}-${note.content_hash.slice(0, 6)}`.startsWith(o)),
-  );
+  const fixtureAt = process.argv.indexOf('--fixtures');
+  const fixtureDir = fixtureAt < 0 ? null : path.resolve(process.argv[fixtureAt + 1]);
+  let selected;
+  if (fixtureDir) {
+    const all = JSON.parse(readFileSync(path.join(fixtureDir, 'manifest.json'), 'utf8'));
+    selected = all
+      .filter((m) => (process.argv.includes('--stress') ? m.quantile === 100 : m.quantile < 100))
+      .map((meta) => ({
+        label: meta.label,
+        meta,
+        note: {
+          body: readFileSync(path.join(fixtureDir, meta.file), 'utf8'),
+          content_hash: meta.hash,
+        },
+      }));
+  } else {
+    const corpus =
+      process.env.FUTO_NOTES_CORPUS ??
+      path.resolve(ROOT, '../futo-notes-ml/dataset/notes_corpus.jsonl.gz');
+    const notes = gunzipSync(readFileSync(corpus))
+      .toString('utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    // --only a,b: just the notes whose label starts with one of these (e.g. most-lines-4b72d2).
+    const onlyAt = process.argv.indexOf('--only');
+    const only = onlyAt >= 0 ? process.argv[onlyAt + 1].split(',') : quick ? QUICK : null;
+    selected = selectNotes(notes, arg('--random', 40)).filter(
+      ({ label, note }) =>
+        !only || only.some((o) => `${label}-${note.content_hash.slice(0, 6)}`.startsWith(o)),
+    );
+  }
+  const filterAt = process.argv.indexOf('--only');
+  if (fixtureDir && filterAt >= 0) {
+    const prefixes = process.argv[filterAt + 1].split(',');
+    selected = selected.filter((n) => prefixes.some((p) => n.label.startsWith(p)));
+  }
+  if (!selected.length) throw new Error('No benchmark fixtures selected');
   const out = mkdtempSync(path.join(tmpdir(), 'futo-text-first-bench-'));
   const run = (command, args, allowFailure = false) => {
     const result = spawnSync(command, args, {
@@ -153,8 +199,35 @@ function main() {
   };
   const apks = 'apps/android/app/build/outputs/apk';
   const runId = randomUUID();
+  run('just', ['qa-android-target']);
   const remote = `/sdcard/Android/data/${PACKAGE}/files`;
   try {
+    writeFileSync(
+      path.join(out, 'source.json'),
+      JSON.stringify({
+        head: run('git', ['rev-parse', 'HEAD']).trim(),
+        status: run('git', ['status', '--short']),
+        serial,
+      }),
+    );
+    writeFileSync(path.join(out, 'source.patch'), run('git', ['diff', 'HEAD']));
+    writeFileSync(
+      path.join(out, 'apks.json'),
+      JSON.stringify(
+        [
+          'direct/debug/app-direct-debug.apk',
+          'androidTest/direct/debug/app-direct-debug-androidTest.apk',
+        ].map((file) => ({
+          file,
+          sha256: createHash('sha256')
+            .update(readFileSync(path.join(ROOT, apks, file)))
+            .digest('hex'),
+        })),
+        null,
+        2,
+      ),
+    );
+    console.log(`Evidence: ${out}; measuring ${selected.length} fixtures`);
     phase('install', () => {
       adb('install', '-r', path.join(ROOT, apks, 'direct/debug/app-direct-debug.apk'));
       adb(
@@ -179,18 +252,24 @@ function main() {
       // The broadcast started a process; measure (and profile) a fresh one.
       adb('shell', 'am', 'force-stop', PACKAGE);
     });
-    const bench = '/data/local/tmp/tf-bench';
-    adb('shell', 'rm', '-rf', bench);
+    const bench = `/data/local/tmp/tf-bench-${runId}`;
     adb('shell', 'mkdir', '-p', bench);
     const manifest = phase('push', () =>
-      selected.map(({ label, note }, i) => {
+      selected.map(({ label, note, meta }, i) => {
         const file = `n${String(i).padStart(3, '0')}.md`;
         writeFileSync(path.join(out, file), note.body);
         adb('push', path.join(out, file), `${bench}/${file}`);
-        return { file, label: `${label}-${note.content_hash.slice(0, 6)}` };
+        return meta
+          ? { ...meta, file }
+          : { file, label: `${label}-${note.content_hash.slice(0, 6)}` };
       }),
     );
     writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest));
+    if (fixtureDir && existsSync(path.join(fixtureDir, 'analysis.json')))
+      writeFileSync(
+        path.join(out, 'analysis.json'),
+        readFileSync(path.join(fixtureDir, 'analysis.json')),
+      );
     adb('push', path.join(out, 'manifest.json'), `${bench}/manifest.json`);
     const profileSeconds = arg('--profile', 0);
     // Detached on the phone: it waits for the measured process and writes
@@ -211,6 +290,22 @@ function main() {
         'class',
         CLASS,
         '-e',
+        'textFirstBenchDirectory',
+        bench,
+        ...(fixtureDir
+          ? [
+              '-e',
+              'textFirstBenchBaseline',
+              'true',
+              '-e',
+              'textFirstBenchKeys',
+              String(arg('--keys', 50)),
+              '-e',
+              'textFirstBenchWarmup',
+              '5',
+            ]
+          : []),
+        '-e',
         'textFirstBench',
         'true',
         '-e',
@@ -219,7 +314,7 @@ function main() {
         '-e',
         'textFirstBenchTyped',
         String(arg('--typed', 100)),
-        ...(quick
+        ...(quick && !fixtureDir
           ? [
               ...['-e', 'textFirstBenchKeys', String(arg('--keys', 30))],
               ...['-e', 'textFirstBenchSeriesBudgetMs', '3000'],
@@ -252,7 +347,7 @@ function main() {
       throw new Error('report is not from this non-debuggable run');
     const ms = (ns) => (ns / 1e6).toFixed(1).padStart(6);
     console.log(
-      `${report.model} (sdk ${report.sdk}), non-debuggable, accessibility ${report.accessibilityEnabled ? 'on' : 'off'}; key → drawn frame, budget ${BUDGET_MS} ms`,
+      `${report.model} (sdk ${report.sdk}), non-debuggable, accessibility ${report.accessibilityEnabled ? 'on' : 'off'}; key → drawn frame, diagnostic reference ${BUDGET_MS} ms`,
     );
     const pad = ' '.repeat(28 + 1 + 7 + 1 + 8);
     console.log(
@@ -296,14 +391,15 @@ function main() {
         .map((a) => `${n.label}:${a.action}`),
     );
     console.log(
-      `\nworst p95 ${ms(worst)} ms; ${failing.length} note/action pairs over budget${failing.length ? `: ${failing.join(', ')}` : ''}`,
+      `\nworst p95 ${ms(worst)} ms; ${failing.length} note/action pairs over diagnostic reference${failing.length ? `: ${failing.join(', ')}` : ''}`,
     );
     if (errors.length) console.log(`${errors.length} note(s) failed; stacks in ${out}/report.json`);
     console.log(
       `Evidence: ${out} (${((Date.now() - began) / 1000).toFixed(0)} s: ${phases.join(', ')})`,
     );
-    if (!passed || errors.length)
-      throw new Error(`benchmark incomplete; see ${out}/instrumentation.log`);
+    validateCollection(report, manifest, Boolean(fixtureDir));
+    if (!passed)
+      throw new Error(`benchmark instrumentation failed; see ${out}/instrumentation.log`);
   } finally {
     run('adb', ['-s', serial, 'uninstall', `${PACKAGE}.test`], true);
     run('adb', ['-s', serial, 'uninstall', PACKAGE], true);

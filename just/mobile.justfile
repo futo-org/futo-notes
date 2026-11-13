@@ -358,3 +358,7 @@ test-ios-capture-artifact:
 # Run synthetic fixture-only native unit contracts on an explicitly claimed pool SIM (no dictation).
 test-ios-capture-fixture:
   python3 scripts/ios-test-session.py -- bash scripts/dev-env.sh node scripts/ios-capture-fixture.mjs --test-simulator
+
+# Analyze public corpus percentiles and export targeted whole-note benchmark fixtures.
+corpus-baseline *args:
+  node scripts/perf/corpus-baseline.mjs {{args}}
