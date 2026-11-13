@@ -44,7 +44,11 @@ fn run(s: &NativeEditorSession, case: &Seam, view: &mut String) -> EditorViewCha
             s.replace_utf16_action(0, selected, text, EditorInputAction::Isolated)
                 .unwrap(),
         ),
-        Mode::Os => apply(s.replace_os_utf16(0, selected, text, vec![]).unwrap().unwrap()),
+        Mode::Os => apply(
+            s.replace_os_utf16(0, selected, text, vec![])
+                .unwrap()
+                .unwrap(),
+        ),
         Mode::Commit => {
             for value in ["に", "日本"] {
                 let marked = s
@@ -106,7 +110,11 @@ fn saved(source: &str) -> String {
     if source.is_empty() || source.ends_with('\n') {
         return source.to_owned();
     }
-    let ending = if source.contains("\r\n") { "\r\n" } else { "\n" };
+    let ending = if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     format!("{source}{ending}")
 }
 
@@ -139,7 +147,11 @@ fn native_structural_seams_and_raw_composition_keep_exact_saves_and_carets() {
             continue;
         }
         let name = case.name;
-        assert_eq!(view, shown(case.expected), "{name}: the view is a fresh read");
+        assert_eq!(
+            view,
+            shown(case.expected),
+            "{name}: the view is a fresh read"
+        );
         for _ in 0..case.history {
             s.undo(s.revision().unwrap()).unwrap().unwrap();
         }

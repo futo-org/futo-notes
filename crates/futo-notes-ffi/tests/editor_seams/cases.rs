@@ -539,4 +539,3 @@ pub const CASES: &[Seam] = &[
         ..BASE
     },
 ];
-

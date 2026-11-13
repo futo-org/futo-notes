@@ -102,7 +102,10 @@ fn atom_roles_keep_spelling_and_classify_vault_references() {
         ),
         // Code, escapes and reference-style images (not read) are not atoms.
         ("`![a](b.png)` \\![a](b.png) ![u][nope]", vec![]),
-        ("![r][id] and ![c][]\n\n[id]: pics/a.png\n[c]: c.PNG", vec![]),
+        (
+            "![r][id] and ![c][]\n\n[id]: pics/a.png\n[c]: c.PNG",
+            vec![],
+        ),
         ("```\n![a](b.png)\n```", vec![]),
     ] {
         let editor = EditorSession::open(source);

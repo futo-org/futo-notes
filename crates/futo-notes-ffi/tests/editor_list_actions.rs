@@ -14,7 +14,6 @@ use serde_json::Value;
 use std::ops::Range;
 use support::{path_string, TempTree};
 
-
 /// The text without its marks (`‸` a caret, `«` `»` a selection), and the
 /// marked source range.
 fn unmark(marked: &str) -> (String, Range<usize>) {
@@ -49,7 +48,10 @@ fn bounds(s: &NativeSession, at: usize) -> (usize, usize) {
         let offset = EditorDisplayByteOffset { offset: at as u64 };
         s.source_at(revision, offset, affinity).unwrap().offset as usize
     };
-    (side(EditorAffinity::Backward), side(EditorAffinity::Forward))
+    (
+        side(EditorAffinity::Backward),
+        side(EditorAffinity::Forward),
+    )
 }
 
 /// The display offset whose bounds hold source offset `at`.
@@ -142,7 +144,13 @@ fn direct_blocks(source: &str) -> Vec<Block> {
                 (indent, list.marker, list.ordered, list.checked)
             });
             let range = (block.range.start.0 as u64, block.range.end.0 as u64);
-            (range.0, range.1, block.heading, block.quote_depth as u64, list)
+            (
+                range.0,
+                range.1,
+                block.heading,
+                block.quote_depth as u64,
+                list,
+            )
         })
         .collect()
 }
@@ -187,7 +195,11 @@ fn saved(source: &str) -> String {
     if source.is_empty() || source.ends_with('\n') {
         return source.to_owned();
     }
-    let ending = if source.contains("\r\n") { "\r\n" } else { "\n" };
+    let ending = if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     format!("{source}{ending}")
 }
 
@@ -240,7 +252,8 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
         assert_eq!(s.source_text().unwrap(), before, "{name}: undo");
         assert_eq!(view, EditorSession::open(&before).display_text(), "{name}");
         assert_eq!(
-            s.display_to_utf16(undone.revision, undone.selection).unwrap(),
+            s.display_to_utf16(undone.revision, undone.selection)
+                .unwrap(),
             s.display_to_utf16(undone.revision, opening).unwrap(),
             "{name}: undo's selection"
         );

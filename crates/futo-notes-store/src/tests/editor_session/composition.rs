@@ -69,10 +69,7 @@ fn marked_text_is_not_recovered_but_final_correction_is_exact_and_protected() {
     let mut recovered = store.open_editor("input").unwrap();
     assert_eq!(recovered.source_text(), "the __middle__ & wrong\r\n");
     recovered.checkpoint().unwrap();
-    assert_eq!(
-        store.read("input").unwrap(),
-        "the __middle__ & wrong\r\n"
-    );
+    assert_eq!(store.read("input").unwrap(), "the __middle__ & wrong\r\n");
 }
 
 #[test]

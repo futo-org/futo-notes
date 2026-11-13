@@ -36,10 +36,7 @@ fn native_isolated_input_and_compound_runs_preserve_exact_history_and_validate_e
             EditorInputAction::CompositionCommit,
         )
         .unwrap();
-    assert_eq!(
-        session.source_text().unwrap(),
-        "__kitten__ & _ox日本_\r\n"
-    );
+    assert_eq!(session.source_text().unwrap(), "__kitten__ & _ox日本_\r\n");
     session
         .replace_utf16_action(
             2,
@@ -48,10 +45,7 @@ fn native_isolated_input_and_compound_runs_preserve_exact_history_and_validate_e
             EditorInputAction::Isolated,
         )
         .unwrap();
-    assert_eq!(
-        session.source_text().unwrap(),
-        "__kitten__ & _ox日本!_\r\n"
-    );
+    assert_eq!(session.source_text().unwrap(), "__kitten__ & _ox日本!_\r\n");
     assert!(matches!(
         session.replace_many_utf16(
             3,
@@ -81,10 +75,7 @@ fn native_isolated_input_and_compound_runs_preserve_exact_history_and_validate_e
     for revision in 6..9 {
         session.redo(revision).unwrap().unwrap();
     }
-    assert_eq!(
-        session.source_text().unwrap(),
-        "__kitten__ & _ox日本!_\r\n"
-    );
+    assert_eq!(session.source_text().unwrap(), "__kitten__ & _ox日本!_\r\n");
     session.detach().unwrap();
     let reopened = store.open_editor("history".into()).unwrap();
     assert_eq!(

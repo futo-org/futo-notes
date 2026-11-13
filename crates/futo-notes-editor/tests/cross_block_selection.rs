@@ -51,7 +51,12 @@ fn text_after_a_selection_joins_the_line_it_began_on_and_code_keeps_its_lines() 
             "```\nlet dl\n```\nmore\n",
         ),
         // At the note's end too: the closing line stays after the joined line.
-        ("```\nlet x = 1\ny = 2\n```\n\ntail", 4, 20, "```\nlet dl\n```"),
+        (
+            "```\nlet x = 1\ny = 2\n```\n\ntail",
+            4,
+            20,
+            "```\nlet dl\n```",
+        ),
         // From one code block into another: each keeps its frame.
         (
             "```\nlet x = 1\ny = 2\n```\n\n```\nz = 3\nw = 4\n```\n",
@@ -153,7 +158,13 @@ fn the_mr_634_review_repros_land_and_keep_every_other_line() {
             Input::Type("d"),
             "padb\nnext line\n",
         ),
-        ("para\n\n```\nab\n```\n=\n", 2, 7, Input::Type("d"), "padb\n=\n"),
+        (
+            "para\n\n```\nab\n```\n=\n",
+            2,
+            7,
+            Input::Type("d"),
+            "padb\n=\n",
+        ),
         (
             "para\n\n```\ncode\n```\ntail\n",
             5,
@@ -408,7 +419,10 @@ fn a_dictated_phrase_over_mixed_formatting_lands() {
             Ok(typed),
             "{note:?}"
         );
-        let a = EditorSession::open(note).display_text().find(selected).unwrap();
+        let a = EditorSession::open(note)
+            .display_text()
+            .find(selected)
+            .unwrap();
         let text: &'static str = text;
         assert!(checked(note, a, a + selected.len(), Input::Os(text)).is_some());
     }
@@ -423,7 +437,11 @@ fn a_kept_word_after_a_fence_joins_the_code_line_as_typing_does() {
         "```\ncode\n```\n[Heading](u) one",
     ] {
         let joined = replace_os_over(note, "\nHeading", "Heading");
-        assert_eq!(joined.as_deref(), Ok("```\ncodeHeading one\n```"), "{note:?}");
+        assert_eq!(
+            joined.as_deref(),
+            Ok("```\ncodeHeading one\n```"),
+            "{note:?}"
+        );
         assert!(checked(note, 4, 12, Input::Os("Heading")).is_some());
     }
 }

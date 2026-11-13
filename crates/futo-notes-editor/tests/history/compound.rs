@@ -165,10 +165,7 @@ fn grouping_does_not_materialize_a_growing_run_or_an_unrelated_note_prefix() {
         change.work
     );
     assert!(change.work.parsed_source_bytes < 1500, "{:#?}", change.work);
-    assert_eq!(
-        session.source_text(),
-        format!("{prefix}__long__ & _short_")
-    );
+    assert_eq!(session.source_text(), format!("{prefix}__long__ & _short_"));
     session
         .undo(session.revision(), &mut |_| Ok(()))
         .unwrap()
@@ -223,11 +220,7 @@ fn mixed_format_selection_multi_run_and_typing_history_returns_to_opening_and_fi
     );
     let final_bytes = "*__kitten__* & _ox!?_\r\n";
     assert_eq!(session.source_text(), final_bytes);
-    for expected in [
-        "*__kitten__* & _ox_\r\n",
-        "*__cat__* & _dog_\r\n",
-        opening,
-    ] {
+    for expected in ["*__kitten__* & _ox_\r\n", "*__cat__* & _dog_\r\n", opening] {
         view.apply(
             session
                 .undo(session.revision(), &mut |_| Ok(()))

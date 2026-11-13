@@ -88,7 +88,11 @@ fn the_open_run_and_its_candidates_follow_the_existing_rules() {
         // An indented line is not code (its indent is not shown); HTML-looking text is plain.
         ("    [[Ro", 4, Some((0, 4, "Ro", vec!["Projects/Roadmap"]))),
         ("\\[[Ro", 4, None),
-        ("<div>\n[[Ro", 10, Some((6, 10, "Ro", vec!["Projects/Roadmap"]))),
+        (
+            "<div>\n[[Ro",
+            10,
+            Some((6, 10, "Ro", vec!["Projects/Roadmap"])),
+        ),
         ("[[a\n[[Ro", 8, Some((4, 8, "Ro", vec!["Projects/Roadmap"]))),
         ("[[Ro\nnext", 9, None),
     ] {
