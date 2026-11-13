@@ -152,7 +152,38 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
     `src/engine/`. `node scripts/test-editor-wasm.mjs` stops at its first consumer,
     `wasm-consumer.mjs`, on `&acE;` (the old engine no longer decodes entities; stage 4's
     sort).
-- Stage 4: not started.
+- Stage 4: in progress (checkpoint 2026-11-13; resume from here).
+  - Work is on branch `linedown-cutover` in worktree `futo-notes-ln-blocks` (not yet merged
+    into `linedown`). Its commits so far: the surface points at the core (`EditorSession` is a
+    thin layer over `engine::Engine`, `src/session.rs` + `src/session/`); the switch is gone
+    (cargo feature, `FUTO_EDITOR_ENGINE`, `on_next!`); old `session/` internals, `inline/`,
+    `movement.rs`, `parallel.rs`, the table scanner, the comparison run (`lines/compare/`),
+    `quick_open/commonmark.rs`, `rest_may_define`/`may_define_reference`, pulldown-cmark,
+    `vendor/pulldown-cmark` and its patch entry are deleted; public find/composition/toolbar
+    types moved to `src/session/{find,types}.rs`.
+  - Old tests: `lists`, `blocks`, `fences`, `inline`, `paragraphs`, `reinterpretation`,
+    `typed_tag_source` deleted (undo/history promises held by
+    `engine::tests::properties::the_five_properties_hold_over_random_edits` and each family's
+    fixture run, which undoes and redoes every case; `tests/inline/work.rs`'s budget by
+    `engine::tests::inline::typing_far_into_a_long_note_costs_no_more_work_than_the_old_engine`).
+    The rest sorted test by test by five agents; chain after the sort 1,011 passed, 44 failed
+    (from 181), the failures being engine bugs and open questions below.
+  - WASM consumers: block and list consumers replay `tests/fixtures/engine/` (blocks, fences,
+    plain Enter, lists: 561 cases) through the compiled session and the store worker with undo
+    and redo (`tests/wasm-fixture-replay.mjs`); the seam consumer is deleted (its CommonMark
+    cases; composition and text-service input through WASM stay covered by
+    `wasm-native-input.mjs` and `wasm-consumer.mjs`).
+  - Core bug fixed: deleting what lies between two touching spans of the same kind and
+    spelling wrote `**ab****cd**` (asterisks shown); they now join (`edit/spans.rs`
+    `seam_joins`).
+  - Running when this was written: the iOS simulator pass (step 1, Mac worktree
+    `~/Developer/futo-notes/futo-notes-linedown`, sim futo-qa-1 claimed, results to
+    `~/.local/state/linedown-stage4/results.md`); fix lanes `linedown-fix-inline`
+    (ln-clipboard), `linedown-fix-links` (ln-fences), `linedown-fix-compose` (ln-tables);
+    tags/search lane `linedown-tags` (ln-wikilinks); the last sort group (cross-block,
+    long_regions, FFI editor tests, store lib) in ln-blocks.
+  - Still to do: merge the lanes; spec sweep (about 40 `→` references in 10 spec files point
+    at deleted old-engine files); `just check`; size report; commit bodies' promise lines.
 - Stage 5: not started.
 - Surface methods deleted, with reasons: none.
 - Display rules that are not "text minus ranges" (stated in `engine/line.rs`):
