@@ -156,6 +156,22 @@ What each family landed, merged into `linedown` in this order. The status file i
   - Wikilinks lane: no core bugs; wikilinks 3/5, wikilink_completion 3/4, tags 4/5, all
     dialect changes (lone CR is not a line end; 4-space code, raw HTML; wikilinks before links;
     a wikilink's text is its target).
+- Merged: paste and clipboard (`engine/commands/clipboard/`, 138 cases in
+  `tests/fixtures/engine/clipboard/` plus carried-format cases). Copy exports exact source
+  (whole lines carry their markers, a cut span is closed or reopened, the first line's indent
+  comes off every line). Cut is Backspace's deletion as one undo step and carries the cut
+  text's formats. Paste writes the text as given (line endings take the caret line's; one
+  trailing ending dropped; no escapes, entities or blank lines), lines after the first take
+  the caret line's quote prefix, a pasted list takes the caret line's indent, a fence the paste
+  opens is closed, code takes text verbatim, a single-cell table paste joins lines with spaces
+  and writes `\|`, and a one-line paste takes carried formats (a link under Bold saves
+  `**[x](u)**`). Paste runs behind the guard. Enter on a plain line now splits the marks it
+  cuts (`**bo|ld**` -> `**bo**`, `**ld**`) with the one helper lists and blocks share
+  (`engine/commands/marks.rs`). Old bug fixed: under the switch copy, cut and paste ran on the
+  old engine's empty state. Budget: 4,000 lines pasted into 10 or 20,000 paragraphs, 110,451
+  -> 62,672 parsed plus copied bytes, the same at both sizes.
+- Fixed after the merges: a caret is never pinned inside hidden syntax (an edit could leave it
+  inside a link's destination, where typed text did not show); the "not yet" stub went.
 - The wikilinks merge put `engine/mod.rs` over the size limit: selection and movement moved
   to `engine/selection.rs`, UTF-16 conversions to `engine/utf16.rs`, verbatim.
 - Rule kept, noted by the fences lane: typing after a ``` that is the note's last line goes

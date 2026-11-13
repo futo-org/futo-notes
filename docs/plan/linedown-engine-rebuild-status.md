@@ -89,10 +89,45 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
     chain: 874 passed, 389 failed, 4 ignored; on the parent commit 870/389/4, same failures
     by name. `just test-ios-native TextFirstBlockDrawingTests TextFirstOpeningTests`: 40 of 41;
     the failure is the old engine's Tab indent (26 Rust indent tests fail on the parent).
-- Stage 3: in progress. The per-family log is `docs/plan/linedown-engine-rebuild-stage3.md`.
+- Stage 3: done. The per-family log, with each family's behavior, cases, old bugs fixed and
+  budgets, is `docs/plan/linedown-engine-rebuild-stage3.md`. Every family in the brief's list
+  and the four core pieces (outside changes, quick open, wikilink completion with relinking and
+  note ids, work counting) runs on the core under the `engine` switch; no surface method is
+  left unwired (the stage 2 "not yet" stub is gone).
+  - Size check: the new engine's production code is 12,238 lines (core 4,672; command
+    families 7,566, largest inline 2,210, lists 1,121, tables 903), 14,884 with the line reader,
+    against 34,537 for the old `session/` plus `inline/` (16,940 + 17,597): 35% (43% with the
+    reader). Tests: engine 7,740 lines. Under the bar; the cut-over may go ahead.
+  - Budgets: every `tests/long_regions*` and `tests/inline/work.rs` scenario a family touched
+    was measured on the old engine and asserted no higher on the core (numbers in the log).
+  - Verification at the end of stage 3 (e0feb6dfe): `cargo test -p futo-notes-editor
+    --features engine --lib engine::` 133 passed, 1 ignored; TYPING_CASES=20000 properties on
+    seeds 1, 3, 7 and 424242 pass (5 passed, 1 ignored each), `engine::tests::external` 13
+    passed on seeds 1 and 424242; read-only on the vault (2,775 notes, 91,081 lines) and the ML
+    corpus (30,995 notes, 1,851,015 lines; unpacked from `dataset/notes_corpus.jsonl.gz`
+    bodies, outside the repo) all five properties hold, with keys, block commands, format
+    toggles and paste in the random steps; the chain `cargo test -p futo-notes-editor -p
+    futo-notes-store -p futo-notes-core` 985 passed, 389 failed (the same 389 names as before
+    stage 3), 4 ignored; `cargo build -p futo-notes-ffi --features engine` ok and
+    `--test editor_engine_slice` 1 passed; `cargo clippy -p futo-notes-editor --features engine
+    --all-targets` no warnings in `src/engine/`.
+  - For stage 4's sort, the must-pass old tests on the core (passed/failed):
+    native_input_traces 0/1, composition 17/2, compound_composition 0/5, compose_after_break
+    1/0, compose_after_break_review 1/3, history 12/5, find 4/1, host_mirror 11/0,
+    host_find_plan 18/0, unicode 6/0, external 2/1, portable 13/1, wikilinks 3/2,
+    wikilink_completion 3/1, images 5/2, tags 4/1, link_target 8/0, plain_note 2/1. Every
+    remaining failure was traced to an assertion stating a CommonMark result or a behavior the
+    Decisions changed (the log quotes each). Store lib on the core: 237 passed, 21 failed; five
+    sampled are deliberate (typed `|` in a cell not escaped, renumbering only in-sequence
+    items, equivalent mark spellings, a typed `\!` reads as an escape, `&amp;` not decoded);
+    the rest is stage 4's sort.
+  - Stage 4 must also: move the public find types out of `session/find.rs` (do not delete
+    them); delete `quick_open`'s `rest_may_define`, `may_define_reference`,
+    `quick_open/commonmark.rs` and their feature-gated tests; point the wasm consumers at
+    `tests/fixtures/engine/`.
 - Stage 4: not started.
 - Stage 5: not started.
-- Surface methods deleted, with reasons: none yet.
+- Surface methods deleted, with reasons: none.
 - Display rules that are not "text minus ranges" (stated in `engine/line.rs`):
   1. Frames: an opening fence or front matter line is hidden with its ending; a closing line
      with its own ending, or, on the note's last line, with the ending before it.
@@ -100,30 +135,44 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
      closed on the note's last line (the body).
   3. Typing on such a line writes a line ending, then the text, after the hidden line.
   4. A divider shows as one U+FFFC.
+  5. Typing at a divider's edge writes the text on a line of its own beside the rule, in its
+     quotes.
   Front matter lines and a table's delimiter row show their whole text; everything else hides
   its marker and inline syntax.
-- Open questions for the maintainer:
-  1. Outside changes that touch, open or close front matter are refused by the history-keeping
-     adoption, so a dirty draft parks a conflict copy (a clean session drops history and adopts).
-     The spec says metadata parks; no hazard in rebasing through it was found. Keep refusing?
-  2. A portable page asked to adopt its own text: the core has no record to send, so
-     `adopt_merged_source` returns `UnrepresentableFormat`; the old engine sent an empty Append.
-  4. Lists: Enter in `1. a` above `1. b` writes `2.` (the Decision read literally), so a list
-     numbered `1.` throughout gains a `2.`. Write the item's own number when the list does not
-     count up? Enter over two numbered items leaves the second's number as written.
-  5. Lists: Indent always writes a tab, so an item indented into a two-space sub-list sits at 4
-     columns beside siblings at 2 (the old engine used the sub-list's column).
-  6. Quote on a heading or list item makes plain quoted text (`## T` -> `> T`), as before;
-     Linedown could write `> ## T`, making Quote an exact toggle.
-  7. Quote leaves blank lines at a selection's edges unquoted; a selection ending at a line's
-     display start does not touch that line (the old engine made an exception for list items).
-  8. A fence typed mid-note: after ``` the line hides and the caret moves into the code, so the
-     old "Enter closes a typed fence" cannot trigger.
-  9. Property 2 is amended (engine/tests/properties/mod.rs header): with no carried formats,
+- Open questions for the maintainer (each lane took the conservative choice and pinned none):
+  1. Property 2 is amended (header of `engine/tests/properties/mod.rs`): with no carried formats,
      typing writes exactly the typed bytes at a source offset the caret's display point maps
      to (either side of hidden marks); under carried formats (a toggle, or the formats a space
-     typed at a span's end carries), the display changes by exactly the typed text in those
+     typed at a span's end carries) the display changes by exactly the typed text in those
      formats and only inline marks are written besides. Chosen because Decision 3 (markers stay
      hidden) outranks a literal reading: `__a __` shows underscores.
-  3. (Settled: the old refusals were restored on top of read-back.) Images: "safe to write" is now only "reads back as exactly that image" (see the images
-     entry); keep, or keep the old engine's blanket refusals of `<`, `\` and backticks too?
+  2. Paste goes through the guard (cut does not: it is Backspace's deletion). A paste writes
+     many lines at once and could restyle lines the user is not looking at; it names its lines
+     plus the line above, so a pasted delimiter row still makes a header.
+  3. Outside changes that touch, open or close front matter are refused by the history-keeping
+     adoption, so a dirty draft parks a conflict copy (a clean session drops history and
+     adopts). No hazard in rebasing through it was found. Keep refusing?
+  4. A portable page asked to adopt its own text gets `UnrepresentableFormat` (the old engine
+     sent an empty Append).
+  5. Lists: Enter in `1. a` above `1. b` writes `2.` (the Decision read literally), so a list
+     numbered `1.` throughout gains a `2.`; Enter over two numbered items leaves the second's
+     number as written.
+  6. Lists: Indent always writes a tab, so an item indented into a two-space sub-list sits at 4
+     columns beside siblings at 2 (the old engine used the sub-list's column).
+  7. Quote on a heading or list item makes plain quoted text (`## T` -> `> T`), as before;
+     Linedown could write `> ## T`, making Quote an exact toggle. Quote leaves blank lines at a
+     selection's edges unquoted; a selection ending at a line's display start does not touch
+     that line.
+  8. Divider: where `---` would make line 1 open front matter, it writes `----`.
+  9. A fence typed mid-note: after ``` the line hides and the caret moves into the code, so the
+     old "Enter closes a typed fence" cannot trigger. At the note's end, typing after ``` goes
+     into the empty block (display rule 3), so `js` there is code, not a language.
+  10. Code taken back out of a block gets `kept_line`'s `\` where needed, so `# x` comes back
+      as `\# x` (in and out are not exact opposites).
+  11. Paste: a block pasted into the middle of a numbered item repeats its number on the tail
+      (`1. ab`, `- x`, `1. cd`); a block line pasted mid-text starts its own line (a line break
+      the user did not paste); copy adds no closing fence when a selection ends inside code.
+  12. A typed line break in a table cell breaks the row (only paste flattens it to spaces);
+      the old engine flattened a text service's insert too.
+  13. Images keep the old engine's explicit refusals (`<`, `>`, `\` in the reference; backtick,
+      `[`, `]`, `\` in the alt) on top of "reads back as exactly that image". Loosen?
