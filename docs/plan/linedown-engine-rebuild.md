@@ -223,7 +223,20 @@ options with a simulator screenshot of each before changing anything:
   the dot; or pick the shape from something the engine already sends, such as the marker as
   typed.
 
-Done when `just check` passes, the maintainer has answered both iOS choices and the answers are
+Decided, not yet built (maintainer, 2026-11-13, answer 2A-1):
+
+- **A language typed after a fence.** After a typed ```` ``` ```` the fence line hides and the
+  caret moves to the line below, so a typed `js` becomes code (```` ```\njs ````; mid-note,
+  on a blank line above `b`, ```` ```\njsb ````). Keep the caret at the end of the hidden
+  fence line after the typed fence, so the next letters write the language (```` ```js ````)
+  and Enter writes the first code line. The engine already sends each code line's `language`;
+  iOS draws it as a small label on the code block (no Markdown rule in Swift). Show the label
+  to the maintainer with a simulator screenshot before landing it. Rewrite the fenced-code
+  spec line "typing there writes the code line first", and add cases to
+  `tests/fixtures/engine/fences.json` for the note's end and mid-note.
+
+Done when `just check` passes, the language label is drawn, the maintainer has answered both
+iOS choices and the answers are
 drawn, and this file is deleted in the final commit.
 
 ## Rules that hold throughout

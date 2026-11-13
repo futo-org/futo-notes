@@ -140,7 +140,7 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
   - Maintainer answers: 1A (property 2 as amended), 3A (a text service's or dictation's line
     break in a table cell becomes a space, as paste's does; `cell_service_text`), 4A (Indent
     takes the joined sub-list's whitespace, else a tab; `sub_list_space`). 2A (a language
-    typed after a fence) is asked back: see open question 9.
+    typed after a fence) is 2A-1, built in stage 5: see open question 9.
   - The brief's stage 4 now opens with a simulator pass over every command family.
   - Verified: `cargo test -p futo-notes-editor --features engine --lib engine::` 133 passed,
     1 ignored; TYPING_CASES=20000 properties on seeds 1 and 99, 5 passed, 1 ignored each;
@@ -190,7 +190,7 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
      selection's edges unquoted; a selection ending at a line's display start does not touch
      that line.
   8. Divider: where `---` would make line 1 open front matter, it writes `----`.
-  9. OPEN (2A asked back). After a typed ``` the line hides and the caret moves to the line
+  9. Answered 2A-1, scheduled for stage 5 (brief, "Decided, not yet built"). After a typed ``` the line hides and the caret moves to the line
      below, so a typed `js` is code, not a language: at the note's end (```` ```\njs ````) and
      also mid-note (a blank line above `b` gives ```` ```\njsb ````; the stage 3 log's "mid-note
      it writes ```js" is wrong). Neither renderer draws a fence's language, though the
