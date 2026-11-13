@@ -56,34 +56,6 @@
     {
       "path": "apps/android/app/src/main/java/com/futo/notes/ui/NoteEditorScreen.kt",
       "reason": "One composable whose ~18 KB of local functions close over ~30 remembered states; getting it under the limit needs a state-holder redesign, not a move. Pending that refactor, not large by design."
-    },
-    {
-      "path": "vendor/pulldown-cmark/src/parse.rs",
-      "reason": "Vendored pulldown-cmark 0.13.6, kept verbatim so it diffs against upstream; the one local change is in vendor/pulldown-cmark/PATCH.md."
-    },
-    {
-      "path": "vendor/pulldown-cmark/src/firstpass.rs",
-      "reason": "Vendored pulldown-cmark 0.13.6, kept verbatim so it diffs against upstream; the one local change is in vendor/pulldown-cmark/PATCH.md."
-    },
-    {
-      "path": "vendor/pulldown-cmark/src/entities.rs",
-      "reason": "Vendored pulldown-cmark 0.13.6, kept verbatim so it diffs against upstream; the one local change is in vendor/pulldown-cmark/PATCH.md."
-    },
-    {
-      "path": "vendor/pulldown-cmark/src/puncttable.rs",
-      "reason": "Vendored pulldown-cmark 0.13.6, kept verbatim so it diffs against upstream; the one local change is in vendor/pulldown-cmark/PATCH.md."
-    },
-    {
-      "path": "vendor/pulldown-cmark/src/scanners.rs",
-      "reason": "Vendored pulldown-cmark 0.13.6, kept verbatim so it diffs against upstream; the one local change is in vendor/pulldown-cmark/PATCH.md."
-    },
-    {
-      "path": "vendor/pulldown-cmark/src/lib.rs",
-      "reason": "Vendored pulldown-cmark 0.13.6, kept verbatim so it diffs against upstream; the one local change is in vendor/pulldown-cmark/PATCH.md."
-    },
-    {
-      "path": "vendor/pulldown-cmark/src/html.rs",
-      "reason": "Vendored pulldown-cmark 0.13.6, kept verbatim so it diffs against upstream; the one local change is in vendor/pulldown-cmark/PATCH.md."
     }
   ]
 }

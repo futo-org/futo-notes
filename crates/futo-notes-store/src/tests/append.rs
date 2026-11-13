@@ -4,9 +4,7 @@ use super::*;
 fn append_adds_text_verbatim_with_no_separator() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.create("work", "log", "").unwrap();
-    // A note without a final line ending shows that no separator is added.
-    fs::write(root.0.join("work/log.md"), "first").unwrap();
+    store.create("work", "log", "first").unwrap();
 
     let mutation = store.append("work/log", "second\n").unwrap();
 
@@ -18,9 +16,8 @@ fn append_adds_text_verbatim_with_no_separator() {
 fn an_empty_append_leaves_the_file_untouched() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.create("", "log", "").unwrap();
+    store.create("", "log", "body").unwrap();
     let path = root.0.join("log.md");
-    fs::write(&path, "body").unwrap();
     set_file_mtime_ms(&path, 1_000_000).unwrap();
 
     let mutation = store.append("log", "").unwrap();

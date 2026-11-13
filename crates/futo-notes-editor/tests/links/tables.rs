@@ -10,11 +10,15 @@ const TWO: &str = "| a | b |\n| - | - |\n| c | d |\n";
 const NOTE: &str = "intro\n\n| a |\n| - |\n| b |\n\nafter\n";
 
 fn link(source: &str, at: (usize, usize)) -> (EditorSession, bool) {
+    link_to(source, at, URL)
+}
+
+fn link_to(source: &str, at: (usize, usize), destination: &str) -> (EditorSession, bool) {
     let mut session = EditorSession::open(source);
     let at = range(at.0, at.1);
     session.select(Revision(0), at).unwrap();
     let changed = session
-        .set_link(Revision(0), at, URL, &mut |_| Ok(()))
+        .set_link(Revision(0), at, destination, &mut |_| Ok(()))
         .unwrap()
         .is_some();
     (session, changed)
@@ -41,8 +45,12 @@ fn shape(session: &EditorSession) -> (Vec<Vec<String>>, usize) {
 /// The command is accepted, leaves the table's rows and cells and the display
 /// text as they were, and Undo restores the source.
 fn assert_links(source: &str, at: (usize, usize), expected: &str) {
+    assert_links_to(source, at, URL, expected);
+}
+
+fn assert_links_to(source: &str, at: (usize, usize), destination: &str, expected: &str) {
     let before = EditorSession::open(source);
-    let (mut session, changed) = link(source, at);
+    let (mut session, changed) = link_to(source, at, destination);
     assert!(changed, "{source:?} {at:?}");
     assert_eq!(session.source_text(), expected, "{source:?} {at:?}");
     assert_eq!(shape(&session), shape(&before), "{source:?} {at:?}");
@@ -61,11 +69,11 @@ fn assert_refused(source: &str, at: (usize, usize)) {
 
 #[test]
 fn a_link_inside_one_cell_stays_in_the_cell() {
-    assert_links(ONE, (2, 3), "| [a](<https://x.y>) |\n| - |\n| b |");
+    assert_links(ONE, (2, 3), "| [a](https://x.y) |\n| - |\n| b |");
     assert_links(
         TWO,
         (6, 7),
-        "| a | [b](<https://x.y>) |\n| - | - |\n| c | d |\n",
+        "| a | [b](https://x.y) |\n| - | - |\n| c | d |\n",
     );
 }
 
@@ -75,7 +83,7 @@ fn a_link_at_a_caret_in_a_cell_inserts_the_destination_there() {
     assert!(changed);
     assert_eq!(
         session.source_text(),
-        "| a[https://x.y](<https://x.y>) |\n| - |\n| b |"
+        "| a[https://x.y](https://x.y) |\n| - |\n| b |"
     );
     assert_eq!(
         shape(&session),
@@ -88,13 +96,13 @@ fn a_link_over_the_whole_table_links_each_cell() {
     assert_links(
         ONE,
         (0, 17),
-        "| [a](<https://x.y>) |\n| - |\n| [b](<https://x.y>) |",
+        "| [a](https://x.y) |\n| - |\n| [b](https://x.y) |",
     );
     assert_links(
         TWO,
         (0, 29),
-        "| [a](<https://x.y>) | [b](<https://x.y>) |\n| - | - |\n\
-         | [c](<https://x.y>) | [d](<https://x.y>) |\n",
+        "| [a](https://x.y) | [b](https://x.y) |\n| - | - |\n\
+         | [c](https://x.y) | [d](https://x.y) |\n",
     );
 }
 
@@ -103,15 +111,15 @@ fn a_link_across_cells_of_a_row_or_across_rows_links_each_cell() {
     assert_links(
         TWO,
         (2, 7),
-        "| [a](<https://x.y>) | [b](<https://x.y>) |\n| - | - |\n| c | d |\n",
+        "| [a](https://x.y) | [b](https://x.y) |\n| - | - |\n| c | d |\n",
     );
     assert_links(
         ONE,
         (2, 15),
-        "| [a](<https://x.y>) |\n| - |\n| [b](<https://x.y>) |",
+        "| [a](https://x.y) |\n| - |\n| [b](https://x.y) |",
     );
     // Ending in the delimiter row reaches only the cell it starts in.
-    assert_links(ONE, (2, 8), "| [a](<https://x.y>) |\n| - |\n| b |");
+    assert_links(ONE, (2, 8), "| [a](https://x.y) |\n| - |\n| b |");
 }
 
 #[test]
@@ -119,18 +127,18 @@ fn a_link_from_a_paragraph_into_a_cell_or_back_leaves_the_table_intact() {
     assert_links(
         NOTE,
         (2, 10),
-        "in[tro](<https://x.y>)\n\n| [a](<https://x.y>) |\n| - |\n| b |\n\nafter\n",
+        "in[tro](https://x.y)\n\n| [a](https://x.y) |\n| - |\n| b |\n\nafter\n",
     );
     assert_links(
         NOTE,
         (21, 29),
-        "intro\n\n| a |\n| - |\n| [b](<https://x.y>) |\n\n[aft](<https://x.y>)er\n",
+        "intro\n\n| a |\n| - |\n| [b](https://x.y) |\n\n[aft](https://x.y)er\n",
     );
     assert_links(
         NOTE,
         (0, 31),
-        "[intro](<https://x.y>)\n\n| [a](<https://x.y>) |\n| - |\n| [b](<https://x.y>) |\n\n\
-         [after](<https://x.y>)\n",
+        "[intro](https://x.y)\n\n| [a](https://x.y) |\n| - |\n| [b](https://x.y) |\n\n\
+         [after](https://x.y)\n",
     );
 }
 
@@ -141,27 +149,23 @@ fn a_link_over_pipes_the_delimiter_row_or_outside_a_cell_changes_nothing() {
     }
 }
 
+/// In a cell a destination's `|` is written `\|`, so it never adds a cell;
+/// Undo restores the exact bytes.
 #[test]
-fn a_destination_with_a_pipe_never_adds_a_cell() {
-    let mut session = EditorSession::open(ONE);
-    session.select(Revision(0), range(2, 3)).unwrap();
-    let changed = session
-        .set_link(Revision(0), range(2, 3), "https://x.y/a|b", &mut |_| Ok(()))
-        .unwrap();
-    assert!(changed.is_none());
-    assert_eq!(session.source_text(), ONE);
-    let mut session = EditorSession::open(ONE);
-    session.select(Revision(0), range(2, 15)).unwrap();
-    let changed = session
-        .set_link(
-            Revision(0),
-            range(2, 15),
-            "https://x.y/a|b",
-            &mut |_| Ok(()),
-        )
-        .unwrap();
-    assert!(changed.is_none());
-    assert_eq!(session.source_text(), ONE);
+fn a_destination_with_a_pipe_is_written_escaped_and_never_adds_a_cell() {
+    let pipe = "https://x.y/a|b";
+    assert_links_to(
+        ONE,
+        (2, 3),
+        pipe,
+        "| [a](https://x.y/a\\|b) |\n| - |\n| b |",
+    );
+    assert_links_to(
+        ONE,
+        (2, 15),
+        pipe,
+        "| [a](https://x.y/a\\|b) |\n| - |\n| [b](https://x.y/a\\|b) |",
+    );
 }
 
 #[test]
@@ -209,80 +213,24 @@ fn assert_keeps_tables(source: &str, at: (usize, usize), destination: &str) {
 }
 
 #[test]
-fn a_delimiter_row_the_body_walk_reads_as_a_list_item_links_each_cell() {
-    let (a, b) = ("[a](<https://x.y>)", "[b](<https://x.y>)");
-    let (c, d) = ("[c](<https://x.y>)", "[d](<https://x.y>)");
-    assert_links(
-        "a | b\n- | -\nc | d",
-        (0, 15),
-        &format!("{a} | {b}\n- | -\n{c} | {d}"),
-    );
-    assert_links(
-        "a | b\n- | -\nc | d",
-        (4, 8),
-        &format!("a | {b}\n- | -\nc | d"),
-    );
-    assert_links(
-        "| a | b |\n- | -\n| c | d |",
-        (0, 23),
-        &format!("| {a} | {b} |\n- | -\n| {c} | {d} |"),
-    );
-    assert_links(
-        "intro\n\na | b\n- | -\nc | d",
-        (0, 22),
-        &format!("[intro](<https://x.y>)\n\n{a} | {b}\n- | -\n{c} | {d}"),
-    );
-}
-
-#[test]
 fn a_pipeless_row_links_each_row_never_across_rows_or_a_pipe() {
     assert_links(
         "| a |\n| - |\nb\nc\n",
         (12, 15),
-        "| a |\n| - |\n[b](<https://x.y>)\n[c](<https://x.y>)\n",
+        "| a |\n| - |\n[b](https://x.y)\n[c](https://x.y)\n",
     );
     assert_keeps_tables("| a | b |\n| - | - |\nc d\n\nafter", (22, 30), "x|y");
     assert_keeps_tables("| a | b |\n| - | - |\nc d\n\nafter", (20, 30), "x|y");
 }
 
 #[test]
-fn an_edit_that_unescapes_a_kept_pipe_changes_nothing() {
-    let source = "| [a](<https://x.y/a\\|b>) | c |\n| - | - |\n";
-    let mut session = EditorSession::open(source);
-    session.select(Revision(0), range(0, 20)).unwrap();
-    let changed = session
-        .set_link(
-            Revision(0),
-            range(0, 20),
-            "https://x.y/c|b",
-            &mut |_| Ok(()),
-        )
-        .unwrap();
-    assert!(changed.is_none());
-    assert_eq!(session.source_text(), source);
-}
-
-#[test]
-fn the_selection_keeps_its_text_when_a_definition_is_revealed_above_it() {
-    let source = "[id]: /x\n\n| [a][id] |\n| - |";
-    let mut session = EditorSession::open(source);
-    let (before, at) = (session.display_text(), range(0, 11));
-    session.select(Revision(0), at).unwrap();
-    let text = &before[0..11];
-    let change = session
-        .set_link(Revision(0), at, "/new", &mut |_| Ok(()))
-        .unwrap()
-        .unwrap();
-    let selected = session.selection();
-    assert_eq!(selected, range(10, 21));
-    assert_eq!(change.selection, selected);
-    assert_eq!(
-        &session.display_text()[selected.start.0..selected.end.0],
-        text
+fn a_new_destination_for_a_link_with_a_kept_pipe_keeps_its_pipes_escaped() {
+    assert_links_to(
+        "| [a](<https://x.y/a\\|b>) | c |\n| - | - |\n",
+        (0, 20),
+        "https://x.y/c|b",
+        "| [a](https://x.y/c\\|b) | [c](https://x.y/c\\|b) |\n| - | - |\n",
     );
-    session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
-    assert_eq!(session.source_text(), source);
-    assert_eq!(session.selection(), at);
 }
 
 /// A command over text inside existing links keeps the selection on the same

@@ -15,6 +15,10 @@ name = "futo_notes_search"
 # `log_to_stderr!`, the non-panicking diagnostic line.
 futo-notes-core = { path = "../futo-notes-core" }
 
+# The `tags` field: the canonical tag rule, so search and the editor agree on
+# what is a tag and what is code.
+futo-notes-tags = { path = "../futo-notes-tags" }
+
 # Full-text engine.
 tantivy = "0.26"
 

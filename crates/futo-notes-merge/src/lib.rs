@@ -357,6 +357,19 @@ mod tests {
     }
 
     #[test]
+    fn a_removed_final_line_ending_merges_with_an_edit_elsewhere() {
+        // One side deletes the note's final empty line, the other edits the top.
+        assert_eq!(
+            three_way_merge("a\nb\n", "a\nb", "A\nb\n"),
+            MergeResult::Clean("A\nb".to_string())
+        );
+        assert_eq!(
+            three_way_merge("a\nb", "a\nb\n", "A\nb"),
+            MergeResult::Clean("A\nb\n".to_string())
+        );
+    }
+
+    #[test]
     fn qa_scenario4_paragraph_merge_no_trailing_newline() {
         let base = "qa threeway merge test\n\nParagraph one: unchanged by both clients.\n\nParagraph two: client will edit this paragraph.\n\nParagraph three: peer will edit this paragraph.";
         let ours = "qa threeway merge test\n\nParagraph one: unchanged by both clients.\n\nParagraph two: client will edit this paragraph.\n\nParagraph three: PEER EDITED THIS PARAGRAPH during three-way merge test.";

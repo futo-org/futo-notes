@@ -1,0 +1,38 @@
+[
+ {
+  "name": "Typing a dash and a space makes a bullet",
+  "before": "‸milk",
+  "command": "type:- ",
+  "after": "- ‸milk"
+ },
+ {
+  "name": "Typing a number and a space makes a numbered item",
+  "before": "‸",
+  "command": "type:12. ",
+  "after": "12. ‸"
+ },
+ {
+  "name": "Typing a box after a bullet makes a task",
+  "before": "- ‸",
+  "command": "type:[ ] ",
+  "after": "- [ ] ‸"
+ },
+ {
+  "name": "Typing a number into an empty bullet is its text",
+  "before": "- ‸",
+  "command": "type:1. x",
+  "after": "- 1. x‸"
+ },
+ {
+  "name": "Typing a ten-digit number makes a numbered item",
+  "before": "‸",
+  "command": "type:1000000000. ",
+  "after": "1000000000. ‸"
+ },
+ {
+  "name": "Typing a bullet under text inserts nothing else",
+  "before": "para\n‸",
+  "command": "type:- ",
+  "after": "para\n- ‸"
+ }
+]

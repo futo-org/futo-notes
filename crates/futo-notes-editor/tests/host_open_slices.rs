@@ -1,7 +1,5 @@
 use futo_notes_editor::host::{plan_quick_open, plan_styles, plan_tables, DisplayMirror};
-use futo_notes_editor::{
-    may_define_reference, quick_open, DisplayOffset, DisplayRange, EditorSession,
-};
+use futo_notes_editor::{quick_open, DisplayOffset, DisplayRange, EditorSession};
 
 /// The render-slice rule written out on UTF-16 units, the way a platform string holds them.
 fn naive(units: &[u16], from: usize, chars: usize) -> usize {
@@ -124,9 +122,7 @@ fn the_quick_plan_is_the_whole_notes_plan_of_the_same_range() {
     while !doc.is_char_boundary(end) {
         end -= 1;
     }
-    let rest = &doc.as_bytes()[end.saturating_sub(1)..];
-    let quick = quick_open(&doc[..end], || may_define_reference(rest), Vec::new)
-        .expect("a quick open stands");
+    let quick = quick_open(&doc[..end], Vec::new).expect("a quick open stands");
     let planned = plan_quick_open(&quick);
     assert!(!planned.is_empty());
 

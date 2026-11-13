@@ -1,9 +1,8 @@
 //! The cross-block selection checker, shared by the integration tests and
-//! the in-crate property run (`session/blocks/cross_code_tests.rs`), and its
-//! block oracle: pulldown-cmark read on its own, not the engine.
+//! its oracle: what a fresh session on the resulting text reads, line by line
+//! and character by character.
 #![allow(dead_code)] // each includer uses its own part
 use super::*;
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 pub(crate) fn range(a: usize, b: usize) -> DisplayRange {
     DisplayRange {
@@ -125,92 +124,74 @@ pub(crate) fn apply(
     }
 }
 
-/// A shown line's block, read from the parser on its own: code, heading
-/// level, quote depth and list nesting.
+/// A shown line's block, as a fresh session reads it: code, heading level,
+/// quote depth, divider, front matter, the line's own indent and its list
+/// marker (ordered or not, task state). A number is left out: Enter in a
+/// numbered item may renumber the items below it.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Kind {
     code: bool,
     heading: u8,
     quote: u8,
-    list: u8,
-    /// The line begins its paragraph, heading, item or code block.
+    divider: bool,
+    metadata: bool,
+    indent: usize,
+    /// `Some(ordered)` on a list item.
+    list: Option<bool>,
+    checked: Option<bool>,
+    /// The line begins its code block, or is not code. Two code blocks
+    /// whose hidden fences touch read as one here.
     starts: bool,
 }
 
-/// Each nonblank shown line's text and `Kind`.
+/// A fresh session's projection of the whole of `source`.
+fn fresh(source: &str) -> ProjectionSlice {
+    let session = EditorSession::open(source);
+    let end = DisplayOffset(session.display_text().len());
+    session
+        .project(
+            session.revision(),
+            DisplayRange {
+                start: DisplayOffset(0),
+                end,
+            },
+        )
+        .unwrap()
+}
+
+/// Each nonblank shown line's text and `Kind`, as a fresh session reads them.
 pub(crate) fn lines(source: &str) -> Vec<(String, Kind)> {
-    let options = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
-    let mut out: Vec<(String, Kind)> = Vec::new();
-    let mut line = String::new();
-    let mut kind = Kind {
-        code: false,
-        heading: 0,
-        quote: 0,
-        list: 0,
-        starts: false,
-    };
-    // The kind of the line being read, and whether a block began before it.
-    let mut line_kind = kind.clone();
-    let mut fresh = false;
-    let mut flush = |line: &mut String, kind: &Kind, fresh: &mut bool| {
-        let text = line.trim_end_matches('\r');
+    let slice = fresh(source);
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut previous_code = false;
+    for text in slice.text.split('\n') {
+        let block = slice
+            .blocks
+            .iter()
+            .find(|block| block.range.start.0 <= start && start <= block.range.end.0);
+        let code = block.is_some_and(|block| block.code);
+        let list = block.and_then(|block| block.list.as_ref());
+        let item = list.filter(|list| !list.marker.is_empty());
         if !text.trim().is_empty() {
-            let starts = std::mem::take(fresh);
             out.push((
-                text.to_owned(),
+                text.trim_end_matches('\r').to_owned(),
                 Kind {
-                    starts,
-                    ..kind.clone()
+                    code,
+                    heading: block.map_or(0, |block| block.heading),
+                    quote: block.map_or(0, |block| block.quote_depth as u8),
+                    divider: block.is_some_and(|block| block.divider),
+                    metadata: block.is_some_and(|block| block.metadata),
+                    indent: list.map_or(0, |list| list.indent),
+                    list: item.map(|list| list.ordered),
+                    checked: item.and_then(|list| list.checked),
+                    starts: !(code && previous_code),
                 },
             ));
         }
-        line.clear();
-    };
-    for event in Parser::new_ext(source, options) {
-        match event {
-            Event::Start(tag) => {
-                match tag {
-                    Tag::CodeBlock(_) => kind.code = true,
-                    Tag::Heading { level, .. } => kind.heading = level as u8,
-                    Tag::BlockQuote(_) => kind.quote += 1,
-                    Tag::Item => kind.list += 1,
-                    _ => {}
-                }
-                if matches!(
-                    tag,
-                    Tag::Paragraph | Tag::Heading { .. } | Tag::CodeBlock(_) | Tag::Item
-                ) {
-                    flush(&mut line, &line_kind, &mut fresh);
-                    fresh = true;
-                }
-                line_kind = kind.clone();
-            }
-            Event::End(end) => {
-                flush(&mut line, &line_kind, &mut fresh);
-                match end {
-                    TagEnd::CodeBlock => kind.code = false,
-                    TagEnd::Heading(_) => kind.heading = 0,
-                    TagEnd::BlockQuote(_) => kind.quote -= 1,
-                    TagEnd::Item => kind.list -= 1,
-                    _ => {}
-                }
-                line_kind = kind.clone();
-            }
-            Event::Text(text) | Event::Code(text) if line_kind.code => {
-                let mut parts = text.split('\n').peekable();
-                while let Some(part) = parts.next() {
-                    line.push_str(part);
-                    if parts.peek().is_some() {
-                        flush(&mut line, &line_kind, &mut fresh);
-                    }
-                }
-            }
-            Event::Text(text) | Event::Code(text) => line.push_str(&text),
-            Event::SoftBreak | Event::HardBreak => flush(&mut line, &line_kind, &mut fresh),
-            _ => {}
-        }
+        previous_code = code;
+        start += text.len() + 1;
     }
-    flush(&mut line, &line_kind, &mut fresh);
     out
 }
 
@@ -302,10 +283,13 @@ fn exactly_replaced(
             .count()
     };
     // The oracle reads lines as the display shows them, or it is no oracle.
-    if old_lines.iter().map(|line| line.0.as_str()).eq(old
-        .split('\n')
-        .map(|line| line.trim_end_matches('\r'))
-        .filter(|line| !line.trim().is_empty()))
+    assert!(
+        old_lines.iter().map(|line| line.0.as_str()).eq(old
+            .split('\n')
+            .map(|line| line.trim_end_matches('\r'))
+            .filter(|line| !line.trim().is_empty())),
+        "{label}: the oracle's lines are not the display's"
+    );
     {
         let before = nonblank(&old[..old[..a].rfind('\n').map_or(0, |at| at + 1)]);
         let after = old[b..]
@@ -334,59 +318,51 @@ fn exactly_replaced(
     }
 }
 
-/// Inline formatting the parser gives one character.
+/// Inline formatting a fresh session gives one character.
 const CODE: u8 = 1;
 const EMPHASIS: u8 = 2;
 const STRONG: u8 = 4;
 const STRIKE: u8 = 8;
 const LINK: u8 = 16;
+/// Not a format: the character is on a code line.
+const CODE_LINE: u8 = 32;
 
-/// Each nonblank character the parser reads in `source`, with its formatting.
+/// Each nonblank shown character of `source`, with its formatting.
 fn formatted(source: &str) -> Vec<(char, u8)> {
-    let options = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
-    let (mut flags, mut out) = (0u8, Vec::new());
-    let mut depth = [0u32; 5];
-    let at = |bit: u8| bit.trailing_zeros() as usize;
-    for event in Parser::new_ext(source, options) {
-        match event {
-            Event::Start(tag) => {
-                let bit = match tag {
-                    Tag::Emphasis => EMPHASIS,
-                    Tag::Strong => STRONG,
-                    Tag::Strikethrough => STRIKE,
-                    Tag::Link { .. } => LINK,
-                    _ => continue,
-                };
-                depth[at(bit)] += 1;
-                flags |= bit;
-            }
-            Event::End(end) => {
-                let bit = match end {
-                    TagEnd::Emphasis => EMPHASIS,
-                    TagEnd::Strong => STRONG,
-                    TagEnd::Strikethrough => STRIKE,
-                    TagEnd::Link => LINK,
-                    _ => continue,
-                };
-                depth[at(bit)] -= 1;
-                if depth[at(bit)] == 0 {
-                    flags &= !bit;
+    let slice = fresh(source);
+    let within = |range: &DisplayRange, at: usize| range.start.0 <= at && at < range.end.0;
+    slice
+        .text
+        .char_indices()
+        .filter(|(_, ch)| !ch.is_whitespace())
+        .map(|(at, ch)| {
+            let mut flags = 0;
+            for run in slice.runs.iter().filter(|run| within(&run.range, at)) {
+                for format in &run.formats {
+                    flags |= match format {
+                        InlineFormat::Code => CODE,
+                        InlineFormat::Italic => EMPHASIS,
+                        InlineFormat::Bold => STRONG,
+                        InlineFormat::Strike => STRIKE,
+                    };
                 }
             }
-            Event::Text(text) => out.extend(
-                text.chars()
-                    .filter(|ch| !ch.is_whitespace())
-                    .map(|ch| (ch, flags)),
-            ),
-            Event::Code(text) => out.extend(
-                text.chars()
-                    .filter(|ch| !ch.is_whitespace())
-                    .map(|ch| (ch, flags | CODE)),
-            ),
-            _ => {}
-        }
-    }
-    out
+            if slice.links.iter().any(|link| within(&link.range, at)) {
+                flags |= LINK;
+            }
+            let line =
+                |block: &&BlockDescription| block.range.start.0 <= at && at <= block.range.end.0;
+            if slice
+                .blocks
+                .iter()
+                .find(line)
+                .is_some_and(|block| block.code)
+            {
+                flags |= CODE_LINE;
+            }
+            (ch, flags)
+        })
+        .collect()
 }
 
 /// A text service keeps the characters its replacement shares with the
@@ -396,9 +372,9 @@ fn formatted(source: &str) -> Vec<(char, u8)> {
 /// and only inline formatting is compared: a block's kind is the lines check's
 /// (a one-run plan lands a character the service shares with a code line in
 /// the line it joins). Inside the range a character the diff keeps may gain no
-/// formatting (plain text turned into code, emphasis or a link); it may lose
-/// some, as kept text that joins a code block (as typing joins it) loses its
-/// inline formats. The oracle cannot see code-block text: it reads as plain.
+/// formatting (plain text turned into code, emphasis or a link), and may lose
+/// it only on a code line: kept text that joins a code block (as typing joins
+/// it) loses its inline formats.
 #[allow(clippy::too_many_arguments)]
 fn unchanged_text_keeps_its_formatting(
     note: &str,
@@ -417,10 +393,11 @@ fn unchanged_text_keeps_its_formatting(
             .collect::<Vec<_>>()
     };
     // The oracle reads text as the display shows it, or it is no oracle.
-    if before.iter().map(|c| c.0).ne(nonblank(old)) || after.iter().map(|c| c.0).ne(nonblank(shown))
-    {
-        return;
-    }
+    assert!(
+        before.iter().map(|c| c.0).eq(nonblank(old))
+            && after.iter().map(|c| c.0).eq(nonblank(shown)),
+        "{label}: the oracle's characters are not the display's"
+    );
     let inserted = input.shown(&old[a..b]);
     // Per nonblank character of the new display: the formatting it keeps from
     // the old one, or none if inserted.
@@ -470,10 +447,11 @@ fn unchanged_text_keeps_its_formatting(
     let holds = expected.len() == after.len()
         && expected.iter().zip(&after).all(|(want, got)| {
             want.is_none_or(|(flags, exact)| {
+                let (was, now) = (flags & !CODE_LINE, got.1 & !CODE_LINE);
                 if exact {
-                    flags == got.1
+                    was == now
                 } else {
-                    got.1 & !flags == 0
+                    now & !was == 0 && (now == was || got.1 & CODE_LINE != 0)
                 }
             })
         });

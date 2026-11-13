@@ -91,7 +91,6 @@ fn tables_project_cells_and_alignment_and_only_real_tables() {
         "```\n| a |\n| - |\n```\n",
         "> | a |\n> | - |\n",
         "- | a |\n  | - |\n",
-        "| a | b |\n| - |\n",
     ] {
         let session = EditorSession::open(plain);
         assert!(
@@ -105,40 +104,36 @@ fn tables_project_cells_and_alignment_and_only_real_tables() {
 }
 
 #[test]
-fn cell_edits_escape_pipes_keep_formats_and_never_touch_other_cells() {
-    let mut session = EditorSession::open("| **a** | b |\n| - | - |\n| c | d |\n");
-    let a = caret_in(&mut session, 0, 0);
-    typed(&mut session, a, "|");
+fn cell_edits_land_as_typed_and_undo_restores_exact_bytes() {
+    let original = "| a | b |\n| - | - |\n| **c** | d |\n";
+    let mut session = EditorSession::open(original);
+    // A typed pipe lands as typed: the row gains a cell.
+    let c = caret_in(&mut session, 1, 0);
+    typed(&mut session, c, "|");
     assert_eq!(
         session.source_text(),
-        "| **a|** | b |\n| - | - |\n| c | d |\n".replace("a|", "a\\|")
+        "| a | b |\n| - | - |\n| **c|** | d |\n"
     );
-    let c = cell(&session, 1, 0);
-    typed(&mut session, c, "x\ny");
+    let d = caret_in(&mut session, 1, 2);
+    typed(&mut session, d, "\\|");
     assert_eq!(
         session.source_text(),
-        "| **a\\|** | b |\n| - | - |\n| x y | d |\n"
+        "| a | b |\n| - | - |\n| **c|** | d\\| |\n"
     );
-    let before = session.source_text();
-    // A typed backslash before a typed pipe would read as a delimiter.
-    let d = caret_in(&mut session, 1, 1);
-    typed(&mut session, d, "\\");
-    let at = caret_in(&mut session, 1, 1);
-    let error = session
-        .replace(session.revision(), at, "|", &mut |_| Ok(()))
-        .unwrap_err();
-    assert_eq!(error, EditorError::UnrepresentableFormat);
-    assert_ne!(session.source_text(), before);
+    // A typed line break breaks the row's line.
+    let b = cell(&session, 0, 1);
+    typed(&mut session, b, "x\ny");
+    assert_eq!(
+        session.source_text(),
+        "| a | x\ny |\n| - | - |\n| **c|** | d\\| |\n"
+    );
     // Undo reverses the cell edits exactly.
     while session
         .undo(session.revision(), &mut |_| Ok(()))
         .unwrap()
         .is_some()
     {}
-    assert_eq!(
-        session.source_text(),
-        "| **a** | b |\n| - | - |\n| c | d |\n"
-    );
+    assert_eq!(session.source_text(), original);
 }
 
 #[test]
@@ -169,14 +164,14 @@ fn every_input_path_escapes_pipes_inside_a_cell() {
                 .unwrap();
         }),
     ];
-    // Only the pipe is escaped; the rest reads as Markdown.
+    // Nothing is escaped: every path writes the pipe as given.
     for (name, path) in paths {
         let mut session = EditorSession::open(GRID);
         let at = caret_in(&mut session, 0, 0);
         path(&mut session, at);
         assert_eq!(
             session.source_text(),
-            GRID.replace("| a |", "| ax\\|*y* |"),
+            GRID.replace("| a |", "| ax|*y* |"),
             "{name}"
         );
     }
@@ -195,9 +190,11 @@ fn every_input_path_escapes_pipes_inside_a_cell() {
     assert_eq!(session.source_text(), GRID);
     enter(&mut session, ParagraphKey::Enter);
     assert_eq!(session.source_text(), format!("{GRID}|  |  |\n"));
+    // Shift+Enter is Enter: a cell holds one line.
     caret_in(&mut session, 1, 1);
-    enter(&mut session, ParagraphKey::ShiftEnter);
-    assert!(session.source_text().contains("| d<br> |"));
+    let moved = enter(&mut session, ParagraphKey::ShiftEnter);
+    assert_eq!(moved.selection, cell(&session, 2, 1));
+    assert_eq!(session.source_text(), format!("{GRID}|  |  |\n"));
 }
 
 #[test]
@@ -222,30 +219,31 @@ fn keys_navigate_extend_exit_and_break_with_exact_bytes() {
     key(&mut session, TableKey::Tab);
     assert_eq!(session.source_text(), format!("{GRID}|  |  |\n|  |  |\n"));
     assert_eq!(session.selection().start, cell(&session, 3, 0).start);
-    // Shift+Enter writes <br> in the cell; Shift+Tab in the first cell is the host's.
+    // Shift+Enter is Enter; Shift+Tab in the first cell is the host's.
     caret_in(&mut session, 1, 0);
     key(&mut session, TableKey::ShiftEnter);
-    assert!(session.source_text().contains("| c<br> | d |"));
+    assert_eq!(session.selection(), cell(&session, 2, 0));
+    assert_eq!(session.source_text(), format!("{GRID}|  |  |\n|  |  |\n"));
     caret_in(&mut session, 0, 0);
     assert!(key(&mut session, TableKey::ShiftTab).is_none());
-    // Mod+Enter leaves a blank line and an empty line after the table.
+    // Mod+Enter leaves the caret on an empty line after the table.
     let mut exit = EditorSession::open("| a |\n| - |\n| b |");
     caret_in(&mut exit, 1, 0);
     key(&mut exit, TableKey::ModEnter);
-    assert_eq!(exit.source_text(), "| a |\n| - |\n| b |\n\n");
+    assert_eq!(exit.source_text(), "| a |\n| - |\n| b |\n");
     assert_eq!(exit.selection().start.0, exit.display_text().len());
+    // An empty line already after the table is reused, not written again.
     let mut middle = EditorSession::open("| a |\r\n| - |\r\n\r\nnext\r\n");
     caret_in(&mut middle, 0, 0);
     key(&mut middle, TableKey::ModEnter);
-    assert_eq!(
-        middle.source_text(),
-        "| a |\r\n| - |\r\n\r\n\r\n\r\nnext\r\n"
-    );
-    // A lone `|` body row is filled to the table's width, no cell over.
+    assert_eq!(middle.source_text(), "| a |\r\n| - |\r\n\r\nnext\r\n");
+    let line = "| a |\r\n| - |\r\n".len();
+    assert_eq!(middle.selection(), range(line, line));
+    // A lone `|` body row gains cells up to the one the caret enters.
     let mut lone = EditorSession::open("| a | b |\n| - | - |\n|\n");
     caret_in(&mut lone, 0, 1);
     key(&mut lone, TableKey::Tab);
-    assert_eq!(lone.source_text(), "| a | b |\n| - | - |\n|  |  |\n");
+    assert_eq!(lone.source_text(), "| a | b |\n| - | - |\n|  |\n");
     assert_eq!(lone.selection().start, cell(&lone, 1, 0).start);
     // Outside a table every key is the paragraph path's.
     let mut prose = EditorSession::open("plain\n");
@@ -300,55 +298,12 @@ fn rows_and_columns_insert_and_delete_preserving_untouched_bytes_and_alignment()
             "|a|  |  b  |\n|:--| --- |--:|\n|x|  |y|\n|z|\n",
         ),
         (wide, 0, 1, DeleteColumn, "|a|\n|:--|\n|x|\n|z|\n"),
-        // A pipeless table keeps pipes once one column remains.
-        (
-            "a | b\n--- | ---\n1 | 2\n",
-            0,
-            0,
-            DeleteColumn,
-            "| b |\n| --- |\n| 2 |\n",
-        ),
-        (
-            "a | b\n--- | ---\n1 | 2\n",
-            1,
-            1,
-            DeleteColumn,
-            "| a |\n| --- |\n| 1 |\n",
-        ),
-        (
-            "a | b\n--|--\n1\n",
-            0,
-            0,
-            DeleteColumn,
-            "| b |\n| -- |\n|  |\n",
-        ),
         (
             wide,
             1,
             0,
             InsertRowBelow,
             "|a|  b  |\n|:--|--:|\n|x|y|\n|  |  |\n|z|\n",
-        ),
-        (
-            "a | b\n--|--\n1 | 2",
-            0,
-            0,
-            InsertColumnRight,
-            "a |  | b\n--| --- |--\n1 |  | 2",
-        ),
-        (
-            "a | b\n--|--\n1 | 2",
-            1,
-            1,
-            InsertColumnRight,
-            "a | b |  |\n--|-- | --- |\n1 | 2 |  |",
-        ),
-        (
-            "a | b\n--|--\n1 | 2",
-            0,
-            0,
-            InsertColumnLeft,
-            "|  | a | b\n| --- | --|--\n|  | 1 | 2",
         ),
         (
             "| a |\n| - |\n",
@@ -504,11 +459,9 @@ fn portable_table_steps_wait_for_acceptance_but_selection_moves_do_not() {
     else {
         panic!("Tab selects the next cell");
     };
-    page.replace(Revision(0), range(6, 7), "x|").unwrap();
-    assert_eq!(
-        page.draft_text(),
-        "| a | x\\| |\n| --- | :-: |\n| c | d |\n"
-    );
+    // A typed pipe lands as typed: the body row gains a cell.
+    page.replace(Revision(0), range(30, 31), "x|").unwrap();
+    assert_eq!(page.draft_text(), "| a | b |\n| --- | :-: |\n| c | x| |\n");
     assert!(page
         .inspect_table(Revision(1), range(0, 0))
         .unwrap()
@@ -529,7 +482,7 @@ fn markdown_paste_inside_a_table_joins_into_the_cell_and_refuses_across_cells() 
         session
             .paste_markdown(session.revision(), across, "z", &mut |_| Ok(()))
             .unwrap_err(),
-        EditorError::InvalidRange
+        EditorError::UnrepresentableFormat
     );
 }
 
@@ -552,14 +505,18 @@ fn utf16_variants_address_cells_in_native_units_and_reject_split_surrogates() {
         session.inspect_table_utf16(Revision(0), split),
         Err(EditorError::InvalidRange)
     );
+    // A typed pipe lands as typed: the body row gains a cell.
+    let c = session
+        .display_to_utf16(Revision(0), cell(&session, 1, 0))
+        .unwrap();
     let caret = DisplayUtf16Range {
-        start: native.end,
-        end: native.end,
+        start: c.end,
+        end: c.end,
     };
     session
         .replace_utf16(Revision(0), caret, &[0x7c, 0x78], &mut |_| Ok(()))
         .unwrap();
-    assert!(session.source_text().starts_with("| \u{1F600}a\\|x | b |"));
+    assert!(session.source_text().ends_with("| c|x | d |\n"));
     let at = cell(&session, 0, 0);
     let native = session.display_to_utf16(session.revision(), at).unwrap();
     session

@@ -1,0 +1,310 @@
+[
+ {
+  "name": "accepting replaces the run and leaves the caret after the link",
+  "before": "a [[Ro‸ b",
+  "command": "accept_completion",
+  "arg": "Projects/Roadmap",
+  "after": "a [[Projects/Roadmap]]‸ b"
+ },
+ {
+  "name": "an auto-closed ]] after the caret is replaced too",
+  "before": "x [[Ro‸]] y",
+  "command": "accept_completion",
+  "arg": "Projects/Roadmap",
+  "after": "x [[Projects/Roadmap]]‸ y"
+ },
+ {
+  "name": "an empty query accepts",
+  "before": "[[‸",
+  "command": "accept_completion",
+  "arg": "Projects/Roadmap",
+  "after": "[[Projects/Roadmap]]‸"
+ },
+ {
+  "name": "a completed link earlier on the line is left alone",
+  "before": "[[a]] and [[Wo‸",
+  "command": "accept_completion",
+  "arg": "Work/Notes",
+  "after": "[[a]] and [[Work/Notes]]‸"
+ },
+ {
+  "name": "in a list item",
+  "before": "- see [[Ro‸",
+  "command": "accept_completion",
+  "arg": "Projects/Roadmap",
+  "after": "- see [[Projects/Roadmap]]‸"
+ },
+ {
+  "name": "in a heading",
+  "before": "# [[No‸",
+  "command": "accept_completion",
+  "arg": "Work/Notes",
+  "after": "# [[Work/Notes]]‸"
+ },
+ {
+  "name": "in a quote",
+  "before": "> [[Ro‸",
+  "command": "accept_completion",
+  "arg": "Projects/Roadmap",
+  "after": "> [[Projects/Roadmap]]‸"
+ },
+ {
+  "name": "an indented line is a plain line, not code",
+  "before": "    [[Ro‸",
+  "command": "accept_completion",
+  "arg": "Projects/Roadmap",
+  "after": "    [[Projects/Roadmap]]‸"
+ },
+ {
+  "name": "in a table cell",
+  "before": "| a | [[Ro‸ |\n|---|---|",
+  "command": "accept_completion",
+  "arg": "Projects/Roadmap",
+  "after": "| a | [[Projects/Roadmap]]‸ |\n|---|---|"
+ },
+ {
+  "name": "an unclosed backtick is text",
+  "before": "`[[Ro‸",
+  "command": "accept_completion",
+  "arg": "Projects/Roadmap",
+  "after": "`[[Projects/Roadmap]]‸"
+ },
+ {
+  "name": "on the second line",
+  "before": "[[a\n[[Ro‸",
+  "command": "accept_completion",
+  "arg": "Projects/Roadmap",
+  "after": "[[a\n[[Projects/Roadmap]]‸"
+ },
+ {
+  "name": "a query in another script",
+  "before": "[[i‸",
+  "command": "accept_completion",
+  "arg": "Ünï/İstanbul",
+  "after": "[[Ünï/İstanbul]]‸"
+ },
+ {
+  "name": "add creates the block with its separator",
+  "before": "body‸",
+  "command": "add_header_tag",
+  "arg": "Work Stuff",
+  "after": "#work_stuff\n\nbody‸"
+ },
+ {
+  "name": "add to an empty note writes only the tag, after the caret",
+  "before": "‸",
+  "command": "add_header_tag",
+  "arg": "#a",
+  "after": "‸#a"
+ },
+ {
+  "name": "add uses the note's CRLF",
+  "before": "body\r\nmore‸",
+  "command": "add_header_tag",
+  "arg": "a",
+  "after": "#a\r\n\r\nbody\r\nmore‸"
+ },
+ {
+  "name": "a lone CR is not a line ending",
+  "before": "body\rmore‸",
+  "command": "add_header_tag",
+  "arg": "a",
+  "after": "#a\n\nbody\rmore‸"
+ },
+ {
+  "name": "add appends to a tag line holding a lone CR",
+  "before": "#a\r#b",
+  "command": "add_header_tag",
+  "arg": "c",
+  "after": "#a\r#b #c"
+ },
+ {
+  "name": "add normalizes the name and appends to the last tag line",
+  "before": "#a\n\nbody‸",
+  "command": "add_header_tag",
+  "arg": " #B ",
+  "after": "#a #b\n\nbody‸"
+ },
+ {
+  "name": "add keeps trailing spaces after the new tag",
+  "before": "#a   \n#b  \nbody",
+  "command": "add_header_tag",
+  "arg": "c",
+  "after": "#a   \n#b #c  \nbody"
+ },
+ {
+  "name": "a body tag of the same name does not count",
+  "before": "#a\n\nbody #c",
+  "command": "add_header_tag",
+  "arg": "c",
+  "after": "#a #c\n\nbody #c"
+ },
+ {
+  "name": "add of a present tag changes nothing",
+  "before": "#a\n\nbody‸",
+  "command": "add_header_tag",
+  "arg": "A",
+  "after": "#a\n\nbody‸"
+ },
+ {
+  "name": "add keeps front matter and starts the block after it",
+  "before": "---\ntags: x\n---\nbody‸",
+  "command": "add_header_tag",
+  "arg": "a",
+  "after": "---\ntags: x\n---\n#a\n\nbody‸"
+ },
+ {
+  "name": "add after front matter closed on the last line starts a line",
+  "before": "---\ntags: x\n---",
+  "command": "add_header_tag",
+  "arg": "a",
+  "after": "---\ntags: x\n---\n#a"
+ },
+ {
+  "name": "add after CRLF front matter uses CRLF",
+  "before": "---\r\nx: 1\r\n---\r\nbody‸",
+  "command": "add_header_tag",
+  "arg": "a",
+  "after": "---\r\nx: 1\r\n---\r\n#a\r\n\r\nbody‸"
+ },
+ {
+  "name": "add carries the caret past the insertion",
+  "before": "#a #b\n\nbody te‸xt",
+  "command": "add_header_tag",
+  "arg": "c",
+  "after": "#a #b #c\n\nbody te‸xt"
+ },
+ {
+  "name": "add carries a selection",
+  "before": "#a\n\n«body»",
+  "command": "add_header_tag",
+  "arg": "b",
+  "after": "#a #b\n\n«body»"
+ },
+ {
+  "name": "add before a heading",
+  "before": "# Title‸",
+  "command": "add_header_tag",
+  "arg": "a",
+  "after": "#a\n\n# Title‸"
+ },
+ {
+  "name": "remove one of two",
+  "before": "#a #b\n\nbody‸",
+  "command": "remove_header_tag",
+  "arg": "b",
+  "after": "#a\n\nbody‸"
+ },
+ {
+  "name": "remove matches any spelling",
+  "before": "#a #b\n\nbody",
+  "command": "remove_header_tag",
+  "arg": "#A",
+  "after": "#b\n\nbody"
+ },
+ {
+  "name": "remove every occurrence and keep other bytes",
+  "before": "  #a  #b  #a\r\n#c\n\nbody",
+  "command": "remove_header_tag",
+  "arg": "a",
+  "after": "  #b\r\n#c\n\nbody"
+ },
+ {
+  "name": "remove drops a line left without tags",
+  "before": "#a\n#b\n\nbody",
+  "command": "remove_header_tag",
+  "arg": "a",
+  "after": "#b\n\nbody"
+ },
+ {
+  "name": "remove on a line with a lone CR",
+  "before": "#a\r#b",
+  "command": "remove_header_tag",
+  "arg": "a",
+  "after": "#b"
+ },
+ {
+  "name": "remove the last tag drops the separator",
+  "before": "#a\n\nbody‸",
+  "command": "remove_header_tag",
+  "arg": "a",
+  "after": "body‸"
+ },
+ {
+  "name": "remove the only tag of a tag-only note",
+  "before": "#a",
+  "command": "remove_header_tag",
+  "arg": "a",
+  "after": ""
+ },
+ {
+  "name": "remove of an absent tag changes nothing",
+  "before": "#a\n\nbody #a",
+  "command": "remove_header_tag",
+  "arg": "z",
+  "after": "#a\n\nbody #a"
+ },
+ {
+  "name": "remove leaves body tags",
+  "before": "#a\n\nbody #a",
+  "command": "remove_header_tag",
+  "arg": "a",
+  "after": "body #a"
+ },
+ {
+  "name": "remove keeps front matter",
+  "before": "---\nx: 1\n---\n#a\n\nbody‸",
+  "command": "remove_header_tag",
+  "arg": "a",
+  "after": "---\nx: 1\n---\nbody‸"
+ },
+ {
+  "name": "a caret inside the removed tag moves to where it was",
+  "before": "#a #b‸b\n\nx",
+  "command": "remove_header_tag",
+  "arg": "bb",
+  "after": "#a‸\n\nx"
+ },
+ {
+  "name": "relink keeps the caret after unchanged bytes",
+  "before": "see [[Old]] and [[Old]]‸ end",
+  "command": "relink",
+  "arg": "see [[New]] and [[New]] end",
+  "after": "see [[New]] and [[New]]‸ end"
+ },
+ {
+  "name": "relink moves a caret inside replaced text to its replacement's start",
+  "before": "[[Ol‸d]] x",
+  "command": "relink",
+  "arg": "[[New]] x",
+  "after": "[[‸New]] x"
+ },
+ {
+  "name": "relink keeps a selection over the link",
+  "before": "«[[Old]] text»",
+  "command": "relink",
+  "arg": "[[New]] text",
+  "after": "«[[New]] text»"
+ },
+ {
+  "name": "relink across lines",
+  "before": "[[a/Old]]\nmiddle‸\n[[a/Old]]",
+  "command": "relink",
+  "arg": "[[b/Old]]\nmiddle\n[[b/Old]]",
+  "after": "[[b/Old]]\nmiddle‸\n[[b/Old]]"
+ },
+ {
+  "name": "relink in a list and a table",
+  "before": "- [[Old]]‸\n| [[Old]] |\n|---|",
+  "command": "relink",
+  "arg": "- [[New]]\n| [[New]] |\n|---|",
+  "after": "- [[New]]‸\n| [[New]] |\n|---|"
+ },
+ {
+  "name": "relink of identical bytes changes nothing",
+  "before": "[[Old]]‸",
+  "command": "relink",
+  "arg": "[[Old]]",
+  "after": "[[Old]]‸"
+ }
+]

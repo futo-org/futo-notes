@@ -8,7 +8,7 @@ fn native_save_delay_tracks_unsaved_edits_and_checkpoint_clears_it() {
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
     store
-        .create_note("plain".into(), "".into(), "before\n".into())
+        .create_note("plain".into(), "".into(), "before".into())
         .unwrap();
     let session = store.open_editor("plain".into()).unwrap();
     assert_eq!(session.save_delay().unwrap(), None);
@@ -27,16 +27,16 @@ fn native_save_delay_tracks_unsaved_edits_and_checkpoint_clears_it() {
     // store's controllable-clock tests.
     match session.save_if_due().unwrap() {
         None => {
-            assert_eq!(store.read("plain".into()).unwrap(), "before\n");
+            assert_eq!(store.read("plain".into()).unwrap(), "before");
             assert_eq!(session.save_status().unwrap().saved, 0);
         }
         Some(_) => {
-            assert_eq!(store.read("plain".into()).unwrap(), "before!\n");
+            assert_eq!(store.read("plain".into()).unwrap(), "before!");
             assert_eq!(session.save_status().unwrap().saved, 1);
         }
     }
     session.checkpoint().unwrap();
-    assert_eq!(store.read("plain".into()).unwrap(), "before!\n");
+    assert_eq!(store.read("plain".into()).unwrap(), "before!");
     assert_eq!(session.save_delay().unwrap(), None);
     assert_eq!(session.save_status().unwrap().saved, 1);
 }
@@ -47,10 +47,10 @@ fn native_relink_is_one_undo_step_and_delete_fences_the_same_attachment() {
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
     store
-        .create_note("old".into(), "".into(), "[[old]]\n".into())
+        .create_note("old".into(), "".into(), "[[old]]".into())
         .unwrap();
     let session = store.open_editor("old".into()).unwrap();
-    let mut view = "[[old]]\n".to_owned();
+    let mut view = "[[old]]".to_owned();
     let mut apply = |change: futo_notes_ffi::EditorViewChange| {
         view.replace_range(
             change.range.start as usize..change.range.end as usize,
@@ -70,15 +70,15 @@ fn native_relink_is_one_undo_step_and_delete_fences_the_same_attachment() {
     apply(changes.into_iter().next().unwrap());
     assert!(session.take_coordinated_changes().unwrap().is_empty());
     drop(apply);
-    assert_eq!(view, "[[long name]]!\n");
-    assert_eq!(session.source_text().unwrap(), "[[long name]]!\n");
+    assert_eq!(view, "[[long name]]!");
+    assert_eq!(session.source_text().unwrap(), "[[long name]]!");
     session.undo(2).unwrap().unwrap();
-    assert_eq!(session.source_text().unwrap(), "[[old]]!\n");
+    assert_eq!(session.source_text().unwrap(), "[[old]]!");
     session.redo(3).unwrap().unwrap();
-    assert_eq!(session.source_text().unwrap(), "[[long name]]!\n");
+    assert_eq!(session.source_text().unwrap(), "[[long name]]!");
     store.delete("long name".into()).unwrap();
     store
-        .create_note("long name".into(), "".into(), "fresh\n".into())
+        .create_note("long name".into(), "".into(), "fresh".into())
         .unwrap();
     assert!(matches!(
         session.checkpoint(),
@@ -95,7 +95,7 @@ fn native_relink_is_one_undo_step_and_delete_fences_the_same_attachment() {
             .unwrap()
             .source_text()
             .unwrap(),
-        "fresh\n"
+        "fresh"
     );
 }
 
@@ -286,7 +286,8 @@ fn native_projection_preserves_rich_semantics_and_source_correspondence() {
         .iter()
         .map(|part| part.kind)
         .collect();
-    assert_eq!(kinds, [Hidden, Literal, Hidden, Literal]);
+    // The line break is a part of its own.
+    assert_eq!(kinds, [Hidden, Literal, Hidden, Literal, Literal]);
 }
 
 #[test]
@@ -296,7 +297,7 @@ fn native_save_failure_keeps_the_session_attached_and_accepting_input() {
     std::fs::create_dir_all(&root).unwrap();
     let store = NoteStore::new(path_string(&root));
     store
-        .create_note("plain".into(), "".into(), "before\n".into())
+        .create_note("plain".into(), "".into(), "before".into())
         .unwrap();
     let session = store.open_editor("plain".into()).unwrap();
     session
@@ -307,46 +308,47 @@ fn native_save_failure_keeps_the_session_attached_and_accepting_input() {
     std::fs::remove_file(&note).unwrap();
     std::fs::create_dir(&note).unwrap();
     assert!(session.detach().is_err());
-    assert_eq!(session.source_text().unwrap(), "before!\n");
+    assert_eq!(session.source_text().unwrap(), "before!");
     session
         .replace_utf16(1, EditorUtf16Range { start: 7, end: 7 }, vec![33])
         .unwrap();
-    assert_eq!(session.source_text().unwrap(), "before!!\n");
+    assert_eq!(session.source_text().unwrap(), "before!!");
     assert!(!root.join(".futo-editor-recovery").exists());
 }
 
 #[test]
-fn native_entity_point_mapping_retains_source_boundary_affinity() {
+fn native_hidden_point_mapping_retains_source_boundary_affinity() {
     use futo_notes_ffi::{EditorAffinity, EditorDisplayByteOffset};
     let tree = TempTree::new();
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
     store
-        .create_note("entity".into(), "".into(), "&acE;\n".into())
+        .create_note("hidden".into(), "".into(), "a**b**\n".into())
         .unwrap();
-    let session = store.open_editor("entity".into()).unwrap();
-    assert_eq!(session.display_text().unwrap(), "∾\u{0333}\n");
+    // Entities are literal text; hidden marks are where a point has two sides.
+    let session = store.open_editor("hidden".into()).unwrap();
+    assert_eq!(session.display_text().unwrap(), "ab\n");
     assert_eq!(
         session
             .source_at(
                 0,
-                EditorDisplayByteOffset { offset: 3 },
+                EditorDisplayByteOffset { offset: 1 },
                 EditorAffinity::Backward
             )
             .unwrap()
             .offset,
-        0
+        1
     );
     assert_eq!(
         session
             .source_at(
                 0,
-                EditorDisplayByteOffset { offset: 3 },
+                EditorDisplayByteOffset { offset: 1 },
                 EditorAffinity::Forward
             )
             .unwrap()
             .offset,
-        5
+        3
     );
 }
 
@@ -437,7 +439,7 @@ fn native_toolbar_state_projects_selection_coverage_and_history_in_one_query() {
         session.toolbar_state().unwrap().formats,
         vec![EditorInlineFormat::Bold]
     );
-    assert_eq!(session.source_text().unwrap(), "**bold** plain\n");
+    assert_eq!(session.source_text().unwrap(), "**bold** plain");
     assert_eq!(session.revision().unwrap(), 0);
     // Saved EOF and a multiscalar native caret retain the same code owner.
     for (id, body, end) in [("ascii", "code", 4), ("emoji", "🧑‍💻", 5)] {
@@ -480,7 +482,7 @@ fn native_text_first_commands_preserve_explicit_portable_variants() {
         )
         .unwrap()
         .unwrap();
-    assert_eq!(session.source_text().unwrap(), "abovetitle\n");
+    assert_eq!(session.source_text().unwrap(), "abovetitle");
     let rev = session.revision().unwrap();
     let range = EditorUtf16Range { start: 0, end: 0 };
     session
@@ -499,7 +501,7 @@ fn native_text_first_commands_preserve_explicit_portable_variants() {
         )
         .unwrap()
         .unwrap();
-    assert_eq!(session.source_text().unwrap(), "abovetitle\n");
+    assert_eq!(session.source_text().unwrap(), "abovetitle");
     session
         .block_command_utf16(
             session.revision().unwrap(),

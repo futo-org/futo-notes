@@ -85,12 +85,13 @@ fn canonical_destinations_remain_data_and_unrelated_edits_keep_all_untouched_spe
             .map(|link| link.destination.as_str())
             .collect::<Vec<_>>(),
         vec![
-            "https://x.test/a?b=1&c=2",
+            "https://x.test/a?b=1&amp;c=2",
             "mailto:a@x.test",
             "tel:+123",
             "javascript:alert(1)"
         ]
     );
+    // An entity is literal text, in a destination too.
     // Activation remains scheme-guarded by the existing platform owner; the
     // engine never destroys an unsupported destination stored in Markdown.
     view.apply(
@@ -110,7 +111,7 @@ fn canonical_destinations_remain_data_and_unrelated_edits_keep_all_untouched_spe
 }
 
 #[test]
-fn editing_a_loaded_bare_url_label_retains_its_destination_with_explicit_spelling() {
+fn typing_at_the_end_of_a_loaded_bare_url_extends_its_address_as_typed() {
     let mut session = EditorSession::open("https://x.test");
     let mut view = ReferenceView::new("https://x.test");
     view.apply(
@@ -119,17 +120,14 @@ fn editing_a_loaded_bare_url_label_retains_its_destination_with_explicit_spellin
             .unwrap(),
     );
     assert_eq!(view.text, "https://x.test/new");
-    assert_eq!(
-        session.source_text(),
-        "[https://x.test/new](<https://x.test>)"
-    );
+    assert_eq!(session.source_text(), "https://x.test/new");
     assert_eq!(
         session
             .inspect_link(Revision(1), range(1, 2))
             .unwrap()
             .unwrap()
             .destination,
-        "https://x.test"
+        "https://x.test/new"
     );
     view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), "https://x.test");
@@ -166,15 +164,11 @@ fn bracket_adjacent_gfm_link_keeps_its_own_extent_after_identical_code_text() {
 }
 
 #[test]
-fn scalar_spelling_candidates_keep_partial_code_and_literal_prefix_in_the_rust_parser() {
+fn escaped_address_text_with_partial_code_reads_no_link() {
     use futo_notes_editor::InlineFormat;
-    // These are current canonical-parser feasibility controls. The shipping
-    // remark decoded-text transform disagrees: none is a cross-parser plan.
+    // Escaped address punctuation reads as text, not as a web address.
     for source in [
         "\\<https\\://x.test`/path`>",
-        "\\<&#104;ttps://x.test`/path`>",
-        "\\<https&#58;//x.test`/path`>",
-        "\\<https&colon;//x.test`/path`>",
         "\\<https\\:\\/\\/x\\.test`/path`>",
     ] {
         let session = EditorSession::open(source);
@@ -227,6 +221,7 @@ fn notes_that_crashed_the_old_markdown_scans_open_and_take_input() {
     session
         .replace(Revision(0), range(end, end), "\n- ", &mut |_| Ok(()))
         .unwrap();
-    assert!(session.display_text().ends_with("56\n- \n"));
+    assert!(session.source_text().ends_with("56\n- \n"));
+    assert!(session.display_text().ends_with("56\n\n"));
     same(&session);
 }

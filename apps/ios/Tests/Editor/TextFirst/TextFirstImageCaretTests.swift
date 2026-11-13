@@ -224,5 +224,26 @@
             #expect(h.source.contains("![](\(c.file))\u{3042}"), "\(h.source.debugDescription)")
             #expect(h.controller.divergences.isEmpty)
         }
+
+        /// iOS sim, Images row 7: after a keyboard Backspace removed an image and Undo brought it
+        /// back, one ArrowLeft left the caret inside the image's hidden source and typing wrote
+        /// into its file name. The Backspace's unanswered delegate edit held back the selection
+        /// report that keeps the caret out of an image.
+        @Test func afterABackspaceAndUndoAnArrowStepStillCrossesTheImage() {
+            let h = TextFirstHarness("here ![](p.png)\n")
+            let image = (h.tv.text as NSString).range(of: "![](p.png)")
+            h.select(NSMaxRange(image), NSMaxRange(image))
+            h.keyboardBackspace()
+            #expect(!h.source.contains("p.png"))
+            h.controller.undo()
+            #expect(h.source.contains("![](p.png)"))
+            #expect(h.tv.selectedRange == NSRange(location: NSMaxRange(image), length: 0))
+            h.tv.selectedRange = NSRange(location: NSMaxRange(image) - 1, length: 0)
+            #expect(h.tv.selectedRange == NSRange(location: image.location, length: 0))
+            #expect(h.controller.engineSelection == h.tv.selectedRange)
+            h.type("Q")
+            #expect(h.source.hasPrefix("here Q![](p.png)"), "\(h.source.debugDescription)")
+            #expect(h.controller.divergences.isEmpty)
+        }
     }
 #endif

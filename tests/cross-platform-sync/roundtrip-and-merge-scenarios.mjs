@@ -7,7 +7,6 @@ import { sleep } from '../lib/mcp-client.mjs';
 import {
   assert,
   assertEqual,
-  assertSavedEqual,
   getSidebarTitles,
   waitForEditorContent,
   waitForNoteInSidebar,
@@ -115,7 +114,7 @@ export async function concurrentEditConflict(a, b, server) {
   // B syncs to get the note
   await b.syncNow();
   const bContent = await b.readNote('shared note');
-  assertSavedEqual(bContent, '# Original', 'B should have original');
+  assertEqual(bContent, '# Original', 'B should have original');
 
   // Both edit offline
   await a.writeNote('shared note', "# A's version");
@@ -133,7 +132,7 @@ export async function concurrentEditConflict(a, b, server) {
 
   // B should have A's version as the canonical copy
   const bCanonical = await b.readNote('shared note');
-  assertSavedEqual(bCanonical, "# A's version", "B canonical should be A's version");
+  assertEqual(bCanonical, "# A's version", "B canonical should be A's version");
 
   // A picks up conflict copy so both have identical file sets
   await a.syncNow();
@@ -187,7 +186,7 @@ export async function threeWayMerge(a, b, server) {
 
   await b.syncNow();
   const bBase = await b.readNote('shopping list');
-  assertSavedEqual(bBase, baseContent, 'B should have base content');
+  assertEqual(bBase, baseContent, 'B should have base content');
 
   // A edits Groceries section, B edits Hardware section — non-overlapping
   const aVersion = baseContent.replace('- eggs', '- eggs\n- butter');
@@ -210,8 +209,8 @@ export async function threeWayMerge(a, b, server) {
   await a.syncNow();
   const aFinal = await a.readNote('shopping list');
   const bFinal = await b.readNote('shopping list');
-  assertSavedEqual(aFinal, expectedMerged, 'A should have merged content');
-  assertSavedEqual(bFinal, expectedMerged, 'B should have merged content');
+  assertEqual(aFinal, expectedMerged, 'A should have merged content');
+  assertEqual(bFinal, expectedMerged, 'B should have merged content');
 
   // No conflict copies should exist
   const aFiles = await a.listNotes();
@@ -288,7 +287,7 @@ export async function renamePropagation(a, b, server) {
   assert(!oldExists, 'B should NOT have old name');
   assert(newExists, 'B should have new name');
   const content = await b.readNote('new name');
-  assertSavedEqual(content, '# My Note', 'new name content mismatch');
+  assertEqual(content, '# My Note', 'new name content mismatch');
   const state = await waitForOpenNoteTitle(b, 'new name');
   assertEqual(state.originalId, 'new name', 'open note should track the remote rename');
   assertEqual(

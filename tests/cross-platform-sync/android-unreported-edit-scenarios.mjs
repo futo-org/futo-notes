@@ -9,7 +9,7 @@ import {
   waitForAndroidConflictCopy,
   waitForDesktopNoteContent,
 } from './android-leg-scenarios.mjs';
-import { asSaved, assert, assertEqual } from './waits-and-assertions.mjs';
+import { assert, assertEqual } from './waits-and-assertions.mjs';
 
 // RC-08 (FB-5): the open-note verdict must see an edit the editor has not
 // reported yet. A large note withholds `change` while its tail streams, so the
@@ -47,7 +47,7 @@ async function typeUnreportedEditWhileStreaming(android, id, base, marker) {
     'the note finished streaming before the peer change could land — the edit is ' +
       'already reported, so this run proves nothing',
   );
-  assertEqual(android.readNote(id), asSaved(base), 'the typed edit must not have been saved yet');
+  assertEqual(android.readNote(id), base, 'the typed edit must not have been saved yet');
 }
 
 /** Every harness note in the Android vault holding `text`, by id. */
@@ -81,7 +81,7 @@ export async function androidKeepsAnUnreportedEditOverAPeerEdit(desktop, android
   const base = streamingSizedNote('unreported edit');
   await desktop.writeNote(id, base);
   await desktop.syncNow();
-  await android.waitForNoteContent(id, asSaved(base));
+  await android.waitForNoteContent(id, base);
 
   // No trailing space: the caret lands at the end of the first streamed chunk,
   // which is a heading, and the editor does not write whitespace at the end of
@@ -107,7 +107,7 @@ export async function androidKeepsAnUnreportedEditOverAPeerDelete(desktop, andro
   const base = streamingSizedNote('unreported delete');
   await desktop.writeNote(id, base);
   await desktop.syncNow();
-  await android.waitForNoteContent(id, asSaved(base));
+  await android.waitForNoteContent(id, base);
 
   // No trailing space, for the reason in androidKeepsAnUnreportedEditOverAPeerEdit.
   const marker = 'TYPEDBEFOREPEERDELETE';
@@ -130,7 +130,7 @@ export async function androidFollowsPeerRenameWhileOpen(desktop, android, server
   const base = '# rename while open\nbase text';
   await desktop.writeNote(oldId, base);
   await desktop.syncNow();
-  await android.waitForNoteContent(oldId, asSaved(base));
+  await android.waitForNoteContent(oldId, base);
 
   await android.openNoteInEditor(oldId);
   await android.focusOpenEditor();
@@ -138,9 +138,9 @@ export async function androidFollowsPeerRenameWhileOpen(desktop, android, server
   await desktop.moveNote(oldId, newId);
   await desktop.syncNow();
   await android.waitForNoteMissing(oldId);
-  await android.waitForNoteContent(newId, asSaved(base));
+  await android.waitForNoteContent(newId, base);
   await android.waitForOpenEditorTitle(newId);
-  await android.waitForOpenEditorContent(asSaved(base));
+  await android.waitForOpenEditorContent(base);
 
   const editedAfterRename = '# rename while open\n\nedited after rename\n';
   await android.replaceOpenEditorContent(editedAfterRename);
@@ -158,7 +158,7 @@ export async function androidConflictsWithDesktopEdit(desktop, android, server) 
   const base = '# shared\nbase text';
   await desktop.writeNote(ANDROID_SHARED_NOTE, base);
   await desktop.syncNow();
-  await android.waitForNoteContent(ANDROID_SHARED_NOTE, asSaved(base));
+  await android.waitForNoteContent(ANDROID_SHARED_NOTE, base);
 
   // The phone goes offline for real (airplane mode). Backgrounding alone is not
   // an offline window: an SSE pull already in flight lands after `pauseLive`, so
@@ -178,10 +178,10 @@ export async function androidConflictsWithDesktopEdit(desktop, android, server) 
   // conflict copy instead of being overwritten.
   await android.goOnline();
 
-  await android.waitForNoteContent(ANDROID_SHARED_NOTE, asSaved(desktopText));
+  await android.waitForNoteContent(ANDROID_SHARED_NOTE, desktopText);
   const conflictId = await waitForAndroidConflictCopy(android, ANDROID_SHARED_NOTE, androidText);
 
   // Both clients converge on the same pair of notes.
   await waitForDesktopNoteContent(desktop, conflictId, androidText);
-  await waitForDesktopNoteContent(desktop, ANDROID_SHARED_NOTE, asSaved(desktopText));
+  await waitForDesktopNoteContent(desktop, ANDROID_SHARED_NOTE, desktopText);
 }

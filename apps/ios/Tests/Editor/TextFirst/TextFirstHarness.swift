@@ -43,7 +43,7 @@
             _ = tv.becomeFirstResponder()
         }
 
-        /// The store writes every note with a final line ending; the rows are written without one.
+        /// Rows are compared without a single final line ending (a final blank line is kept).
         static func trimmed(_ text: String) -> String {
             text.hasSuffix("\n") && !text.hasSuffix("\n\n") ? String(text.dropLast()) : text
         }
@@ -128,6 +128,17 @@
                 {
                     tv.insertText(s)
                 }
+            }
+        }
+
+        /// A software keyboard's Backspace: UIKeyboardImpl asks the delegate about the deletion,
+        /// then calls `deleteBackward`.
+        func keyboardBackspace() {
+            let caret = tv.selectedRange
+            let range =
+                caret.length > 0 ? caret : NSRange(location: max(0, caret.location - 1), length: 1)
+            if tv.delegate?.textView?(tv, shouldChangeTextIn: range, replacementText: "") ?? true {
+                tv.deleteBackward()
             }
         }
 

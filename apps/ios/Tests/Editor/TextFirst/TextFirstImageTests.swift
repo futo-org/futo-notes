@@ -359,8 +359,9 @@
         }
 
         @Test func anImageInsertedInsideCodeIsRefusedWithoutAFile() async throws {
+            // The fences show no text, so the display is "code\n": the caret inside "code".
             let h = TextFirstHarness("```\ncode\n```\n")
-            h.select(5, 5)
+            h.select(2, 2)
             let claim = try #require(h.controller.beginImageInsertion())
             #expect(
                 !(await h.controller.insertImage(

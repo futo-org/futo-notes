@@ -4,7 +4,7 @@ use super::*;
 fn reset_removes_every_vault_entry_but_never_the_vault_directory() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.write("note", "body\n", None).unwrap();
+    store.write("note", "body", None).unwrap();
     fs::write(root.0.join("image.png"), [1, 2, 3]).unwrap();
     fs::write(root.0.join(".app-state"), "state").unwrap();
     store.reset().unwrap();
@@ -17,7 +17,7 @@ fn vault_migration_copies_every_entry_and_deletes_source_only_after_finalize() {
     let source = TestRoot::new();
     let destination = TestRoot::new();
     let store = store(&source);
-    store.write("Folder/note", "body\n", None).unwrap();
+    store.write("Folder/note", "body", None).unwrap();
     fs::write(source.0.join("image.png"), [1, 2, 3]).unwrap();
     fs::write(source.0.join(".e2ee-state.json"), "checkpoint").unwrap();
 
@@ -26,7 +26,7 @@ fn vault_migration_copies_every_entry_and_deletes_source_only_after_finalize() {
     assert_eq!(outcome.status, VaultMigrationStatus::Migrated);
     assert_eq!(
         fs::read_to_string(destination.0.join("Folder/note.md")).unwrap(),
-        "body\n"
+        "body"
     );
     assert_eq!(
         fs::read(destination.0.join("image.png")).unwrap(),
@@ -52,12 +52,12 @@ fn vault_migration_refuses_a_different_destination_without_changing_either_vault
     let source = TestRoot::new();
     let destination = TestRoot::new();
     let store = store(&source);
-    store.write("note", "source\n", None).unwrap();
+    store.write("note", "source", None).unwrap();
     fs::write(destination.0.join("note.md"), "destination").unwrap();
 
     assert!(store.stage_vault_migration(&destination.0).is_err());
 
-    assert_eq!(store.read("note").unwrap(), "source\n");
+    assert_eq!(store.read("note").unwrap(), "source");
     assert_eq!(
         fs::read_to_string(destination.0.join("note.md")).unwrap(),
         "destination"
@@ -69,9 +69,9 @@ fn vault_migration_finalize_refuses_to_delete_a_changed_source() {
     let source = TestRoot::new();
     let destination = TestRoot::new();
     let store = store(&source);
-    store.write("note", "source\n", None).unwrap();
+    store.write("note", "source", None).unwrap();
     store.stage_vault_migration(&destination.0).unwrap();
-    store.write("late", "new edit\n", None).unwrap();
+    store.write("late", "new edit", None).unwrap();
 
     assert_eq!(
         store
@@ -80,7 +80,7 @@ fn vault_migration_finalize_refuses_to_delete_a_changed_source() {
         VaultMigrationFinalization::DestinationChanged
     );
     assert!(source.0.exists());
-    assert_eq!(store.read("late").unwrap(), "new edit\n");
+    assert_eq!(store.read("late").unwrap(), "new edit");
 }
 
 #[cfg(unix)]
@@ -91,7 +91,7 @@ fn vault_migration_finalize_does_not_treat_an_uninspectable_source_as_absent() {
     let source = TestRoot::new();
     let destination = TestRoot::new();
     let store = store(&source);
-    store.write("note", "source\n", None).unwrap();
+    store.write("note", "source", None).unwrap();
     store.stage_vault_migration(&destination.0).unwrap();
 
     fs::remove_dir_all(&source.0).unwrap();
@@ -114,7 +114,7 @@ fn vault_migration_retains_a_shared_source_that_external_writers_can_reach() {
     let source = TestRoot::new();
     let destination = TestRoot::new();
     let store = store(&source);
-    store.write("note", "source\n", None).unwrap();
+    store.write("note", "source", None).unwrap();
     store.stage_vault_migration(&destination.0).unwrap();
 
     assert_eq!(
@@ -123,7 +123,7 @@ fn vault_migration_retains_a_shared_source_that_external_writers_can_reach() {
             .unwrap(),
         VaultMigrationFinalization::SourceRetained
     );
-    assert_eq!(store.read("note").unwrap(), "source\n");
+    assert_eq!(store.read("note").unwrap(), "source");
 }
 
 #[test]

@@ -1,13 +1,10 @@
-//! Note-local find over visible display text. Matching is a pure scan of a
-//! snapshot, run explicitly (never from the input path). Input only logs the
-//! edit's display window; matches are rebased from that log on the next read, and
-//! windows that cannot be mapped drop their matches until a fresh scan lands.
-//! Find never edits source, so it adds no undo action or recovery record.
-use super::*;
-use crate::CaretDirection;
+//! Note-local find over visible display text (`crate::engine::commands::find`
+//! does the work). Matching is a pure scan of a snapshot, run explicitly, never
+//! from the input path. Find never edits source, so it adds no undo action or
+//! recovery record.
+use super::EditorSession;
+use crate::{CaretDirection, DisplayOffset, DisplayRange, EditorError, Revision, SourceRange};
 use serde::{Deserialize, Serialize};
-
-const REBASE_LOG_LIMIT: usize = 64;
 
 /// Explicit scan accounting: ordinary input never moves these.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -65,113 +62,6 @@ pub struct FindScanResult {
     pub revision: Revision,
     pub matches: Vec<DisplayRange>,
     pub scanned_bytes: u64,
-}
-
-#[derive(Default)]
-pub(crate) struct FindState {
-    open: bool,
-    query: String,
-    generation: u64,
-    matches: Vec<DisplayRange>,
-    current: Option<usize>,
-    /// Times an edit dropped the current match, for `FindReport::dropped`.
-    dropped: u64,
-    anchor: usize,
-    /// The current match while `invalid` has cleared the matches; see `track`.
-    lost: Option<DisplayRange>,
-    log: Vec<(DisplayRange, usize)>,
-    invalid: bool,
-    /// Input since the last scan; cleared only by a scan or close.
-    dirty: bool,
-    work: FindWork,
-    barrier_bytes: std::cell::Cell<u64>,
-}
-
-impl FindState {
-    /// O(1): record the replaced old-display window and its new length.
-    pub(crate) fn edited(&mut self, range: DisplayRange, inserted: usize) {
-        if !self.open {
-            return;
-        }
-        self.dirty = true;
-        if self.invalid {
-            self.track(range, inserted);
-        } else if self.log.len() >= REBASE_LOG_LIMIT {
-            self.log.push((range, inserted));
-            self.invalid = true;
-            // The matches go, but what the unread edits do to the current one and to the step
-            // position is still tracked: a drop counts only if an edit touched the current match.
-            self.lost = self.current.take().map(|at| self.matches[at]);
-            for (window, inserted) in std::mem::take(&mut self.log) {
-                self.track(window, inserted);
-            }
-            self.matches.clear();
-        } else {
-            self.log.push((range, inserted));
-        }
-    }
-
-    /// Carry the current match (`lost`, once the matches are gone) and the step position through
-    /// one edit. Only read while `invalid`, and set when it becomes so.
-    fn track(&mut self, window: DisplayRange, inserted: usize) {
-        let (start, end) = (window.start.0, window.end.0);
-        if let Some(found) = &mut self.lost {
-            if found.end.0 > start && found.start.0 < end {
-                self.dropped += 1;
-                self.lost = None;
-            } else if found.start.0 >= end {
-                found.start.0 = found.start.0 - (end - start) + inserted;
-                found.end.0 = found.end.0 - (end - start) + inserted;
-            }
-        }
-        self.anchor = moved_anchor(self.anchor, start, end, inserted);
-    }
-
-    fn rebase(&mut self) {
-        for (range, inserted) in std::mem::take(&mut self.log) {
-            let (start, end) = (range.start.0, range.end.0);
-            let first = self.matches.partition_point(|found| found.end.0 <= start);
-            let after = self.matches.partition_point(|found| found.start.0 < end);
-            let after = after.max(first);
-            let removed = after - first;
-            self.matches.drain(first..after);
-            for found in &mut self.matches[first..] {
-                found.start.0 = found.start.0 - (end - start) + inserted;
-                found.end.0 = found.end.0 - (end - start) + inserted;
-            }
-            self.current = match self.current {
-                Some(at) if at >= after => Some(at - removed),
-                Some(at) if at >= first => {
-                    self.dropped += 1;
-                    None
-                }
-                other => other,
-            };
-            self.anchor = moved_anchor(self.anchor, start, end, inserted);
-        }
-    }
-
-    fn stale(&self) -> bool {
-        self.open && !self.query.is_empty() && self.dirty
-    }
-
-    fn choose(&self) -> Option<usize> {
-        let at = self
-            .matches
-            .partition_point(|found| found.start.0 < self.anchor);
-        (!self.matches.is_empty()).then(|| at % self.matches.len())
-    }
-}
-
-/// Where the step position goes when `start..end` is replaced by `inserted` bytes.
-fn moved_anchor(anchor: usize, start: usize, end: usize, inserted: usize) -> usize {
-    if anchor >= end {
-        anchor - (end - start) + inserted
-    } else if anchor > start {
-        start
-    } else {
-        anchor
-    }
 }
 
 /// Locale-independent letter folding; every Greek sigma is one letter and a
@@ -257,21 +147,7 @@ impl EditorSession {
         expected: Revision,
         query: &str,
     ) -> Result<FindReport, EditorError> {
-        self.check_revision(expected)?;
-        self.find.open = true;
-        self.find.query = query.to_owned();
-        self.find.generation += 1;
-        self.find.matches.clear();
-        self.find.current = None;
-        self.find.log.clear();
-        self.find.invalid = false;
-        self.find.dirty = false;
-        self.find.anchor = self.selection.start.0;
-        if let Some(request) = self.find_scan_request() {
-            self.find_apply_scan(&request.run());
-        }
-        let reveal = self.find.current.map(|at| self.find.matches[at]);
-        Ok(self.find_report_with(reveal))
+        self.run(|e| e.find_set_query(expected, query))
     }
 
     /// Step to the next or previous match, wrapping, and select it. A no-op
@@ -282,54 +158,17 @@ impl EditorSession {
         expected: Revision,
         direction: CaretDirection,
     ) -> Result<FindReport, EditorError> {
-        self.check_revision(expected)?;
-        self.find.rebase();
-        let total = self.find.matches.len();
-        if !self.find.open || total == 0 || self.composition.is_some() {
-            return Ok(self.find_report_with(None));
-        }
-        let forward = direction == CaretDirection::Forward;
-        let at = match (self.find.current, forward) {
-            (Some(at), true) => (at + 1) % total,
-            (Some(at), false) => (at + total - 1) % total,
-            (None, true) => {
-                let after = self
-                    .find
-                    .matches
-                    .partition_point(|found| found.start.0 < self.find.anchor);
-                after % total
-            }
-            (None, false) => {
-                let before = self
-                    .find
-                    .matches
-                    .partition_point(|found| found.end.0 <= self.find.anchor);
-                (before + total - 1) % total
-            }
-        };
-        let range = self.find.matches[at];
-        self.select(expected, range)?;
-        self.find.current = Some(at);
-        self.find.anchor = range.start.0;
-        Ok(self.find_report_with(Some(range)))
+        self.run(|e| e.find_step(expected, direction))
     }
 
     /// Clear matches and invalidate in-flight scans; the query is remembered
     /// for the next open of this note. The selection is left where it is.
     pub fn find_close(&mut self) -> FindReport {
-        self.find.open = false;
-        self.find.generation += 1;
-        self.find.matches.clear();
-        self.find.current = None;
-        self.find.log.clear();
-        self.find.invalid = false;
-        self.find.dirty = false;
-        self.find_report_with(None)
+        self.run(|e| e.find_close())
     }
 
     pub fn find_report(&mut self) -> FindReport {
-        self.find.rebase();
-        self.find_report_with(None)
+        self.run(|e| e.find_report())
     }
 
     /// Matches overlapping `range`, for highlighting a window.
@@ -338,98 +177,23 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<Vec<DisplayRange>, EditorError> {
-        self.check_revision(expected)?;
-        self.validate_range(range)?;
-        self.find.rebase();
-        let first = self
-            .find
-            .matches
-            .partition_point(|found| found.end.0 <= range.start.0);
-        let after = self
-            .find
-            .matches
-            .partition_point(|found| found.start.0 < range.end.0);
-        Ok(self.find.matches[first..after.max(first)].to_vec())
+        self.run(|e| e.find_matches(expected, range))
     }
 
     /// Snapshot for an off-path rescan. Whole-text materialization, so hosts
     /// call it after input settles, never per keystroke.
     pub fn find_scan_request(&self) -> Option<FindScanRequest> {
-        (self.find.open && !self.find.query.is_empty()).then(|| FindScanRequest {
-            incarnation: self.incarnation,
-            generation: self.find.generation,
-            revision: self.revision,
-            query: self.find.query.clone(),
-            text: self.display_text(),
-            soft_breaks: self.projection.soft_line_breaks(),
-            barriers: self.table_find_barriers(&self.find.barrier_bytes),
-        })
+        self.engine.find_scan_request()
     }
 
     /// Accept a scan only for this session, and the exact revision and query it was taken at;
     /// anything else is rejected as stale with no state change. Host-supplied matches must
     /// also be non-empty, ascending, non-overlapping, in range and on character boundaries.
     pub fn find_apply_scan(&mut self, result: &FindScanResult) -> Option<FindReport> {
-        if !self.find.open
-            || result.incarnation != self.incarnation
-            || result.generation != self.find.generation
-            || result.revision != self.revision
-        {
-            return None;
-        }
-        let display = &self.projection.display;
-        let boundary = |at: usize| {
-            at <= display.len_bytes() && display.char_to_byte(display.byte_to_char(at)) == at
-        };
-        let mut previous = 0;
-        for found in &result.matches {
-            let (start, end) = (found.start.0, found.end.0);
-            if start < previous || end <= start || !boundary(start) || !boundary(end) {
-                return None;
-            }
-            previous = end;
-        }
-        self.find.rebase();
-        self.find.matches = result.matches.clone();
-        self.find.log.clear();
-        self.find.invalid = false;
-        self.find.dirty = false;
-        self.find.work.scans += 1;
-        self.find.work.scanned_bytes += result.scanned_bytes;
-        self.find.current = self.find.choose();
-        if let Some(at) = self.find.current {
-            self.find.anchor = self.find.matches[at].start.0;
-        }
-        Some(self.find_report_with(None))
+        self.run(|e| e.find_apply_scan(result))
     }
 
     pub fn find_work(&self) -> FindWork {
-        FindWork {
-            barrier_bytes: self.find.barrier_bytes.get(),
-            ..self.find.work
-        }
-    }
-
-    fn find_report_with(&self, reveal: Option<DisplayRange>) -> FindReport {
-        let current_range = self.find.current.map(|at| self.find.matches[at]);
-        FindReport {
-            revision: self.revision,
-            open: self.find.open,
-            query: self.find.query.clone(),
-            total: self.find.matches.len(),
-            current: self.find.current.map_or(0, |at| at + 1),
-            current_range,
-            current_source: current_range.map(|range| {
-                let start = self.projection.source_bounds(range.start.0).1;
-                let end = self.projection.source_bounds(range.end.0).0;
-                SourceRange {
-                    start: SourceOffset(start),
-                    end: SourceOffset(end.max(start)),
-                }
-            }),
-            reveal,
-            stale: self.find.stale(),
-            dropped: self.find.dropped,
-        }
+        self.engine.find_work()
     }
 }

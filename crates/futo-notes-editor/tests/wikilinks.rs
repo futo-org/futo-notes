@@ -96,10 +96,10 @@ fn targets_labels_and_unresolved_links_follow_the_canonical_rules() {
             "[[Nope]]] [[]] [[a\nb]]",
             vec![role("[[Nope]]", "Nope", "Nope", None)],
         ),
-        // Hidden emphasis inside the target keeps the saved spelling as target.
+        // Markdown-looking text inside the brackets is target text and shows as typed.
         (
             "[[*Nope*]]",
-            vec![role("[[Nope]]", "*Nope*", "*Nope*", None)],
+            vec![role("[[*Nope*]]", "*Nope*", "*Nope*", None)],
         ),
     ] {
         let mut editor = EditorSession::open(source);
@@ -110,19 +110,36 @@ fn targets_labels_and_unresolved_links_follow_the_canonical_rules() {
 }
 
 #[test]
-fn code_html_escapes_and_link_syntax_are_isolated() {
+fn code_escapes_and_front_matter_are_isolated() {
     for source in [
         "`[[Roadmap]]`",
         "```\n[[Roadmap]]\n```",
-        "    [[Roadmap]]",
-        "<div>\n[[Roadmap]]\n</div>",
         "\\[[Roadmap]]",
-        "[[Roadmap]](https://x.test)",
         "---\ntitle: [[Roadmap]]\n---\n",
     ] {
         let mut editor = EditorSession::open(source);
         editor.update_note_ids(&ids(VAULT));
         assert_eq!(roles(&editor), vec![], "{source:?}");
+    }
+    // An indented line is not code, HTML-looking lines are plain lines, and a wikilink is
+    // read before link syntax.
+    for source in [
+        "    [[Roadmap]]",
+        "<div>\n[[Roadmap]]\n</div>",
+        "[[Roadmap]](https://x.test)",
+    ] {
+        let mut editor = EditorSession::open(source);
+        editor.update_note_ids(&ids(VAULT));
+        assert_eq!(
+            roles(&editor),
+            vec![role(
+                "[[Roadmap]]",
+                "Roadmap",
+                "Roadmap",
+                Some("Projects/Roadmap")
+            )],
+            "{source:?}"
+        );
     }
     let mut editor = EditorSession::open("`[[x]]` [[Roadmap]]");
     editor.update_note_ids(&ids(VAULT));

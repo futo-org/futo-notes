@@ -16,48 +16,6 @@ export function assertEqual(actual, expected, message) {
   }
 }
 
-/**
- * The exact bytes the store saves for a body the desktop authored: the body with a
- * final LF appended unless it already ends in one. Exact, not a tolerance: use it to
- * state the expected canonical form.
- */
-export function asSaved(body) {
-  return body.endsWith('\n') ? body : `${body}\n`;
-}
-
-/**
- * `text` without the single final line ending the store appends when it saves
- * an authored note (LF, or CRLF for a CRLF note). Blank lines the author wrote
- * stay exact: only ONE ending is removed.
- */
-export function withoutFinalLineEnding(text) {
-  if (text.endsWith('\r\n')) return text.slice(0, -2);
-  if (text.endsWith('\n')) return text.slice(0, -1);
-  return text;
-}
-
-/** Two note bodies that differ at most by that one final line ending. */
-export function sameSavedText(actual, expected) {
-  return (
-    typeof actual === 'string' &&
-    withoutFinalLineEnding(actual) === withoutFinalLineEnding(expected)
-  );
-}
-
-/**
- * assertEqual for note text that passed through a save: the store ends every
- * authored write in a line ending, so a body written as `# Base` reads back as
- * `# Base\n`. Use plain assertEqual where a scenario is about the bytes.
- */
-export function assertSavedEqual(actual, expected, message) {
-  if (!sameSavedText(actual, expected)) {
-    throw new Error(
-      `${message}: expected ${JSON.stringify(expected)} (modulo the final line ending a save appends), ` +
-        `got ${JSON.stringify(actual)}`,
-    );
-  }
-}
-
 export async function waitForOpenNoteTitle(client, expectedTitle, timeoutMs = 10_000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -70,14 +28,13 @@ export async function waitForOpenNoteTitle(client, expectedTitle, timeoutMs = 10
   );
 }
 
-// Modulo the final line ending a save appends (see sameSavedText).
 export async function waitForEditorContent(client, expectedContent, timeoutMs = 10_000) {
   const start = Date.now();
   let last;
   while (Date.now() - start < timeoutMs) {
     const state = await client.getOpenNoteState();
     last = state.editorContent;
-    if (sameSavedText(state.editorContent, expectedContent)) return state;
+    if (state.editorContent === expectedContent) return state;
     await sleep(100);
   }
   throw new Error(

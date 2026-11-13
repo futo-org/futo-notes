@@ -1,3 +1,6 @@
+#[path = "host_style_plan/list_levels.rs"]
+mod list_levels;
+
 use futo_notes_editor::host::{self, plan_styles, DisplayMirror, ListMarker, StyleSpec};
 use futo_notes_editor::*;
 
@@ -390,6 +393,7 @@ fn with_range(spec: &StyleSpec, start: usize, end: usize, first: bool) -> StyleS
         | StyleSpec::TableDelimiter {
             start: s, end: e, ..
         }
+        | StyleSpec::Tag { start: s, end: e }
         | StyleSpec::Divider { start: s, end: e } => (*s, *e) = (start, end),
         StyleSpec::ListRow {
             start: s,

@@ -14,6 +14,8 @@ pub enum ListMarker {
     Bullet,
     Ordered,
     Task,
+    /// An indented plain line: drawn at its indent, with no marker.
+    Plain,
 }
 
 /// One styled stretch in the host's UTF-16 units, drawn from an engine projection. No Markdown
@@ -38,12 +40,16 @@ pub enum StyleSpec {
         end: usize,
         depth: usize,
     },
+    /// A list line, or an indented plain line (`ListMarker::Plain`). `indent` is the line's own
+    /// leading whitespace in columns (space 1, tab 4); `text` is the marker as typed (`-`, `3)`),
+    /// empty on a plain line. `level` is the display nesting from list ancestors.
     ListRow {
         start: usize,
         end: usize,
-        depth: usize,
+        indent: usize,
+        level: usize,
         marker: ListMarker,
-        number: Option<u64>,
+        text: String,
         checked: bool,
         first: bool,
     },
@@ -65,6 +71,11 @@ pub enum StyleSpec {
         end: usize,
         label: String,
         note_id: Option<String>,
+    },
+    /// A `#tag`, `#` included: coloured, still plain text.
+    Tag {
+        start: usize,
+        end: usize,
     },
     Divider {
         start: usize,
@@ -109,6 +120,7 @@ impl StyleSpec {
             | Self::Metadata { start, end }
             | Self::Link { start, end, .. }
             | Self::Wikilink { start, end, .. }
+            | Self::Tag { start, end }
             | Self::Image { start, end, .. }
             | Self::TableRow { start, end, .. }
             | Self::TableDelimiter { start, end }
@@ -126,6 +138,7 @@ impl StyleSpec {
             | Self::Metadata { start, end }
             | Self::Link { start, end, .. }
             | Self::Wikilink { start, end, .. }
+            | Self::Tag { start, end }
             | Self::Image { start, end, .. }
             | Self::TableRow { start, end, .. }
             | Self::TableDelimiter { start, end }
@@ -263,9 +276,11 @@ pub fn plan_styles(
             });
         }
         if let Some(list) = &block.list {
-            let marker = if list.checked.is_some() {
+            let marker = if list.marker.is_empty() {
+                ListMarker::Plain
+            } else if list.checked.is_some() {
                 ListMarker::Task
-            } else if list.number.is_some() {
+            } else if list.ordered {
                 ListMarker::Ordered
             } else {
                 ListMarker::Bullet
@@ -273,10 +288,10 @@ pub fn plan_styles(
             out.push(StyleSpec::ListRow {
                 start: s,
                 end: e,
-                // The engine counts list nesting from 1.
-                depth: list.depth.saturating_sub(1),
+                indent: list.indent,
+                level: list.level,
                 marker,
-                number: list.number,
+                text: list.marker.clone(),
                 checked: list.checked == Some(true),
                 first: list.first,
             });
@@ -309,6 +324,12 @@ pub fn plan_styles(
             end: local.utf16(w.range.end.0, outside),
             label: w.label.clone(),
             note_id: w.note_id.clone(),
+        });
+    }
+    for tag in &slice.tags {
+        out.push(StyleSpec::Tag {
+            start: local.utf16(tag.start.0, outside),
+            end: local.utf16(tag.end.0, outside),
         });
     }
     for atom in &slice.atoms {

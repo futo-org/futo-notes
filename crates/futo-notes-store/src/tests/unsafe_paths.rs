@@ -20,7 +20,7 @@ fn note_workflows_reject_symlinked_parents_and_leaves() {
         assert!(store.rename(id, "Moved").is_err());
         assert!(store.delete(id).is_err());
     }
-    assert!(store.create("linked", "new", "new\n").is_err());
+    assert!(store.create("linked", "new", "new").is_err());
     assert!(store.create_folder("linked/nested").is_err());
     assert_eq!(
         fs::read_to_string(outside.0.join("secret.md")).unwrap(),
@@ -54,7 +54,7 @@ fn a_parent_swapped_after_validation_cannot_redirect_a_write() {
             outside: outside.0.clone(),
         }),
     );
-    assert!(store.write("folder/note", "draft\n", None).is_err());
+    assert!(store.write("folder/note", "draft", None).is_err());
     assert_eq!(
         fs::read_to_string(outside.0.join("note.md")).unwrap(),
         "outside"
@@ -186,16 +186,16 @@ fn every_vault_walk_names_files_by_their_vault_name() {
 fn a_relink_never_rewrites_a_note_that_is_not_utf8() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.write("Target", "target body\n", None).unwrap();
-    store.write("Box/Filed", "filed body\n", None).unwrap();
-    store.write("Linker", "see [[Target]]\n", None).unwrap();
+    store.write("Target", "target body", None).unwrap();
+    store.write("Box/Filed", "filed body", None).unwrap();
+    store.write("Linker", "see [[Target]]", None).unwrap();
     // "caf\xe9 [[Target]] [[Box/Filed]]": a Latin-1 e-acute, invalid as UTF-8.
     let latin: &[u8] = b"caf\xe9 [[Target]] [[Box/Filed]]";
     fs::write(root.0.join("Latin.md"), latin).unwrap();
 
     let renamed = store.rename("Target", "Target moved").unwrap();
     assert_eq!(fs::read(root.0.join("Latin.md")).unwrap(), latin);
-    assert_eq!(store.read("Linker").unwrap(), "see [[Target moved]]\n");
+    assert_eq!(store.read("Linker").unwrap(), "see [[Target moved]]");
     assert_eq!(renamed.relinked, vec!["Linker".to_owned()]);
     assert!(
         renamed
@@ -248,15 +248,15 @@ fn a_note_holding_wtf8_surrogate_bytes_fails_to_read_and_is_left_alone() {
 
     // What the editor sends for the same text: U+FFFD, three valid bytes each.
     store
-        .write("Fixed", "lone \u{FFFD} high, lone \u{FFFD} low\n", None)
+        .write("Fixed", "lone \u{FFFD} high, lone \u{FFFD} low", None)
         .unwrap();
     assert_eq!(
         fs::read(root.0.join("Fixed.md")).unwrap(),
-        "lone \u{FFFD} high, lone \u{FFFD} low\n".as_bytes()
+        "lone \u{FFFD} high, lone \u{FFFD} low".as_bytes()
     );
     assert_eq!(
         store.read("Fixed").unwrap(),
-        "lone \u{FFFD} high, lone \u{FFFD} low\n"
+        "lone \u{FFFD} high, lone \u{FFFD} low"
     );
 }
 
@@ -269,28 +269,26 @@ fn a_note_holding_wtf8_surrogate_bytes_fails_to_read_and_is_left_alone() {
 fn a_relink_reports_every_note_whose_body_it_rewrote() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.write("Target", "target body\n", None).unwrap();
-    store.write("Hub", "see [[Target]] here\n", None).unwrap();
-    store.write("Bystander", "no links\n", None).unwrap();
+    store.write("Target", "target body", None).unwrap();
+    store.write("Hub", "see [[Target]] here", None).unwrap();
+    store.write("Bystander", "no links", None).unwrap();
 
     // Renaming ANOTHER note: the linking note is reported, the moved one and a
     // note without a matching link are not.
     let renamed = store.rename("Target", "Target moved").unwrap();
-    assert_eq!(store.read("Hub").unwrap(), "see [[Target moved]] here\n");
+    assert_eq!(store.read("Hub").unwrap(), "see [[Target moved]] here");
     assert_eq!(renamed.relinked, vec!["Hub".to_owned()]);
 
     // A folder rename reports the note OUTSIDE the folder that links into it.
-    store.write("Box/Filed", "filed\n", None).unwrap();
-    store.write("Index", "[[Box/Filed]]\n", None).unwrap();
+    store.write("Box/Filed", "filed", None).unwrap();
+    store.write("Index", "[[Box/Filed]]", None).unwrap();
     let folder = store.rename_folder("Box", "Crate").unwrap();
-    assert_eq!(store.read("Index").unwrap(), "[[Crate/Filed]]\n");
+    assert_eq!(store.read("Index").unwrap(), "[[Crate/Filed]]");
     assert_eq!(folder.relinked, vec!["Index".to_owned()]);
 
     // The editor's own title rename rewrites the note's self-link: reported at
     // the final id, next to the draft the editor sent.
-    store
-        .write("Journal", "back to [[Journal]]\n", None)
-        .unwrap();
+    store.write("Journal", "back to [[Journal]]", None).unwrap();
     let retitled = store
         .save_draft_as(
             "Journal",
@@ -299,7 +297,7 @@ fn a_relink_reports_every_note_whose_body_it_rewrote() {
             "back to [[Journal]] today",
         )
         .unwrap();
-    assert_eq!(store.read("Diary").unwrap(), "back to [[Diary]] today\n");
+    assert_eq!(store.read("Diary").unwrap(), "back to [[Diary]] today");
     assert_eq!(retitled.relinked, vec!["Diary".to_owned()]);
 
     // A rename that rewrites no link reports nothing.

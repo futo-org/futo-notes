@@ -2,31 +2,32 @@ use super::*;
 use futo_notes_editor::EditorError;
 
 #[test]
-fn an_unchanged_softline_label_only_changes_the_destination() {
+fn an_unchanged_multiline_label_only_links_each_line() {
     for (original, display, target, label, expected) in [
         (
             "alpha\nbeta",
             "alpha\nbeta",
             range(0, 9),
             "alpha\nbet",
-            "[alpha\nbet](<https://new.test>)a",
+            "[alpha](https://new.test)\n[bet](https://new.test)a",
         ),
         (
             "alpha\r\nbeta",
             "alpha\r\nbeta",
             range(0, 10),
             "alpha\r\nbet",
-            "[alpha\r\nbet](<https://new.test>)a",
+            "[alpha](https://new.test)\r\n[bet](https://new.test)a",
         ),
         (
             "**North woods**\nSouth river\nEast field",
             "North woods\nSouth river\nEast field",
             range(6, 23),
             "woods\nSouth river",
-            "**North [woods](<https://new.test>)**[\nSouth river](<https://new.test>)\nEast field",
+            "**North [woods](https://new.test)**\n[South river](https://new.test)\nEast field",
         ),
     ] {
-        // Both public commands set a destination without replacing any label text.
+        // Both public commands set a destination without replacing any label
+        // text; a link cannot cross a line, so each line gets its own.
         let mut destination_only = EditorSession::open(original);
         destination_only
             .set_link(Revision(0), target, "https://new.test", &mut |_| Ok(()))

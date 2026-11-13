@@ -1,0 +1,192 @@
+{
+ "about": "Linedown reading fixtures (code-and-tables): per line, what the reader reports. See tests/fixtures/README.md.",
+ "cases": [
+  {
+   "name": "a fence is not recognised after >",
+   "rule": "Code",
+   "input": "> ```\n> x",
+   "lines": [
+    "q1 plain : ```",
+    "q1 plain : x"
+   ]
+  },
+  {
+   "name": "tilde fences and fences inside fences",
+   "rule": "Code",
+   "input": "~~~\n```\n~~~",
+   "lines": [
+    "fence-open",
+    "code : ```",
+    "fence-close"
+   ]
+  },
+  {
+   "name": "a closing fence needs at least as many characters",
+   "rule": "Code",
+   "input": "````\n```\n````",
+   "lines": [
+    "fence-open",
+    "code : ```",
+    "fence-close"
+   ]
+  },
+  {
+   "name": "the language is the first word after the fence",
+   "rule": "Code",
+   "input": "``` python extra\nx\n```",
+   "lines": [
+    "fence-open python",
+    "code : x",
+    "fence-close"
+   ]
+  },
+  {
+   "name": "indented text is never code",
+   "rule": "Code / Differences from CommonMark and GFM row 6",
+   "input": "a\n\n    code",
+   "lines": [
+    "plain : a",
+    "blank",
+    "plain i4 : code"
+   ]
+  },
+  {
+   "name": "nothing inside a fence is markdown",
+   "rule": "Code",
+   "input": "```\n**x** #tag [a](b)\n```",
+   "lines": [
+    "fence-open",
+    "code : **x** #tag [a](b)",
+    "fence-close"
+   ]
+  },
+  {
+   "name": "code keeps its whitespace",
+   "rule": "Code",
+   "input": "```\n\t  x  \n```",
+   "lines": [
+    "fence-open",
+    "code : \t  x  ",
+    "fence-close"
+   ]
+  },
+  {
+   "name": "delimiter row alignment",
+   "rule": "Tables",
+   "input": "| a | b | c |\n|:--|:-:|--:|",
+   "lines": [
+    "table-header 3 : | a | b | c |",
+    "table-delimiter 3"
+   ]
+  },
+  {
+   "name": "an escaped pipe stays in its cell",
+   "rule": "Tables",
+   "input": "| a \\| b | c |\n|---|---|",
+   "lines": [
+    "table-header 2 : | a \\| b | c | [escape \\|]",
+    "table-delimiter 2"
+   ]
+  },
+  {
+   "name": "an escaped pipe in a cell's code is a pipe in that code",
+   "rule": "Tables",
+   "input": "| a |\n|---|\n| `p\\|q` | `\\` |",
+   "lines": [
+    "table-header 1 : | a |",
+    "table-delimiter 1",
+    "table-row 1 : | `p\\|q` | `\\` | [code `p\\|q`] [escape \\|] [code `\\`]"
+   ]
+  },
+  {
+   "name": "an escaped pipe in code outside a table stays as typed",
+   "rule": "Tables",
+   "input": "`p\\|q`",
+   "lines": [
+    "plain : `p\\|q` [code `p\\|q`]"
+   ]
+  },
+  {
+   "name": "marks do not cross a header's cells",
+   "rule": "Tables",
+   "input": "| *a | b* |\n|---|---|",
+   "lines": [
+    "table-header 2 : | *a | b* |",
+    "table-delimiter 2"
+   ]
+  },
+  {
+   "name": "rows with too few or too many cells are still rows",
+   "rule": "Tables",
+   "input": "| a | b |\n|---|---|\n| 1 |\n| 1 | 2 | 3 |",
+   "lines": [
+    "table-header 2 : | a | b |",
+    "table-delimiter 2",
+    "table-row 2 : | 1 |",
+    "table-row 2 : | 1 | 2 | 3 |"
+   ]
+  },
+  {
+   "name": "#419: an extra cell is read and formatted like any cell",
+   "rule": "Tables",
+   "input": "| a |\n|---|\n| 1 | **2** |",
+   "lines": [
+    "table-header 1 : | a |",
+    "table-delimiter 1",
+    "table-row 1 : | 1 | **2** | [bold **2**]"
+   ]
+  },
+  {
+   "name": "a table row needs a leading pipe",
+   "rule": "Tables / Differences from CommonMark and GFM row 11",
+   "input": "a | b\n--|--\n1 | 2",
+   "lines": [
+    "plain : a | b",
+    "plain : --|--",
+    "plain : 1 | 2"
+   ]
+  },
+  {
+   "name": "a delimiter row without outer pipes is not a table",
+   "rule": "Tables",
+   "input": "| a | b |\n--|--",
+   "lines": [
+    "plain : | a | b |",
+    "plain : --|--"
+   ]
+  },
+  {
+   "name": "tables only at the top level",
+   "rule": "Tables",
+   "input": "> | a |\n> |---|\n- x\n  | a |\n  |---|",
+   "lines": [
+    "q1 plain : | a |",
+    "q1 plain : |---|",
+    "bullet i0 - : x",
+    "plain i2 : | a |",
+    "plain i2 : |---|"
+   ]
+  },
+  {
+   "name": "a blank line ends a table",
+   "rule": "Tables",
+   "input": "| a |\n|---|\n\n| b |",
+   "lines": [
+    "table-header 1 : | a |",
+    "table-delimiter 1",
+    "blank",
+    "plain : | b |"
+   ]
+  },
+  {
+   "name": "cells hold inline text",
+   "rule": "Tables",
+   "input": "| **a** | [b](c) |\n|---|---|\n| `x` | #t |",
+   "lines": [
+    "table-header 2 : | **a** | [b](c) | [bold **a**] [link [b](c)]",
+    "table-delimiter 2",
+    "table-row 2 : | `x` | #t | [code `x`] [tag #t]"
+   ]
+  }
+ ]
+}

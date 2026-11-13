@@ -10,8 +10,8 @@ fn range(start: usize, end: usize) -> DisplayRange {
 }
 
 #[test]
-fn explicit_runs_during_composition_delete_the_selected_entity_space() {
-    let source = "a&#32; b c";
+fn explicit_runs_during_composition_delete_the_selected_space() {
+    let source = "a  b c";
     let mut session = EditorSession::open(source);
     let mut view = ReferenceView::new("a  b c");
     session.select(Revision(0), range(5, 6)).unwrap();
@@ -68,7 +68,7 @@ fn explicit_runs_during_composition_delete_the_selected_entity_space() {
     );
 
     for (expected_source, expected_display, selection) in [
-        ("a&#32; b C", "a  b C", range(6, 6)),
+        ("a  b C", "a  b C", range(6, 6)),
         (source, "a  b c", range(5, 6)),
     ] {
         view.apply(
@@ -82,7 +82,7 @@ fn explicit_runs_during_composition_delete_the_selected_entity_space() {
         assert_eq!(session.selection(), selection);
     }
     for (expected_source, expected_display, selection) in [
-        ("a&#32; b C", "a  b C", range(6, 6)),
+        ("a  b C", "a  b C", range(6, 6)),
         ("a B C", "a B C", range(3, 3)),
     ] {
         view.apply(
@@ -98,9 +98,9 @@ fn explicit_runs_during_composition_delete_the_selected_entity_space() {
 }
 
 #[test]
-fn explicit_composition_runs_retain_equal_visible_scalars_with_distinct_source_spelling() {
-    // Worked literal sources keep the unselected scalar, even when its glyph
-    // equals a selected neighbor. All ranges address the raw provisional view.
+fn explicit_composition_runs_keep_the_unselected_one_of_equal_scalars() {
+    // The unselected scalar keeps its spelling, even when its glyph equals a selected
+    // neighbor (`!` beside `\!`). All ranges address the raw provisional view.
     for (
         source,
         display,
@@ -114,11 +114,11 @@ fn explicit_composition_runs_retain_equal_visible_scalars_with_distinct_source_s
         caret,
     ) in [
         (
-            "a&#32; b c",
+            "a  b c",
             "a  b c",
             (5, 6),
             "c",
-            "a&#32; b c",
+            "a  b c",
             "a  b c",
             vec![(1, 2, ""), (3, 4, "B")],
             "a B c",
@@ -126,35 +126,11 @@ fn explicit_composition_runs_retain_equal_visible_scalars_with_distinct_source_s
             3,
         ),
         (
-            "a &#32;b c",
-            "a  b c",
-            (5, 6),
-            "C",
-            "a &#32;b C",
-            "a  b C",
-            vec![(1, 2, ""), (3, 4, "B")],
-            "a&#32;B C",
-            "a B C",
-            3,
-        ),
-        (
-            "a&#32;&#x20;b c",
-            "a  b c",
-            (5, 6),
-            "C",
-            "a&#32;&#x20;b C",
-            "a  b C",
-            vec![(1, 2, ""), (3, 4, "B")],
-            "a&#x20;B C",
-            "a B C",
-            3,
-        ),
-        (
-            "a&#33;\\! b c",
+            "a!\\! b c",
             "a!! b c",
             (6, 7),
             "C",
-            "a&#33;\\! b C",
+            "a!\\! b C",
             "a!! b C",
             vec![(1, 2, ""), (4, 5, "B")],
             "a\\! B C",
@@ -162,23 +138,23 @@ fn explicit_composition_runs_retain_equal_visible_scalars_with_distinct_source_s
             4,
         ),
         (
-            "a\\!&#33; b c",
+            "a\\!! b c",
             "a!! b c",
             (6, 7),
             "C",
-            "a\\!&#33; b C",
+            "a\\!! b C",
             "a!! b C",
             vec![(1, 2, ""), (4, 5, "B")],
-            "a&#33; B C",
+            "a! B C",
             "a! B C",
             4,
         ),
         (
-            "a&#x1f600;😀 b c",
+            "a😀😀 b c",
             "a😀😀 b c",
             (12, 13),
             "C",
-            "a&#x1f600;😀 b C",
+            "a😀😀 b C",
             "a😀😀 b C",
             vec![(1, 5, ""), (10, 11, "B")],
             "a😀 B C",
@@ -186,11 +162,11 @@ fn explicit_composition_runs_retain_equal_visible_scalars_with_distinct_source_s
             7,
         ),
         (
-            "a&#32; b c",
+            "a  b c",
             "a  b c",
             (0, 1),
             "A",
-            "A&#32; b c",
+            "A  b c",
             "A  b c",
             vec![(1, 2, ""), (3, 4, "B")],
             "A B c",
@@ -198,7 +174,7 @@ fn explicit_composition_runs_retain_equal_visible_scalars_with_distinct_source_s
             3,
         ),
         (
-            "a&#32; b c",
+            "a  b c",
             "a  b c",
             (1, 2),
             "!",
@@ -210,11 +186,11 @@ fn explicit_composition_runs_retain_equal_visible_scalars_with_distinct_source_s
             3,
         ),
         (
-            "a&#32; b c",
+            "a  b c",
             "a  b c",
             (2, 3),
             "\t",
-            "a&#32;\tb c",
+            "a \tb c",
             "a \tb c",
             vec![(1, 2, ""), (3, 4, "B")],
             "a\tB c",
@@ -222,11 +198,11 @@ fn explicit_composition_runs_retain_equal_visible_scalars_with_distinct_source_s
             3,
         ),
         (
-            "a&#32; b c",
+            "a  b c",
             "a  b c",
             (3, 4),
             "bb",
-            "a&#32; bb c",
+            "a  bb c",
             "a  bb c",
             vec![(1, 2, ""), (3, 5, "B")],
             "a B c",
@@ -234,28 +210,28 @@ fn explicit_composition_runs_retain_equal_visible_scalars_with_distinct_source_s
             3,
         ),
         (
-            "> > \n> a&#32; b\n> =",
-            "\na  b",
-            (0, 0),
-            "!",
-            "> > !\n>\n> a&#32; b\n> =",
-            "!\n\na  b",
+            "> x\n> a  b",
+            "x\na  b",
+            (0, 1),
+            "X",
+            "> X\n> a  b",
+            "X\na  b",
             vec![(3, 4, ""), (5, 6, "B")],
-            "> > !\n>\n> a B\n> =",
-            "!\n\na B",
-            6,
+            "> X\n> a B",
+            "X\na B",
+            5,
         ),
         (
-            "a&#32; b\n\n> > \n> c&#32; d\n> =",
-            "a  b\n\n\nc  d",
-            (6, 6),
-            "!",
-            "a&#32; b\n\n> > !\n>\n> c&#32; d\n> =",
-            "a  b\n\n!\n\nc  d",
+            "a  b\n\n> x\n> c  d",
+            "a  b\n\nx\nc  d",
+            (6, 7),
+            "X",
+            "a  b\n\n> X\n> c  d",
+            "a  b\n\nX\nc  d",
             vec![(1, 2, ""), (3, 4, "B"), (9, 10, ""), (11, 12, "D")],
-            "a B\n\n> > !\n>\n> c D\n> =",
-            "a B\n\n!\n\nc D",
-            11,
+            "a B\n\n> X\n> c D",
+            "a B\n\nX\nc D",
+            10,
         ),
     ] {
         for prefix in ["", "遠方😀\n\none\n\ntwo\n\n"] {
@@ -337,7 +313,7 @@ fn explicit_composition_runs_retain_equal_visible_scalars_with_distinct_source_s
 #[test]
 fn unchanged_explicit_runs_do_not_add_history_after_a_changed_marked_commit() {
     for (selected, inserted) in [(range(3, 4), "b"), (range(1, 2), " ")] {
-        let mut session = EditorSession::open("a&#32; b c");
+        let mut session = EditorSession::open("a  b c");
         let mut view = ReferenceView::new("a  b c");
         let marked = session.compose(Revision(0), range(5, 6), "C").unwrap();
         assert_eq!(
@@ -358,7 +334,7 @@ fn unchanged_explicit_runs_do_not_add_history_after_a_changed_marked_commit() {
             Err(EditorError::Persistence("disk full".into()))
         );
         assert_eq!(calls, 1);
-        assert_eq!(session.source_text(), "a&#32; b c");
+        assert_eq!(session.source_text(), "a  b c");
         assert_eq!(session.composition(), Some(&marked));
         calls = 0;
         view.apply(
@@ -370,7 +346,7 @@ fn unchanged_explicit_runs_do_not_add_history_after_a_changed_marked_commit() {
                 .unwrap(),
         );
         assert_eq!(calls, 1);
-        assert_eq!(session.source_text(), "a&#32; b C");
+        assert_eq!(session.source_text(), "a  b C");
         assert_eq!(view.text, "a  b C");
         assert_eq!(session.selection(), range(selected.end.0, selected.end.0));
         view.apply(
@@ -379,7 +355,7 @@ fn unchanged_explicit_runs_do_not_add_history_after_a_changed_marked_commit() {
                 .unwrap()
                 .unwrap(),
         );
-        assert_eq!(session.source_text(), "a&#32; b c");
+        assert_eq!(session.source_text(), "a  b c");
         assert_eq!(view.text, "a  b c");
         assert!(session
             .undo(session.revision(), &mut |_| panic!(
@@ -393,14 +369,14 @@ fn unchanged_explicit_runs_do_not_add_history_after_a_changed_marked_commit() {
                 .unwrap()
                 .unwrap(),
         );
-        assert_eq!(session.source_text(), "a&#32; b C");
+        assert_eq!(session.source_text(), "a  b C");
         assert_eq!(session.selection(), range(6, 6));
     }
 }
 
 #[test]
-fn unchanged_marking_and_explicit_runs_keep_the_existing_mandatory_change_policy() {
-    let mut session = EditorSession::open("a&#32; b c");
+fn unchanged_marking_and_explicit_runs_write_nothing() {
+    let mut session = EditorSession::open("a  b c");
     let marked = session.compose(Revision(0), range(5, 6), "c").unwrap();
     assert_eq!(
         session.replace_many(Revision(0), &[], &mut |_| panic!("empty batch")),
@@ -425,34 +401,21 @@ fn unchanged_marking_and_explicit_runs_keep_the_existing_mandatory_change_policy
         Err(EditorError::InvalidRange)
     );
     assert_eq!(session.composition(), Some(&marked));
-    assert_eq!(session.source_text(), "a&#32; b c");
-    let mut calls = 0;
+    assert_eq!(session.source_text(), "a  b c");
+    // A batch that changes nothing commits the marking and moves the caret, but
+    // writes nothing and leaves no undo step: undo replays text edits, and there are none.
     let change = session
         .replace_many(Revision(0), &[unchanged], &mut |_| {
-            calls += 1;
-            Ok(())
+            panic!("nothing to save")
         })
         .unwrap();
-    assert_eq!(calls, 1);
     assert_eq!(change.selection, range(2, 2));
-    assert_eq!(session.source_text(), "a&#32; b c");
+    assert_eq!(session.source_text(), "a  b c");
     assert!(session.composition().is_none());
-    // replace_many returns a mandatory ViewChange, including its existing empty
-    // source action when both the marking and every explicit run are unchanged.
     assert!(session
-        .undo(session.revision(), &mut |_| Ok(()))
-        .unwrap()
-        .is_some());
-    assert!(session
-        .undo(session.revision(), &mut |_| panic!("one mandatory action"))
+        .undo(session.revision(), &mut |_| panic!("no empty action"))
         .unwrap()
         .is_none());
-    session
-        .redo(session.revision(), &mut |_| Ok(()))
-        .unwrap()
-        .unwrap();
-    assert_eq!(session.source_text(), "a&#32; b c");
-    assert_eq!(session.selection(), range(2, 2));
     assert!(session
         .commit_composition(session.revision(), None, &mut |_| panic!("repeated commit"))
         .unwrap()
@@ -462,7 +425,7 @@ fn unchanged_marking_and_explicit_runs_keep_the_existing_mandatory_change_policy
 #[test]
 fn unchanged_explicit_runs_keep_source_identity_and_the_final_supplied_caret() {
     for marked in ["C", "c"] {
-        let mut session = EditorSession::open("a&#32; b c");
+        let mut session = EditorSession::open("a  b c");
         let mut view = ReferenceView::new("a  b c");
         session.compose(Revision(0), range(5, 6), marked).unwrap();
         view.apply(
@@ -487,7 +450,7 @@ fn unchanged_explicit_runs_keep_source_identity_and_the_final_supplied_caret() {
                 )
                 .unwrap(),
         );
-        assert_eq!(session.source_text(), format!("a&#32; B {marked}"));
+        assert_eq!(session.source_text(), format!("a  B {marked}"));
         assert_eq!(view.text, format!("a  B {marked}"));
         assert_eq!(session.selection(), range(6, 6));
         view.apply(
@@ -496,7 +459,7 @@ fn unchanged_explicit_runs_keep_source_identity_and_the_final_supplied_caret() {
                 .unwrap()
                 .unwrap(),
         );
-        assert_eq!(session.source_text(), format!("a&#32; b {marked}"));
+        assert_eq!(session.source_text(), format!("a  b {marked}"));
         if marked == "C" {
             view.apply(
                 session
@@ -505,7 +468,7 @@ fn unchanged_explicit_runs_keep_source_identity_and_the_final_supplied_caret() {
                     .unwrap(),
             );
         }
-        assert_eq!(session.source_text(), "a&#32; b c");
+        assert_eq!(session.source_text(), "a  b c");
         assert_eq!(view.text, "a  b c");
     }
 }

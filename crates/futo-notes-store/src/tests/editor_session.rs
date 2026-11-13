@@ -9,7 +9,6 @@ mod external_rename;
 mod images;
 mod lifecycle;
 mod links;
-mod list_actions;
 mod merging;
 mod native_input_traces;
 mod portable;
@@ -17,32 +16,13 @@ mod portable_attachment;
 mod portable_waiting;
 mod quick_open;
 mod saving;
-mod seams;
 mod tables;
 mod tags;
 mod wikilinks;
 
-/// A root note holding exactly `source`, which may lack the final line ending
-/// every authored write appends (recovery.md): a peer's or an older note.
+/// A root note holding exactly `source`.
 fn plant_note(root: &TestRoot, id: &str, source: &str) {
     fs::write(root.0.join(format!("{id}.md")), source).unwrap();
-}
-
-/// Source and display after an authored save of `source` (recovery.md): a
-/// nonempty note without a final line ending gains its own (CRLF or LF). The
-/// gained ending's display is the editor's own projection of the saved bytes.
-fn saved_forms(source: &str, display: &str) -> (String, String) {
-    if source.is_empty() || source.ends_with('\n') {
-        return (source.to_owned(), display.to_owned());
-    }
-    let ending = if source.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
-    };
-    let saved = format!("{source}{ending}");
-    let shown = futo_notes_editor::EditorSession::open(&saved).display_text();
-    (saved, shown)
 }
 
 fn range(start: usize, end: usize) -> DisplayRange {
@@ -57,7 +37,7 @@ fn unchanged_editor_open_close_creates_no_note_write() {
     let root = TestRoot::new();
     let observer = Arc::new(RecordingObserver::default());
     let store = LocalNoteStore::with_before_write(root.0.clone(), observer.clone());
-    plant_note(&root, "plain", "  first\r\nlast\t ");
+    store.create("", "plain", "  first\r\nlast\t ").unwrap();
     observer.0.lock().unwrap().clear();
     let before = store.snapshot();
     let editor = store.open_editor("plain").unwrap();
@@ -90,26 +70,20 @@ fn legacy_writes_are_refused_by_lease_under_any_case() {
     store
         .save_draft_as_unattached("other", "plain", "x", "z")
         .unwrap_err();
-    assert_eq!(
-        store.read_existing("plain").unwrap().as_deref(),
-        Some("ab\n")
-    );
+    assert_eq!(store.read_existing("plain").unwrap().as_deref(), Some("ab"));
     store
         .save_unattached(Some("other"), "other", "y", None)
         .unwrap();
     drop(editor);
     store.flush_draft_unattached("plain", "ab", "z").unwrap();
-    assert_eq!(
-        store.read_existing("plain").unwrap().as_deref(),
-        Some("z\n")
-    );
+    assert_eq!(store.read_existing("plain").unwrap().as_deref(), Some("z"));
 }
 
 #[test]
 fn checkpoint_returns_the_complete_store_mutation() {
     let root = TestRoot::new();
     let store = store(&root);
-    plant_note(&root, "plain", "one\r\ntwo  ");
+    store.create("", "plain", "one\r\ntwo  ").unwrap();
     let mut editor = store.open_editor("plain").unwrap();
     let change = editor.replace(Revision(0), range(5, 8), "three").unwrap();
     assert_eq!(change.revision, Revision(1));
@@ -120,11 +94,10 @@ fn checkpoint_returns_the_complete_store_mutation() {
     let mutation = result.mutation.unwrap();
     assert_eq!(mutation.final_id.as_deref(), Some("plain"));
     assert_eq!(mutation.upserted[0].note.id, "plain");
-    // The save appends the note's own CRLF ending.
-    assert_eq!(store.read("plain").unwrap(), "one\r\nthree  \r\n");
+    assert_eq!(store.read("plain").unwrap(), "one\r\nthree  ");
     drop(editor);
     let reopened = store.open_editor("plain").unwrap();
-    assert_eq!(reopened.source_text(), "one\r\nthree  \r\n");
+    assert_eq!(reopened.source_text(), "one\r\nthree  ");
     assert_eq!(reopened.revision(), Revision(0));
     assert_eq!(store.snapshot().notes.len(), 1);
 }
@@ -148,8 +121,8 @@ fn session_checkpoint_preserves_a_competing_note_and_follows_the_parked_id() {
     assert_eq!(editor.id(), parked_id);
     editor.replace(Revision(1), range(6, 6), "?").unwrap();
     editor.checkpoint().unwrap();
-    assert_eq!(store.read("plain").unwrap(), "peer\n");
-    assert_eq!(store.read(&parked_id).unwrap(), "plain!?\n");
+    assert_eq!(store.read("plain").unwrap(), "peer");
+    assert_eq!(store.read(&parked_id).unwrap(), "plain!?");
 }
 
 #[test]
@@ -189,10 +162,10 @@ fn owned_editor_outlives_its_opening_store_handle() {
     let mut editor = opening_store.open_owned_editor("plain").unwrap();
     drop(opening_store);
     editor.replace(Revision(0), range(5, 5), "!").unwrap();
-    assert_eq!(editor.source_text(), "hello!\n");
+    assert_eq!(editor.source_text(), "hello!");
     editor.close().unwrap();
     let store = store(&root);
-    assert_eq!(store.read("plain").unwrap(), "hello!\n");
+    assert_eq!(store.read("plain").unwrap(), "hello!");
 }
 
 #[test]
@@ -218,28 +191,29 @@ fn hidden_inline_edits_history_and_checkpoint_preserve_exact_markdown() {
             .toggle_format(Revision(1), InlineFormat::Strike)
             .unwrap()
             .unwrap();
-        assert_eq!(editor.source_text(), "__日😀__*中*~~*ab*~~ tail\t\r\n");
+        // The strike nests inside the italic span.
+        assert_eq!(editor.source_text(), "__日😀__*中~~ab~~* tail\t\r\n");
         editor.undo(Revision(2)).unwrap().unwrap();
         assert_eq!(editor.source_text(), "__日😀__*中ab* tail\t\r\n");
         editor.redo(Revision(3)).unwrap().unwrap();
         assert_eq!(editor.display_text(), "日😀中ab tail\t\r\n");
         assert_eq!(store.read("inline").unwrap(), original);
-        assert_eq!(editor.source_text(), "__日😀__*中*~~*ab*~~ tail\t\r\n");
+        assert_eq!(editor.source_text(), "__日😀__*中~~ab~~* tail\t\r\n");
         assert_eq!(editor.revision(), Revision(4));
         editor
     };
-    assert_eq!(
-        editor.project(Revision(4), range(10, 12)).unwrap().runs[0].formats,
-        vec![InlineFormat::Italic, InlineFormat::Strike]
-    );
+    // A projection reports its lines' runs: the one over `ab`.
+    let runs = editor.project(Revision(4), range(10, 12)).unwrap().runs;
+    let ab = runs.iter().find(|run| run.range == range(10, 12)).unwrap();
+    assert_eq!(ab.formats, vec![InlineFormat::Italic, InlineFormat::Strike]);
     editor.checkpoint().unwrap();
     assert_eq!(
         store.read("inline").unwrap(),
-        "__日😀__*中*~~*ab*~~ tail\t\r\n"
+        "__日😀__*中~~ab~~* tail\t\r\n"
     );
     drop(editor);
     let reopened = store.open_editor("inline").unwrap();
-    assert_eq!(reopened.source_text(), "__日😀__*中*~~*ab*~~ tail\t\r\n");
+    assert_eq!(reopened.source_text(), "__日😀__*中~~ab~~* tail\t\r\n");
     assert_eq!(reopened.display_text(), "日😀中ab tail\t\r\n");
 }
 

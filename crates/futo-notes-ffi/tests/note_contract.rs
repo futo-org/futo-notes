@@ -75,7 +75,7 @@ fn note_store_projects_complete_workflow_results() {
     assert!(store.exists("Projects/Beta".to_owned()));
     assert_eq!(
         store.read("Projects/Beta".to_owned()).unwrap(),
-        "version one\n"
+        "version one"
     );
 
     let written = store
@@ -100,10 +100,7 @@ fn note_store_projects_complete_workflow_results() {
         )
         .unwrap();
     assert_eq!(recreated.upserted[0].note.id, "Projects/Beta");
-    assert_eq!(
-        store.read("Projects/Beta".to_owned()).unwrap(),
-        "restored\n"
-    );
+    assert_eq!(store.read("Projects/Beta".to_owned()).unwrap(), "restored");
 
     let renamed = store
         .rename("Projects/Beta".to_owned(), "Projects/Gamma".to_owned())
@@ -202,11 +199,11 @@ fn a_self_link_rename_carries_the_relinked_body_to_the_shell() {
     assert_eq!(retitled.relinked, vec!["Hub", "Journal"]);
     assert_eq!(
         retitled.final_body.as_deref(),
-        Some("back to [[Journal]] today\n")
+        Some("back to [[Journal]] today")
     );
     assert_eq!(
         store.read("Journal".to_owned()).unwrap(),
-        "back to [[Journal]] today\n"
+        "back to [[Journal]] today"
     );
 
     // A plain rename of the same shape carries it too.
@@ -214,7 +211,7 @@ fn a_self_link_rename_carries_the_relinked_body_to_the_shell() {
         .write("Loop".to_owned(), "[[Loop]]".to_owned())
         .unwrap();
     let renamed = store.rename("Loop".to_owned(), "Ring".to_owned()).unwrap();
-    assert_eq!(renamed.final_body.as_deref(), Some("[[Ring]]\n"));
+    assert_eq!(renamed.final_body.as_deref(), Some("[[Ring]]"));
 
     // Nothing rewritten: no body is shipped (other notes' bodies never cross).
     let plain = store

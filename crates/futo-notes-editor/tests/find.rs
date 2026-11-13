@@ -24,7 +24,7 @@ fn found(source: &str, query: &str) -> Vec<String> {
 }
 
 #[test]
-fn matching_reads_visible_text_across_marks_and_soft_lines_but_not_blocks() {
+fn matching_reads_visible_text_across_marks_but_not_line_breaks() {
     let cases: &[(&str, &str, &[&str])] = &[
         // Case-insensitive literal, no word or prefix rules.
         ("Concatenate CAT cat", "cat", &["cat", "CAT", "cat"]),
@@ -35,11 +35,10 @@ fn matching_reads_visible_text_across_marks_and_soft_lines_but_not_blocks() {
         ("see [t](http://u) `co` [[Wiki|alias]]", "co", &["co"]),
         ("see [t](http://u) [[Wiki|alias]]", "alias", &["alias"]),
         ("see [t](http://u)", "http", &[]),
-        // A paragraph's line break reads as one space.
-        ("hey man\nyes\n\nz", "man yes", &["man\nyes"]),
-        ("> hey man\n> yes", "man yes", &["man\nyes"]),
-        ("- a\n  man\n  yes", "man yes", &["man\nyes"]),
-        // No match crosses a block boundary.
+        // Every line break is a barrier: no match crosses from one line to the next.
+        ("hey man\nyes\n\nz", "man yes", &[]),
+        ("> hey man\n> yes", "man yes", &[]),
+        ("- a\n  man\n  yes", "man yes", &[]),
         ("one\n\ntwo", "one two", &[]),
         ("- a\n- b", "a b", &[]),
         ("> a\n\nb", "a b", &[]),

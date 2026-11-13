@@ -67,4 +67,4 @@
   src/features/editor/milkdown/autolink.ts,
   tests/editor-embed-milkdown-parity.spec.ts
 
-- The portable replacement core preserves canonical link meaning, exact source and transient input lifetimes through correction, Code, structural commands, own-action relinks and saving; its source contract is [link editing and source ownership](portable-core/links.md). Shipping renderer activation and external-open guards remain the contract above until cutover. → crates/futo-notes-editor/src/inline/links.rs, crates/futo-notes-ffi/src/editor/links.rs
+- The portable replacement core preserves canonical link meaning, exact source and transient input lifetimes through correction, Code, structural commands, own-action relinks and saving; its source contract is [link editing and source ownership](portable-core/links.md). Shipping renderer activation and external-open guards remain the contract above until cutover. → crates/futo-notes-editor/src/engine/commands/inline/links/mod.rs, crates/futo-notes-ffi/src/editor/links.rs

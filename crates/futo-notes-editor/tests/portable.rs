@@ -330,7 +330,8 @@ fn link_commands_apply_at_once_and_return_canonical_semantics_with_exact_history
         .set_link(Revision(0), range, "https://x.test")
         .unwrap()
         .unwrap();
-    assert_eq!(page.draft_text(), "[__docs__](<https://x.test>)");
+    // A destination that reads back as itself is written as given.
+    assert_eq!(page.draft_text(), "[__docs__](https://x.test)");
     view.apply(applied.change);
     let link = page.inspect_link(Revision(1), range).unwrap().unwrap();
     assert_eq!(link.destination, "https://x.test");

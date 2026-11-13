@@ -14,7 +14,9 @@ desktop, iOS, and Android query that owner through thin adapters.
   (`LocalNoteStore::wait_until_search_ready`); shells pass a budget and
   degrade to empty results when it elapses — no shell owns a readiness poll
   loop, and there is no TypeScript, Swift, or Kotlin fallback index.
-- The index covers note title, folder, tags, and body text.
+- The index covers note title, folder, tags, and body text. Tags are the canonical tag rule's
+  (`futo-notes-tags` `extract_tag_names`): none inside front matter, fenced code or a code span.
+  → crates/futo-notes-search/src/indexer.rs `extract_tags_inline`
 - Internal hyphens are parsed as an adjacent phrase by the shared Tantivy query
   behavior (`folder-scoped` matches the compound, not distant words).
 - A multi-word query prefers notes containing EVERY word: retrieval runs

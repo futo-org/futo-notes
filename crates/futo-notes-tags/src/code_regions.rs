@@ -1,196 +1,161 @@
-//! Code-fence and inline-code region scanning for tag extraction: which byte
-//! ranges of a note count as blanked, in the same order as TS `stripCodeRegions`.
+//! Which byte ranges of a note are not read for tags: front matter, fenced
+//! code and code spans, as the text-first editor's line reader reads them
+//! (docs/spec/editor/portable-core/linedown.md). A line ends at `\n` or
+//! `\r\n`; a lone `\r` is an ordinary character. Fences and front matter are
+//! whole lines; a code span never crosses a line.
 
-fn backtick_run_end(bytes: &[u8], start: usize) -> usize {
-    let mut end = start;
-    while end < bytes.len() && bytes[end] == b'`' {
-        end += 1;
-    }
-    end
+use std::collections::HashMap;
+
+/// One line: where it starts, where its text ends (before `\n` or `\r\n`),
+/// and where the next line starts.
+struct Line {
+    start: usize,
+    end: usize,
+    next: usize,
 }
 
-/// Byte ranges treated as blanked: fenced code, then inline code outside the
-/// fences, the same order as TS `stripCodeRegions`.
-pub(super) fn code_regions(content: &str, bytes: &[u8]) -> Vec<(usize, usize)> {
-    if memchr::memchr2(b'`', b'~', bytes).is_none() {
-        return Vec::new();
-    }
-    let mut regions = fenced_regions(content, bytes);
-    regions.sort_unstable_by_key(|&(start, _)| start);
-    merge_regions(&mut regions);
-
-    let inline = inline_code_regions(bytes, &regions);
-    if inline.is_empty() {
-        return regions;
-    }
-    regions.extend(inline);
-    regions.sort_unstable_by_key(|&(start, _)| start);
-    merge_regions(&mut regions);
-    regions
-}
-
-pub(super) fn merge_regions(regions: &mut Vec<(usize, usize)>) {
-    let mut merged: Vec<(usize, usize)> = Vec::with_capacity(regions.len());
-    for &(start, end) in regions.iter() {
-        match merged.last_mut() {
-            Some(last) if start <= last.1 => {
-                if end > last.1 {
-                    last.1 = end;
+fn lines(content: &str) -> impl Iterator<Item = Line> + '_ {
+    let bytes = content.as_bytes();
+    let mut start = Some(0);
+    std::iter::from_fn(move || {
+        let from = start?;
+        let line = match memchr::memchr(b'\n', &bytes[from..]) {
+            Some(offset) => {
+                let newline = from + offset;
+                let end = if newline > from && bytes[newline - 1] == b'\r' {
+                    newline - 1
+                } else {
+                    newline
+                };
+                Line {
+                    start: from,
+                    end,
+                    next: newline + 1,
                 }
             }
-            _ => merged.push((start, end)),
-        }
-    }
-    *regions = merged;
-}
-
-/// One fence-marker line, matching what `(?m)^( {0,3})(`{3,}|~{3,})(.*)$`
-/// captures: `index` is the line's start, `end_of_line` is the position right
-/// after the line's content (before its trailing `\n`, if any).
-pub(super) struct FenceLine {
-    pub(super) index: usize,
-    pub(super) end_of_line: usize,
-    pub(super) marker_char: u8,
-    pub(super) marker_len: usize,
-    pub(super) rest_blank: bool,
-}
-
-/// That regex as a byte scan (pinned by `fence_scan_matches_the_fence_regex`).
-/// The fence marker on the line `line_start..line_end`, if it has one.
-pub(super) fn fence_at(
-    content: &str,
-    bytes: &[u8],
-    line_start: usize,
-    line_end: usize,
-) -> Option<FenceLine> {
-    let max_indent = (line_start + 3).min(line_end);
-    let mut marker_start = line_start;
-    while marker_start < max_indent && bytes[marker_start] == b' ' {
-        marker_start += 1;
-    }
-    let marker_char = *bytes
-        .get(marker_start)
-        .filter(|_| marker_start < line_end)?;
-    if marker_char != b'`' && marker_char != b'~' {
-        return None;
-    }
-    let mut marker_end = marker_start;
-    while marker_end < line_end && bytes[marker_end] == marker_char {
-        marker_end += 1;
-    }
-    (marker_end - marker_start >= 3).then(|| FenceLine {
-        index: line_start,
-        end_of_line: line_end,
-        marker_char,
-        marker_len: marker_end - marker_start,
-        rest_blank: content[marker_end..line_end].trim().is_empty(),
+            None => Line {
+                start: from,
+                end: bytes.len(),
+                next: bytes.len(),
+            },
+        };
+        start = (line.next < bytes.len() || line.end < line.next).then_some(line.next);
+        Some(line)
     })
 }
 
-pub(super) fn scan_fence_lines(content: &str, bytes: &[u8]) -> Vec<FenceLine> {
-    let len = bytes.len();
-    let mut out = Vec::new();
-    let mut line_start = 0usize;
-    loop {
-        let line_end = memchr::memchr(b'\n', &bytes[line_start..])
-            .map(|pos| line_start + pos)
-            .unwrap_or(len);
-
-        out.extend(fence_at(content, bytes, line_start, line_end));
-        if line_end == len {
-            break;
-        }
-        line_start = line_end + 1;
+/// Sorted byte ranges that are code or front matter. No two touch, so a
+/// region's end is never another's start.
+pub(super) fn code_regions(content: &str) -> Vec<(usize, usize)> {
+    let bytes = content.as_bytes();
+    if memchr::memchr2(b'`', b'~', bytes).is_none() && !content.starts_with("---") {
+        return Vec::new();
     }
-    out
-}
-
-/// A fence line closes the most recently opened fence when the marker char
-/// matches, the run is at least as long and the rest of the line is blank;
-/// otherwise it opens one. A fence left open runs to the end.
-pub(super) fn fenced_regions(content: &str, bytes: &[u8]) -> Vec<(usize, usize)> {
-    let fence_lines = scan_fence_lines(content, bytes);
-
-    struct OpenFence {
-        pos: usize,
-        marker_char: u8,
-        marker_len: usize,
+    let mut regions = Vec::new();
+    let mut lines = lines(content).peekable();
+    if let Some(close) = front_matter_end(content) {
+        regions.push((0, close));
+        while lines.next_if(|line| line.start < close).is_some() {}
     }
-    let mut open_fences: Vec<OpenFence> = Vec::new();
-    let mut regions: Vec<(usize, usize)> = Vec::new();
-    for f in &fence_lines {
-        if let Some(open) = open_fences.last() {
-            if f.marker_char == open.marker_char && f.marker_len >= open.marker_len && f.rest_blank
-            {
-                regions.push((open.pos, f.end_of_line));
-                open_fences.pop();
-                continue;
+    let mut fence: Option<(u8, usize, usize)> = None;
+    for line in lines {
+        let text = &content[line.start..line.end];
+        let own = text.trim_start_matches([' ', '\t']);
+        if let Some((ch, len, start)) = fence {
+            let body = own.trim_end_matches([' ', '\t']);
+            let run = body.bytes().take_while(|&b| b == ch).count();
+            if run >= len && run == body.len() {
+                regions.push((start, line.end));
+                fence = None;
             }
+        } else if let Some((ch, run)) = fence_open(own) {
+            fence = Some((ch, run, line.start));
+        } else {
+            code_spans(bytes, line.start, line.end, &mut regions);
         }
-        open_fences.push(OpenFence {
-            pos: f.index,
-            marker_char: f.marker_char,
-            marker_len: f.marker_len,
-        });
     }
-    for open in &open_fences {
-        regions.push((open.pos, content.len()));
+    if let Some((_, _, start)) = fence {
+        regions.push((start, content.len()));
     }
     regions
 }
 
-/// The non-overlapping matches of ``(`+)([^`]*?)\1`` in linear time, with
-/// fenced bytes treated as absent (pinned by
-/// `linear_inline_scan_matches_backreference_regex`).
-pub(super) fn inline_code_regions(bytes: &[u8], fenced: &[(usize, usize)]) -> Vec<(usize, usize)> {
-    let mut matches = Vec::new();
-    let skipper = RegionCursor::new(fenced);
-    let mut cursor = 0usize;
-    while let Some(start) = next_backtick_outside(bytes, cursor, &skipper) {
-        let opener_end = backtick_run_end(bytes, start);
-        let opener_len = opener_end - start;
-        let next_start = next_backtick_outside(bytes, opener_end, &skipper);
-
-        let match_end = next_start.and_then(|closing_start| {
-            let closing_len = backtick_run_end(bytes, closing_start) - closing_start;
-            (closing_len >= opener_len).then_some(closing_start + opener_len)
-        });
-
-        if let Some(end) = match_end {
-            matches.push((start, end));
-            cursor = end;
-        } else if opener_len >= 2 {
-            let end = start + 2 * (opener_len / 2);
-            matches.push((start, end));
-            cursor = end;
-        } else {
-            cursor = opener_end;
-        }
+/// Where closed front matter ends (after its closing `---`): only when line 1
+/// is exactly `---` and a later line is exactly `---`.
+fn front_matter_end(content: &str) -> Option<usize> {
+    let mut lines = lines(content);
+    let first = lines.next()?;
+    if &content[first.start..first.end] != "---" {
+        return None;
     }
-    matches
+    lines
+        .find(|line| &content[line.start..line.end] == "---")
+        .map(|line| line.end)
 }
 
-/// The next backtick at or after `from` outside a fenced region.
-pub(super) fn next_backtick_outside(
-    bytes: &[u8],
-    from: usize,
-    skipper: &RegionCursor,
-) -> Option<usize> {
-    let mut pos = from;
-    loop {
-        pos = skipper.skip(pos);
-        let found = pos + memchr::memchr(b'`', &bytes[pos..])?;
-        let after = skipper.skip(found);
-        if after == found {
-            return Some(found);
+/// Three or more backticks or tildes at the start of a line's own text.
+fn fence_open(own: &str) -> Option<(u8, usize)> {
+    let ch = *own.as_bytes().first()?;
+    if ch != b'`' && ch != b'~' {
+        return None;
+    }
+    let run = own.bytes().take_while(|&b| b == ch).count();
+    (run >= 3).then_some((ch, run))
+}
+
+/// The code spans of `bytes[start..end]`, one line, read left to right as
+/// the editor reads them: a `\` before ASCII punctuation is an escape; a
+/// backtick run opens a span closed by the next run of exactly its length
+/// and is literal text when none follows. Linear: each run length keeps a
+/// cursor into its own list of runs, and openers only move forward.
+fn code_spans(bytes: &[u8], start: usize, end: usize, regions: &mut Vec<(usize, usize)>) {
+    let line = &bytes[start..end];
+    if memchr::memchr(b'`', line).is_none() {
+        return;
+    }
+    // Every maximal backtick run on the line, grouped by length.
+    let mut runs: HashMap<usize, (Vec<usize>, usize)> = HashMap::new();
+    let mut at = 0;
+    while let Some(offset) = memchr::memchr(b'`', &line[at..]) {
+        let run_start = at + offset;
+        let run_end = run_end(line, run_start);
+        runs.entry(run_end - run_start)
+            .or_default()
+            .0
+            .push(run_start);
+        at = run_end;
+    }
+    let mut i = 0;
+    while i < line.len() {
+        match line[i] {
+            b'\\' if line.get(i + 1).is_some_and(u8::is_ascii_punctuation) => i += 2,
+            b'`' => {
+                let open_end = run_end(line, i);
+                let len = open_end - i;
+                let close = runs.get_mut(&len).and_then(|(starts, cursor)| {
+                    while starts.get(*cursor).is_some_and(|&s| s < open_end) {
+                        *cursor += 1;
+                    }
+                    starts.get(*cursor).copied()
+                });
+                match close {
+                    Some(close) => {
+                        regions.push((start + i, start + close + len));
+                        i = close + len;
+                    }
+                    None => i = open_end,
+                }
+            }
+            _ => i += 1,
         }
-        pos = after;
     }
 }
 
-/// Point queries against sorted, disjoint ranges. Binary search, not a
-/// forward-only pointer: a failed closing-backtick probe resumes from an
-/// earlier position, so queries are not monotonic.
+fn run_end(bytes: &[u8], start: usize) -> usize {
+    start + bytes[start..].iter().take_while(|&&b| b == b'`').count()
+}
+
+/// Point queries against sorted, disjoint ranges.
 pub(super) struct RegionCursor<'a> {
     regions: &'a [(usize, usize)],
 }
@@ -208,22 +173,10 @@ impl<'a> RegionCursor<'a> {
         }
     }
 
-    /// True if some region ends exactly at `pos` (equivalently, `pos - 1` is
-    /// covered by that region) — used instead of a separate `covers(pos - 1)`
-    /// query.
+    /// True if some region ends exactly at `pos`.
     pub(super) fn immediately_after_region(&self, pos: usize) -> bool {
         self.regions
             .binary_search_by(|&(_, end)| end.cmp(&pos))
             .is_ok()
-    }
-
-    /// If `pos` lies inside a region, returns that region's end (the first
-    /// position outside it); otherwise returns `pos` unchanged.
-    pub(super) fn skip(&self, pos: usize) -> usize {
-        match self.regions.binary_search_by(|&(start, _)| start.cmp(&pos)) {
-            Ok(idx) => self.regions[idx].1,
-            Err(idx) if idx > 0 && self.regions[idx - 1].1 > pos => self.regions[idx - 1].1,
-            Err(_) => pos,
-        }
     }
 }

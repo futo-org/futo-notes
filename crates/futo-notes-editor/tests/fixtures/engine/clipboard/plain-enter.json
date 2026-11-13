@@ -1,0 +1,14 @@
+[
+  {"name": "plain line Enter: inside bold", "before": "**bo|ld**", "command": "Enter", "after": "**bo**\n**|ld**"},
+  {"name": "plain line ShiftEnter: Shift+Enter inside bold", "before": "**bo|ld**", "command": "ShiftEnter", "after": "**bo**\n**|ld**"},
+  {"name": "plain line Enter: at bold's text start the break goes before it", "before": "a **|b**", "command": "Enter", "after": "a \n**|b**"},
+  {"name": "plain line Enter: at bold's text end the break goes after it", "before": "**ab|** c", "command": "Enter", "after": "**ab**\n| c"},
+  {"name": "plain line Enter: a link inside italic", "before": "x *a [l^k](u) b* y", "command": "Enter", "after": "x *a [l](u)*\n*[^k](u) b* y", "marks": "^{}"},
+  {"name": "plain line Enter: inline code", "before": "`co|de`", "command": "Enter", "after": "`co`\n`|de`"},
+  {"name": "plain line Enter: strikethrough", "before": "~~ab|cd~~", "command": "Enter", "after": "~~ab~~\n~~|cd~~"},
+  {"name": "plain line Enter: an indented line's text goes to column 0, as typing does", "before": "  **a|b**", "command": "Enter", "after": "  **a**\n**|b**"},
+  {"name": "plain line Enter: a selection across lines joins, then splits", "before": "**a[b**\n**c]d**", "command": "Enter", "after": "**a**\n**|d**"},
+  {"name": "plain line Enter: CRLF", "before": "**a|b**\r\nz", "command": "Enter", "after": "**a**\r\n**|b**\r\nz"},
+  {"name": "plain line Enter: no mark: a plain line break", "before": "a|b", "command": "Enter", "after": "a\n|b"},
+  {"name": "plain line Enter: between marks: a plain line break", "before": "**a** |*b*", "command": "Enter", "after": "**a** \n|*b*"}
+]

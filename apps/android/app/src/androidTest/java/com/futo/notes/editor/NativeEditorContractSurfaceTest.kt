@@ -35,18 +35,18 @@ class NativeEditorContractSurfaceTest {
 
     @Test
     fun tagsFindAndClipboardKeepExactBytes() {
-        assertEquals("#a #b\n\nbody\n", scenario("#a\n\nbody\n") { _, s ->
+        assertEquals("#a #b\n\nbody", scenario("#a\n\nbody") { _, s ->
             checkNotNull(s.addHeaderTag(0uL, "b"))
             assertEquals(listOf("#a", "#b"), s.headerTags())
             assertEquals(listOf("#a", "#b"), s.tags())
         })
-        val front = "---\ntitle: x\n---\nbody\n"
+        val front = "---\ntitle: x\n---\nbody"
         assertEquals(front, scenario(front) { _, s ->
             val blocks = s.project(0uL, at(0, s.displayText().toByteArray(Charsets.UTF_8).size.toLong())).blocks
             assertEquals(1, blocks.count { it.metadata })
             assertFalse(blocks.last().metadata)
         })
-        assertEquals("x a **bo**ld Bold\r\n\r\nBOLD\r\n", scenario("a **bo**ld Bold\r\n\r\nBOLD\r\n") { _, s ->
+        assertEquals("x a **bo**ld Bold\r\n\r\nBOLD", scenario("a **bo**ld Bold\r\n\r\nBOLD") { _, s ->
             val report = s.findSetQuery(0uL, "bold")
             assertEquals(3uL to 1uL, report.total to report.current)
             assertEquals(at(2, 6), report.reveal)
@@ -59,10 +59,10 @@ class NativeEditorContractSurfaceTest {
             assertEquals(3uL to false, rescanned.total to rescanned.stale)
             assertFalse(s.findClose().open)
         })
-        assertEquals("- ab \n- x\n- y\n- \n", scenario("- ab **cd**\n") { _, s ->
+        assertEquals("- ab \n- x\n- y\n- ", scenario("- ab **cd**") { _, s ->
             assertEquals("**d**", s.copyMarkdown(0uL, at(4, 5)))
             checkNotNull(s.pasteMarkdown(0uL, at(3, 3), "- x\n- y\n"))
-            assertEquals("- ab \n- x\n- y\n- **cd**\n", s.sourceText())
+            assertEquals("- ab \n- x\n- y\n- **cd**", s.sourceText())
             val cut = s.cutMarkdown(1uL, at(8, 10))
             assertEquals("- **cd**", cut.markdown)
             assertNotNull(cut.change)
@@ -88,7 +88,7 @@ class NativeEditorContractSurfaceTest {
     @Test
     fun noteIdsWikilinkCompletionAndImageAtomsKeepExactBytes() {
         val seed = { store: NoteStore -> store.createNote("Roadmap", "Projects", ""); Unit }
-        assertEquals("[[Roadmap]] ab\n", scenario("[[Roadmap]] ab\n", seed) { store, s ->
+        assertEquals("[[Roadmap]] ab", scenario("[[Roadmap]] ab", seed) { store, s ->
             val before = s.project(0uL, at(0, 11)).wikilinks[0]
             assertEquals("Roadmap" to "Projects/Roadmap", before.label to before.noteId)
             store.createNote("Roadmap", "Archive", "")
@@ -98,7 +98,7 @@ class NativeEditorContractSurfaceTest {
             assertEquals("Roadmap", after.label)
             assertNull(after.noteId)
         })
-        assertEquals("see [[Projects/Roadmap]]\n", scenario("see [[Ro\n", seed) { _, s ->
+        assertEquals("see [[Projects/Roadmap]]", scenario("see [[Ro", seed) { _, s ->
             s.selectWithAffinity(0uL, at(8, 8), EditorAffinity.FORWARD)
             val found = checkNotNull(s.wikilinkCompletion(0uL))
             assertEquals(at(4, 8) to "Ro", found.range to found.query)
@@ -109,7 +109,7 @@ class NativeEditorContractSurfaceTest {
             } catch (_: EditorSessionException.StaleClaim) {}
             s.acceptWikilinkCompletion(0uL, found.range, found.query, "Projects/Roadmap")
         })
-        assertEquals("a ![x](image-1.png) b![](image-2.png)\n", scenario("a ![x](image-1.png) b\n") { _, s ->
+        assertEquals("a ![x](image-1.png) b![](image-2.png)", scenario("a ![x](image-1.png) b") { _, s ->
             val atom = s.project(0uL, at(0, 21)).atoms.first()
             assertEquals(at(2, 19), atom.range)
             assertEquals("image-1.png", atom.image?.destination)

@@ -1,7 +1,7 @@
 use ropey::Rope;
-use unicode_segmentation::UnicodeSegmentation;
+use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete, UnicodeSegmentation};
 
-use crate::{CaretDirection, EditorSession};
+use crate::{CaretDirection, EditorError};
 
 /// Why a coordinate was refused; the mirror is unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -247,7 +247,7 @@ impl DisplayMirror {
         let word = collapsed && deleted.graphemes(true).nth(1).is_some();
         let stop = match word.then(|| self.word_stop(byte, direction)).flatten() {
             Some(stop) => stop,
-            None => EditorSession::grapheme_stop_in(&self.rope, byte, direction, false).ok()?,
+            None => grapheme_stop(&self.rope, byte, direction).ok()?,
         };
         let other = self.byte_to_utf16(stop).ok()?;
         Some(if backward {
@@ -333,6 +333,48 @@ impl DisplayMirror {
                 self.rope = before;
                 Err(error)
             }
+        }
+    }
+}
+
+/// The next extended grapheme boundary from `position` in `direction`, over
+/// the rope's chunks; `position` itself at the text's edge.
+fn grapheme_stop(
+    display: &Rope,
+    position: usize,
+    direction: CaretDirection,
+) -> Result<usize, EditorError> {
+    let length = display.len_bytes();
+    if (direction == CaretDirection::Backward && position == 0)
+        || (direction == CaretDirection::Forward && position == length)
+    {
+        return Ok(position);
+    }
+    let mut cursor = GraphemeCursor::new(position, length, true);
+    let chunk_position = if direction == CaretDirection::Backward {
+        position.saturating_sub(1)
+    } else {
+        position
+    };
+    let (mut chunk, mut chunk_start, _, _) = display.chunk_at_byte(chunk_position);
+    loop {
+        let result = match direction {
+            CaretDirection::Backward => cursor.prev_boundary(chunk, chunk_start),
+            CaretDirection::Forward => cursor.next_boundary(chunk, chunk_start),
+        };
+        match result {
+            Ok(boundary) => return Ok(boundary.unwrap_or(position)),
+            Err(GraphemeIncomplete::PreContext(end)) => {
+                let (context, start, _, _) = display.chunk_at_byte(end - 1);
+                cursor.provide_context(&context[..end - start], start);
+            }
+            Err(GraphemeIncomplete::NextChunk) => {
+                (chunk, chunk_start, _, _) = display.chunk_at_byte(chunk_start + chunk.len());
+            }
+            Err(GraphemeIncomplete::PrevChunk) => {
+                (chunk, chunk_start, _, _) = display.chunk_at_byte(chunk_start - 1);
+            }
+            Err(GraphemeIncomplete::InvalidOffset) => return Err(EditorError::InvalidRange),
         }
     }
 }

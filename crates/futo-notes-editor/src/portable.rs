@@ -443,7 +443,11 @@ impl PortableSession {
     ) -> Result<Applied, PortableError> {
         self.ready()?;
         let adoption = self.engine.prepare_external_source(expected, source)?;
-        let edit = adoption.edit.clone();
+        // A merge equal to the page's own text changes nothing and has no
+        // Append to send (the worker refuses an empty record).
+        let Some(edit) = adoption.edit().cloned() else {
+            return Err(EditorError::UnrepresentableFormat.into());
+        };
         let change = self.engine.apply_external_source(adoption)?;
         Ok(self.issue(edit, change))
     }

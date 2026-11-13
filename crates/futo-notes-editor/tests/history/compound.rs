@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn multi_run_command_preserves_unchanged_spelling_and_is_one_atomic_history_action() {
     use futo_notes_editor::{Affinity, DisplayReplacement, InlineFormat};
-    let opening = "__cat__ &amp; _dog_  \r\n";
+    let opening = "__cat__ & _dog_  \r\n";
     let mut session = EditorSession::open_with_clock(opening, Arc::new(Clock::default()));
     let mut view = ReferenceView::new("cat & dog  \r\n");
     session
@@ -38,7 +38,7 @@ fn multi_run_command_preserves_unchanged_spelling_and_is_one_atomic_history_acti
             .replace_many(Revision(0), &replacements, &mut |_| Ok(()))
             .unwrap(),
     );
-    assert_eq!(session.source_text(), "__kitten__ &amp; _ox_  \r\n");
+    assert_eq!(session.source_text(), "__kitten__ & _ox_  \r\n");
     assert_eq!(view.text, "kitten & ox  \r\n");
     assert_eq!(session.selection(), range(11, 11));
     assert_eq!(session.active_formats(), vec![InlineFormat::Italic]);
@@ -51,7 +51,7 @@ fn multi_run_command_preserves_unchanged_spelling_and_is_one_atomic_history_acti
         .unwrap()
         .is_none());
     view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(session.source_text(), "__kitten__ &amp; _ox_  \r\n");
+    assert_eq!(session.source_text(), "__kitten__ & _ox_  \r\n");
     assert_eq!(view.text, "kitten & ox  \r\n");
 }
 
@@ -119,7 +119,7 @@ fn invalid_multi_run_foreign_input_rejects_the_whole_action_before_acceptance() 
 fn grouping_does_not_materialize_a_growing_run_or_an_unrelated_note_prefix() {
     use futo_notes_editor::DisplayReplacement;
     let prefix = "unchanged\n\n".repeat(2000);
-    let opening = format!("{prefix}__a__ &amp; _b_");
+    let opening = format!("{prefix}__a__ & _b_");
     let at = prefix.len();
     let mut session = EditorSession::open_with_clock(&opening, Arc::new(Clock::default()));
     for index in 0..30 {
@@ -165,10 +165,7 @@ fn grouping_does_not_materialize_a_growing_run_or_an_unrelated_note_prefix() {
         change.work
     );
     assert!(change.work.parsed_source_bytes < 1500, "{:#?}", change.work);
-    assert_eq!(
-        session.source_text(),
-        format!("{prefix}__long__ &amp; _short_")
-    );
+    assert_eq!(session.source_text(), format!("{prefix}__long__ & _short_"));
     session
         .undo(session.revision(), &mut |_| Ok(()))
         .unwrap()
@@ -179,7 +176,7 @@ fn grouping_does_not_materialize_a_growing_run_or_an_unrelated_note_prefix() {
 #[test]
 fn mixed_format_selection_multi_run_and_typing_history_returns_to_opening_and_final_bytes() {
     use futo_notes_editor::{Affinity, DisplayReplacement, InlineFormat};
-    let opening = "__cat__ &amp; _dog_\r\n";
+    let opening = "__cat__ & _dog_\r\n";
     let mut session = EditorSession::open_with_clock(opening, Arc::new(Clock::default()));
     let mut view = ReferenceView::new("cat & dog\r\n");
     session
@@ -191,7 +188,7 @@ fn mixed_format_selection_multi_run_and_typing_history_returns_to_opening_and_fi
             .unwrap()
             .unwrap(),
     );
-    assert_eq!(session.source_text(), "*__cat__* &amp; _dog_\r\n");
+    assert_eq!(session.source_text(), "*__cat__* & _dog_\r\n");
     view.apply(
         session
             .replace_many(
@@ -210,7 +207,7 @@ fn mixed_format_selection_multi_run_and_typing_history_returns_to_opening_and_fi
             )
             .unwrap(),
     );
-    assert_eq!(session.source_text(), "*__kitten__* &amp; _ox_\r\n");
+    assert_eq!(session.source_text(), "*__kitten__* & _ox_\r\n");
     view.apply(
         session
             .replace(Revision(2), range(11, 11), "!", &mut |_| Ok(()))
@@ -221,13 +218,9 @@ fn mixed_format_selection_multi_run_and_typing_history_returns_to_opening_and_fi
             .replace(Revision(3), range(12, 12), "?", &mut |_| Ok(()))
             .unwrap(),
     );
-    let final_bytes = "*__kitten__* &amp; _ox!?_\r\n";
+    let final_bytes = "*__kitten__* & _ox!?_\r\n";
     assert_eq!(session.source_text(), final_bytes);
-    for expected in [
-        "*__kitten__* &amp; _ox_\r\n",
-        "*__cat__* &amp; _dog_\r\n",
-        opening,
-    ] {
+    for expected in ["*__kitten__* & _ox_\r\n", "*__cat__* & _dog_\r\n", opening] {
         view.apply(
             session
                 .undo(session.revision(), &mut |_| Ok(()))
@@ -244,8 +237,8 @@ fn mixed_format_selection_multi_run_and_typing_history_returns_to_opening_and_fi
         .unwrap()
         .is_none());
     for expected in [
-        "*__cat__* &amp; _dog_\r\n",
-        "*__kitten__* &amp; _ox_\r\n",
+        "*__cat__* & _dog_\r\n",
+        "*__kitten__* & _ox_\r\n",
         final_bytes,
     ] {
         view.apply(

@@ -1,0 +1,761 @@
+{
+ "about": "Table cases for the editor core: inspection, table keys, paragraph keys in a table, typing, row and column commands and cell paste. Read by crates/futo-notes-editor/src/engine/tests/tables.rs, which explains the markers.",
+ "cases": [
+  {
+   "name": "cells show in the note's display, with alignment, and an escaped pipe stays in its cell",
+   "before": "‸| **a** | b\\|c |\n|:--|--:|\n| x |\n\npara",
+   "inspect": {
+    "columns": 2,
+    "alignments": [
+     "Left",
+     "Right"
+    ],
+    "rows": [
+     [
+      "a",
+      "b|c"
+     ],
+     [
+      "x"
+     ]
+    ],
+    "focus": null,
+    "lines": [
+     "| a | b|c |",
+     "| x |"
+    ],
+    "delimiter": "|:--|--:|"
+   }
+  },
+  {
+   "name": "a caret in a header cell focuses it; the header cannot be deleted or have a row above it",
+   "before": "| a‸ | b |\n|---|---|\n| c | d |",
+   "inspect": {
+    "columns": 2,
+    "alignments": [
+     "None",
+     "None"
+    ],
+    "rows": [
+     [
+      "a",
+      "b"
+     ],
+     [
+      "c",
+      "d"
+     ]
+    ],
+    "focus": [
+     0,
+     0
+    ],
+    "controls": [
+     "below",
+     "left",
+     "right",
+     "delete column"
+    ]
+   }
+  },
+  {
+   "name": "the only body row cannot be deleted; a single column cannot be deleted",
+   "before": "| a |\n|---|\n| ‸b |",
+   "inspect": {
+    "columns": 1,
+    "alignments": [
+     "None"
+    ],
+    "rows": [
+     [
+      "a"
+     ],
+     [
+      "b"
+     ]
+    ],
+    "focus": [
+     1,
+     0
+    ],
+    "controls": [
+     "above",
+     "below",
+     "left",
+     "right"
+    ]
+   }
+  },
+  {
+   "name": "a body row with a sibling can be deleted",
+   "before": "| a |\n|:-:|\n| b |\n| c‸ |",
+   "inspect": {
+    "columns": 1,
+    "alignments": [
+     "Center"
+    ],
+    "rows": [
+     [
+      "a"
+     ],
+     [
+      "b"
+     ],
+     [
+      "c"
+     ]
+    ],
+    "focus": [
+     2,
+     0
+    ],
+    "controls": [
+     "above",
+     "below",
+     "delete row",
+     "left",
+     "right"
+    ]
+   }
+  },
+  {
+   "name": "#419: text in an extra cell is a column like any other, read and formatted",
+   "before": "| a |\n|---|\n| b | **c‸** |",
+   "inspect": {
+    "columns": 2,
+    "alignments": [
+     "None",
+     "None"
+    ],
+    "rows": [
+     [
+      "a"
+     ],
+     [
+      "b",
+      "c"
+     ]
+    ],
+    "focus": [
+     1,
+     1
+    ],
+    "lines": [
+     "| a |",
+     "| b | c |"
+    ]
+   }
+  },
+  {
+   "name": "a row with too few cells lists the cells it has; the table is as wide as its widest row",
+   "before": "| a | b |\n|---|---|\n| c‸ |\n| d | e | f |",
+   "inspect": {
+    "columns": 3,
+    "alignments": [
+     "None",
+     "None",
+     "None"
+    ],
+    "rows": [
+     [
+      "a",
+      "b"
+     ],
+     [
+      "c"
+     ],
+     [
+      "d",
+      "e",
+      "f"
+     ]
+    ],
+    "focus": [
+     1,
+     0
+    ]
+   }
+  },
+  {
+   "name": "an empty cell's content is the point after its padding space",
+   "before": "| a |  |\n|---|---|\n|‸",
+   "inspect": {
+    "columns": 2,
+    "alignments": [
+     "None",
+     "None"
+    ],
+    "rows": [
+     [
+      "a",
+      ""
+     ],
+     []
+    ],
+    "focus": null
+   }
+  },
+  {
+   "name": "a caret on the delimiter row finds the table without a focus",
+   "before": "| a |\n|-‸--|\n| b |",
+   "inspect": {
+    "columns": 1,
+    "alignments": [
+     "None"
+    ],
+    "rows": [
+     [
+      "a"
+     ],
+     [
+      "b"
+     ]
+    ],
+    "focus": null
+   }
+  },
+  {
+   "name": "a caret past a row's closing pipe finds the table without a focus",
+   "before": "| a |\n|---|\n| b |‸",
+   "inspect": {
+    "columns": 1,
+    "alignments": [
+     "None"
+    ],
+    "rows": [
+     [
+      "a"
+     ],
+     [
+      "b"
+     ]
+    ],
+    "focus": null
+   }
+  },
+  {
+   "name": "a header-only table has one row",
+   "before": "| a‸ | b |\n|:--|---|",
+   "inspect": {
+    "columns": 2,
+    "alignments": [
+     "Left",
+     "None"
+    ],
+    "rows": [
+     [
+      "a",
+      "b"
+     ]
+    ],
+    "focus": [
+     0,
+     0
+    ],
+    "controls": [
+     "below",
+     "left",
+     "right",
+     "delete column"
+    ]
+   }
+  },
+  {
+   "name": "until the delimiter row exists the header is a plain line",
+   "before": "| a‸ | b |\nno delimiter",
+   "inspect": null
+  },
+  {
+   "name": "a table row needs a leading pipe",
+   "before": "a‸ | b\n--- | ---\n1 | 2",
+   "inspect": null
+  },
+  {
+   "name": "tables are read only at the top level: not in a quote",
+   "before": "> | a‸ |\n> |---|",
+   "inspect": null
+  },
+  {
+   "name": "tables are read only at the top level: not in a list",
+   "before": "- | a‸ |\n  |---|",
+   "inspect": null
+  },
+  {
+   "name": "tables are read only at the top level: not indented",
+   "before": "  | a‸ |\n  |---|",
+   "inspect": null
+  },
+  {
+   "name": "a table in a code block is code",
+   "before": "```\n| a‸ |\n|---|\n```",
+   "inspect": null
+  },
+  {
+   "name": "a blank line ends a table",
+   "before": "| a |\n|---|\n\n| b‸ |",
+   "inspect": null
+  },
+  {
+   "name": "a line without a leading pipe ends a table",
+   "before": "| a |\n|---|\nb‸ | c",
+   "inspect": null
+  },
+  {
+   "name": "inspect_tables finds every table in the note, each once",
+   "before": "‸| a |\n|---|\n| b |\n\ntext | not a table\n\n| x | y |\n|---|---|\n| 1 | 2 | 3 |\n| 4 |",
+   "tables": [
+    [
+     1,
+     2
+    ],
+    [
+     3,
+     3
+    ]
+   ]
+  },
+  {
+   "name": "inspect_tables finds no table in a note of pipe lines without a delimiter row",
+   "before": "‸| a |\n| b |\nc | d",
+   "tables": []
+  },
+  {
+   "name": "Tab selects the next cell's content",
+   "before": "| a‸ | b |\n| --- | :-: |\n| c | d |\n",
+   "command": "Tab",
+   "after": "| a | «b» |\n| --- | :-: |\n| c | d |\n"
+  },
+  {
+   "name": "Tab in a row's last cell selects the next row's first cell",
+   "before": "| a | b‸ |\n| --- | :-: |\n| c | d |\n",
+   "command": "Tab",
+   "after": "| a | b |\n| --- | :-: |\n| «c» | d |\n"
+  },
+  {
+   "name": "Tab in the last cell appends a row and enters its first cell",
+   "before": "| a | b |\n| --- | :-: |\n| c | d‸ |\n",
+   "command": "Tab",
+   "after": "| a | b |\n| --- | :-: |\n| c | d |\n| ‸ |  |\n"
+  },
+  {
+   "name": "Tab in the last cell of a header-only table appends the first body row",
+   "before": "| a | b‸ |\n|---|---|",
+   "command": "Tab",
+   "after": "| a | b |\n|---|---|\n| ‸ |  |"
+  },
+  {
+   "name": "Shift+Tab selects the previous cell",
+   "before": "| a | b |\n| --- | :-: |\n| c | d‸ |\n",
+   "command": "ShiftTab",
+   "after": "| a | b |\n| --- | :-: |\n| «c» | d |\n"
+  },
+  {
+   "name": "Shift+Tab in a row's first cell selects the row above's last cell",
+   "before": "| a | b |\n| --- | :-: |\n| ‸c | d |\n",
+   "command": "ShiftTab",
+   "after": "| a | «b» |\n| --- | :-: |\n| c | d |\n"
+  },
+  {
+   "name": "Shift+Tab in the first cell is left to the host",
+   "before": "| ‸a | b |\n| --- | :-: |\n| c | d |\n",
+   "command": "ShiftTab",
+   "after": null
+  },
+  {
+   "name": "Enter selects the cell below",
+   "before": "| a | b‸ |\n| --- | :-: |\n| c | d |\n",
+   "command": "Enter",
+   "after": "| a | b |\n| --- | :-: |\n| c | «d» |\n"
+  },
+  {
+   "name": "Enter in the last row appends a row and enters the same column",
+   "before": "| a | b |\n| --- | :-: |\n| c | d‸ |\n",
+   "command": "Enter",
+   "after": "| a | b |\n| --- | :-: |\n| c | d |\n|  | ‸ |\n"
+  },
+  {
+   "name": "Shift+Enter in a cell is Enter: a cell holds one line",
+   "before": "| a‸ | b |\n| --- | :-: |\n| c | d |\n",
+   "command": "ShiftEnter",
+   "after": "| a | b |\n| --- | :-: |\n| «c» | d |\n"
+  },
+  {
+   "name": "an appended row takes the table's CRLF",
+   "before": "| a |\r\n|---|\r\n| b‸ |",
+   "command": "Enter",
+   "after": "| a |\r\n|---|\r\n| b |\r\n| ‸ |"
+  },
+  {
+   "name": "a short row gains the cells up to the one the caret enters",
+   "before": "| a | b‸ |\n|---|---|\n| c |",
+   "command": "Enter",
+   "after": "| a | b |\n|---|---|\n| c | ‸ |"
+  },
+  {
+   "name": "a lone pipe row gains cells up to the one the caret enters",
+   "before": "| a | b‸ |\n|---|---|\n|",
+   "command": "Enter",
+   "after": "| a | b |\n|---|---|\n|  | ‸ |"
+  },
+  {
+   "name": "a row whose last cell has no closing pipe is closed before it gains a cell",
+   "before": "| a | b‸ |\n|---|---|\n| c",
+   "command": "Enter",
+   "after": "| a | b |\n|---|---|\n| c| ‸ |"
+  },
+  {
+   "name": "Tab into a column only body rows have gives the header and its delimiter row the cell",
+   "before": "| a‸ |\n|---|\n| b | c |",
+   "command": "Tab",
+   "after": "| a | ‸ |\n|---| --- |\n| b | c |"
+  },
+  {
+   "name": "#419: Tab reaches an extra cell",
+   "before": "| a |\n|---|\n| b‸ | c |",
+   "command": "Tab",
+   "after": "| a |\n|---|\n| b | «c» |"
+  },
+  {
+   "name": "Mod+Enter at the note's end leaves an empty line after the table",
+   "before": "| a |\n|---|\n| b‸ |",
+   "command": "ModEnter",
+   "after": "| a |\n|---|\n| b |\n‸"
+  },
+  {
+   "name": "Mod+Enter writes an empty line between the table and the text after it",
+   "before": "| a‸ |\n|---|\ntext",
+   "command": "ModEnter",
+   "after": "| a |\n|---|\n‸\ntext"
+  },
+  {
+   "name": "Mod+Enter moves to an empty line already after the table",
+   "before": "| a‸ |\r\n|---|\r\n\r\nnext",
+   "command": "ModEnter",
+   "after": "| a |\r\n|---|\r\n‸\r\nnext"
+  },
+  {
+   "name": "a table key outside every cell is not the table's",
+   "before": "| a |\n|---|\n| b |‸",
+   "command": "Tab",
+   "after": null
+  },
+  {
+   "name": "a table key outside a table is not the table's",
+   "before": "plain‸",
+   "command": "Enter",
+   "after": null
+  },
+  {
+   "name": "paragraph Enter in a cell moves to the cell below",
+   "before": "| a‸ | b |\n| --- | :-: |\n| c | d |\n",
+   "command": "key Enter",
+   "after": "| a | b |\n| --- | :-: |\n| «c» | d |\n"
+  },
+  {
+   "name": "paragraph Enter in the last row appends a row",
+   "before": "| a |\n|---|\n| b‸ |\n",
+   "command": "key Enter",
+   "after": "| a |\n|---|\n| b |\n| ‸ |\n"
+  },
+  {
+   "name": "paragraph Shift+Enter in a cell moves to the cell below",
+   "before": "| a | b‸ |\n| --- | :-: |\n| c | d |\n",
+   "command": "key ShiftEnter",
+   "after": "| a | b |\n| --- | :-: |\n| c | «d» |\n"
+  },
+  {
+   "name": "paragraph Tab in a cell selects the next cell",
+   "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+   "command": "key Tab",
+   "after": "| a | b |\n| --- | :-: |\n| c | «d» |\n"
+  },
+  {
+   "name": "paragraph Shift+Tab in a cell selects the previous cell",
+   "before": "| a | b‸ |\n| --- | :-: |\n| c | d |\n",
+   "command": "key ShiftTab",
+   "after": "| «a» | b |\n| --- | :-: |\n| c | d |\n"
+  },
+  {
+   "name": "paragraph Enter past a row's closing pipe writes a line break, which ends the table there",
+   "before": "| a |\n|---|\n| b |‸\n| c |",
+   "command": "key Enter",
+   "after": "| a |\n|---|\n| b |\n‸\n| c |"
+  },
+  {
+   "name": "Backspace in a cell deletes a character",
+   "before": "| ab‸ |\n|---|",
+   "command": "key Backspace",
+   "after": "| a‸ |\n|---|"
+  },
+  {
+   "name": "Backspace after a pipe leaves the cells as they are",
+   "before": "| a |‸ b |\n|---|---|",
+   "command": "key Backspace",
+   "after": "| a |‸ b |\n|---|---|"
+  },
+  {
+   "name": "Backspace after a row's leading pipe leaves the row a row",
+   "before": "| a |\n|---|\n|‸b |\n| c |",
+   "command": "key Backspace",
+   "after": "| a |\n|---|\n|‸b |\n| c |"
+  },
+  {
+   "name": "Backspace at a row's start does not join it to the row above",
+   "before": "| a |\n|---|\n‸| b |",
+   "command": "key Backspace",
+   "after": "| a |\n|---|\n‸| b |"
+  },
+  {
+   "name": "Delete before a pipe leaves the cells as they are",
+   "before": "| a ‸| b |\n|---|---|",
+   "command": "key Delete",
+   "after": "| a ‸| b |\n|---|---|"
+  },
+  {
+   "name": "Delete at the header's end does not join it to its delimiter row",
+   "before": "| a |‸\n|---|",
+   "command": "key Delete",
+   "after": "| a |‸\n|---|"
+  },
+  {
+   "name": "Backspace in the delimiter row deletes a dash",
+   "before": "| a |\n|---‸|",
+   "command": "key Backspace",
+   "after": "| a |\n|--‸|"
+  },
+  {
+   "name": "Backspace deletes an escaped pipe, which is text",
+   "before": "| a\\|‸ |\n|---|",
+   "command": "key Backspace",
+   "after": "| a‸ |\n|---|"
+  },
+  {
+   "name": "Backspace at the line after a table joins it to the last row as typing does",
+   "before": "| a |\n|---|\n| b |\n‸c",
+   "command": "key Backspace",
+   "after": "| a |\n|---|\n| b |‸c"
+  },
+  {
+   "name": "typing in a cell writes only that cell's bytes",
+   "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+   "command": "type xy",
+   "after": "| a | b |\n| --- | :-: |\n| cxy‸ | d |\n"
+  },
+  {
+   "name": "a typed pipe lands as typed: the row gains a cell",
+   "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+   "command": "type |",
+   "after": "| a | b |\n| --- | :-: |\n| c|‸ | d |\n"
+  },
+  {
+   "name": "#419: typing in an extra cell edits it like any cell",
+   "before": "| a |\n|---|\n| b | c‸ |",
+   "command": "type x",
+   "after": "| a |\n|---|\n| b | cx‸ |"
+  },
+  {
+   "name": "a typed line break in a cell lands as typed: the row breaks",
+   "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+   "command": "type x\ny",
+   "after": "| a | b |\n| --- | :-: |\n| cx\ny‸ | d |\n"
+  },
+  {
+   "name": "a text service's line break in a cell becomes a space, as paste's does",
+   "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+   "command": "service x\ny",
+   "after": "| a | b |\n| --- | :-: |\n| cx y‸ | d |\n"
+  },
+  {
+   "name": "dictation over a cell's text joins its lines with a space and drops edge line breaks",
+   "before": "| a | b |\n| --- | :-: |\n| «c» | d |\n",
+   "command": "service one\r\n\ntwo\n",
+   "after": "| a | b |\n| --- | :-: |\n| one two‸ | d |\n"
+  },
+  {
+   "name": "a committed composition's CRLF in a cell becomes a space",
+   "before": "| a | b |\n| - | - |\n| c‸ | d |",
+   "command": "commit x\r\ny",
+   "after": "| a | b |\n| - | - |\n| cx y‸ | d |"
+  },
+  {
+   "name": "a committed composition's LF in a cell becomes a space",
+   "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+   "command": "commit x\ny",
+   "after": "| a | b |\n| --- | :-: |\n| cx y‸ | d |\n"
+  },
+  {
+   "name": "a text service's pipe in a cell lands as given",
+   "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+   "command": "service x|y",
+   "after": "| a | b |\n| --- | :-: |\n| cx|y‸ | d |\n"
+  },
+  {
+   "name": "a text service's line break outside a table lands as given",
+   "before": "| a |\n|---|\n\nc‸",
+   "command": "service x\ny",
+   "after": "| a |\n|---|\n\ncx\ny‸"
+  },
+  {
+   "name": "insert a row below a body row",
+   "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+   "command": "InsertRowBelow",
+   "after": "| a | b |\n| --- | :-: |\n| c‸ | d |\n|  |  |\n"
+  },
+  {
+   "name": "insert a row above a body row",
+   "before": "| a | b |\n| --- | :-: |\n| c | d‸ |\n",
+   "command": "InsertRowAbove",
+   "after": "| a | b |\n| --- | :-: |\n|  |  |\n| c | d‸ |\n"
+  },
+  {
+   "name": "insert a row below the header goes below the delimiter row",
+   "before": "| a | b‸ |\n| --- | :-: |\n| c | d |\n",
+   "command": "InsertRowBelow",
+   "after": "| a | b‸ |\n| --- | :-: |\n|  |  |\n| c | d |\n"
+  },
+  {
+   "name": "insert a column left keeps alignment markers and the focused cell",
+   "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+   "command": "InsertColumnLeft",
+   "after": "|  | a | b |\n| --- | --- | :-: |\n|  | c‸ | d |\n"
+  },
+  {
+   "name": "insert a column right of the last column",
+   "before": "| a | b‸ |\n| --- | :-: |\n| c | d |\n",
+   "command": "InsertColumnRight",
+   "after": "| a | b‸ |  |\n| --- | :-: | --- |\n| c | d |  |\n"
+  },
+  {
+   "name": "insert a column keeps every untouched byte and leaves a short row padded",
+   "before": "|a|  b‸  |\n|:--|--:|\n|x|y|\n|z|\n",
+   "command": "InsertColumnLeft",
+   "after": "|a|  |  b‸  |\n|:--| --- |--:|\n|x|  |y|\n|z|\n"
+  },
+  {
+   "name": "delete a column leaves a short row that lacks it untouched",
+   "before": "|a|  b‸  |\n|:--|--:|\n|x|y|\n|z|\n",
+   "command": "DeleteColumn",
+   "after": "|‸a|\n|:--|\n|x|\n|z|\n"
+  },
+  {
+   "name": "insert a column right closes a last cell that has no closing pipe, without touching its bytes",
+   "before": "| a | b‸ |\n|---|---|\n| c | d",
+   "command": "InsertColumnRight",
+   "after": "| a | b‸ |  |\n|---|---| --- |\n| c | d|  |"
+  },
+  {
+   "name": "delete the first column",
+   "before": "| a‸ | b |\n| --- | :-: |\n| c | d |\n",
+   "command": "DeleteColumn",
+   "after": "| ‸b |\n| :-: |\n| d |\n"
+  },
+  {
+   "name": "delete a column on a row whose last cell has no closing pipe",
+   "before": "| a | b‸ |\n|---|---|\n| c | d",
+   "command": "DeleteColumn",
+   "after": "| ‸a |\n|---|\n| c |"
+  },
+  {
+   "name": "insert a row below a header-only table",
+   "before": "| a‸ |\n| - |\n",
+   "command": "InsertRowBelow",
+   "after": "| a‸ |\n| - |\n|  |\n"
+  },
+  {
+   "name": "insert a row below a header-only table at the note's end",
+   "before": "| a‸ |\n| - |",
+   "command": "InsertRowBelow",
+   "after": "| a‸ |\n| - |\n|  |"
+  },
+  {
+   "name": "insert a row takes the CRLF of its neighbor",
+   "before": "| a |\r\n|---|\r\n| b‸ |\r\n",
+   "command": "InsertRowAbove",
+   "after": "| a |\r\n|---|\r\n|  |\r\n| b‸ |\r\n"
+  },
+  {
+   "name": "delete a middle row; the caret goes to the row below",
+   "before": "| h |\n| - |\n| a |\n| b‸ |\n| c |\n",
+   "command": "DeleteRow",
+   "after": "| h |\n| - |\n| a |\n| ‸c |\n"
+  },
+  {
+   "name": "delete the last row at the note's end; the caret goes to the row above",
+   "before": "| h |\n| - |\n| a |\n| b |\n| c‸ |",
+   "command": "DeleteRow",
+   "after": "| h |\n| - |\n| a |\n| ‸b |"
+  },
+  {
+   "name": "deleting the header row does nothing",
+   "before": "| h‸ |\n| - |\n| a |\n| b |",
+   "command": "DeleteRow",
+   "after": null
+  },
+  {
+   "name": "deleting the only body row does nothing",
+   "before": "| h |\n| - |\n| a‸ |",
+   "command": "DeleteRow",
+   "after": null
+  },
+  {
+   "name": "deleting the only column does nothing",
+   "before": "| h |\n| - |\n| a‸ |",
+   "command": "DeleteColumn",
+   "after": null
+  },
+  {
+   "name": "a row above the header does nothing",
+   "before": "| h‸ |\n| - |\n| a |",
+   "command": "InsertRowAbove",
+   "after": null
+  },
+  {
+   "name": "a table command outside every cell does nothing",
+   "before": "| h |\n| - |‸\n| a |",
+   "command": "InsertRowBelow",
+   "after": null
+  },
+  {
+   "name": "#419: a column inserted right of an extra cell goes on its row only",
+   "before": "| a |\n|---|\n| b | c‸ |",
+   "command": "InsertColumnRight",
+   "after": "| a |\n|---|\n| b | c‸ |  |"
+  },
+  {
+   "name": "deleting the header's only cell empties it while a wider row keeps the table two columns wide",
+   "before": "| a‸ |\n|---|\n| b | c |",
+   "command": "DeleteColumn",
+   "after": "| ‸ |\n|---|\n| c |"
+  },
+  {
+   "name": "paste in a cell writes the pasted text",
+   "before": "| r1a‸ | b |\n| - | - |",
+   "command": "paste  world",
+   "after": "| r1a world‸ | b |\n| - | - |"
+  },
+  {
+   "name": "paste in a cell drops edge blank lines, joins lines with a space and keeps a pipe in the cell",
+   "before": "| a | b‸ |\n| - | - |",
+   "command": "paste \n\none\n  two | three\r\nfour\n",
+   "after": "| a | bone two \\| three four‸ |\n| - | - |"
+  },
+  {
+   "name": "paste over a cell's text replaces it",
+   "before": "| «r1a» | b |\n| - | - |",
+   "command": "paste x\n# y",
+   "after": "| x # y‸ | b |\n| - | - |"
+  },
+  {
+   "name": "paste across cells is refused",
+   "before": "| «a | b» |\n| - | - |",
+   "command": "paste x",
+   "error": "InvalidRange"
+  },
+  {
+   "name": "paste outside a table is not the table's",
+   "before": "plain‸",
+   "command": "paste x",
+   "after": null
+  }
+ ]
+}

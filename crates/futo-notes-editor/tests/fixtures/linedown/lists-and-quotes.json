@@ -1,0 +1,207 @@
+{
+ "about": "Linedown reading fixtures (lists-and-quotes): per line, what the reader reports. See tests/fixtures/README.md.",
+ "cases": [
+  {
+   "name": "a plain line under a bullet is its own line",
+   "rule": "Lists / Differences from CommonMark and GFM row 4",
+   "input": "- buy milk\n  the oat kind",
+   "lines": [
+    "bullet i0 - : buy milk",
+    "plain i2 : the oat kind"
+   ]
+  },
+  {
+   "name": "an unindented plain line under a bullet",
+   "rule": "Lists / Differences from CommonMark and GFM row 4",
+   "input": "- a\nb",
+   "lines": [
+    "bullet i0 - : a",
+    "plain : b"
+   ]
+  },
+  {
+   "name": "two-space indents draw at 2",
+   "rule": "Lists",
+   "input": "- fruit\n  - apples\n  - pears\n- bread",
+   "lines": [
+    "bullet i0 - : fruit",
+    "bullet i2 - : apples",
+    "bullet i2 - : pears",
+    "bullet i0 - : bread"
+   ]
+  },
+  {
+   "name": "four-space indents draw at 4",
+   "rule": "Lists / Why list indent is read from the line alone",
+   "input": "- fruit\n    - apples",
+   "lines": [
+    "bullet i0 - : fruit",
+    "bullet i4 - : apples"
+   ]
+  },
+  {
+   "name": "tab indents draw at 4 and 8",
+   "rule": "Lists",
+   "input": "- fruit\n\t- apples\n\t\t- red",
+   "lines": [
+    "bullet i0 - : fruit",
+    "bullet i4 - : apples",
+    "bullet i8 - : red"
+   ]
+  },
+  {
+   "name": "a bullet under a numbered item draws at its own indent",
+   "rule": "Why list indent is read from the line alone",
+   "input": "1. fruit\n  - apples\n10. veg\n  - leeks",
+   "lines": [
+    "number i0 1. : fruit",
+    "bullet i2 - : apples",
+    "number i0 10. : veg",
+    "bullet i2 - : leeks"
+   ]
+  },
+  {
+   "name": "an indented heading or divider is an indented plain line",
+   "rule": "Lists",
+   "input": "- a\n  # b\n  ---",
+   "lines": [
+    "bullet i0 - : a",
+    "plain i2 : # b",
+    "plain i2 : ---"
+   ]
+  },
+  {
+   "name": "an indented plain line draws at its own indent",
+   "rule": "Lists / Why not CommonMark",
+   "input": "one\n  two\n\tthree",
+   "lines": [
+    "plain : one",
+    "plain i2 : two",
+    "plain i4 : three"
+   ]
+  },
+  {
+   "name": "an indented plain line under a numbered item draws at its own indent",
+   "rule": "Lists",
+   "input": "3) a\n   b",
+   "lines": [
+    "number i0 3) : a",
+    "plain i3 : b"
+   ]
+  },
+  {
+   "name": "numbers show as typed",
+   "rule": "Lists / Numbers show as typed / Differences from CommonMark and GFM row 8",
+   "input": "1. a\n1. b\n1. c\n\n3. x",
+   "lines": [
+    "number i0 1. : a",
+    "number i0 1. : b",
+    "number i0 1. : c",
+    "blank",
+    "number i0 3. : x"
+   ]
+  },
+  {
+   "name": "the People and Animals list draws as typed",
+   "rule": "Lists / Indent is the line's own",
+   "input": "- People\n  - Mason\n    - White\n  - Aran\n    - White\n- Animals",
+   "lines": [
+    "bullet i0 - : People",
+    "bullet i2 - : Mason",
+    "bullet i4 - : White",
+    "bullet i2 - : Aran",
+    "bullet i4 - : White",
+    "bullet i0 - : Animals"
+   ]
+  },
+  {
+   "name": "B at four and C at two keep their own indents",
+   "rule": "Lists / Indent is the line's own / Why list indent is read from the line alone",
+   "input": "- A\n    - B\n  - C",
+   "lines": [
+    "bullet i0 - : A",
+    "bullet i4 - : B",
+    "bullet i2 - : C"
+   ]
+  },
+  {
+   "name": "a tab is 4 columns, two tabs 8, a tab and two spaces 6",
+   "rule": "Lists / Indent is the line's own",
+   "input": "\t- a\n\t\t- b\n\t  - c",
+   "lines": [
+    "bullet i4 - : a",
+    "bullet i8 - : b",
+    "bullet i6 - : c"
+   ]
+  },
+  {
+   "name": "an indented bullet on a note's first line keeps its indent",
+   "rule": "Lists / Indent is the line's own",
+   "input": "  - first\n- second",
+   "lines": [
+    "bullet i2 - : first",
+    "bullet i0 - : second"
+   ]
+  },
+  {
+   "name": "nothing ends a list: an indented bullet after a column-0 line keeps its indent",
+   "rule": "Lists / Indent is the line's own",
+   "input": "- a\nb\n  - c",
+   "lines": [
+    "bullet i0 - : a",
+    "plain : b",
+    "bullet i2 - : c"
+   ]
+  },
+  {
+   "name": "a plain line under a quote is not quoted",
+   "rule": "Quotes / Differences from CommonMark and GFM row 5",
+   "input": "> quoted\nnot quoted",
+   "lines": [
+    "q1 plain : quoted",
+    "plain : not quoted"
+   ]
+  },
+  {
+   "name": "quotes nest with >> or > >",
+   "rule": "Quotes",
+   "input": ">> a\n> > b\n> >c\n>>c",
+   "lines": [
+    "q2 plain : a",
+    "q2 plain : b",
+    "q1 plain : >c",
+    "q1 plain : >c"
+   ]
+  },
+  {
+   "name": "stacking markers on one line",
+   "rule": "Stacking markers on one line",
+   "input": "> - item\n> # Title\n- # Title\n- > b",
+   "lines": [
+    "q1 bullet i0 - : item",
+    "q1 h1 : Title",
+    "bullet i0 - : # Title",
+    "bullet i0 - : > b"
+   ]
+  },
+  {
+   "name": "a list inside a quote draws at its indent after the quote marker",
+   "rule": "Stacking markers on one line / Lists",
+   "input": "> - a\n>   - b\n> c\n>   - d",
+   "lines": [
+    "q1 bullet i0 - : a",
+    "q1 bullet i2 - : b",
+    "q1 plain : c",
+    "q1 bullet i2 - : d"
+   ]
+  },
+  {
+   "name": "a divider after > is quoted text",
+   "rule": "Stacking markers on one line",
+   "input": "> ---",
+   "lines": [
+    "q1 plain : ---"
+   ]
+  }
+ ]
+}
