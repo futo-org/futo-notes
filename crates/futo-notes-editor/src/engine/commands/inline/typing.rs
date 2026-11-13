@@ -135,6 +135,9 @@ impl Engine {
         let glyphs = glyphs(entry);
         let at = glyphs.partition_point(|glyph| before.display + glyph.display < caret);
         if range.start == range.end {
+            if self.quote_space(self.input_at(range), text) {
+                return quote_typed(entry, before.source, text, formats);
+            }
             let pin = self.input_at(range) - before.source;
             let mut places = gap(entry, &glyphs, at);
             places.sort_by_key(|&place| place != pin);
@@ -379,6 +382,33 @@ fn without(
 /// `start`) with `text`, written at the first of `places` (source offsets
 /// of the line once those glyphs' source is gone) where the line can read
 /// with `text` in exactly `formats` and every other glyph as it was.
+/// Typing under carried formats on an empty quote line that needs its
+/// space (display rule 6): typed as on the line with that space, which the
+/// edit then writes too.
+fn quote_typed(entry: &Entry, start: usize, text: &str, formats: &[InlineFormat]) -> Option<Typed> {
+    let body = entry.body_len();
+    let mut line = entry.text.clone();
+    line.insert(body, ' ');
+    let mut parsed = 0;
+    let spaced = Draft::of(entry).with_text(line).read(&mut parsed);
+    let typed = typed_in(
+        &spaced,
+        start,
+        &glyphs(&spaced),
+        0..0,
+        &[body + 1],
+        text,
+        formats,
+    )?;
+    // Past the space, the spaced line's offsets are the note's plus one.
+    (typed.range.start > start + body).then(|| Typed {
+        range: typed.range.start - 1..typed.range.end - 1,
+        inserted: format!(" {}", typed.inserted),
+        parsed: typed.parsed + parsed,
+        ..typed
+    })
+}
+
 fn typed_in(
     entry: &Entry,
     start: usize,

@@ -88,5 +88,7 @@
   {"name": "a text service clearing a bold span keeps bold for the caret", "before": "a **⟦Owner⟧** b", "command": [["replace", 2, 7, ""]], "after": "a ‸ b", "formats": ["bold"]},
   {"name": "clearing a bold table cell keeps bold for the caret", "before": "| Item | **⟦Owner⟧** |\n|:--- | --- |", "command": [["key", "backspace"]], "after": "| Item | ‸ |\n|:--- | --- |", "formats": ["bold"]},
   {"name": "Backspace emptying a bold span keeps bold for the caret", "before": "a **b‸**", "command": [["key", "backspace"]], "after": "a ‸", "formats": ["bold"]},
-  {"name": "a carried format from a deletion ends when the caret moves", "before": "a **⟦Owner⟧** b", "command": [["key", "backspace"], ["select", 0, 0], ["select", 2, 2], ["type", "x"]], "after": "a x‸ b"}
+  {"name": "a carried format from a deletion ends when the caret moves", "before": "a **⟦Owner⟧** b", "command": [["key", "backspace"], ["select", 0, 0], ["select", 2, 2], ["type", "x"]], "after": "a x‸ b"},
+  {"name": "a carried format on an empty quote line types after the space the quote needs", "before": "> a\n>‸", "command": [["bold"], ["type", "x"]], "after": "> a\n> **x‸**"},
+  {"name": "a text service's text on an empty quote line takes the space the quote needs", "before": "> a\n>‸", "command": [["replace", 0, 2, "a\nz"]], "after": "> a\n> z‸"}
 ]

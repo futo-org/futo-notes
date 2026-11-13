@@ -169,6 +169,8 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
   4. A divider shows as one U+FFFC.
   5. Typing at a divider's edge writes the text on a line of its own beside the rule, in its
      quotes.
+  6. Typing on an empty quote line with no space after its `>` writes that space first when
+     the text as typed would unquote the line (`>` then `x` writes `> x`).
   Front matter lines and a table's delimiter row show their whole text; everything else hides
   its marker and inline syntax.
 - Open questions for the maintainer (each lane took the conservative choice and pinned none):
@@ -231,9 +233,8 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
   19. Smaller, none failing: a line `\u{feff}---` (byte-order mark) is not front matter; Select
       All then Delete on a note that starts with a code block leaves an empty code block (the
       frame rule; the old engine left an unclosed fence); a selection during composition covering
-      only a `*` the commit hides becomes an insertion; typing on an empty `>` line writes `>x`,
-      which reads as plain text; Bold or Code at a divider caret does nothing; tags.md says no
-      tag inside a link destination but the reader reads `#y` in `[a](<x #y>)`; `header_tags`
+      only a `*` the commit hides becomes an insertion; Bold or Code at a divider caret does
+      nothing; tags.md says no tag inside a link destination but the reader reads `#y` in `[a](<x #y>)`; `header_tags`
       starts after front matter but `extract_header_tag_block` (Rust and TS) at byte 0; the
       one guard compares only lines a command does not name (a blanket "named lines keep their
       kind" rule would break Quote over a table; the link commands check cells themselves).

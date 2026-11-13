@@ -11,6 +11,9 @@
 //!    those formats, and the only other bytes written are inline marks; or
 //!    it lands as plain typing does. (Amended 2026-11-12: markers stay
 //!    hidden at all times outranks pinning one end of the hidden marks.)
+//!    The typing rules 3, 5 and 6 of `engine/line.rs` write their own bytes
+//!    besides: a line ending on an empty code block, a line of its own at a
+//!    divider's edge, the space an empty `>` quote line needs.
 //! 3. Undo restores the exact bytes and selection; redo restores the edit.
 //! 4. The reading and display after any edit equal those read from scratch.
 //! 5. A position converted from text to display and back is unchanged, for
