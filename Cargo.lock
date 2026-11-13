@@ -2099,6 +2099,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "futo-notes-core",
+ "futo-notes-tags",
  "serde",
  "tantivy",
  "tempfile",
