@@ -160,7 +160,8 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
   been built against the new style surface (list rows, tags). On `linedown` since 71e97976c (branch `linedown-cutover`
   fast-forwarded).
   The log of what it did and how it was verified is `docs/plan/linedown-engine-rebuild-stage4.md`.
-- Stage 5: not started.
+- Stage 5: not started. What is decided but not on `linedown`, and what is known and not fixed,
+  is the "Gaps" section ending the stage 4 log; start there.
 - Surface methods deleted, with reasons: `may_define_reference` and `quick_open`'s
   `rest_may_define` parameter (they served the CommonMark path's reference definitions; the
   core reads none). `EditorSession`'s other public methods all remain.
@@ -184,7 +185,8 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
      marks); under carried formats (a toggle, or the formats a space typed at a span's end
      carries) the display changes by exactly the typed text in those formats and only inline
      marks are written besides, because `__a __` would show underscores.
-  2. Paste goes through the guard (cut does not: it is Backspace's deletion). A paste writes
+  2. Answered (2026-11-13, not built: stage 4 log, "Gaps"): a paste is cancelled only when it
+     must be. Before: paste goes through the guard (cut does not: it is Backspace's deletion). A paste writes
      many lines at once and could restyle lines the user is not looking at; it names its lines
      plus the line above, so a pasted delimiter row still makes a header.
   3. Outside changes that touch, open or close front matter are refused by the history-keeping
@@ -192,11 +194,13 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
      adopts). No hazard in rebasing through it was found. Keep refusing?
   4. A portable page asked to adopt its own text gets `UnrepresentableFormat` (the old engine
      sent an empty Append).
-  5. Lists: Enter in `1. a` above `1. b` writes `2.` (the Decision read literally), so a list
+  5. Answered (2026-11-13, built unmerged: stage 4 log, "Gaps"): Enter repeats the number in a
+     list numbered alike. Before: Enter in `1. a` above `1. b` writes `2.` (the Decision read literally), so a list
      numbered `1.` throughout gains a `2.`; Enter over two numbered items leaves the second's
      number as written.
   6. Answered 4A: Indent takes the whitespace of the sub-list it joins, else writes a tab.
-  7. Quote on a heading or list item makes plain quoted text (`## T` -> `> T`), as before;
+  7. Answered (2026-11-13, built unmerged: stage 4 log, "Gaps"): Quote is an exact toggle
+     (`> ## T`). Before: Quote on a heading or list item makes plain quoted text (`## T` -> `> T`), as before;
      Linedown could write `> ## T`, making Quote an exact toggle. Quote leaves blank lines at a
      selection's edges unquoted; a selection ending at a line's display start does not touch
      that line.
@@ -209,7 +213,7 @@ Update this file at the end of every stage, and whenever you stop mid-stage.
      would make the typed language invisible.
   10. Answered (maintainer, 2026-11-13): no change. Taking code out of a block preserves how it
       looks, so `# x` comes out as `\# x` (`kept_line`); in and out are not exact opposites.
-  11. Paste: a block pasted into the middle of a numbered item repeats its number on the tail
+  11. Answered with 2 (copy closes a fence it opened; the rest stands). Paste: a block pasted into the middle of a numbered item repeats its number on the tail
       (`1. ab`, `- x`, `1. cd`); a block line pasted mid-text starts its own line (a line break
       the user did not paste); copy adds no closing fence when a selection ends inside code.
   12. Answered 3A: a text service's or dictation's line break in a cell becomes a space; a

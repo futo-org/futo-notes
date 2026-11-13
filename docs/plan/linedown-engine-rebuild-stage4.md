@@ -73,3 +73,66 @@ What the cut-over did and how it was verified. The status file is
   still ends a note it edits with `\n`), 18A; typing on an empty `>` line writes `> x` (display
   rule 6). The whole iOS unit suite was then sorted (17351eede): 486 passed, 14 failed and two
   crashes (stale test mirrors) before; 509 passed, 1 failed after.
+
+## Gaps at the end of stage 4 (2026-11-13), for the agent that picks this up
+
+Stage 4 is done on `linedown` (fef45d964, `just check` green). Everything below is not on
+`linedown`. Each entry says what is decided, what exists, and what is left. Answers are the
+maintainer's, 2026-11-13; do not reopen them. Question numbers are the status file's.
+
+Decided, partly built on branch `linedown-answers` (worktree
+`/home/justin/Developer/futo-notes-linedown-answers`, based on fef45d964, not pushed, not
+reviewed, full chain not run; the agent was stopped mid-task):
+
+- **Q5, Enter in a list numbered alike.** When the item below carries the same number as the
+  caret's item (`1.` on every item), Enter writes that number again; otherwise it counts up.
+  Built: 28c09c9dc. Left: review, run the chain, merge.
+- **Q7, Quote is an exact toggle.** Quote keeps a heading's or list item's marker (`## T` ->
+  `> ## T`, `- a` -> `> - a`) and unquote returns the original bytes. Built: f0b222c96. Left:
+  review, confirm on the simulator that a heading and a list item draw inside a quote, merge.
+- **Q2 and Q11, paste is cancelled only when it must be.** Copy closes a fence its text opened;
+  a plain paste outside tables lands as typing does, even when it restyles lines below (no
+  guard). The table-cell paste rules stay. One undo step, exact bytes back. Half-written and
+  uncommitted in that worktree (`engine/commands/clipboard/{copy,mod,paste}.rs`,
+  `engine/tests/clipboard/rules.rs`, `fixtures/engine/clipboard/copy-and-cut.json`): read the
+  diff before trusting it. Q11's other two points stand as they are (a block pasted mid-item
+  repeats the number on the tail; a block line pasted mid-text starts its own line).
+
+Decided, not started:
+
+- **List levels (replaces the brief's "no depth" rule).** The same list nested with tabs, two
+  spaces or four spaces draws the same. Display only: no byte changes. The carry each line
+  hands the next also holds the open list's stack of ancestor indent widths (columns, a tab is
+  four); a list line's `level` is the number of entries narrower than its own indent, then it
+  pops entries at or above its indent and pushes itself. To pin: what ends the stack (blank
+  lines inside a list do not), and how an indented plain line takes a level. The surface gains
+  an integer `level` on `ListDescription`, `StyleSpec::ListRow` and `EditorStyleSpan::ListRow`
+  beside `indent` and the marker text (approved). Bounds, each a work test: a key that changes
+  no indent costs the same in a 20,000-item list as in 1,000; Indent or Outdent of one item
+  costs its subtree. The guard compares block kind, never level. If the bounds cannot be met,
+  stop and report.
+- **iOS list drawing (answers the brief's two stage 5 iOS follow-ups).** 24 points a level,
+  not a column; the bullet's shape from `level % 3` (disc, ring, square). Swift reads `level`
+  and works out no nesting. Needs list levels first. Proof: one note with a three-level list
+  written with tabs, two spaces and four spaces, drawn identically, and the saved bytes as typed.
+- **Q9, a language typed after a fence** (answer 2A-1; the brief, "Decided, not yet built").
+
+Known and not fixed:
+
+- `just test-ios-native`: 1 failure, `TextFirstEmptyMarkerTests` "ordered-list on the empty
+  last line" (an empty last list line's marker sits 0.25-0.5 pt low; `trailingRow` in
+  `TextFirstLayoutFragments.swift`).
+- Android has not been built against the new style surface (list rows, the `Tag` case, and
+  `level` once it lands).
+- The desktop Milkdown editor ends every note it edits with `\n`, so a desktop edit brings
+  back the empty last line a phone shows (Q17). Accepted until desktop moves to Linedown.
+- Two tags defects from Q19, to be filed as GitLab issues (not filed yet) and fixed outside
+  this branch: `header_tags` starts after front matter while `extract_header_tag_block` (Rust
+  and its TS mirror) starts at byte 0; tags.md says no tag in a link destination but the
+  reader reads `#y` in `[a](<x #y>)` (make the reader match the spec). Reproduce each before
+  filing.
+
+Left as the lanes chose (the maintainer saw them and asked for no change): Q3, Q4, Q8, Q13,
+and Q19's other points. Q10 is answered: no change.
+
+Stage 5's cleanup list (the brief) is untouched and does not block merging to `main`.
