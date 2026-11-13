@@ -14,9 +14,10 @@ struct NativeEditorCompositionTests {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: root) }
             let store = NoteStore(notesRoot: root.path)
+            // `&amp;` is five literal characters: shown, corrected around and saved as typed.
             _ = try store.createNote(title: "input", folder: "", content: "__teh__ &amp; wrng\r\n")
             let session = try store.openEditor(id: "input")
-            var view = Array("teh & wrng\r\n".utf8)
+            var view = Array("teh &amp; wrng\r\n".utf8)
             func apply(_ change: EditorViewChange) {
                 view.replaceSubrange(
                     Int(change.range.start)..<Int(change.range.end), with: change.inserted.utf8)
@@ -43,10 +44,10 @@ struct NativeEditorCompositionTests {
             apply(
                 try #require(
                     try session.replaceOsUtf16(
-                        expected: 1, range: EditorUtf16Range(start: 0, end: 12),
-                        text: Array("the & wrong\u{FFFC}\r\n".utf16),
-                        placeholders: [EditorUtf16Range(start: 11, end: 12)])))
-            #expect(String(decoding: view, as: UTF8.self) == "the & wrong\r\n")
+                        expected: 1, range: EditorUtf16Range(start: 0, end: 16),
+                        text: Array("the &amp; wrong\u{FFFC}\r\n".utf16),
+                        placeholders: [EditorUtf16Range(start: 15, end: 16)])))
+            #expect(String(decoding: view, as: UTF8.self) == "the &amp; wrong\r\n")
             #expect(try session.sourceText() == "__the__ &amp; wrong\r\n")
             apply(try #require(try session.undo(expected: 2)))
             #expect(try session.sourceText() == "__the__ &amp; wrng\r\n")

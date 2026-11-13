@@ -74,21 +74,27 @@ struct NativeEditorSessionTests {
                 view.replaceSubrange(
                     Int(change.range.start)..<Int(change.range.end), with: change.inserted.utf8)
             }
+            // A line break is a line break: Shift+Enter writes the note's own CRLF, and the
+            // bold closes before it and reopens after it (a span cannot cross a line).
             apply(
                 try session.paragraphKeyUtf16(
                     expected: 0, range: EditorUtf16Range(start: 3, end: 3), key: .shiftEnter))
-            #expect(String(decoding: view, as: UTF8.self) == "a😀\nb\r\ntail  \r\n")
-            #expect(try session.sourceText() == "__a😀\nb__\r\ntail  \r\n")
+            #expect(String(decoding: view, as: UTF8.self) == "a😀\r\nb\r\ntail  \r\n")
+            #expect(try session.sourceText() == "__a😀__\r\n__b__\r\ntail  \r\n")
+            // Backspace at the start of "b" (UTF-16 5, after the CRLF) joins the lines and the
+            // touching spans.
             apply(
                 try session.paragraphKeyUtf16(
-                    expected: 1, range: EditorUtf16Range(start: 4, end: 4), key: .backspace))
+                    expected: 1, range: EditorUtf16Range(start: 5, end: 5), key: .backspace))
             #expect(String(decoding: view, as: UTF8.self) == "a😀b\r\ntail  \r\n")
+            #expect(try session.sourceText() == "__a😀b__\r\ntail  \r\n")
             apply(try session.undo(expected: 2))
-            #expect(try session.sourceText() == "__a😀\nb__\r\ntail  \r\n")
+            #expect(String(decoding: view, as: UTF8.self) == "a😀\r\nb\r\ntail  \r\n")
+            #expect(try session.sourceText() == "__a😀__\r\n__b__\r\ntail  \r\n")
             _ = try session.detach()
-            #expect(try store.read(id: "lines") == "__a😀\nb__\r\ntail  \r\n")
+            #expect(try store.read(id: "lines") == "__a😀__\r\n__b__\r\ntail  \r\n")
             let reopened = try store.openEditor(id: "lines")
-            #expect(try reopened.sourceText() == "__a😀\nb__\r\ntail  \r\n")
+            #expect(try reopened.sourceText() == "__a😀__\r\n__b__\r\ntail  \r\n")
             _ = try reopened.detach()
         }.value
     }
@@ -162,19 +168,21 @@ struct NativeEditorSessionTests {
             #expect(projection.text == "日😀 tail\r\n")
             #expect(projection.runs.first?.formats == [.bold])
             _ = try inline.detach()
+            // No entity is ever decoded: `&acE;` shows as its five characters. The grapheme it
+            // names, typed, is stored as typed, and a combining mark keeps its UTF-16 width.
             _ = try store.createNote(title: "entity", folder: "", content: "&acE;")
             let entity = try store.openEditor(id: "entity")
+            #expect(try entity.displayText() == "&acE;")
+            _ = try entity.replaceUtf16(
+                expected: 0, range: EditorUtf16Range(start: 0, end: 5),
+                inserted: Array("∾\u{0333}".utf16))
             #expect(try entity.displayText() == "∾\u{0333}")
+            #expect(try entity.sourceText() == "∾\u{0333}")
             #expect(
-                try entity.sourceAt(
-                    expected: 0, offset: EditorDisplayByteOffset(offset: 3), affinity: .backward
-                ).offset == 0)
-            #expect(
-                try entity.sourceAt(
-                    expected: 0, offset: EditorDisplayByteOffset(offset: 3), affinity: .forward
-                ).offset == 5)
+                try entity.displayToUtf16(expected: 1, range: EditorByteRange(start: 0, end: 5))
+                    == EditorUtf16Range(start: 0, end: 2))
             _ = try entity.detach()
-
+            #expect(try store.read(id: "entity") == "∾\u{0333}")
         }.value
     }
     @Test("isolated commits and compound replacements preserve exact history")
@@ -185,10 +193,11 @@ struct NativeEditorSessionTests {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: root) }
             let store = NoteStore(notesRoot: root.path)
+            // `&amp;` is five literal characters, shown and saved as typed.
             let opening = "__cat__ &amp; _dog_\r\n"
             _ = try store.createNote(title: "history", folder: "", content: opening)
             let session = try store.openEditor(id: "history")
-            var view = Array("cat & dog\r\n".utf8)
+            var view = Array("cat &amp; dog\r\n".utf8)
             var revision: UInt64 = 0
             func apply(_ change: EditorViewChange) {
                 #expect(change.previousRevision == revision)
@@ -209,21 +218,22 @@ struct NativeEditorSessionTests {
                             range: EditorUtf16Range(start: 0, end: 3),
                             inserted: Array("kitten".utf16)),
                         EditorUtf16Replacement(
-                            range: EditorUtf16Range(start: 6, end: 9), inserted: Array("ox".utf16)),
+                            range: EditorUtf16Range(start: 10, end: 13),
+                            inserted: Array("ox".utf16)),
                     ]))
             #expect(try session.sourceText() == "*__kitten__* &amp; _ox_\r\n")
             apply(
                 try session.replaceUtf16Action(
-                    expected: 2, range: EditorUtf16Range(start: 11, end: 11),
+                    expected: 2, range: EditorUtf16Range(start: 15, end: 15),
                     inserted: Array("日本".utf16), action: .compositionCommit))
             #expect(try session.sourceText() == "*__kitten__* &amp; _ox日本_\r\n")
             apply(
                 try session.replaceUtf16Action(
-                    expected: 3, range: EditorUtf16Range(start: 13, end: 13),
+                    expected: 3, range: EditorUtf16Range(start: 17, end: 17),
                     inserted: [33], action: .isolated))
             let final = "*__kitten__* &amp; _ox日本!_\r\n"
             #expect(try session.sourceText() == final)
-            #expect(String(decoding: view, as: UTF8.self) == "kitten & ox日本!\r\n")
+            #expect(String(decoding: view, as: UTF8.self) == "kitten &amp; ox日本!\r\n")
             for expected in [
                 "*__kitten__* &amp; _ox日本_\r\n", "*__kitten__* &amp; _ox_\r\n",
                 "*__cat__* &amp; _dog_\r\n", opening,
@@ -232,7 +242,7 @@ struct NativeEditorSessionTests {
                 apply(change)
                 #expect(try session.sourceText() == expected)
             }
-            #expect(String(decoding: view, as: UTF8.self) == "cat & dog\r\n")
+            #expect(String(decoding: view, as: UTF8.self) == "cat &amp; dog\r\n")
             #expect(try session.undo(expected: 8) == nil)
             for expected in [
                 "*__cat__* &amp; _dog_\r\n", "*__kitten__* &amp; _ox_\r\n",

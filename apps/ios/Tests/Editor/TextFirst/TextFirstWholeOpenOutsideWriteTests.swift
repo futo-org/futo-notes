@@ -73,11 +73,11 @@
             #expect(o.files == ["note.md": "# Title\n\nalpha line one\n\nbetaαβ PEER line two\n"])
         }
 
-        /// A long note whose first screens are declined (a `]:` after the cut) opens whole.
+        /// A long note whose first screens are declined (line 1 `---` with no closing `---` in
+        /// them: front matter or a divider, the rest of the note decides) opens whole.
         @Test func aDeclinedLongNoteChangedWhileOpeningShowsTheChange() async throws {
             let source =
-                (0..<700).map { "## Section \($0)\n\nBody \($0) with a [ref][r] here.\n\n" }
-                .joined() + "[r]: https://example.com\n"
+                "---\n" + (0..<700).map { "## Section \($0)\n\nBody \($0) here.\n\n" }.joined()
             let o = try await Self.openWhole(source, between: "# PEER heading\n\n" + source)
             #expect(
                 o.shown.hasPrefix("PEER heading"), "shows \(o.shown.prefix(30).debugDescription)")

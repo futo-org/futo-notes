@@ -103,7 +103,9 @@ struct NativeEditorContractSurfaceTests {
                 _ = try #require(
                     try s.tableCommand(expected: 1, range: Self.at(2, 2), command: .insertRowBelow))
             }
-            #expect(saved == "| ax\\|y | b |\r\n| --- | --: |\r\n|  |  |\r\n| c | d |\r\n")
+            // A typed pipe is written as typed and adds a cell: the header row is three cells
+            // wide, so the inserted row is too.
+            #expect(saved == "| ax|y | b |\r\n| --- | --: |\r\n|  |  |  |\r\n| c | d |\r\n")
         }.value
     }
 
