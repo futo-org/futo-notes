@@ -63,8 +63,8 @@
   The app-root `ClearFocusOnImeDismiss` ([app.md](../../app.md) "Soft keyboard")
   drops native-field focus, and its root install also blurs the editor over
   the bridge on the same IME visible→hidden transition — the editor's DOM
-  caret survives a view-level clearFocus. (iOS can't hit this: keyboard and
-  first-responder caret are coupled.) → MainActivity.kt,
+  caret survives a view-level clearFocus. (iOS: the hide key on an iPad's
+  keyboard, [app.md](../../app.md) "Soft keyboard".) → MainActivity.kt,
   ui/components/ImeDismiss.kt, EditorImeDismissBlurTest.kt
 - Dismissing the keyboard ends the editing session on the page, not only the
   keyboard: no caret, no highlighted text range, no cell selection, no
@@ -74,9 +74,10 @@
   sends, and a tap never sends the `mouseleave` that would hide them. So the
   bridge `blur()` collapses the selection to its head, hides the grips, then
   blurs and clears the DOM selection. Every native dismissal goes through it:
-  the chevron on both shells and Android's back-gesture dismissal. Desktop never
-  calls it. On Android both dismissal paths clear a double-tapped word range
-  (handles and callout included), the grips a tap showed, and the cell selection
+  the chevron on both shells, Android's back-gesture dismissal, and on iOS the
+  hide key on an iPad's keyboard. Desktop never calls it. On Android both
+  dismissal paths clear a double-tapped word range (handles and callout
+  included), the grips a tap showed, and the cell selection
   a grip menu leaves behind; tapping back in edits normally and brings the grips
   back. A touch drag across cells makes no cell selection on Android (Chromium
   sends a touch drag no mouse drag), so the grip menu is the touch route to one.
