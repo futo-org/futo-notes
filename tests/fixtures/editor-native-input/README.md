@@ -9,8 +9,10 @@ lists, never generated input shapes. Captured on owned pooled iOS simulator iOS 
 
 `native-input-cases.json` is the hand-reviewed replay contract. Event IDs identify actual
 callbacks in each raw capture. Its literal source expectations are independent
-of the source diff algorithm. The source's `__` delimiters, `&amp;` and CRLF
-remain exact; default backward affinity at the bold end retains inserted CJK
+of the source diff algorithm. The source's `__` delimiters and CRLF remain
+exact. The captures opened `&amp;`, which the editor no longer decodes, so the cases
+write it `&`: every recorded display, range and keyboard result is unchanged, and the
+raw captures (`sourceUTF16`) keep the original bytes; default backward affinity at the bold end retains inserted CJK
 inside the existing bold run. No event is renamed to `setMarkedText`: Japanese
 storage updates arrived through `didChange`; Korean updates arrived through
 `didChange` nested inside `insertText`, after UIKit had removed the prior syllable.
@@ -73,13 +75,13 @@ fixture-audio/consent setup is still needed, so no dictation OS proof is claimed
 
 The sixth capture is whole-field OS Paste in the same ordinary UIKit control.
 Actual Copy from a separate fixture placed `the & cat\r\n` on this task simulator's
-clipboard. After opening source `__teh__ &amp; **cta**\r\n` and selecting its complete
+clipboard. After opening source `__teh__ &amp; **cta**\r\n` (`&` in the case) and selecting its complete
 display `[0,11]`, an actual touch selected the offered Paste item at
 `{{172.5,112},{70.33333333333331,44}}`. UIKit's event4 `shouldChangeText` proposes
 that entire range and replacement; event5 changes selection before event6
 `didChange`, so `requestEvent` pins the actual request rather than assuming
 adjacent callbacks. No public `replace` override occurred. Literal replay retains
-the unchanged entity, both original bold delimiter spellings, CRLF and final
+the unchanged `&`, both original bold delimiter spellings, CRLF and final
 newline, with exact one-action history and final caret `[11,11]`. This establishes
 OS Paste only; it does not establish dictation or Writing Tools.
 

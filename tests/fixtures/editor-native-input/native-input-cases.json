@@ -1,7 +1,7 @@
 [
   {
     "name": "japanese-conversion",
-    "source": "__ab__ &amp; cd\r\n",
+    "source": "__ab__ & cd\r\n",
     "display": "ab & cd\r\n",
     "range": [
       2,
@@ -11,48 +11,48 @@
       {
         "event": 3,
         "operation": "select",
-        "source": "__ab__ &amp; cd\r\n"
+        "source": "__ab__ & cd\r\n"
       },
       {
         "event": 6,
         "operation": "marked",
-        "source": "__ab__ &amp; cd\r\n"
+        "source": "__ab__ & cd\r\n"
       },
       {
         "event": 9,
         "operation": "marked",
-        "source": "__ab__ &amp; cd\r\n"
+        "source": "__ab__ & cd\r\n"
       },
       {
         "event": 12,
         "operation": "marked",
-        "source": "__ab__ &amp; cd\r\n"
+        "source": "__ab__ & cd\r\n"
       },
       {
         "event": 15,
         "operation": "marked",
-        "source": "__ab__ &amp; cd\r\n"
+        "source": "__ab__ & cd\r\n"
       },
       {
         "event": 18,
         "operation": "marked",
-        "source": "__ab__ &amp; cd\r\n"
+        "source": "__ab__ & cd\r\n"
       },
       {
         "event": 21,
         "operation": "marked",
-        "source": "__ab__ &amp; cd\r\n"
+        "source": "__ab__ & cd\r\n"
       },
       {
         "event": 25,
         "operation": "commit",
-        "source": "__ab日本__ &amp; cd\r\n"
+        "source": "__ab日本__ & cd\r\n"
       }
     ],
     "captureSha256": "b1d4783b8454b26666eff5742ba189de6c29fb8580d8b2eb357fe46480dfe8cd",
     "history": [
       {
-        "source": "__ab__ &amp; cd\r\n",
+        "source": "__ab__ & cd\r\n",
         "display": "ab & cd\r\n",
         "selection": [
           2,
@@ -60,7 +60,7 @@
         ]
       },
       {
-        "source": "__ab日本__ &amp; cd\r\n",
+        "source": "__ab日本__ & cd\r\n",
         "display": "ab日本 & cd\r\n",
         "selection": [
           4,
@@ -81,7 +81,7 @@
   },
   {
     "name": "japanese-reconversion",
-    "source": "__ab日本__ &amp; cd\r\n",
+    "source": "__ab日本__ & cd\r\n",
     "display": "ab日本 & cd\r\n",
     "range": [
       2,
@@ -91,23 +91,23 @@
       {
         "event": 3,
         "operation": "select",
-        "source": "__ab日本__ &amp; cd\r\n"
+        "source": "__ab日本__ & cd\r\n"
       },
       {
         "event": 7,
         "operation": "marked",
-        "source": "__ab日本__ &amp; cd\r\n"
+        "source": "__ab日本__ & cd\r\n"
       },
       {
         "event": 11,
         "operation": "commit",
-        "source": "__ab二本__ &amp; cd\r\n"
+        "source": "__ab二本__ & cd\r\n"
       }
     ],
     "captureSha256": "79e99f809f6936e190d0ee9702ded9a72febd3f70488c7d17fcc6fa9353624cc",
     "history": [
       {
-        "source": "__ab日本__ &amp; cd\r\n",
+        "source": "__ab日本__ & cd\r\n",
         "display": "ab日本 & cd\r\n",
         "selection": [
           2,
@@ -115,7 +115,7 @@
         ]
       },
       {
-        "source": "__ab二本__ &amp; cd\r\n",
+        "source": "__ab二本__ & cd\r\n",
         "display": "ab二本 & cd\r\n",
         "selection": [
           4,
@@ -131,7 +131,7 @@
   },
   {
     "name": "korean-replacement",
-    "source": "__ab__ &amp; cd\r\n",
+    "source": "__ab__ & cd\r\n",
     "display": "ab & cd\r\n",
     "range": [
       2,
@@ -141,12 +141,12 @@
       {
         "event": 3,
         "operation": "select",
-        "source": "__ab__ &amp; cd\r\n"
+        "source": "__ab__ & cd\r\n"
       },
       {
         "event": 7,
         "operation": "replace",
-        "source": "__abㄱ__ &amp; cd\r\n",
+        "source": "__abㄱ__ & cd\r\n",
         "serviceRange": [
           2,
           2
@@ -156,7 +156,7 @@
       {
         "event": 11,
         "operation": "replace",
-        "source": "__ab가__ &amp; cd\r\n",
+        "source": "__ab가__ & cd\r\n",
         "serviceRange": [
           2,
           3
@@ -166,7 +166,7 @@
       {
         "event": 15,
         "operation": "replace",
-        "source": "__ab간__ &amp; cd\r\n",
+        "source": "__ab간__ & cd\r\n",
         "serviceRange": [
           2,
           3
@@ -176,7 +176,7 @@
       {
         "event": 19,
         "operation": "replace",
-        "source": "__ab가나__ &amp; cd\r\n",
+        "source": "__ab가나__ & cd\r\n",
         "serviceRange": [
           2,
           3
@@ -186,7 +186,7 @@
       {
         "event": 23,
         "operation": "replace",
-        "source": "__ab가나__  &amp; cd\r\n",
+        "source": "__ab가나__  & cd\r\n",
         "serviceRange": [
           4,
           4
@@ -197,7 +197,7 @@
     "captureSha256": "6fa24a05453acd7a4fb4da124b0f82dd451cfaca5d50da89663f10b4d733717c",
     "history": [
       {
-        "source": "__ab__ &amp; cd\r\n",
+        "source": "__ab__ & cd\r\n",
         "display": "ab & cd\r\n",
         "selection": [
           2,
@@ -205,7 +205,7 @@
         ]
       },
       {
-        "source": "__abㄱ__ &amp; cd\r\n",
+        "source": "__abㄱ__ & cd\r\n",
         "display": "abㄱ & cd\r\n",
         "selection": [
           3,
@@ -213,7 +213,7 @@
         ]
       },
       {
-        "source": "__ab가__ &amp; cd\r\n",
+        "source": "__ab가__ & cd\r\n",
         "display": "ab가 & cd\r\n",
         "selection": [
           3,
@@ -221,7 +221,7 @@
         ]
       },
       {
-        "source": "__ab간__ &amp; cd\r\n",
+        "source": "__ab간__ & cd\r\n",
         "display": "ab간 & cd\r\n",
         "selection": [
           3,
@@ -229,7 +229,7 @@
         ]
       },
       {
-        "source": "__ab가나__ &amp; cd\r\n",
+        "source": "__ab가나__ & cd\r\n",
         "display": "ab가나 & cd\r\n",
         "selection": [
           4,
@@ -237,7 +237,7 @@
         ]
       },
       {
-        "source": "__ab가나__  &amp; cd\r\n",
+        "source": "__ab가나__  & cd\r\n",
         "display": "ab가나  & cd\r\n",
         "selection": [
           5,
@@ -257,7 +257,7 @@
   },
   {
     "name": "english-correction",
-    "source": "__ab__ &amp; cd\r\n",
+    "source": "__ab__ & cd\r\n",
     "display": "ab & cd\r\n",
     "range": [
       2,
@@ -268,32 +268,32 @@
       {
         "event": 3,
         "operation": "select",
-        "source": "__ab__ &amp; cd\r\n"
+        "source": "__ab__ & cd\r\n"
       },
       {
         "event": 7,
         "operation": "typing",
-        "source": "__ab__  &amp; cd\r\n"
+        "source": "__ab__  & cd\r\n"
       },
       {
         "event": 11,
         "operation": "typing",
-        "source": "__ab t__ &amp; cd\r\n"
+        "source": "__ab t__ & cd\r\n"
       },
       {
         "event": 15,
         "operation": "typing",
-        "source": "__ab te__ &amp; cd\r\n"
+        "source": "__ab te__ & cd\r\n"
       },
       {
         "event": 19,
         "operation": "typing",
-        "source": "__ab teh__ &amp; cd\r\n"
+        "source": "__ab teh__ & cd\r\n"
       },
       {
         "event": 21,
         "operation": "replace",
-        "source": "__ab the__ &amp; cd\r\n",
+        "source": "__ab the__ & cd\r\n",
         "serviceRange": [
           3,
           6
@@ -303,12 +303,12 @@
       {
         "event": 25,
         "operation": "typing",
-        "source": "__ab the__  &amp; cd\r\n"
+        "source": "__ab the__  & cd\r\n"
       }
     ],
     "history": [
       {
-        "source": "__ab__ &amp; cd\r\n",
+        "source": "__ab__ & cd\r\n",
         "display": "ab & cd\r\n",
         "selection": [
           2,
@@ -316,7 +316,7 @@
         ]
       },
       {
-        "source": "__ab teh__ &amp; cd\r\n",
+        "source": "__ab teh__ & cd\r\n",
         "display": "ab teh & cd\r\n",
         "selection": [
           6,
@@ -324,7 +324,7 @@
         ]
       },
       {
-        "source": "__ab the__ &amp; cd\r\n",
+        "source": "__ab the__ & cd\r\n",
         "display": "ab the & cd\r\n",
         "selection": [
           6,
@@ -332,7 +332,7 @@
         ]
       },
       {
-        "source": "__ab the__  &amp; cd\r\n",
+        "source": "__ab the__  & cd\r\n",
         "display": "ab the  & cd\r\n",
         "selection": [
           7,
@@ -351,7 +351,7 @@
   },
   {
     "name": "english-suggestion",
-    "source": "__ab__ &amp; cd\r\n",
+    "source": "__ab__ & cd\r\n",
     "display": "ab & cd\r\n",
     "range": [
       2,
@@ -362,37 +362,37 @@
       {
         "event": 3,
         "operation": "select",
-        "source": "__ab__ &amp; cd\r\n"
+        "source": "__ab__ & cd\r\n"
       },
       {
         "event": 7,
         "operation": "typing",
-        "source": "__ab__  &amp; cd\r\n"
+        "source": "__ab__  & cd\r\n"
       },
       {
         "event": 11,
         "operation": "typing",
-        "source": "__ab h__ &amp; cd\r\n"
+        "source": "__ab h__ & cd\r\n"
       },
       {
         "event": 15,
         "operation": "typing",
-        "source": "__ab he__ &amp; cd\r\n"
+        "source": "__ab he__ & cd\r\n"
       },
       {
         "event": 19,
         "operation": "typing",
-        "source": "__ab hel__ &amp; cd\r\n"
+        "source": "__ab hel__ & cd\r\n"
       },
       {
         "event": 23,
         "operation": "typing",
-        "source": "__ab helo__ &amp; cd\r\n"
+        "source": "__ab helo__ & cd\r\n"
       },
       {
         "event": 25,
         "operation": "replace",
-        "source": "__ab help__ &amp; cd\r\n",
+        "source": "__ab help__ & cd\r\n",
         "serviceRange": [
           3,
           7
@@ -402,17 +402,17 @@
       {
         "event": 29,
         "operation": "typing",
-        "source": "__ab help__  &amp; cd\r\n"
+        "source": "__ab help__  & cd\r\n"
       },
       {
         "event": 31,
         "operation": "select",
-        "source": "__ab help__  &amp; cd\r\n"
+        "source": "__ab help__  & cd\r\n"
       },
       {
         "event": 35,
         "operation": "replace",
-        "source": "__ab help__&amp; cd\r\n",
+        "source": "__ab help__& cd\r\n",
         "serviceRange": [
           7,
           9
@@ -423,7 +423,7 @@
     ],
     "history": [
       {
-        "source": "__ab__ &amp; cd\r\n",
+        "source": "__ab__ & cd\r\n",
         "display": "ab & cd\r\n",
         "selection": [
           2,
@@ -431,7 +431,7 @@
         ]
       },
       {
-        "source": "__ab helo__ &amp; cd\r\n",
+        "source": "__ab helo__ & cd\r\n",
         "display": "ab helo & cd\r\n",
         "selection": [
           7,
@@ -439,7 +439,7 @@
         ]
       },
       {
-        "source": "__ab help__ &amp; cd\r\n",
+        "source": "__ab help__ & cd\r\n",
         "display": "ab help & cd\r\n",
         "selection": [
           7,
@@ -447,7 +447,7 @@
         ]
       },
       {
-        "source": "__ab help__  &amp; cd\r\n",
+        "source": "__ab help__  & cd\r\n",
         "display": "ab help  & cd\r\n",
         "selection": [
           8,
@@ -459,7 +459,7 @@
         ]
       },
       {
-        "source": "__ab help__&amp; cd\r\n",
+        "source": "__ab help__& cd\r\n",
         "display": "ab help& cd\r\n",
         "selection": [
           7,
@@ -479,7 +479,7 @@
   },
   {
     "name": "whole-field-paste",
-    "source": "__teh__ &amp; **cta**\r\n",
+    "source": "__teh__ & **cta**\r\n",
     "display": "teh & cta\r\n",
     "range": [
       0,
@@ -490,13 +490,13 @@
       {
         "event": 3,
         "operation": "select",
-        "source": "__teh__ &amp; **cta**\r\n"
+        "source": "__teh__ & **cta**\r\n"
       },
       {
         "event": 6,
         "operation": "replace",
         "requestEvent": 4,
-        "source": "__the__ &amp; **cat**\r\n",
+        "source": "__the__ & **cat**\r\n",
         "serviceRange": [
           0,
           11
@@ -506,7 +506,7 @@
     ],
     "history": [
       {
-        "source": "__teh__ &amp; **cta**\r\n",
+        "source": "__teh__ & **cta**\r\n",
         "display": "teh & cta\r\n",
         "selection": [
           0,
@@ -514,7 +514,7 @@
         ]
       },
       {
-        "source": "__the__ &amp; **cat**\r\n",
+        "source": "__the__ & **cat**\r\n",
         "display": "the & cat\r\n",
         "selection": [
           11,

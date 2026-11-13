@@ -179,8 +179,11 @@ impl Engine {
             self.restore(&opening);
         })?
         else {
+            // Nothing changed, but the marked text is committed: the caret
+            // finishes after the input, as it would had the text changed.
             self.restore(&opening);
             self.composition = None;
+            self.caret_at(input.caret);
             return Ok(None);
         };
         self.composition = None;

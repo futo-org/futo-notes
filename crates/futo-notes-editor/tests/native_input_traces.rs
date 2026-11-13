@@ -51,7 +51,9 @@ fn captured_uikit_results_replay_without_fictional_or_duplicate_callbacks() {
         let name = case["name"].as_str().unwrap();
         let trace = read_trace(name);
         let source = case["source"].as_str().unwrap();
-        assert_eq!(text(&trace["sourceUTF16"]), source);
+        // The captures opened `&amp;`, which the editor no longer decodes; the cases write
+        // it as `&`, so every recorded display, range and keyboard result is unchanged.
+        assert_eq!(text(&trace["sourceUTF16"]).replace("&amp;", "&"), source);
         let mut session = EditorSession::open(source);
         let mut view = ReferenceView::new(case["display"].as_str().unwrap());
         let mut records = Vec::new();
