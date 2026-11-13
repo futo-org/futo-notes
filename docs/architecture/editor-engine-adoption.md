@@ -35,6 +35,8 @@ show it differently during development; a client cutover must account for that b
 | Desktop    | The Tauri worker host and WASM session exist, but the shipped UI is Milkdown; the portable consumer tests are not a desktop text-first renderer.                                                                            | Build a renderer around `WasmSession` and the ordered host transport, validate the complete interaction, and perform the separate cutover.                                                                |
 
 The line reader has one dialect; there is no CommonMark compatibility mode in this engine.
+The old Cargo `engine` feature and `FUTO_EDITOR_ENGINE` switch are removed: `EditorSession`
+always uses the line engine. Renderer-selection flags are separate from that core cutover.
 On `origin/android-text-first`, the separate renderer's dev builds default to text-first and
 persist the `futo.textFirstEditor` intent choice; release builds select the existing editor.
 That branch's flag is not present in this tree, and its behavior should be rechecked when it
