@@ -161,6 +161,11 @@ impl Engine {
         let pasted: Vec<&str> = text.split(newline.as_str()).collect();
         let first = read_alone(pasted[0]);
         let shaped = pasted.len() > 1 || is_block(&first);
+        if !shaped {
+            if let Some(command) = self.carried_paste(range, &text) {
+                return Ok(Some(command));
+            }
+        }
         // The empty line that shows for front matter's body takes the text
         // after a line ending, as typing there does.
         let empty = range.start == range.end && self.empty_line(range.start.0).is_some();
