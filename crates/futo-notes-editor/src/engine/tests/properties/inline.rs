@@ -184,7 +184,7 @@ fn typing_under_carried_formats_shows_exactly_what_was_typed() {
 
 /// Check that `text`, typed at display `at`, shows in `carried` formats
 /// or landed as `plain` typing; whether it showed in them.
-fn typed_formats(
+pub(super) fn typed_formats(
     engine: &Engine,
     at: usize,
     text: &str,

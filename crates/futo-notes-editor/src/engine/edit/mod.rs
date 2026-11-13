@@ -254,6 +254,9 @@ impl Engine {
             return Ok(None);
         };
         self.caret_at(plan.caret);
+        if plan.carry.is_some() {
+            self.formats = plan.carry;
+        }
         let now = self.clock.now();
         let continues = kind.is_some_and(|kind| {
             self.typing

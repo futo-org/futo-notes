@@ -134,7 +134,7 @@ pub(super) fn respell(
             expect
         })
         .collect();
-    let runs = runs(entry, &glyphs, &want, stretch);
+    let runs = runs(entry, &glyphs, &want, stretch.clone());
     let mut expect = stripped.clone();
     for run in &runs {
         for i in run.clone() {
@@ -144,6 +144,23 @@ pub(super) fn respell(
             }
         }
     }
+    // Typing that extends a span keeps the span's own spelling (`__a__`
+    // stays `__`); a toggle writes the house spelling.
+    let kept = if join {
+        spans
+            .iter()
+            .filter(|(range, _)| range.start < stretch.end && range.end > stretch.start)
+            .map(|(range, span)| {
+                (
+                    range.clone(),
+                    entry.text[span.open.clone()].to_owned(),
+                    entry.text[span.close.clone()].to_owned(),
+                )
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let plan = Rewrite {
         draft,
         entry,
@@ -151,6 +168,7 @@ pub(super) fn respell(
         format,
         cuts,
         runs,
+        kept,
         line_shape: shape(entry),
     };
     plan.at_once(&expect, work)
@@ -194,6 +212,9 @@ struct Rewrite<'a> {
     format: InlineFormat,
     cuts: Vec<Range<usize>>,
     runs: Vec<Range<usize>>,
+    /// Spans (glyph range, open, close) whose spelling a run that takes
+    /// them in keeps.
+    kept: Vec<(Range<usize>, String, String)>,
     line_shape: Shape,
 }
 
@@ -209,7 +230,12 @@ impl Rewrite<'_> {
                 .iter()
                 .map(|glyph| glyph.ch)
                 .collect();
-            let (open, close) = spellings(self.format, &text).swap_remove(0);
+            let own = self
+                .kept
+                .iter()
+                .find(|(range, _, _)| range.start < run.end && range.end > run.start)
+                .map(|(_, open, close)| (open.clone(), close.clone()));
+            let (open, close) = own.unwrap_or_else(|| spellings(self.format, &text).swap_remove(0));
             let opens = gap(self.entry, self.glyphs, run.start);
             let closes = gap(self.entry, self.glyphs, run.end);
             let (o, c) = if code {
