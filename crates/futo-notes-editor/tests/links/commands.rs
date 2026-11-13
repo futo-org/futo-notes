@@ -72,12 +72,12 @@ fn partial_link_selection_preserves_each_neighboring_inline_span() {
         (
             "Read **release *notes later*** now",
             "Read release notes later now",
-            "release notes",
+            "release no",
         ),
         (
             "Read **release** *notes later* now",
             "Read release notes later now",
-            "release notes",
+            "release no",
         ),
         (
             "Read `release notes` now",
@@ -125,7 +125,13 @@ fn partial_link_selection_preserves_each_neighboring_inline_span() {
         assert_eq!(view.text, display, "{original:?}");
         assert_eq!(formats(&session), before, "{original:?}");
         let link = session.inspect_link(Revision(1), target).unwrap().unwrap();
-        assert_eq!(link.range, target, "{original:?}");
+        // A link over part of inline code covers the code whole.
+        let linked = if original.contains('`') {
+            range(5, 18)
+        } else {
+            target
+        };
+        assert_eq!(link.range, linked, "{original:?}");
         assert_eq!(link.destination, "https://x.test");
         let edited = session.source_text();
         assert_eq!(EditorSession::open(&edited).display_text(), display);
@@ -135,6 +141,27 @@ fn partial_link_selection_preserves_each_neighboring_inline_span() {
         view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(session.source_text(), edited);
         assert_eq!(formats(&session), before, "{original:?}");
+    }
+    // An italic that would have to reopen right before a space cannot be
+    // written without an entity, so the link is refused and nothing changes.
+    for original in [
+        "Read **release *notes later*** now",
+        "Read **release** *notes later* now",
+    ] {
+        let mut session = EditorSession::open(original);
+        let target = range(5, 18);
+        assert_eq!(
+            session.edit_link(
+                Revision(0),
+                target,
+                "release notes",
+                "https://x.test",
+                &mut |_| { panic!("refused link accepted") }
+            ),
+            Err(futo_notes_editor::EditorError::UnrepresentableFormat)
+        );
+        assert_eq!(session.source_text(), original);
+        assert_eq!(session.revision(), Revision(0));
     }
 }
 
@@ -176,7 +203,7 @@ fn selected_link_commands_preserve_selection_nested_styles_and_byte_exact_undo()
     );
     assert_eq!(
         session.source_text(),
-        "read the [__docs__](<https://x.test>) now"
+        "read the [__docs__](https://x.test) now"
     );
     assert_eq!(view.text, "read the docs now");
     assert_eq!(session.selection(), range(9, 13));
@@ -194,7 +221,7 @@ fn selected_link_commands_preserve_selection_nested_styles_and_byte_exact_undo()
     );
     assert_eq!(
         session.source_text(),
-        "read the [__docs__](<https://x.test/moved>) now"
+        "read the [__docs__](https://x.test/moved) now"
     );
     assert_eq!(session.selection(), range(10, 11));
     view.apply(
@@ -273,7 +300,7 @@ fn link_insertion_at_a_caret_uses_its_destination_as_label_and_preserves_exact_u
 }
 
 #[test]
-fn adjacent_equal_destinations_form_one_command_run_without_rewriting_untouched_source() {
+fn adjacent_equal_destinations_stay_two_links_and_only_the_inspected_one_changes() {
     let original = "[ab](https://x.test)[cd](https://x.test)";
     let mut session = EditorSession::open(original);
     let mut view = ReferenceView::new("abcd");
@@ -281,8 +308,9 @@ fn adjacent_equal_destinations_form_one_command_run_without_rewriting_untouched_
         .inspect_link(Revision(0), range(0, 1))
         .unwrap()
         .unwrap();
-    assert_eq!(link.range, range(0, 4));
+    assert_eq!(link.range, range(0, 2));
     assert_eq!(session.source_text(), original);
+    session.select(Revision(0), range(0, 1)).unwrap();
     view.apply(
         session
             .set_link(
@@ -294,11 +322,15 @@ fn adjacent_equal_destinations_form_one_command_run_without_rewriting_untouched_
             .unwrap()
             .unwrap(),
     );
-    assert_eq!(session.source_text(), "[abcd](<https://new.test>)");
+    assert_eq!(
+        session.source_text(),
+        "[ab](https://new.test)[cd](https://x.test)"
+    );
     assert_eq!(view.text, "abcd");
     assert_eq!(session.selection(), range(0, 1));
     view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), original);
+    assert_eq!(session.selection(), range(0, 1));
 }
 
 #[test]
@@ -428,7 +460,7 @@ fn edit_link_settles_composition_and_refusal_preserves_the_overlay() {
 }
 
 #[test]
-fn edit_link_in_a_table_cell_keeps_neighbor_source_and_literal_pipes() {
+fn edit_link_in_a_table_cell_keeps_neighbor_source_and_refuses_a_pipe() {
     let original = "| a | b |\n| --- | --- |\n| c | d |\n";
     let mut session = EditorSession::open(original);
     let table = session
@@ -436,18 +468,28 @@ fn edit_link_in_a_table_cell_keeps_neighbor_source_and_literal_pipes() {
         .unwrap()
         .unwrap();
     let target = table.rows[1][0].content;
+    assert_eq!(
+        session.edit_link(Revision(0), target, "x|y", "/x", &mut |_| panic!(
+            "pipe accepted"
+        )),
+        Err(futo_notes_editor::EditorError::InvalidText)
+    );
+    assert_eq!(session.source_text(), original);
     session
-        .edit_link(Revision(0), target, "x|y", "/x", &mut |_| Ok(()))
+        .edit_link(Revision(0), target, "x y", "/x", &mut |_| Ok(()))
         .unwrap()
         .unwrap();
-    assert!(session.source_text().contains(" | d |\n"));
+    assert_eq!(
+        session.source_text(),
+        "| a | b |\n| --- | --- |\n| [x y](/x) | d |\n"
+    );
     let table = session
         .inspect_table(Revision(1), range(0, 0))
         .unwrap()
         .unwrap();
     assert_eq!(table.columns, 2);
     let cell = table.rows[1][0].content;
-    assert_eq!(session.project(Revision(1), cell).unwrap().text, "x|y");
+    assert_eq!(session.project(Revision(1), cell).unwrap().text, "x y");
     session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
     assert_eq!(session.source_text(), original);
 }

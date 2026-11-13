@@ -92,10 +92,10 @@ fn a_table_cell_completion_after_a_space_takes_the_format_whole() {
     assert_eq!(source, "| h |\n|---|\n| a hello |");
 }
 
-/// Undo restores the carried formats but not the toggle record, so completing again splits the
-/// word as it always did. Pinned as the current behaviour.
+/// Undo restores the carried formats with the bytes and selection, so completing again takes
+/// the word whole, as the first completion did.
 #[test]
-fn completing_again_after_undo_splits_the_word_as_before() {
+fn completing_again_after_undo_takes_the_word_whole_again() {
     let mut s = EditorSession::open("**hel**");
     s.select(s.revision(), r(3, 3)).unwrap();
     s.toggle_format(s.revision(), Bold, &mut |_| Ok(()))
@@ -105,8 +105,9 @@ fn completing_again_after_undo_splits_the_word_as_before() {
         .unwrap();
     assert_eq!(s.source_text(), "hello");
     s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(s.source_text(), "**hel**");
     s.replace_os(s.revision(), r(0, 3), "hello", &[], &mut |_| Ok(()))
         .unwrap()
         .unwrap();
-    assert_eq!(s.source_text(), "**hel**lo");
+    assert_eq!(s.source_text(), "hello");
 }

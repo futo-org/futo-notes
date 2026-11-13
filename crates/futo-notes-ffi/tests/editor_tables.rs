@@ -46,10 +46,11 @@ fn native_table_cells_keys_and_commands_recover_exact_source() {
         line(table.delimiter_line.as_ref().unwrap()),
         "| --- | --: |"
     );
-    let a = &table.rows[0][0].content;
+    // A typed pipe lands as typed: the body row gains a cell.
+    let c = &table.rows[1][0].content;
     let caret = EditorUtf16Range {
-        start: a.end,
-        end: a.end,
+        start: c.end,
+        end: c.end,
     };
     session
         .replace_utf16(0, caret, "x|y".encode_utf16().collect())
@@ -69,7 +70,7 @@ fn native_table_cells_keys_and_commands_recover_exact_source() {
     let session = store.open_editor("grid".into()).unwrap();
     assert_eq!(
         session.source_text().unwrap(),
-        "| ax\\|y |  | b |\r\n| --- | --- | --: |\r\n| c |  | d |\r\n"
+        "| a |  | b |\r\n| --- | --- | --: |\r\n| cx|  |y | d |\r\n"
     );
 }
 

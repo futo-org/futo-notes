@@ -1,7 +1,5 @@
 //! Bold, Italic, Strike and Code over a table format each cell separately and
-//! leave the table the same table (#361): the body walk must read every line
-//! of a table as a table line, whatever the block walk makes of it (a
-//! delimiter row starting `- `, a row without outer pipes).
+//! leave the table the same table (#361).
 use futo_notes_editor::{
     DisplayOffset, DisplayRange, EditorError, EditorSession, InlineFormat, Revision,
     TableDescription,
@@ -17,9 +15,6 @@ fn range(start: usize, end: usize) -> DisplayRange {
 const TABLES: &[&str] = &[
     "| a | b |\n| --- | --- |\n| c | d |",
     "| a |\n| - |\n| b |",
-    "a | b\n- | -\nc | d",
-    "a | b\n--- | ---\nc | d",
-    "a|b\n-|-\nc|d",
     "| a | b |\n| - | - |\n| c | d |",
     "| a | b |\n|:-:|--:|\n| c | d |",
     "| é | 😀 |\n| - | - |\n| x | 日 |",
@@ -222,15 +217,6 @@ fn toggles_from_text_before_a_table_into_it() {
 }
 
 #[test]
-fn issue_repro_pipeless_table_select_all_bold() {
-    let mut s = EditorSession::open("a | b\n- | -\nc | d");
-    s.select(s.revision(), range(0, s.display_text().len()))
-        .unwrap();
-    assert!(toggle(&mut s, InlineFormat::Bold));
-    assert_eq!(s.source_text(), "**a** | **b**\n- | -\n**c** | **d**");
-}
-
-#[test]
 fn issue_repro_piped_table_selection_into_the_delimiter_row() {
     let mut s = EditorSession::open("| a |\n| - |\n| b |");
     s.select(s.revision(), range(2, 8)).unwrap();
@@ -244,32 +230,6 @@ fn issue_repro_pipe_only_selection_writes_nothing() {
     s.select(s.revision(), range(0, 1)).unwrap();
     assert!(!toggle(&mut s, InlineFormat::Bold));
     assert_eq!(s.source_text(), "| a |\n| - |\n| b |");
-}
-
-fn link(original: &str, selection: DisplayRange) -> (Option<()>, String) {
-    let mut s = EditorSession::open(original);
-    s.select(s.revision(), selection).unwrap();
-    let done = s
-        .set_link(s.revision(), selection, "/u", &mut |_| Ok(()))
-        .ok()
-        .flatten()
-        .map(|_| ());
-    (done, s.source_text())
-}
-
-#[test]
-fn set_link_inside_one_cell_of_a_pipeless_table() {
-    let (done, on) = link("a | b\n- | -\nc | d", range(10, 11));
-    assert!(done.is_some());
-    assert_eq!(on, "a | b\n- | -\n[c](</u>) | d");
-}
-
-#[test]
-fn set_link_from_a_pipeless_row_into_the_next_row_links_each_cell() {
-    // Both `b` and `c` are rows of the table: one link per cell, never `[b\nc](/u)`.
-    let (done, on) = link("| a |\n| - |\nb\nc\n", range(12, 15));
-    assert!(done.is_some());
-    assert_eq!(on, "| a |\n| - |\n[b](</u>)\n[c](</u>)\n");
 }
 
 #[test]
@@ -346,15 +306,15 @@ fn taking_off_a_run_that_spans_a_pipe_never_wraps_the_pipe() {
 }
 
 fn big_table(rows: usize) -> String {
-    let mut source = String::from("a | b\n- | -\n");
+    let mut source = String::from("| a | b |\n| - | - |\n");
     for i in 0..rows {
-        source.push_str(&format!("c{i} | d{i}\n"));
+        source.push_str(&format!("| c{i} | d{i} |\n"));
     }
     source
 }
 
 #[test]
-fn a_modest_table_formats_whole_and_a_huge_one_is_refused_fast() {
+fn a_modest_and_a_huge_table_format_whole_in_one_undo_step() {
     let select_all = |rows| {
         let mut s = EditorSession::open(&big_table(rows));
         let all = range(0, s.display_text().len());
@@ -372,13 +332,16 @@ fn a_modest_table_formats_whole_and_a_huge_one_is_refused_fast() {
         "{:?}",
         change.work
     );
-    // A table far past the budget is refused rather than frozen on: nothing
-    // is written and nothing is recorded.
-    let (s, result) = select_all(2_000);
+    // No table is staged or refused for its size: a huge one formats every
+    // cell too, and one Undo restores its exact bytes.
+    let (mut s, result) = select_all(2_000);
+    let change = result.unwrap().unwrap();
+    assert_eq!(s.source_text().matches("**").count(), 2 * 4_002);
     assert!(
-        matches!(result, Err(EditorError::UnrepresentableFormat)),
-        "{result:?}"
+        change.work.link_metadata_items < 8_000_000,
+        "{:?}",
+        change.work
     );
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
     assert_eq!(s.source_text(), big_table(2_000));
-    assert_eq!(s.revision(), Revision(0));
 }

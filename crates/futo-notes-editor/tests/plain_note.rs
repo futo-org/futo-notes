@@ -11,15 +11,18 @@ fn range(start: usize, end: usize) -> DisplayRange {
 
 #[test]
 fn replacing_plain_text_preserves_untouched_source_and_updates_the_reference_view() {
+    // A line's leading whitespace is its indent, which renderers draw; it is not shown
+    // as text, and it is kept byte for byte.
     let mut session = EditorSession::open("  first\r\nsecond\t \r\nlast");
-    let mut view = ReferenceView::new("  first\r\nsecond\t \r\nlast");
+    let mut view = ReferenceView::new("first\r\nsecond\t \r\nlast");
+    assert_eq!(session.display_text(), view.text);
     let mut accepted = Vec::new();
     let change = session
         .replace(
             Revision(0),
             DisplayRange {
-                start: DisplayOffset(9),
-                end: DisplayOffset(15),
+                start: DisplayOffset(7),
+                end: DisplayOffset(13),
             },
             "new",
             &mut |edit| {
@@ -29,14 +32,14 @@ fn replacing_plain_text_preserves_untouched_source_and_updates_the_reference_vie
         )
         .unwrap();
     view.apply(change.clone());
-    assert_eq!(view.text, "  first\r\nnew\t \r\nlast");
+    assert_eq!(view.text, "first\r\nnew\t \r\nlast");
     assert_eq!(session.source_text(), "  first\r\nnew\t \r\nlast");
     assert_eq!(change.revision, Revision(1));
     assert_eq!(
         change.selection,
         DisplayRange {
-            start: DisplayOffset(12),
-            end: DisplayOffset(12)
+            start: DisplayOffset(10),
+            end: DisplayOffset(10)
         }
     );
     assert_eq!(accepted.len(), 1);

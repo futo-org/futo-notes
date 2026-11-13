@@ -57,7 +57,8 @@ fn add_spells_canonically_and_touches_only_the_header() {
         ("body", "Work Stuff", "#work_stuff\n\nbody"),
         ("", "#a", "#a"),
         ("body\r\nmore", "a", "#a\r\n\r\nbody\r\nmore"),
-        ("body\rmore", "a", "#a\r\rbody\rmore"),
+        // A lone CR is an ordinary character, not a line ending.
+        ("body\rmore", "a", "#a\n\nbody\rmore"),
         ("#a\r#b", "c", "#a\r#b #c"),
         ("#a\n\nbody", " #B ", "#a #b\n\nbody"),
         ("#a   \n#b  \nbody", "c", "#a   \n#b #c  \nbody"),

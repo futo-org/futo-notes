@@ -56,30 +56,44 @@ fn prepared_adoption_refuses_intervening_selection_or_source_changes() {
     assert_eq!(editor.source_text(), "!first\n\nLOCAL\n");
 }
 
+/// A typed bare URL links at once (GFM's extent); an outside change elsewhere keeps it
+/// linked, the change's projection agrees with a fresh open, and undo restores exact bytes.
 #[test]
-fn adoption_delta_preserves_an_unfinished_local_url_and_its_history() {
+fn adoption_delta_keeps_a_typed_local_url_and_its_history() {
     let mut editor = EditorSession::open("first\n\n");
     editor
         .replace(Revision(0), range(7, 7), "https://x.test", &mut |_| Ok(()))
         .unwrap();
-    assert!(editor
-        .project(Revision(1), range(0, 21))
-        .unwrap()
-        .links
-        .is_empty());
+    let links = |editor: &EditorSession, all: DisplayRange| -> Vec<(DisplayRange, String)> {
+        editor
+            .project(editor.revision(), all)
+            .unwrap()
+            .links
+            .into_iter()
+            .map(|link| (link.range, link.destination))
+            .collect()
+    };
+    assert_eq!(
+        links(&editor, range(0, 21)),
+        [(range(7, 21), "https://x.test".to_owned())]
+    );
     let adoption = editor
         .prepare_external_source(Revision(1), "REMOTE\n\nhttps://x.test")
         .unwrap();
     let change = editor.apply_external_source(adoption).unwrap();
-    assert!(
-        change.projection.links.is_empty(),
-        "the authoritative view delta must retain unfinished URL semantics"
+    let fresh = EditorSession::open("REMOTE\n\nhttps://x.test");
+    assert_eq!(
+        change.projection.links,
+        fresh
+            .project(Revision(0), change.projection.range)
+            .unwrap()
+            .links,
+        "the view delta agrees with a fresh reading"
     );
-    assert!(editor
-        .project(Revision(2), range(0, 22))
-        .unwrap()
-        .links
-        .is_empty());
+    assert_eq!(
+        links(&editor, range(0, 22)),
+        [(range(8, 22), "https://x.test".to_owned())]
+    );
     editor.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap();
     assert_eq!(editor.source_text(), "REMOTE\n\n");
 }

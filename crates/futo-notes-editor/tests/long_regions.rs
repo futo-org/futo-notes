@@ -162,22 +162,11 @@ fn local_keys_in_one_giant_region_do_not_scale_with_it() {
     }
 }
 
-/// A table whose pipeless body rows run on past a cut still escapes a typed `|`.
-#[test]
-fn a_long_pipeless_table_tail_still_edits_as_a_cell() {
-    let rows: String = (0..400).map(|i| format!("bar {i}\n")).collect();
-    let source = format!("| a | b |\n|---|---|\n| 1 | 2 |\n{rows}");
-    let mut session = EditorSession::open(&source);
-    let end = session.display_text().len() - 1;
-    session
-        .replace(session.revision(), caret(end), "|", &mut |_| Ok(()))
-        .unwrap();
-    assert!(session.source_text().ends_with("bar 399\\|\n"));
-}
-
 /// A paragraph that is one long line, like corpus note 882329: a typed key,
 /// Backspace, Enter and the Backspace that rejoins the line cost work near
-/// their 2,000-character size at 50,000 characters (word seams, #314).
+/// their 2,000-character size at 50,000 characters (word seams, #314). Enter
+/// goes after the space that ends the word, so the new line has no indent
+/// for the rejoining Backspace to take off.
 #[test]
 fn keys_in_one_long_line_do_not_scale_with_it() {
     const WORDS: [&str; 8] = [
@@ -224,11 +213,11 @@ fn keys_in_one_long_line_do_not_scale_with_it() {
         work.push(total(&key(&mut session, at + 1, ParagraphKey::Backspace)));
         expected.remove(at);
         assert_eq!(session.source_text(), expected, "{len} after Backspace");
-        work.push(total(&key(&mut session, at, ParagraphKey::Enter)));
-        expected.insert(at, '\n');
+        work.push(total(&key(&mut session, at + 1, ParagraphKey::Enter)));
+        expected.insert(at + 1, '\n');
         assert_eq!(session.source_text(), expected, "{len} after Enter");
-        work.push(total(&key(&mut session, at + 1, ParagraphKey::Backspace)));
-        expected.remove(at);
+        work.push(total(&key(&mut session, at + 2, ParagraphKey::Backspace)));
+        expected.remove(at + 1);
         assert_eq!(session.source_text(), expected, "{len} after rejoining");
         assert_eq!(session.display_text(), expected, "{len} display");
         match &small {
@@ -249,8 +238,9 @@ fn keys_in_one_long_line_do_not_scale_with_it() {
 }
 
 /// Enter after a nested item, then Backspace on the new empty item, leaves
-/// a whitespace-only line inside the list: each key, and typing after it,
-/// stays local (counted work at 20,000 lines stays at its 1,000-line size).
+/// an empty line inside the list (its marker and indent go): each key, and
+/// typing after it, stays local (counted work at 20,000 lines stays at its
+/// 1,000-line size).
 #[test]
 fn an_emptied_item_in_a_nested_list_stays_local() {
     const DEPTHS: [usize; 12] = [0, 1, 2, 3, 4, 5, 6, 5, 6, 4, 5, 3];
@@ -280,11 +270,11 @@ fn an_emptied_item_in_a_nested_list_stays_local() {
         };
         let (entered, at) = key(&mut session, at, ParagraphKey::Enter);
         let (emptied, at) = key(&mut session, at, ParagraphKey::Backspace);
-        let after = session.source_text();
-        let end = after.find(&text).unwrap() + text.len();
-        let blank = &after[end..end + after[end..].find('\n').unwrap() + 1];
-        assert!(blank.trim().is_empty(), "{lines}: {blank:?}");
-        assert_eq!(after.replacen(blank, "", 1), source, "{lines}");
+        assert_eq!(
+            session.source_text(),
+            source.replacen(&text, &format!("{text}\n"), 1),
+            "{lines}"
+        );
         let typed = total(
             &session
                 .replace(session.revision(), caret(at), "x", &mut |_| Ok(()))

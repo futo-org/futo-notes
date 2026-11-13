@@ -49,7 +49,9 @@ impl EditorSession {
     ) -> Result<ExternalSourceAdoption, EditorError> {
         Ok(ExternalSourceAdoption {
             incarnation: self.incarnation,
-            plan: self.engine.prepare_external(expected, source, keep_history)?,
+            plan: self
+                .engine
+                .prepare_external(expected, source, keep_history)?,
         })
     }
 

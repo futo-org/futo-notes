@@ -405,7 +405,9 @@ fn unchanged_marking_and_explicit_runs_write_nothing() {
     // A batch that changes nothing commits the marking and moves the caret, but
     // writes nothing and leaves no undo step: undo replays text edits, and there are none.
     let change = session
-        .replace_many(Revision(0), &[unchanged], &mut |_| panic!("nothing to save"))
+        .replace_many(Revision(0), &[unchanged], &mut |_| {
+            panic!("nothing to save")
+        })
         .unwrap();
     assert_eq!(change.selection, range(2, 2));
     assert_eq!(session.source_text(), "a  b c");

@@ -3,14 +3,16 @@ use futo_notes_editor::{Affinity, InputAction, ParagraphKey};
 
 #[test]
 fn fence_frame_repairs_keep_ordinary_typing_history_and_rejection_boundaries() {
+    // Typing in an empty code block writes a line ending, then the text, behind the
+    // hidden opening fence. (A fence is not read after `>`, so the blocks are unquoted.)
     for (source, shown, at, expected, display) in [
-        ("> ```\n> ```", "", 0, "> ```\n> !?\n> ```", "!?"),
-        ("> ~~~", "", 0, "> ~~~\n> !?", "!?"),
+        ("```\n```", "", 0, "```\n!?\n```", "!?"),
+        ("~~~", "", 0, "~~~\n!?", "!?"),
         (
-            "__P__\r\n\r\n> > ~~~\r\n> > ~~~~~  ",
+            "__P__\r\n\r\n~~~\r\n~~~~~  ",
             "P\r\n\r\n",
             5,
-            "__P__\r\n\r\n> > ~~~\r\n> > !?\n> > ~~~~~  ",
+            "__P__\r\n\r\n~~~\r\n!?\r\n~~~~~  ",
             "P\r\n\r\n!?",
         ),
     ] {

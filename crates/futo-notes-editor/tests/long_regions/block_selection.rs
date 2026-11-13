@@ -46,7 +46,8 @@ fn mixed_prose_and_code_quotes_bound_physical_row_selection_work() {
     let lines = 2_000usize;
     let code: String = (0..lines).map(|i| format!("opaque code {i}\n")).collect();
     let source = format!("# heading\n\n```\n{code}```\n");
-    let expected = format!("> heading\n> \n```\n{code}```\n");
+    // Quote leaves a blank line at the selection's edge alone and skips code.
+    let expected = format!("> heading\n\n```\n{code}```\n");
     let mut session = EditorSession::open(&source);
     let selected = DisplayRange {
         start: DisplayOffset(0),

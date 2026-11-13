@@ -2,8 +2,8 @@
 //! its work to the core's command family of the same name.
 use super::{Accept, EditorSession};
 use crate::{
-    DisplayRange, EditorError, ImageClaim, LinkDescription, NoteIdChange, Revision,
-    TableCommand, TableDescription, TableKey, TableOutcome, ViewChange, WikilinkCompletion,
+    DisplayRange, EditorError, ImageClaim, LinkDescription, NoteIdChange, Revision, TableCommand,
+    TableDescription, TableKey, TableOutcome, ViewChange, WikilinkCompletion,
 };
 
 impl EditorSession {

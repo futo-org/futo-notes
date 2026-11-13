@@ -1,8 +1,6 @@
-//! A giant table is cut at row lines like a long paragraph: a key in a middle
-//! row costs the same counted work at 2,000 rows as at 100, even with
-//! emphasis literals (`_` in handles) elsewhere in the table. Keys that change
-//! a delimiter run are checked against an uncut twin in
-//! `src/inline/table_split_tests.rs`.
+//! A key in a middle row of a giant table costs the same counted work at
+//! 2,000 rows as at 100, even with emphasis literals (`_` in handles)
+//! elsewhere in the table.
 use futo_notes_editor::{DisplayOffset, DisplayRange, EditWork, EditorSession, ParagraphKey};
 
 fn caret(at: usize) -> DisplayRange {
@@ -118,14 +116,8 @@ fn keys_in_a_middle_table_row_do_not_scale_with_the_table() {
 // threshold. Compare 2,000 and 20,000 so both sides measure bounded neighbor
 // work, rather than a whole tiny row against a split paragraph's neighbors.
 #[test]
-fn clearing_one_character_edge_cells_is_bounded_to_the_row() {
-    let cases = [
-        ("first", "x | y\n", 0),
-        ("last", "x | y\n", 4),
-        ("short", "| x\n", 2),
-        ("pipeless", "x\n", 0),
-        ("protected", "| x | y |\n", 2),
-    ];
+fn clearing_a_one_character_cell_is_bounded_to_the_row() {
+    let cases = [("protected", "| x | y |\n", 2)];
     let work = |rows: usize, body: &str, column: usize| {
         let header = "| a | b |\n| --- | --- |\n";
         let source = format!("{header}{}", body.repeat(rows));

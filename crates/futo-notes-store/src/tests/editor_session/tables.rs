@@ -16,8 +16,10 @@ fn table_steps_keep_exact_bytes_through_history_and_checkpoint() {
                 .unwrap();
             table.rows[row][column].content
         };
-        session.replace(Revision(0), range(3, 3), "|x").unwrap();
-        let typed = "| a\\|x | b |\r\n| --- | :-: |\r\n| c | d |\r\n";
+        // A typed pipe lands as typed: the body row gains a cell.
+        let c = cell(&session, 1, 0).end;
+        session.replace(Revision(0), range(c.0, c.0), "|x").unwrap();
+        let typed = "| a | b |\r\n| --- | :-: |\r\n| c|x | d |\r\n";
         assert_eq!(session.source_text(), typed);
         let before = session.project(Revision(1), range(0, 10)).unwrap();
         let at = cell(&session, 1, 1);
@@ -36,7 +38,9 @@ fn table_steps_keep_exact_bytes_through_history_and_checkpoint() {
         else {
             panic!("last row extends");
         };
-        let expected = "| a\\|x | b |  |\r\n| --- | :-: | --- |\r\n| c | d |  |\r\n|  |  |  |\r\n";
+        // The new column goes on the widest row only; the shorter header and
+        // delimiter row stay padded.
+        let expected = "| a | b |\r\n| --- | :-: |\r\n| c|x |  | d |\r\n|  |  |  |  |\r\n";
         assert_eq!(session.source_text(), expected);
         session.undo(Revision(3)).unwrap().unwrap();
         session.redo(Revision(4)).unwrap().unwrap();

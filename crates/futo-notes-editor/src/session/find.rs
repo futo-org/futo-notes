@@ -6,7 +6,6 @@ use super::EditorSession;
 use crate::{CaretDirection, DisplayOffset, DisplayRange, EditorError, Revision, SourceRange};
 use serde::{Deserialize, Serialize};
 
-
 /// Explicit scan accounting: ordinary input never moves these.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FindWork {
@@ -64,7 +63,6 @@ pub struct FindScanResult {
     pub matches: Vec<DisplayRange>,
     pub scanned_bytes: u64,
 }
-
 
 /// Locale-independent letter folding; every Greek sigma is one letter and a
 /// character whose lowercase is longer matches only itself, so folding never

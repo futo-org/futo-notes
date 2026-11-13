@@ -261,6 +261,11 @@ fn replacing_a_selection_writes_these_bytes() {
         ("**ab** **cd**", "b c", "X", "**aXd**"),
         ("_a_ _b_", "a b", "X", "_X_"),
         ("`a` `b`", "a b", "", ""),
+        // Also when only what lies between them goes: they would touch.
+        ("**ab** **cd**", " ", "", "**abcd**"),
+        ("**ab**\n**cd**", "\n", "", "**abcd**"),
+        ("__~~ab~~__\n__~~cd~~__", "\n", "", "__~~abcd~~__"),
+        ("**ab**\n**cd**", "\n", "X", "**ab**X**cd**"),
         // Links: the text is a span; the destination stays with the close.
         ("x [link](u) z", "link", "Y", "x [Y](u) z"),
         ("x [link](u) z", "nk z", "", "x [li](u)"),

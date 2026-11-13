@@ -108,21 +108,11 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     assert.equal(rich.affinity, 'Forward');
     assert.deepEqual(rich.projection.runs[0].formats, ['Bold', 'Strike']);
     assert.deepEqual(JSON.parse(page.project(4n, 0, 7)), rich.projection);
-    const entity = JSON.parse(page.replace(4n, 0, 5, '&acE;'));
-    apply(await send(entity));
+    const grapheme = JSON.parse(page.replace(4n, 0, 5, '∾\u0333'));
+    apply(await send(grapheme));
     assert.equal(text, '∾\u0333\r\n');
-    assert.equal(page.draft_text(), '~~__&acE;__~~\r\n');
+    assert.equal(page.draft_text(), '~~__∾\u0333__~~\r\n');
     const entityProjection = JSON.parse(page.project(5n, 0, 7));
-    assert.ok(
-      entityProjection.correspondence.some(
-        (part) =>
-          part.source.start === 4 &&
-          part.source.end === 9 &&
-          part.display.start === 0 &&
-          part.display.end === 5 &&
-          part.kind === 'Replaced',
-      ),
-    );
     for (const affinity of ['Backward', 'Forward']) {
       assert.deepEqual(JSON.parse(page.select_with_affinity(5n, 3, 3, JSON.stringify(affinity))), {
         revision: 5,
@@ -134,16 +124,16 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     const entityChange = await send(partialEntity);
     apply(entityChange);
     assert.equal(text, '∾x\r\n');
-    assert.equal(page.draft_text(), '~~__&#8766;x__~~\r\n');
+    assert.equal(page.draft_text(), '~~__∾x__~~\r\n');
     assert.deepEqual(entityChange.selection, { start: 4, end: 4 });
     assert.deepEqual(entityChange.projection.runs[0].formats, ['Bold', 'Strike']);
     apply(await send(JSON.parse(page.undo(6n))));
     assert.equal(text, '∾\u0333\r\n');
-    assert.equal(page.draft_text(), '~~__&acE;__~~\r\n');
+    assert.equal(page.draft_text(), '~~__∾\u0333__~~\r\n');
     assert.deepEqual(JSON.parse(page.project(7n, 0, 7)), { ...entityProjection, revision: 7 });
     apply(await send(JSON.parse(page.redo(7n))));
     assert.equal(text, '∾x\r\n');
-    assert.equal(page.draft_text(), '~~__&#8766;x__~~\r\n');
+    assert.equal(page.draft_text(), '~~__∾x__~~\r\n');
     // Composition commits and multi-run keyboard corrections are explicit,
     // isolated actions; each crosses the real store once before display.
     const commit = JSON.parse(
@@ -151,7 +141,7 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     );
     assert.equal(text, '∾x\r\n');
     apply(await send(commit));
-    assert.equal(page.draft_text(), '~~__&#8766;x日__~~\r\n');
+    assert.equal(page.draft_text(), '~~__∾x日__~~\r\n');
     assert.equal(text, '∾x日\r\n');
     const runs = JSON.stringify([
       { range: { start: 0, end: 1 }, inserted: [0xd83d, 0xde00] },
@@ -175,9 +165,9 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     );
     assert.equal(JSON.parse(page.status()).outstanding, 0);
     apply(await send(JSON.parse(page.undo(10n))));
-    assert.equal(page.draft_text(), '~~__&#8766;x日__~~\r\n');
+    assert.equal(page.draft_text(), '~~__∾x日__~~\r\n');
     apply(await send(JSON.parse(page.undo(11n))));
-    assert.equal(page.draft_text(), '~~__&#8766;x__~~\r\n');
+    assert.equal(page.draft_text(), '~~__∾x__~~\r\n');
     apply(await send(JSON.parse(page.redo(12n))));
     apply(await send(JSON.parse(page.redo(13n))));
     assert.equal(page.draft_text(), '~~__😀z日__~~\r\n');
@@ -189,7 +179,8 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     assert.equal(page.draft_text(), '~~__😀z日__~~ \r\n');
     page.select_with_affinity(15n, 9, 9, '"Backward"');
     apply(await send(JSON.parse(page.replace(15n, 9, 9, 'b'))));
-    assert.equal(page.draft_text(), '~~__😀z日 b__~~\r\n');
+    // Rejoining both spans over the space respells them; the display is the same.
+    assert.equal(page.draft_text(), '__~~😀z日 b~~__\r\n');
     assert.equal(text, '😀z日 b\r\n');
     assert.deepEqual(new Set(JSON.parse(page.active_formats())), new Set(['Bold', 'Strike']));
     // Paragraph keys use the supplied UTF-16 range despite a distant stored
@@ -199,7 +190,8 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     assert.equal(text, '😀z日 b\r\n');
     apply(await send(enter));
     assert.equal(text, '😀\r\nz日 b\r\n');
-    assert.equal(page.draft_text(), '~~__😀\r\nz日 b__~~\r\n');
+    // A span cannot cross a line: Enter closes and reopens its marks.
+    assert.equal(page.draft_text(), '__~~😀~~__\r\n__~~z日 b~~__\r\n');
     const backspace = JSON.parse(page.paragraph_key_utf16(17n, 4, 4, '"Backspace"'));
     apply(await send(backspace));
     assert.equal(text, '😀z日 b\r\n');
@@ -213,19 +205,19 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     const headingChange = await send(heading);
     apply(headingChange);
     assert.equal(headingChange.projection.blocks[0].heading, 6);
-    assert.equal(page.draft_text(), '###### ~~__😀z日 b__~~\r\n');
+    assert.equal(page.draft_text(), '###### __~~😀z日 b~~__\r\n');
     assert.equal(text, '😀z日 b\r\n');
     const blockEnter = JSON.parse(page.paragraph_key_utf16(21n, 3, 3, '"Enter"'));
     apply(await send(blockEnter));
-    assert.equal(page.draft_text(), '###### ~~__😀z__~~\r\n~~__日 b__~~\r\n');
+    assert.equal(page.draft_text(), '###### __~~😀z~~__\r\n__~~日 b~~__\r\n');
     assert.equal(text, '😀z\r\n日 b\r\n');
     apply(await send(JSON.parse(page.undo(22n))));
-    assert.equal(page.draft_text(), '###### ~~__😀z日 b__~~\r\n');
+    assert.equal(page.draft_text(), '###### __~~😀z日 b~~__\r\n');
     const marked = JSON.parse(
       page.compose_utf16(23n, 3, 4, new Uint16Array([0x306b, 0x307b, 0x3093])),
     );
     assert.equal(marked.text, 'にほん');
-    assert.equal(page.draft_text(), '###### ~~__😀z日 b__~~\r\n');
+    assert.equal(page.draft_text(), '###### __~~😀z日 b~~__\r\n');
     assert.equal(JSON.parse(page.undo(23n)), null);
     assert.throws(() => page.compose_utf16(23n, 3, 4, new Uint16Array([0xd800])));
     assert.throws(
@@ -238,9 +230,9 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     assert.equal(text, '😀z日 b\r\n');
     apply(await send(markedCommit));
     assert.equal(text, '😀z日本 b\r\n');
-    assert.equal(page.draft_text(), '###### ~~__😀z日本 b__~~\r\n');
+    assert.equal(page.draft_text(), '###### __~~😀z日本 b~~__\r\n');
     assert.equal(JSON.parse(page.commit_composition_utf16(24n)), null);
-    for (const [revision, command, expected] of [[24n, '"Quote"', '> ~~__😀z日本 b__~~\r\n']]) {
+    for (const [revision, command, expected] of [[24n, '"Quote"', '> __~~😀z日本 b~~__\r\n']]) {
       const request = JSON.parse(page.block_command_utf16(revision, 0, 0, command));
       apply(await send(request));
       assert.equal(page.draft_text(), expected);
@@ -249,7 +241,8 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     const divider = JSON.parse(page.block_command_utf16(25n, 7, 7, '"Divider"'));
     const dividerChange = await send(divider);
     apply(dividerChange);
-    assert.equal(page.draft_text(), '> ~~__😀z日本 b__~~\r\n> ***\r\n> \r\n');
+    // A divider is never quoted: it sits at column 0 between the quote lines.
+    assert.equal(page.draft_text(), '> __~~😀z日本 b~~__\r\n---\r\n> \r\n');
     assert.equal(text, '😀z日本 b\r\n\ufffc\r\n\r\n');
     assert.ok(dividerChange.projection.blocks.some((block) => block.divider));
   } finally {

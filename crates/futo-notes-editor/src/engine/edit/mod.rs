@@ -3,6 +3,7 @@
 //! one host acceptance; a refused acceptance puts the text back.
 mod compose;
 mod plan;
+mod spans;
 
 use super::command::{Command, Edit};
 use super::history::{Group, Point, Record};

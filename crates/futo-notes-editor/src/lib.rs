@@ -32,9 +32,7 @@ pub use types::{
 
 pub use link_target::external_link_url;
 
-pub use quick_open::{
-    quick_open, quick_open_cut, shown_projection, QuickOpen, QUICK_OPEN_BYTES,
-};
+pub use quick_open::{quick_open, quick_open_cut, shown_projection, QuickOpen, QUICK_OPEN_BYTES};
 
 pub use portable::{
     Applied, HostAck, HostError, HostErrorKind, HostOperation, HostRequest, HostSnapshot,

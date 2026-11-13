@@ -48,7 +48,7 @@ fn block_paste_in_empty_code_is_literal_through_checkpoint() {
     assert_eq!(change.selection, range(3, 3));
     let expected = "```\n# h\n```\n";
     assert_eq!(session.source_text(), expected);
-    assert_eq!(session.display_text(), "# h");
+    assert_eq!(session.display_text(), "# h\n");
     session.undo(Revision(1)).unwrap().unwrap();
     assert_eq!(session.source_text(), original);
     session.redo(Revision(2)).unwrap().unwrap();
@@ -56,11 +56,13 @@ fn block_paste_in_empty_code_is_literal_through_checkpoint() {
     drop(session);
     let reopened = store.open_editor("empty-code").unwrap();
     assert_eq!(reopened.source_text(), expected);
-    assert_eq!(reopened.display_text(), "# h");
+    assert_eq!(reopened.display_text(), "# h\n");
 }
 
+/// Pasting over a selection from a block's code past it writes what typing
+/// writes: the frame stays and the pasted line is code (fenced-code.md).
 #[test]
-fn block_paste_retires_selected_code_and_prose_as_one_saved_action() {
+fn block_paste_from_code_over_prose_keeps_the_frame_as_one_saved_action() {
     let root = TestRoot::new();
     let store = store(&root);
     let original = "```\n\n```\n\nplain\n";
@@ -77,9 +79,9 @@ fn block_paste_retires_selected_code_and_prose_as_one_saved_action() {
         .paste_markdown(Revision(0), range(0, 8), "# h")
         .unwrap()
         .unwrap();
-    assert_eq!(change.selection, range(1, 1));
-    assert_eq!(session.source_text(), "# h");
-    assert_eq!(session.display_text(), "h");
+    assert_eq!(change.selection, range(3, 3));
+    assert_eq!(session.source_text(), "```\n# h\n```");
+    assert_eq!(session.display_text(), "# h");
     assert_eq!(
         session.undo(Revision(1)).unwrap().unwrap().selection,
         range(0, 8)
@@ -87,11 +89,11 @@ fn block_paste_retires_selected_code_and_prose_as_one_saved_action() {
     assert_eq!(session.source_text(), original);
     assert_eq!(
         session.redo(Revision(2)).unwrap().unwrap().selection,
-        range(1, 1)
+        range(3, 3)
     );
     session.checkpoint().unwrap();
     drop(session);
     let reopened = store.open_editor("selected-code").unwrap();
-    assert_eq!(reopened.source_text(), "# h\n");
-    assert_eq!(reopened.display_text(), "h\n");
+    assert_eq!(reopened.source_text(), "```\n# h\n```\n");
+    assert_eq!(reopened.display_text(), "# h\n");
 }
