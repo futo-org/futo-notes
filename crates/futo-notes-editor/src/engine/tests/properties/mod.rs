@@ -2,8 +2,15 @@
 //! (read-only, ignored by default) on the note directories in `LINES_COMPARE`.
 //!
 //! 1. Opening a note and saving it without an edit changes no bytes.
-//! 2. Typing changes the note by exactly the typed bytes, at the position the
-//!    caret maps to.
+//! 2. Typing at a caret with no carried formats changes the note by exactly
+//!    the typed bytes, inserted at a source offset the caret's display
+//!    position maps to (anywhere in its `source_bounds`, the same display
+//!    point: a space typed where a span ends lands outside its marks). Under
+//!    carried formats (a toolbar toggle, or the formats such a space
+//!    carries) the typed text shows in the display exactly as typed, in
+//!    those formats, and the only other bytes written are inline marks; or
+//!    it lands as plain typing does. (Amended 2026-11-12: markers stay
+//!    hidden at all times outranks pinning one end of the hidden marks.)
 //! 3. Undo restores the exact bytes and selection; redo restores the edit.
 //! 4. The reading and display after any edit equal those read from scratch.
 //! 5. A position converted from text to display and back is unchanged, for

@@ -3,7 +3,7 @@
 use super::super::line::Role;
 use super::super::{read, store, Engine};
 use crate::lines::SpanKind;
-use crate::{Affinity, DisplayOffset, DisplayRange, InputAction};
+use crate::{Affinity, DisplayOffset, DisplayRange, InlineFormat, InputAction};
 use std::ops::Range;
 
 /// A planned text edit and where the caret ends up after it.
@@ -14,6 +14,8 @@ pub(crate) struct Plan {
     pub caret: usize,
     /// Bytes of source read to plan it, beyond the edit's own re-read.
     pub parsed: usize,
+    /// Formats the caret carries after the edit, when the edit sets them.
+    pub carry: Option<Vec<InlineFormat>>,
 }
 
 /// Syntax a selection keeps: one end of a span reaching out of it.
@@ -69,6 +71,7 @@ impl Engine {
                 inserted: kept.inserted,
                 caret: kept.caret,
                 parsed: kept.parsed,
+                carry: None,
             },
             None => plan,
         }
@@ -89,21 +92,18 @@ impl Engine {
             // note's start, otherwise before it, so text typed where a span
             // ends lands inside it. The core's own affinity belongs to its
             // own selection, not to this offset.
-            let at = if range == self.selection {
-                self.caret_source()
-            } else {
-                let (lo, hi) = self.source_bounds(s);
-                if s == 0 {
-                    hi
-                } else {
-                    lo
-                }
+            let (lo, hi) = self.source_bounds(s);
+            let at = match range == self.selection {
+                true => self.caret_source(),
+                false if s == 0 => hi,
+                false => lo,
             };
             return Plan {
                 range: at..at,
                 caret: at + inserted.len(),
                 inserted,
                 parsed: 0,
+                carry: None,
             };
         }
         let (lo_s, _) = self.source_span(s);
@@ -185,6 +185,7 @@ impl Engine {
             inserted: replacement[prefix..].to_owned(),
             caret,
             parsed: 0,
+            carry: None,
         }
     }
 
@@ -201,6 +202,7 @@ impl Engine {
                 inserted: typed.inserted,
                 caret: typed.caret,
                 parsed: typed.parsed,
+                carry: typed.carry,
             };
         }
         if action == InputAction::Typing || range.start == range.end {
@@ -229,6 +231,7 @@ impl Engine {
                 inserted: inserted.to_owned(),
                 caret: at + inserted.len(),
                 parsed: 0,
+                carry: None,
             }
         } else {
             self.plan(stretch, inserted)
@@ -339,6 +342,7 @@ impl Engine {
                 inserted: String::new(),
                 caret: end,
                 parsed: 0,
+                carry: None,
             };
         };
         let plans: Vec<Plan> = stretches
@@ -356,6 +360,7 @@ impl Engine {
                         inserted: inserted.to_owned(),
                         caret: at + inserted.len(),
                         parsed: 0,
+                        carry: None,
                     }
                 } else {
                     self.plan(stretch, inserted)
@@ -393,6 +398,7 @@ impl Engine {
             inserted,
             caret,
             parsed: plans.iter().map(|plan| plan.parsed).sum(),
+            carry: None,
         }
     }
 }

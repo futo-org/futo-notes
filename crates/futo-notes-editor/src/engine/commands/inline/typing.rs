@@ -26,6 +26,9 @@ pub(crate) struct Typed {
     pub caret: usize,
     /// Bytes of source read to choose the spelling.
     pub parsed: usize,
+    /// Formats the caret carries after the edit, when the edit starts
+    /// carrying them (a space typed at a span's end).
+    pub carry: Option<Vec<InlineFormat>>,
 }
 
 /// The edit turning `old` into `new` (both line `start` onward), trimmed to
@@ -79,11 +82,40 @@ impl Engine {
         formats_of(style)
     }
 
+    /// The formats a space typed at the collapsed caret may carry unseen
+    /// (bold, italic, strike), read from where the caret stands.
+    fn space_formats(&self, range: DisplayRange, text: &str) -> Option<Vec<InlineFormat>> {
+        if range.start != range.end
+            || range != self.selection
+            || text.is_empty()
+            || !text.chars().all(|ch| ch == ' ' || ch == '\t')
+        {
+            return None;
+        }
+        let formats: Vec<InlineFormat> = self
+            .read_formats()
+            .into_iter()
+            .filter(|format| bit(*format) & UNSEEN_ON_SPACE != 0)
+            .collect();
+        (!formats.is_empty()).then_some(formats)
+    }
+
     /// Input over display `range` that the carried formats shape: typing at
     /// the collapsed caret, or a text service replacing the word that ends
     /// there. `None` leaves the input to the ordinary plan.
     pub(crate) fn formatted_input(&self, range: DisplayRange, text: &str) -> Option<Typed> {
-        let formats = self.formats.as_ref()?;
+        // A space typed where a span ends carries the span's formats though
+        // the toolbar set none: it lands outside the marks when inside would
+        // unpair them, and the next character joins the span again.
+        let read = self
+            .formats
+            .is_none()
+            .then(|| self.space_formats(range, text));
+        let formats: &[InlineFormat] = match (&self.formats, &read) {
+            (Some(formats), _) => formats,
+            (None, Some(Some(formats))) => formats,
+            _ => return None,
+        };
         let caret = self.selection.start.0;
         if text.is_empty()
             || text.contains(['\n', '\r'])
@@ -104,7 +136,7 @@ impl Engine {
             let pin = self.caret_source() - before.source;
             let mut places = gap(entry, &glyphs, at);
             places.sort_by_key(|&place| place != pin);
-            return typed_in(
+            let typed = typed_in(
                 entry,
                 before.source,
                 &glyphs,
@@ -112,7 +144,19 @@ impl Engine {
                 &places,
                 text,
                 formats,
-            );
+            )?;
+            if self.formats.is_some() {
+                return Some(typed);
+            }
+            // Where plain typing would land the space, it takes that path.
+            let source = before.source + pin;
+            if typed.range == (source..source) && typed.inserted == text {
+                return None;
+            }
+            return Some(Typed {
+                carry: Some(formats.to_vec()),
+                ..typed
+            });
         }
         let from = glyphs.partition_point(|glyph| before.display + glyph.display < range.start.0);
         let word = &glyphs[from..at];
@@ -259,6 +303,7 @@ impl Engine {
             inserted,
             caret: before.source + caret,
             parsed: work,
+            carry: None,
         })
     }
 }
@@ -365,6 +410,7 @@ fn typed_in(
             inserted,
             caret: start + caret,
             parsed: work,
+            carry: None,
         });
     }
     None

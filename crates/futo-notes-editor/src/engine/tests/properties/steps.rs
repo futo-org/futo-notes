@@ -131,6 +131,11 @@ pub(super) fn type_step(
     let selection = engine.selection();
     let collapsed = selection.start == selection.end;
     let at = engine.caret_source();
+    // Every source offset that shows at the caret's display point, and
+    // what the caret carries and shows before typing.
+    let bounds = engine.source_bounds(selection.start.0);
+    let carried = engine.formats.clone();
+    let shown = engine.display_text();
     let empty_line = engine.empty_line(selection.start.0);
     // A selection's edit stays inside the source it spans: from the hidden
     // pieces at its start to those at its end (from 0 over front matter).
@@ -188,9 +193,40 @@ pub(super) fn type_step(
             Some(index) => format!("{}{text}", engine_ending(&before.source, index)),
             None => text.to_owned(),
         };
-        let mut want = before.source.clone();
-        want.insert_str(at, &written);
-        assert_eq!(engine.source_text(), want, "typing {text:?} at {at}");
+        let now = engine.source_text();
+        let typed_at = |place: usize| {
+            let mut want = before.source.clone();
+            want.insert_str(place, &written);
+            want
+        };
+        let lands = |place: usize| before.source.is_char_boundary(place) && typed_at(place) == now;
+        let plain = lands(at) || (bounds.0..=bounds.1).any(lands);
+        match &carried {
+            // (a) Exactly the typed bytes, at the caret's display point.
+            None => assert!(
+                plain,
+                "typing {text:?} at {at} (shown at {bounds:?}) wrote {now:?}"
+            ),
+            // (b) Under carried formats: shown exactly as typed, in those
+            // formats, and only inline marks written besides.
+            Some(formats) if !plain => {
+                let mut want = shown.clone();
+                want.insert_str(selection.start.0, text);
+                let context = format!("typing {text:?} under {formats:?} at {at}");
+                assert_eq!(engine.display_text(), want, "{context}");
+                let unmarked = |text: &str| text.replace(['*', '_', '~', '`'], "");
+                assert_eq!(unmarked(&now), unmarked(&typed_at(at)), "{context}");
+                super::inline::typed_formats(
+                    engine,
+                    selection.start.0,
+                    text,
+                    formats,
+                    &typed_at(at),
+                    &context,
+                );
+            }
+            Some(_) => {}
+        }
     }
     model.edited(engine, before, groups);
     format!("type {text:?} at {selection:?}")
