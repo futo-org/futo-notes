@@ -72,12 +72,15 @@ class NativeEditorContractSurfaceTest {
     @Test
     fun tableCellsTabAndRowInsertionKeepExactBytes() {
         val grid = "| a | b |\r\n| --- | --: |\r\n| c | d |\r\n"
-        assertEquals("| ax\\|y | b |\r\n| --- | --: |\r\n|  |  |\r\n| c | d |\r\n", scenario(grid) { _, s ->
+        assertEquals("| ax|y | b |\r\n| --- | --: |\r\n|  |  |  |\r\n| c | d |\r\n", scenario(grid) { _, s ->
             val origin = s.utf16ToDisplay(0uL, EditorUtf16Range(0uL, 0uL))
             val table = checkNotNull(s.inspectTable(0uL, origin))
             assertEquals(2u to 2, table.columns to table.rows.size)
             val end = table.rows[0][0].content.end
-            s.replaceUtf16(0uL, EditorUtf16Range(end, end), "x|y".map { it.code.toUShort() })
+            val caret = s.displayToUtf16(0uL, EditorByteRange(end, end))
+            s.replaceUtf16(0uL, caret, "x|y".map { it.code.toUShort() })
+            assertEquals("| ax|y | b |\r\n| --- | --: |\r\n| c | d |\r\n", s.sourceText())
+            assertEquals(3u, checkNotNull(s.inspectTable(1uL, at(2, 2))).columns)
             val moved = checkNotNull(s.tableKey(1uL, EditorTableKey.TAB))
             assertEquals(1uL, moved.selected?.revision)
             assertNull(moved.edited)

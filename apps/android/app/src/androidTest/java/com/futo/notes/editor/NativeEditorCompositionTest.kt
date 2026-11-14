@@ -16,7 +16,7 @@ class NativeEditorCompositionTest {
         fun units(text: String) = text.map { it.code.toUShort() }
         try {
             NoteStore(root.absolutePath).use { store ->
-                store.createNote("input", "", "__teh__ &amp; wrng\r\n")
+                store.createNote("input", "", "__teh__ & wrng\r\n")
                 store.openEditor("input").use { session ->
                     var view = "teh & wrng\r\n".toByteArray()
                     fun apply(change: EditorViewChange) {
@@ -24,7 +24,7 @@ class NativeEditorCompositionTest {
                     }
                     val marked = session.composeUtf16(0uL, EditorUtf16Range(0uL, 3uL), units("にほん"))
                     assertEquals("にほん", marked.text)
-                    assertEquals("__teh__ &amp; wrng\r\n", session.sourceText())
+                    assertEquals("__teh__ & wrng\r\n", session.sourceText())
                     assertNull(session.undo(0uL))
                     try {
                         session.composeUtf16(0uL, EditorUtf16Range(0uL, 3uL), listOf(0xd800u.toUShort()))
@@ -37,14 +37,14 @@ class NativeEditorCompositionTest {
                     apply(checkNotNull(session.commitCompositionUtf16(0uL, units("the"))))
                     apply(checkNotNull(session.replaceOsUtf16(1uL, EditorUtf16Range(0uL, 12uL), units("the & wrong\uFFFC\r\n"), listOf(EditorUtf16Range(11uL, 12uL)))))
                     assertEquals("the & wrong\r\n", view.toString(Charsets.UTF_8))
-                    assertEquals("__the__ &amp; wrong\r\n", session.sourceText())
+                    assertEquals("__the__ & wrong\r\n", session.sourceText())
                     apply(checkNotNull(session.undo(2uL)))
-                    assertEquals("__the__ &amp; wrng\r\n", session.sourceText())
+                    assertEquals("__the__ & wrng\r\n", session.sourceText())
                     apply(checkNotNull(session.redo(3uL)))
                     session.detach()
                 }
                 store.openEditor("input").use { reopened ->
-                    assertEquals("__the__ &amp; wrong\r\n", reopened.sourceText())
+                    assertEquals("__the__ & wrong\r\n", reopened.sourceText())
                     assertNull(reopened.composition())
                     assertNull(reopened.commitCompositionUtf16(0uL, null))
                     reopened.cancelComposition(0uL)

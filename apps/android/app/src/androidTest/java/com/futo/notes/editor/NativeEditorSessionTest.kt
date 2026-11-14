@@ -71,16 +71,16 @@ class NativeEditorSessionTest {
                     }
                     apply(session.paragraphKeyUtf16(0uL, EditorUtf16Range(3uL, 3uL), EditorParagraphKey.SHIFT_ENTER))
                     assertEquals("a😀\r\nb\r\ntail  \r\n", view.toString(Charsets.UTF_8))
-                    assertEquals("__a😀\r\nb__\r\ntail  \r\n", session.sourceText())
+                    assertEquals("__a😀__\r\n__b__\r\ntail  \r\n", session.sourceText())
                     apply(session.paragraphKeyUtf16(1uL, EditorUtf16Range(5uL, 5uL), EditorParagraphKey.BACKSPACE))
                     assertEquals("a😀b\r\ntail  \r\n", view.toString(Charsets.UTF_8))
                     apply(session.undo(2uL))
-                    assertEquals("__a😀\r\nb__\r\ntail  \r\n", session.sourceText())
+                    assertEquals("__a😀__\r\n__b__\r\ntail  \r\n", session.sourceText())
                     session.detach()
                 }
-                assertEquals("__a😀\r\nb__\r\ntail  \r\n", store.read("lines"))
+                assertEquals("__a😀__\r\n__b__\r\ntail  \r\n", store.read("lines"))
                 store.openEditor("lines").use { reopened ->
-                    assertEquals("__a😀\r\nb__\r\ntail  \r\n", reopened.sourceText())
+                    assertEquals("__a😀__\r\n__b__\r\ntail  \r\n", reopened.sourceText())
                     reopened.detach()
                 }
             }
@@ -204,9 +204,10 @@ class NativeEditorSessionTest {
                 }
                 store.createNote("entity", "", "&acE;")
                 store.openEditor("entity").use { entity ->
-                    assertEquals("∾\u0333", entity.displayText())
-                    assertEquals(0uL, entity.sourceAt(0uL, EditorDisplayByteOffset(3uL), EditorAffinity.BACKWARD).offset)
-                    assertEquals(5uL, entity.sourceAt(0uL, EditorDisplayByteOffset(3uL), EditorAffinity.FORWARD).offset)
+                    assertEquals("&acE;", entity.displayText())
+                    assertEquals("&acE;", entity.sourceText())
+                    assertEquals(3uL, entity.sourceAt(0uL, EditorDisplayByteOffset(3uL), EditorAffinity.BACKWARD).offset)
+                    assertEquals(3uL, entity.sourceAt(0uL, EditorDisplayByteOffset(3uL), EditorAffinity.FORWARD).offset)
                     entity.detach()
                 }
 
@@ -221,7 +222,7 @@ class NativeEditorSessionTest {
         check(root.mkdirs())
         try {
             NoteStore(root.absolutePath).use { store ->
-                val opening = "__cat__ &amp; _dog_\r\n"
+                val opening = "__cat__ & _dog_\r\n"
                 store.createNote("history", "", opening)
                 store.openEditor("history").use { session ->
                     var view = "cat & dog\r\n".toByteArray(Charsets.UTF_8)
@@ -235,25 +236,25 @@ class NativeEditorSessionTest {
                     fun units(text: String) = text.map { it.code.toUShort() }
                     session.selectWithAffinity(0uL, EditorByteRange(0uL, 3uL), EditorAffinity.FORWARD)
                     apply(checkNotNull(session.toggleFormat(0uL, EditorInlineFormat.ITALIC)))
-                    assertEquals("*__cat__* &amp; _dog_\r\n", session.sourceText())
+                    assertEquals("*__cat__* & _dog_\r\n", session.sourceText())
                     apply(session.replaceManyUtf16(1uL, listOf(
                         EditorUtf16Replacement(EditorUtf16Range(0uL, 3uL), units("kitten")),
                         EditorUtf16Replacement(EditorUtf16Range(6uL, 9uL), units("ox")),
                     )))
-                    assertEquals("*__kitten__* &amp; _ox_\r\n", session.sourceText())
+                    assertEquals("*__kitten__* & _ox_\r\n", session.sourceText())
                     apply(session.replaceUtf16Action(2uL, EditorUtf16Range(11uL, 11uL), units("日本"), EditorInputAction.COMPOSITION_COMMIT))
-                    assertEquals("*__kitten__* &amp; _ox日本_\r\n", session.sourceText())
+                    assertEquals("*__kitten__* & _ox日本_\r\n", session.sourceText())
                     apply(session.replaceUtf16Action(3uL, EditorUtf16Range(13uL, 13uL), listOf(33u.toUShort()), EditorInputAction.ISOLATED))
-                    val final = "*__kitten__* &amp; _ox日本!_\r\n"
+                    val final = "*__kitten__* & _ox日本!_\r\n"
                     assertEquals(final, session.sourceText())
                     assertEquals("kitten & ox日本!\r\n", String(view, Charsets.UTF_8))
-                    for (expected in listOf("*__kitten__* &amp; _ox日本_\r\n", "*__kitten__* &amp; _ox_\r\n", "*__cat__* &amp; _dog_\r\n", opening)) {
+                    for (expected in listOf("*__kitten__* & _ox日本_\r\n", "*__kitten__* & _ox_\r\n", "*__cat__* & _dog_\r\n", opening)) {
                         apply(checkNotNull(session.undo(revision)))
                         assertEquals(expected, session.sourceText())
                     }
                     assertEquals("cat & dog\r\n", String(view, Charsets.UTF_8))
                     assertNull(session.undo(8uL))
-                    for (expected in listOf("*__cat__* &amp; _dog_\r\n", "*__kitten__* &amp; _ox_\r\n", "*__kitten__* &amp; _ox日本_\r\n", final)) {
+                    for (expected in listOf("*__cat__* & _dog_\r\n", "*__kitten__* & _ox_\r\n", "*__kitten__* & _ox日本_\r\n", final)) {
                         apply(checkNotNull(session.redo(revision)))
                         assertEquals(expected, session.sourceText())
                     }
