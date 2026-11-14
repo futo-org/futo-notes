@@ -4,7 +4,7 @@
 
 import { HARNESS_NOTE_PREFIX } from '../lib/android-native-instance.mjs';
 import { sleep } from '../lib/mcp-client.mjs';
-import { assert, assertEqual } from './waits-and-assertions.mjs';
+import { assertEqual } from './waits-and-assertions.mjs';
 
 // ── Android-leg scenarios ───────────────────────────────────────
 //

@@ -22,14 +22,12 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     const storyRecipe = topLevelBlock(justfile, /^test-ios-stories:[^\n]*$/m);
     const prepushRecipe = topLevelBlock(justfile, /^prepush:[^\n]*$/m);
 
-    expect(storyRecipe).toContain('just ios-native');
-    expect(storyRecipe).toContain('node tests/ios-editor-stories.mjs');
-    expect(storyRecipe.indexOf('just ios-native')).toBeLessThan(
-      storyRecipe.indexOf('node tests/ios-editor-stories.mjs'),
-    );
+    expect(storyRecipe).toContain('just test-ios-native-ui');
+    expect(storyRecipe).toContain('TextFirstLeaveUITests');
+    expect(storyRecipe).toContain('TextFirstSelectionUITests');
     expect(prepushRecipe).toContain('scripts/run-ios-stories-if-available.sh');
     expect(iosStoryAvailabilityGate).toContain('FUTO_SKIP_IOS_STORIES');
-    expect(iosStoryAvailabilityGate).toContain('AXE_BIN');
+    expect(iosStoryAvailabilityGate).not.toContain('AXE_BIN');
     expect(iosStoryAvailabilityGate).toContain('just qa-claim ios');
     expect(iosStoryAvailabilityGate).toContain('iOS DEVICE STORIES SKIPPED');
   });

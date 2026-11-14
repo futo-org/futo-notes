@@ -134,40 +134,4 @@ struct NativeMutationOutcomeTests {
         )
     }
 
-    // The mailbox/exit decision and the change disposition are now cases
-    // of the session's one exit verb — see EditorSessionTests.
-
-    @Test("async editor completion stays with the generation that started it")
-    func editorCompletionGeneration() {
-        #expect(shouldDeliverEditorCompletion(capturedGeneration: 7, currentGeneration: 7))
-        #expect(!shouldDeliverEditorCompletion(capturedGeneration: 7, currentGeneration: 8))
-        #expect(
-            editorGenerationAfterDetach(detachedToken: 7, currentGeneration: 7) == 8
-        )
-        #expect(
-            editorGenerationAfterDetach(detachedToken: 6, currentGeneration: 7) == 7
-        )
-    }
-
-    @Test("navigation waits for admitted image insertions")
-    @MainActor
-    func navigationWaitsForImageInsertions() async {
-        let queue = EditorCompletionQueue()
-        var events: [String] = []
-
-        queue.enqueue {
-            events.append("save")
-            queue.enqueue {
-                events.append("insert")
-            }
-        }
-        await queue.waitForCurrent()
-        events.append("navigate")
-
-        #expect(events == ["save", "insert", "navigate"])
-    }
-
-    // The leave-flush, delete-cover, dirty-commit, and persist-or-park-completes
-    // decisions are all reachable through the session now — see
-    // EditorSessionTests.
 }

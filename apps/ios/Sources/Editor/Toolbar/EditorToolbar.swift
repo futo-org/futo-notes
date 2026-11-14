@@ -15,7 +15,7 @@ struct EditorToolbarView: View {
     @ObservedObject var toolbarLocalization: EditorToolbarLocalization
     /// Manifest ids this editor leaves out (the text-first toolbar has no Text control).
     var hiding: Set<String> = []
-    /// Dispatch the tapped item — exec over the bridge, native image picker,
+    /// Dispatch the tapped item — Rust editor commands, native image picker,
     /// or blur (dismiss).
     let perform: (ToolbarItemSpec) -> Void
 
@@ -193,7 +193,7 @@ struct EditorToolbarView: View {
         toolbarLocalization.localization.localizedText(item.localizationPath)
     }
 
-    /// Notion-style active highlight (bridge `formatState`, Milkdown editor):
+    /// Active formatting highlight from the Rust session:
     /// a rounded-rect fill INSET inside the button's own frame, not
     /// the whole capsule, plus an accent-tinted icon — so it reads correctly
     /// nested inside the glass capsule background. Only `.exec` items can be
@@ -239,7 +239,7 @@ struct EditorToolbarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        // Undo/Redo with an empty prosemirror-history stack (bridge
+        // Undo/Redo with an empty Rust history stack (session
         // `formatState.disabled`) — blocks the tap outright, matching the
         // dimmed look above; never just a visual treatment.
         .disabled(isDisabled)

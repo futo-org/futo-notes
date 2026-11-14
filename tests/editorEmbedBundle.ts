@@ -22,9 +22,7 @@ async function testPlugins(options: PluginOption[] = []): Promise<Plugin[]> {
   return plugins;
 }
 
-// Rebuild the production single-file bundle for each run. Use the exact native
-// config, with staging removed: tests neither overwrite native assets nor share
-// output with native builds or another embed/gauntlet run.
+// Rebuild the standalone production bundle into private output for each run.
 export default async function buildEditorEmbedBundle(): Promise<() => void> {
   const { build, loadConfigFromFile } = await import('vite');
   const root = process.cwd();
@@ -32,23 +30,18 @@ export default async function buildEditorEmbedBundle(): Promise<() => void> {
     { command: 'build', mode: 'production' },
     path.resolve(root, 'vite.editor.config.ts'),
   );
-  if (!loaded) throw new Error('editor-embed harness: native Vite config was not loaded');
+  if (!loaded) throw new Error('editor-embed harness: standalone Vite config was not loaded');
   mkdirSync(path.resolve(root, 'build'), { recursive: true });
   const outDir = mkdtempSync(path.resolve(root, 'build/editor-embed-'));
   const bundle = path.join(outDir, 'editor.html');
   const cleanup = () => rmSync(outDir, { recursive: true, force: true });
   try {
     const plugins = await testPlugins(loaded.config.plugins);
-    const filtered = plugins.filter((plugin) => plugin.name !== 'stage-native-editor-bundle');
-    if (plugins.length - filtered.length !== 1)
-      throw new Error(
-        'editor-embed harness: expected exactly one stage-native-editor-bundle plugin',
-      );
     await build({
       ...loaded.config,
       configFile: false,
       root,
-      plugins: filtered,
+      plugins,
       build: { ...loaded.config.build, outDir, emptyOutDir: true },
     });
     if (!existsSync(bundle)) {

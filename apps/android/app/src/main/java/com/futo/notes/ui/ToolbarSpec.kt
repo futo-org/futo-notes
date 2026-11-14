@@ -6,11 +6,8 @@
 package com.futo.notes.ui
 
 /**
- * What tapping a toolbar item does. `Exec` dispatches
- * `NativeEditorSession` commands in the Rust engine; the web toolbar uses
- * toolbarExec.ts command — the native toolbar never
- * reimplements editing semantics, so behavior is identical to the web
- * toolbar by construction.
+ * Actions are rendered from the shared manifest and dispatched by the native host.
+ * Rust editor sessions own editing semantics; image pickers and dismissal are native.
  */
 sealed interface ToolbarItemAction {
     object Exec : ToolbarItemAction

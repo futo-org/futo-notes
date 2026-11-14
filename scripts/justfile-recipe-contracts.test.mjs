@@ -5,9 +5,6 @@
 // These parse the justfile as text rather than running `just`, so the
 // assertions need no `just` binary; this file runs inside `pnpm run test:full`.
 
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -97,39 +94,10 @@ describe('argument passing', () => {
   });
 });
 
-// Exercise the public recipe body with recording commands, never a real device.
-it.skipIf(process.platform === 'win32')(
-  'accepts an explicit AXe binary before building the iOS stories',
-  () => {
-    const scratch = mkdtempSync(join(tmpdir(), 'ios-story-preflight-'));
-    try {
-      const log = join(scratch, 'commands.log');
-      for (const command of ['just', 'node']) {
-        writeFileSync(
-          join(scratch, command),
-          '#!/bin/sh\nprintf "%s\\n" "$*" >> "$PREFLIGHT_LOG"\n',
-          { mode: 0o755 },
-        );
-      }
-      // `/bin/true` does not exist on macOS (only `/usr/bin/true`); this path
-      // must resolve on both macOS and Linux CI.
-      const result = spawnSync('/bin/bash', ['-c', body('test-ios-stories')], {
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          PATH: scratch,
-          SIM: 'preflight-only',
-          AXE_BIN: '/usr/bin/true',
-          PREFLIGHT_LOG: log,
-        },
-      });
-      expect(result.status, result.stderr).toBe(0);
-      expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
-        'ios-native',
-        'tests/ios-editor-stories.mjs',
-      ]);
-    } finally {
-      rmSync(scratch, { recursive: true });
-    }
-  },
-);
+it('runs native iOS editor stories through the owning UI suites', () => {
+  const recipe = body('test-ios-stories');
+  expect(recipe).toContain('just test-ios-native-ui');
+  expect(recipe).toContain('TextFirstLeaveUITests');
+  expect(recipe).toContain('TextFirstSelectionUITests');
+  expect(recipe).not.toContain('ios-editor-stories.mjs');
+});

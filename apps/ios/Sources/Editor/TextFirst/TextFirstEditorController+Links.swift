@@ -89,10 +89,9 @@ extension TextFirstEditorController {
     static func externalLinkURL(_ raw: String) -> URL? {
         guard let address = editorExternalLinkUrl(destination: raw),
             let url = URL(string: address),
-            case .openExternally(let safe) = editorNavigationDecision(
-                for: url, isMainFrame: true, permittedFileURL: nil)
+            ["http", "https", "mailto", "tel", "sms"].contains(url.scheme?.lowercased() ?? "")
         else { return nil }
-        return safe
+        return url
     }
 
     // MARK: wikilink completion

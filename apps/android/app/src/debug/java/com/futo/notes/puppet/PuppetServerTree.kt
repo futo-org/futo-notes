@@ -41,7 +41,7 @@ internal fun tree(anchor: View, all: List<View>, bound: Binding?): PuppetReply {
     val rows = bound?.let { PuppetVerbs.listRows(it.navigator.currentScreen) }.orEmpty()
     val controls = bound?.let(::controlLabels) ?: JSONObject()
     val tree = PuppetContract.tree(density(anchor), screen, seen, rows).put("controls", controls)
-        .put("webview", PuppetContract.webview(bound?.let(::webviewOnScreen)))
+        .put("webview", PuppetContract.webview(null))
     return PuppetReply(200, tree.toString())
 }
 

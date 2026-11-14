@@ -41,3 +41,6 @@ internal fun titleWarningFor(noteId: String, title: String, existingIds: List<St
 
 
 internal fun canStepFind(total: Int): Boolean = total > 0
+
+internal fun SyncSummary.affectsOpenNote(id: String): Boolean =
+    id in updatedIds || id in deletedIds || renamed.any { it.fromId == id || it.toId == id }

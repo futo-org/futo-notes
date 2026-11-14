@@ -1,7 +1,7 @@
 # Android — native Compose app on the emulator
 
 The shipping Android app is the native Jetpack Compose shell in `apps/android`
-(Rust core via `futo-notes-ffi`, editor embedded as a WebView). There is no
+(Rust core via `futo-notes-ffi`, native Linedown editor). There is no
 Tauri Android shell and no MCP bridge on Android.
 
 > **Use the `puppet` skill (`.claude/skills/puppet/`) — it is the only sanctioned
@@ -62,7 +62,7 @@ simulator this worktree claimed.
 ## 2. Build, install, launch
 
 ```bash
-just android-native         # full chain: Rust ffi (device ABI) → editor bundle → gradle installDirectDebug → launch
+just android-native         # full chain: Rust ffi (device ABI) → gradle installDirectDebug → launch
 ```
 
 Before QA, run `just qa-android-apk` to compare the installed APK SHA-256 with

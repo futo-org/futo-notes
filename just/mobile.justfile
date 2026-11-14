@@ -243,14 +243,9 @@ test-android-perf-quick *args:
 test-android-storage:
   node tests/android-storage-migration.mjs
 
-# Editor stories (sustained typing, wikilink pop) against the REAL native iOS app (needs a claimed $SIM).
+# Native iOS editor stories: input, find, selection and safe leave on the claimed simulator.
 test-ios-stories:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  [ -n "${SIM:-}" ] || { echo 'No claimed simulator — run: eval "$(just qa-claim ios)"' >&2; exit 1; }
-  command -v "${AXE_BIN:-axe}" >/dev/null || { echo "AXe is missing; install it or set AXE_BIN before building (see the verify iOS playbook)." >&2; exit 1; }
-  SIM="$SIM" just ios-native
-  SIM="$SIM" node tests/ios-editor-stories.mjs
+  just test-ios-native-ui TextFirstLeaveUITests TextFirstFindUITests TextFirstSelectionUITests TextFirstBottomEdgeUITests
 
 # Build a RELEASE-signed Android build of one flavor and install it (com.futo.notes).
 # Defaults to `direct` (GitLab/Obtainium/F-Droid); `just deploy-android play` installs

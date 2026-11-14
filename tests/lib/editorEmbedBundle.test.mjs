@@ -13,7 +13,7 @@ vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
 const cleanups = [];
 beforeEach(() => {
   loadConfigFromFile.mockResolvedValue({
-    config: { plugins: [{ name: 'stage-native-editor-bundle' }], build: {} },
+    config: { plugins: [{ name: 'svelte' }], build: {} },
   });
 });
 afterEach(() => {
@@ -25,11 +25,7 @@ it('gives each run private editor bytes that survive a native output rebuild', a
   vi.stubEnv('FUTO_EDITOR_EMBED_BUNDLE_PATH', undefined);
   loadConfigFromFile.mockResolvedValue({
     config: {
-      plugins: [
-        null,
-        false,
-        Promise.resolve([{ name: 'singlefile' }, { name: 'stage-native-editor-bundle' }]),
-      ],
+      plugins: [null, false, Promise.resolve([{ name: 'singlefile' }, { name: 'svelte' }])],
       build: { target: 'ES2020' },
     },
   });
@@ -48,7 +44,10 @@ it('gives each run private editor bytes that survive a native output rebuild', a
   expect(second).not.toBe(first);
   expect(fs.readFileSync(first, 'utf8')).toBe('fresh editor');
   expect(fs.readFileSync(second, 'utf8')).toBe('fresh editor');
-  expect(build.mock.calls[0][0].plugins.map((plugin) => plugin.name)).toEqual(['singlefile']);
+  expect(build.mock.calls[0][0].plugins.map((plugin) => plugin.name)).toEqual([
+    'singlefile',
+    'svelte',
+  ]);
   expect(build.mock.calls[0][0].build.target).toBe('ES2020');
   // Workers get the run path from globalSetup's inherited environment.
   vi.resetModules();
@@ -73,15 +72,4 @@ it('rejects a freshly built bundle that differs from a sweep snapshot', async ()
   });
   const { default: setup } = await import('../editorEmbedBundle.ts');
   await expect(setup()).rejects.toThrow(/bundle.*differs.*snapshot/i);
-});
-
-it.each([0, 2])('refuses a native config with %s staging plugins', async (count) => {
-  loadConfigFromFile.mockResolvedValue({
-    config: {
-      plugins: Array.from({ length: count }, () => ({ name: 'stage-native-editor-bundle' })),
-    },
-  });
-  const { default: setup } = await import('../editorEmbedBundle.ts');
-  await expect(setup()).rejects.toThrow(/exactly one.*stage-native-editor-bundle/);
-  expect(build).not.toHaveBeenCalled();
 });

@@ -184,9 +184,7 @@ async function buildPhoneBundle(variant) {
     variant.label.replace(/\W+/g, '-'),
   );
   // Never stage the bench build into the native shells' assets.
-  const plugins = loaded.config.plugins
-    .flat(Infinity)
-    .filter((p) => p && p.name !== 'stage-native-editor-bundle');
+  const plugins = loaded.config.plugins.flat(Infinity).filter(Boolean);
   await build({
     ...loaded.config,
     configFile: false,
