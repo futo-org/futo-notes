@@ -273,7 +273,7 @@ fn free_name(root: &Path, wanted: &str, folder: bool) -> Result<String, String> 
     }
 }
 
-fn parent_missing(root: &Path, id: &str) -> Result<bool, String> {
+pub(crate) fn parent_missing(root: &Path, id: &str) -> Result<bool, String> {
     let (folder, _) = futo_notes_model::split_id(id);
     if folder.is_empty() {
         return Ok(false);
@@ -285,7 +285,7 @@ fn recovered_root_name(root: &Path, source: &str) -> Result<String, String> {
     free_name(root, &recovered_root_stem(source), false)
 }
 
-fn recovered_root_stem(source: &str) -> String {
+pub(crate) fn recovered_root_stem(source: &str) -> String {
     let (_, title) = futo_notes_model::split_id(source);
     futo_notes_model::make_id("", &format!("{title} (recovered)"))
 }

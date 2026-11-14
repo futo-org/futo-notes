@@ -81,62 +81,15 @@ extension NoteEditorView {
 
     var noteActionsToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Menu {
-                Button {
-                    openFind()
-                } label: {
-                    Label(
-                        localization.localizedText("editor.find.open"),
-                        systemImage: "magnifyingglass"
-                    )
-                }
-                Button {
+            NoteActionsMenu(
+                noteId: noteId, content: { content }, find: { openFind() },
+                rename: {
                     renameField = splitId(id: noteId).title
                     showRename = true
-                } label: {
-                    Label(
-                        localization.localizedText("common.actions.rename"),
-                        systemImage: "pencil"
-                    )
-                }
-                Button {
-                    prepareMove()
-                } label: {
-                    Label(
-                        localization.localizedText("notes.actions.moveToFolderEllipsis"),
-                        systemImage: "folder"
-                    )
-                }
-                Button {
-                    copyPath()
-                } label: {
-                    Label(
-                        localization.localizedText("notes.actions.copyFilePath"),
-                        systemImage: "doc.on.doc"
-                    )
-                }
-                ShareLink(item: content) {
-                    Label(
-                        localization.localizedText("notes.actions.share"),
-                        systemImage: "square.and.arrow.up"
-                    )
-                }
-                Divider()
-                Button(role: .destructive) {
-                    presentWithoutAnimation { showDeleteConfirm = true }
-                } label: {
-                    Label(
-                        localization.localizedText("notes.actions.deleteNote"),
-                        systemImage: "trash"
-                    )
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-            .accessibilityLabel(
-                localization.localizedText("notes.actions.moreAccessibilityLabel")
+                },
+                move: { prepareMove() },
+                delete: { presentWithoutAnimation { showDeleteConfirm = true } }
             )
-            .tint(Theme.primary)
             .disabled(interactionLocked)
         }
     }

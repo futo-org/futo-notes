@@ -112,6 +112,30 @@ impl Attachment {
                     Err(_) => Ok(false),
                 }
             })
+            .or_else(|error| {
+                // Native screens can leave while a failed save is pending. If
+                // the original folder vanished, make the draft durable at the
+                // root instead; never recreate an externally moved directory.
+                // Check after failure too: the parent can vanish during write.
+                if self.portable || !crate::rename_journal::parent_missing(&store.root, &self.id)? {
+                    return Err(error);
+                }
+                let wanted = crate::rename_journal::recovered_root_stem(&self.id);
+                let metadata = store.install_with_parent_policy(&wanted, &source, None, false)?;
+                // A failed merged write did not commit the prepared adoption;
+                // the recovered copy holds the local source exactly as typed.
+                adoption = None;
+                let parked_id = metadata.id.clone();
+                let mut mutation = store.upsert_mutation(metadata);
+                mutation.removed.push(self.id.clone());
+                Ok(MergedDraftResult {
+                    source: source.clone(),
+                    flush: FlushDraftResult {
+                        disposition: FlushDisposition::ParkedConflict { parked_id },
+                        mutation: Some(mutation),
+                    },
+                })
+            })
             .map_err(EditorStoreError::Checkpoint)?;
         if let Some(adoption) = adoption {
             let change = self

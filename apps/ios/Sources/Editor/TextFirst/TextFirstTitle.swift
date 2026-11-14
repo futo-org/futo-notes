@@ -6,8 +6,9 @@ import Foundation
 @MainActor
 enum TextFirstTitle {
     enum Outcome: Equatable {
-        /// A blank, illegal or colliding title keeps the current name and is not a failure.
+        /// A blank or illegal title keeps the current name and is not a failure.
         case unchanged
+        case duplicate
         case renamed(String)
         case failed
     }
@@ -30,7 +31,7 @@ enum TextFirstTitle {
         let key = collisionKey(id: target)
         guard
             !store.notes.contains(where: { $0.id != current && collisionKey(id: $0.id) == key })
-        else { return .unchanged }
+        else { return .duplicate }
         switch await store.rename(
             oldId: current, newId: target, draft: nil, ownerToken: ownerToken)
         {

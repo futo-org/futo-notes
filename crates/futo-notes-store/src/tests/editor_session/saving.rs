@@ -143,6 +143,108 @@ fn close_saves_unsaved_edits() {
 }
 
 #[test]
+fn a_native_draft_survives_a_vanished_parent_at_a_collision_safe_root_id() {
+    for moved in [false, true] {
+        let root = TestRoot::new();
+        let outside = TestRoot::new();
+        let store = store(&root);
+        store.create("FolderF", "Fnote", "base").unwrap();
+        store.create("", "Fnote (recovered)", "keep me").unwrap();
+        let mut editor = store.open_editor("FolderF/Fnote").unwrap();
+        editor.replace(Revision(0), range(4, 4), " before").unwrap();
+        editor.checkpoint().unwrap();
+        if moved {
+            fs::rename(root.0.join("FolderF"), outside.0.join("FolderF")).unwrap();
+        } else {
+            fs::remove_file(root.0.join("FolderF/Fnote.md")).unwrap();
+            fs::remove_dir(root.0.join("FolderF")).unwrap();
+        }
+        editor
+            .replace(Revision(1), range(11, 11), " after")
+            .unwrap();
+        let saved = editor.checkpoint().expect("the draft must become durable");
+        let FlushDisposition::ParkedConflict { parked_id } = saved.disposition else {
+            panic!("a vanished folder needs a visible recovery copy");
+        };
+        assert_eq!(parked_id, "Fnote (recovered)-2");
+        assert_eq!(editor.id(), parked_id);
+        let mutation = saved.mutation.unwrap();
+        assert_eq!(mutation.removed, ["FolderF/Fnote"]);
+        assert_eq!(mutation.final_id.as_deref(), Some(parked_id.as_str()));
+        assert_eq!(mutation.upserted[0].note.id, parked_id);
+        assert_eq!(store.read("Fnote (recovered)").unwrap(), "keep me");
+        editor.replace(Revision(2), range(17, 17), "!").unwrap();
+        editor.close().unwrap();
+        drop(editor);
+        drop(store);
+        let reopened = LocalNoteStore::new(root.0.clone());
+        assert_eq!(reopened.read(&parked_id).unwrap(), "base before after!");
+        assert!(reopened
+            .snapshot()
+            .notes
+            .iter()
+            .any(|note| note.id == parked_id));
+        assert!(!root.0.join("FolderF").exists());
+        if moved {
+            assert_eq!(
+                fs::read_to_string(outside.0.join("FolderF/Fnote.md")).unwrap(),
+                "base before"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_native_close_recovers_when_the_parent_vanishes_inside_the_write_window() {
+    let root = TestRoot::new();
+    let outside = TestRoot::new();
+    let store = store(&root);
+    store.create("FolderF", "Fnote", "base").unwrap();
+    let mut editor = store.open_editor("FolderF/Fnote").unwrap();
+    editor.replace(Revision(0), range(4, 4), " after").unwrap();
+    let from = root.0.join("FolderF");
+    let to = outside.0.join("FolderF");
+    *store.flush_window_hook.lock().unwrap() = Some(Box::new(move |_| {
+        fs::rename(&from, &to).unwrap();
+    }));
+    let saved = editor
+        .close()
+        .expect("Back must preserve the draft on disk");
+    assert_eq!(
+        saved.mutation.unwrap().final_id.as_deref(),
+        Some("Fnote (recovered)")
+    );
+    assert_eq!(store.read("Fnote (recovered)").unwrap(), "base after");
+    assert!(!root.0.join("FolderF").exists());
+}
+
+#[test]
+fn a_native_recovery_keeps_local_source_when_a_merged_write_loses_its_parent() {
+    let root = TestRoot::new();
+    let outside = TestRoot::new();
+    let store = store(&root);
+    store.create("FolderF", "Fnote", "one\ntwo\n").unwrap();
+    let mut editor = store.open_editor("FolderF/Fnote").unwrap();
+    editor.replace(Revision(0), range(4, 7), "local").unwrap();
+    fs::write(root.0.join("FolderF/Fnote.md"), "peer\ntwo\n").unwrap();
+    let from = root.0.join("FolderF");
+    let to = outside.0.join("FolderF");
+    *store.flush_window_hook.lock().unwrap() = Some(Box::new(move |_| {
+        fs::rename(&from, &to).unwrap();
+    }));
+    editor.checkpoint().unwrap();
+    assert_eq!(editor.source_text(), "one\nlocal\n");
+    assert_eq!(store.read(&editor.id()).unwrap(), editor.source_text());
+    assert_eq!(
+        fs::read_to_string(outside.0.join("FolderF/Fnote.md")).unwrap(),
+        "peer\ntwo\n"
+    );
+    // Recovery did not adopt an uncommitted merge or leave the old baseline dirty.
+    assert_eq!(editor.save_delay(), None);
+    assert!(editor.checkpoint().unwrap().mutation.is_none());
+}
+
+#[test]
 fn a_dropped_session_loses_its_unsaved_edits_like_a_crash() {
     let root = TestRoot::new();
     let store = store(&root);

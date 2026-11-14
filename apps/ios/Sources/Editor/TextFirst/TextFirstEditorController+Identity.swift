@@ -28,6 +28,7 @@ extension TextFirstEditorController {
     private func follow(_ id: String) {
         guard id != noteId else { return }
         noteId = id
+        if saveModel.parkedId != nil { saveModel.parkedId = id }
         onIdentityChange?(id)
     }
 

@@ -11,15 +11,22 @@ struct TextFirstNoteScreen: View {
     @Environment(\.localization) private var localization
 
     @State private var noteId: String
-    @State private var titleField: String
-    @State private var controller: TextFirstEditorController?
+    @State var titleField: String
+    @State private var titleDuplicate = false
+    @State var controller: TextFirstEditorController?
     @State private var ownerToken: UInt64 = 0
-    @State private var renameTask: Task<Void, Never>?
-    @State private var leaving = false
+    @State var renameTask: Task<Void, Never>?
+    @State var leaving = false
     /// Bumped whenever this screen leaves, so an open that was still waiting for a claim can
     /// tell the screen it started on is gone.
     @State private var openTicket = 0
     @State private var confirmDiscard = false
+    @State private var showRename = false
+    @State private var renameField = ""
+    @State private var showMove = false
+    @State private var showDeleteConfirm = false
+    @State private var actionBusy = false
+    @State private var actionTask: Task<Void, Never>?
     @Binding var navPath: [Route]
 
     let autoFocus: Bool
@@ -47,6 +54,14 @@ struct TextFirstNoteScreen: View {
             .padding(.horizontal, 20)
             .padding(.top, 4)
             .padding(.bottom, 6)
+            if titleDuplicate {
+                Text(localization.localizedText("notes.title.duplicate"))
+                    .font(.caption)
+                    .foregroundStyle(Theme.danger)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             if let controller {
                 TextFirstSaveBanner(
                     model: controller.saveModel, localization: localization,
@@ -76,26 +91,81 @@ struct TextFirstNoteScreen: View {
             }
         }
         .background(Theme.background)
+        .allowsHitTesting(!actionBusy)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        controller?.openFind()
-                    } label: {
-                        Label(
-                            localization.localizedText("editor.find.open"),
-                            systemImage: "magnifyingglass")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .accessibilityLabel(
-                    localization.localizedText("notes.actions.moreAccessibilityLabel")
+                NoteActionsMenu(
+                    noteId: noteId,
+                    content: { (try? controller?.attached?.sourceText()) ?? "" },
+                    find: { controller?.openFind() },
+                    rename: {
+                        renameField = splitId(id: noteId).title
+                        showRename = true
+                    },
+                    move: { showMove = true },
+                    delete: { presentWithoutAnimation { showDeleteConfirm = true } }
                 )
-                .tint(Theme.primary)
-                .disabled(controller == nil)
+                .disabled(
+                    controller == nil || controller?.opening == true
+                        || controller?.engineBusy == true || actionBusy)
             }
+        }
+        .alert(localization.localizedText("notes.title.renameHeading"), isPresented: $showRename) {
+            TextField(localization.localizedText("notes.title.fieldLabel"), text: $renameField)
+            Button(localization.localizedText("common.actions.cancel"), role: .cancel) {}
+            Button(localization.localizedText("common.actions.rename")) {
+                titleField = renameField
+                titleDuplicate = false
+                renameTask?.cancel()
+                let requested = renameField
+                renameTask = Task { await renameTo(requested) }
+            }
+        } message: {
+            Text(localization.localizedText("notes.title.renamePrompt"))
+        }
+        .sheet(isPresented: $showMove) {
+            MoveToFolderSheet(
+                note: currentItem,
+                onMoveRequested: { folder in
+                    let task = performNoteAction { controller in
+                        let id = await controller.refreshIdentity()
+                        switch await store.moveNote(id, toFolder: folder, ownerToken: ownerToken) {
+                        case .committed(let committed):
+                            controller.adoptIdentity(committed.id)
+                            controller.drainCoordinatedChanges()
+                            return true
+                        case .failed:
+                            store.showTransient(LocalizedMessage("notes.errors.moveFailed"))
+                            return false
+                        }
+                    }
+                    return task
+                }
+            )
+            .environmentObject(store)
+        }
+        .fullScreenCover(isPresented: $showDeleteConfirm) {
+            DestructiveConfirmDialog(
+                message: localization.localizedText("notes.delete.thisNoteRecoverableConfirmation"),
+                destructiveLabelKey: "notes.actions.deleteNote",
+                onCancel: { presentWithoutAnimation { showDeleteConfirm = false } },
+                onDestructive: {
+                    _ = await performNoteAction { controller in
+                        let id = await controller.refreshIdentity()
+                        guard case .committed = await store.delete(id, ownerToken: ownerToken)
+                        else {
+                            store.showTransient(LocalizedMessage("notes.errors.deleteFailed"))
+                            return false
+                        }
+                        controller.discard()
+                        presentWithoutAnimation { showDeleteConfirm = false }
+                        if !navPath.isEmpty { navPath.removeLast() }
+                        return true
+                    }?.value
+                }
+            )
+            .presentationBackground(.clear)
         }
         #if DEBUG
             .puppetVerbs { nativePuppetVerbs }
@@ -290,10 +360,16 @@ struct TextFirstNoteScreen: View {
         let token = ownerToken
         // A title typed within the rename's debounce commits with the leave.
         let pending = titleField != splitId(id: controller.noteId).title ? titleField : nil
+        let action = actionTask
+        let rename = renameTask
+        let pendingWork = Task<Void, Never> {
+            await action?.value
+            await rename?.value
+        }
         TextFirstLeaves.leave(
             controller: controller, store: store, ownerToken: token,
             discardIfEmpty: untouched, originalId: originalId, pendingTitle: pending,
-            renaming: renameTask)
+            renaming: pendingWork)
     }
 
     /// The user confirmed losing the unsaved edits: end the attachment and go back.
@@ -320,7 +396,38 @@ struct TextFirstNoteScreen: View {
 
     // MARK: title
 
-    private func titleChanged(_ cleaned: String) {
+    private var currentItem: NoteItem {
+        if let item = store.notes.first(where: { $0.id == noteId }) { return item }
+        let parts = splitId(id: noteId)
+        return NoteItem(
+            id: noteId, title: parts.title, folder: parts.folder,
+            modified: Date(), richPreview: "", tags: [])
+    }
+
+    /// Drain the admitted title work and settle input before using the existing store action.
+    /// The store retargets or terminates the attachment atomically with its file mutation.
+    private func performNoteAction(
+        _ action: @escaping (TextFirstEditorController) async -> Bool
+    ) -> Task<Bool, Never>? {
+        guard let controller, !controller.opening, !controller.engineBusy, !actionBusy, !leaving
+        else {
+            return nil
+        }
+        actionBusy = true
+        controller.textView.resignFirstResponder()
+        controller.finishComposition()
+        let pendingRename = renameTask
+        let task = Task { @MainActor in
+            await pendingRename?.value
+            defer { actionBusy = false }
+            return await action(controller)
+        }
+        actionTask = Task { _ = await task.value }
+        return task
+    }
+
+    func titleChanged(_ cleaned: String) {
+        titleDuplicate = false
         renameTask?.cancel()
         renameTask = Task {
             try? await Task.sleep(nanoseconds: 500_000_000)
@@ -330,13 +437,15 @@ struct TextFirstNoteScreen: View {
     }
 
     /// Rename the attached note to the typed title (see `TextFirstTitle`).
-    private func renameTo(_ raw: String) async {
+    func renameTo(_ raw: String) async {
         guard let controller else { return }
         switch await TextFirstTitle.rename(
             to: raw, controller: controller, store: store, ownerToken: ownerToken)
         {
         case .unchanged:
             break
+        case .duplicate:
+            if titleField == raw { titleDuplicate = true }
         case .renamed(let id):
             if titleField == raw { titleField = splitId(id: id).title }
         case .failed:
@@ -344,73 +453,5 @@ struct TextFirstNoteScreen: View {
         }
     }
 
-    #if DEBUG
-        private var nativePuppetVerbs: [PuppetVerbs.Verb] {
-            guard let controller, !leaving, !controller.engineBusy else { return [] }
-            var verbs = [
-                PuppetVerbs.Verb(
-                    "SetTitle", required: ["title"],
-                    controls: ["notes.title.fieldLabel", "common.actions.rename"]
-                ) { args in
-                    _ = try PuppetNativeEditor.shared.requireController()
-                    let (stripped, forbidden) = TitleTextField.Coordinator.stripped(
-                        args["title"] as? String ?? "")
-                    let typed = String(stripped.prefix(TitleSpec.maxLength))
-                    guard !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                        throw PuppetVerbRefusal(400, "the title has nothing a note title can hold")
-                    }
-                    titleField = typed
-                    titleChanged(typed)
-                    renameTask?.cancel()
-                    if forbidden {
-                        store.showTransient(LocalizedMessage("notes.title.forbiddenCharacter"))
-                    }
-                    await renameTo(typed)
-                    guard
-                        splitId(id: controller.noteId).title
-                            == sanitizeTitle(
-                                title: typed.trimmingCharacters(in: .whitespacesAndNewlines))
-                    else {
-                        throw PuppetVerbRefusal(
-                            409,
-                            "the title was refused; the native title field retains it for correction"
-                        )
-                    }
-                    return ["noteId": controller.noteId]
-                },
-                PuppetVerbs.Verb("OpenFind", controls: ["editor.find.open"]) {
-                    _ = try PuppetNativeEditor.shared.requireController()
-                    controller.openFind()
-                },
-            ]
-            if controller.findModel.visible {
-                verbs += [
-                    PuppetVerbs.Verb(
-                        "SetFindQuery", optional: ["query"],
-                        controls: ["editor.find.queryHint", "editor.find.clearQuery"]
-                    ) { args in
-                        controller.findModel.query = args["query"] as? String ?? ""
-                        controller.setFindQuery(controller.findModel.query)
-                        return ["query": controller.findModel.query]
-                    },
-                    PuppetVerbs.Verb(
-                        "StepFind", required: ["direction"], integers: ["direction"],
-                        controls: ["editor.find.previousMatch", "editor.find.nextMatch"]
-                    ) { args in
-                        let direction = args["direction"] as? Int ?? 0
-                        guard direction == 1 || direction == -1 else {
-                            throw PuppetVerbRefusal(400, "direction is 1 or -1")
-                        }
-                        controller.stepFind(forward: direction == 1)
-                        return ["direction": direction]
-                    },
-                    PuppetVerbs.Verb("CloseFind", controls: ["editor.find.close"]) {
-                        controller.closeFind()
-                    },
-                ]
-            }
-            return verbs
-        }
-    #endif
 
 }

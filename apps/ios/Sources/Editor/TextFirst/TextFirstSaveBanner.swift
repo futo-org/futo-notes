@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 final class TextFirstSaveModel: ObservableObject {
     @Published var failed = false
+    @Published var parkedId: String?
 }
 
 /// Persistent save feedback that leaves the editor usable while the user decides: retry now,
@@ -37,6 +38,15 @@ struct TextFirstSaveBanner: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 4)
             .accessibilityElement(children: .contain)
+        } else if let id = model.parkedId {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(localization.localizedText("notes.save.conflictCopy"))
+                Text(verbatim: id)
+            }
+            .font(.caption)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 4)
         }
     }
 }

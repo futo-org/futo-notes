@@ -105,6 +105,7 @@ extension TextFirstEditorController {
         case .success(let flushed):
             if let flushed {
                 saveModel.failed = false
+                if case .parkedConflict(let id) = flushed.disposition { saveModel.parkedId = id }
                 onCheckpoint?(flushed)
             }
         case .failure(let error):

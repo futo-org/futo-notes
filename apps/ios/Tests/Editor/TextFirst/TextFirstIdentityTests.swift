@@ -10,6 +10,25 @@
     /// itself, never from a file name pattern.
     @Suite(.serialized) @MainActor
     struct TextFirstIdentityTests {
+        @Test func aDuplicateTitleWarnsWithoutRenamingOrLosingTheBody() async throws {
+            let rig = try await TextFirstVaultRig(body: "base")
+            defer { rig.tearDown() }
+            _ = await rig.store.createNote(title: "Straße")
+            rig.selectEnd()
+            rig.type(" edit")
+            let token = rig.store.claimDraftOwnership()
+            let refused = await TextFirstTitle.rename(
+                to: "STRASSE", controller: rig.controller, store: rig.store, ownerToken: token)
+            #expect(refused == .duplicate)
+            #expect(rig.controller.noteId == "note")
+            #expect(await rig.checkpoint())
+            #expect(rig.disk("note") == "base edit")
+            let renamed = await TextFirstTitle.rename(
+                to: "free", controller: rig.controller, store: rig.store, ownerToken: token)
+            #expect(renamed == .renamed("free"))
+            _ = await rig.controller.close()
+        }
+
         @Test func aPeerRenameMovesTheEditorToTheRenamedNote() async throws {
             let rig = try await TextFirstVaultRig(body: "alpha beta")
             defer { rig.tearDown() }

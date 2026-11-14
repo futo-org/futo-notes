@@ -11,13 +11,6 @@ extension NoteEditorView {
             modified: Date(), richPreview: "", tags: [])
     }
 
-    /// The ⋯ menu's "Copy file path".
-    func copyPath() {
-        let path = store.notePath(noteId)
-        UIPasteboard.general.string = path
-        PuppetVerbs.shared.recordCopy(path)
-    }
-
     /// Nav-bar "Move to Folder…": wait for already-admitted identity work before
     /// presenting destinations. The final live body is captured and committed
     /// only after the user chooses a destination in [moveNote].
