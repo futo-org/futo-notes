@@ -121,7 +121,22 @@ impl Attachment {
                     return Err(error);
                 }
                 let wanted = crate::rename_journal::recovered_root_stem(&self.id);
-                let metadata = store.install_with_parent_policy(&wanted, &source, None, false)?;
+                // A previous attempt may have installed the copy but failed to
+                // acquire its lease. Reuse those exact bytes on retry, just as
+                // conflict parking does, rather than minting another suffix.
+                let candidates = crate::vault::note_paths(&store.root);
+                let existing = candidates.into_iter().find_map(|(id, _)| {
+                    let (folder, title) = futo_notes_model::split_id(&id);
+                    (folder.is_empty()
+                        && crate::paths::is_unique_variant(&wanted, &title)
+                        && store.read(&id).as_deref() == Ok(source.as_str()))
+                    .then(|| crate::vault::metadata(&store.root, &id))
+                    .flatten()
+                });
+                let metadata = match existing {
+                    Some(metadata) => metadata,
+                    None => store.install_with_parent_policy(&wanted, &source, None, false)?,
+                };
                 // A failed merged write did not commit the prepared adoption;
                 // the recovered copy holds the local source exactly as typed.
                 adoption = None;

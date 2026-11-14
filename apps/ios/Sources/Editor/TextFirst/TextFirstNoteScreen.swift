@@ -12,9 +12,9 @@ struct TextFirstNoteScreen: View {
 
     @State private var noteId: String
     @State var titleField: String
-    @State private var titleDuplicate = false
+    @State var titleDuplicate = false
     @State var controller: TextFirstEditorController?
-    @State private var ownerToken: UInt64 = 0
+    @State var ownerToken: UInt64 = 0
     @State var renameTask: Task<Void, Never>?
     @State var leaving = false
     /// Bumped whenever this screen leaves, so an open that was still waiting for a claim can
@@ -97,7 +97,7 @@ struct TextFirstNoteScreen: View {
             ToolbarItem(placement: .topBarTrailing) {
                 NoteActionsMenu(
                     noteId: noteId,
-                    content: { (try? controller?.attached?.sourceText()) ?? "" },
+                    content: { await controller?.readContent() },
                     find: { controller?.openFind() },
                     rename: {
                         renameField = splitId(id: noteId).title
@@ -151,7 +151,15 @@ struct TextFirstNoteScreen: View {
                 destructiveLabelKey: "notes.actions.deleteNote",
                 onCancel: { presentWithoutAnimation { showDeleteConfirm = false } },
                 onDestructive: {
-                    _ = await performNoteAction { controller in
+                    defer { presentWithoutAnimation { showDeleteConfirm = false } }
+                    let deleted = await performNoteAction { controller in
+                        await withCheckedContinuation { done in
+                            controller.checkpoint { done.resume() }
+                        }
+                        guard !controller.saveModel.failed else {
+                            store.showTransient(LocalizedMessage("notes.delete.savePending"))
+                            return false
+                        }
                         let id = await controller.refreshIdentity()
                         guard case .committed = await store.delete(id, ownerToken: ownerToken)
                         else {
@@ -159,10 +167,12 @@ struct TextFirstNoteScreen: View {
                             return false
                         }
                         controller.discard()
-                        presentWithoutAnimation { showDeleteConfirm = false }
                         if !navPath.isEmpty { navPath.removeLast() }
                         return true
                     }?.value
+                    if deleted == nil {
+                        store.showTransient(LocalizedMessage("notes.delete.savePending"))
+                    }
                 }
             )
             .presentationBackground(.clear)
@@ -425,33 +435,4 @@ struct TextFirstNoteScreen: View {
         actionTask = Task { _ = await task.value }
         return task
     }
-
-    func titleChanged(_ cleaned: String) {
-        titleDuplicate = false
-        renameTask?.cancel()
-        renameTask = Task {
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            guard !Task.isCancelled, !leaving else { return }
-            await renameTo(cleaned)
-        }
-    }
-
-    /// Rename the attached note to the typed title (see `TextFirstTitle`).
-    func renameTo(_ raw: String) async {
-        guard let controller else { return }
-        switch await TextFirstTitle.rename(
-            to: raw, controller: controller, store: store, ownerToken: ownerToken)
-        {
-        case .unchanged:
-            break
-        case .duplicate:
-            if titleField == raw { titleDuplicate = true }
-        case .renamed(let id):
-            if titleField == raw { titleField = splitId(id: id).title }
-        case .failed:
-            store.showTransient(LocalizedMessage("notes.title.renameFailed"))
-        }
-    }
-
-
 }

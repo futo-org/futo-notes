@@ -82,7 +82,7 @@ extension NoteEditorView {
     var noteActionsToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             NoteActionsMenu(
-                noteId: noteId, content: { content }, find: { openFind() },
+                noteId: noteId, content: { await awaitBodyForExit() }, find: { openFind() },
                 rename: {
                     renameField = splitId(id: noteId).title
                     showRename = true

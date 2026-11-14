@@ -14,6 +14,16 @@ final class TextFirstSaveFence: Sendable {
 struct TextFirstDiscarded: Error {}
 
 extension TextFirstEditorController {
+    /// Sharing reads the current attachment on its I/O queue, after any pending open.
+    func readContent() async -> String? {
+        if opening, !(await settleOpening()) { return nil }
+        guard !closed, let session = attached else { return nil }
+        finishComposition()
+        return await withCheckedContinuation { done in
+            io.async { done.resume(returning: try? session.sourceText()) }
+        }
+    }
+
     // MARK: saving (the Store owns the debounce; this only wakes when it says a save is due)
 
     func markDirty() {
