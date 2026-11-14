@@ -55,6 +55,24 @@ describe('mobile Linedown cutover', () => {
     );
   });
 
+  it('retires web-editor close benchmarks and their mobile phase emitters', () => {
+    for (const file of [
+      'scripts/perf/ios-close-bench.mjs',
+      'apps/ios/UITests/EditorClosePerfTests.swift',
+      'apps/ios/Tests/Editor/CloseLedgerTests.swift',
+      'apps/ios/Sources/Notes/Editor/CloseLedger.swift',
+      'apps/android/app/src/main/java/com/futo/notes/ui/CloseLedger.kt',
+    ]) {
+      expect(fs.existsSync(path.join(root, file)), file).toBe(false);
+    }
+    expect(read('apps/ios/Sources/Notes/List/NoteListView.swift')).not.toMatch(
+      /CloseLedger|FUTO_CLOSE_PERF/,
+    );
+    expect(read('apps/android/app/src/main/java/com/futo/notes/ui/NoteListScreen.kt')).not.toMatch(
+      /CloseLedger/,
+    );
+  });
+
   it('preserves the desktop web editor and its standalone bundle', () => {
     expect(read('vite.editor.config.ts')).toContain('viteSingleFile()');
     expect(read('vite.editor.config.ts')).toContain("'editor.html'");
