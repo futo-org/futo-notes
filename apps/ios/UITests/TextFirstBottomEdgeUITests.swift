@@ -13,7 +13,7 @@ final class TextFirstBottomEdgeUITests: XCTestCase {
             .joined(separator: "\n\n")
         try body.write(
             to: vault.appendingPathComponent("edge.md"), atomically: true, encoding: .utf8)
-        let app = makeIsolatedApplication(textFirstEditor: true)
+        let app = makeIsolatedApplication()
         app.launchEnvironment["FUTO_NOTES_DATA_DIR"] = vault.path
         app.launchArguments += ["-AppleLanguages", "(en)"]
         app.launch()

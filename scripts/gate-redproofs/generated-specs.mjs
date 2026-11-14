@@ -64,17 +64,6 @@ export const GENERATED_SPECS_PROOFS = [
     fix: 'a native title filter no longer derives its control ranges from FORBIDDEN_TITLE_CONTROL_RANGES — check swiftControlRanges/kotlinRegexControlRanges in scripts/gen-title-spec.ts.',
   },
   {
-    gate: 'bridge-spec',
-    id: 'hand-edited-generated-file',
-    seeded: `appended a line to ${BRIDGE_SWIFT}`,
-    claim: 'a generated native bridge spec that drifts from bridge.ts must fail',
-    inject: (wt) => seed.append(wt, BRIDGE_SWIFT, '\n// redproof sentinel hand edit\n'),
-    expect: [`${BRIDGE_SWIFT} is STALE`],
-    absent: [`${BRIDGE_KOTLIN} is STALE`],
-    marker: 'claim',
-    fix: 'scripts/gen-bridge-spec.ts --check stopped comparing rendered output against the file on disk — BRIDGE_VERSION and the outbound message list can drift from the native hosts.',
-  },
-  {
     gate: 'rust-dependency-boundaries',
     id: 'portable-crate-reaches-tantivy',
     seeded: 'added tantivy to crates/futo-notes-core/Cargo.toml (+ refreshed Cargo.lock offline)',

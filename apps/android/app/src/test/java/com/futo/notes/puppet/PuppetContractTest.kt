@@ -150,22 +150,6 @@ class PuppetContractTest {
     }
 
     @Test
-    fun aForwardedReplyKeepsItsStatusAndBody() {
-        val forwarded = PuppetContract.response("""{"status":409,"body":{"ok":false,"error":"no"}}""")
-        assertEquals(409, forwarded.status)
-        assertEquals("no", JSONObject(forwarded.body).getString("error"))
-    }
-
-    @Test
-    fun aMissingOrMalformedWebviewReplyIsARefusal() {
-        // No inspector yet: the page is still booting, so the caller should retry.
-        assertEquals(503, PuppetContract.response(null).status)
-        // Anything that is not {status, body} is the webview breaking its contract.
-        assertEquals(502, PuppetContract.response("not json").status)
-        assertEquals(502, PuppetContract.response("""{"body":{}}""").status)
-    }
-
-    @Test
     fun aListVerbRefusedInTheEditorSaysToGoBackFirst() {
         val editor = Screen.Editor("a", autoFocus = false)
         assert("GoBack first" in PuppetContract.offScreen("OpenNote", editor))

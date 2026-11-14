@@ -242,7 +242,8 @@ android {
         }
     }
     // libfuto_notes_ffi.so per-ABI is staged by scripts/build-rust-android.sh.
-    // editor.html is staged into src/main/assets by the same flow (see README).
+    // Retired generated editor bundles in warm checkouts are never packaged.
+    androidResources { ignoreAssetsPattern += ":editor.html" }
 }
 
 tasks.named("preBuild").configure {

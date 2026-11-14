@@ -1,6 +1,6 @@
 # AGENTS.md — Native iOS App
 
-Native SwiftUI app on the shared Rust core (`futo-notes-ffi`) with an embedded web editor. This is
+Native SwiftUI app on the shared Rust core (`futo-notes-ffi`) with a native Linedown editor. This is
 the **shipping** iOS app — there is no Tauri mobile shell. See @README.md for structure and
 root AGENTS.md for cross-layer rules.
 
@@ -57,11 +57,10 @@ simulator destination `just build-ios-native` uses and the single concrete simul
   touch all.
 - **I/O belongs on the `NoteVault` actor**, and `hasBootstrapped` distinguishes loading from empty
   so the shell renders immediately. Never await work before first render.
-- **`ToolbarSpec.swift`, `TitleSpec.swift`, and `BridgeSpec.swift` are generated** from
-  `packages/editor/src/toolbar.ts`, `filename.ts`, and `bridge.ts`. Edit the manifest and run
-  `just toolbar-spec` / `just title-spec` / `just bridge-spec`.
-- A new `futoBridge` message needs a hand-written host in `EditorHost+MessageHandler.swift` **and** its Android
-  counterpart — the contract in `packages/editor/src/bridge.ts` is the source of truth.
+- **`ToolbarSpec.swift` and `TitleSpec.swift` are generated** from
+  `packages/editor/src/toolbar.ts` and `filename.ts`. Edit the manifest and run
+  `just toolbar-spec` / `just title-spec`.
+
 
 ## Testing and QA
 
@@ -94,4 +93,4 @@ streams os_log and never exits (run it in the background to a file, or read the 
 `log show --last 2m`), but the app logs mostly via `print()`, which os_log does not capture —
 for stdout use `xcrun simctl launch --console-pty booted com.futo.notes.dev`.
 
-The native shell never evaluates JavaScript to learn the document. It reads its per-note mailbox; only a behind mailbox requests a bounded `flush`.
+The Rust editor session owns document bytes, revisions, saving and merge handling. Mobile never loads the web editor; desktop keeps Milkdown.

@@ -245,7 +245,7 @@ Writing text, fast or real, and the argument names agents guess wrong most: `ref
    Still used, as oracles and lifecycle: screenshots (`just puppet screenshot` first;
    `just qa-shot` when there is no debug bridge), the vault on disk (`simctl get_app_container … data`/Documents/fake-notes, `.tauri-data/notes/`,
    `adb pull`), `just qa-claim|qa-status|qa-release`, `just tauri-dev|ios-native|android-native`,
-   `simctl`/`adb` install and launch, `scripts/cdp-invoke.mjs`, `just android-drive state`.
+   `simctl`/`adb` install and launch, `just android-drive state`.
    To relaunch the app to see what a launch does, `just puppet relaunch`, not `am force-stop`
    or `simctl terminate` and a sleep.
 

@@ -25,22 +25,9 @@ class StorageMigrationEditorIndependenceTest {
         val switchWorkflow = activitySource
             .substringAfter("internal fun MainActivity.performSwitch")
             .substringBefore("internal fun MainActivity.requestDeviceAccess")
-        val editorSource = listOf(
-            "ui/EditorWebView.kt",
-            "ui/EditorHostCommands.kt",
-            "ui/EditorHostContent.kt",
-            "ui/EditorHostEngine.kt",
-            "ui/EditorHostMessages.kt",
-        ).joinToString("\n") { productionSource(it) }
-
         assertFalse(
             "performSwitch must consume committed or retained drafts, never depend on EditorHost",
             switchWorkflow.contains("EditorHost"),
-        )
-        assertFalse(
-            "EditorWebView must not expose a storage-migration capture callback",
-            editorSource.contains("freezeAndCaptureContent") ||
-                editorSource.contains("onMigrationSnapshot"),
         )
     }
 

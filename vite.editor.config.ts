@@ -1,14 +1,5 @@
-// Vite config for the shared native embedded editor bundle.
-//
-// Builds editor.html as a SINGLE self-contained HTML file (all JS inlined as
-// <script>, all CSS as <style>, fonts/assets inlined) so the native WebView
-// hosts can load one local file without module-loading or asset path issues.
-// Output lands in build/native-editor/editor.html and is staged into the iOS
-// resources + Android assets expected by the native shells.
-//
-// Mirrors vite.config.ts but adds viteSingleFile(), points the single rollup
-// input at editor.html, and stages the built file into the native shells.
-
+// Standalone Milkdown bundle for desktop-compatible browser tests and benchmarks.
+// Mobile apps render the Rust Linedown engine directly and never stage this bundle.
 import { defineConfig } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';

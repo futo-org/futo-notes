@@ -43,26 +43,5 @@ struct BackgroundEditorFlushTests {
         await Task.yield()
         #expect(ends == 1)
     }
-    @Test func behindFlushWaitPublishesLatestBeforeRegisterWrite() async {
-        let mailbox = EditorMailbox()
-        mailbox.loaded("note", generation: 1, content: "base")
-        mailbox.edited("note", generation: 2)
-        var draft: String?
-        var wrote: String?
-        var flushes = 0
-        mailbox.bind(1, id: "note") { draft = $0 }
-        let background = BackgroundEditorFlush(
-            background: BackgroundTaskProvider(begin: { _, _ in 1 }, end: { _ in }))
-        background.register(token: 1) {
-            _ = await mailbox.awaitCurrent("note") { _ in
-                flushes += 1
-                mailbox.change("note", generation: 2, content: "base + latest")
-            }
-        }
-        background.run { wrote = draft }
-        while wrote == nil { await Task.yield() }
-        #expect(flushes == 1)
-        #expect(wrote == "base + latest")
-    }
 
 }

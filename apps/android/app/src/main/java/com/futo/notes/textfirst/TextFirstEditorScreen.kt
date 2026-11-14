@@ -75,7 +75,7 @@ import uniffi.futo_notes_ffi.FlushDisposition
 import uniffi.futo_notes_ffi.splitId
 
 /**
- * The note screen for the text-first editor (debug builds, [TextFirstFlag]).
+ * The shipping native Linedown note screen.
  *
  * Saving is the engine's: edits live in the Store's session and the Markdown
  * file is written on the Store's debounce (500 ms idle, 2 s max wait), on

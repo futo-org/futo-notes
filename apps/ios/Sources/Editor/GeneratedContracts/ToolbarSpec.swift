@@ -4,7 +4,7 @@
 // `just check`) fails when this file drifts from the manifest.
 
 /// What tapping a toolbar item does. `exec` dispatches
-/// `FutoEditor.exec(item.id)` over the bridge into the SHARED
+/// `NativeEditorSession` commands in the Rust engine; the web toolbar uses
 /// toolbarExec.ts command — the native toolbar never
 /// reimplements editing semantics, so behavior is identical to the web
 /// toolbar by construction.

@@ -80,7 +80,6 @@
     "android:notes.actions.share": "hands the note to the OS share sheet; the app does nothing more",
     "android:settings.about.openSource": "opens the project's page in the browser: the OS's act",
     "android:sync.serverSetupLink": "opens the server setup guide in the browser: the OS's act",
-    "android:editor.android.legacyWebView.updateAction": "opens the System WebView's store listing: the OS's act",
     "android:feedback.removeScreenshot": "RemoveFeedbackAttachment, whose label takes the screenshot's number",
     "android:folders.rowAccessibilityLabel": "OpenFolder, whose label takes the folder's name"
   }

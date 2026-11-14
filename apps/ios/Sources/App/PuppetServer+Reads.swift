@@ -49,7 +49,7 @@
             guard let noteId = arguments["noteId"] as? String, !noteId.isEmpty
             else { return PuppetServerContract.refusal(400, #"file needs {"noteId":"…"}"#) }
             if arguments["save"] as? Bool ?? true {
-                if TextFirstFlag.enabled(), !(await PuppetNativeEditor.shared.checkpoint()) {
+                if !(await PuppetNativeEditor.shared.checkpoint()) {
                     return PuppetServerContract.refusal(
                         409,
                         "the native editor has edits that did not save; save:false reads disk unchanged"
@@ -112,7 +112,7 @@
             // The page owns the document and its own rows, which are on screen only while
             // nothing covers it; the shell owns everything else, including this screen's verbs.
             let shown =
-                (TextFirstFlag.enabled() && editorNote != nil || webviewOnScreen() != nil)
+                (editorNote != nil)
                 ? page : nil
             object["actions"] = actionsList(pageActions: shown?["actions"])
             object["lines"] = shown?["lines"] ?? [Any]()
@@ -153,7 +153,7 @@
                     ?? NSNull(),
                 // The banner on screen, "" when none, as desktop reports its toast.
                 "toast": store.transientMessage.map {
-                    EditorHost.appLocalization.localizedText(
+                    Localization.system().localizedText(
                         $0.path, arguments: $0.arguments)
                 } ?? "",
                 // Whether the app is on screen at all, and whether the keyboard is up: neither
@@ -161,7 +161,7 @@
                 "foreground": UIApplication.shared.applicationState == .active,
                 "keyboard": Self.keyboardUp,
             ]
-            if TextFirstFlag.enabled(), let id = PuppetNativeEditor.shared.unsavedId {
+            if let id = PuppetNativeEditor.shared.unsavedId {
                 object["pending"] = [
                     "unsaved": Array(Set(store.unsavedNoteIds + [id])).sorted(), "sync": sync.busy,
                 ]
@@ -172,7 +172,7 @@
                 object["search"] = ["query": navigation.searchQuery, "hits": hits]
             }
             for (key, value) in page ?? [:] where object[key] == nil { object[key] = value }
-            if TextFirstFlag.enabled(), object["editor"] == nil { object["editor"] = NSNull() }
+            if object["editor"] == nil { object["editor"] = NSNull() }
             return object
         }
 
@@ -180,7 +180,7 @@
         func actions() async -> PuppetReply {
             var pageActions: Any?
             if !PuppetVerbs.shared.modalUp,
-                TextFirstFlag.enabled() && editorNote != nil || webviewOnScreen() != nil
+                editorNote != nil
             {
                 pageActions = await pageObject("actions")?["actions"]
             }
@@ -200,7 +200,7 @@
         @MainActor
         func controlLabels() -> [String: [String]] {
             typealias Contract = PuppetServerContract
-            let localization = EditorHost.appLocalization
+            let localization = Localization.system()
             let native =
                 PuppetVerbs.shared.modalUp
                 ? []

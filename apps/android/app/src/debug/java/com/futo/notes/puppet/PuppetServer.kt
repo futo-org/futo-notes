@@ -253,7 +253,7 @@ internal fun PuppetServerStart(
     DisposableEffect(navigator, store, localization) {
         // Native editor QA must not boot an unused Chromium renderer merely
         // to expose shell navigation. Page queries explicitly refuse below.
-        val bound = PuppetServer.Binding(navigator, store, host, sync, prefs, view, localization)
+        val bound = PuppetServer.Binding(navigator, store, sync, prefs, view, localization)
         PuppetServer.bind(bound)
         onDispose { PuppetServer.unbind(bound) }
     }

@@ -30,17 +30,12 @@ show it differently during development; a client cutover must account for that b
 | Client     | Current integration                                                                                                                                                                                                         | Work before adoption                                                                                                                                                                                      |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Rust/store | `EditorSession` owns exact source and editing; `StoreEditorSession` owns the attachment and saving.                                                                                                                         | Embed through the session and store contracts; use the returned projection and changes.                                                                                                                   |
-| iOS        | A TextKit 2 renderer consumes `NativeEditorSession` in this tree. In debug builds `-futo.textFirstEditor YES` enables it and persists the choice; `NO` disables it. It is off by default; release uses the existing editor. | Rebuild bindings, complete native acceptance and cutover. The debug flag is a renderer selection, not a dialect or data migration switch.                                                                 |
-| Android    | This tree has native FFI contract tests but no Android text-first renderer. Its renderer is maintained on `origin/android-text-first`. The normal Android app here uses the existing editor.                                | Bring that renderer forward to this engine, adapt its generated binding consumers and rendering, then build and validate on Android. Passing this tree's FFI tests alone does not validate that renderer. |
-| Desktop    | The Tauri worker host and WASM session exist, but the shipped UI is Milkdown; the portable consumer tests are not a desktop text-first renderer.                                                                            | Build a renderer around `WasmSession` and the ordered host transport, validate the complete interaction, and perform the separate cutover.                                                                |
+| iOS | TextKit 2 renders `NativeEditorSession` in debug and Release. | Run native acceptance when changing the engine or renderer. |
+| Android | Native views render `NativeEditorSession` in both distribution flavors, debug and release. | Run native acceptance when changing the engine or renderer. |
+| Desktop | The shipped UI remains Milkdown. | Native mobile cleanup does not change the desktop renderer. |
 
-The line reader has one dialect; there is no CommonMark compatibility mode in this engine.
-The old Cargo `engine` feature and `FUTO_EDITOR_ENGINE` switch are removed: `EditorSession`
-always uses the line engine. Renderer-selection flags are separate from that core cutover.
-On `origin/android-text-first`, the separate renderer's dev builds default to text-first and
-persist the `futo.textFirstEditor` intent choice; release builds select the existing editor.
-That branch's flag is not present in this tree, and its behavior should be rechecked when it
-is integrated.
+Mobile has one renderer; old editor-selection preferences and launch flags have no effect.
+Mobile builds do not bundle `editor.html` or instantiate a web editor host.
 Native and desktop renderer work, including physical input and device acceptance, is separate
 from transport tests. Deferred capabilities are listed in the portable-core index.
 

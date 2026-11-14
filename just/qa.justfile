@@ -134,20 +134,6 @@ emu-logs:
   # `adb logcat -c` first for a clean slate; crashes land under AndroidRuntime.
   adb logcat -s FutoStartup FutoSearch NotesStore FutoLicense SyncManager PlatformTrust FutoTestHook FutoToolbarDBG FutoBridgeDBG AndroidRuntime
 
-# Forward the Android app's WebView DevTools socket for cdp-invoke.mjs.
-cdp-forward:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  # Debug builds only; re-run after every app restart. Port derivation: justfile-notes.md.
-  PORT="${CDP_PORT:-$(node scripts/lib/slot.mjs cdp)}"
-  PID=$(adb shell pidof com.futo.notes.dev | tr -d '\r')
-  [ -n "$PID" ] || { echo "com.futo.notes.dev is not running — launch the app first." >&2; exit 1; }
-  SOCKET=$(adb shell 'cat /proc/net/unix' | grep -o "webview_devtools_remote_${PID}" | head -1)
-  [ -n "$SOCKET" ] || { echo "No DevTools socket for pid $PID — has the editor WebView been opened yet?" >&2; exit 1; }
-  adb forward "tcp:${PORT}" "localabstract:${SOCKET}"
-  echo "Forwarded localhost:${PORT} → ${SOCKET}"
-  echo "  export CDP_PORT=${PORT}   # then: node scripts/cdp-invoke.mjs \"document.title\""
-
 # Drive the native Android app: read its state, tap labels, run debug hooks.
 android-drive *args:
   @node scripts/android-drive.mjs "$@"

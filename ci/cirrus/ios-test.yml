@@ -61,10 +61,7 @@ test_ios_native_task:
     # Shared Rust FFI -> FutoNotesFfi.xcframework + Swift bindings, for the one
     # Apple-silicon simulator the tests run on.
     - FUTO_IOS_SIM_ARM64_ONLY=1 bash scripts/build-rust-ios.sh
-    # Embedded editor bundle used by the native bridge tests: the one that ships.
     # `just test-ios-native` adds the puppet inspector only because the Debug app it
-    # installs shares the one staged editor.html (docs/agents/justfile-notes.md).
-    - pnpm exec vite build --config vite.editor.config.ts
     - (cd apps/ios && xcodegen generate)
     # xcodebuild test requires one concrete simulator. Prefer an already-booted
     # iPhone; otherwise boot the first available iPhone runtime on the image.

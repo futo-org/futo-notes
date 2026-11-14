@@ -58,25 +58,11 @@ export function parseArgs(argv) {
     else if (arg.startsWith('--')) throw new Error(`unknown flag ${arg}`);
     else opts.variants.push(arg);
   }
-  // The iOS gate is the shipping mode, once; the comparison and the selection
-  // holds are opt-in (`current:line`, `--selection`).
-  if (opts.repeat == null) opts.repeat = opts.device === 'ios-app' ? 1 : 5;
-  if (opts.variants.length === 0)
-    opts.variants = opts.device === 'ios-app' ? ['current'] : ['current:line', 'current'];
-  if (!['desktop', 'android', 'android-app', 'ios-app'].includes(opts.device))
-    throw new Error(`unknown device ${opts.device}`);
-  if (opts.device === 'ios-app') {
-    const bad = opts.variants.filter((v) => v !== 'current' && v !== 'current:line');
-    if (bad.length)
-      throw new Error(
-        `--device ios-app only runs the working tree's bundle: variants current and current:line, not ${bad.join(', ')}`,
-      );
-  }
+  if (opts.repeat == null) opts.repeat = 5;
+  if (opts.variants.length === 0) opts.variants = ['current:line', 'current'];
+  if (!['desktop', 'android'].includes(opts.device))
+    throw new Error(`unknown device ${opts.device}; mobile apps use the native editor`);
   if (opts.gestures) {
-    if (opts.device === 'ios-app')
-      throw new Error(
-        "--gestures needs a per-variant build; --device ios-app has only the working tree's",
-      );
     const missing = GESTURE_FILES.filter((n) => !existsSync(path.join(opts.gestures, n)));
     if (missing.length) throw new Error(`--gestures ${opts.gestures} lacks ${missing.join(', ')}`);
   }

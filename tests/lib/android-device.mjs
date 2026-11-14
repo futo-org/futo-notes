@@ -10,7 +10,6 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import net from 'node:net';
 import { navigateBack } from './android/navigation.mjs';
 import { createAdbClient } from './android/adbClient.mjs';
 import { assertAndroidTarget } from '../../scripts/qa/android-target.mjs';
@@ -358,38 +357,10 @@ export class AndroidDevice {
     this.shell(`rm -f '${path}'`, { allowFailure: true });
   }
 
-  // ── WebView DevTools (CDP) ────────────────────────────────────
-
-  /** Forward the app's WebView DevTools socket to a free host port. The socket
-   *  is named after the app's pid, so this must be redone after every restart. */
-  async forwardWebViewDebugger({ timeoutMs = 60_000 } = {}) {
-    const socket = await this.waitFor('the WebView DevTools socket', timeoutMs, () => {
-      const pid = this.shell(`pidof ${DEBUG_PACKAGE}`, { allowFailure: true }).trim();
-      if (!pid) return null;
-      const unix = this.shell('cat /proc/net/unix', { allowFailure: true });
-      return unix.match(new RegExp(`webview_devtools_remote_${pid}\\b`))?.[0] ?? null;
-    });
-    const port = await findFreePort();
-    this.adb(['forward', `tcp:${port}`, `localabstract:${socket}`]);
-    this.forwardedPorts.push(port);
-    return port;
-  }
-
   releaseForwards() {
     for (const port of this.forwardedPorts) {
       this.adb(['forward', '--remove', `tcp:${port}`], { allowFailure: true });
     }
     this.forwardedPorts = [];
   }
-}
-
-function findFreePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.on('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      server.close((err) => (err ? reject(err) : resolve(port)));
-    });
-  });
 }

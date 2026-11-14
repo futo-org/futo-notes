@@ -213,28 +213,6 @@ import Testing
             #expect(plain["shortcuts"] == nil)
         }
 
-        @Test("the forward script quotes both arguments as JS string literals")
-        func forwardScript() {
-            let script = PuppetServerContract.forwardScript(
-                command: "do", argsJson: #"{"verb":"Select","args":{"expect":"a\"b"}}"#)
-            #expect(
-                script
-                    == #"window.__futoPuppet ? window.__futoPuppet.run("do", "{\"verb\":\"Select\",\"args\":{\"expect\":\"a\\\"b\"}}") : null"#
-            )
-        }
-
-        @Test("a forwarded reply becomes the HTTP status and body it names")
-        func relaysForwardedReplies() throws {
-            let relayed = PuppetServerContract.response(
-                fromForwarded: #"{"status":409,"body":{"ok":false,"error":"moved"}}"#)
-            #expect(relayed.status == 409)
-            let body = try JSONSerialization.jsonObject(with: relayed.body) as? [String: Any]
-            #expect(body?["error"] as? String == "moved")
-
-            #expect(PuppetServerContract.response(fromForwarded: nil).status == 503)
-            #expect(PuppetServerContract.response(fromForwarded: "garbage").status == 502)
-        }
-
         @Test("a request is parsed only once its declared body has arrived")
         func parsesRequestsIncrementally() throws {
             let full = Data(

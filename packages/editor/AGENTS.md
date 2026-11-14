@@ -179,5 +179,5 @@ languages satisfy it.
    which asks both implementations the same broad corpus and fails on any divergence.
 4. Search Swift/Kotlin for un-fixtured sibling copies.
 
-Bridge/toolbar changes also run `just bridge-spec` / `just toolbar-spec` and the matching package
-tests. Finish with `just check-drift`; it rejects unregistered copies and stale projections.
+Toolbar changes also run `just toolbar-spec` and the matching package tests.
+The web bridge is a standalone browser-test surface; mobile consumes the Rust FFI session. Finish with `just check-drift`; it rejects unregistered copies and stale projections.

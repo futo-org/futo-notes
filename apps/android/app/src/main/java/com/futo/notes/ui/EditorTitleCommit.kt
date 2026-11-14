@@ -2,25 +2,11 @@ package com.futo.notes.ui
 
 import com.futo.notes.CommittedNote
 import com.futo.notes.NoteMutationOutcome
-import com.futo.notes.rebasedOnRelink
-import kotlinx.coroutines.withTimeoutOrNull
-import uniffi.futo_notes_ffi.FlushDisposition
 import uniffi.futo_notes_ffi.collisionKey
 import uniffi.futo_notes_ffi.makeId
 import uniffi.futo_notes_ffi.sanitizeTitle
 import uniffi.futo_notes_ffi.splitId
 import uniffi.futo_notes_ffi.validateTitle
-
-internal suspend fun insertImageWithinDeadline(
-    deadlineMs: Long,
-    insert: suspend () -> Boolean,
-): Boolean = withTimeoutOrNull(deadlineMs) { insert() } ?: false
-
-internal data class EditorNavigationCommit(
-    val savedContent: String,
-    val canNavigate: Boolean,
-    val disposition: FlushDisposition? = null,
-)
 
 internal data class EditorTitleCommit(
     val id: String,
@@ -75,43 +61,4 @@ internal fun editorTitleTarget(
     val target = makeId(parts.folder, clean)
     if (collidesWithOtherNote(currentId, target, existingIds)) return null
     return target
-}
-
-internal suspend fun commitEditorNavigationSnapshot(
-    savedContent: String,
-    content: String,
-    flush: suspend (base: String, content: String) -> FlushDisposition?,
-): EditorNavigationCommit {
-    if (content == savedContent) {
-        return EditorNavigationCommit(savedContent, canNavigate = true)
-    }
-    val disposition = flush(savedContent, content)
-    return EditorNavigationCommit(
-        savedContent = if (disposition != null) content else savedContent,
-        canNavigate = disposition != null,
-        disposition = disposition,
-    )
-}
-
-
-/** Rebase each refused conditional relink against the next delivered document. */
-internal suspend fun settleRelinkAdoption(
-    flushed: String,
-    relinkedBody: String,
-    awaitCurrent: suspend () -> EditorCurrent,
-    liveContent: () -> String,
-    receiveChange: (String) -> Unit,
-    setBaseline: (String) -> Unit,
-    apply: suspend (String, Long) -> Boolean,
-) {
-    repeat(3) {
-        val current = awaitCurrent()
-        if (!current.canProceed) return
-        current.latest?.let { if (it.content != liveContent()) receiveChange(it.content) }
-        val rebase = rebasedOnRelink(flushed, liveContent(), relinkedBody)
-        setBaseline(rebase.savedContent)
-        if (!rebase.adoptIntoEditor) return
-        val generation = current.latest?.generation ?: return
-        if (apply(rebase.content, generation)) return
-    }
 }

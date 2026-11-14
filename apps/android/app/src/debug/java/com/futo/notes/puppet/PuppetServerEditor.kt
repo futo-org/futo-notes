@@ -14,7 +14,47 @@ internal suspend fun forward(
     command: String,
     argsJson: String,
 ): PuppetReply {
-    return PuppetContract.refusal(404, "native editor query unavailable: $command; use state or native input")
+    val view = findNativeEditor(bound.shellView.rootView)
+        ?: return PuppetContract.refusal(503, "native editor is not on screen")
+    if (command == "do") {
+        val request = JSONObject(argsJson)
+        val args = request.optJSONObject("args") ?: JSONObject()
+        when (val verb = request.getString("verb")) {
+            "FocusEditor" -> {
+                view.requestFocus()
+                view.context.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+                    .showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            }
+            "BlurEditor" -> {
+                view.clearFocus()
+                view.context.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+                    .hideSoftInputFromWindow(view.windowToken, 0)
+            }
+            "Select" -> {
+                val from = args.getInt("from")
+                val to = args.optInt("to", from)
+                if (from < 0 || to < from || to > (view.text?.length ?: 0))
+                    return PuppetContract.refusal(409, "selection is outside the current native display")
+                view.setSelection(from, to)
+            }
+            "Insert", "Type" -> {
+                val input = view.onCreateInputConnection(android.view.inputmethod.EditorInfo())
+                    ?: return PuppetContract.refusal(503, "native input connection unavailable")
+                if (!input.commitText(args.getString("text"), 1))
+                    return PuppetContract.refusal(409, "native input refused the edit")
+            }
+            else -> return PuppetContract.refusal(404, "unknown native editor verb: $verb")
+        }
+        return PuppetReply(200, JSONObject().put("ok", true).toString())
+    }
+    if (command == "actions") {
+        val actions = org.json.JSONArray()
+        for (name in listOf("FocusEditor", "BlurEditor", "Select", "Insert", "Type")) {
+            actions.put(JSONObject().put("name", name).put("schema", PuppetContract.schema(emptyList())))
+        }
+        return PuppetReply(200, JSONObject().put("actions", actions).toString())
+    }
+    return PuppetContract.refusal(404, "unknown native editor query: $command")
 }
 
 /** The page's answer to [command] as an object, or null when it gave none. */

@@ -22,7 +22,6 @@ test-android-native-ui *classes: qa-android-target _preflight-android android-en
   # the first class of `class=A,B` (android-instrument.mjs, gradleSelectorArg).
   SELECTOR_ARG="$(node scripts/android-instrument.mjs --gradle-arg "$@")"
   if [ -n "$SELECTOR_ARG" ]; then TEST_ARGS+=("$SELECTOR_ARG"); fi
-  # The Compose tests drive the bundled editor.html: rebuild it first (L1-008).
   node scripts/qa.mjs android-target
   # Connected tests uninstall the app: claimed emulators only, never a phone.
   node scripts/android-instrument.mjs --assert-emulator
@@ -74,7 +73,6 @@ test-android-ui *args: _preflight-android android-env-check
   else
     rm -f "$STAMP"
     ABIS="$ABI" bash scripts/build-rust-android.sh
-    # The Compose tests drive the bundled editor.html: rebuild it first (L1-008).
     (cd apps/android && ./gradlew :app:assembleDirectDebug :app:assembleDirectDebugAndroidTest "-PfutoAbis=$ABI")
     build_key > "$STAMP"
   fi

@@ -83,13 +83,9 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     const unitTestRecipe = topLevelBlock(justfile, /^test-android-native(?=\s|:)[^\n]*$/m);
     const uiTestRecipe = topLevelBlock(justfile, /^test-android-native-ui(?=\s|:)[^\n]*$/m);
 
-    // L1-008: the Android test recipes must test the editor.html of the checkout,
-    // not whatever gitignored copy an earlier build left in the assets.
+    // Mobile runs the Rust editor directly; a web bundle cannot be its test subject.
     for (const recipe of [unitTestRecipe, uiTestRecipe]) {
-      expect(recipe).toContain('vite build --config vite.editor.config.ts');
-      expect(recipe.indexOf('vite build --config vite.editor.config.ts')).toBeLessThan(
-        recipe.indexOf('./gradlew'),
-      );
+      expect(recipe).not.toContain('vite.editor.config.ts');
     }
 
     // Compile coverage: a flavor-specific source set that fails to build must

@@ -23,7 +23,6 @@ export class AndroidNativeAppClient {
     this.platform = 'android-native';
     this.repoRoot = repoRoot;
     this.device = device;
-    this.cdp = { port: null, pid: null };
   }
 
   get vaultPath() {

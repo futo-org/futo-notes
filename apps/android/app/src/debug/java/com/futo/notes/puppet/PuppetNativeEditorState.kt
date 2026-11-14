@@ -38,6 +38,7 @@ internal suspend fun nativeEditorState(root: View): JSONObject? {
                     val display = engine.text
                     JSONObject().put("renderer", "native-text-first").put("note", engine.noteId)
                         .put("focused", focused).put("ready", engine.session != null)
+                        .put("source", engine.session?.sourceText() ?: "")
                         .put("docVersion", engine.rev.toString()).put("seq", engine.seq)
                         .put("display", display.take(8192).toString()).put("truncated", display.length > 8192)
                         .put("view", viewState)
@@ -66,7 +67,7 @@ internal suspend fun nativeEditorState(root: View): JSONObject? {
     } ?: JSONObject().put("error", "native editor state did not answer within 3 s")
 }
 
-private fun findNativeEditor(view: View): TextFirstEditText? {
+internal fun findNativeEditor(view: View): TextFirstEditText? {
     if (!view.isShown) return null
     if (view is TextFirstEditText) return view
     if (view is ViewGroup) for (index in 0 until view.childCount) {

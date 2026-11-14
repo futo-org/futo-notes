@@ -5,7 +5,7 @@
 //   node scripts/perf/block-drag-bench.mjs [variant ...] [--repeat 5]
 //       [--sizes 1000,3000] [--layout desktop|embed] [--no-cursor-layer]
 //       [--target editor|app] [--hide <css selector>] [--snapshot <dir>]
-//       [--device android|android-app|ios-app] [--profile <dir>] [--no-selection]
+//       [--device android] [--profile <dir>] [--no-selection]
 //       [--budget] [--moves-per-frame N] [--gestures <dir>] [--json <file>]
 //
 // `--json <file>` also writes every run's raw result there, for pooling
@@ -36,51 +36,6 @@
 // variant is a fresh production build of that bundle (~10s), never staged
 // into the app. `--profile <dir>` also saves one Chromium trace per variant
 // of the 1000-block scroll-drag (open it in chrome://tracing or Perfetto).
-// `--device android-app` is the gate: the REAL app, each variant built into
-// it and installed, driven with real touch input — block-drag-bench/app-device.mjs.
-// Put `current` last so the app is left on the working tree's bundle.
-// `--device ios-app` is the same gate on a physical iPhone, with real touches
-// from XCUITest (block-drag-bench/ios-app.mjs). It only has the working tree's
-// bundle (no per-variant install), so it takes `current` and `current:line`
-// only; any other variant is an error rather than a mislabelled run.
-// `--selection` (iOS only) adds the press-and-hold stories, which are on by default elsewhere;
-// `--no-selection` skips its press-and-hold text-selection stories.
-//
-// `--target app` runs only the scroll-drag benchmark, inside the whole app
-// shell (the plain-web build, through the real ⠿ handle) instead of the bare
-// editor page — see block-drag-bench/app-probe.ts for why. `--hide` removes
-// part of the shell for that run, to bisect what costs the frames.
-//
-// A variant is `current` (the working tree's blockDragSession.ts), a path to
-// another copy of that file, and either one with a `:line` suffix to force the
-// drop-line mode. For a file with the reflow switch (it uses `ReflowCurtain`)
-// that sets the page flag `window.__futoBlockDragReflow = 'off'`; for a
-// historical file with `const LIVE_REFLOW = true;` it flips the constant; a file
-// with neither is rejected (block-drag-bench/variant.mjs). Every run also
-// reports the preview it actually saw (drop line vs curtain) and the bench
-// fails when that is not the one the variant asked for.
-// Default: `current:line current`.
-//
-// Why it looks like this: the first version of this test drove the real
-// desktop app over its debug bridge — fixed sleeps to open a note and wait for
-// the hover-throttled handle, frame-paced everything, and a dead stop whenever
-// the window lost focus (KDE sends no frames to a covered window). Ten minutes
-// per variant and two stalls in one afternoon. Here the page mounts the real
-// editor (scripts/perf/block-drag-bench/main.ts), calls BlockDragSession
-// directly, and times each step synchronously with a forced style + layout,
-// so the numbers are the work and nothing else. Only the scroll benchmark is
-// frame-paced, because painting is only visible through real frames.
-//
-// The page runs in the system's WebKitGTK — the engine the desktop app ships
-// on Linux — through webkitgtk-host.c, compiled on first use. Playwright's
-// WebKit was the first choice and does not start on Fedora 44 (it links ICU 74,
-// libjpeg 8 and libjxl 0.8). The host is a real window: only the scroll
-// benchmark needs frames, and it gets none while the window is covered.
-import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { createServer } from 'vite';
 
 import { PHONE_REPS, REPS, parseArgs } from './block-drag-bench/args.mjs';
 import { evaluateBudget } from './block-drag-bench/budget.mjs';
@@ -337,19 +292,10 @@ for (const spec of opts.variants) {
   const variant = parseVariant(spec, opts.gestures);
   const t = performance.now();
   let runs;
-  if (opts.device === 'android-app') {
-    const app = await import('./block-drag-bench/app-device.mjs');
-    await app.installVariant(variant, { root, sessionVariantPlugin });
-    runs = await app.runInApp(opts, { root });
-  } else if (opts.device === 'ios-app') {
-    const ios = await import('./block-drag-bench/ios-app.mjs');
-    runs = await ios.runInIosApp(opts, { root, variant });
-  } else {
-    runs =
-      opts.device === 'android'
-        ? await runVariantOnPhone(variant, opts)
-        : await runVariant(variant, opts);
-  }
+  runs =
+    opts.device === 'android'
+      ? await runVariantOnPhone(variant, opts)
+      : await runVariant(variant, opts);
   assertModes(variant, runs);
   results.push({ variant, runs });
   console.error(`${variant.label}: ${((performance.now() - t) / 1000).toFixed(1)}s`);

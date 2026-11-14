@@ -90,7 +90,6 @@ function build(opts) {
       },
     });
   }
-  run('node_modules/.bin/vite', ['build', '--config', 'vite.editor.config.ts']);
   run('xcodegen', ['generate'], { cwd: path.join(root, 'apps/ios') });
 }
 

@@ -47,7 +47,7 @@ final class TextFirstKillLoopTests: XCTestCase {
 
     @MainActor
     private func launch(_ name: String, typing: Bool) {
-        app = makeIsolatedApplication(textFirstEditor: true)
+        app = makeIsolatedApplication()
         app.launchEnvironment["FUTO_NOTES_DATA_DIR"] = vault.path
         if typing { app.launchEnvironment["FUTO_TF_STEADY_LOG"] = steadyLog.path }
         app.launchArguments += ["-AppleLanguages", "(en)"]

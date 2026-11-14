@@ -32,6 +32,8 @@ targets:
     sources:
       - path: Sources
       - path: Resources
+        excludes:
+          - editor.html
         buildPhase: resources
       - path: Assets.xcassets
         buildPhase: resources

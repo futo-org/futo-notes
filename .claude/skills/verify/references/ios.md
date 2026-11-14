@@ -1,7 +1,7 @@
 # iOS — native SwiftUI app on the simulator
 
 The shipping iOS app is the native SwiftUI shell in `apps/ios` (Rust core via
-`futo-notes-ffi`, editor embedded as a WKWebView). There is no Tauri iOS shell
+`futo-notes-ffi`, native TextKit renderer over Linedown). There is no Tauri iOS shell
 and no MCP bridge on iOS.
 
 > **Use the `puppet` skill (`.claude/skills/puppet/`) — it is the only sanctioned

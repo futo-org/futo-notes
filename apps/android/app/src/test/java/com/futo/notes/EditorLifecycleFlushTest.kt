@@ -11,7 +11,6 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import com.futo.notes.ui.EditorMailbox
 
 /**
  * Regression for the Android editor's unsaved-draft register (F5 lifecycle
@@ -474,29 +473,6 @@ class EditorLifecycleFlushTest {
 
         assertEquals(listOf(PendingDraft("gone", "a", "b")), rec.writes)
     }
-    @Test
-    fun behindFlushWaitUpdatesRegisterBeforeTheWrite() = runBlocking {
-        val mailbox = EditorMailbox()
-        mailbox.loaded("todo", 1, "base")
-        mailbox.edited("todo", 2)
-        val state = EditorState(savedContent = "base", content = "base")
-        val writes = mutableListOf<PendingDraft>()
-        val pending = PendingEditorDraft { writes += it }
-        val token = pending.claim()
-        pending.setProvider(token, state::derive)
-        mailbox.bind(1, "todo") { state.content = it }
-        var flushes = 0
-        pending.setFlushWaiter(token) {
-            mailbox.awaitCurrent("todo") {
-                flushes++
-                mailbox.change("todo", 2, "base + latest")
-            }
-        }
-        pending.flushAfterEditor()
-        assertEquals(1, flushes)
-        assertEquals(listOf(PendingDraft("todo", "base", "base + latest")), writes)
-    }
-
     @Test fun backgroundBudgetIsTwoSeconds() {
         assertEquals(2_000L, EDITOR_FLUSH_BUDGET_MS)
     }

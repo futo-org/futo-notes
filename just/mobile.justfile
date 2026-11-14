@@ -18,7 +18,6 @@ build-rust-ios:
 # whichever is installed). FUTO_HOSTED_SERVER, if set, switches the FFI build to
 # the `dev` profile (the only one that honors the override) and launches
 # already pointed at that address — see docs/qa/hosted-sync-android.md.
-# Build + run the native Android Compose app (Rust core + WebView editor).
 android-native: _preflight-android
   apps/android/run.sh
 
@@ -87,8 +86,6 @@ android-env-check:
 build-android-native: _preflight-android android-env-check (build-rust-android "device")
   #!/usr/bin/env bash
   set -euo pipefail
-  # Debug app: the editor bundle carries the puppet inspector (see build-ios-native).
-  VITE_INCLUDE_TEST_HOOKS=true node_modules/.bin/vite build --config vite.editor.config.ts
   cd apps/android
   ./gradlew :app:assembleDirectDebug :app:assemblePlayDebug
 
@@ -143,8 +140,6 @@ _test-ios bundle *names: _preflight-ios build-rust-ios
       ONLY_TESTING+=("-only-testing:$BUNDLE/$name")
     done
   fi
-  # The test host IS the Debug app, so its editor bundle carries the puppet inspector too.
-  VITE_INCLUDE_TEST_HOOKS=true node_modules/.bin/vite build --config vite.editor.config.ts
   SIM="${SIM:-$(xcrun simctl list devices booted | sed -n 's/.*(\([0-9A-Fa-f-]\{36\}\)).*Booted.*/\1/p' | head -1)}"
   if [ -z "$SIM" ]; then
     echo "No simulator — set SIM=<udid> or run: just qa-claim ios" >&2
@@ -189,9 +184,6 @@ _android-bindings:
 test-android-native *tests: _preflight-android android-env-check _android-bindings
   #!/usr/bin/env bash
   set -euo pipefail
-  # Stages the CURRENT editor.html into the assets, like every other native
-  # recipe: a stale gitignored copy would otherwise be what gets tested (L1-008).
-  node_modules/.bin/vite build --config vite.editor.config.ts
   TEST_ARGS=()
   for task in :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest; do
     TEST_ARGS+=("$task")
@@ -239,49 +231,13 @@ test-android-text-first-bench *args: qa-android-target
 bench-text-first *args:
   just test-android-text-first-bench --quick {{args}}
 
-# Editor performance stories against the REAL native Android app on an
-# explicitly claimed device — written for the low-end reference phone, where
-# the budgets are hardest (issue #106, docs/plan/milkdown-transition.md §5):
-# interactive-first-viewport <1s and keystroke p95 <16ms at real-note sizes,
-# open that scales linearly with no cliff, the first focus after an open
-# under 1s (the tap that starts typing), and the save at 1k/10k lines (a warm
-# save p95 <16ms, a cold whole-document save with no cliff). The
-# build/install is deliberately mandatory so the run always exercises the code
-# being pushed (same rule as test-ios-stories). The maintainer's largest real
-# note joins the fixtures as a LOCAL, UNCOMMITTED file: $FUTO_PERF_NOTE=<path>,
-# or drop it at tests/editor-gauntlet/local/device-perf-note.md (gitignored).
-# Requires $ANDROID_SERIAL (a physical phone, or `just qa-claim android`).
-# Deliberately not in `check`/CI — runners have no device.
-#   just test-android-perf              # ~10 min on the reference phone
-#   just test-android-perf --stress     # adds the 50k rung; 30 min+, see the runner
+# Native Android input and command benchmarks on a claimed QA emulator.
 test-android-perf *args:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  [ -n "${ANDROID_SERIAL:-}" ] || {
-    echo 'Set ANDROID_SERIAL to the claimed device (the low-end reference phone; adb devices -l).' >&2
-    echo 'Pool emulators: just qa-claim android' >&2
-    exit 1
-  }
-  # The bundle that ships: no puppet inspector, whose trace wraps every listener.
-  VITE_INCLUDE_TEST_HOOKS=false just android-native
-  node tests/android-editor-perf.mjs "$@"
+  just test-android-ui com.futo.notes.textfirst.TextFirstTypingBenchmarkTest com.futo.notes.textfirst.TextFirstCommandBenchmarkTest "$@"
 
-# The FAST loop for the numbers above: the freshly built editor.html in the
-# phone's own Chrome (same Chromium build as its System WebView), measured with
-# the SAME in-page snippet the gate uses — no APK build, no install. Seconds per
-# run instead of ~10 minutes, so it is what you iterate on; `test-android-perf`
-# is what you confirm on. Also profiles: --profile (a keystroke) and
-# --profile-open (the open) print where the CPU time went.
-#   just test-android-perf-quick                                  # 1000-lines-blocks
-#   just test-android-perf-quick --fixture 10000-lines-blocks --profile
+# Focused native typing benchmark (no browser or web editor).
 test-android-perf-quick *args:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  [ -n "${ANDROID_SERIAL:-}" ] || {
-    echo 'Set ANDROID_SERIAL to the phone (adb devices -l).' >&2
-    exit 1
-  }
-  node tests/android-editor-perf-quick.mjs "$@"
+  just test-android-ui com.futo.notes.textfirst.TextFirstTypingBenchmarkTest "$@"
 
 # Storage-migration stories on the REAL app; CLEARS debug data — claim a device first.
 test-android-storage:

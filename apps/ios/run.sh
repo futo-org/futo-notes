@@ -2,7 +2,6 @@
 # Build & run the FUTO Notes native iOS app on a booted simulator.
 #
 # This is a from-scratch native SwiftUI app that reuses the existing web
-# markdown editor as an embedded WKWebView. It does NOT use Tauri.
 #
 # Usage:
 #   apps/ios/run.sh            # use the booted simulator
@@ -34,10 +33,8 @@ bash scripts/editor-deps.sh
 echo "==> Building Rust note + sync core (UniFFI) -> FutoNotesFfi.xcframework + Swift bindings"
 FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" bash scripts/build-rust-ios.sh
 
-echo "==> Building embedded editor web bundle (single self-contained editor.html)"
 # The shipped bundle plus the puppet inspector (src/app/puppet), with function
 # names kept for its trace. Release scripts (deploy.sh) build it without.
-VITE_INCLUDE_TEST_HOOKS=true node_modules/.bin/vite build --config vite.editor.config.ts
 
 echo "==> Generating Xcode project (xcodegen)"
 ( cd apps/ios && xcodegen generate )

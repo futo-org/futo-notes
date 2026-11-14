@@ -147,8 +147,8 @@ These are observed failures, not generic advice.
 - **M9 — Stale FFI bindings.** Rebuild Rust bindings (`just build-rust-ios` /
   `just build-rust-android`) before native testing. `just *-native` does; direct Xcode/Gradle
   does not.
-- **M10 — One-shell bridge change.** `bridge.ts` and `toolbar.ts` are authoritative. A new message
-  needs both native hosts; toolbar behavior belongs in shared `createToolbarExec` (`src/features/editor/milkdown/toolbarExec.ts`), never a shell.
+- **M10 — One-shell bridge change.** `bridge.ts` and `toolbar.ts` are authoritative. Mobile uses the Rust editor session;
+  desktop web toolbar behavior belongs in shared `createToolbarExec` (`src/features/editor/milkdown/toolbarExec.ts`), never a shell.
 
 ### C. CI and release (the single most-churned area of this repo)
 

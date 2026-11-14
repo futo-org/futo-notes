@@ -96,12 +96,6 @@ drags whoever is typing to another space (parallel QA sessions on one Mac). Pass
 when a human needs to watch, or when measuring anything that awaits a frame — an occluded
 window has its rendering suspended.
 
-## cdp-forward
-
-Debug builds only; re-run after every app restart (the WebView pid changes). `adb forward`
-host ports are machine-global, so the port is per-worktree (15000 + slot; override with
-`$CDP_PORT`). `scripts/cdp-invoke.mjs` honors `$CDP_PORT`.
-
 ## Local crash and feedback collectors
 
 `eval "$(just ports env)"` exports `CRASHLOG_PORT` (`5100 + slot`) for the local collector.

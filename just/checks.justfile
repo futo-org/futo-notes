@@ -57,14 +57,6 @@ check-command-reachability:
 check-platform-discipline:
   node scripts/check-platform-discipline.mjs
 
-# Regenerate the native bridge-coverage specs from packages/editor/src/bridge.ts.
-bridge-spec:
-  pnpm exec tsx scripts/gen-bridge-spec.ts --write
-
-# Fail if the generated native bridge specs have drifted from bridge.ts.
-bridge-spec-check:
-  pnpm exec tsx scripts/gen-bridge-spec.ts --check
-
 # Generate TypeScript records from the Rust-owned Tauri sync IPC contract.
 sync-contract:
   mkdir -p dist

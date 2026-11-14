@@ -8,8 +8,7 @@ import UIKit
 /// a fixed dismiss chevron.
 ///
 /// This view owns NO editing behavior: every tap is handed to `perform`,
-/// which EditorHost routes over the bridge (`FutoEditor.exec`) into the same
-/// toolbarExec.ts commands the web toolbar runs.
+/// which the native renderer routes to Rust editor commands.
 struct EditorToolbarView: View {
     @Environment(\.displayScale) private var displayScale
     @ObservedObject var state: EditorToolbarState

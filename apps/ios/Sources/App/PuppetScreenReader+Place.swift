@@ -1,6 +1,5 @@
 #if DEBUG
     import UIKit
-    import WebKit
 
     @MainActor
     extension PuppetScreenReader {
@@ -23,7 +22,6 @@
             var menu = false
             var view: UIView? = host
             while let current = view {
-                if current is WKWebView { return nil }
                 let name = "\(type(of: current))"
                 if name.contains("ContextMenuContainerView") { menu = true }
                 if region == nil, scroll == nil {

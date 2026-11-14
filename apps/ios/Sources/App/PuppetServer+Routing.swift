@@ -10,7 +10,7 @@
             case .tree:
                 var tree = PuppetScreenReader.tree()
                 tree["controls"] = controlLabels()
-                tree.merge(PuppetServerContract.aim(webview: webviewOnScreen())) { _, aim in aim }
+                tree.merge(PuppetServerContract.aim(webview: nil)) { _, aim in aim }
                 return (200, PuppetServerContract.json(tree))
             case .verb(let name):
                 let registered = PuppetVerbs.shared.verb(named: name)
@@ -27,7 +27,7 @@
                 // A control on the SwiftUI screen itself: registered while that screen is up,
                 // so being registered IS being on this screen.
                 if let registered {
-                    if TextFirstFlag.enabled(), editorNote != nil {
+                    if editorNote != nil {
                         let adapter = PuppetNativeEditor.shared
                         let before = adapter.snapshot()
                         let reply = await screenVerb(registered, body: body)
@@ -45,22 +45,8 @@
                         404, "\(name) needs an open editor; none is on the navigation stack")
                 }
                 if let refusal = await awaitEditorLoaded(for: name) { return refusal }
-                if TextFirstFlag.enabled() {
-                    return await PuppetNativeEditor.shared.perform(
-                        name,
-                        arguments: PuppetServerContract.decodeArguments(from: body))
-                }
-                // The editor's rename alert, which has no verbs, takes a touch before the page.
-                guard webviewOnScreen() != nil else {
-                    return PuppetServerContract.refusal(
-                        503,
-                        "\(name) is the editor's, and a sheet or a dialog is over it; "
-                            + "answer it or GoBack first")
-                }
-                let wrapped = PuppetServerContract.json([
-                    "verb": name, "args": (try? JSONSerialization.jsonObject(with: body)) ?? [:],
-                ])
-                return await forward("do", argsJson: String(decoding: wrapped, as: UTF8.self))
+                return await PuppetNativeEditor.shared.perform(
+                    name, arguments: PuppetServerContract.decodeArguments(from: body))
             case .query("state"):
                 return await state()
             case .query("notes"):
@@ -78,9 +64,7 @@
                 return await observe()
             case .query(let command):
                 // A bracket must close even if its Back gesture left the native editor.
-                if TextFirstFlag.enabled(),
-                    ["trace", "events", "diff", "clipboard"].contains(command)
-                {
+                if ["trace", "events", "diff", "clipboard"].contains(command) {
                     return PuppetNativeEditor.shared.reply(
                         command,
                         arguments: PuppetServerContract.decodeArguments(from: body))
