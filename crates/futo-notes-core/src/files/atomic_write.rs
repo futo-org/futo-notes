@@ -113,6 +113,17 @@ pub(crate) fn write_atomic_bytes_reporting(
         .parent()
         .ok_or_else(|| "invalid file path".to_owned())?;
     fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    write_atomic_bytes_in_existing_parent_reporting(path, bytes, on_create_failure)
+}
+
+pub(crate) fn write_atomic_bytes_in_existing_parent_reporting(
+    path: &Path,
+    bytes: &[u8],
+    on_create_failure: CreateFailure,
+) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "invalid file path".to_owned())?;
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -146,6 +157,17 @@ pub(crate) fn create_new_atomic_reporting(
         .parent()
         .ok_or_else(|| "invalid file path".to_owned())?;
     fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    create_new_atomic_in_existing_parent_reporting(path, bytes, on_create_failure)
+}
+
+pub(crate) fn create_new_atomic_in_existing_parent_reporting(
+    path: &Path,
+    bytes: &[u8],
+    on_create_failure: CreateFailure,
+) -> Result<bool, String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "invalid file path".to_owned())?;
     let name = path
         .file_name()
         .and_then(|name| name.to_str())

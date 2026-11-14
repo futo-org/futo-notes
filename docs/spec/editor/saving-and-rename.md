@@ -72,6 +72,8 @@
   → NoteEditorScreen.kt / NoteEditorView.swift
 - Leaving the editor flushes a pending save only if the content changed. The
   engine then decides whether the note is written, recreated, or parked.
+- A dirty draft whose original parent folder disappeared refuses its ordinary save, clean-merge write, conflict parking or same-folder title rename and remains pending with the native save-failure message; it never recreates a folder renamed or removed outside the app, including a folder moved between the save decision and installation. Filesystem aliases count as the same parent. A peer-deleted note whose parent still exists retains the ordinary edit-wins recreation rule; an explicit move to a different destination folder may create that requested folder. → crates/futo-notes-store/src/flush.rs, `commit.rs`, `editor_draft.rs`; `a_draft_does_not_recreate_an_externally_renamed_folder`, `a_folder_removed_inside_the_draft_install_window_stays_removed`, the `does_not_resurrect_a_moved_parent` regressions and `an_explicit_draft_move_can_create_its_requested_destination_parent`
+- If a same-folder retitle already staged the note when its parent disappears, its failed rename or later crash recovery preserves the staged body as a collision-safe `<title> (recovered)` note at the vault root, never recreating the vanished folder or overwriting an existing root note. Recovery recognizes an already-installed copy, removes the staging artifact only after the body is durable, and preserves the final identity for sync when finishing a staged transaction. → crates/futo-notes-store/src/rename_journal/{moves,recovery}.rs; `a_retitle_whose_parent_moves_after_staging_recovers_visibly_without_recreating_it`, `recovery_of_a_retitle_with_a_missing_parent_keeps_one_visible_root_copy`
 - A confirmed local delete is the final editor mutation for that note. Android
   serializes body saves, title flush/rename, conflict adoption, the complete
   flush-and-move transaction (including its final id update), and delete through
@@ -173,7 +175,7 @@
   comparison is normalized; the visible editor title keeps its whitespace.
 - A duplicate title blocks the rename and shows the inline warning text
   "A note with this name already exists". Duplicates are judged as the store
-  judges collisions — case- and Unicode-normalization-insensitively — so `Test`
+  judges collisions — full Unicode case-folding and normalization-insensitively — so `Test`
   beside `test` warns rather than being saved as `Test-2`. The body still saves,
   under the note's current name (`Untitled` for a note never saved), and the
   field keeps the typed title until it is changed to a free one.
@@ -210,6 +212,7 @@
   `createNoteTitleController.svelte.ts` `handleBlur`,
   `$shared/dom/pointerGesture.ts` `runWhenPointerIdle`;
   tests/p2-regressions.spec.ts, src/shared/dom/pointerGesture.test.ts
+
 - The shared attached editor follows explicit committed remote rename pairs through the local note
   engine's external-change projection, including its authoritative collision-resolved destination.
   Retargeting preserves source, selection, composition, revision and Undo history; the original saved

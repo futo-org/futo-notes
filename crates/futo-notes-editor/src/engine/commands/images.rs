@@ -204,10 +204,17 @@ impl Engine {
     /// A caret strictly inside an image moved to the image's nearer edge
     /// (after, on a tie): an atom's only caret stops are before and after
     /// it, so input at a caret never lands in its hidden source. A selection
-    /// is kept as it is, image or not.
+    /// touching any part of an image includes the whole atom.
     pub(crate) fn outside_images(&self, range: DisplayRange) -> DisplayRange {
         if range.start != range.end {
-            return range;
+            let mut whole = range;
+            for image in self.images_in(range.start.0, range.end.0) {
+                if image.start.0 < range.end.0 && range.start.0 < image.end.0 {
+                    whole.start.0 = whole.start.0.min(image.start.0);
+                    whole.end.0 = whole.end.0.max(image.end.0);
+                }
+            }
+            return whole;
         }
         let at = range.start.0;
         let Some(image) = self

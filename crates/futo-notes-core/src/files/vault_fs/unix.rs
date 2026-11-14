@@ -22,10 +22,12 @@ mod writes;
 
 pub(super) use directories::{clear, create_dir, exists, remove_dir, set_mtime_ms, sync_parent};
 pub(super) use no_replace::{
-    create_new, create_new_strict, move_no_replace, move_no_replace_strict, rename_case,
+    create_new, create_new_in_existing_parent, create_new_strict, move_no_replace,
+    move_no_replace_in_existing_parent, move_no_replace_strict, rename_case,
 };
 pub(super) use writes::{
     create_dir_all, remove, remove_local, rename, rename_local, write_atomic, write_atomic_local,
+    write_atomic_local_in_existing_parent,
 };
 
 // rustix's 32-bit Android statat probes statx, which pre-API-30 seccomp

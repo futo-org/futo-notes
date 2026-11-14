@@ -62,6 +62,99 @@ fn entries(root: &Path, folder: &str) -> Vec<String> {
 }
 
 #[test]
+fn a_retitle_whose_parent_moves_after_staging_recovers_visibly_without_recreating_it() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("before/note", "saved body", None).unwrap();
+    store
+        .write("note (recovered)", "root peer body", None)
+        .unwrap();
+    let from = root.0.join("before");
+    let to = root.0.join("after");
+    tests_support::on_step(move |name| {
+        if name == "stage" {
+            fs::rename(&from, &to).unwrap();
+        }
+        Ok(())
+    });
+    let result = store.save_draft_as("before/note", "before/renamed", "saved body", "saved body");
+    tests_support::clear();
+    assert!(
+        result.is_err(),
+        "retitle must refuse the vanished parent: {result:?}"
+    );
+    assert!(!root.0.join("before").exists());
+    assert!(root.0.join("after").is_dir());
+    assert_eq!(store.read("note (recovered)").unwrap(), "root peer body");
+    let recovered = store
+        .snapshot()
+        .notes
+        .into_iter()
+        .find(|note| {
+            note.folder.is_empty()
+                && note.id != "note (recovered)"
+                && store.read(&note.id).as_deref() == Ok("saved body")
+        })
+        .expect("staged body must be visible at the root");
+    let reopened = super::store(&root);
+    reopened.bootstrap().unwrap();
+    assert_eq!(reopened.read(&recovered.id).unwrap(), "saved body");
+    assert!(!root.0.join("before").exists());
+    assert!(intents(&root.0).is_empty());
+    assert!(!root.0.join(".local-renames").exists());
+}
+
+#[test]
+fn recovery_of_a_retitle_with_a_missing_parent_keeps_one_visible_root_copy() {
+    for cut in ["stage", "move .local-renames"] {
+        for linked_recovery in [false, true] {
+            let root = TestRoot::new();
+            let store = scoped(&root);
+            store.write("before/note", "saved body", None).unwrap();
+            store
+                .write("note (recovered)", "root peer body", None)
+                .unwrap();
+            let image = crash_image(&root, cut, || {
+                store
+                    .save_draft_as("before/note", "before/renamed", "saved body", "saved body")
+                    .unwrap();
+            });
+            fs::rename(image.0.join("before"), image.0.join("after")).unwrap();
+            if linked_recovery {
+                fs::hard_link(staged_file(&image.0), image.0.join("note (recovered)-2.md"))
+                    .unwrap();
+            }
+            for _ in 0..2 {
+                let restarted = LocalNoteStore::new(image.0.clone());
+                let result = restarted.bootstrap().unwrap();
+                assert!(!image.0.join("before").exists());
+                assert_eq!(
+                    restarted.read("note (recovered)").unwrap(),
+                    "root peer body"
+                );
+                let kept = result
+                    .snapshot
+                    .notes
+                    .iter()
+                    .filter(|note| {
+                        note.folder.is_empty()
+                            && restarted.read(&note.id).as_deref() == Ok("saved body")
+                    })
+                    .count();
+                assert_eq!(kept, 1, "{cut}, linked recovery={linked_recovery}");
+                assert!(!image.0.join(".local-renames").exists());
+                for (_, target) in intents(&image.0) {
+                    assert_eq!(
+                        fs::read_to_string(image.0.join(target)).unwrap(),
+                        "saved body"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn a_rename_records_its_exact_collision_resolved_move_for_sync() {
     let root = TestRoot::new();
     let store = scoped(&root);

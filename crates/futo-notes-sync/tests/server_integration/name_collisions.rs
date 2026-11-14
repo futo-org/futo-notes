@@ -179,3 +179,178 @@ async fn f5_nfc_nfd_collision_no_note_lost() {
     common::cleanup(&vb);
     common::cleanup(&vc);
 }
+
+/// #251: independent offline creations with exactly the same name survive on BOTH
+/// original clients, including repeated push/pull after conflict placement.
+#[tokio::test]
+#[ignore = "requires a running FUTO_TEST_SERVER"]
+async fn same_name_offline_creations_preserve_both_bodies_on_both_clients() {
+    let server = common::server_url().expect("requires FUTO_TEST_SERVER");
+    let (mut a, va) = fresh_client(&server).await;
+    let (mut b, vb) = fresh_client(&server).await;
+    let tag = common::unique("same-name");
+    let name = format!("{tag}.md");
+    let bodies = [
+        format!("{tag} iOS original body\n"),
+        format!("{tag} Milkdown original body\n"),
+    ];
+    std::fs::write(va.join(&name), &bodies[0]).unwrap();
+    std::fs::write(vb.join(&name), &bodies[1]).unwrap();
+    for _ in 0..3 {
+        a = futo_notes_sync::run_sync(&a, &va, &no_progress, &no_pre_write)
+            .await
+            .unwrap()
+            .1;
+        b = futo_notes_sync::run_sync(&b, &vb, &no_progress, &no_pre_write)
+            .await
+            .unwrap()
+            .1;
+    }
+    for vault in [&va, &vb] {
+        let mut actual: Vec<_> = std::fs::read_dir(vault)
+            .unwrap()
+            .map(Result::unwrap)
+            .filter(|e| e.path().extension().is_some_and(|x| x == "md"))
+            .map(|e| std::fs::read_to_string(e.path()).unwrap())
+            .filter(|body| body.starts_with(&tag))
+            .collect();
+        let mut expected = bodies.to_vec();
+        actual.sort();
+        expected.sort();
+        assert_eq!(
+            actual, expected,
+            "both independent creations must survive exactly once"
+        );
+    }
+    common::cleanup(&va);
+    common::cleanup(&vb);
+}
+
+/// #124: filesystem aliases remain two independent bodies through bootstrap,
+/// incremental pulls and later edits of either colliding object.
+#[tokio::test]
+#[ignore = "requires a running FUTO_TEST_SERVER"]
+async fn unicode_alias_pull_preserves_both_bodies() {
+    fn assert_bodies(vault: &Path, tag: &str, expected: [&str; 2]) {
+        let mut actual: Vec<_> = std::fs::read_dir(vault)
+            .unwrap()
+            .map(Result::unwrap)
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "md")
+            })
+            .map(|entry| std::fs::read_to_string(entry.path()).unwrap())
+            .filter(|body| body.starts_with(tag))
+            .collect();
+        let mut expected: Vec<_> = expected.into_iter().map(str::to_owned).collect();
+        actual.sort();
+        expected.sort();
+        assert_eq!(
+            actual,
+            expected,
+            "Unicode collision bodies in {}",
+            vault.display()
+        );
+    }
+
+    fn edit_body(vault: &Path, before: &str, after: &str) {
+        let paths: Vec<_> = std::fs::read_dir(vault)
+            .unwrap()
+            .map(Result::unwrap)
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "md")
+            })
+            .filter(|entry| std::fs::read_to_string(entry.path()).unwrap() == before)
+            .map(|entry| entry.path())
+            .collect();
+        assert_eq!(paths.len(), 1, "exactly one editable copy of {before:?}");
+        std::fs::write(&paths[0], after).unwrap();
+    }
+
+    let server = common::server_url().expect("requires FUTO_TEST_SERVER");
+    for (left, right) in [
+        ("\u{017f}", "s"),
+        ("\u{00df}", "ss"),
+        ("\u{fb01}", "fi"),
+        ("\u{03a3}", "\u{03c3}"),
+        ("\u{03c2}", "\u{03c3}"),
+    ] {
+        let tag = common::unique("unicode-alias");
+        let local = format!("{tag} local Unicode body\n");
+        let peer = format!("{tag} peer Unicode body\n");
+        let (mut a, va) = fresh_client(&server).await;
+        let (mut b, vb) = fresh_client(&server).await;
+        std::fs::write(va.join(format!("{tag}-{left}.md")), &local).unwrap();
+        std::fs::write(vb.join(format!("{tag}-{right}.md")), &peer).unwrap();
+        a = futo_notes_sync::run_push(&a, &va, &no_progress, &no_pre_write)
+            .await
+            .unwrap()
+            .1;
+        b = futo_notes_sync::run_push(&b, &vb, &no_progress, &no_pre_write)
+            .await
+            .unwrap()
+            .1;
+        let (mut c, vc) = fresh_client(&server).await;
+        c = futo_notes_sync::run_sync(&c, &vc, &no_progress, &no_pre_write)
+            .await
+            .unwrap()
+            .1;
+        for _ in 0..3 {
+            a = futo_notes_sync::run_sync(&a, &va, &no_progress, &no_pre_write)
+                .await
+                .unwrap()
+                .1;
+            b = futo_notes_sync::run_sync(&b, &vb, &no_progress, &no_pre_write)
+                .await
+                .unwrap()
+                .1;
+        }
+        for vault in [&va, &vb, &vc] {
+            assert_bodies(vault, &tag, [&local, &peer]);
+        }
+
+        let local_edit = format!("{tag} local Unicode body edited on A\n");
+        edit_body(&va, &local, &local_edit);
+        a = futo_notes_sync::run_sync(&a, &va, &no_progress, &no_pre_write)
+            .await
+            .unwrap()
+            .1;
+        b = futo_notes_sync::run_sync(&b, &vb, &no_progress, &no_pre_write)
+            .await
+            .unwrap()
+            .1;
+        c = futo_notes_sync::run_sync(&c, &vc, &no_progress, &no_pre_write)
+            .await
+            .unwrap()
+            .1;
+        for vault in [&va, &vb, &vc] {
+            assert_bodies(vault, &tag, [&local_edit, &peer]);
+        }
+
+        let peer_edit = format!("{tag} peer Unicode body edited on B\n");
+        edit_body(&vb, &peer, &peer_edit);
+        _ = futo_notes_sync::run_sync(&b, &vb, &no_progress, &no_pre_write)
+            .await
+            .unwrap()
+            .1;
+        _ = futo_notes_sync::run_sync(&a, &va, &no_progress, &no_pre_write)
+            .await
+            .unwrap()
+            .1;
+        _ = futo_notes_sync::run_sync(&c, &vc, &no_progress, &no_pre_write)
+            .await
+            .unwrap()
+            .1;
+        for vault in [&va, &vb, &vc] {
+            assert_bodies(vault, &tag, [&local_edit, &peer_edit]);
+        }
+        common::cleanup(&va);
+        common::cleanup(&vb);
+        common::cleanup(&vc);
+    }
+}

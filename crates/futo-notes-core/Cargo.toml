@@ -36,6 +36,7 @@ hex = "0.4"
 thiserror = "2"
 time = "0.3"
 unicode-normalization = "0.1.25"
+caseless = "0.2.2"
 # Parallel parked-backup recovery scan across sibling directories.
 rayon = "1"
 

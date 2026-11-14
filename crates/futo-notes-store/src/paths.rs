@@ -3,6 +3,11 @@ use std::path::{Path, PathBuf};
 
 use futo_notes_core::files::{collision_key, ensure_safe_note_id, safe_note_path};
 
+pub(crate) fn same_note_parent(left: &str, right: &str) -> bool {
+    collision_key(&futo_notes_model::split_id(left).0)
+        == collision_key(&futo_notes_model::split_id(right).0)
+}
+
 pub(crate) fn unique_note_id(
     root: &Path,
     wanted: &str,

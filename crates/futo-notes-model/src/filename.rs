@@ -36,10 +36,10 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    let lower = name.to_lowercase();
+    let key = futo_notes_core::files::collision_key(name);
     siblings
         .into_iter()
-        .any(|s| s.as_ref().to_lowercase() == lower)
+        .any(|s| futo_notes_core::files::collision_key(s.as_ref()) == key)
 }
 
 /// Trim leading/trailing `/` runs (TS: `relPath.replace(/^\/+|\/+$/g, '')`).

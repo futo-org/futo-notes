@@ -65,6 +65,34 @@ fn collision_check_sees_folded_twins_behind_variant_folders_at_any_depth() {
     );
 }
 
+/// #124: an ordinary overwrite must reject another spelling of an existing
+/// file, not rely on create-new protection. On APFS the pre-fix key let this
+/// write replace the existing body through its filesystem alias.
+#[test]
+fn write_refuses_unicode_filesystem_aliases_without_overwriting() {
+    for (existing, requested) in [
+        ("\u{017f}", "s"),
+        ("\u{00df}", "ss"),
+        ("\u{fb01}", "fi"),
+        ("\u{03a3}", "\u{03c3}"),
+        ("\u{03c2}", "\u{03c3}"),
+        ("\u{017f}/note", "s/note"),
+        ("\u{00df}/note", "ss/note"),
+    ] {
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.write(existing, "original body", None).unwrap();
+        let result = store.write(requested, "replacement body", None);
+        assert!(
+            result.is_err(),
+            "{requested:?} must not overwrite {existing:?}; disk now {:?}",
+            store.read(existing)
+        );
+        assert_eq!(store.read(existing).unwrap(), "original body");
+        assert_eq!(store.snapshot().notes.len(), 1);
+    }
+}
+
 #[test]
 fn rename_never_overwrites_a_case_or_unicode_colliding_destination() {
     let root = TestRoot::new();

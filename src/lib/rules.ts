@@ -6,6 +6,7 @@ export {
   validateTitle,
   validateFolderName,
   hasCaseInsensitiveSiblingCollision,
+  collisionKey,
   isValidTagName,
   normalizeTagName,
   extractTags,

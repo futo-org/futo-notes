@@ -1,3 +1,4 @@
+use caseless::Caseless;
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 
@@ -42,7 +43,7 @@ pub struct FilenameIssue {
 }
 
 pub fn collision_key(filename: &str) -> String {
-    filename.nfc().collect::<String>().to_lowercase()
+    filename.nfd().default_case_fold().nfc().collect()
 }
 
 pub fn collides_but_differs(left: &str, right: &str) -> bool {
@@ -183,6 +184,23 @@ mod tests {
             validate_title(&"😀".repeat(MAX_TITLE_LENGTH / 2 + 1))[0].kind,
             FilenameIssueKind::TooLong
         );
+    }
+
+    #[test]
+    fn collision_key_folds_filesystem_unicode_aliases() {
+        for (left, right) in [
+            ("\u{017f}.md", "s.md"),
+            ("\u{00df}.md", "ss.md"),
+            ("\u{fb01}.md", "fi.md"),
+            ("\u{03a3}.md", "\u{03c3}.md"),
+            ("\u{03c2}.md", "\u{03c3}.md"),
+        ] {
+            assert_eq!(
+                collision_key(left),
+                collision_key(right),
+                "{left} / {right}"
+            );
+        }
     }
 
     #[test]

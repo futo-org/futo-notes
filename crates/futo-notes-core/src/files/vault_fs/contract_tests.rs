@@ -73,6 +73,99 @@ macro_rules! vault_fs_contract {
                 );
             }
 
+            #[test]
+            fn draft_create_requires_the_existing_parent_and_never_replaces_a_file() {
+                let root = tempfile::tempdir().unwrap();
+                assert!(vault_fs::create_new_in_existing_parent(
+                    root.path(),
+                    "missing/note.md",
+                    b"draft"
+                )
+                .is_err());
+                assert!(!root.path().join("missing").exists());
+                std::fs::create_dir(root.path().join("existing")).unwrap();
+                assert!(vault_fs::create_new_in_existing_parent(
+                    root.path(),
+                    "existing/note.md",
+                    b"first"
+                )
+                .unwrap());
+                assert!(!vault_fs::create_new_in_existing_parent(
+                    root.path(),
+                    "existing/note.md",
+                    b"second"
+                )
+                .unwrap());
+                assert_eq!(
+                    std::fs::read(root.path().join("existing/note.md")).unwrap(),
+                    b"first"
+                );
+            }
+
+            #[test]
+            fn draft_replace_requires_the_existing_parent() {
+                let root = tempfile::tempdir().unwrap();
+                assert!(vault_fs::write_atomic_local_in_existing_parent(
+                    root.path(),
+                    "missing/note.md",
+                    b"draft"
+                )
+                .is_err());
+                assert!(!root.path().join("missing").exists());
+                std::fs::create_dir(root.path().join("existing")).unwrap();
+                std::fs::write(root.path().join("existing/note.md"), b"before").unwrap();
+                vault_fs::write_atomic_local_in_existing_parent(
+                    root.path(),
+                    "existing/note.md",
+                    b"after",
+                )
+                .unwrap();
+                assert_eq!(
+                    std::fs::read(root.path().join("existing/note.md")).unwrap(),
+                    b"after"
+                );
+            }
+
+            #[test]
+            fn retitle_move_requires_the_existing_destination_parent_and_never_replaces() {
+                let root = tempfile::tempdir().unwrap();
+                std::fs::write(root.path().join("stage.md"), b"staged body").unwrap();
+                assert!(vault_fs::move_no_replace_in_existing_parent(
+                    root.path(),
+                    "stage.md",
+                    "missing/note.md"
+                )
+                .is_err());
+                assert!(!root.path().join("missing").exists());
+                assert_eq!(
+                    std::fs::read(root.path().join("stage.md")).unwrap(),
+                    b"staged body"
+                );
+                std::fs::create_dir(root.path().join("existing")).unwrap();
+                std::fs::write(root.path().join("existing/peer.md"), b"peer body").unwrap();
+                assert!(!vault_fs::move_no_replace_in_existing_parent(
+                    root.path(),
+                    "stage.md",
+                    "existing/peer.md"
+                )
+                .unwrap());
+                assert_eq!(
+                    std::fs::read(root.path().join("existing/peer.md")).unwrap(),
+                    b"peer body"
+                );
+                assert!(vault_fs::move_no_replace_in_existing_parent(
+                    root.path(),
+                    "stage.md",
+                    "existing/note.md"
+                )
+                .unwrap());
+                assert_eq!(
+                    std::fs::read(root.path().join("existing/note.md")).unwrap(),
+                    b"staged body"
+                );
+                assert!(!root.path().join("stage.md").exists());
+            }
+
             /// Controlled Folder Access over an existing vault, or a read-only
             /// mount: the folder still reads, so a refused create directly in it
             /// is the only sign it is unusable — a file, a folder, or a folder

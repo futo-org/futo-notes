@@ -59,7 +59,7 @@
           "expected": "abc"
         },
         {
-          "input": "ab",
+          "input": "a\u007fb",
           "expected": "ab"
         },
         {
@@ -177,7 +177,7 @@
           "expected": []
         },
         {
-          "input": "ab",
+          "input": "a\u007fb",
           "expected": [
             "forbidden_chars"
           ]
@@ -446,6 +446,78 @@
             "siblings": []
           },
           "expected": false
+        },
+        {
+          "input": {
+            "name": "\u017f.md",
+            "siblings": [
+              "s.md"
+            ]
+          },
+          "expected": true
+        },
+        {
+          "input": {
+            "name": "\u00df.md",
+            "siblings": [
+              "ss.md"
+            ]
+          },
+          "expected": true
+        },
+        {
+          "input": {
+            "name": "\ufb01.md",
+            "siblings": [
+              "fi.md"
+            ]
+          },
+          "expected": true
+        },
+        {
+          "input": {
+            "name": "\u03a3.md",
+            "siblings": [
+              "\u03c3.md"
+            ]
+          },
+          "expected": true
+        },
+        {
+          "input": {
+            "name": "\u03c2.md",
+            "siblings": [
+              "\u03c3.md"
+            ]
+          },
+          "expected": true
+        },
+        {
+          "input": {
+            "name": "caf\u00e9.md",
+            "siblings": [
+              "caf\u00e9.md"
+            ]
+          },
+          "expected": true
+        },
+        {
+          "input": {
+            "name": "cafe\u0301.md",
+            "siblings": [
+              "caf\u00e9.md"
+            ]
+          },
+          "expected": true
+        },
+        {
+          "input": {
+            "name": "\u0131",
+            "siblings": [
+              "I"
+            ]
+          },
+          "expected": false
         }
       ]
     },
@@ -564,36 +636,36 @@
       "fn": "sanitizeTitle",
       "cases": [
         {
-          "input": "note 🎉👨‍👩‍👧‍👦🇺🇸 title",
-          "expected": "note 🎉👨‍👩‍👧‍👦🇺🇸 title"
+          "input": "note \ud83c\udf89\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66\ud83c\uddfa\ud83c\uddf8 title",
+          "expected": "note \ud83c\udf89\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66\ud83c\uddfa\ud83c\uddf8 title"
         },
         {
-          "input": "🎉👨‍👩‍👧‍👦🇺🇸",
-          "expected": "🎉👨‍👩‍👧‍👦🇺🇸"
+          "input": "\ud83c\udf89\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66\ud83c\uddfa\ud83c\uddf8",
+          "expected": "\ud83c\udf89\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66\ud83c\uddfa\ud83c\uddf8"
         },
         {
-          "input": "a<b>🎉👨‍👩‍👧‍👦🇺🇸c:d",
-          "expected": "ab🎉👨‍👩‍👧‍👦🇺🇸cd"
+          "input": "a<b>\ud83c\udf89\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66\ud83c\uddfa\ud83c\uddf8c:d",
+          "expected": "ab\ud83c\udf89\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66\ud83c\uddfa\ud83c\uddf8cd"
         },
         {
           "input": "tab\there\nnewline",
           "expected": "tabherenewline"
         },
         {
-          "input": "café résumé naïve",
-          "expected": "café résumé naïve"
+          "input": "caf\u00e9 r\u00e9sum\u00e9 na\u00efve",
+          "expected": "caf\u00e9 r\u00e9sum\u00e9 na\u00efve"
         },
         {
-          "input": "Ωμέγα Ελληνικά",
-          "expected": "Ωμέγα Ελληνικά"
+          "input": "\u03a9\u03bc\u03ad\u03b3\u03b1 \u0395\u03bb\u03bb\u03b7\u03bd\u03b9\u03ba\u03ac",
+          "expected": "\u03a9\u03bc\u03ad\u03b3\u03b1 \u0395\u03bb\u03bb\u03b7\u03bd\u03b9\u03ba\u03ac"
         },
         {
-          "input": "بسم الله",
-          "expected": "بسم الله"
+          "input": "\u0628\u0633\u0645 \u0627\u0644\u0644\u0647",
+          "expected": "\u0628\u0633\u0645 \u0627\u0644\u0644\u0647"
         },
         {
-          "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx🎉👨‍👩‍👧‍👦🇺🇸",
-          "expected": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx🎉👨‍👩‍👧‍👦🇺🇸"
+          "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83c\udf89\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66\ud83c\uddfa\ud83c\uddf8",
+          "expected": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83c\udf89\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66\ud83c\uddfa\ud83c\uddf8"
         }
       ]
     },
@@ -602,17 +674,17 @@
       "fn": "validateTitle",
       "cases": [
         {
-          "input": "valid 🎉👨‍👩‍👧‍👦🇺🇸 title",
+          "input": "valid \ud83c\udf89\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66\ud83c\uddfa\ud83c\uddf8 title",
           "expected": []
         },
         {
-          "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 🎉👨‍👩‍👧‍👦🇺🇸",
+          "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \ud83c\udf89\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66\ud83c\uddfa\ud83c\uddf8",
           "expected": [
             "too_long"
           ]
         },
         {
-          "input": ".🎉👨‍👩‍👧‍👦🇺🇸.",
+          "input": ".\ud83c\udf89\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66\ud83c\uddfa\ud83c\uddf8.",
           "expected": [
             "leading_dots",
             "trailing_dots"
@@ -726,6 +798,52 @@
             "siblings": []
           },
           "expected": false
+        }
+      ]
+    },
+    {
+      "op": "collisionKey",
+      "fn": "collisionKey",
+      "cases": [
+        {
+          "input": "\u017f.md",
+          "expected": "s.md"
+        },
+        {
+          "input": "\u00df.md",
+          "expected": "ss.md"
+        },
+        {
+          "input": "\ufb01.md",
+          "expected": "fi.md"
+        },
+        {
+          "input": "\u03a3.md",
+          "expected": "\u03c3.md"
+        },
+        {
+          "input": "\u03c2.md",
+          "expected": "\u03c3.md"
+        },
+        {
+          "input": "caf\u00e9.md",
+          "expected": "caf\u00e9.md"
+        },
+        {
+          "input": "cafe\u0301.md",
+          "expected": "caf\u00e9.md"
+        },
+        {
+          "input": "I.md",
+          "expected": "i.md"
+        },
+        {
+          "input": "\u0131.md",
+          "expected": "\u0131.md"
+        },
+        {
+          "input": "\u0130.md",
+          "expected": "i\u0307.md"
         }
       ]
     }

@@ -130,8 +130,7 @@ pub(super) fn type_step(
     let text = random.pick(TYPED);
     let selection = engine.selection();
     let collapsed = selection.start == selection.end;
-    // A caret inside an image types at the image's nearer edge (an atom's
-    // only caret stops are its edges).
+    // Carets snap to an image edge; a nonempty range includes any image it touches.
     let stop = engine.outside_images(selection);
     let at = if stop == selection {
         engine.caret_source()
@@ -152,12 +151,12 @@ pub(super) fn type_step(
     // A selection's edit stays inside the source it spans: from the hidden
     // pieces at its start to those at its end (from 0 over front matter).
     let spanned = {
-        let start = if engine.metadata_end().is_some() && selection.start.0 == 0 {
+        let start = if engine.metadata_end().is_some() && stop.start.0 == 0 {
             0
         } else {
-            engine.source_span(selection.start.0).0
+            engine.source_span(stop.start.0).0
         };
-        start..engine.source_span(selection.end.0).1
+        start..engine.source_span(stop.end.0).1
     };
     // ... except that a fence frame line it cuts goes after the line the
     // text joins (`kept_frame`), at most through the line after that one.

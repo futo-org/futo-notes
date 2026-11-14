@@ -255,12 +255,29 @@ pub fn open_optional(root: &Path, relative: &str) -> Result<Option<std::fs::File
 pub fn create_new(root: &Path, relative: &str, bytes: &[u8]) -> Result<bool, String> {
     platform::create_new(root, relative, bytes)
 }
+/// Exclusive install for an existing note's dirty draft. A removed or moved
+/// parent is a refusal, never an instruction to recreate its old directory.
+pub fn create_new_in_existing_parent(
+    root: &Path,
+    relative: &str,
+    bytes: &[u8],
+) -> Result<bool, String> {
+    platform::create_new_in_existing_parent(root, relative, bytes)
+}
 /// Exclusive install with strict directory durability, used by sync's required-absent paths.
 pub fn create_new_strict(root: &Path, relative: &str, bytes: &[u8]) -> Result<bool, String> {
     platform::create_new_strict(root, relative, bytes)
 }
 pub fn move_no_replace(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
     platform::move_no_replace(root, source, destination)
+}
+/// A move into an existing editor parent, never recreating it after an external move.
+pub fn move_no_replace_in_existing_parent(
+    root: &Path,
+    source: &str,
+    destination: &str,
+) -> Result<bool, String> {
+    platform::move_no_replace_in_existing_parent(root, source, destination)
 }
 pub fn move_no_replace_strict(
     root: &Path,
@@ -281,6 +298,14 @@ pub fn rename_case(root: &Path, source: &str, destination: &str) -> Result<(), S
 /// Sync uses `write_atomic` and retains strict journal durability.
 pub fn write_atomic_local(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
     platform::write_atomic_local(root, relative, bytes)
+}
+/// Replace an editor draft without recreating a parent moved outside the app.
+pub fn write_atomic_local_in_existing_parent(
+    root: &Path,
+    relative: &str,
+    bytes: &[u8],
+) -> Result<(), String> {
+    platform::write_atomic_local_in_existing_parent(root, relative, bytes)
 }
 pub fn create_dir(root: &Path, relative: &str) -> Result<(), String> {
     platform::create_dir(root, relative)

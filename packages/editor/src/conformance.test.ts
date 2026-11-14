@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
+  collisionKey,
   sanitizeTitle,
   validateTitle,
   isValidTitle,
@@ -43,6 +44,7 @@ const kinds = (issues: { kind: string }[]) => issues.map((i) => i.kind);
 
 // Dispatch a language-neutral op name → the actual TS computation.
 const OPS: Record<string, (input: unknown) => unknown> = {
+  collisionKey: (i) => collisionKey(i as string),
   sanitizeTitle: (i) => sanitizeTitle(i as string),
   validateTitle: (i) => kinds(validateTitle(i as string)),
   isValidTitle: (i) => isValidTitle(i as string),

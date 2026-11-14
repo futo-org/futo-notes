@@ -44,9 +44,17 @@ impl LocalNoteStore {
     ) -> Result<MutationResult, String> {
         paths::note_path(&self.root, id)?;
         paths::note_path(&self.root, wanted_id)?;
+        // An explicit move may create its requested destination folder. A title
+        // rename, including a filesystem alias of the same folder, must not
+        // resurrect a parent moved outside the app.
+        let create_destination_parent = !paths::same_note_parent(id, wanted_id);
         match self.read_note_file(id) {
             Ok(current) if current != base && current != content => {
-                let parked = self.park_conflict_draft(wanted_id, content)?;
+                let parked = self.park_draft_with_parent_policy(
+                    wanted_id,
+                    content,
+                    create_destination_parent,
+                )?;
                 if let Some(mutation) = parked.mutation {
                     return Ok(mutation);
                 }
@@ -59,12 +67,17 @@ impl LocalNoteStore {
             }
             Ok(current) => {
                 if current != content {
-                    self.write_raw(id, content, None)?;
+                    self.write_draft_raw(id, content, None)?;
                 }
                 self.rename_raw(id, wanted_id)
             }
             Err(error) if error.kind() == ErrorKind::NotFound => {
-                let metadata = self.install_new(wanted_id, content, None)?;
+                let metadata = self.install_with_parent_policy(
+                    wanted_id,
+                    content,
+                    None,
+                    create_destination_parent,
+                )?;
                 Ok(self.upsert_mutation(metadata))
             }
             Err(error) => Err(io_error(error)),

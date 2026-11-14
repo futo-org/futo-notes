@@ -15,7 +15,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "remark-frontmatter": "5.0.0"
+    "remark-frontmatter": "5.0.0",
+    "unicode-case-folding": "1.1.0"
   },
   "devDependencies": {
     "mdast-util-from-markdown": "2.1.0",

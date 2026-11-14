@@ -1,3 +1,5 @@
+import { caseFold } from 'unicode-case-folding';
+
 /**
  * Single source of truth for filename/title sanitization rules.
  * Used by both client and server.
@@ -191,20 +193,24 @@ export function isValidFolderName(name: string): boolean {
   return validateFolderName(name).length === 0;
 }
 
+/** The canonical full Unicode case-folded, normalization-insensitive filename key. */
+export function collisionKey(filename: string): string {
+  // unicode-case-folding 1.1.0 and Rust's caseless 0.2.2 both use Unicode 16.
+  // Normalize on both sides of folding: folding can introduce combining characters.
+  return caseFold(filename.normalize('NFD')).normalize('NFC');
+}
+
 /**
- * Check whether a proposed folder name collides with an existing sibling.
- * Compares case-insensitively across siblings — refuses to create two
- * folders at the same level whose names differ only in case. The
- * underlying filesystem may or may not be case-sensitive; we enforce this
- * ourselves to keep sync deterministic across mixed environments.
+ * Refuse sibling aliases even on case-sensitive filesystems, so note and folder
+ * allocation stays safe across a mixed-device sync account.
  */
 export function hasCaseInsensitiveSiblingCollision(
   name: string,
   siblings: Iterable<string>,
 ): boolean {
-  const lower = name.toLowerCase();
+  const key = collisionKey(name);
   for (const sibling of siblings) {
-    if (sibling.toLowerCase() === lower) return true;
+    if (collisionKey(sibling) === key) return true;
   }
   return false;
 }
