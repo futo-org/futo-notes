@@ -19,7 +19,7 @@ import org.json.JSONObject
 
 /** Where the editor WebView is on screen, or null: under a dialog or menu a touch cannot reach it. */
 private fun webviewOnScreen(bound: Binding): IntRect? {
-    val webView = bound.host.webView
+    val webView = bound.host?.webView ?: return null
     val covered = touchModalAbove(windows(bound), webView.rootView) >= 0
     val onScreen = webView.isAttachedToWindow && webView.isShown && webView.width > 0 &&
         webView.height > 0 && !covered
@@ -61,7 +61,7 @@ internal fun tree(anchor: View, all: List<View>, bound: Binding?): PuppetReply {
  * screen's registered ones (a dialog's alone while one is up).
  */
 private fun controlLabels(bound: Binding): JSONObject {
-    val localization = bound.host.localization ?: return JSONObject()
+    val localization = bound.localization
     val current = bound.navigator.currentScreen
     val native = if (PuppetVerbs.modalUp()) {
         emptyList()

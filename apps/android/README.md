@@ -59,7 +59,8 @@ and editor assets:
 just android-native        # build, install Debug, and launch on a claimed device
 just build-android-native  # compile without installing
 just test-android-native   # JVM tests; rebuilds Rust bindings first
-just test-android-native-ui # Compose instrumentation tests on $ANDROID_SERIAL
+just test-android-ui       # instrumentation tests on the claimed emulator; any classes in one call
+just test-android-native-ui # the same through Gradle connectedDirectDebugAndroidTest (CI parity)
 ```
 
 [AGENTS.md](AGENTS.md) covers fresh-worktree setup, device claims, and the

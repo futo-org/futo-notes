@@ -98,6 +98,9 @@ class NotesStore(
 
     /** Serializes every vault-root access, including image writes, with migration. */
     internal val storageMigrationGate = StorageMigrationGate()
+    /** Live native sessions own their drafts; migration drains them on their
+     * editor threads before touching the vault. Registered on the main thread. */
+    internal val nativeEditorDrafts = mutableMapOf<Any, suspend () -> Boolean>()
     val isVaultMigrationStarted: Boolean
         get() = storageMigrationGate.isMigrationStarted
 
@@ -107,6 +110,7 @@ class NotesStore(
     internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _localTreeChanges = MutableSharedFlow<SyncSummary>(extraBufferCapacity = 1)
     private var localTreeChangeTail: Job? = null
+    internal var localTreeRetry = LocalTreeRetry()
 
     /** Completed sync cycles, emitted after their exact list mutation is applied. */
     val localTreeChanges = _localTreeChanges.asSharedFlow()
@@ -241,44 +245,25 @@ class NotesStore(
         localTreeChangeTail = scope.launch {
             previous?.join()
             if (resetting || epoch != vaultEpoch) return@launch
-            try {
-                val mutation = withCore {
-                    core.refreshExternalChanges(
-                        summary.updatedIds,
-                        summary.deletedIds,
-                        summary.renamed,
-                    )
-                }
-                if (resetting || epoch != vaultEpoch) return@launch
-                applyMutation(mutation)
-                _localTreeChanges.emit(summary)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                android.util.Log.w(
-                    "NotesStore",
-                    "scoped local-tree projection failed; rebuilding snapshot",
-                    e,
-                )
-                try {
+            projectLocalTree(
+                retry = localTreeRetry,
+                active = { !resetting && epoch == vaultEpoch },
+                refresh = {
+                    withCore {
+                        core.refreshExternalChanges(summary.updatedIds, summary.deletedIds, summary.renamed)
+                    }
+                },
+                apply = ::applyMutation,
+                rebuild = {
                     val snapshot = withCore {
                         core.rescan()
                         core.scan()
                     }
                     applySnapshot(snapshot.notes, snapshot.folders, epoch)
-                } catch (fallback: CancellationException) {
-                    throw fallback
-                } catch (fallback: Exception) {
-                    android.util.Log.e(
-                        "NotesStore",
-                        "local-tree snapshot recovery failed",
-                        fallback,
-                    )
-                }
-                // The list recovery is best effort, but the open editor can
-                // still reconcile itself from one atomic note read.
-                if (!resetting && epoch == vaultEpoch) _localTreeChanges.emit(summary)
-            }
+                },
+                emit = { _localTreeChanges.emit(summary) },
+                log = { message, error -> android.util.Log.e("NotesStore", message, error) },
+            )
         }
     }
 

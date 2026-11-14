@@ -1,6 +1,7 @@
 ## Markdown elements (rendered / decorated)
 
 - Headings h1–h6, with inline emphasis / code / wikilinks inside.
+- *(Android text-first editor)* Headings retain bold, italic and strikethrough after changing their level; bold is heavier than the semibold heading base, and italic keeps that base weight. Inline markers remain hidden while moving the caret. → apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstSpans.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstGlyphMetricsTest.kt
 - Emphasis: bold, italic, bold-italic, strikethrough — `*` and `_` markers.
 - Code: inline (single and double backtick) and fenced (triple backticks or
   triple tildes, with optional language).
@@ -8,6 +9,7 @@
   fetched the first time a fence uses it. A fence in any other language still
   renders as a code block, just uncoloured.
   → src/features/editor/codeFenceLanguages.ts
+- *(Android text-first editor)* Every code-body line has the same inset, including lines added with Enter; hidden fence rows do not add another inset to the first or last body line. → apps/android/app/src/main/java/com/futo/notes/textfirst/SpanPlan.kt
 - Links: `[text](url)`, autolinks `<url>`, and bare GFM URLs.
 - Blockquotes, including nested: each level renders as an indented block with a
   muted left rule, whatever `>` characters and lazy continuations CommonMark
@@ -15,8 +17,11 @@
   when the caret enters a quote. → src/features/editor/milkdown/
   milkdownEditor.css `.ProseMirror blockquote`,
   tests/blockquote-continuation.spec.ts
+- *(Android text-first editor)* Empty editable lines have the same height as ordinary text lines, including between a quote line and the next line; typing on an empty line does not expand the gap. → apps/android/app/src/main/java/com/futo/notes/textfirst/SpanPlan.kt
+- *(Android text-first editor)* Block styling remains visible while the keyboard composes a word, including the first character on an empty quote, heading or code line; a quote's margin does not extend into the following plain line. → apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstBlockIndicatorTest.kt
 - Lists: ordered, unordered, nested, and task checkboxes (checked / unchecked /
   uppercase `X`).
+- *(Android text-first editor)* A right-to-left paragraph (Hebrew, Arabic) draws its list number, bullet, task checkbox and quote bars on its right, beside where its text starts, and a tap there toggles the checkbox. The toggle's touch area is the checkbox's own visual row in the leading margin up to where the text starts: taps on blank padding, below the content, in a wrapped continuation's gutter or on the text (its first letter included) place the caret and leave the task as it was. → apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstSpans.kt, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstCheckbox.kt, apps/android/app/src/test/java/com/futo/notes/textfirst/RtlListMarkerTest.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstTapGestureTest.kt
 - List depth comes from CommonMark's parse, not from counting spaces — a whole
   list indented by one to three spaces still renders as a list, and `*  Parent.`
   (two spaces after the marker) puts its content at column 3, so a two-space
@@ -40,7 +45,10 @@
   level lists are unchanged; past level eight the levels stop being told apart
   by their left edge, which is the deliberate half of the trade. Measured at
   402x874. → src/features/editor/milkdown/milkdownEditor.css,
-  tests/editor-embed-milkdown-deep-nesting.spec.ts
+  tests/editor-embed-milkdown-deep-nesting.spec.ts,
+  apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstSpans.kt,
+  apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstGlyphMetricsTest.kt
+  `deepListIndentStopsConsumingThePhoneColumn`
 
 - A list item that wraps **hanging-indents** its continuation lines: wrapped
   rows start under the item's text, never back under its marker, while the
@@ -155,3 +163,5 @@
   so a chunk that BEGAN with `---` would read a mid-note thematic break as
   front matter. → src/features/editor/milkdown/markdownChunks.ts,
   src/features/editor/milkdown/markdownChunks.test.ts
+
+- *(Android text-first editor)* Ordered list markers reserve room for their complete number and text gap, so wider numbers can give their item a wider text column. Wrapped and continued text hangs at that item's column while retaining the base nesting indentation; number-only style updates reflow the column and restore it when the number narrows. → apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstSpans.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstGlyphMetricsTest.kt `orderedMarkerInkSurvivesTheNativeViewClip`, `numberMetadataAloneReflowsItsHangingContinuation`

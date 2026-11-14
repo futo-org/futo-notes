@@ -126,8 +126,9 @@
 - Opening an `.md` already inside the active vault opens that safe note id in a
   tab. Opening an outside `.md` or `.markdown` asks whether to copy it into the
   vault; **Cancel** leaves it untouched, while **Copy into notes** uses the atomic Rust store
-  workflow, preserves the filename as the title, collision-suffixes rather than
-  overwriting, and opens the final id. Cold-launch arguments and later
+  workflow, preserves the filename as the title, copies the file's bytes exactly (no
+  final line ending is added), collision-suffixes rather than overwriting, and opens
+  the final id. Cold-launch arguments and later
   single-instance launches share this policy. → external_file_open.rs,
   externalFileOpen.ts, `LocalNoteStore::import_markdown`
 

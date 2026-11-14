@@ -55,6 +55,17 @@ class EditorNavigationCommitTest {
     }
 
     @Test
+    fun `refused title keeps the current id and permits navigation`() = runBlocking {
+        // editorTitleTarget refuses a blank, illegal or duplicate title with null.
+        val result = commitEditorTitleSnapshot(currentId = "Folder/Old title", targetId = null) { _, _ ->
+            error("a refused title must not reach the store")
+        }
+
+        assertEquals("Folder/Old title", result.id)
+        assertTrue(result.isCommitted)
+    }
+
+    @Test
     fun `clean editor navigates without writing`() = runBlocking {
         var writes = 0
 

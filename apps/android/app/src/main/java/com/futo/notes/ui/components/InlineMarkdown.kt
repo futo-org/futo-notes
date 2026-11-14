@@ -11,69 +11,45 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 
 /**
- * Render INLINE markdown (`**bold**`, `*italic*` / `_italic_`, `~~strike~~`,
- * `` `code` ``) into an [AnnotatedString], leaving every other character —
- * including newlines — verbatim.
+ * Render INLINE markdown (`**bold**`, `*italic*` / `_italic_`, `***both***`,
+ * `~~strike~~`, `` `code` ``) into an [AnnotatedString], leaving every other
+ * character — including newlines — verbatim.
  *
  * This is the Compose counterpart of the iOS note-list preview, which uses
  * `AttributedString(markdown:options: .inlineOnlyPreservingWhitespace)`: only
  * inline emphasis is interpreted, block structure is NOT (the block markdown was
  * already rewritten into ☐/☑/• glyphs and stripped headings by the shared Rust
- * `make_rich_preview`). Deliberately small and forgiving — an unmatched marker
- * is emitted as a literal char, never throws.
+ * `make_rich_preview`). Spans nest, an opener must be followed and a closer
+ * preceded by non-whitespace, and `_` never opens or closes inside a word
+ * (`snake_case_name` stays literal). A backslash before ASCII punctuation
+ * makes it a literal character that never delimits. Deliberately small and
+ * forgiving — an unmatched marker is emitted literally, never throws.
  */
 fun parseInlinePreview(src: String, codeColor: Color): AnnotatedString = buildAnnotatedString {
-    var i = 0
-    val n = src.length
-    while (i < n) {
+    appendInline(src, 0, src.length, codeColor)
+}
+
+private fun AnnotatedString.Builder.appendInline(src: String, start: Int, end: Int, codeColor: Color) {
+    var i = start
+    while (i < end) {
         val c = src[i]
+        val codeEnd = if (c == '`') codeSpanEnd(src, i, end) else -1
         when {
-            // `code`
-            c == '`' -> {
-                val end = src.indexOf('`', i + 1)
-                if (end > i + 1) {
-                    withStyle(SpanStyle(fontFamily = FontFamily.Monospace, color = codeColor)) {
-                        append(src.substring(i + 1, end))
-                    }
-                    i = end + 1
-                } else {
-                    append(c); i++
-                }
+            isEscape(src, i, end) -> {
+                append(src[i + 1]); i += 2
             }
-            // **bold** (only when a non-space follows the opener, so "** " in
-            // prose isn't swallowed).
-            c == '*' && i + 1 < n && src[i + 1] == '*' && i + 2 < n && !src[i + 2].isWhitespace() -> {
-                val end = src.indexOf("**", i + 2)
-                if (end > i + 1) {
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(src.substring(i + 2, end))
-                    }
-                    i = end + 2
-                } else {
-                    append(c); i++
+            codeEnd >= 0 -> {
+                withStyle(SpanStyle(fontFamily = FontFamily.Monospace, color = codeColor)) {
+                    append(src, i + 1, codeEnd)
                 }
+                i = codeEnd + 1
             }
-            // ~~strikethrough~~
-            c == '~' && i + 1 < n && src[i + 1] == '~' -> {
-                val end = src.indexOf("~~", i + 2)
-                if (end > i + 1) {
-                    withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
-                        append(src.substring(i + 2, end))
-                    }
-                    i = end + 2
-                } else {
-                    append(c); i++
-                }
-            }
-            // *italic* or _italic_ (only when a non-space follows the opener, so
-            // a lone "*" in prose like "2 * 3" stays literal).
-            (c == '*' || c == '_') && i + 1 < n && !src[i + 1].isWhitespace() -> {
-                val end = src.indexOf(c, i + 1)
-                if (end > i + 1) {
-                    withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
-                        append(src.substring(i + 1, end))
-                    }
-                    i = end + 1
+            c == '*' || c == '_' || c == '~' -> {
+                val run = runLength(src, i, end)
+                val close = emphasisCloser(src, i, run, end)
+                if (close >= 0) {
+                    withStyle(emphasisStyle(c, run)) { appendInline(src, i + run, close, codeColor) }
+                    i = close + run
                 } else {
                     append(c); i++
                 }
@@ -83,4 +59,54 @@ fun parseInlinePreview(src: String, codeColor: Color): AnnotatedString = buildAn
             }
         }
     }
+}
+
+private fun codeSpanEnd(src: String, open: Int, end: Int): Int {
+    val close = src.indexOf('`', open + 1)
+    return if (close > open + 1 && close < end) close else -1
+}
+
+private fun runLength(src: String, at: Int, end: Int): Int {
+    var j = at
+    while (j < end && src[j] == src[at]) j++
+    return j - at
+}
+
+private fun emphasisCloser(src: String, open: Int, run: Int, end: Int, skipNested: Boolean = true): Int {
+    val c = src[open]
+    if (if (c == '~') run != 2 else run > 3) return -1
+    if (open + run >= end || src[open + run].isWhitespace()) return -1
+    if (c == '_' && src.getOrNull(open - 1)?.isLetterOrDigit() == true) return -1
+    var j = open + run
+    while (j < end) {
+        val codeEnd = if (src[j] == '`') codeSpanEnd(src, j, end) else -1
+        when {
+            isEscape(src, j, end) -> j += 2
+            codeEnd >= 0 -> j = codeEnd + 1
+            src[j] == c -> {
+                val closeRun = runLength(src, j, end)
+                val closes = closeRun == run && !src[j - 1].isWhitespace() &&
+                    (c != '_' || src.getOrNull(j + run)?.isLetterOrDigit() != true)
+                if (closes) return j
+                // ponytail: one nesting level keeps unclosed openers polynomial;
+                // deeper same-marker nesting needs a CommonMark delimiter stack.
+                val nestedClose = if (skipNested) emphasisCloser(src, j, closeRun, end, skipNested = false) else -1
+                j = if (nestedClose >= 0) nestedClose + closeRun else j + closeRun
+            }
+            else -> j++
+        }
+    }
+    return -1
+}
+
+private const val ASCII_PUNCTUATION = "!\"#\$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+
+private fun isEscape(src: String, at: Int, end: Int): Boolean =
+    src[at] == '\\' && at + 1 < end && src[at + 1] in ASCII_PUNCTUATION
+
+private fun emphasisStyle(c: Char, run: Int): SpanStyle = when {
+    c == '~' -> SpanStyle(textDecoration = TextDecoration.LineThrough)
+    run == 1 -> SpanStyle(fontStyle = FontStyle.Italic)
+    run == 2 -> SpanStyle(fontWeight = FontWeight.Bold)
+    else -> SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)
 }

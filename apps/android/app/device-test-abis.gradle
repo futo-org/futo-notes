@@ -1,0 +1,12 @@
+// `-PfutoAbis=x86_64` (what `just test-android-ui` passes for its emulator)
+// packages only that ABI's native libraries, ours and every dependency's: a
+// smaller APK to build and install. Debug only; a release always ships every
+// ABI in build.gradle.kts's release abiFilters.
+android {
+    buildTypes {
+        debug {
+            def abis = project.findProperty('futoAbis')
+            if (abis) ndk { abiFilters.addAll(abis.split(',').collect { it.trim() }) }
+        }
+    }
+}

@@ -27,7 +27,7 @@ object FutoType {
     val body    = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Normal,   fontSize = 16.sp, lineHeight = 25.sp, letterSpacing = (-0.011).em)
     val small   = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Normal,   fontSize = 14.sp, lineHeight = 21.sp, letterSpacing = (-0.006).em)
     val caption = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Normal,   fontSize = 13.sp, lineHeight = 19.sp, letterSpacing = 0.em)
-    // micro: render with text.uppercase() at the call site
+    // micro: MicroLabel upper-cases it, so it never carries user data (M2)
     val micro   = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Medium,   fontSize = 11.sp, lineHeight = 15.sp, letterSpacing = 0.01.em)
 
     // ── The License plate (Steel Ledger) ────────────────────────────────────

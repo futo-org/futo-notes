@@ -180,8 +180,15 @@ _test-ios bundle *names: _preflight-ios build-rust-ios
 ios-dev-ports output configuration="Debug":
   node scripts/ios-dev-ports.mjs "$@"
 
-# JVM unit tests under BOTH flavors; optional Gradle Class[.method] patterns.
-test-android-native *tests: _preflight-android android-env-check (build-rust-android "device")
+# The JVM unit tests read the generated Kotlin bindings but never load the
+# native library, so this skips the per-ABI .so build (ABIS=none): ~120s of
+# every call after a Rust change. build-android-native still builds the .so.
+[private]
+_android-bindings:
+  ABIS=none bash scripts/build-rust-android.sh
+
+# JVM unit tests under BOTH flavors (bindings only, no .so); optional Gradle Class[.method] patterns.
+test-android-native *tests: _preflight-android android-env-check _android-bindings
   #!/usr/bin/env bash
   set -euo pipefail
   # Stages the CURRENT editor.html into the assets, like every other native
@@ -196,30 +203,6 @@ test-android-native *tests: _preflight-android android-env-check (build-rust-and
   done
   cd apps/android
   ./gradlew "${TEST_ARGS[@]}"
-
-# `direct` only: the flavors compile the same androidTest sources against the
-# same applicationId, so running both would install one over the other for no
-# extra signal.
-# Runs Compose instrumentation tests on $ANDROID_SERIAL; optional fully qualified Class[#method] selectors.
-test-android-native-ui *classes: qa-android-target _preflight-android android-env-check (build-rust-android "device")
-  #!/usr/bin/env bash
-  set -euo pipefail
-  TEST_ARGS=()
-  SELECTOR_RE='^([[:alpha:]_$][[:alnum:]_$]*\.)+[[:alpha:]_$][[:alnum:]_$]*(#[[:alpha:]_$][[:alnum:]_$]*)?$'
-  for selector in "$@"; do
-    if [[ ! "$selector" =~ $SELECTOR_RE ]]; then
-      echo "Expected a fully qualified Android test class, optionally #method: $selector" >&2
-      exit 2
-    fi
-  done
-  if [ "$#" -gt 0 ]; then
-    TEST_ARGS+=("-Pandroid.testInstrumentationRunnerArguments.class=$(IFS=,; printf '%s' "$*")")
-  fi
-  # The Compose tests drive the bundled editor.html: rebuild it first (L1-008).
-  node_modules/.bin/vite build --config vite.editor.config.ts
-  node scripts/qa.mjs android-target
-  cd apps/android
-  ./gradlew :app:connectedDirectDebugAndroidTest ${TEST_ARGS[@]+"${TEST_ARGS[@]}"}
 
 # Existing portable-editor consumers in a real x86 process on a claimed QA emulator; keeps all four ABIs packaged.
 test-android-native-ui32 *classes: qa-android-target
@@ -244,6 +227,19 @@ test-android-keystroke-latency: qa-android-target
   ABIS=device FUTO_ANDROID_FFI_PROFILE=release-ffi just build-android-native
   apps/android/gradlew --project-dir apps/android -PfutoEditorPerf=true :app:assembleDirectDebug :app:assembleDirectDebugAndroidTest
   node scripts/android-keystroke-latency.mjs
+
+# Text-first editor: key → drawn frame over futo-notes-ml corpus notes (non-debuggable perf app, claimed phone).
+test-android-text-first-bench *args: qa-android-target
+  #!/usr/bin/env bash
+  set -euo pipefail
+  ABIS=device FUTO_ANDROID_FFI_PROFILE=release-ffi just build-android-native
+  apps/android/gradlew --project-dir apps/android -PfutoEditorPerf=true :app:assembleDirectDebug :app:assembleDirectDebugAndroidTest
+  node scripts/android-text-first-bench.mjs {{args}}
+
+
+# Text-first editor, quick loop: 8 notes (one per known slow shape + small ones), ~1 min on the Moto.
+bench-text-first *args:
+  just test-android-text-first-bench --quick {{args}}
 
 # Editor performance stories against the REAL native Android app on an
 # explicitly claimed device — written for the low-end reference phone, where
@@ -366,3 +362,7 @@ test-ios-capture-artifact:
 # Run synthetic fixture-only native unit contracts on an explicitly claimed pool SIM (no dictation).
 test-ios-capture-fixture:
   python3 scripts/ios-test-session.py -- bash scripts/dev-env.sh node scripts/ios-capture-fixture.mjs --test-simulator
+
+# Analyze public corpus percentiles and export targeted whole-note benchmark fixtures.
+corpus-baseline *args:
+  node scripts/perf/corpus-baseline.mjs {{args}}

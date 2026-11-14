@@ -286,6 +286,15 @@ export class AndroidDevice {
     this.shell(`am start -n ${MAIN_ACTIVITY}`);
   }
 
+  /** Make the dev app open notes in the WebView editor — the one releases ship.
+   *  Dev builds default to the text-first editor (TextFirstFlag), which has no
+   *  DOM for the harness's CDP driving to reach. The app remembers the launch
+   *  extra, so one pinned start covers every later relaunch. */
+  pinWebViewEditor() {
+    this.shell(`am force-stop ${DEBUG_PACKAGE}`);
+    this.shell(`am start -n ${MAIN_ACTIVITY} --ez futo.textFirstEditor false`);
+  }
+
   /** Stop the app outright and start it again — the only way to make it re-read
    *  a vault that changed behind its back. Android has no filesystem watcher
    *  (docs/spec/sync.md), so a note added or removed over adb is invisible to a

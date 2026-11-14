@@ -110,39 +110,66 @@ internal class AppNavigator internal constructor(
      */
     var searchQuery by mutableStateOf("")
 
+    private class EditorLeave(val screen: Screen.Editor, val request: (() -> Unit) -> Unit)
+    private var editorLeave: EditorLeave? = null
+
+    /** Ordinary stack changes remain vetoable until the attached editor saves. */
+    fun registerEditorLeave(screen: Screen.Editor, request: (() -> Unit) -> Unit): () -> Unit {
+        val binding = EditorLeave(screen, request)
+        editorLeave = binding
+        return { if (editorLeave === binding) editorLeave = null }
+    }
+
+    private fun navigate(commit: () -> Unit) {
+        val binding = editorLeave
+        if (binding == null || currentScreen != binding.screen) {
+            commit()
+            return
+        }
+        var committed = false
+        binding.request {
+            if (!committed && currentScreen == binding.screen) {
+                committed = true
+                commit()
+            }
+        }
+    }
+
     fun openFolder(path: String) {
         require(path.isNotEmpty()) { "The root folder is the stack floor, not a push target" }
         val current = currentScreen
         if (current is Screen.Folder && current.path == path) return
-        stack.add(Screen.Folder(path))
+        navigate { stack.add(Screen.Folder(path)) }
     }
 
     fun openNote(noteId: String) {
         val current = currentScreen
         if (current is Screen.Editor && current.noteId == noteId) return
-        stack.add(Screen.Editor(noteId, autoFocus = false))
+        navigate { stack.add(Screen.Editor(noteId, autoFocus = false)) }
     }
 
     fun openCreatedNote(noteId: String) {
-        stack.add(Screen.Editor(noteId, autoFocus = true))
+        navigate { stack.add(Screen.Editor(noteId, autoFocus = true)) }
     }
 
     fun openSearch() {
         // A fresh field every time, as the screen-local state it replaced gave.
-        searchQuery = ""
-        stack.add(Screen.Search)
+        navigate {
+            searchQuery = ""
+            stack.add(Screen.Search)
+        }
     }
 
     fun openSettings() {
-        stack.add(Screen.Settings)
+        navigate { stack.add(Screen.Settings) }
     }
 
     fun openSync() {
-        stack.add(Screen.Sync)
+        navigate { stack.add(Screen.Sync) }
     }
 
     fun openFeedback() {
-        stack.add(Screen.Feedback)
+        navigate { stack.add(Screen.Feedback) }
     }
 
     /**
@@ -153,7 +180,7 @@ internal class AppNavigator internal constructor(
      * activity (github#28).
      */
     fun openStorageLocation() {
-        stack.add(Screen.StorageLocation)
+        navigate { stack.add(Screen.StorageLocation) }
     }
 
     /** Follow a renamed or moved folder on every stacked folder route. */
@@ -176,6 +203,10 @@ internal class AppNavigator internal constructor(
 
     fun goBack() {
         if (!canGoBack) return
+        navigate { pop() }
+    }
+
+    private fun pop() {
         stack.removeAt(stack.lastIndex)
         val folder = currentFolder
         if (folder != null) {

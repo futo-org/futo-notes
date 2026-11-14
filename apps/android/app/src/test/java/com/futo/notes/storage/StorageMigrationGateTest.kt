@@ -11,6 +11,37 @@ import org.junit.Test
 
 class StorageMigrationGateTest {
     @Test
+    fun `editor access never waits on the migration that drains its thread`() = runBlocking {
+        val gate = StorageMigrationGate()
+        var writes = 0
+        assertEquals(GateAccess.RAN, gate.tryRunAccess { writes++ })
+        gate.beginMigration()
+        gate.runMigration {
+            assertEquals(GateAccess.PAUSED, gate.tryRunAccess { writes++ })
+        }
+        assertEquals(1, writes)
+        gate.resume()
+        assertEquals(GateAccess.RAN, gate.tryRunAccess { writes++ })
+        assertEquals(2, writes)
+    }
+
+    @Test
+    fun `a gate held by ordinary work reads as busy, not as a refused operation`() = runBlocking {
+        val gate = StorageMigrationGate()
+        val held = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val work = launch { gate.runAccess { held.complete(Unit); release.await() } }
+        held.await()
+        var writes = 0
+        assertEquals(GateAccess.BUSY, gate.tryRunAccess { writes++ })
+        gate.beginMigration()
+        assertEquals("migration latched while held is a pause, not contention", GateAccess.PAUSED, gate.tryRunAccess { writes++ })
+        release.complete(Unit)
+        work.join()
+        assertEquals(0, writes)
+    }
+
+    @Test
     fun `migration drains an in-flight write before it starts`() = runBlocking {
         val gate = StorageMigrationGate()
         val writeStarted = CompletableDeferred<Unit>()

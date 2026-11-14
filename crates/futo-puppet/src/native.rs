@@ -47,8 +47,14 @@ pub struct Tree {
     pub moving: bool,
 }
 
+/// A node's text on one line: its line breaks (between a row's parts) become one space, and
+/// the text inside a line keeps its spacing, so a title with two spaces reads with two (M2).
 fn one_line(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+    text.split(|ch: char| ch.is_whitespace() && ch != ' ')
+        .map(|part| part.trim_matches(' '))
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The verbs a control stands for: those whose label is its text, or leads it (a toggle row

@@ -34,21 +34,21 @@ names shared engine behavior.
 
 Global options, accepted before or after the command: `--vault <path>` and `--json`.
 
-| Command | Behavior |
-|---|---|
-| `init <path>` | Configure the vault as above and print its canonical path. |
-| `status` | Print the vault path, the server URL or "local only", and whether a password command is set. No network. |
-| `auth login --server <url> [--password-command <cmd>]` | Sign in, record the server (and command), and run the first sync. |
-| `auth logout` | Disconnect through the engine and remove the server and password command from configuration. |
-| `list [--folder <folder>] [--limit <n>]` | Print note IDs in the engine's default order; `--folder` matches that exact folder, `--folder ''` the root. |
-| `read <id>` | Print the note's exact bytes with nothing added. |
-| `search <query> [--limit <n>]` | Run the shared search engine; default limit 20. |
-| `create <id> (--body <text> \| --stdin)` | Create a note, never overwriting; print the ID the engine allocated. |
-| `append <id> (--body <text> \| --stdin)` | Append the text verbatim to an existing note; print its ID. |
-| `edit <id>` | Edit an existing note in `$VISUAL` / `$EDITOR` and save it back safely. |
-| `rename <id> <new-title>` | Rename within the note's folder; print the final ID. |
-| `move <id> --folder <folder>` | Move to a folder, creating it if needed; print the final ID. |
-| `sync` | Run one complete sync cycle and exit. |
+| Command                                                | Behavior                                                                                                                                               |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `init <path>`                                          | Configure the vault as above and print its canonical path.                                                                                             |
+| `status`                                               | Print the vault path, the server URL or "local only", and whether a password command is set. No network.                                               |
+| `auth login --server <url> [--password-command <cmd>]` | Sign in, record the server (and command), and run the first sync.                                                                                      |
+| `auth logout`                                          | Disconnect through the engine and remove the server and password command from configuration.                                                           |
+| `list [--folder <folder>] [--limit <n>]`               | Print note IDs in the engine's default order; `--folder` matches that exact folder, `--folder ''` the root.                                            |
+| `read <id>`                                            | Print the note's exact bytes with nothing added.                                                                                                       |
+| `search <query> [--limit <n>]`                         | Run the shared search engine; default limit 20.                                                                                                        |
+| `create <id> (--body <text> \| --stdin)`               | Create a note, never overwriting; print the ID the engine allocated.                                                                                   |
+| `append <id> (--body <text> \| --stdin)`               | Append the text verbatim to an existing note; print its ID. Like every authored save, the note then ends in a line ending, added if the text has none. |
+| `edit <id>`                                            | Edit an existing note in `$VISUAL` / `$EDITOR` and save it back safely.                                                                                |
+| `rename <id> <new-title>`                              | Rename within the note's folder; print the final ID.                                                                                                   |
+| `move <id> --folder <folder>`                          | Move to a folder, creating it if needed; print the final ID.                                                                                           |
+| `sync`                                                 | Run one complete sync cycle and exit.                                                                                                                  |
 
 - An ID is the vault-relative note path with `/` separators and no `.md` suffix: `release checklist`, `work/release checklist`.
 - The filename is the title. The CLI never prettifies a title, strips a suffix it guesses at, or matches an ID fuzzily.
@@ -139,19 +139,19 @@ Global options, accepted before or after the command: `--vault <path>` and `--js
 
 Automated tests use scratch vaults and the server pinned in `scripts/sync-server-pin.json`; none touch a real vault or account.
 
-| ID | Proof |
-|---|---|
-| CLI-01 | In a Linux container with no GUI, no Node.js, and no secret service, copy in the binary, `init`, create/list/read/search/edit notes, log in to the pinned server, and sync. |
-| CLI-02 | With the network blocked and no password configured, every local command works. |
-| CLI-03 | Log in to a server that already holds a vault with a note and an image; both arrive intact. Edit offline, sync, and a second client receives the exact bytes. |
+| ID     | Proof                                                                                                                                                                                                    |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CLI-01 | In a Linux container with no GUI, no Node.js, and no secret service, copy in the binary, `init`, create/list/read/search/edit notes, log in to the pinned server, and sync.                              |
+| CLI-02 | With the network blocked and no password configured, every local command works.                                                                                                                          |
+| CLI-03 | Log in to a server that already holds a vault with a note and an image; both arrive intact. Edit offline, sync, and a second client receives the exact bytes.                                            |
 | CLI-04 | With a password command set and stdin closed, `sync` runs unattended; with no command and no terminal, it fails at once with `auth_failed`. No password appears in config, output, or process arguments. |
-| CLI-05 | A wrong password, a failing or slow password command, and an unreachable server each fail with a distinct code and no local change. |
-| CLI-06 | Empty bodies, Unicode titles, multi-line stdin, IDs starting with `-`, and `.md` inside an ID round-trip; invalid UTF-8 and traversal are rejected with nothing written. |
-| CLI-07 | Two concurrent creates with the same ID keep both notes and print the allocated IDs; concurrent appends each land exactly once; a command run during a sync waits and then succeeds. |
-| CLI-08 | `rename` and `move` rewrite backlinks and report collision-resolved IDs. |
-| CLI-09 | With an editor open, change the note from another CLI process, save: both versions survive and the exit code is `draft_parked`. Also: unchanged draft, editor failure, failed save. |
-| CLI-10 | Kill the CLI mid-sync, rerun: no note lost, no duplicate create. Ctrl-C ends a sync cleanly. |
-| CLI-11 | Per-item upload and download failures and a checkpoint write failure make `sync` exit nonzero, keep local edits, and a later `sync` recovers. |
-| CLI-12 | `auth logout` leaves note bytes untouched; logging in again does not bring back notes deleted elsewhere or lose edits made while logged out. |
-| CLI-13 | Every command in `--json` mode prints one valid object and nothing else on stdout. |
-| CLI-14 | Removing the vault directory makes commands fail without recreating it; a development build reads and writes only `futo-notes-cli-dev`. |
+| CLI-05 | A wrong password, a failing or slow password command, and an unreachable server each fail with a distinct code and no local change.                                                                      |
+| CLI-06 | Empty bodies, Unicode titles, multi-line stdin, IDs starting with `-`, and `.md` inside an ID round-trip; invalid UTF-8 and traversal are rejected with nothing written.                                 |
+| CLI-07 | Two concurrent creates with the same ID keep both notes and print the allocated IDs; concurrent appends each land exactly once; a command run during a sync waits and then succeeds.                     |
+| CLI-08 | `rename` and `move` rewrite backlinks and report collision-resolved IDs.                                                                                                                                 |
+| CLI-09 | With an editor open, change the note from another CLI process, save: both versions survive and the exit code is `draft_parked`. Also: unchanged draft, editor failure, failed save.                      |
+| CLI-10 | Kill the CLI mid-sync, rerun: no note lost, no duplicate create. Ctrl-C ends a sync cleanly.                                                                                                             |
+| CLI-11 | Per-item upload and download failures and a checkpoint write failure make `sync` exit nonzero, keep local edits, and a later `sync` recovers.                                                            |
+| CLI-12 | `auth logout` leaves note bytes untouched; logging in again does not bring back notes deleted elsewhere or lose edits made while logged out.                                                             |
+| CLI-13 | Every command in `--json` mode prints one valid object and nothing else on stdout.                                                                                                                       |
+| CLI-14 | Removing the vault directory makes commands fail without recreating it; a development build reads and writes only `futo-notes-cli-dev`.                                                                  |

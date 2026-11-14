@@ -60,17 +60,16 @@ describe('android environment guard wiring', () => {
       expect(body).toContain('android-env-check');
     }
 
-    // Dependent recipes list the guard BEFORE build-rust-android: just runs
-    // dependencies in the order listed.
-    for (const recipeName of [
-      'build-android-native',
-      'test-android-native',
-      'test-android-native-ui',
+    // Dependent recipes list the guard BEFORE the Rust step (build-rust-android, or
+    // _android-bindings for the JVM tests): just runs dependencies in the order listed.
+    for (const [recipeName, rustStep] of [
+      ['build-android-native', 'build-rust-android'],
+      ['test-android-native', '_android-bindings'],
+      ['test-android-native-ui', 'build-rust-android'],
     ]) {
       const { declaration } = findDeclaration(recipeName);
-      expect(declaration.indexOf('android-env-check')).toBeLessThan(
-        declaration.indexOf('build-rust-android'),
-      );
+      expect(declaration, `${recipeName} must run ${rustStep}`).toContain(rustStep);
+      expect(declaration.indexOf('android-env-check')).toBeLessThan(declaration.indexOf(rustStep));
     }
   });
 
@@ -100,15 +99,16 @@ describe('android FFI ABI selection', () => {
       'build-rust-android abis="":\n  ABIS="${ABIS:-{{abis}}}" bash scripts/build-rust-android.sh\n',
     );
     expect(runSh).toContain('ABIS="${ABIS:-device}" bash scripts/build-rust-android.sh');
-    for (const recipeName of [
-      'build-android-native',
-      'test-android-native',
-      'test-android-native-ui',
-    ]) {
+    for (const recipeName of ['build-android-native', 'test-android-native-ui']) {
       expect(justfile).toMatch(
         new RegExp(`^${recipeName}(?=\\s|:)[^\\n]*\\(build-rust-android "device"\\)`, 'm'),
       );
     }
+    // The JVM unit tests never load the .so, so they build no ABI at all.
+    expect(justfile).toContain(
+      '_android-bindings:\n  ABIS=none bash scripts/build-rust-android.sh\n',
+    );
+    expect(buildScript).toContain('if [[ "$ABIS" == none ]]; then');
   });
 
   it('release builds refuse a partial jniLibs; CI builds every ABI', () => {

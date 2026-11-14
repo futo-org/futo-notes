@@ -32,7 +32,7 @@
     insertion that must be confirmed by the WebView before the storage gate
     opens; the user can retry after that save finishes. A newly queued save is
     rejected once migration is latched.
-    > **Gap:** _(Android)_ the editor stays interactive while a migration is
+    > **Gap:** _(Android, WebView editor — the release editor)_ the editor stays interactive while a migration is
     > latched, but `acceptsEditorChange` drops every editor change for the
     > duration, so keystrokes typed in that window appear on screen and are never
     > written to the buffer or saved — they are lost when the editor is next
@@ -40,7 +40,10 @@
     > racing the staging copy), but the user is given no signal that typing is not
     > being kept. Found by code trace during the github#33 investigation, not by
     > QA; the window is short, and nobody has measured how reachable it is in
-    > practice. → EditorSession.kt `acceptsEditorChange`, NoteEditorScreen.kt That same synchronous latch makes an
+    > practice. The dev-only text-first editor drains accepted input and pauses new input
+    under the migration gate (see below), but whether the user gets a visible signal
+    that typing is paused has not been checked at runtime, so this gap is not closed
+    for it either. → EditorSession.kt `acceptsEditorChange`, NoteEditorScreen.kt That same synchronous latch makes an
     Activity `onStop` unable to abort live sync before the migration's graceful
     sync stop completes. Editor navigation captures the latest live editor
     body and persists-or-parks it before leaving the editor; Settings is reached

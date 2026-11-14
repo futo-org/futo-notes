@@ -163,7 +163,7 @@ pub(crate) fn axe_arguments(
 /// The keys `press` sends, by the names the editor's `Press` verb takes: the HID usage `axe
 /// key` sends on iOS and the keycode `input keyevent` sends on Android. `Back` is Android's
 /// system Back, which iOS does not have.
-const KEYS: [(&str, Option<u16>, u16); 14] = [
+const KEYS: [(&str, Option<u16>, u16); 15] = [
     ("Enter", Some(40), 66),
     ("Backspace", Some(42), 67),
     ("Delete", Some(76), 112),
@@ -178,6 +178,7 @@ const KEYS: [(&str, Option<u16>, u16); 14] = [
     ("ArrowLeft", Some(80), 21),
     ("ArrowRight", Some(79), 22),
     ("Back", None, 4),
+    ("Camera", None, 27),
 ];
 
 /// Explicit modifier presses use AXe's ordinary down/up key action. They are
@@ -214,9 +215,13 @@ fn key_code(args: &Value, platform: NativePlatform) -> Result<u16, String> {
     };
     match platform {
         NativePlatform::Ios => ios.ok_or_else(|| {
-            "iOS has no system Back key. The app's own Back is `do GoBack`: its top bar's back \
-             button, which the edge swipe also triggers"
-                .to_string()
+            if name == "Back" {
+                "iOS has no system Back key. The app's own Back is `do GoBack`: its top bar's back \
+                 button, which the edge swipe also triggers"
+                    .to_string()
+            } else {
+                format!("{name} is an Android-only key.")
+            }
         }),
         NativePlatform::Android => Ok(*android),
     }

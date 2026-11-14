@@ -43,6 +43,10 @@
     "apps/android/app/src/main/java/com/futo/notes/ui/components/NoteSortMenu.kt": {
       "count": 2,
       "why": "the menu's key and direction rows, each labelled from NoteSortPreference: SetSortOrder"
+    },
+    "apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstCompletions.kt": {
+      "count": 1,
+      "why": "Existing-note completion rows use canonical note labels and full ids verbatim (user data, M2); AcceptWikilinkCompletion takes the chosen noteId."
     }
   },
   "noControl": {
@@ -68,7 +72,9 @@
     "android:SelectUnlockMethod": "the three unlock-method rows are labelled from the method's name, so no one key names them",
     "android:SetRecoveryKeySaved": "the recovery-key checkbox, whose label is the Text beside it rather than its own",
     "android:SelectAppIcon": "an icon tile, labelled with the icon's name",
-    "android:OpenAppIcons": "the app icon row, labelled with the chosen icon's name"
+    "android:OpenAppIcons": "the app icon row, labelled with the chosen icon's name",
+    "android:OpenLink": "The native text-first Link action uses the shared manifest-rendered EditorToolbar button; that renderer is allowlisted because its labels are dynamic manifest keys. OpenLink invokes the same handler as its Link button.",
+    "android:AcceptWikilinkCompletion": "Existing-note candidate rows are labelled with engine-delivered user titles and paths, not authored catalog text; the verb accepts their noteId through the same handler."
   },
   "unclaimed": {
     "android:notes.actions.share": "hands the note to the OS share sheet; the app does nothing more",

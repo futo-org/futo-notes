@@ -493,7 +493,8 @@
         "add": "Add",
         "update": "Update",
         "addAccessibilityLabel": "Add link",
-        "updateAccessibilityLabel": "Update link"
+        "updateAccessibilityLabel": "Update link",
+        "failed": "Could not update the link. The text may have changed. Cancel and try again."
       },
       "find": {
         "open": "Find in note",
@@ -568,7 +569,8 @@
         "needsAtLeastOneColumn": "A table needs at least one column."
       },
       "progressiveLoad": {
-        "loadingRest": "Loading the rest of this note…"
+        "loadingRest": "Loading the rest of this note…",
+        "opening": "Opening this note…"
       },
       "loadFailed": {
         "heading": "This note could not be displayed.",
@@ -576,6 +578,7 @@
       },
       "android": {
         "bridgeVersionMismatch": "Bridge version mismatch: editor v{editorVersion} vs native v{nativeVersion}",
+        "clipboardTooLarge": "Too much text to copy. Select less and try again.",
         "legacyWebView": {
           "heading": "Update Android System WebView",
           "body": "The editor couldn't start in this device's WebView. It needs Chromium {minimumVersion} or newer; this one reports Chromium {currentVersion}. WebView provider: {provider}. Update the System WebView from your app store, then reopen the note.",
@@ -587,6 +590,9 @@
       },
       "ios": {
         "bundleMissing": "The editor is unavailable because editor.html is missing from the app bundle."
+      },
+      "table": {
+        "editCell": "Edit cell"
       }
     },
     "sync": {

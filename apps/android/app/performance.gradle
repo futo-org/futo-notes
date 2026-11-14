@@ -1,0 +1,22 @@
+// Release optimization and its explicit dev-device measurement equivalent.
+// The debug build retains dev storage, debug signing, and QA hooks.
+android {
+    buildTypes {
+        release {
+            // R8 shrinks the app and emits the deobfuscation mapping Play uses.
+            // Keep rules protect JNA, generated UniFFI bindings and JS bridges.
+            minifyEnabled true
+            // assets/editor.html is unaffected by resource shrinking.
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            if (project.findProperty('futoOptimize') == 'true') {
+                if (debuggable) throw new GradleException('futoOptimize requires futoDebuggable=false')
+                minifyEnabled true
+                shrinkResources true
+                proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            }
+        }
+    }
+}

@@ -126,6 +126,15 @@ fn type_and_press_become_real_key_presses() {
         adb_arguments("press", &json!({"key": "Back"}), frame).unwrap(),
         strings(&["shell", "input", "keyevent", "4"])
     );
+    assert_eq!(
+        adb_arguments("press", &json!({"key": "Camera"}), frame).unwrap(),
+        strings(&["shell", "input", "keyevent", "27"])
+    );
+    assert!(
+        axe_arguments("press", &json!({"key": "Camera"}), frame, "U")
+            .unwrap_err()
+            .contains("Android-only")
+    );
     // A count is one command: a run of Backspaces is one action.
     assert_eq!(
         axe_arguments(

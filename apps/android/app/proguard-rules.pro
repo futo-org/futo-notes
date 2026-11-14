@@ -28,3 +28,8 @@
 -keepclassmembers class * {
     @android.webkit.JavascriptInterface <methods>;
 }
+
+# Native editor JNI entry points are looked up by their JVM class/method names.
+-keepclasseswithmembernames class com.futo.notes.textfirst.FastKeys { native <methods>; }
+# Device QA verifies the renderer through the actual Android view hierarchy.
+-keepnames class com.futo.notes.textfirst.TextFirstEditText

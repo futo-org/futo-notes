@@ -491,7 +491,8 @@
         "add": "添加",
         "update": "更新",
         "addAccessibilityLabel": "添加链接",
-        "updateAccessibilityLabel": "更新链接"
+        "updateAccessibilityLabel": "更新链接",
+        "failed": "无法更新链接。文字可能已更改。请取消后重试。"
       },
       "find": {
         "open": "在笔记中查找",
@@ -566,7 +567,8 @@
         "needsAtLeastOneColumn": "表格至少需要一列。"
       },
       "progressiveLoad": {
-        "loadingRest": "正在加载此笔记的其余部分…"
+        "loadingRest": "正在加载此笔记的其余部分…",
+        "opening": "正在打开此笔记…"
       },
       "loadFailed": {
         "heading": "无法显示此笔记。",
@@ -574,6 +576,7 @@
       },
       "android": {
         "bridgeVersionMismatch": "桥接版本不匹配：编辑器 v{editorVersion}，原生端 v{nativeVersion}",
+        "clipboardTooLarge": "文本过多，无法复制。请少选一些内容后重试。",
         "legacyWebView": {
           "heading": "更新 Android System WebView",
           "body": "编辑器无法在此设备的 WebView 中启动。它需要 Chromium {minimumVersion} 或更高版本；当前版本报告为 Chromium {currentVersion}。WebView 提供程序：{provider}。请从应用商店更新 System WebView，然后重新打开笔记。",
@@ -585,6 +588,9 @@
       },
       "ios": {
         "bundleMissing": "编辑器不可用，因为应用包中缺少 editor.html。"
+      },
+      "table": {
+        "editCell": "编辑单元格"
       }
     },
     "sync": {

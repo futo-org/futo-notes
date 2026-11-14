@@ -9,3 +9,4 @@
   autocorrect and predictive text until 2026-09-01. →
   src/features/editor/milkdown/editorPlugins.ts,
   tests/editor-embed-ime.spec.ts
+- *(Android text-first editor)* The keyboard disables autocorrect, suggestions and sentence capitalization inside a code block and restores the prose keyboard settings when the caret leaves code. → apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditText.kt `setCodeInput`

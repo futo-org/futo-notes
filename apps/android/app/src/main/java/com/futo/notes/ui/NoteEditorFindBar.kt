@@ -60,17 +60,27 @@ internal class FindQueryEditText(context: Context) : EditText(context) {
             override fun afterTextChanged(s: Editable?) = Unit
         })
         setOnEditorActionListener { _, actionId, event ->
-            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+            if (event != null) {
+                findEnter(event)
+            } else if (actionId == EditorInfo.IME_ACTION_SEARCH) {
                 onStep(1)
-                true
-            } else if (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN) {
-                onStep(if (event.isShiftPressed) -1 else 1)
                 true
             } else {
                 false
             }
         }
     }
+
+    // Modified Enter bypasses TextView's action listener; unmodified Enter
+    // can report Search on both down and up. Own the pair at the view boundary.
+    private fun findEnter(event: KeyEvent): Boolean {
+        if (event.keyCode != KeyEvent.KEYCODE_ENTER && event.keyCode != KeyEvent.KEYCODE_NUMPAD_ENTER) return false
+        if (event.action == KeyEvent.ACTION_DOWN) onStep(if (event.isShiftPressed) -1 else 1)
+        return true
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean = findEnter(event) || super.onKeyDown(keyCode, event)
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean = findEnter(event) || super.onKeyUp(keyCode, event)
 
     fun applyQuery(query: String) {
         if (text.toString() == query) return

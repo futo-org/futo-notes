@@ -35,7 +35,7 @@ class DistributionFlavorTest {
         // applicationIdSuffix applies to all of its variants, so a release-only
         // escape would need machinery that does not exist in this build file.
         assertEquals(
-            if (BuildConfig.DEBUG) "com.futo.notes.dev" else "com.futo.notes",
+            if (BuildConfig.BUILD_TYPE == "debug") "com.futo.notes.dev" else "com.futo.notes",
             BuildConfig.APPLICATION_ID,
         )
     }

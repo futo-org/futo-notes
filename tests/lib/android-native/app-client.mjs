@@ -6,6 +6,7 @@
 import { join } from 'node:path';
 import { rewriteLoopbackHost } from '../tauri-test-client.mjs';
 import {
+  CONNECT_RETRY_AFTER_MS,
   CONNECT_TIMEOUT_MS,
   EMULATOR_HOST_LOOPBACK,
   LIVE_TIMEOUT_MS,
@@ -113,10 +114,24 @@ export class AndroidNativeAppClient {
     await this.device.tap('Connect & Sync', { scroll: false });
     // Connected == the session buttons replaced the connect form. The status
     // line is user-facing copy, so it is never the assertion (AGENTS.md M15).
+    // The emulator's route to the host intermittently drops connections for a
+    // spell (measured with plain `nc` from the device shell, no app involved),
+    // and a dropped connect leaves the form showing with no retry of its own. So
+    // a form still showing is tapped again, twice at most, inside the same timeout.
+    let retriesLeft = 2;
+    let lastTap = Date.now();
     try {
-      await this.device.waitFor(`${this.name} to connect to ${url}`, CONNECT_TIMEOUT_MS, () =>
-        this.device.isVisible('Disconnect'),
-      );
+      await this.device.waitFor(`${this.name} to connect to ${url}`, CONNECT_TIMEOUT_MS, () => {
+        const screen = this.device.screen();
+        if (screen.has('Disconnect')) return true;
+        const connect = screen.node('Connect & Sync');
+        if (connect && retriesLeft > 0 && Date.now() - lastTap > CONNECT_RETRY_AFTER_MS) {
+          retriesLeft -= 1;
+          lastTap = Date.now();
+          this.device.tapPoint(connect.x, connect.y);
+        }
+        return false;
+      });
     } catch {
       throw new Error(
         `${this.name}: connect to ${url} did not complete — screen showed: ${this.#visibleLabelsForDiagnostics()}`,

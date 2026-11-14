@@ -21,6 +21,8 @@ mod host_find;
 pub use host_find::{EditorFindLanding, EditorFindStep};
 pub use host_open::{EditorPendingEdits, EditorQuickView};
 mod images;
+#[cfg(any(target_os = "android", test))]
+mod jni_keys;
 mod links;
 mod tags;
 mod toolbar;

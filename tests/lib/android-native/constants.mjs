@@ -48,6 +48,8 @@ export const SYNC_STATE_FILES = ['.e2ee-state.json', '.e2ee-ancestry.json'];
 // need several, so UI waits are generous by construction, not by flake-chasing.
 export const UI_TIMEOUT_MS = 45_000;
 export const CONNECT_TIMEOUT_MS = 60_000;
+// A connect attempt still showing the form after this long was dropped.
+export const CONNECT_RETRY_AFTER_MS = 12_000;
 export const SAVE_TIMEOUT_MS = 20_000;
 // A live delivery normally lands in a second or two over SSE; the core's ~45 s
 // safety poll is the backstop when an event is missed, so wait past it before

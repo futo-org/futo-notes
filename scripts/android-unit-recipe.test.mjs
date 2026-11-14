@@ -27,6 +27,16 @@ describe('Android native recipe selection', () => {
     const vite = path.join(scratch, 'node_modules/.bin/vite');
     const qa = path.join(scratch, 'scripts/qa.mjs');
     for (const file of [gradle, vite, qa]) fs.mkdirSync(path.dirname(file), { recursive: true });
+    // The real selector mapping; the device assertion and JUnit check are recorded.
+    fs.writeFileSync(
+      path.join(scratch, 'scripts/android-instrument.mjs'),
+      `import fs from 'node:fs';
+import { gradleSelectorArg, parseSelectors } from ${JSON.stringify(path.join(root, 'scripts/lib/android-instrumentation.mjs'))};
+const [mode, ...rest] = process.argv.slice(2);
+if (mode === '--gradle-arg') for (const arg of gradleSelectorArg(parseSelectors(rest))) console.log(arg);
+else fs.appendFileSync(process.env.QA_RECIPE_RECORD + '.instrument', JSON.stringify([mode, ...rest]) + '\\n');
+`,
+    );
     fs.writeFileSync(
       gradle,
       '#!/usr/bin/env node\nrequire("node:fs").writeFileSync(process.env.QA_RECIPE_RECORD, JSON.stringify(process.argv.slice(2)));\n',
@@ -74,7 +84,15 @@ describe('Android native recipe selection', () => {
   });
 
   it('keeps SDK preflight and regenerated bindings before Gradle', () => {
-    expect(unit.header).toMatch(/android-env-check.*\(build-rust-android "device"\)/);
+    expect(unit.header).toMatch(/android-env-check.*_android-bindings/);
+  });
+
+  // The JVM tests never load libfuto_notes_ffi, so the per-ABI NDK build (~120s
+  // after any Rust change) is not theirs to pay; only the Kotlin bindings are.
+  it('generates bindings without building any ABI', () => {
+    const bindings = recipe('_android-bindings');
+    expect(bindings.body).toMatch(/ABIS=none bash scripts\/build-rust-android\.sh/);
+    expect(unit.header).not.toMatch(/build-rust-android/);
   });
 
   it('runs the full suite when no class is supplied', () => {
@@ -85,12 +103,40 @@ describe('Android native recipe selection', () => {
     ]);
   });
 
-  it('forwards only the named classes or methods to the Android runner', () => {
-    const result = run(ui, 'com.futo.notes.DialogImeDismissTest', 'com.futo.notes.OtherTest#works');
+  it('forwards one selector as a plain class filter', () => {
+    const result = run(ui, 'com.futo.notes.DialogImeDismissTest');
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(fs.readFileSync(record, 'utf8'))).toEqual([
       ':app:connectedDirectDebugAndroidTest',
-      '-Pandroid.testInstrumentationRunnerArguments.class=com.futo.notes.DialogImeDismissTest,com.futo.notes.OtherTest#works',
+      '-Pandroid.testInstrumentationRunnerArguments.class=com.futo.notes.DialogImeDismissTest',
+    ]);
+  });
+
+  // AGP 9's test engine splits runner arguments on commas: `class=A,B` ran only A
+  // and passed. Several selectors go as one comma-free regex, and the JUnit XML
+  // must then show every one of them ran.
+  it('forwards several selectors without a comma and checks each one ran', () => {
+    const selectors = ['com.futo.notes.DialogImeDismissTest', 'com.futo.notes.OtherTest#works'];
+    const result = run(ui, ...selectors);
+    expect(result.status, result.stderr).toBe(0);
+    const gradleArgs = JSON.parse(fs.readFileSync(record, 'utf8'));
+    expect(gradleArgs[0]).toBe(':app:connectedDirectDebugAndroidTest');
+    expect(gradleArgs[1]).toMatch(
+      /^-Pandroid\.testInstrumentationRunnerArguments\.tests_regex='[^,=]+'$/,
+    );
+    expect(gradleArgs).toHaveLength(2);
+    const instrument = fs
+      .readFileSync(`${record}.instrument`, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(instrument).toEqual([
+      ['--assert-emulator'],
+      [
+        '--check-junit',
+        'apps/android/app/build/outputs/androidTest-results/connected',
+        ...selectors,
+      ],
     ]);
   });
 

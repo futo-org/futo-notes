@@ -1,0 +1,226 @@
+package com.futo.notes.textfirst
+
+import android.os.SystemClock
+import android.view.inputmethod.InputConnection
+import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import org.junit.Assert.*
+import org.junit.Rule
+import org.junit.Test
+import uniffi.futo_notes_ffi.EditorBlockCommand
+
+/**
+ * The caret stays on screen as a key grows the note under it: the frame that draws the key
+ * already shows the caret. The real editor screen hosts the view, as the app does: under
+ * Compose's AndroidView a pending layout is resolved during the draw without onLayout, which a
+ * bare activity (or a bare AndroidView) hides.
+ */
+class TextFirstCaretFollowTest {
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+
+    private inner class Rig(val view: TextFirstEditText, val ic: InputConnection) {
+        private val drawn = arrayOfNulls<CountDownLatch>(1)
+        @Volatile private var overflowAtDraw = 0
+
+        init {
+            view.onFrameDrawn = {
+                overflowAtDraw = lineBottom() - (view.height - view.extendedPaddingBottom)
+                drawn[0]?.countDown()
+            }
+        }
+
+        private fun lineBottom(): Int {
+            val l = view.layout
+            return l.getLineTop(l.getLineForOffset(view.selectionEnd) + 1) + view.totalPaddingTop - view.scrollY
+        }
+
+        /** Hand the editor thread [action] and wait for the frame that draws its result. */
+        fun key(action: (InputConnection) -> Unit) {
+            val latch = CountDownLatch(1)
+            drawn[0] = latch
+            ic.handler!!.post { action(ic) }
+            assertTrue("the key was drawn", latch.await(5, TimeUnit.SECONDS))
+        }
+
+        fun type(text: String) = key { it.commitText(text, 1) }
+
+        fun heading(level: UByte) {
+            compose.runOnUiThread { view.engine!!.blockCommand(EditorBlockCommand.Heading(level)) }
+            SystemClock.sleep(300)
+        }
+
+        /** Note a miss when the caret's line stuck out below the visible area in the frame that drew the last key. */
+        fun assertCaretInView(label: String, misses: MutableList<String>) {
+            if (overflowAtDraw > 0) misses += "$label: caret line was $overflowAtDraw px below the visible area"
+        }
+    }
+
+    private fun exercise(note: String, check: Rig.() -> Unit) = compose.withTextFirstScreen(note) { view, connection ->
+        SystemClock.sleep(500)
+        Rig(view, connection).check()
+    }
+
+    private val longNote = (1..60).joinToString("\n") { "line $it" }
+
+    @Test
+    fun enterAtTheBottomRevealsTheCaretInTheFrameThatDrawsIt() = exercise(longNote) {
+        val misses = mutableListOf<String>()
+        repeat(30) { n -> type("\n"); assertCaretInView("Enter $n", misses) }
+        assertTrue(misses.joinToString("\n"), misses.isEmpty())
+    }
+
+    @Test
+    fun typingAWrappedLineAtTheBottomRevealsTheCaretInTheFrameThatDrawsIt() = exercise(longNote) {
+        val misses = mutableListOf<String>()
+        repeat(120) { n -> type("word "); assertCaretInView("key $n", misses) }
+        assertTrue(misses.joinToString("\n"), misses.isEmpty())
+    }
+
+    /**
+     * Chaos lane-1-07: Enter twice at the end of a last task leaves the list (the empty task loses
+     * its marker, no blank line is written), and the caret on the plain line sits at the margin, not at the task text's indent the empty task row had.
+     */
+    @Test
+    fun enterTwiceAtTheEndOfATaskListPutsTheCaretAtTheMargin() = exercise("$longNote\n\n- [ ] eggs\n- [ ] lemons (3)\n") {
+        compose.runOnUiThread {
+            val end = view.text.toString().indexOf("lemons (3)") + "lemons (3)".length
+            view.engine!!.hostSelect(end, end)
+        }
+        SystemClock.sleep(300)
+        repeat(2) {
+            key {
+                it.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ENTER))
+                it.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_ENTER))
+            }
+        }
+        compose.waitForIdle()
+        compose.runOnUiThread {
+            val text: android.text.Spanned = view.text!!
+            val caret = view.selectionEnd
+            assertTrue("the caret is on the line after the list", text.toString().substring(0, caret).endsWith("lemons (3)\n"))
+            val margins = text.getSpans(caret, caret, TfList::class.java)
+                .filter { text.getSpanEnd(it) > caret || text.getSpanStart(it) == caret }
+            assertTrue("no list row styles the plain line: $margins", margins.isEmpty())
+            val x = view.layout.getPrimaryHorizontal(caret)
+            assertEquals("the caret is at the margin", 0f, x, 1f)
+        }
+    }
+
+    /** A new line, H1, a title, Return: the new line's caret is on screen at once, not clipped at the bottom edge. */
+    @Test
+    fun returnAfterAHeadingAtTheBottomRevealsTheNewLine() = exercise(longNote) {
+        val misses = mutableListOf<String>()
+        type("\n")
+        heading(1u)
+        type("Header")
+        assertCaretInView("typing the heading", misses)
+        repeat(5) { n -> type("\n"); assertCaretInView("Return $n", misses); type("x"); type("\n") }
+        assertTrue(misses.joinToString("\n"), misses.isEmpty())
+    }
+
+    /** Typing at the bottom, then scrolling up to read: the note stays where the reader put it. */
+    @Test
+    fun scrollingAwayRightAfterAKeyIsNotUndoneWhenTheCursorBlinks() = exercise(longNote) {
+        type("\n")
+        compose.runOnUiThread { view.scroll.dragBy(-view.scrollY) }
+        val readingAt = view.scrollY
+        assertEquals("scrolled to the top", 0, readingAt)
+        SystemClock.sleep(2000)
+        assertEquals("the note was thrown back to the caret", readingAt, view.scrollY)
+    }
+
+    /**
+     * The keyboard going away grows the view. A note scrolled to its end must not be left scrolled past
+     * it: TextView only corrected that at its next reveal, so the first tap after the keyboard hid moved
+     * the note under the finger and a double-tap landed on two different words.
+     */
+    @Test
+    fun aNoteScrolledToItsEndIsNotLeftPastItWhenTheViewGrows() = exercise(longNote) {
+        fun end() = view.layout.height + view.totalPaddingTop + view.totalPaddingBottom - view.height
+        compose.runOnUiThread {
+            view.scrollTo(0, end())
+            view.layout(view.left, view.top, view.right, view.bottom + 400)
+        }
+        compose.runOnUiThread {
+            assertTrue("scrolled ${view.scrollY}, past the note's end at ${end()}", view.scrollY <= end())
+        }
+    }
+
+    @Test
+    fun selectAllKeepsTheReadersScrollPosition() = exercise(longNote) {
+        compose.runOnUiThread { view.scrollTo(0, view.maxScrollY() / 2) }
+        val readingAt = view.scrollY
+        assertTrue("the reader is in the middle of the note", readingAt > 0)
+        compose.runOnUiThread { view.engine!!.selectAll() }
+        compose.waitUntil(5_000) { view.selectionStart == 0 && view.selectionEnd == view.length() - 1 }
+        // TextView's reveal normally runs at pre-draw, after the engine's selection echo.
+        compose.waitForIdle()
+        compose.runOnUiThread { view.bringPointIntoView(view.selectionEnd) }
+        assertEquals("Select All must not jump to the selection's end", readingAt, view.scrollY)
+    }
+
+    @Test
+    fun pendingWholeNoteStylesCannotPinLaterKeyboardTypingAboveTheBottomCaret() = exercise(
+        (0 until 2500).joinToString("\n\n", postfix = "\n") { "paragraph $it has words" },
+    ) {
+        val engine = view.engine!!
+        val drawn = CountDownLatch(1)
+        var requested = Long.MAX_VALUE
+        var overflow = 0
+        var injected = false
+        compose.runOnUiThread {
+            view.scrollTo(0, 300)
+            view.onFrameDrawn = { timings ->
+                if (timings.input >= requested) {
+                    val layout = view.layout
+                    overflow = layout.getLineBottom(layout.getLineForOffset(view.selectionEnd)) +
+                        view.totalPaddingTop - view.scrollY - (view.height - view.extendedPaddingBottom)
+                    drawn.countDown()
+                }
+            }
+            view.onApplyMeasured = { _, update ->
+                if (update.styleOnly && !injected) {
+                    injected = true
+                    requested = SystemClock.elapsedRealtimeNanos()
+                    ic.handler!!.post {
+                        ic.setSelection(engine.text.length, engine.text.length)
+                        ic.commitText("\n", 1)
+                    }
+                    // Resolve the pending style reflow through the same Compose
+                    // parent layout that handles a real keyboard frame.
+                    view.requestLayout()
+                }
+            }
+            engine.selectAll()
+            engine.blockCommand(EditorBlockCommand.Quote)
+        }
+        assertTrue("the keyboard frame was drawn", drawn.await(15, TimeUnit.SECONDS))
+        assertTrue("pending style anchor left the caret $overflow px below the viewport", overflow <= 0)
+    }
+
+    @Test
+    fun selectionPaintReachesTextInTheTopPaddingBand() = exercise(longNote) {
+        compose.runOnUiThread {
+            view.engine!!.selectAll()
+        }
+        compose.waitUntil(5_000) { view.selectionStart == 0 && view.selectionEnd == view.length() - 1 }
+        compose.runOnUiThread {
+            // Put the top edge inside a selected line, away from the document's own first-line padding.
+            view.scrollTo(0, view.layout.getLineTop(8) + view.totalPaddingTop / 2)
+            val bitmap = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+            bitmap.eraseColor(android.graphics.Color.WHITE)
+            val canvas = android.graphics.Canvas(bitmap)
+            canvas.translate(0f, -view.scrollY.toFloat())
+            view.drawTopPaddingBand(canvas)
+            val space = view.layout.getLineStart(8) + 4
+            val x = view.totalPaddingLeft + ((view.layout.getPrimaryHorizontal(space) + view.layout.getPrimaryHorizontal(space + 1)) / 2).toInt()
+            val nativePath = android.graphics.Path().also { view.layout.getSelectionPath(view.selectionStart, view.selectionEnd, it) }
+            val nativeRegion = android.graphics.Region().apply { setPath(nativePath, android.graphics.Region(0, 0, view.width, view.layout.height)) }
+            assertTrue("the fixture samples inside Android's native selection highlight (scroll=${view.scrollY}, padding=${view.totalPaddingTop})", nativeRegion.contains(x - view.totalPaddingLeft, 1 + view.scrollY - view.totalPaddingTop))
+            assertNotEquals("selected text under the top padding keeps its highlight", android.graphics.Color.WHITE, bitmap.getPixel(x, 1))
+            bitmap.recycle()
+        }
+    }
+}

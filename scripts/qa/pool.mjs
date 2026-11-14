@@ -82,7 +82,7 @@ export function recordId(platform, name, id) {
 // earlier claim never finished its handover wipe (`wipePending`: the boot died
 // first), 'held' when the worktree already owned it, false when a live
 // worktree owns it.
-function tryClaimOwner(platform, name, root, assertOwnership = () => {}) {
+function tryClaimOwner(platform, name, root, assertOwnership = () => {}, fields = {}) {
   assertOwnership();
   fs.mkdirSync(DEV_DIR, { recursive: true });
   const payload = JSON.stringify(
@@ -91,6 +91,7 @@ function tryClaimOwner(platform, name, root, assertOwnership = () => {}) {
       branch: branchOf(root),
       claimedAt: new Date().toISOString(),
       wipePending: true,
+      ...fields,
     },
     null,
     2,
@@ -232,12 +233,42 @@ function allocatePoolName(platform, root, assertOwnership) {
   const start = slotOf(root) % POOL;
   for (let k = 0; k < POOL; k++) {
     const name = `futo-qa-${(start + k) % POOL}`;
+    // An --extra claim is only ever a shard target, never the worktree's own device.
+    if (readOwner(platform, name)?.extra && readOwner(platform, name).worktree === root) continue;
     const claim = tryClaimOwner(platform, name, root, assertOwnership);
     if (claim) return { name, fresh: claim === 'new' };
   }
   throw new Error(
     `all ${POOL} ${platform} pool devices are owned by live worktrees — release one (just qa-release) or run just qa-gc`,
   );
+}
+
+// Emulators one worktree may hold at once: other lanes share the pool.
+export const MAX_ANDROID_CLAIMS = 3;
+
+// `qa-claim android --extra`: one more pool emulator for this worktree, used only
+// to shard instrumentation (`just test-android-ui --shard`). It is marked `extra`
+// so `just puppet` and a plain claim keep using the worktree's first emulator;
+// `just qa-release android` frees it with the rest.
+export function claimExtraAndroid(root) {
+  return withAllocationLock('android', root, (assertOwnership) => {
+    assertNoPhysicalClaim(root);
+    const held = androidOwners(root);
+    if (!held.some(({ owner }) => !owner.extra))
+      throw new Error("claim this worktree's emulator first: just qa-claim android");
+    if (held.length >= MAX_ANDROID_CLAIMS)
+      throw new Error(
+        `this worktree already holds ${held.length} Android emulators (limit ${MAX_ANDROID_CLAIMS}); the pool is shared`,
+      );
+    const start = slotOf(root) % POOL;
+    for (let k = 0; k < POOL; k++) {
+      const name = `futo-qa-${(start + k) % POOL}`;
+      if (readOwner('android', name)?.worktree === root) continue;
+      if (tryClaimOwner('android', name, root, assertOwnership, { extra: true }))
+        return { name, fresh: true };
+    }
+    throw new Error(`no free ${POOL}-pool Android emulator for an extra claim`);
+  });
 }
 
 // Explicit legacy fixtures participate in ownership but retain their pinned

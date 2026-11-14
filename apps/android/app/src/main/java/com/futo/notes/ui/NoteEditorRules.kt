@@ -3,6 +3,10 @@ package com.futo.notes.ui
 import com.futo.notes.localization.LocalizedMessage
 import uniffi.futo_notes_ffi.OpenNoteDisposition
 import uniffi.futo_notes_ffi.SyncSummary
+import uniffi.futo_notes_ffi.makeId
+import uniffi.futo_notes_ffi.sanitizeTitle
+import uniffi.futo_notes_ffi.splitId
+import uniffi.futo_notes_ffi.validateTitle
 
 /** A note title that is still the auto-assigned placeholder: exactly "Untitled",
  *  or a dedup variant "Untitled-N" (the Rust store's `unique_note_id` appends `-2`,
@@ -22,6 +26,17 @@ internal fun titleValidationMessage(kind: String): LocalizedMessage? = when (kin
         mapOf("maxLength" to TitleSpec.maxLength),
     )
     else -> null
+}
+
+/** The persistent warning for a title being typed: dot/too-long first, else a duplicate of
+ *  another note in the same folder, else none. Both editor screens show this. */
+internal fun titleWarningFor(noteId: String, title: String, existingIds: List<String>): LocalizedMessage? {
+    val blocking = validateTitle(title).firstOrNull { it.kind != "empty" && it.kind != "forbidden_chars" }
+    val duplicate = title.trim().let { t ->
+        t.isNotEmpty() && collidesWithOtherNote(noteId, makeId(splitId(noteId).folder, sanitizeTitle(t)), existingIds)
+    }
+    return blocking?.let { titleValidationMessage(it.kind) }
+        ?: if (duplicate) LocalizedMessage("notes.title.duplicate") else null
 }
 
 internal fun SyncSummary.affectsOpenNote(id: String): Boolean =

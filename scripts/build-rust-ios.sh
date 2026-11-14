@@ -71,7 +71,10 @@ if [[ -z "$SIM_ARM64_ONLY" ]]; then
 fi
 
 echo "==> Building host lib (for binding generation metadata)"
-SDKROOT="$IOS_HOST_SDK" cargo build -p futo-notes-ffi
+# Same features as the bindgen run below: a plain build resolves `serde` with
+# other features, so each of the two commands dirtied the other and every call
+# recompiled editor, store and ffi twice.
+SDKROOT="$IOS_HOST_SDK" cargo build -p futo-notes-ffi --features bindgen
 
 # UniFFI's optional formatter is the unrelated `swiftformat` executable, not
 # Xcode's `swift-format`. These generated files are excluded from Swift lint;

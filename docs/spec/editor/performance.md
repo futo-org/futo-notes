@@ -132,3 +132,5 @@
   many browser editing operations and is quadratic even against a bare
   `contenteditable` carrying no application code, so it measures the harness, not
   the editor (M21). → tests/paste-perf.spec.ts
+
+- The native Android text-first editor's open, streaming and command performance: [Android text-first editor](performance/android-text-first.md)

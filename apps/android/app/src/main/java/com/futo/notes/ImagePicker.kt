@@ -7,9 +7,15 @@ import android.content.ContentResolver
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Bundle
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import java.util.UUID
 import android.webkit.MimeTypeMap
 import androidx.activity.ComponentActivity
 import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -46,10 +52,79 @@ const val MAX_PICKED_IMAGES = 3
  */
 class ImagePicker(
     private val activity: ComponentActivity,
+    private val results: ActivityResultRegistry = activity.activityResultRegistry,
     private val localization: () -> Localization,
 ) {
+    companion object {
+        // Stable OS-result identity, independent of other Activity registrations.
+        internal const val CAMERA_RESULT_KEY = "image-picker.camera"
+    }
+
     private var onPicked: ((List<Uri>) -> Unit)? = null
     private var cameraUri: Uri? = null
+    private var cameraFile: File? = null
+    private var cameraInFlight = false
+
+    /** Only OS capture routing is saved here; no editor body or draft is stored. */
+    internal var pendingCamera by mutableStateOf<EditorCameraCapture?>(null)
+        private set
+
+    init {
+        activity.savedStateRegistry.consumeRestoredStateForKey("editor.camera")?.let { state ->
+            cameraInFlight = state.getBoolean("inFlight")
+            val filename = state.getString("file")
+            if (filename != null && filename.startsWith("capture-") && File(filename).name == filename) {
+                cameraFile = File(File(activity.cacheDir, "camera"), filename)
+                cameraUri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", cameraFile!!)
+            }
+            val id = state.getString("id")
+            val note = state.getString("note")
+            val vault = state.getString("vault")
+            if (id != null && note != null && vault != null) {
+                pendingCamera = EditorCameraCapture(id, note, vault, cameraUri,
+                    state.getBoolean("complete"), state.getBoolean("success"), recovered = true,
+                    caretStart = state.getInt("caretStart"), caretEnd = state.getInt("caretEnd"))
+            }
+        }
+        activity.savedStateRegistry.registerSavedStateProvider("editor.camera") {
+            Bundle().apply {
+                putBoolean("inFlight", cameraInFlight)
+                cameraFile?.let { putString("file", it.name) }
+                pendingCamera?.let {
+                    putString("id", it.id)
+                    putString("note", it.noteId)
+                    putString("vault", it.vaultRoot)
+                    putBoolean("complete", it.complete)
+                    putBoolean("success", it.success)
+                    putInt("caretStart", it.caretStart)
+                    putInt("caretEnd", it.caretEnd)
+                }
+            }
+        }
+    }
+
+    /** [caretStart]..[caretEnd] is where the photo belongs, kept so a recreated screen can put it back. */
+    internal fun captureCameraForNote(noteId: String, vaultRoot: String, caretStart: Int = 0, caretEnd: Int = 0): String? {
+        if (pendingCamera != null || cameraInFlight) return null
+        val capture = EditorCameraCapture(UUID.randomUUID().toString(), noteId, vaultRoot, caretStart = caretStart, caretEnd = caretEnd)
+        pendingCamera = capture
+        onPicked = null
+        startCamera() // Native results travel as state, including after recreation.
+        return capture.id
+    }
+
+    internal fun finishCamera(id: String) {
+        if (pendingCamera?.id != id) return
+        pendingCamera = null
+        cameraFile?.delete()
+        // A camera still writing must retain its retired output identity until
+        // that result arrives; a second launch cannot adopt the first result.
+        if (!cameraInFlight) {
+            cameraFile = null
+            cameraUri = null
+        }
+        onPicked = null
+    }
 
     private fun deliver(uris: List<Uri>) {
         val callback = onPicked
@@ -58,23 +133,37 @@ class ImagePicker(
     }
 
     private val pickMedia =
-        activity.registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        results.register("image-picker.library", activity, ActivityResultContracts.PickVisualMedia()) { uri ->
             deliver(listOfNotNull(uri))
         }
 
     private val pickMultipleMedia =
-        activity.registerForActivityResult(
-            ActivityResultContracts.PickMultipleVisualMedia(MAX_PICKED_IMAGES)
+        results.register(
+            "image-picker.multiple", activity, ActivityResultContracts.PickMultipleVisualMedia(MAX_PICKED_IMAGES)
         ) { uris ->
             deliver(uris)
         }
 
     private val takePicture =
-        activity.registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-            deliver(if (ok) listOfNotNull(cameraUri) else emptyList())
+        results.register(CAMERA_RESULT_KEY, activity, ActivityResultContracts.TakePicture()) { ok ->
+            cameraInFlight = false
+            val pending = pendingCamera
+            if (pending != null) {
+                pendingCamera = pending.copy(uri = cameraUri, complete = true,
+                    success = ok && cameraFile?.let { it.isFile && it.length() > 0 } == true)
+            } else {
+                val waiting = onPicked != null
+                try { deliver(if (ok) listOfNotNull(cameraUri) else emptyList()) }
+                finally {
+                    if (!ok || !waiting) cameraFile?.delete()
+                    cameraFile = null
+                    cameraUri = null
+                }
+            }
         }
 
     fun pickLibrary(limit: Int = 1, callback: (List<Uri>) -> Unit) {
+        if (cameraInFlight || pendingCamera != null) { callback(emptyList()); return }
         val capped = limit.coerceIn(1, MAX_PICKED_IMAGES)
         onPicked = { uris -> callback(uris.take(capped)) }
         val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
@@ -82,11 +171,11 @@ class ImagePicker(
     }
 
     private val requestCamera =
-        activity.registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        results.register("image-picker.permission", activity, ActivityResultContracts.RequestPermission()) { granted ->
             when {
-                // The activity was recreated under the prompt: nobody is waiting
-                // for a photo any more, so don't take one.
-                onPicked == null -> Unit
+                // A retired permission request has neither a callback nor a
+                // saved destination; it must not launch another activity.
+                onPicked == null && pendingCamera == null -> Unit
                 granted -> launchCapture()
                 // Asked just now, so no rationale means refused for good — the
                 // same reading as pairingCameraAccess's DENIED.
@@ -94,7 +183,7 @@ class ImagePicker(
                     activity,
                     Manifest.permission.CAMERA,
                 ) -> {
-                    deliver(emptyList())
+                    completeCameraFailure()
                     showCameraOff()
                 }
                 else -> fail("editor.images.cameraPermission.refused")
@@ -102,7 +191,12 @@ class ImagePicker(
         }
 
     fun captureCamera(callback: (List<Uri>) -> Unit) {
+        if (cameraInFlight || pendingCamera != null) { callback(emptyList()); return }
         onPicked = callback
+        startCamera()
+    }
+
+    private fun startCamera() {
         val granted = ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
         if (granted) launchCapture() else requestCamera.launch(Manifest.permission.CAMERA)
@@ -110,12 +204,15 @@ class ImagePicker(
 
     private fun launchCapture() {
         val dir = File(activity.cacheDir, "camera").apply { mkdirs() }
-        val file = File(dir, "capture-${System.currentTimeMillis()}.jpg")
+        val file = File(dir, "capture-${UUID.randomUUID()}.jpg")
+        cameraFile = file
         val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
         cameraUri = uri
+        pendingCamera = pendingCamera?.copy(uri = uri)
         // launch() throws synchronously here, so nothing downstream catches
         // either failure — reset and tell the user instead of crashing.
         try {
+            cameraInFlight = true
             takePicture.launch(uri)
         } catch (e: ActivityNotFoundException) {
             // No camera app can service ACTION_IMAGE_CAPTURE (e.g. no default
@@ -131,9 +228,20 @@ class ImagePicker(
 
     /** Reset the picker, tell the user why, and hand the editor nothing. */
     private fun fail(message: String) {
-        cameraUri = null
         showToast(activity, localization().localizedText(message), long = true)
-        deliver(emptyList())
+        completeCameraFailure()
+    }
+
+    private fun completeCameraFailure() {
+        cameraInFlight = false
+        val pending = pendingCamera
+        if (pending != null) pendingCamera = pending.copy(complete = true, success = false)
+        else {
+            cameraFile?.delete()
+            cameraFile = null
+            cameraUri = null
+            deliver(emptyList())
+        }
     }
 
     /** Refused for good: only the system settings screen can undo it. */
@@ -245,3 +353,17 @@ private fun imageExtension(resolver: ContentResolver, uri: Uri): String? {
     val ext = (fromMime ?: uri.lastPathSegment?.substringAfterLast('.', ""))?.lowercase()
     return ext?.takeIf(::isCanonicalImageExtension)
 }
+
+/** Identity of one OS camera round trip, independent of Activity callbacks. */
+internal data class EditorCameraCapture(
+    val id: String,
+    val noteId: String,
+    val vaultRoot: String,
+    val uri: Uri? = null,
+    val complete: Boolean = false,
+    val success: Boolean = false,
+    val recovered: Boolean = false,
+    /** The editor caret (display UTF-16) when the camera opened: where the photo is inserted. */
+    val caretStart: Int = 0,
+    val caretEnd: Int = 0,
+)
