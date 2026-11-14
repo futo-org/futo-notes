@@ -202,3 +202,33 @@ fn explicit_quote_blank_resets_list_ancestors_only_when_quote_depth_changes() {
         assert_eq!(levels, expected, "{source:?}");
     }
 }
+
+#[test]
+fn cached_line_sizes_match_rendered_unicode_and_hidden_frames() {
+    for source in [
+        "",
+        "plain 😀 café\r\nnext",
+        "# **😀** _é_\r\n- [x] \\*é",
+        "---\r\ntitle: 😀\r\n---\r\nbody",
+        "---\n😀\n---",
+        "```rust\r\n😀\r\n```",
+        "```\n```",
+        "```",
+        "---",
+        "> ---\r\n",
+        "| 😀 | é |\n|--|--|\n| **x** | y |",
+        "[😀](https://x.y) [[é]] #tag",
+    ] {
+        let engine = Engine::open(source);
+        for entry in engine.store.iter_from(0) {
+            let shown = entry.display();
+            assert_eq!(entry.size.display, shown.len(), "{source:?}");
+            assert_eq!(
+                entry.size.display16,
+                shown.encode_utf16().count(),
+                "{source:?}"
+            );
+            assert_eq!(entry.size.source16, entry.text.encode_utf16().count());
+        }
+    }
+}
