@@ -26,7 +26,7 @@ before changing behavior.
 - **Build and release** (`build-rust-{ios,android}.sh`, `release-build.mjs`, `patch-appimage.mjs`,
   `verify-updater-signature.mjs`, `build-updater-manifest.mjs`, `publish_playstore.py`).
 - **QA and device tooling** (`qa.mjs`, `qa-target.mjs`, `qa-shot.mjs`, `android-drive.mjs`,
-  `cdp-invoke.mjs`, `describe-ios-ui.mjs`, `tauri-dev.mjs`, `win-vm/`).
+  `describe-ios-ui.mjs`, `tauri-dev.mjs`, `win-vm/`).
 - **CI helpers** (`ci-*.sh`, `ci-cargo-cache-freshness.mjs`, `ci-cirrus-cache-mtimes.mjs`, `remote-test.mjs`).
   The `ci-*` ones run inside CI images/Tart VMs that have no `just`, so they get no recipe.
 - **Shared** (`lib/`): `slot.mjs` derives every per-worktree port and device slot; `sync-server.mjs`

@@ -12,7 +12,7 @@ the bindings (`just build-rust-android device`), or you are testing yesterday's 
 
 ```bash
 eval "$(just qa-claim android)"     # claim a pooled emulator: sets ANDROID_SERIAL / ANDROID_AVD_NAME
-just android-native                 # Rust FFI (device ABI) → editor bundle → installDirectDebug → launch
+just android-native                 # Rust FFI (device ABI) → installDirectDebug → launch
 just build-android-native           # compile both flavors (direct, play)
 just test-android-native            # JVM unit tests, both flavors (~497 each)
 just test-android-native com.futo.notes.textfirst.RenderWorkTest      # one JVM class
@@ -60,8 +60,8 @@ FUTO_PUPPET_TARGET=android just puppet type '{"text":"…"}'   # real key presse
 FUTO_PUPPET_TARGET=android just puppet file '{"noteId":"…"}' # the note on disk
 ```
 
-With the flag on, puppet does not boot the WebView, so page queries refuse. The native editor
-state comes from `PuppetNativeEditorState.kt` (`5002f8587`). Puppet `tap` has no multi-tap,
+Puppet uses the native editor in every build. Editor state comes from
+`PuppetNativeEditorState.kt`, and editing actions use the platform input connection. Puppet `tap` has no multi-tap,
 so double- and triple-tap can't be driven (papercut pc_a064c59be877).
 
 ### Devices
@@ -80,10 +80,10 @@ so double- and triple-tap can't be driven (papercut pc_a064c59be877).
 
 | Job | What it covers for Android text-first |
 |---|---|
-| `build:android-native` (`ci/android.yml`) | Rust FFI for every ABI, editor bundle, `assembleDirectDebug` + `assemblePlayDebug`, JVM unit tests for both flavors, then `scripts/ci-android-instrumentation.sh`, which runs the **whole** androidTest suite (`textfirst` included) via `connectedDirectDebugAndroidTest` on a CI emulator (Android 14 AVD). Runs when an MR touches `apps/android/**`, `crates/futo-notes-ffi/**`, `Cargo.lock`, and a few others. About 33–65 min. |
+| `build:android-native` (`ci/android.yml`) | Rust FFI for every ABI, `assembleDirectDebug` + `assemblePlayDebug`, JVM unit tests for both flavors, then `scripts/ci-android-instrumentation.sh`, which runs the **whole** androidTest suite (`textfirst` included) via `connectedDirectDebugAndroidTest` on a CI emulator (Android 14 AVD). Runs when an MR touches `apps/android/**`, `crates/futo-notes-ffi/**`, `Cargo.lock`, and a few others. About 33–65 min. |
 | `test:rust:ffi-android` | FFI cross-compile for aarch64 Android. |
 | `test:rust:workspace` | All engine/store/FFI Rust tests. |
-| `test:cross-platform-sync:android` | Real Compose app plus sync on an emulator. **It pins the WebView editor**, so text-first has no cross-platform sync leg yet. |
+| `test:cross-platform-sync:android` | Real Compose app plus sync on an emulator, using the native editor. The native cutover passed all three Android/desktop scenarios. |
 | `test`, `test:e2e:*`, `test:ios-native`, `test:cross-platform-sync` | Not Android-specific, but they break when shared crates or spec-driven fixtures change. |
 
 Pipeline 39656 at `c6392ed34` passed. The pipeline for `dbe0c2a92` (39724) was still running
@@ -111,4 +111,3 @@ when this was written.
     `test-android-ui` loop checks every selector ran.
 - Pipelines 39625–39630 failed `test:rust:workspace`, `test:ios-native` and the sync jobs on
   inherited test expectations that !590 corrected. That is history, not a current flake.
-

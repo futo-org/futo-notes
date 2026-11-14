@@ -74,4 +74,3 @@ internal fun TextFirstEditText.redrawTableRows(only: (TfTableRow) -> Boolean = {
         }
     } finally { applying = false }
 }
-

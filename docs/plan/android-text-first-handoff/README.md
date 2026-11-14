@@ -28,19 +28,11 @@ are opt-in perf tests that skip), and there has been hands-on testing on a Moto 
 and a Pixel 7a. It is not release-grade: typing-latency budgets on the low-end phone are
 unmet or unmeasured, and large notes open slowly on that phone (§7).
 
-**It sits behind a persistent dev flag.** `TextFirstFlag` (`textfirst/TextFirstFlag.kt`) is
-on by default in dev builds (the `.dev` app ids, debuggable or not) and is never on in
-release builds, which still ship the WebView editor. The flag is stored in SharedPreferences
-(`text_first_editor` / `enabled`) and changes only through a launch extra, which persists
-until you set it again:
-
-```bash
-adb shell am start -n com.futo.notes.dev/com.futo.notes.MainActivity --ez futo.textFirstEditor false  # WebView editor
-adb shell am start -n com.futo.notes.dev/com.futo.notes.MainActivity --ez futo.textFirstEditor true   # text-first again
-```
-
-Branch on `NotesStorage.isDevBuild`, never `BuildConfig.DEBUG` (a `-PfutoDebuggable=false`
-dev build has DEBUG false).
+The native cutover supersedes this handoff's renderer rollout: debug and release now use
+Linedown directly. There is no renderer preference or launch extra. The earlier device and
+performance measurements above remain historical; use `apps/android/AGENTS.md` and the
+current specs for build and runtime contracts. Outstanding host migration opportunities below
+remain follow-ups.
 
 ## 4. Decisions already made (don't relitigate)
 

@@ -26,7 +26,7 @@ behavior question is a Rust question unless it is about drawing, touch or IME me
 
 | Class / file | What it does |
 |---|---|
-| `TextFirstEditorScreen.kt` | The note screen when the flag is on. Title and rename, leave/save, the sync-summary hookup (`store.localTreeChanges` → `reconcileExternalChanges()`, or close on a remote delete). |
+| `TextFirstEditorScreen.kt` | The native note screen in debug and release. Title and rename, leave/save, the sync-summary hookup (`store.localTreeChanges` → `reconcileExternalChanges()`, or close on a remote delete). |
 | `TextFirstController.kt` | One open note: the view, its engine and the Compose-facing state (caret, find, cell). UI thread only. |
 | `EditorEngine.kt` (+ `EditorEngine*.kt` extensions) | The editor thread. Owns `NativeEditorSession` (FFI calls block, so never on the UI thread) and applies each accepted change to its own copy of the display text before posting it to the view in order. The extensions split it by concern: `Caret`, `Find`, `Tables`, `Images`, `Links`, `Keyboard`, `Opening`, `Storage`, `Stream`, `Updates`, `Recovery`, `Completion`, `Window`. |
 | `EngineInputConnection.kt` | The IME connection, dispatched on the editor thread (Chromium's threaded-input arrangement). Reads come from the mirror; writes go to the engine. |
@@ -44,7 +44,7 @@ behavior question is a Rust question unless it is about drawing, touch or IME me
 | `EditorEngineFind.kt`, `FindMarks.kt`, `TextFirstFind.kt`, `ui/NoteEditorFindBar.kt` | Find. |
 | `TextFirstImages.kt`, `ImageLoader.kt`, `TextFirstClipboard.kt`, `../ImagePicker.kt` | Image claims (picker, camera, paste), decoding (Coil for remote images, no persistent cache) and the clipboard. |
 | `../storage/StorageMigrationGate.kt`, `../LocalTreeProjection.kt` | Serialize editor I/O against storage migration. Project the store's sync summaries for the open note. |
-| `app/src/debug/.../puppet/PuppetNativeEditorState.kt` | Read-only puppet view of the native editor state (text, spans, selection). |
+| `app/src/debug/.../puppet/PuppetNativeEditorState.kt` | Native Puppet state and actions (text, spans, selection and input connection). |
 
 `NativeEditor*Test` classes under `androidTest/.../editor/` are the FFI contract tests (they
 run on main as well). `textfirst/*Test` classes test the view.
@@ -80,4 +80,3 @@ the Android-only pieces above (MR !564 note, 2026-11-08). The later engine MRs (
    `just test-editor-wasm`, `just test-rust`. Read `crates/futo-notes-editor/AGENTS.md`.
 3. Open a small MR to main. Post a one-line note on !564 if Android benefits or must react.
 4. After it merges, merge main into `android-text-first`.
-

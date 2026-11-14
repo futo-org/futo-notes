@@ -1,7 +1,7 @@
 # iOS text-first editor — milestone ledger
 
 Goal: the native iPhone editor reaches the level of the Android text-first editor
-(`android-text-first`, MR !564). Dev builds only, behind a persistent flag. Delete this file in the
+(`android-text-first`, MR !564). Debug and release now both use the native editor. Delete this file in the
 commit that finishes the last milestone (archive rule).
 
 ## Decisions (final)
@@ -10,9 +10,8 @@ commit that finishes the last milestone (archive rule).
   engine (`futo-notes-editor` + `futo-notes-store` over `futo-notes-ffi`), which owns the note's
   exact bytes, history, saving and every Markdown rule. No Markdown rules in Swift.
 - Deployment floor stays iOS 18; iOS 27 TextKit APIs are gated behind `#available`.
-- Flag: `TextFirstFlag` (`futo.textFirstEditor` in `UserDefaults`), dev builds only, persisted from
-  the launch argument `-futo.textFirstEditor YES|NO`, off by default. When on, `EditorHost.shared`
-  (and so the WKWebView) is never touched (`EditorHost.isInUse`).
+- The native cutover removed the rollout flag and the mobile web host. No renderer preference
+  or launch argument remains. The unfinished evidence items below are follow-ups.
 - Logic that exists only in Kotlin and is not platform UI is written in Rust (`host` module of
   `futo-notes-editor`, UniFFI in `crates/futo-notes-ffi/src/editor/host.rs`) via small engine MRs
   cut from `origin/main`, each noted on !564.

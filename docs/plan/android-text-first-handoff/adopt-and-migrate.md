@@ -20,7 +20,7 @@ the Kotlin half and the device checks, listed per item.
 - **Still open:** the shared manifest `packages/editor/src/toolbar.ts:229,238` still has
   `when: 'inContainer'`. That generates `ui/ToolbarSpec.kt` (`onlyInContainer = true`,
   regenerated with `just toolbar-spec`), which `ui/EditorToolbar.kt:113,188` uses to hide them.
-  Changing the manifest also changes the WebView and desktop embed toolbars, so it is a
+  Changing the manifest also changes the desktop embed toolbar, so it is a
   cross-surface change. Coordinate with Justin before doing it.
 - **Verify on device:** Indent is greyed on the first item, Outdent on a
   top-level item, both on a paragraph, heading, plain quote or table. Both are lit on code
@@ -64,12 +64,10 @@ the Kotlin half and the device checks, listed per item.
   In Kotlin these should be `editorExternalLinkUrl`, `session.resolveNoteLink` and
   `session.normalizeLinkDestination`, by UniFFI's camelCase mapping. I haven't checked that
   against generated bindings.
-- **Kotlin to change:**
-  - `ui/EditorHostCommands.kt:47-61`: replace `SCHEMELESS_HOST` and `externalLinkTarget()`.
-    They currently send schemeless hosts to https, drop `sms`, and treat note names as
-    non-links. Note that `openExternalUrl` is shared with the WebView editor
-    (`EditorHost.openExternalUrl`), so either keep the WebView path as it is or change both
-    deliberately.
+- **Kotlin wiring:**
+  - The native cutover extracted `openExternalUrl` and its allowed-scheme check to
+    `ui/ExternalLinks.kt`. The native session resolves note destinations and normalizes
+    prompted destinations; there is no web-host command path to maintain.
   - `TextFirstEditorScreen.kt:410` / `TextFirstNoteView.kt:43` (`onOpenUrl`): a schemeless
     destination calls `resolveNoteLink` and navigates to the note.
   - `ExternalLinkTouch.kt`: the tap is consumed only if `open` returns true. Keep that
@@ -114,4 +112,3 @@ Do them one at a time, each with its owning device tests.
 Nothing to migrate for !595 (image Backspace), !597 (carried formats across OS replace) and
 !600 (heading toggle ignores blank lines). They are engine-only and Android benefits once main
 is merged.
-
