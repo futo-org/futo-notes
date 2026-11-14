@@ -267,7 +267,6 @@ deploy-android flavor="direct": editor-deps android-env-check
     exit 1
   fi
   just build-rust-android
-  node_modules/.bin/vite build --config vite.editor.config.ts
   cd apps/android && ./gradlew ":app:assemble${VARIANT}Release"
   APK=$(ls -t "app/build/outputs/apk/{{flavor}}/release"/*.apk | head -1)
   echo "Installing ${APK} (com.futo.notes)…"
