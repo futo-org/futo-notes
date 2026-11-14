@@ -371,3 +371,31 @@ fn history_restores_the_formats_a_cleared_span_left_carried() {
         .unwrap();
     assert_eq!(engine.source_text(), "a **x** b");
 }
+
+/// A format that leaves the display text as it was (marks and markers are
+/// hidden) reports no display text change, however many lines it touches:
+/// a host re-sets only what changed.
+#[test]
+fn a_whole_note_format_reports_no_display_text_change() {
+    let source: String = (0..40)
+        .map(|i| format!("Line {i} of the note\n\n"))
+        .collect();
+    for bold in [true, false] {
+        let mut engine = Engine::open(&source);
+        let before = engine.display_text();
+        let all = display(0, engine.display_len());
+        engine.select(engine.revision(), all).unwrap();
+        let revision = engine.revision();
+        let change = if bold {
+            engine.toggle_format_view(revision, InlineFormat::Bold, &mut ok)
+        } else {
+            engine.block(revision, all, crate::BlockCommand::Quote, &mut ok)
+        }
+        .unwrap()
+        .unwrap();
+        assert_ne!(engine.source_text(), source);
+        assert_eq!(engine.display_text(), before);
+        assert_eq!(change.range.start, change.range.end, "bold: {bold}");
+        assert_eq!(change.inserted, "", "bold: {bold}");
+    }
+}

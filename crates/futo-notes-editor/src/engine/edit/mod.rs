@@ -95,7 +95,12 @@ impl Engine {
         batch.work.inserted_bytes += inserted.len();
         grow(&mut batch.source, range.clone(), inserted.len());
         regrow(&mut batch.lines, shown.clone(), display.len(), lines);
-        grow(&mut batch.display, shown, display.len());
+        // An edit that leaves the display text as it was (marks, markers)
+        // must not widen the replaced text: a whole-note format would
+        // otherwise report every line between its first and last edit.
+        if !(shown.is_empty() && display.is_empty()) {
+            grow(&mut batch.display, shown, display.len());
+        }
         batch.records.push(Record {
             start: range.start,
             removed,
@@ -152,12 +157,15 @@ impl Engine {
             return Err(EditorError::Persistence(error));
         }
         self.revision = revision;
-        let (dstart, dold, dend) = batch.display.expect("display footprint with source");
+        let lines = batch.lines.expect("lines shown with the source");
+        let (dstart, dold, dend) = batch
+            .display
+            .unwrap_or((lines.start, lines.start, lines.start));
         self.find.edited(dstart..dold, dend - dstart, revision);
         let shown = Shown {
             range: dstart..dold,
             inserted: self.display_slice(dstart..dend),
-            lines: batch.lines.clone().expect("lines shown with the display"),
+            lines,
             parsed: work.parsed_source_bytes,
             materialized: work.materialized_source_bytes + edit.removed.len() + edit.inserted.len(),
         };
