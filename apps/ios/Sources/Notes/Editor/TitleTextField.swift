@@ -25,6 +25,8 @@ struct TitleTextField: UIViewRepresentable {
     var onChange: (String) -> Void
     /// A forbidden character was typed and stripped (drives the transient warning).
     var onForbidden: () -> Void = {}
+    /// Return transfers focus to the editor that owns this title field.
+    var onSubmit: () -> Void = {}
 
     func makeUIView(context: Context) -> UITextField {
         let tf = UITextField()
@@ -149,7 +151,7 @@ struct TitleTextField: UIViewRepresentable {
 
         func textFieldShouldReturn(_ tf: UITextField) -> Bool {
             tf.resignFirstResponder()
-            EditorHost.shared.focusBody()
+            parent.onSubmit()
             return false
         }
     }

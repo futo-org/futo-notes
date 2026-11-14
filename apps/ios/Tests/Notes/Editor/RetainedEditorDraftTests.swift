@@ -23,6 +23,9 @@ struct RetainedEditorDraftTests {
         await store.waitForEditorFlushes()
         // The first write failed. Retry comes only from the retained register.
         try FileManager.default.removeItem(at: obstruction)
+        // Restore the parent: removing a blocker alone leaves a missing folder,
+        // which a retained save must not resurrect after an external move.
+        try FileManager.default.createDirectory(at: obstruction, withIntermediateDirectories: false)
         store.flushPendingEditor()
         await store.waitForEditorFlushes()
         #expect(try await store.read("blocked/note") == "late typed tail")

@@ -31,9 +31,9 @@ final class TextFirstLeaveUITests: XCTestCase {
     /// Open the note, type, make the vault unwritable and go Back: the leave cannot save.
     @MainActor
     private func leaveWithTheDiskFailing() throws {
-        app = makeIsolatedApplication()
+        app = makeIsolatedApplication(textFirstEditor: true)
         app.launchEnvironment["FUTO_NOTES_DATA_DIR"] = vault.path
-        app.launchArguments += ["-futo.textFirstEditor", "YES", "-AppleLanguages", "(en)"]
+        app.launchArguments += ["-AppleLanguages", "(en)"]
         app.launch()
         openNote()
         let editor = app.textViews["text-first-editor"]

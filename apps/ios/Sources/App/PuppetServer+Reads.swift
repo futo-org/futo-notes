@@ -49,6 +49,12 @@
             guard let noteId = arguments["noteId"] as? String, !noteId.isEmpty
             else { return PuppetServerContract.refusal(400, #"file needs {"noteId":"…"}"#) }
             if arguments["save"] as? Bool ?? true {
+                if TextFirstFlag.enabled(), !(await PuppetNativeEditor.shared.checkpoint()) {
+                    return PuppetServerContract.refusal(
+                        409,
+                        "the native editor has edits that did not save; save:false reads disk unchanged"
+                    )
+                }
                 await store.flushPendingEditorAndWait()
                 if store.unsavedNoteIds.contains(noteId) {
                     return PuppetServerContract.refusal(
@@ -105,7 +111,9 @@
             for (key, value) in vault() { object[key] = value }
             // The page owns the document and its own rows, which are on screen only while
             // nothing covers it; the shell owns everything else, including this screen's verbs.
-            let shown = webviewOnScreen() != nil ? page : nil
+            let shown =
+                (TextFirstFlag.enabled() && editorNote != nil || webviewOnScreen() != nil)
+                ? page : nil
             object["actions"] = actionsList(pageActions: shown?["actions"])
             object["lines"] = shown?["lines"] ?? [Any]()
             object["elements"] = shown?["elements"] ?? [Any]()
@@ -153,19 +161,27 @@
                 "foreground": UIApplication.shared.applicationState == .active,
                 "keyboard": Self.keyboardUp,
             ]
+            if TextFirstFlag.enabled(), let id = PuppetNativeEditor.shared.unsavedId {
+                object["pending"] = [
+                    "unsaved": Array(Set(store.unsavedNoteIds + [id])).sorted(), "sync": sync.busy,
+                ]
+            }
             if navigation.path.isEmpty {
                 // The same store query the list runs, so `hits` is what the rows show.
                 let hits = await searchHits() ?? []
                 object["search"] = ["query": navigation.searchQuery, "hits": hits]
             }
             for (key, value) in page ?? [:] where object[key] == nil { object[key] = value }
+            if TextFirstFlag.enabled(), object["editor"] == nil { object["editor"] = NSNull() }
             return object
         }
 
         @MainActor
         func actions() async -> PuppetReply {
             var pageActions: Any?
-            if !PuppetVerbs.shared.modalUp, webviewOnScreen() != nil {
+            if !PuppetVerbs.shared.modalUp,
+                TextFirstFlag.enabled() && editorNote != nil || webviewOnScreen() != nil
+            {
                 pageActions = await pageObject("actions")?["actions"]
             }
             return (

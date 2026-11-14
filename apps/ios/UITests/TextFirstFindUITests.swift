@@ -25,9 +25,9 @@ final class TextFirstFindUITests: XCTestCase {
         try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
         try Self.note.write(
             to: vault.appendingPathComponent("findme.md"), atomically: true, encoding: .utf8)
-        let app = makeIsolatedApplication()
+        let app = makeIsolatedApplication(textFirstEditor: true)
         app.launchEnvironment["FUTO_NOTES_DATA_DIR"] = vault.path
-        app.launchArguments += ["-futo.textFirstEditor", "YES", "-AppleLanguages", "(en)"]
+        app.launchArguments += ["-AppleLanguages", "(en)"]
         app.launch()
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "findme"))
             .firstMatch

@@ -49,17 +49,21 @@ pub(crate) fn gesture(target: &Target, name: &str, args: &Value) -> Result<Reply
     let touches = if keys { None } else { touch_cursor(target)? };
     let pace = std::cell::Cell::new(None);
     let deliver = || -> Result<(), String> {
-        pace.set(send(tool, &sends, delay)?);
+        let run = || send(tool, &sends, delay);
+        pace.set(if *platform == NativePlatform::Ios {
+            ios_accessibility::preserve(device, run)?
+        } else {
+            run()?
+        });
         Ok(())
     };
-    // The page answers for a gesture while the editor is up, unless it left the editor (Back, a
-    // sheet over it): then the page is no longer what answers for the screen.
-    let traced_by_page = match before.webview {
-        Some(_) => Some(traced(target, deliver)?).filter(|record| record.status == 200),
-        None => {
-            deliver()?;
-            None
-        }
+    // Both renderers snapshot the document around input. Only a real WebView
+    // can also report DOM events; native trace receipts carry document/selection diffs.
+    let traced_by_editor = if before.has_editor() {
+        Some(traced(target, deliver)?).filter(|record| record.status == 200)
+    } else {
+        deliver()?;
+        None
     };
     let after = settle(target, &before, false)?;
     let (kind, reached) = if keys {
@@ -70,8 +74,8 @@ pub(crate) fn gesture(target: &Target, name: &str, args: &Value) -> Result<Reply
     if let Some(why) = unreceived(*platform, name, tool, &reached) {
         return Ok(Reply::refusal(409, why));
     }
-    let page = traced_by_page.is_some();
-    let mut receipt = match (traced_by_page, before.page_offset()) {
+    let page = before.webview.is_some() && traced_by_editor.is_some();
+    let mut receipt = match (traced_by_editor, before.editor_offset()) {
         (Some(mut record), Some(offset)) => {
             shift(&mut record.body, offset);
             merge_change(&mut record.body, &before, &after);
@@ -81,7 +85,8 @@ pub(crate) fn gesture(target: &Target, name: &str, args: &Value) -> Result<Reply
     };
     app::record(&mut receipt, &app_before, &app::read(target)?);
     let untouched = event_count(&receipt) == 0 && after.same_as(&before);
-    if name == "type" && untouched && !app::changed(&receipt) {
+    let native_edit = before.native_editor && app::editor_changed(&receipt);
+    if name == "type" && untouched && !app::changed(&receipt) && !native_edit {
         return Ok(typed_into_nothing(&args));
     }
     // A touch inside the web view that the page never saw was taken by something native on
@@ -132,7 +137,7 @@ pub(crate) fn aim(
                         .is_some_and(|shown| shown.contains(&text))
             })
             .collect();
-        let page = match before.page_offset() {
+        let page = match before.editor_offset() {
             Some(offset) => {
                 let mut shown = call(target, "show", &json!({ "text": text }))?;
                 if shown.status == 200 {

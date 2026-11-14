@@ -208,25 +208,19 @@ struct NoteListView: View {
         .transientMessageBanner(store)
     }
 
-    /// The note's screen: the WKWebView editor, or (dev builds with `TextFirstFlag` on) the
+    /// The note's screen: the WKWebView editor, or (with `TextFirstFlag` on) the
     /// text-first editor. `.id(id)` keeps each pushed editor's state apart (see `.note` above).
     @ViewBuilder
     private func noteScreen(id: String, autoFocus: Bool) -> some View {
-        #if FUTO_DEBUG_BUILD
-            if TextFirstFlag.enabled() {
-                TextFirstNoteScreen(noteId: id, autoFocus: autoFocus, navPath: $navigation.path)
-                    .environmentObject(store)
-                    .id(id)
-            } else {
-                NoteEditorView(noteId: id, autoFocus: autoFocus, navPath: $navigation.path)
-                    .environmentObject(store)
-                    .id(id)
-            }
-        #else
+        if TextFirstFlag.enabled() {
+            TextFirstNoteScreen(noteId: id, autoFocus: autoFocus, navPath: $navigation.path)
+                .environmentObject(store)
+                .id(id)
+        } else {
             NoteEditorView(noteId: id, autoFocus: autoFocus, navPath: $navigation.path)
                 .environmentObject(store)
                 .id(id)
-        #endif
+        }
     }
 
     @ToolbarContentBuilder

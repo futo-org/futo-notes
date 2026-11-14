@@ -1,5 +1,6 @@
 ## List
 
+- _(iOS)_ Returning to the foreground refreshes the note and folder projection from disk, so files added, moved or removed in Files appear without a cold relaunch. The scan runs off the main actor and is serialized with sync projection. → apps/ios/Sources/Notes/Storage/NotesStore.swift `refreshAfterForeground`, apps/ios/Tests/Notes/Storage/FolderMutationTests.swift `foregroundRefreshesExternalChanges`
 - Shows the notes whose parent folder is exactly the folder being browsed
   (see [Folder browsing](folder-browsing.md#folder-browsing)); on Tauri, the notes of the folder
   selected in the sidebar tree. → NoteListScreen.kt _(Android)_,

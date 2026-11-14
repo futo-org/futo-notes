@@ -36,14 +36,7 @@ pub(crate) fn capture(target: &Target) -> Result<String, String> {
                 )
                 .map_err(|app| format!("{bridge}; puppet_screenshot: {app}"))
             })?;
-            let url = data
-                .as_str()
-                .ok_or_else(|| format!("the desktop app answered {data} for a screenshot"))?;
-            let encoded = url.split_once("base64,").map_or(url, |(_, rest)| rest);
-            let png = STANDARD_NO_PAD
-                .decode(encoded.trim_end_matches('='))
-                .map_err(|_| "the capture is not base64")?;
-            ("desktop", png)
+            ("desktop", desktop_png(&data)?)
         }
         Target::Native(NativePlatform::Ios, _, udid) => {
             let path = dir.join(format!("ios-{at}.png"));
@@ -84,6 +77,32 @@ pub(crate) fn capture(target: &Target) -> Result<String, String> {
     ))
 }
 
+/// macOS's bridge includes image/CSS dimensions beside the data URL; the
+/// Linux fallback returns the URL itself. Never include image contents in errors.
+fn desktop_png(data: &Value) -> Result<Vec<u8>, String> {
+    let url = data
+        .as_str()
+        .or_else(|| data.get("dataUrl").and_then(Value::as_str))
+        .ok_or_else(|| {
+            let shape = match data {
+                Value::Object(fields) => format!(
+                    "object with keys [{}]",
+                    fields.keys().map(String::as_str).collect::<Vec<_>>().join(", ")
+                ),
+                Value::Array(_) => "array".into(),
+                Value::Bool(_) => "boolean".into(),
+                Value::Number(_) => "number".into(),
+                Value::Null => "null".into(),
+                Value::String(_) => "string".into(),
+            };
+            format!("expected a screenshot data URL string or an object with string dataUrl; got {shape}")
+        })?;
+    let encoded = url.split_once("base64,").map_or(url, |(_, rest)| rest);
+    STANDARD_NO_PAD
+        .decode(encoded.trim_end_matches('='))
+        .map_err(|_| "the capture is not base64".into())
+}
+
 /// Width and height from a PNG's header chunk.
 fn png_size(png: &[u8]) -> Option<(u32, u32)> {
     if !png.starts_with(PNG_SIGNATURE) || png.len() < 24 {
@@ -106,5 +125,23 @@ mod tests {
         png.extend_from_slice(&1600u32.to_be_bytes());
         assert_eq!(png_size(&png), Some((2400, 1600)));
         assert_eq!(png_size(b"GIF89a, not a png at all"), None);
+    }
+
+    #[test]
+    fn desktop_capture_keeps_string_compatibility_and_does_not_dump_unknown_payloads() {
+        let encoded = STANDARD_NO_PAD.encode(PNG_SIGNATURE);
+        for value in [
+            json!(encoded),
+            json!(format!("data:image/png;base64,{encoded}")),
+        ] {
+            assert_eq!(desktop_png(&value).unwrap(), PNG_SIGNATURE);
+        }
+        let error =
+            desktop_png(&json!({"image": "large-private-image-payload", "width": 12})).unwrap_err();
+        assert!(error.contains("image, width"), "{error}");
+        assert!(!error.contains("large-private-image-payload"));
+        assert!(desktop_png(&json!({"dataUrl": 7}))
+            .unwrap_err()
+            .contains("dataUrl"));
     }
 }

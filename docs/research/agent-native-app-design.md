@@ -121,7 +121,7 @@ and `events`.
 - **The selection is the argument.** Formatting verbs take no arguments and act on the
   selection, as their toolbar buttons do; they are named after the `TOOLBAR_EXEC` ids
   (`Bold`, `Heading`, `TaskList`, …). `Select` supplies the selection.
-- **Positions are ProseMirror's**, read from `doc`, `show {"text"}` or `state`, never counted
+- **Positions belong to the active renderer** (ProseMirror or native iOS UTF-16), read from `doc`, `show {"text"}` or `state`, never counted
   from markdown. `expect` refuses 409 if the text at a range differs; `docVersion` (a hash of
   the document) refuses if the document moved.
 - **Text anchors (2026-09-21).** `Select` and `Replace` take `{"find"}`, `Insert` takes
@@ -237,3 +237,15 @@ The web view is the whole desktop UI and the editor on both phones, and the one 
   a non-button, puppet-only arguments (`answer`) must stay unreachable from a click, and
   whether an identifier inside iOS `.swipeActions`, a `Menu` or the toolbar reaches the
   accessibility tree is unverified.
+
+## Native iOS editor adapter
+
+The debug-only `App/PuppetNative` adapter borrows the active text-first controller weakly.
+It reads the native storage, canonical session projections and clipped UIKit viewport;
+reads do not settle composition or flush disk. Native screen rectangles are already in
+screen points. `editor.surface="native"` distinguishes this surface from a WebView,
+including its loading interval; the CLI keeps page traces exclusive to actual WebViews.
+Native actions use the controller's UIInput, paragraph, toolbar and clipboard handlers.
+Request-scoped snapshots produce document/selection diffs with no invented DOM events.
+The private puppet clipboard shares serialization with native Copy/Cut/Paste, while real
+clipboard actions retain their OS behavior. Only `file(save:true)` requests a checkpoint.

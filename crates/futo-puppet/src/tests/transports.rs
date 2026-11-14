@@ -58,3 +58,33 @@ fn a_silent_app_fails_the_reads_around_a_verb_instead_of_emptying_them() {
     assert!(app::read(&target).is_err());
     assert!(menu(&target).is_err());
 }
+
+/// The macOS bridge returns dimensions beside its data URL. The real failure
+/// discarded this healthy capture because the CLI expected only a string.
+#[test]
+fn a_structured_desktop_screenshot_is_written_as_an_artifact() {
+    let (port, _) = super::gestures::fake_bridge(|_| {
+        use base64::Engine;
+        let mut header = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+        header.extend_from_slice(&2400u32.to_be_bytes());
+        header.extend_from_slice(&1600u32.to_be_bytes());
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&header);
+        json!({"id": "futo-puppet", "success": true, "data": {
+            "cssHeight": 800.0, "cssWidth": 1200.0,
+            "dataUrl": format!("data:image/png;base64,{encoded}"),
+            "imageHeight": 1600, "imageWidth": 2400
+        }})
+    });
+    let answer = crate::screenshot::capture(&Target::Desktop(port)).unwrap();
+    assert!(answer.contains("2400×1600 px"));
+    let path = answer
+        .strip_prefix("screenshot ")
+        .unwrap()
+        .split_once(" · ")
+        .unwrap()
+        .0;
+    assert!(std::fs::read(path)
+        .unwrap()
+        .starts_with(b"\x89PNG\r\n\x1a\n"));
+    std::fs::remove_file(path).unwrap();
+}

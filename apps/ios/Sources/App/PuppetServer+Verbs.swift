@@ -151,7 +151,11 @@
                             503, "an editor is open; GoBack before navigating elsewhere")
                     }
                     navigation.path.append(.note(target.id))
-                    if let refusal = await awaitEditorLoaded(for: name) { return refusal }
+                    // Navigation already committed. The CLI settles the native surface's
+                    // ready/loading state; never return a retryable refusal after pushing it.
+                    if !TextFirstFlag.enabled(), let refusal = await awaitEditorLoaded(for: name) {
+                        return refusal
+                    }
                     return receipt(name, ["noteId": target.id])
                 default:  // OpenFolder
                     let path = try folder("path")

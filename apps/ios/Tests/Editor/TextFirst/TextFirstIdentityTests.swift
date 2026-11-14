@@ -93,6 +93,28 @@
             _ = await rig.controller.close()
         }
 
+        /// #280: a title rename adopts the store's rewritten self-link as the live
+        /// baseline, so the next typed edit cannot save the old target back or park a copy.
+        @Test func aTitleRenameKeepsItsSelfLinkThroughFurtherTyping() async throws {
+            let rig = try await TextFirstVaultRig(id: "Selfy", body: "back to [[Selfy]]\n")
+            defer { rig.tearDown() }
+            let token = rig.store.claimDraftOwnership()
+            let outcome = await TextFirstTitle.rename(
+                to: "SelfyX", controller: rig.controller, store: rig.store, ownerToken: token)
+            #expect(outcome == .renamed("SelfyX"))
+            #expect(rig.disk("SelfyX") == "back to [[SelfyX]]\n")
+            #expect(rig.source == "back to [[SelfyX]]\n")
+            rig.selectEnd()
+            rig.type("123")
+            #expect(await rig.checkpoint())
+            #expect(rig.disk("SelfyX") == "back to [[SelfyX]]\n123")
+            #expect(rig.disk("Selfy") == nil)
+            let files = try FileManager.default.contentsOfDirectory(atPath: rig.root.path)
+                .filter { $0.hasPrefix("Selfy") && $0.hasSuffix(".md") }
+            #expect(files == ["SelfyX.md"])
+            _ = await rig.controller.close()
+        }
+
         /// A save's identity, read on the I/O queue before a title rename retargeted the
         /// attachment, lands on the main thread after the rename adopted its id: it is older than
         /// the rename and must not move the editor back to the vacated name.

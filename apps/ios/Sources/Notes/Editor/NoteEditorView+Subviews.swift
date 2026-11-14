@@ -17,7 +17,8 @@ extension NoteEditorView {
                         LocalizedMessage("notes.title.forbiddenCharacter"),
                         transient: true
                     )
-                }
+                },
+                onSubmit: { EditorHost.shared.focusBody() }
             )
             .padding(.horizontal, 20)
             .padding(.top, 4)

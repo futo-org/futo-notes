@@ -140,6 +140,7 @@ fn phone_view(rows: Vec<Value>, webview: Option<crate::native::Rect>) -> screen:
         rows,
         scroll: vec![],
         webview,
+        native_editor: false,
         moving: false,
         ready: false,
     }

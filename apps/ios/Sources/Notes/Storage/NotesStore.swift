@@ -226,11 +226,26 @@ final class NotesStore: ObservableObject {
                 // error. Keep the shell usable with a recovery scan; normal
                 // sync cycles never pay for a whole-vault refresh.
                 print("external-change projection failed: \(error)")
-                applySnapshot(await vault.recoveryScan(), expectedEpoch: epoch)
+                applySnapshot(await vault.refreshSnapshot(), expectedEpoch: epoch)
             }
             guard epoch == resetEpoch, !resetting else { return }
             localTreeChange = summary
         }
+    }
+
+    /// Files can change in Files while this app is suspended. Re-read on the vault actor,
+    /// serialized with sync projection, without delaying the foreground shell.
+    func refreshAfterForeground() async {
+        let epoch = resetEpoch
+        guard hasBootstrapped, !resetting else { return }
+        let previous = localTreeChangeTail
+        let refresh = Task { @MainActor in
+            await previous?.value
+            guard epoch == resetEpoch, !resetting else { return }
+            applySnapshot(await vault.refreshSnapshot(), expectedEpoch: epoch)
+        }
+        localTreeChangeTail = refresh
+        await refresh.value
     }
 
     func beginFullReset() {

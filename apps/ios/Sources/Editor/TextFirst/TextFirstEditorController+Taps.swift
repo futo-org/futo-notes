@@ -1,234 +1,232 @@
-#if FUTO_DEBUG_BUILD
-    import UIKit
+import UIKit
 
-    // A tap on a task's checkbox toggles it through the engine (`ToggleTask`) and leaves the caret
-    // and the keyboard where they were; the checkbox is drawn by a layout fragment, not a character.
+// A tap on a task's checkbox toggles it through the engine (`ToggleTask`) and leaves the caret
+// and the keyboard where they were; the checkbox is drawn by a layout fragment, not a character.
 
-    extension TextFirstEditorController: UIGestureRecognizerDelegate {
-        /// The text of `fragment`'s row spans the selection: a non-empty selection that starts at or
-        /// before the row's first character and ends at or after its last (its line break aside).
-        func selectionRange(for fragment: NSTextLayoutFragment, in manager: NSTextLayoutManager)
-            -> NSRange?
-        {
-            let selected = textView.selectedRange
-            guard selected.length > 0 else { return nil }
-            let start = manager.offset(
-                from: manager.documentRange.location, to: fragment.rangeInElement.location)
-            let end =
-                start
-                + manager.offset(
-                    from: fragment.rangeInElement.location, to: fragment.rangeInElement.endLocation)
-            let text = storage.string as NSString
-            let rowEnd = (end > start && text.character(at: end - 1) == 0x0A) ? end - 1 : end
-            return selected.location <= start && NSMaxRange(selected) >= rowEnd ? selected : nil
+extension TextFirstEditorController: UIGestureRecognizerDelegate {
+    /// The text of `fragment`'s row spans the selection: a non-empty selection that starts at or
+    /// before the row's first character and ends at or after its last (its line break aside).
+    func selectionRange(for fragment: NSTextLayoutFragment, in manager: NSTextLayoutManager)
+        -> NSRange?
+    {
+        let selected = textView.selectedRange
+        guard selected.length > 0 else { return nil }
+        let start = manager.offset(
+            from: manager.documentRange.location, to: fragment.rangeInElement.location)
+        let end =
+            start
+            + manager.offset(
+                from: fragment.rangeInElement.location, to: fragment.rangeInElement.endLocation)
+        let text = storage.string as NSString
+        let rowEnd = (end > start && text.character(at: end - 1) == 0x0A) ? end - 1 : end
+        return selected.location <= start && NSMaxRange(selected) >= rowEnd ? selected : nil
+    }
+
+    /// Whether the selection covers all of `run`, a glyph run in `fragment`'s paragraph.
+    func selectionCovers(
+        _ run: NSRange, in fragment: NSTextLayoutFragment, _ manager: NSTextLayoutManager
+    ) -> Bool {
+        let selected = textView.selectedRange
+        guard selected.length > 0 else { return false }
+        let start = manager.offset(
+            from: manager.documentRange.location, to: fragment.rangeInElement.location)
+        return selected.location <= start + run.location
+            && NSMaxRange(selected) >= start + NSMaxRange(run)
+    }
+
+    /// Repaint the rows whose marker highlight may change with the selection.
+    func invalidateMarkerHighlights(old: NSRange, new: NSRange) {
+        guard old.length > 0 || new.length > 0, let manager = textView.textLayoutManager,
+            let content = manager.textContentManager
+        else { return }
+        let union = NSUnionRange(old, new)
+        let from = content.location(
+            manager.documentRange.location, offsetBy: min(union.location, storage.length))
+        let to = content.location(
+            manager.documentRange.location, offsetBy: min(NSMaxRange(union), storage.length))
+        if let from, let to, let range = NSTextRange(location: from, end: to) {
+            manager.invalidateLayout(for: range)
         }
+    }
 
-        /// Whether the selection covers all of `run`, a glyph run in `fragment`'s paragraph.
-        func selectionCovers(
-            _ run: NSRange, in fragment: NSTextLayoutFragment, _ manager: NSTextLayoutManager
-        ) -> Bool {
-            let selected = textView.selectedRange
-            guard selected.length > 0 else { return false }
-            let start = manager.offset(
-                from: manager.documentRange.location, to: fragment.rangeInElement.location)
-            return selected.location <= start + run.location
-                && NSMaxRange(selected) >= start + NSMaxRange(run)
+    func installTapRecognizer() {
+        layoutDelegate.host = self
+        textView.textLayoutManager?.delegate = layoutDelegate
+        (textView.textLayoutManager?.textContentManager as? NSTextContentStorage)?.delegate =
+            imageBreakDelegate
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        tap.cancelsTouchesInView = false
+        tap.delegate = self
+        textView.addGestureRecognizer(tap)
+        checkboxTap = tap
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleTablePan(_:)))
+        pan.delegate = self
+        textView.addGestureRecognizer(pan)
+        tablePan = pan
+        let tracker = TextFirstTouchTracker(target: nil, action: nil)
+        tracker.onChange = { [weak self] down in
+            self?.textView.fingerIsDown = down
+            if !down { self?.renderHoldChanged() }
         }
+        textView.addGestureRecognizer(tracker)
+    }
 
-        /// Repaint the rows whose marker highlight may change with the selection.
-        func invalidateMarkerHighlights(old: NSRange, new: NSRange) {
-            guard old.length > 0 || new.length > 0, let manager = textView.textLayoutManager,
-                let content = manager.textContentManager
-            else { return }
-            let union = NSUnionRange(old, new)
-            let from = content.location(
-                manager.documentRange.location, offsetBy: min(union.location, storage.length))
-            let to = content.location(
-                manager.documentRange.location, offsetBy: min(NSMaxRange(union), storage.length))
-            if let from, let to, let range = NSTextRange(location: from, end: to) {
-                manager.invalidateLayout(for: range)
+    func gestureRecognizer(
+        _ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool { true }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        selectionBeforeTouch = textView.selectedRange
+        let p = touch.location(in: textView)
+        touchHitCheckbox = checkboxFragment(at: p) != nil
+        // A touch on a checkbox or a link is that control's alone: the text view does not take
+        // focus (no caret, no keyboard), as Android's touch handler consumes it.
+        suppressFocus =
+            touchHitCheckbox || linkTarget(at: p) != nil || tableRowHit(at: p) != nil
+        if suppressFocus {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                MainActor.assumeIsolated { self?.suppressFocus = false }
             }
         }
+        return true
+    }
 
-        func installTapRecognizer() {
-            layoutDelegate.host = self
-            textView.textLayoutManager?.delegate = layoutDelegate
-            (textView.textLayoutManager?.textContentManager as? NSTextContentStorage)?.delegate =
-                imageBreakDelegate
-            let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
-            tap.cancelsTouchesInView = false
-            tap.delegate = self
-            textView.addGestureRecognizer(tap)
-            checkboxTap = tap
-            let pan = UIPanGestureRecognizer(target: self, action: #selector(handleTablePan(_:)))
-            pan.delegate = self
-            textView.addGestureRecognizer(pan)
-            tablePan = pan
-            let tracker = TextFirstTouchTracker(target: nil, action: nil)
-            tracker.onChange = { [weak self] down in
-                self?.textView.fingerIsDown = down
-                if !down { self?.renderHoldChanged() }
-            }
-            textView.addGestureRecognizer(tracker)
-        }
+    var inset: UIEdgeInsets { textView.textContainerInset }
 
-        func gestureRecognizer(
-            _ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
-        ) -> Bool { true }
+    private func fragment(at p: CGPoint) -> NSTextLayoutFragment? {
+        textView.textLayoutManager?.textLayoutFragment(
+            for: CGPoint(x: p.x - inset.left, y: p.y - inset.top))
+    }
 
-        func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            selectionBeforeTouch = textView.selectedRange
-            let p = touch.location(in: textView)
-            touchHitCheckbox = checkboxFragment(at: p) != nil
-            // A touch on a checkbox or a link is that control's alone: the text view does not take
-            // focus (no caret, no keyboard), as Android's touch handler consumes it.
-            suppressFocus =
-                touchHitCheckbox || linkTarget(at: p) != nil || tableRowHit(at: p) != nil
-            if suppressFocus {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                    MainActor.assumeIsolated { self?.suppressFocus = false }
-                }
-            }
-            return true
-        }
-
-        var inset: UIEdgeInsets { textView.textContainerInset }
-
-        private func fragment(at p: CGPoint) -> NSTextLayoutFragment? {
-            textView.textLayoutManager?.textLayoutFragment(
-                for: CGPoint(x: p.x - inset.left, y: p.y - inset.top))
-        }
-
-        /// The fragment whose checkbox (with a generous touch margin) holds `p`.
-        func checkboxFragment(at p: CGPoint) -> TextFirstLayoutFragment? {
-            guard let f = fragment(at: p) as? TextFirstLayoutFragment, let box = f.checkboxRect
-            else {
-                return nil
-            }
-            let frame = f.layoutFragmentFrame
-            let rect = box.offsetBy(dx: inset.left, dy: frame.minY + inset.top).insetBy(
-                dx: -12, dy: -12)
-            return rect.contains(p) ? f : nil
-        }
-
-        /// The storage range of the image whose drawn rect holds `p`, if any.
-        func imageHit(at p: CGPoint) -> NSRange? {
-            guard let f = fragment(at: p) as? TextFirstLayoutFragment, !f.imageRuns.isEmpty,
-                let manager = textView.textLayoutManager
-            else { return nil }
-            let local = CGPoint(
-                x: p.x - inset.left, y: p.y - inset.top - f.layoutFragmentFrame.minY)
-            let base = manager.offset(
-                from: manager.documentRange.location, to: f.rangeInElement.location)
-            for run in f.imageRuns {
-                if let rect = f.imageRect(run), rect.contains(local) {
-                    return NSRange(location: base + run.range.location, length: run.range.length)
-                }
-            }
+    /// The fragment whose checkbox (with a generous touch margin) holds `p`.
+    func checkboxFragment(at p: CGPoint) -> TextFirstLayoutFragment? {
+        guard let f = fragment(at: p) as? TextFirstLayoutFragment, let box = f.checkboxRect
+        else {
             return nil
         }
+        let frame = f.layoutFragmentFrame
+        let rect = box.offsetBy(dx: inset.left, dy: frame.minY + inset.top).insetBy(
+            dx: -12, dy: -12)
+        return rect.contains(p) ? f : nil
+    }
 
-        /// A plain tap on an image, anywhere on it, is a collapsed caret right after it (the
-        /// caret is drawn at its trailing edge): typing goes after the image and Backspace removes
-        /// it whole. A long-press, a drag or select-all still select it as one object.
-        private func placeCaretAfterImage(_ range: NSRange) {
-            DispatchQueue.main.async { [weak self] in
-                MainActor.assumeIsolated {
-                    guard let self, !self.closed, NSMaxRange(range) <= self.storage.length else {
-                        return
-                    }
-                    self.textView.selectedRange = NSRange(location: NSMaxRange(range), length: 0)
+    /// The storage range of the image whose drawn rect holds `p`, if any.
+    func imageHit(at p: CGPoint) -> NSRange? {
+        guard let f = fragment(at: p) as? TextFirstLayoutFragment, !f.imageRuns.isEmpty,
+            let manager = textView.textLayoutManager
+        else { return nil }
+        let local = CGPoint(
+            x: p.x - inset.left, y: p.y - inset.top - f.layoutFragmentFrame.minY)
+        let base = manager.offset(
+            from: manager.documentRange.location, to: f.rangeInElement.location)
+        for run in f.imageRuns {
+            if let rect = f.imageRect(run), rect.contains(local) {
+                return NSRange(location: base + run.range.location, length: run.range.length)
+            }
+        }
+        return nil
+    }
+
+    /// A plain tap on an image, anywhere on it, is a collapsed caret right after it (the
+    /// caret is drawn at its trailing edge): typing goes after the image and Backspace removes
+    /// it whole. A long-press, a drag or select-all still select it as one object.
+    private func placeCaretAfterImage(_ range: NSRange) {
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, !self.closed, NSMaxRange(range) <= self.storage.length else {
+                    return
                 }
+                self.textView.selectedRange = NSRange(location: NSMaxRange(range), length: 0)
             }
         }
+    }
 
-        /// A horizontal drag that starts on a table scrolls all its columns together; any other
-        /// drag is the text view's own.
-        func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
-            guard g === tablePan, let pan = g as? UIPanGestureRecognizer else { return true }
-            let v = pan.velocity(in: textView)
-            return abs(v.x) > abs(v.y) && tableRowHit(at: pan.location(in: textView)) != nil
+    /// A horizontal drag that starts on a table scrolls all its columns together; any other
+    /// drag is the text view's own.
+    func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        guard g === tablePan, let pan = g as? UIPanGestureRecognizer else { return true }
+        let v = pan.velocity(in: textView)
+        return abs(v.x) > abs(v.y) && tableRowHit(at: pan.location(in: textView)) != nil
+    }
+
+    @objc func handleTablePan(_ g: UIPanGestureRecognizer) {
+        switch g.state {
+        case .began:
+            // The text view's own scrolling stands down for this drag.
+            textView.panGestureRecognizer.isEnabled = false
+            textView.panGestureRecognizer.isEnabled = true
+            let start = g.location(in: textView)
+                .applying(
+                    CGAffineTransform(
+                        translationX: -g.translation(in: textView).x,
+                        y: -g.translation(in: textView).y))
+            if let hit = tableRowHit(at: start) {
+                tablePanRow = (hit.row, hit.span)
+                tablePanOrigin = tableScroll[hit.span.tableStart] ?? 0
+            }
+        case .changed:
+            guard let (row, span) = tablePanRow else { return }
+            scrollTable(
+                startingAt: span.tableStart, columns: span.columns,
+                to: tablePanOrigin - g.translation(in: textView).x, around: row)
+        default:
+            tablePanRow = nil
         }
+    }
 
-        @objc func handleTablePan(_ g: UIPanGestureRecognizer) {
-            switch g.state {
-            case .began:
-                // The text view's own scrolling stands down for this drag.
-                textView.panGestureRecognizer.isEnabled = false
-                textView.panGestureRecognizer.isEnabled = true
-                let start = g.location(in: textView)
-                    .applying(
-                        CGAffineTransform(
-                            translationX: -g.translation(in: textView).x,
-                            y: -g.translation(in: textView).y))
-                if let hit = tableRowHit(at: start) {
-                    tablePanRow = (hit.row, hit.span)
-                    tablePanOrigin = tableScroll[hit.span.tableStart] ?? 0
-                }
-            case .changed:
-                guard let (row, span) = tablePanRow else { return }
-                scrollTable(
-                    startingAt: span.tableStart, columns: span.columns,
-                    to: tablePanOrigin - g.translation(in: textView).x, around: row)
-            default:
-                tablePanRow = nil
-            }
-        }
-
-        @objc func handleTap(_ g: UITapGestureRecognizer) {
-            // A cell, an image or a checkbox is the engine's to change: nothing until it lands.
-            if engineBusy, g.state == .ended, linkTarget(at: g.location(in: textView)) == nil {
-                touchHitCheckbox = false
-                suppressFocus = false
-                return
-            }
-            if g.state == .ended, let hit = tableCellHit(at: g.location(in: textView)) {
-                suppressFocus = false
-                openCellEditor(hit)
-                return
-            }
-            if g.state == .ended, !touchHitCheckbox,
-                let image = imageHit(at: g.location(in: textView))
-            {
-                placeCaretAfterImage(image)
-                return
-            }
-            if g.state == .ended, !touchHitCheckbox,
-                let target = linkTarget(at: g.location(in: textView))
-            {
-                suppressFocus = false
-                applying += 1
-                textView.selectedRange = selectionBeforeTouch
-                applying -= 1
-                open(target)
-                return
-            }
-            guard g.state == .ended, touchHitCheckbox,
-                let f = checkboxFragment(at: g.location(in: textView)),
-                let manager = textView.textLayoutManager
-            else { return }
+    @objc func handleTap(_ g: UITapGestureRecognizer) {
+        // A cell, an image or a checkbox is the engine's to change: nothing until it lands.
+        if engineBusy, g.state == .ended, linkTarget(at: g.location(in: textView)) == nil {
             touchHitCheckbox = false
             suppressFocus = false
-            let offset = manager.offset(
-                from: manager.documentRange.location, to: f.rangeInElement.location)
-            toggleTask(atLineOffset: offset)
-            // The text view moved its caret to the tap; the engine never heard about it.
+            return
+        }
+        if g.state == .ended, let hit = tableCellHit(at: g.location(in: textView)) {
+            suppressFocus = false
+            openCellEditor(hit)
+            return
+        }
+        if g.state == .ended, !touchHitCheckbox,
+            let image = imageHit(at: g.location(in: textView))
+        {
+            placeCaretAfterImage(image)
+            return
+        }
+        if g.state == .ended, !touchHitCheckbox,
+            let target = linkTarget(at: g.location(in: textView))
+        {
+            suppressFocus = false
             applying += 1
             textView.selectedRange = selectionBeforeTouch
             applying -= 1
+            open(target)
+            return
         }
-
-        func toggleTask(atLineOffset offset: Int) {
-            guard !closed, !engineBusy else { return }
-            finishComposition()
-            do {
-                let at = EditorUtf16Range(start: UInt64(offset), end: UInt64(offset))
-                if let change = try session.blockCommandUtf16(
-                    expected: rev, range: at, command: .toggleTask)
-                {
-                    try accept(change)
-                }
-            } catch { recover(error, context: "toggle task") }
-        }
+        guard g.state == .ended, touchHitCheckbox,
+            let f = checkboxFragment(at: g.location(in: textView)),
+            let manager = textView.textLayoutManager
+        else { return }
+        touchHitCheckbox = false
+        suppressFocus = false
+        let offset = manager.offset(
+            from: manager.documentRange.location, to: f.rangeInElement.location)
+        toggleTask(atLineOffset: offset)
+        // The text view moved its caret to the tap; the engine never heard about it.
+        applying += 1
+        textView.selectedRange = selectionBeforeTouch
+        applying -= 1
     }
-#endif
+
+    func toggleTask(atLineOffset offset: Int) {
+        guard !closed, !engineBusy else { return }
+        finishComposition()
+        do {
+            let at = EditorUtf16Range(start: UInt64(offset), end: UInt64(offset))
+            if let change = try session.blockCommandUtf16(
+                expected: rev, range: at, command: .toggleTask)
+            {
+                try accept(change)
+            }
+        } catch { recover(error, context: "toggle task") }
+    }
+}

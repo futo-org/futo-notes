@@ -33,18 +33,22 @@ ios-native-device: _preflight-ios
   apps/ios/run-device.sh
 
 # Compile-only sanity for the native iOS app (no install); `just ios-native` runs it.
-build-ios-native: _preflight-ios build-rust-ios
+build-ios-native configuration="Debug": _preflight-ios build-rust-ios
   #!/usr/bin/env bash
   set -euo pipefail
-  # Debug app: the editor bundle carries the puppet inspector; see justfile-notes.md.
-  VITE_INCLUDE_TEST_HOOKS=true node_modules/.bin/vite build --config vite.editor.config.ts
+  case "{{configuration}}" in
+    Debug) export VITE_INCLUDE_TEST_HOOKS=true ;;
+    Release) export VITE_INCLUDE_TEST_HOOKS=false ;;
+    *) echo "Expected Debug or Release configuration" >&2; exit 2 ;;
+  esac
+  node_modules/.bin/vite build --config vite.editor.config.ts
   cd apps/ios
   xcodegen generate
   # Generic destination: links both arches; see justfile-notes.md.
   BUILD_LOG="$(mktemp)"
   trap 'rm -f "$BUILD_LOG"' EXIT
   if xcodebuild -project FutoNotesNative.xcodeproj \
-    -scheme FutoNotesNative -configuration Debug \
+    -scheme FutoNotesNative -configuration {{configuration}} \
     -destination 'generic/platform=iOS Simulator' \
     -derivedDataPath .build \
     CODE_SIGNING_ALLOWED=NO build > "$BUILD_LOG" 2>&1; then

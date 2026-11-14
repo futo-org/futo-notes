@@ -242,7 +242,17 @@
         ) -> Node? {
             let traits = object.accessibilityTraits
             let label = oneLine(object.accessibilityLabel)
-            let value = oneLine(object.accessibilityValue)
+            // A native editor's accessibility value is its whole backing string. Puppet
+            // reads only its viewport and never leaks hidden image spelling as visible text.
+            let nativeEditor = host as? TextFirstTextView
+            let value: String
+            if let c = nativeEditor?.controller {
+                value = PuppetNativeEditor.Document(c).rows().compactMap { $0["text"] as? String }
+                    .joined(separator: " ")
+            } else {
+                value = oneLine(object.accessibilityValue)
+            }
+
             let id = (property(object, "accessibilityIdentifier") as? String)
                 .flatMap { $0.isEmpty ? nil : $0 }
             let field = object is UIKeyInput || traits.contains(.searchField)
@@ -284,7 +294,7 @@
             if role == "text" || role == "heading" || role == "image", text.isEmpty { return nil }
             return Node(
                 role: role, text: text, id: id, frame: frame, aim: aim, actions: actions,
-                flags: flags, section: section)
+                flags: flags, section: nativeEditor == nil ? section : "editor")
         }
 
         /// Whether a long press here opens a menu: a list row's, which its collection view's

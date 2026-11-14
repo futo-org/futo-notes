@@ -78,7 +78,7 @@ final class EditorClosePerfTests: XCTestCase {
         try noteBody(lines: size).write(
             to: vault.appendingPathComponent("\(title).md"), atomically: true, encoding: .utf8)
 
-        let app = XCUIApplication()
+        let app = makeIsolatedApplication()
         app.launchEnvironment["FUTO_NOTES_DATA_DIR"] = vault.path
         app.launchEnvironment["FUTO_NOTES_UI_TEST_RUN_ID"] = "close-perf-\(size)-\(sample)"
         // Touch marks for the tap anchor, and the debounced save held so a

@@ -1,8 +1,11 @@
 import XCTest
 
 @MainActor
-func makeIsolatedApplication() -> XCUIApplication {
+/// Each app chooses its renderer explicitly, so a previous test's persisted debug
+/// switch cannot turn a WebView regression into a native-editor test (or vice versa).
+func makeIsolatedApplication(textFirstEditor: Bool = false) -> XCUIApplication {
     let app = XCUIApplication()
+    app.launchArguments += ["-futo.textFirstEditor", textFirstEditor ? "YES" : "NO"]
     let runID = UUID().uuidString
     app.launchEnvironment[AppLaunchEnvironment.dataDirectory] = "ui-tests/\(runID)"
     app.launchEnvironment[AppLaunchEnvironment.runID] = runID

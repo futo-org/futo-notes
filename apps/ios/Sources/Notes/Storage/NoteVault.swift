@@ -150,8 +150,8 @@ actor NoteVault {
         }
     }
 
-    /// Error recovery only. Normal sync projection is the scoped engine verb.
-    func recoveryScan() -> NoteSnapshot {
+    /// Foreground refresh and error recovery. Normal sync projection uses the scoped engine verb.
+    func refreshSnapshot() -> NoteSnapshot {
         core.rescan()
         return core.scan()
     }

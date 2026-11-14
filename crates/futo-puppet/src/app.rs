@@ -50,6 +50,16 @@ pub(crate) fn changed(receipt: &Value) -> bool {
     receipt["diff"].get("state").is_some() || receipt["diff"].get("vault").is_some()
 }
 
+/// A native trace proves an edit without a DOM event count, even when the
+/// visible accessibility label has the same prefix and undo grouping is unchanged.
+pub(crate) fn editor_changed(receipt: &Value) -> bool {
+    ["doc", "selection"].iter().any(|key| {
+        receipt["diff"]
+            .get(key)
+            .is_some_and(|value| !is_empty(value))
+    })
+}
+
 /// Add what changed between `before` and `after` to the receipt's `diff`.
 pub(crate) fn record(receipt: &mut Value, before: &App, after: &App) {
     let mut state = Map::new();

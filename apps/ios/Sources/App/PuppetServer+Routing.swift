@@ -26,12 +26,30 @@
                 }
                 // A control on the SwiftUI screen itself: registered while that screen is up,
                 // so being registered IS being on this screen.
-                if let registered { return await screenVerb(registered, body: body) }
+                if let registered {
+                    if TextFirstFlag.enabled(), editorNote != nil {
+                        let adapter = PuppetNativeEditor.shared
+                        let before = adapter.snapshot()
+                        let reply = await screenVerb(registered, body: body)
+                        guard reply.status < 400,
+                            var object = try? JSONSerialization.jsonObject(with: reply.body)
+                                as? [String: Any]
+                        else { return reply }
+                        object["diff"] = adapter.diff(before, adapter.snapshot())
+                        return (reply.status, PuppetServerContract.json(object))
+                    }
+                    return await screenVerb(registered, body: body)
+                }
                 guard editorNote != nil else {
                     return PuppetServerContract.refusal(
                         404, "\(name) needs an open editor; none is on the navigation stack")
                 }
                 if let refusal = await awaitEditorLoaded(for: name) { return refusal }
+                if TextFirstFlag.enabled() {
+                    return await PuppetNativeEditor.shared.perform(
+                        name,
+                        arguments: PuppetServerContract.decodeArguments(from: body))
+                }
                 // The editor's rename alert, which has no verbs, takes a touch before the page.
                 guard webviewOnScreen() != nil else {
                     return PuppetServerContract.refusal(
@@ -59,6 +77,14 @@
             case .query("observe"):
                 return await observe()
             case .query(let command):
+                // A bracket must close even if its Back gesture left the native editor.
+                if TextFirstFlag.enabled(),
+                    ["trace", "events", "diff", "clipboard"].contains(command)
+                {
+                    return PuppetNativeEditor.shared.reply(
+                        command,
+                        arguments: PuppetServerContract.decodeArguments(from: body))
+                }
                 if PuppetServerContract.pageQueries.contains(command),
                     let refusal = requirePage(for: command)
                 {

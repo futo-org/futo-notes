@@ -137,6 +137,7 @@ struct FutoNotesApp: App {
                 // backgrounding persists again (the flush is coalesced across the
                 // deliberate .inactive/.background pair — NotesStore.flushPendingEditor).
                 store.rearmBackgroundFlush()
+                Task { await store.refreshAfterForeground() }
             case .inactive:
                 store.requestPendingEditorFlush()
             case .background:
