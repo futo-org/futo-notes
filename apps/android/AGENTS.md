@@ -154,8 +154,8 @@ read the list there, not from a copy here that would rot.
 | `app/src/test` | JVM unit tests; compiled against `main + debug + the flavor` |
 | `app/src/androidTest` | Compose instrumentation tests (`just test-android-ui`, CI's emulator job) |
 
-Generated and gitignored: `uniffi/` Kotlin bindings, `jniLibs/`,
-. Never edit them — regenerate (M8).
+Generated and gitignored: `uniffi/` Kotlin bindings and `jniLibs/`.
+Never edit them — regenerate (M8).
 `ToolbarSpec.kt` and `TitleSpec.kt` are likewise generated, from
 `packages/editor/src/toolbar.ts` and `filename.ts`: edit the manifest, then run
 `just toolbar-spec` / `just title-spec`.
