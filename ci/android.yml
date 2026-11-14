@@ -2,7 +2,6 @@
 
 # ─────────────────────────────────────────────────────────────
 # Native app shells (Compose / SwiftUI) — NOT Tauri. Same Rust core
-# (futo-notes-ffi via UniFFI) + the embedded editor.html bundle. These are the
 # release mobile apps on tags; on default-branch pushes they remain build-only
 # verification jobs with no device install.
 # ─────────────────────────────────────────────────────────────
@@ -96,11 +95,6 @@ build:android-native:
         export VERSION_CODE=$(( ${V_MAJ:-0} * 1000000 + ${V_MIN:-0} * 1000 + ${V_PAT:-0} ))
         echo "Building native Android release versionName=$VERSION_NAME versionCode=$VERSION_CODE"
       fi
-    # Build the embedded editor bundle and stage it into the app assets
-    # (the SAME single editor.html iOS bundles).
-    - pnpm exec vite build --config vite.editor.config.ts
-    - mkdir -p apps/android/app/src/main/assets
-    - cp apps/ios/Resources/editor.html apps/android/app/src/main/assets/editor.html
     - |
       if [ -n "$CI_COMMIT_TAG" ] && [ -n "${KEYSTORE_BASE64:-}" ]; then
         echo "$KEYSTORE_BASE64" | base64 -d > /tmp/native-release.keystore

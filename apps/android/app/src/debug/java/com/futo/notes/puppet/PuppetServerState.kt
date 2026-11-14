@@ -4,7 +4,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.findViewTreeLifecycleOwner
-import com.futo.notes.flushPendingEditorAndWait
+import com.futo.notes.checkpointNativeEditors
 import com.futo.notes.puppet.PuppetServer.Binding
 import com.futo.notes.ui.currentToast
 import com.futo.notes.ui.navigation.Screen
@@ -42,8 +42,7 @@ internal suspend fun file(bound: Binding, body: String): PuppetReply {
     val noteId = request.optString("noteId")
     if (noteId.isEmpty()) return PuppetContract.refusal(400, "file needs {\"noteId\":\"…\"}")
     if (request.optBoolean("save", true)) {
-        bound.store.flushPendingEditorAndWait()
-        if (noteId in bound.store.unsavedNoteIds()) {
+        if (!bound.store.checkpointNativeEditors() || noteId in bound.store.unsavedNoteIds()) {
             return PuppetContract.refusal(
                 409,
                 "\"$noteId\" has edits that did not save, so its file is not what the editor " +
@@ -162,7 +161,7 @@ internal suspend fun stateObject(bound: Binding): JSONObject {
         )
     }
     if (screen is Screen.Editor) {
-        val native = if (bound.host == null) nativeEditorState(bound.shellView.rootView) else null
+        val native = nativeEditorState(bound.shellView.rootView)
         if (native != null) reply.put("editor", native.put("note", PuppetVerbs.openNote ?: screen.noteId))
         else forwardedObject(bound, "state")?.let { editor ->
             for (key in editor.keys()) if (!reply.has(key)) reply.put(key, editor.get(key))

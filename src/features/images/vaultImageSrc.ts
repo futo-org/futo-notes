@@ -5,9 +5,8 @@
  * Notes reference images by bare filename (`![](image-1712.png)`), which is
  * what has to stay on disk. What resolves that filename differs per shell:
  *
- *   - iOS/Android: the host registers ONE base URL (`setImageBaseUrl` on the
- *     bridge) that serves the vault root — `futo-asset://` on iOS, a
- *     `WebViewAssetLoader` path on Android — and every filename hangs off it.
+ *   - Standalone browser fixtures: the host registers ONE base URL (`setImageBaseUrl` on the
+ *     bridge) that serves fixture images, and every filename hangs off it.
  *   - Tauri desktop: there is no base URL. Each file resolves individually
  *     through the asset protocol (or a `blob:` fallback when the asset
  *     protocol cannot decode), so the resolved URL is registered per file.
@@ -22,7 +21,7 @@ let vaultImageBaseUrl = '';
  * How THIS host turns one vault filename into a loadable URL, when there is no
  * base URL to hang it off. Only Tauri desktop has one (`PlatformFS.getImageUrl`
  * — asset protocol, or a `blob:` when the asset protocol cannot decode); the
- * native shells register a base URL instead and leave this unset.
+ * standalone browser hosts can register a base URL instead and leave this unset.
  */
 type VaultImageUrlResolver = (filename: string) => Promise<string>;
 

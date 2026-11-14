@@ -1,11 +1,11 @@
 # @futo-notes/editor
 
-The shared markdown editor code and the native embed contract.
+Shared desktop Markdown editor code, browser embed contract, and native toolbar/title manifests.
 
 Desktop Tauri consumes the editor as Svelte/TypeScript source and mounts
-`MilkdownEditor.svelte` directly. Native iOS and Android load the generated
-`editor.html` bundle in a WebView and drive it through the versioned
-`futoBridge` contract — the same component, behind the bridge.
+`MilkdownEditor.svelte` directly. The standalone browser fixture mounts the same component
+through the versioned `futoBridge` contract. iOS and Android use native views backed by Rust
+editor sessions and consume this package’s generated toolbar/title manifests.
 
 Consumed as TypeScript source with no build step.
 Path alias: `@futo-notes/editor` → `packages/editor/src`.
@@ -25,25 +25,15 @@ mirrors aligned with Rust.
 - `BRIDGE_VERSION` — bump on any breaking change; the `ready` message carries
   it so a host can refuse a bundle it doesn't understand.
 
-The editor entry point (`src/editor-embed/main.ts`) implements this contract;
-the native hosts wire it in `apps/ios/Sources/Editor/EditorWebView.swift` and
-`apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt`.
+The standalone editor entry point (`src/editor-embed/main.ts`) implements this contract.
+The browser suites in `tests/editor-embed-milkdown*.spec.ts` exercise its host messages.
 
 ## The bundle — `editor.html`
 
-`editor.html` is built into a **single self-contained HTML file** (all JS/CSS
-inlined) so a WKWebView / Android WebView can load it without module-loading or
-`file://` restrictions:
-
-```bash
-# From the repo root:
-just build-ios-native      # builds apps/ios/Resources/editor.html
-just build-android-native  # also stages it into apps/android/app/src/main/assets/
-```
-
-`vite.editor.config.ts` still lives at the repo root (it shares the root
-`src/` and Tailwind setup). The native `just` recipes regenerate the bundle
-before compiling their shells.
+The repo-root `editor.html` is the hand-written entry point for a self-contained browser
+fixture with JS/CSS inlined. `vite.editor.config.ts` owns the build. The embed test setup
+builds an isolated copy for each run; `pnpm run test:e2e:editor-embed` exercises it.
+Native mobile builds do not stage or load this HTML.
 
 ## Test
 

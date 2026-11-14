@@ -1,9 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// UIKit container installed as the editor WKWebView's keyboard
-/// `inputAccessoryView` (see `futo_overrideInputAccessoryView` in
-/// EditorWebView.swift). Hosting the toolbar as a real accessory view means
+/// UIKit container installed as the native text view's keyboard
+/// `inputAccessoryView`. Hosting the toolbar as a real accessory view means
 /// the SYSTEM owns docking and animation with the keyboard — show, hide,
 /// rotation, interactive dismiss — which is exactly what the embed's
 /// visualViewport-docked web toolbar had to approximate by hand.
@@ -57,7 +56,7 @@ final class EditorToolbarAccessory: FutoKeyboardAccessory<EditorToolbarView> {
 
     @MainActor
     init(
-        state: WebEditorToolbarState,
+        state: EditorToolbarState,
         localization: Localization,
         hiding: Set<String> = [],
         perform: @escaping (ToolbarItemSpec) -> Void

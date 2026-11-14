@@ -66,7 +66,6 @@ const GATES = {
   'qa-input-safety': ['node', ['scripts/check-qa-input-safety.mjs']],
   'toolbar-spec': ['node_modules/.bin/tsx', ['scripts/gen-toolbar-spec.ts', '--check']],
   'title-spec': ['node_modules/.bin/tsx', ['scripts/gen-title-spec.ts', '--check']],
-  'bridge-spec': ['node_modules/.bin/tsx', ['scripts/gen-bridge-spec.ts', '--check']],
   'theme-single-pace': ['node', ['scripts/check-theme-single-pace.mjs']],
   'supporter-coin-glyph': ['node', ['scripts/check-supporter-coin-glyph.mjs']],
   'puppet-verbs': ['node', ['scripts/check-puppet-verbs.mjs']],

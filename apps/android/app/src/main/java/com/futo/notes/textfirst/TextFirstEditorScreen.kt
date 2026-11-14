@@ -46,7 +46,6 @@ import com.futo.notes.delete
 import com.futo.notes.launchEditorLeave
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.moveNote
-import com.futo.notes.releaseDraftOwnership
 import com.futo.notes.rename
 import com.futo.notes.ui.EditorToolbar
 import com.futo.notes.ui.TitleFieldState
@@ -75,7 +74,7 @@ import uniffi.futo_notes_ffi.FlushDisposition
 import uniffi.futo_notes_ffi.splitId
 
 /**
- * The note screen for the text-first editor (debug builds, [TextFirstFlag]).
+ * The shipping native Linedown note screen.
  *
  * Saving is the engine's: edits live in the Store's session and the Markdown
  * file is written on the Store's debounce (500 ms idle, 2 s max wait), on
@@ -188,7 +187,7 @@ internal fun TextFirstEditorScreen(
         // A note made just now has nothing to return to; any other opens where it was left.
         controller.open(initialNoteId, restore = if (autoFocus) null else NoteScrollMemory.get(initialNoteId)) { error ->
             // A note that cannot be opened never shows as a blank page; leave,
-            // as the WebView editor does when its read fails.
+            // when the native session cannot read the note.
             if (error != null) {
                 onBack()
             } else if (autoFocus) {
@@ -307,7 +306,6 @@ internal fun TextFirstEditorScreen(
                 val saved = controller.close()
                 if (saved != null || !controller.opened) {
                     controller.dispose()
-                    store.releaseDraftOwnership(ownerToken)
                 }
             }
         }

@@ -2,80 +2,9 @@ import Foundation
 import PhotosUI
 import UIKit
 import UniformTypeIdentifiers
-import WebKit
 
-// Local-image plumbing for the embedded editor:
-//   - FutoAssetSchemeHandler serves GET futo-asset:///<filename> from the vault
-//     root so ![](photo.png) renders inside the WKWebView.
-//   - VaultImages saves picked image bytes into the vault root under a unique
-//     generated filename.
-//   - ImagePicker presents the native camera / photo-library picker for the
-//     bridge's {type:'pickImage'} message.
-
-/// Image extensions the Rust vault rules serve and accept, exposed by UniFFI.
+/// Image extensions accepted by the Rust vault rules.
 private let futoImageExtensions = Set(imageExtensions())
-
-// MARK: - futo-asset:// scheme
-
-/// Serves `futo-asset:///<filename>` from the vault root. Flat filenames only:
-/// anything with a path separator or `..` is rejected (path-traversal guard),
-/// as is any non-image extension. Registered on the shared editor WKWebView's
-/// configuration (EditorHost); the editor resolves local image filenames via
-/// the `imageBaseUrl` boot-config field (`futo-asset:///`).
-final class FutoAssetSchemeHandler: NSObject, WKURLSchemeHandler {
-    static let scheme = "futo-asset"
-
-    /// Tasks WebKit has stopped — calling didReceive/didFinish on one throws.
-    /// Scheme-handler callbacks arrive on the main thread; the file read hops
-    /// off and re-checks this set back on main before responding.
-    private var stopped = Set<ObjectIdentifier>()
-    private lazy var root = NotesStore.resolveNotesRoot()
-
-    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-        guard let url = urlSchemeTask.request.url else {
-            fail(urlSchemeTask)
-            return
-        }
-        // futo-asset:///my%20pic.png → url.path is the percent-DECODED
-        // "/my pic.png"; drop the leading slash to get the bare filename.
-        let filename = String(url.path.dropFirst())
-        guard !filename.isEmpty, !filename.contains("/"), !filename.contains("..") else {
-            fail(urlSchemeTask)
-            return
-        }
-        guard let mime = VaultImages.mimeType(for: filename) else {
-            fail(urlSchemeTask)  // not an allowed image extension
-            return
-        }
-        let fileURL = root.appendingPathComponent(filename)
-        let id = ObjectIdentifier(urlSchemeTask)
-        DispatchQueue.global(qos: .userInitiated).async {
-            let data = try? Data(contentsOf: fileURL)
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                if self.stopped.remove(id) != nil { return }
-                guard let data else {
-                    self.fail(urlSchemeTask)
-                    return
-                }
-                let response = URLResponse(
-                    url: url, mimeType: mime,
-                    expectedContentLength: data.count, textEncodingName: nil)
-                urlSchemeTask.didReceive(response)
-                urlSchemeTask.didReceive(data)
-                urlSchemeTask.didFinish()
-            }
-        }
-    }
-
-    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
-        stopped.insert(ObjectIdentifier(urlSchemeTask))
-    }
-
-    private func fail(_ task: WKURLSchemeTask) {
-        task.didFailWithError(URLError(.fileDoesNotExist))
-    }
-}
 
 // MARK: - Saving picked images into the vault
 

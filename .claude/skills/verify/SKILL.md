@@ -63,11 +63,11 @@ categories — a change can match several; run every matching chain:
 
 | Pattern | Category |
 |---|---|
-| `src/**/*.svelte`, `src/**/*.ts` (not tests) | frontend — if files import `@tauri-apps/*`/`invoke`/`rustCore`, also tauri-dependent; if editor-related, the same code ships inside the native apps' embedded editor |
+| `src/**/*.svelte`, `src/**/*.ts` (not tests) | frontend — if files import `@tauri-apps/*`/`invoke`/`rustCore`, also tauri-dependent; desktop editor code stays web-based; mobile uses native renderers |
 | `src/**/*.css`, `src/styles/**` | styles |
 | `src/**/*.test.ts`, `src/**/*.spec.ts` | unit-tests |
 | `packages/editor/src/{filename,tags,preview,images}.ts` | shared — the conformance-locked TS↔Rust note rules |
-| `packages/editor/**` | editor — feeds desktop AND the native shells' embedded editor.html; toolbar manifest changes also regenerate native toolbar specs |
+| `packages/editor/**` | editor — feeds desktop; toolbar/title manifest changes also regenerate native specs |
 | `crates/**` | rust-core — consumed by the Tauri app and (via `futo-notes-ffi`) both native shells |
 | `apps/tauri/src-tauri/**` | tauri-rust |
 | `apps/ios/**` | ios-native |
@@ -143,12 +143,11 @@ grep -rl 'invoke\|@tauri-apps\|rustCore' $(git diff --name-only "$(git merge-bas
 Any match → Tauri. No match and purely CSS/markdown/editor decorations →
 web is acceptable. Unsure → Tauri.
 
-### Editor changes ship to three apps
+### Editor validation follows the renderer
 
-The embedded editor (`editor.html`, built from the shared editor code) runs
-on desktop AND inside both native shells. For editor-visible changes, verify
-on desktop first (fast), then spot-check one native shell — `just ios-native`
-/ `just android-native` rebuild the editor bundle automatically.
+Desktop Milkdown changes run browser and desktop checks. Mobile renderer changes run the
+owning Swift/Kotlin chains and device checks. Shared Rust engine changes rebuild native
+bindings and validate both mobile consumers. Mobile never bundles `editor.html`.
 
 ### Handling loading/async states in screenshots
 

@@ -91,22 +91,4 @@
         }
     }
 
-    @Suite struct TextFirstFlagTests {
-        private func defaults() -> UserDefaults {
-            let suite = "text-first-flag-\(UUID().uuidString)"
-            return UserDefaults(suiteName: suite)!
-        }
-
-        @Test func offByDefaultAndPersistedFromALaunchArgument() {
-            let d = defaults()
-            #expect(!TextFirstFlag.enabled(defaults: d))
-            TextFirstFlag.readLaunchArguments(["app", "-futo.textFirstEditor", "YES"], defaults: d)
-            #expect(TextFirstFlag.enabled(defaults: d))
-            // A later launch without the argument keeps the choice; NO turns it off again.
-            TextFirstFlag.readLaunchArguments(["app"], defaults: d)
-            #expect(TextFirstFlag.enabled(defaults: d))
-            TextFirstFlag.readLaunchArguments(["app", "-futo.textFirstEditor", "NO"], defaults: d)
-            #expect(!TextFirstFlag.enabled(defaults: d))
-        }
-    }
 #endif

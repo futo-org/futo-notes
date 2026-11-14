@@ -1,10 +1,10 @@
 # Editor — Spec
 
-The editor is a shared WYSIWYG WebView — Milkdown on ProseMirror, the **same
-`editor.html` / `packages/editor` bytes on all platforms**. A note is parsed
-into a document when it opens and serialized back to Markdown when it saves; its
-source markers are never on screen. This file states the behaviors a human cares
-about.
+Desktop uses the WYSIWYG web editor, Milkdown on ProseMirror. Mobile uses the
+Rust Linedown engine rendered by native TextKit (iOS) and Android views. Mobile
+behavior is specified under mobile and portable-core below; the Milkdown rendering
+and serialization sections describe desktop. Native views preserve the exact source
+through the Rust session. This file states the behaviors a human cares about.
 
 - [Native host boot _(iOS/Android)_](editor/native-host-boot.md)
 - [Theming](editor/theming.md)

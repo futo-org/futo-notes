@@ -10,8 +10,6 @@
 - **Typing budget on the Moto is unmet or unmeasured.** The last (non-comparable) Moto run had
   19.4% of keys within one frame, median p95 36.7 ms and worst p95 818 ms. It has not been
   repeated since the perf climb. The emulator suite skips the timing probes.
-- **No cross-platform sync leg for text-first.** `test:cross-platform-sync:android` pins the
-  WebView editor.
 - **#334** (instrumentation: run all classes once, fail on missing classes) and **#335** (CI:
   run Android instrumentation tests) are still open. `just test-android-ui` covers most of
   #334 locally; what's left of #335 is unverified, since `build:android-native` already runs
@@ -19,9 +17,6 @@
 - **Evidence is stale for the newest commits.** The combined 227-test run predates
   `70e83ec5b`, `fc607f22a`, `6a1712e4e`, `0d8b90202` and `22d289207` (the in-place table
   field). A fresh combined run was pending (MR description).
-- **The WebView editor was not fully re-run** after the shared Kotlin changes
-  (`StorageMigrationGate`, leave-note save handling, camera recreation, the Find query
-  widget).
 - **Behavior that contradicts the latest decisions:** the link tap rule (§5.4) and image tap
   (§5.3).
 - **Mason decision 4** (whole-selection lighting, dimming) is provisional, waiting on Mason.
@@ -49,4 +44,3 @@ From `mrqa-engine-artifacts/IOS-INTEGRATION-QUEUE.md`:
   toolbar list on a quote adds a blank line on the first keystroke.
 - Dropped save-lock work (§4): a save during sync can stall typing (+619 ms for a 600 ms save
   measured on iOS). Deferred on purpose.
-

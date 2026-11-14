@@ -4,14 +4,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.futo.notes.storage.NotesStorage
 import com.futo.notes.storage.StorageDestination
-import uniffi.futo_notes_ffi.NoteMutation
 import uniffi.futo_notes_ffi.VaultDestinationState
 import uniffi.futo_notes_ffi.VaultMigrationStatus
 import uniffi.futo_notes_ffi.VaultMigrationFinalization
 import java.io.File
 
 /** Claim exclusive vault access for migration. Refuse while a write is
- * active because image saves include their later WebView insertion. */
+ * active because image saves include their later native document insertion. */
 fun NotesStore.tryBeginStorageMigration(): Boolean =
     storageMigrationGate.tryBeginMigrationWhenIdle()
 
@@ -32,17 +31,15 @@ suspend fun NotesStore.inspectVaultDestination(to: File): StorageDestination =
     }
 
 /**
- * Flush retained editor drafts and hold the vault gate across migration.
+ * Checkpoint native editor sessions and hold the vault gate across migration.
  * Existing store operations finish before the copy starts; the Activity
  * blocks new UI input and pauses sync before calling this method.
  */
 suspend fun NotesStore.migrateVault(to: File): NotesStorage.MigrationOutcome {
     val nativeDrafts = nativeEditorDrafts.values.toList()
-    val drafts = pendingEditor.currentDrafts()
-    val mutations = mutableListOf<NoteMutation>()
     val outcome = withContext(Dispatchers.IO) {
         storageMigrationGate.runMigration {
-            if (!nativeDrafts.all { it() } || !flushDraftsUnderGate(drafts, mutations)) {
+            if (!checkpointNativeDrafts(nativeDrafts, forMigration = true)) {
                 NotesStorage.MigrationOutcome.Failed(
                     "An open editor change could not be saved. The storage mode was not changed.",
                 )
@@ -59,7 +56,6 @@ suspend fun NotesStore.migrateVault(to: File): NotesStorage.MigrationOutcome {
             }
         }
     }
-    mutations.forEach(::applyMutation)
     return outcome
 }
 
@@ -71,31 +67,13 @@ suspend fun NotesStore.migrateVault(to: File): NotesStorage.MigrationOutcome {
  */
 suspend fun NotesStore.flushDraftsForVaultHandoff(): Boolean {
     val nativeDrafts = nativeEditorDrafts.values.toList()
-    val drafts = pendingEditor.currentDrafts()
-    val mutations = mutableListOf<NoteMutation>()
     val flushed = withContext(Dispatchers.IO) {
         storageMigrationGate.runMigration {
-            nativeDrafts.all { it() } && flushDraftsUnderGate(drafts, mutations)
+            checkpointNativeDrafts(nativeDrafts, forMigration = true)
         }
     }
-    mutations.forEach(::applyMutation)
     return flushed
 }
-
-/** Returns false when any draft could not be persisted. Callers hold the gate. */
-internal fun NotesStore.flushDraftsUnderGate(
-    drafts: List<PendingDraft>,
-    mutations: MutableList<NoteMutation>,
-): Boolean =
-    drafts.none { draft ->
-        try {
-            core.flushDraft(draft.id, draft.base, draft.content).mutation?.let(mutations::add)
-            false
-        } catch (e: Exception) {
-            android.util.Log.e("NotesStore", "storage-switch draft flush failed for ${draft.id}", e)
-            true
-        }
-    }
 
 /** Re-open the old root after a migration or preference-commit failure. */
 fun NotesStore.resumeAfterStorageMigrationFailure() {

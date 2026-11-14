@@ -1,7 +1,7 @@
 # Android — native Compose app on the emulator
 
 The shipping Android app is the native Jetpack Compose shell in `apps/android`
-(Rust core via `futo-notes-ffi`, editor embedded as a WebView). There is no
+(Rust core via `futo-notes-ffi`, native Linedown editor). There is no
 Tauri Android shell and no MCP bridge on Android.
 
 > **Use the `puppet` skill (`.claude/skills/puppet/`) — it is the only sanctioned
@@ -62,7 +62,7 @@ simulator this worktree claimed.
 ## 2. Build, install, launch
 
 ```bash
-just android-native         # full chain: Rust ffi (device ABI) → editor bundle → gradle installDirectDebug → launch
+just android-native         # full chain: Rust ffi (device ABI) → gradle installDirectDebug → launch
 ```
 
 Before QA, run `just qa-android-apk` to compare the installed APK SHA-256 with
@@ -175,41 +175,12 @@ Back key on button-navigation devices. Unknown modes fail with a diagnostic.
 `text` appends by default; use `text --replace` to select all, clear, and enter a
 new native-field value. A missing tap label fails the command.
 
-## 4. Drive the editor WebView via CDP
+## 4. Native editor inspection
 
-Debug builds enable WebView debugging (`EditorWebView.kt`). One-time setup per
-app launch, then evaluate arbitrary JS in the editor page:
-
-```bash
-just cdp-forward            # finds the app's devtools socket, forwards to a
-                            # per-worktree port, prints `export CDP_PORT=…` — set it
-node scripts/cdp-invoke.mjs "document.title"
-node scripts/cdp-invoke.mjs "window.__futoTest.readDocument()"
-node scripts/cdp-invoke.mjs "window.FutoEditor.setContent('qa-note', '# from CDP')"
-```
-
-`window.FutoEditor` is the embed's API surface (setContent / flush /
-focus / setTheme / exec / setNativeToolbar, …) — see the contract comment at
-the top of `packages/editor/src/bridge.ts` (same embed on both
-platforms). **`setContent` updates the visible editor only** — it does not
-fire the native change/save pipeline. Make a reportable ProseMirror edit or send
-one real keystroke through the UI, then request `FutoEditor.flush('qa')`. Production
-hosts receive tagged messages; never manufacture an anonymous `change`. Debug
-builds expose `__futoTest.readDocument()` for assertions only.
-There is **no** `window.__TAURI__` or `window.__testSync`
-inside this page — those are Tauri-desktop-only; the Android equivalent is the
-native hook surface in §3, driven by broadcast rather than JS.
-`cdp-invoke.mjs` awaits promises and bypasses page CSP; re-run
-`just cdp-forward` after an app restart (the WebView pid changes).
-
-For an editor typing story, a `just puppet type` that answered OK into a focused
-WebView does not prove the whole string arrived: its keys go through adb, which can
-deliver a prefix or nothing. Check the receipt's `doc` line and the saved note. A CDP
-harness can use the
-existing `connectPage` client (`tests/lib/editorDevicePerfSnippets.mjs`): focus
-the editor, send `cdp.send('Input.insertText', { text })`, then assert the exact
-document change and persistence. This drives the editor's input path; it does
-not verify a physical keyboard or the real IME's composition behavior.
+Read the Rust-backed editor with `FUTO_PUPPET_TARGET=android just puppet state`.
+Use native input and the editor's verbs. There is no editor WebView, JavaScript bridge,
+or CDP endpoint in the mobile app. Native keyboard, merge and rendering tests live under
+`apps/android/app/src/androidTest/java/com/futo/notes/textfirst/`.
 
 ## 5. Logs
 

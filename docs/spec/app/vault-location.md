@@ -29,28 +29,18 @@
     and relaunches. The switch blocks editor/store writes—including image-picker
     and clipboard image files—and pauses live sync. It refuses to begin while a
     vault write is active, because an image write completes with a later editor
-    insertion that must be confirmed by the WebView before the storage gate
-    opens; the user can retry after that save finishes. A newly queued save is
-    rejected once migration is latched.
-    > **Gap:** _(Android, WebView editor — the release editor)_ the editor stays interactive while a migration is
-    > latched, but `acceptsEditorChange` drops every editor change for the
-    > duration, so keystrokes typed in that window appear on screen and are never
-    > written to the buffer or saved — they are lost when the editor is next
-    > re-synced from the store. The drop is deliberate (it is what stops a save
-    > racing the staging copy), but the user is given no signal that typing is not
-    > being kept. Found by code trace during the github#33 investigation, not by
-    > QA; the window is short, and nobody has measured how reachable it is in
-    > practice. The dev-only text-first editor drains accepted input and pauses new input
-    under the migration gate (see below), but whether the user gets a visible signal
-    that typing is paused has not been checked at runtime, so this gap is not closed
-    for it either. → EditorSession.kt `acceptsEditorChange`, NoteEditorScreen.kt That same synchronous latch makes an
-    Activity `onStop` unable to abort live sync before the migration's graceful
-    sync stop completes. Editor navigation captures the latest live editor
-    body and persists-or-parks it before leaving the editor; Settings is reached
-    only after that navigation commit. A dirty draft retained by an unexpected
-    editor disposal is additionally flushed by the store under the migration
-    gate before staging. Migration never queries or waits on the detached editor
-    WebView. The engine stages the copy, verifies every relative path and file
+    insertion that must be accepted by the originating native session before the
+    storage gate opens; the user can retry after that save finishes. Once migration
+    is latched, accepted native input drains to a checkpoint and new input pauses.
+    > **Gap:** _(Android)_ The native migration gate drains accepted input and pauses
+    > new input, but visible feedback that typing is paused has not been checked at runtime.
+    That same synchronous latch makes an Activity `onStop` unable to abort live
+    sync before the migration's graceful sync stop completes. Editor navigation
+    checkpoints the latest session before leaving; Settings is reached only after
+    that navigation commit. A dirty attachment retained by an unexpected editor
+    disposal is additionally checkpointed under the migration gate before staging.
+    Migration uses the native session checkpoint callbacks registered by the controller.
+    The engine stages the copy, verifies every relative path and file
     digest, fsyncs copied files and directories, and fsyncs the
     destination-parent chain after installation. Before each authority
     transition it records a fsynced, atomically replaced app-private journal.
@@ -73,8 +63,7 @@
     unmounted, permission-denied, or otherwise uninspectable; an unavailable
     source never authorizes destination promotion. A failed copy/verification
     keeps the old mode/root active and reports the failure.
-    Every retained draft must first produce a committed mutation or already
-    match the bytes on disk; a skipped/missing/divergent flush aborts the switch
+    Every retained native attachment must first checkpoint successfully; a skipped/missing/divergent flush aborts the switch
     instead of relaunching with an older draft. A non-empty destination is
     accepted only when its complete manifest already matches the source, so an
     unrelated pre-existing vault is never overwritten or cleaned up. An

@@ -25,40 +25,24 @@ class StorageMigrationEditorIndependenceTest {
         val switchWorkflow = activitySource
             .substringAfter("internal fun MainActivity.performSwitch")
             .substringBefore("internal fun MainActivity.requestDeviceAccess")
-        val editorSource = listOf(
-            "ui/EditorWebView.kt",
-            "ui/EditorHostCommands.kt",
-            "ui/EditorHostContent.kt",
-            "ui/EditorHostEngine.kt",
-            "ui/EditorHostMessages.kt",
-        ).joinToString("\n") { productionSource(it) }
-
         assertFalse(
             "performSwitch must consume committed or retained drafts, never depend on EditorHost",
             switchWorkflow.contains("EditorHost"),
         )
-        assertFalse(
-            "EditorWebView must not expose a storage-migration capture callback",
-            editorSource.contains("freezeAndCaptureContent") ||
-                editorSource.contains("onMigrationSnapshot"),
-        )
     }
 
     @Test
-    fun `vault migration flushes retained drafts before staging the copy`() {
+    fun `vault migration checkpoints native sessions before staging the copy`() {
         val migrateVault = memberBody(productionSource("NotesStoreMigration.kt"), "suspend fun NotesStore.migrateVault(")
 
-        val snapshotDrafts = migrateVault.indexOf("pendingEditor.currentDrafts()")
-        assertTrue("migrateVault must snapshot retained drafts", snapshotDrafts >= 0)
-
-        // The flush itself is shared with the open-an-existing-folder path, so it
-        // is a named helper here rather than the FFI call inline.
-        val flushDrafts = migrateVault.indexOf("flushDrafts", snapshotDrafts + 1)
-        assertTrue("migrateVault must flush retained drafts", flushDrafts > snapshotDrafts)
+        val nativeSessions = migrateVault.indexOf("nativeEditorDrafts.values.toList()")
+        assertTrue("migrateVault must retain native session callbacks", nativeSessions >= 0)
+        val flushDrafts = migrateVault.indexOf("checkpointNativeDrafts(nativeDrafts, forMigration = true)", nativeSessions)
+        assertTrue("migrateVault must checkpoint native sessions", flushDrafts > nativeSessions)
 
         val stageMigration = migrateVault.indexOf("core.stageVaultMigration", flushDrafts)
         assertTrue(
-            "migrateVault must flush drafts before staging the vault",
+            "migrateVault must checkpoint sessions before staging the vault",
             stageMigration > flushDrafts,
         )
     }

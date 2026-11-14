@@ -269,26 +269,6 @@ internal object PuppetContract {
     fun refusal(status: Int, error: String): PuppetReply =
         PuppetReply(status, JSONObject().put("ok", false).put("error", error).toString())
 
-    /** The JS the host evaluates to forward one command. */
-    fun forwardScript(command: String, argsJson: String): String =
-        "window.__futoPuppet ? window.__futoPuppet.run(" +
-            "${JSONObject.quote(command)}, ${JSONObject.quote(argsJson)}) : null"
-
-    /** Split the WebView's `{"status":…,"body":…}` reply into an HTTP response. */
-    fun response(forwarded: String?): PuppetReply {
-        if (forwarded == null) {
-            return refusal(503, "the editor webview has no puppet inspector yet; retry")
-        }
-        val broken = "the webview returned something other than {status, body}"
-        val parsed = runCatching { JSONObject(forwarded) }.getOrNull() ?: return refusal(502, broken)
-        val status = parsed.optInt("status", 0)
-        if (status == 0) return refusal(502, broken)
-        // Wrapping in an array and unwrapping the text renders any JSON type —
-        // object, array, string, number — exactly as the page meant it.
-        val wrapped = JSONArray().put(parsed.opt("body") ?: JSONObject.NULL).toString()
-        return PuppetReply(status, wrapped.substring(1, wrapped.length - 1))
-    }
-
     fun reasonPhrase(status: Int): String = when (status) {
         200 -> "OK"
         400 -> "Bad Request"

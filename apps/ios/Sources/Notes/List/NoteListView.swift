@@ -102,16 +102,6 @@ struct NoteListView: View {
                 await runSearch()
             }
             .toolbar { sortToolbar }
-            // The close ledger's first two marks: the path shrank (a system
-            // pop, Back or the edge swipe, has been committed to the stack)
-            // and the first screen refresh after it. Debug-only, no work in
-            // release (CloseLedger.swift).
-            .onChange(of: navigation.path.count) { before, after in
-                guard after < before else { return }
-                CloseLedger.mark("popObserved", note: "depth=\(after)")
-                CloseLedger.markOnNextFrame("listFrame")
-            }
-            .onAppear { CloseLedger.installBenchTouchMarks() }
             .toolbar {
                 // Distinct ToolbarItem `id:`s so the two leading controls expose
                 // as SEPARATE accessibility elements instead of collapsing into
@@ -208,19 +198,10 @@ struct NoteListView: View {
         .transientMessageBanner(store)
     }
 
-    /// The note's screen: the WKWebView editor, or (with `TextFirstFlag` on) the
-    /// text-first editor. `.id(id)` keeps each pushed editor's state apart (see `.note` above).
-    @ViewBuilder
+    /// Both shipping and debug builds use the native Linedown renderer.
     private func noteScreen(id: String, autoFocus: Bool) -> some View {
-        if TextFirstFlag.enabled() {
-            TextFirstNoteScreen(noteId: id, autoFocus: autoFocus, navPath: $navigation.path)
-                .environmentObject(store)
-                .id(id)
-        } else {
-            NoteEditorView(noteId: id, autoFocus: autoFocus, navPath: $navigation.path)
-                .environmentObject(store)
-                .id(id)
-        }
+        TextFirstNoteScreen(noteId: id, autoFocus: autoFocus, navPath: $navigation.path)
+            .id(id)
     }
 
     @ToolbarContentBuilder

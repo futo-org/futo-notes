@@ -85,18 +85,9 @@ private val FADE_WIDTH = 10.dp
  * This is the deterministic twin of the iOS `computeSnap`; here the geometry
  * comes from `onGloballyPositioned` rather than SwiftUI's scroll geometry.
  *
- * This composable owns NO editing behavior: every tap is handed to [perform],
- * which the editor screen routes over the bridge (`FutoEditor.exec`) into the
- * shared toolbar exec commands (src/features/editor/milkdown/toolbarExec.ts)
- * the web toolbar runs.
- *
- * [activeFormats] is the bridge `formatState` set — the manifest ids that cover
- * the caret — and tints those buttons, the Android half of the Notion-style
- * active highlight iOS's EditorToolbarView draws.
- *
- * [inContainer] (bridge `cursorContext.inContainer`) gates the `onlyInContainer`
- * items (Indent/Outdent) — a caret in a list item OR a blockquote. `null` means
- * an older bundle never sent the field, so [onListLine] is the fallback.
+ * Taps are handed to [perform]; the renderer invokes Rust session commands.
+ * [activeFormats] contains active manifest ids from the native session.
+ * [inContainer] gates Indent/Outdent for lists and blockquotes.
  */
 @Composable
 fun EditorToolbar(

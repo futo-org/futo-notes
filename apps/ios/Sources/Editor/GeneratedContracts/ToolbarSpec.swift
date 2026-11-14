@@ -3,11 +3,8 @@
 // Regenerate: `just toolbar-spec`. `just toolbar-spec-check` (part of
 // `just check`) fails when this file drifts from the manifest.
 
-/// What tapping a toolbar item does. `exec` dispatches
-/// `FutoEditor.exec(item.id)` over the bridge into the SHARED
-/// toolbarExec.ts command — the native toolbar never
-/// reimplements editing semantics, so behavior is identical to the web
-/// toolbar by construction.
+/// Actions are rendered from the shared manifest and dispatched by the native host.
+/// Rust editor sessions own editing semantics; image pickers and dismissal are native.
 enum ToolbarItemAction: Equatable {
     case exec
     case pickImage(source: String)

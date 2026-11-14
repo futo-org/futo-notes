@@ -19,14 +19,14 @@ before changing behavior.
   backs the blocking `test:localization-audit` CI job. Neither is in
   `check:arch-gate`, so check the membership before assuming a local `just check` covered your
   change.
-- **Generators**: `gen-toolbar-spec.ts`, `gen-title-spec.ts` and `gen-bridge-spec.ts` each take
+- **Generators**: `gen-toolbar-spec.ts` and `gen-title-spec.ts` each take
   `--write` and `--check`, so the same script both regenerates and gates.
   `generate-native-language-resources.mjs` takes `--android` / `--ios` / `--all` instead and is
-  driven by the native builds. All four write files nobody may hand-edit (AGENTS.md M8).
+  driven by the native builds. All three write files nobody may hand-edit (AGENTS.md M8).
 - **Build and release** (`build-rust-{ios,android}.sh`, `release-build.mjs`, `patch-appimage.mjs`,
   `verify-updater-signature.mjs`, `build-updater-manifest.mjs`, `publish_playstore.py`).
 - **QA and device tooling** (`qa.mjs`, `qa-target.mjs`, `qa-shot.mjs`, `android-drive.mjs`,
-  `cdp-invoke.mjs`, `describe-ios-ui.mjs`, `tauri-dev.mjs`, `win-vm/`).
+  `describe-ios-ui.mjs`, `tauri-dev.mjs`, `win-vm/`).
 - **CI helpers** (`ci-*.sh`, `ci-cargo-cache-freshness.mjs`, `ci-cirrus-cache-mtimes.mjs`, `remote-test.mjs`).
   The `ci-*` ones run inside CI images/Tart VMs that have no `just`, so they get no recipe.
 - **Shared** (`lib/`): `slot.mjs` derives every per-worktree port and device slot; `sync-server.mjs`

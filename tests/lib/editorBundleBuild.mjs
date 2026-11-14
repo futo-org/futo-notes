@@ -33,9 +33,7 @@ export async function buildEditorBundle({ root, outDir, sourcemap = false }) {
     path.join(root, 'vite.editor.config.ts'),
   );
   const config = loaded.config;
-  const plugins = (config.plugins ?? [])
-    .flat()
-    .filter((p) => p && p.name !== 'stage-native-editor-bundle');
+  const plugins = (config.plugins ?? []).flat().filter(Boolean);
   await build({
     ...config,
     configFile: false,

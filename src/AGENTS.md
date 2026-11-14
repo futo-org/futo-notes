@@ -1,22 +1,22 @@
 # AGENTS.md - Shared Svelte App
 
-Svelte 5 frontend shared across all platforms (Tauri desktop, Android, iOS, web dev).
+Svelte 5 frontend for Tauri desktop and browser development. Mobile uses the native Rust-backed renderers in `apps/ios` and `apps/android`.
 
 From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`, and `just check` for the standard workflows.
 
 ## Architecture
 
-- **`app/`** owns application composition, routing, bootstrap, and native-shell wiring. `App.svelte` and `main.ts` are thin framework entry points.
+- **`app/`** owns application composition, routing, bootstrap, and Tauri shell wiring. `App.svelte` and `main.ts` are thin framework entry points.
 - **`features/`** owns complete capabilities. Components, reactive state, boundary shims, and tests stay with the feature that changes them.
 - **`features/editor/`** owns the note editor: shared chrome (`NoteTagBar.svelte`), the paste sink, the fence-language set, and the keyboard shell hook.
-- **`features/editor/milkdown/`** owns THE editor — Milkdown (ProseMirror), WYSIWYG, mounted by the desktop shell through `app/components/NoteWorkspace.svelte` and by both native shells through `editor-embed/main.ts`. One engine, one plugin set, all three surfaces. The suites live in `tests/editor-embed-milkdown.spec.ts` (bridge contract), `-block-drag` (gutter-handle and long-press block drag), `-progressive` (progressive open, BOM, large notes), `-toolbar` (toolbar command parity), `-interactive` (list continuation, table editing keys, link hit area), `-parity`, `-wikilinks`, `-compat`, `-deep-nesting` and `tests/editor-embed-webview-floor.spec.ts`. Run the lot with `pnpm run test:e2e:editor-embed`.
+- **`features/editor/milkdown/`** owns the desktop editor — Milkdown (ProseMirror), WYSIWYG, mounted through `app/components/NoteWorkspace.svelte`. `editor-embed/main.ts` mounts it as a standalone browser fixture; mobile uses native Rust editor sessions. The suites live in `tests/editor-embed-milkdown.spec.ts` (bridge contract), `-block-drag` (gutter-handle and long-press block drag), `-progressive` (progressive open, BOM, large notes), `-toolbar` (toolbar command parity), `-interactive` (list continuation, table editing keys, link hit area), `-parity`, `-wikilinks`, `-compat`, `-deep-nesting` and `tests/editor-embed-webview-floor.spec.ts`. Run the lot with `pnpm run test:e2e:editor-embed`.
 - **`features/notes/`** owns reactive note projection state. `notes.svelte.ts` holds `notesCache`, applies committed `LocalNoteMutation` results, and never predicts collision, relink, migration, or search behavior.
 - **`features/sync/`** owns the E2EE client, sync lifecycle, watcher batching, write suppression, and external-change coordination.
 - **`features/search/`** owns search presentation. The Rust local-note store owns the sole BM25 lifecycle.
-- **`features/images/`** owns image-file listing, deletion, and renderable vault URLs; sidebar and editor consume that boundary. `vaultImageSrc.ts` is the single owner of the vault-filename -> loadable-URL mapping (a host-registered base URL on the native shells, per-file `PlatformFS.getImageUrl` on desktop via `vaultImageUrlResolver.ts`).
+- **`features/images/`** owns image-file listing, deletion, and renderable vault URLs; sidebar and editor consume that boundary. `vaultImageSrc.ts` is the single owner of the vault-filename -> loadable-URL mapping (per-file `PlatformFS.getImageUrl` on desktop via `vaultImageUrlResolver.ts`; standalone browser fixtures can register a base URL).
 - **`lib/platform/`** is the platform boundary. Components and features use `PlatformFS`; native command details stay in the Tauri adapter.
 - **`shared/`** contains small, genuinely cross-feature contracts and named capabilities for async work, dialogs, DOM behavior, media rules, notifications, persisted state, and time formatting.
-- **`editor-embed/`** is the native web-editor boundary and implements the versioned `futoBridge` contract.
+- **`editor-embed/`** is the standalone browser editor boundary and implements the versioned `futoBridge` contract.
 
 ## Key Constraints
 
@@ -67,5 +67,5 @@ Writing the tests:
   `pageerror` for crash checks.
 - **Component logic** → Vitest `*.test.ts` with `vi.mock('$lib/platform')` (in-memory `testFS`).
 - **New editor behavior** → a case in the matching `tests/editor-embed-milkdown*.spec.ts`, which
-  drives the SAME single-file `editor.html` bundle the native shells ship. Unit-testable pieces
+  drives the standalone single-file `editor.html` browser fixture. Unit-testable pieces
   (commands, decorations, chunk planning) get a co-located `*.test.ts` next to the module.

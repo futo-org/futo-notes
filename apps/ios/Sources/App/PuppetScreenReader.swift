@@ -1,6 +1,5 @@
 #if DEBUG
     import UIKit
-    import WebKit
 
     /// What a person can see and touch on screen, read from the app's own accessibility
     /// tree: the listener's `GET /tree`, the same shape the Android listener answers with, so
@@ -138,7 +137,6 @@
             mutating func walk(_ object: NSObject, clip: CGRect) {
                 if let view = object as? UIView, view.isHidden || view.alpha < 0.01 { return }
                 // The editor's page reports its own content, with the handlers behind it.
-                if object is WKWebView { return }
                 if object.accessibilityElementsHidden { return }
                 if object.isAccessibilityElement {
                     read(object, clip: clip)

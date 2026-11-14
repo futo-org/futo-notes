@@ -11,7 +11,7 @@ final class TextFirstSelectionUITests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let file = root.appendingPathComponent("title-return.md")
         try "body".write(to: file, atomically: true, encoding: .utf8)
-        let app = makeIsolatedApplication(textFirstEditor: true)
+        let app = makeIsolatedApplication()
         app.launchEnvironment["FUTO_NOTES_DATA_DIR"] = root.path
         app.launchArguments += ["-AppleLanguages", "(en)"]
         app.launch()
@@ -41,7 +41,7 @@ final class TextFirstSelectionUITests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try "- What about\n  - Nested\n  - Elements\n".write(
             to: root.appendingPathComponent("taps.md"), atomically: true, encoding: .utf8)
-        let app = makeIsolatedApplication(textFirstEditor: true)
+        let app = makeIsolatedApplication()
         app.launchEnvironment["FUTO_NOTES_DATA_DIR"] = root.path
         app.launchArguments += ["-AppleLanguages", "(en)"]
         app.launch()

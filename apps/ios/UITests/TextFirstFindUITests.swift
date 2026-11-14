@@ -25,7 +25,7 @@ final class TextFirstFindUITests: XCTestCase {
         try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
         try Self.note.write(
             to: vault.appendingPathComponent("findme.md"), atomically: true, encoding: .utf8)
-        let app = makeIsolatedApplication(textFirstEditor: true)
+        let app = makeIsolatedApplication()
         app.launchEnvironment["FUTO_NOTES_DATA_DIR"] = vault.path
         app.launchArguments += ["-AppleLanguages", "(en)"]
         app.launch()

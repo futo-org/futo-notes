@@ -1,22 +1,8 @@
 ### Native toolbar chrome
 
-- Native shells, toolbar chrome is NATIVE, commands are shared (bridge v3):
-  the host renders its own toolbar from a GENERATED copy of the manifest and
-  drives the editor over the bridge — `exec(id)` runs the shared command,
-  the `cursorContext` and `formatState` messages drive Indent/Outdent visibility,
-  `blur()`
-  backs the dismiss chevron, and `setNativeToolbar(true)` suppresses the
-  embed's web toolbar so two never show. `just toolbar-spec` regenerates the
-  native specs; `just toolbar-spec-check` (part of `just check`) fails when
-  one drifts from the manifest. → packages/editor/src/bridge.ts,
-  scripts/gen-toolbar-spec.ts, tests/editor-embed-milkdown-toolbar.spec.ts
-- iOS native: the toolbar is the keyboard's `inputAccessoryView` (generated
-  ToolbarSpec.swift rendered by EditorToolbar.swift), replacing the stripped
-  prev/next/Done bar — the system owns docking/animation with the keyboard.
-  Original controls verified end-to-end on the iOS simulator 2026-06-10 (exec
-  commands mutate the doc and autosave; Indent/Outdent appear inside a list or
-  quote; pickers open natively; chevron blurs). → EditorToolbar.swift,
-  EditorWebView.swift `futo_overrideInputAccessoryView`
+- Mobile toolbar items come from the generated shared manifest; native renderers dispatch them to Rust session commands and consume native toolbar state. → packages/editor/src/toolbar.ts, apps/ios/Sources/Editor/TextFirst/TextFirstEditorController+Toolbar.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstToolbar.kt
+- iOS installs the toolbar as the text view's `inputAccessoryView`; UIKit owns its keyboard docking and animation. → apps/ios/Sources/Editor/Toolbar/EditorToolbarAccessory.swift, apps/ios/Sources/Editor/TextFirst/TextFirstTextView.swift
+
 - The toolbar band behind the buttons is the EDITOR's own background color, so
   the bar reads as the bottom edge of the note rather than a strip pasted onto
   the keyboard. Nothing between the note and the band shows a color step, in
@@ -35,58 +21,21 @@
 
 - Android native: the bar and both of its edge fades paint `c.surface`, and so
   does the editor screen's `Scaffold`, which is what shows through the
-  transparent editor page. The note and the band are therefore one color by
+  native editor view. The note and the band are therefore one color by
   construction: #FFFFFF in light and #1F1C19 in dark, sampled on the pixels
   either side of the bar's top edge. A 1 dp `c.border` hairline marks that edge,
   where iOS deliberately draws none. Verified on the emulator (API 36)
-  2026-09-23. → EditorToolbar.kt, NoteEditorScreen.kt `Scaffold`
+  2026-09-23. → EditorToolbar.kt, TextFirstEditorScreen.kt `Scaffold`
   `containerColor`
 - Android native: the toolbar is a Compose bar (generated ToolbarSpec.kt
   rendered by EditorToolbar.kt) docked above the soft keyboard via the editor
-  screen's `imePadding`, shown only while the editor is focused (bridge
-  `focus` message). Original controls verified end-to-end on the emulator
+  screen's `imePadding`, shown while the native editor is focused and the IME is visible. Original controls verified end-to-end on the emulator
   2026-06-10 (exec commands mutate the doc and autosave; Indent/Outdent
   appear inside a list or quote; pickers open natively; chevron blurs,
-  dropping keyboard + toolbar). → EditorToolbar.kt, NoteEditorScreen.kt,
-  EditorWebView.kt `EditorHost`
-- Native shells: the `cursorContext` bridge message carries `inContainer` —
-  the caret is in a list item OR a blockquote — alongside the list-only
-  `onListLine`, so Indent/Outdent show on BOTH native toolbars for a caret
-  sitting in an existing blockquote, not only a list line. A host that has
-  never seen the field (an older bundle) falls back to `onListLine`, the
-  pre-fix behavior. → packages/editor/src/bridge.ts `CursorContextMessage`,
-  MilkdownEditor.svelte `emitCursorContext`, EditorToolbar.swift,
-  EditorToolbar.kt
-- Android native: dismissing the soft keyboard by the system back
-  gesture/button (not just the chevron) also blurs the editor — the caret
-  and selection handle must not linger on screen with no keyboard (#24).
-  The app-root `ClearFocusOnImeDismiss` ([app.md](../../app.md) "Soft keyboard")
-  drops native-field focus, and its root install also blurs the editor over
-  the bridge on the same IME visible→hidden transition — the editor's DOM
-  caret survives a view-level clearFocus. (iOS: the hide key on an iPad's
-  keyboard, [app.md](../../app.md) "Soft keyboard".) → MainActivity.kt,
-  ui/components/ImeDismiss.kt, EditorImeDismissBlurTest.kt
-- Dismissing the keyboard ends the editing session on the page, not only the
-  keyboard: no caret, no highlighted text range, no cell selection, no
-  selection handles, and no table row/column grips left where a tap put them.
-  A bare DOM blur kept all of those. A selection survives a blur, and so do its
-  decorations and handles. The grips come from the emulated mouse events a tap
-  sends, and a tap never sends the `mouseleave` that would hide them. So the
-  bridge `blur()` collapses the selection to its head, hides the grips, then
-  blurs and clears the DOM selection. Every native dismissal goes through it:
-  the chevron on both shells, Android's back-gesture dismissal, and on iOS the
-  hide key on an iPad's keyboard. Desktop never calls it. On Android both
-  dismissal paths clear a double-tapped word range (handles and callout
-  included), the grips a tap showed, and the cell selection
-  a grip menu leaves behind; tapping back in edits normally and brings the grips
-  back. A touch drag across cells makes no cell selection on Android (Chromium
-  sends a touch drag no mouse drag), so the grip menu is the touch route to one.
-  Verified on the emulator (API 36, System WebView 133.0.6943.137) 2026-09-23.
-  _(native shells)_ → src/features/editor/milkdown/hostHandleView.ts
-  `blur`, src/features/editor/milkdown/table/tableGrips.ts `hideTableGrips`,
-  tests/editor-embed-milkdown.spec.ts "blur() drops a highlighted range",
-  tests/editor-embed-milkdown-table-grips.spec.ts "the bridge blur ends the
-  table editing session"
+  dropping keyboard + toolbar). → EditorToolbar.kt, TextFirstEditorScreen.kt,
+  TextFirstToolbar.kt
+- Android: dismissing the soft keyboard with the system back gesture/button or the toolbar chevron clears native editor focus; caret, selection handles and the text-action menu disappear. The app-root `ClearFocusOnImeDismiss` handles the IME visible→hidden transition, and the native text view ends the range without scrolling the reader away from their line. → apps/android/app/src/main/java/com/futo/notes/ui/components/ImeDismiss.kt, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditTextReveal.kt `endSelectionOnBlur`
+- Mobile: keyboard dismissal ends visible editing affordances through the platform text view. Tapping the note again restores native editing and the keyboard toolbar. iOS resigns the text view's first-responder status; Android hides the IME and clears text-view focus. → apps/ios/Sources/Editor/TextFirst/TextFirstEditorController+Toolbar.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstToolbar.kt, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditText.kt
 - **Toolbar docking + height (both native shells).** The bar is exactly
   **44 pt** tall on iOS / **44 dp** on Android, its 36 pt/dp icons centered
   with ~4 pt top/bottom, and it sits **FLUSH against the top of the on-screen
@@ -107,7 +56,7 @@
     `EditorToolbarAccessory`
   - Android docks flush by construction: the 44 dp Compose bar is held above
     the keyboard by the screen's `imePadding`, so the inset tracks the
-    keyboard with no gap. → EditorToolbar.kt, NoteEditorScreen.kt
+    keyboard with no gap. → EditorToolbar.kt, TextFirstEditorScreen.kt
 - **Scroll affordance — "snapped peek" (both native shells).** When the items
   overflow, the trailing edge does NOT cut cleanly (which read as "nothing more
   here"): the bar measures the laid-out button positions + the viewport width

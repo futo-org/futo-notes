@@ -1,11 +1,10 @@
 ## Markdown toolbar _(native shells / editor-embed fallback)_
 
-The shipping toolbar surface belongs to the native shells. The Tauri desktop
-shell uses the floating selection toolbar described above. The standalone editor
-embed retains a web toolbar as a bridge
-fallback, but iOS and Android call `setNativeToolbar(true)` and render native
-toolbar chrome instead. → src/editor-embed/EmbedToolbar.svelte,
-EditorWebView.swift, EditorWebView.kt
+Mobile renders native toolbar chrome from the shared item manifest and dispatches
+editing through Rust editor sessions. Desktop uses the floating selection toolbar;
+the standalone browser fixture retains its web toolbar. → packages/editor/src/toolbar.ts,
+apps/ios/Sources/Editor/TextFirst/TextFirstEditorController+Toolbar.swift,
+apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstToolbar.kt
 
 - [Toolbar commands](markdown-toolbar/toolbar-commands.md)
 - [Native toolbar chrome](markdown-toolbar/native-toolbar-chrome.md)

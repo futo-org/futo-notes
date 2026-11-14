@@ -97,7 +97,7 @@ final class TextFirstEditorController: NSObject {
     var trailingBlock: TextFirstBlockAttribute?
     var styleSlicePending = false
     /// The toolbar's lit and dimmed ids, from the engine's selection state.
-    let toolbarState = WebEditorToolbarState()
+    let toolbarState = EditorToolbarState()
     var toolbarInstalled = false
     let layoutDelegate = TextFirstLayoutDelegate()
     let imageBreakDelegate = TextFirstImageBreakDelegate()

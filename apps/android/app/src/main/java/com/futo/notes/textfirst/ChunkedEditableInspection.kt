@@ -17,4 +17,3 @@ internal fun ChunkedEditable.describe(span: Any): String {
     val i = indexOf(chunk)
     return "chunk $i/${chunks.size} offset ${offsets[i]} len ${chunk.text.length} local ${chunk.text.getSpanStart(span)}..${chunk.text.getSpanEnd(span)} offsets=${offsets.toList()}"
 }
-

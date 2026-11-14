@@ -210,13 +210,6 @@
             }
         }
 
-        /// The JS the host evaluates to forward one command; `null` when no inspector is installed.
-        static func forwardScript(command: String, argsJson: String) -> String {
-            "window.__futoPuppet ? window.__futoPuppet.run(\(jsLiteral(command)), \(jsLiteral(argsJson))) : null"
-        }
-
-        /// A value JSON cannot hold (a Swift struct) raises an Objective-C exception that
-        /// `try?` cannot catch, which aborts the app: it is refused instead.
         static func json(_ object: Any) -> Data {
             guard JSONSerialization.isValidJSONObject(object) else {
                 return Data(
@@ -228,21 +221,6 @@
 
         static func refusal(_ status: Int, _ error: String) -> PuppetReply {
             (status, json(["ok": false, "error": error]))
-        }
-
-        /// Split the webview's `{"status":…,"body":…}` reply into an HTTP response.
-        static func response(fromForwarded raw: String?) -> PuppetReply {
-            guard let raw else {
-                return refusal(503, "the editor webview has no puppet inspector yet; retry")
-            }
-            guard
-                let object = try? JSONSerialization.jsonObject(with: Data(raw.utf8))
-                    as? [String: Any],
-                let status = object["status"] as? Int
-            else {
-                return refusal(502, "the webview returned something other than {status, body}")
-            }
-            return (status, json(object["body"] ?? NSNull()))
         }
 
         static func reasonPhrase(for status: Int) -> String {

@@ -1,5 +1,8 @@
 ## Images
 
+Web rendering details here describe desktop and the standalone browser fixture. Native
+mobile behavior is specified in [mobile images](mobile/images.md).
+
 - Pasting an image into the editor (desktop) saves it to the notes directory
   and inserts `![](filename)`; supported types follow
   `@futo-notes/editor` `IMAGE_EXTENSIONS`, conformance-locked to the canonical
@@ -39,32 +42,6 @@
   alongside its note, so `![](image-…)` resolves on every device, not just the
   one that created it. → [sync.md](../sync.md) "Embedded images sync with their
   notes"
-- The native shells ALSO support clipboard image paste. The native WebView has
-  no `saveImageBytes` (that's a Tauri-desktop FS method), so the embed reads the
-  pasted image bytes and hands them to the host via the `saveImageData` bridge
-  message (base64 + extension); the host decodes and saves them into the vault
-  through the SAME path as the Camera/Image picker, then calls
-  `insertImage(filename)` — so a pasted image is indistinguishable from a picked
-  one (`![](image-…ext)`, stored as a vault blob, no inline base64). Verified
-  end-to-end on the Android emulator 2026-06-22. When the WebView hides the
-  bitmap from the JS paste event (no File — WKWebView/WebKitGTK), the embed
-  instead posts the payload-less `pasteClipboardImage` message (bridge contract
-  v5) and the host reads the image off the native clipboard. Android ALSO takes
-  this fallback for a THIRD clipboard shape (QA #006, 2026-09-11): copying an
-  image out of Photos/Files/Gallery/Drive (or a browser's "Copy image") puts a
-  `content://` URI on Android's clipboard as `text/plain`, not a `File` —
-  `classifyImagePaste` recognizes that scheme and claims it as a hidden bitmap,
-  and `EditorWebView.kt` reads the URI off the real `ClipboardManager` and
-  copies it into the vault through the SAME `saveImageIntoVault` the picker
-  uses. Verified end-to-end on a real Android emulator (API 36, 2026-09-11):
-  copied a PNG via Chrome's "Copy image", pasted into a note, and the vault
-  gained a byte-identical `image-…png` with `![](…)` inserted at the caret. →
-  src/features/editor/imagePasteSink.ts, bridge.ts `SaveImageDataMessage` /
-  `PasteClipboardImageMessage` (contract v5), EditorWebView.kt + ImagePicker.kt
-  `saveImageDataIntoVault` / `clipboardImageUri` / `saveImageIntoVault`
-  (Android), EditorWebView.swift `saveImageData` +
-  `clipboardImageData` + EditorImages.swift `VaultImages.save` (iOS),
-  fs_paste_clipboard_image (Tauri), tests/editor-embed-milkdown.spec.ts
 - A vault image is a ProseMirror node whose rendered
   `<img src>` is resolved for display only; the node's own `src` — what gets
   serialized — stays the bare vault reference the note holds. Opening a note
@@ -204,18 +181,6 @@
   _(desktop)_ → src/features/editor/imageInsertTarget.ts, imageInsert.ts,
   imagePasteSink.ts, milkdown/documentSession.svelte.ts `documentIdentity`,
   milkdown/imageInsertIdentity.test.ts
-- A delayed native picker/clipboard completion belongs to the editor attachment
-  generation that started it. Detaching, deleting, or adopting another note
-  invalidates the completion, so it cannot insert Markdown into a different
-  note. Android holds both the editor mutation permit and vault gate through
-  confirmed WebView insertion, and cancellation cannot leave a queued main-
-  thread insertion behind; iOS checks the adopted WebView generation before
-  and after inserting, increments that generation on detach, queues every image
-  completion, and drains the queue through the editor's next animation frame
-  before a navigation commit. It removes a just-saved image when its attachment
-  became stale before insertion. →
-  `EditorAttachmentGate.kt`, `EditorWebView.insertImageAndWait`,
-  `EditorHost.detach`, `EditorCompletionQueue`, `VaultImages.remove`
 - The Android text-first camera flow checkpoints accepted edits before launching and persists only the pending capture UUID, originating note ID, vault root and output URI through Activity/process recreation; after bootstrap it reopens that same existing note and acquires a fresh session claim before accepting more input. A missing note or changed vault abandons the result; no draft body is recovered. *(Android text-first editor)* → `ImagePicker.kt`, `MainActivityShell.kt`, `textfirst/TextFirstImages.kt`, `CameraRecreationTest`
 - *(Android text-first editor, dev builds only)* Committing image content from a keyboard (`InputConnection.commitContent`) saves it through the same gated attachment workflow as a pasted image ([mobile/images.md](mobile/images.md)): the originating session is claimed when the content arrives and the insertion is acknowledged before it can be abandoned, so the image lands in the note it came from. A closed session refuses image content without writing a file. Inside a table cell, image content is refused (cells carry one line of inline text) and no file is written. Verified live (clipboard paste, reopen) on the emulator 2026-11-03; real Gboard image insertion was not exercised, only the `commitContent` seam. → `TextFirstImageContentTest`, `textfirst/TextFirstClipboard.kt`, `TextFirstImages.kt`; evidence `spec-318-artifacts/331/` (`live-clipboard-paste.png`, `live-reopen.png`, `final2-TextFirstImageContentTest.xml`)
 - #326 outcome (emulator, 2026-11-03): the camera photo drawn behind un-displaced text was not reproduced; a 640x360 PNG reopened and natively inserted lays out with the following text below it, and the one defect found (a layout-order crash on insertion, from watcher priority) is fixed. The real camera shutter could not be driven, so a photo taken on a physical device remains unobserved. *(Android text-first editor)* → `TextFirstImageAttachmentTest`

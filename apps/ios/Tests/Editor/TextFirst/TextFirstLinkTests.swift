@@ -31,14 +31,14 @@
             for scheme in ["http", "https", "mailto", "tel", "sms"] {
                 let url = try #require(URL(string: "\(scheme):x"))
                 #expect(
-                    editorNavigationDecision(for: url, isMainFrame: true, permittedFileURL: nil)
-                        == .openExternally(url), "\(scheme)")
+                    TextFirstEditorController.externalLinkURL(url.absoluteString) == url,
+                    "\(scheme)")
             }
             for scheme in ["facetime", "ftp", "itms-services", "javascript", "data", "smsto"] {
                 let url = try #require(URL(string: "\(scheme):x"))
                 #expect(
-                    editorNavigationDecision(for: url, isMainFrame: true, permittedFileURL: nil)
-                        == .deny, "\(scheme)")
+                    TextFirstEditorController.externalLinkURL(url.absoluteString) == nil,
+                    "\(scheme)")
             }
         }
 

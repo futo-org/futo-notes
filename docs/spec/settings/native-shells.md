@@ -119,8 +119,8 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   sync shutdown and draining admitted mutations. Reset retires all live and
   retained draft owners, queued flushes, and stale projections; callbacks from
   retired editors cannot recreate wiped notes after admission resumes. Wipe
-  failures are visible. → `FullResetTests`, `EditorDraftCoordinatorTests`,
-  `EditorLifecycleFlushTest`, native `NotesStore`.
+  failures are visible. → `FullResetTests`, `TextFirstLeaveTests`,
+  `EditorDraftOwnershipTest`, native `NotesStore`.
   iOS presents a `.confirmationDialog`; Android presents the shared
   `ConfirmDialog` (Material 3 `AlertDialog`). (Modal confirm verified on both
   2026-06-30; the earlier two-tap arm/confirm was removed because a stray

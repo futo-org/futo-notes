@@ -317,17 +317,7 @@
                 rig.window.isHidden = true
                 previousKey?.makeKey()
             }
-            let defaults = UserDefaults.standard
-            let previous = defaults.object(forKey: TextFirstFlag.key)
-            defaults.set(true, forKey: TextFirstFlag.key)
-            defer {
-                if let previous {
-                    defaults.set(previous, forKey: TextFirstFlag.key)
-                } else {
-                    defaults.removeObject(forKey: TextFirstFlag.key)
-                }
-                PuppetNativeEditor.shared.clear(rig.controller)
-            }
+            defer { PuppetNativeEditor.shared.clear(rig.controller) }
             PuppetNativeEditor.shared.attach(rig.controller, title: { "note" })
             rig.selectEnd()
             rig.type(" tail")

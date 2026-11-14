@@ -3,11 +3,10 @@
 Read the root `AGENTS.md` first; this adds the rules specific to this layer.
 
 The shipping Android app: a Jetpack Compose shell over the shared Rust core
-(`futo-notes-ffi`, UniFFI Kotlin bindings) with the web editor embedded in a
-WebView. There is no Tauri Android shell.
+(`futo-notes-ffi`, UniFFI Kotlin bindings) with the native Linedown editor. There is no Tauri Android shell.
 
 ```bash
-just android-native            # Rust ffi (device ABI) → editor bundle → installDirectDebug → launch
+just android-native            # Rust ffi (device ABI) → installDirectDebug → launch
 just build-android-native      # compile-only sanity (BOTH distribution flavors)
 just test-android-native       # JVM unit tests (BOTH flavors; no .so build, empties jniLibs/)
 just test-android-native com.futo.notes.DistributionFlavorTest # one JVM class, both flavors
@@ -21,19 +20,8 @@ just test-android-storage      # user-level storage stories on a real device
 just test-android-perf         # editor perf budgets on the low-end reference phone
 ```
 
-`test-android-perf` is the DEVICE half of the editor performance floor (#106):
-it drives the editor WebView over CDP and enforces interactive-first-viewport
-<1s plus keystroke and warm-save p95 <16ms on the phone the budgets are
-hardest on. It needs `$ANDROID_SERIAL` set to a physical low-end device — a
-fast emulator on a desktop CPU cannot fail the way the ticket cares about — and
-it is deliberately out of `check`/CI, which has no device.
-
-To judge how the app FEELS, build the dev app non-debuggable:
-`./gradlew -PfutoDebuggable=false :app:installDirectDebug` (same `.dev` app id and data).
-A debuggable build runs framework code interpreted and Compose several times
-slower: on the Moto, Back and keyboard animations measured 2-4x worse frames.
-Branch on `NotesStorage.isDevBuild`, never `BuildConfig.DEBUG`, for anything
-that must still hold in that build: AGP sets DEBUG from `isDebuggable`.
+`just test-android-ui com.futo.notes.textfirst.TextFirstTypingBenchmarkTest` measures
+native input and rendering. See `docs/agents/android-device-tests.md` for benchmark options.
 
 For app-only Kotlin iteration, `./gradlew :app:installDirectDebug` from here is
 enough **in a warm checkout**. In a FRESH worktree it is not, and the failures look
@@ -166,8 +154,8 @@ read the list there, not from a copy here that would rot.
 | `app/src/test` | JVM unit tests; compiled against `main + debug + the flavor` |
 | `app/src/androidTest` | Compose instrumentation tests (`just test-android-ui`, CI's emulator job) |
 
-Generated and gitignored: `uniffi/` Kotlin bindings, `jniLibs/`,
-`app/src/main/assets/editor.html`. Never edit them — regenerate (M8).
+Generated and gitignored: `uniffi/` Kotlin bindings and `jniLibs/`.
+Never edit them — regenerate (M8).
 `ToolbarSpec.kt` and `TitleSpec.kt` are likewise generated, from
 `packages/editor/src/toolbar.ts` and `filename.ts`: edit the manifest, then run
 `just toolbar-spec` / `just title-spec`.
@@ -187,9 +175,7 @@ Generated and gitignored: `uniffi/` Kotlin bindings, `jniLibs/`,
 - **I/O belongs on `Dispatchers.IO`**, and `hasBootstrapped` distinguishes
   loading from empty so the shell renders immediately (M1). Never await work
   before first render.
-- A new `futoBridge` message needs a hand-written host in
-  `app/src/main/java/com/futo/notes/ui/EditorHostMessages.kt` (`EditorHost.handle()`)
-  **and** its iOS counterpart — `packages/editor/src/bridge.ts` is the source of truth (M10).
+
 
 - **`app/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt` is vendored** from
   upstream tag v/0.6.2, matching the `rustls-platform-verifier` version `Cargo.lock` pins. It is
@@ -250,11 +236,6 @@ source set only; the release APK compiles a no-op sibling.
 
 ## Traps specific to this shell
 
-- **Programmatic-looking input lies.** An unfocused emulator throttles Compose
-  frames, so `adb screencap` can show stale UI; verify via disk, logcat, or the
-  `state` hook (M21). A programmatic DOM `click()` inside the editor WebView does
-  not fire Svelte 5 handlers — run the control's verb (`just puppet do …`), or
-  `just puppet tap '{"ref":"e12"}'` for a real touch.
 - **Dialogs and menus render in separate windows**, so a node can be absent from
   a dump taken too early.
 - **`run-as … ls files` hides dotfiles**, including the storage-migration journal
@@ -262,18 +243,6 @@ source set only; the release APK compiles a no-op sibling.
   storage switch that reverts itself is usually a stale journal — `ls -a`.
 - **`am broadcast` succeeds whether or not anything received it**, which is why
   every hook call waits for the app's own ack.
-- **Legacy WebViews are version-bound, not OS-bound.** The System WebView updates
-  independently of Android, so editor rendering bugs track Chromium versions
-  (github#8); minSdk 28.
-- **A WebView `versionName` is not a Chromium version.** Only Google's WebView
-  numbers itself with Chromium; a vendor provider uses its own scheme (Huawei
-  WebView 12.x/15.x on a modern Chromium), so comparing it against a Chromium
-  floor rejects working engines — it locked a Huawei P Smart 2021 out of the
-  editor with "needs 80 or newer. This device has version 15". Engine support is
-  therefore decided by capability (`editor.html`'s preflight +
-  `EditorEngineSupport.kt`), and the only version number that travels across
-  providers is the UA's `Chrome/<major>`, which is wording, not a gate.
-
 ## Driving it under QA
 
 Emulator/device QA of the changed flow is required. Respect `$ANDROID_SERIAL`
@@ -281,34 +250,9 @@ Emulator/device QA of the changed flow is required. Respect `$ANDROID_SERIAL`
 full playbook is the `/verify` skill's `references/android.md`.
 
 **Act on and read the running app with `FUTO_PUPPET_TARGET=android just puppet`**
-before reaching for an accessibility dump. `app/src/debug/java/com/futo/notes/puppet/`
-answers the same wire the iOS listener does: every editor verb and inspect query
-is forwarded to the WebView's own inspector, the navigation verbs call the navigator
-the UI calls, and `tap`/`drag` aim `adb shell input` at a CSS pixel through the
-WebView's box in `/tree`. The native screens are read through `/tree`: the merged Compose semantics of
-every window, in device pixels, cut to what a tap can reach — a row under the top bar
-or the keyboard is not on it. Each node names its `section` in the words iOS uses
-(`top bar`, `list`, `bottom bar`, `keyboard toolbar`, `scroll`, `content`, prefixed
-`dialog · ` or `sheet · `, or just `menu`), placed from the tree's shape; a bar no list
-can place declares itself with `Modifier.puppetSection(…)`
-(`app/src/main/java/com/futo/notes/puppet/PuppetSection.kt`). Each scrolling container
-says which ways it scrolls, and a list of rows which rows are on screen of how many
-(`scroll`). A list row's test tag (`note:<id>`, `folder:<path>`) is
-its name there, and `OpenNote`/`OpenFolder`/`Open…ContextMenu` take only a row of the list
-on screen, as a tap or a hold does (`app/src/main/java/com/futo/notes/puppet/ListRows.kt`).
-A screen's own controls (the title field, New note, a row's menu, the ⋯ menu, a dialog or
-sheet) are verbs it registers with `PuppetVerbScope { … }` beside the handlers, calling the
-same function the tap does; an open menu, dialog or sheet registers `modal = true`, so its
-items are all that is offered while it is up. A flow's shortcut (`RenameFolder {name?}`
-standing for `SetNewName`, then `SubmitRename`) is a `shortcuts` argument on the verb that
-starts it, which the CLI expands; `run` never sees it.
-`just check-puppet-verbs` fails a Compose control with no verb.
-The CLI opens its own `adb forward` to this worktree's claimed emulator whenever it is gone.
+before reaching for an accessibility dump. Native editor state is read directly from the
+renderer; shell verbs call the same handlers as Compose controls. Native text input uses the
+platform input connection. The emulator reaches local services through `10.0.2.2`.
 
-`just emu-logs` gives tag-scoped logcat (the listener logs under `FutoPuppet`). For
-the editor WebView, `just cdp-forward` then `node scripts/cdp-invoke.mjs "document.title"` —
-debug builds only, and re-run the forward after every app restart because the
-WebView pid changes. The emulator reaches host services (a local sync server) via
-`10.0.2.2`.
-
-Outside the debug listener, the native shell never evaluates JavaScript to learn the document. It reads its per-note mailbox; only a behind mailbox requests a bounded `flush`.
+The Rust editor session owns document bytes, revisions, saving and merge handling. Mobile
+never loads the web editor; desktop keeps Milkdown.

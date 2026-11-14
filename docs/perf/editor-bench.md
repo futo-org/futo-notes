@@ -56,11 +56,11 @@ pre-rebase bundle, every hash the same (score 0.9999).
 - **A drop restyles the whole note, twice.** In drag-large, the two frames after `pointerup`
   restyle 3,611 and 3,601 elements: 96 % of the scenario's restyling, against 465 for the
   whole drag-small. The lift (at the 340 ms hold) runs two layouts over all 27,229 objects,
-  and the drop a third. Compare the Android real-app drop freeze of 0.9–2.7 s.
+  and the drop a third. Compare the historical Android WebView-app drop freeze of 0.9–2.7 s; mobile now uses native Linedown.
 
 ## The drag scenarios
 
-The long-press drag both native shells ship (`mobileBlockDnd.ts`), driven by a CDP touch
+The standalone browser’s long-press drag fixture (`mobileBlockDnd.ts`), driven by a CDP touch
 stream as the editor-embed spec does. The hold ends on the editor's own `haptic` post, not a
 sleep; then 12 moves, one per frame, a release, and the drop's `change`. No autoscroll: its
 speed is time-based.

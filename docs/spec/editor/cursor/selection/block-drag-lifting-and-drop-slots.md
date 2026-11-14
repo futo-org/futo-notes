@@ -1,44 +1,8 @@
 #### Block drag: lifting and drop slots
 
-- Both native shells drag a block by LONG-PRESSING THE BLOCK ITSELF — there is
-  no ⠿ handle anywhere in the editor on a phone, and the left gutter that would
-  hold one is not reserved. Touch and hold a block for ~340ms and it lifts as a
-  card-like ghost under the finger, dragging floats it with the drop previewed
-  at the resolved top-level boundary, and release commits the move. The ⠿
-  gutter handle is the DESKTOP gesture only. Verified on an Android
-  device 2026-09-01 (moto g play 2023, System WebView 151) and on the iOS
-  simulator. → src/features/editor/milkdown/blockDragMode.ts
-  `resolveBlockDragMode`, src/features/editor/milkdown/mobileBlockDnd.ts,
-  src/features/editor/milkdown/blockDragMode.test.ts
-  _(native shells)_
-- Editor focus arbitrates block drag against text selection on both native
-  shells: a press that starts with the editor already focused (soft keyboard
-  up) is left completely alone — text selection and caret placement, exactly
-  as if this plugin did not exist — and a press that starts with the editor
-  unfocused (keyboard down) arms and may lift a block, as above. Before this,
-  every press suppressed selection rendering and armed the lift timer
-  regardless of focus, so a phone's long-press-to-select-a-word was always
-  read as "lift this block" instead — reported by QA on the 1.7.2-4 builds.
-  Checked once, at touch-down; a press already in flight does not re-arbitrate
-  mid-gesture. → src/features/editor/milkdown/mobileBlockDnd.ts
-  `onPointerDown`, src/features/editor/milkdown/mobileBlockDnd.test.ts,
-  tests/editor-embed-milkdown-long-press.spec.ts _(native shells)_
-- The lifted ghost shows the WHOLE block from its very first frame, sits over
-  the block it was lifted from (padded by the card's own breathing room, so it
-  reads against the drop-indicator line, which is drawn in viewport space), and
-  is capped at 40% of the screen height — only a block that genuinely exceeds
-  the cap is cropped, and that crop fades out rather than cutting off. The
-  card must never carry a `vh` height cap: both native hosts' web view
-  resolves viewport units against a zero-height containing block, so `40vh`
-  came out as `0px` and the card collapsed to its own padding. The cap is
-  therefore computed in pixels from `window.innerHeight`. Verified on the pool
-  emulator 2026-09-03 (Android 16, Chromium 133 WebView). (Until 2026-09-05 the
-  card also had to shed the editor's offscreen-block containment rule, which
-  cropped it to one unrendered line on Android; that rule is gone — see
-  Performance.) →
-  src/features/editor/milkdown/blockDragVisuals.ts `createGhost`
-  `GHOST_MAX_HEIGHT_FRACTION`, tests/editor-embed-milkdown-drag-ghost.spec.ts
-  _(native shells)_
+This section describes the web editor and its standalone touch fixtures. Native mobile
+uses Linedown; rendered block movement is deferred in [remaining work](../../portable-core/remaining-work.md).
+
 - On desktop a ⠿ handle appears in the left gutter beside the top-level block
   under the pointer — in the GUTTER, 4px left of the text column, never over a
   list marker, and beside the block's first line. Hovering anywhere inside a
@@ -148,56 +112,3 @@
   through the card wherever it overlaps a boundary. → src/features/editor/milkdown/blockMove.ts
   `isNoOpDrop`, src/features/editor/milkdown/blockDragSession.ts,
   src/features/editor/milkdown/blockMove.test.ts, tests/editor-embed-milkdown-drag-drop-preview.spec.ts
-- A block drag is haptic three ways on both native shells: one firmer impact
-  when the block lifts, a light tick each time the drop slot (or the indicator
-  line, where the preview falls back) lands on a DIFFERENT top-level boundary,
-  and one light impact when a release commits a reorder. A finger traveling
-  inside one gap ticks nothing, a hold ticks nothing, edge auto-scroll ticks
-  nothing (an auto-scroll is a hold, and a tick per boundary swept past would be
-  a continuous buzz), and a release back at the source is silent (it commits
-  nothing). Same gesture, same three moments, same feel on both. →
-  src/features/editor/milkdown/mobileBlockDnd.ts,
-  apps/ios/Sources/Editor/EditorWebView.swift `moveHapticFeedback`,
-  apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt
-  `performBlockDragHaptic`,
-  tests/editor-embed-milkdown-long-press.spec.ts _(native shells)_
-- On Android, a finger landing on a block silences the WebView's OWN long-press
-  haptic for the length of the press, so the lift is felt once rather than as
-  two impacts an eighth of a second apart. Chromium's long-press recognizer
-  trips around touch-down + 480ms, 128-141ms after the editor's 340ms lift. A
-  long press anywhere the editor does NOT claim as a block press still gets the
-  platform's normal buzz, and the editor's own three haptics are exempted rather
-  than silenced with it. Measured on a device 2026-09-01. →
-  apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt
-  `setBlockPressActive`, packages/editor/src/bridge.ts `BlockPressMessage`
-  _(native shells, Android)_
-- On Android that is ALL the shell does for the drag: Chromium's visible text
-  interaction never appears over a lifted block. A stationary hold, editable
-  focused and unfocused, draws no word highlight, no selection handles, no
-  floating Cut/Copy action mode and no magnifier — the page's own suppression
-  holds, which is the difference from WebKit. So the shell ignores `blockDrag`
-  entirely FOR THOSE SELECTION VISUALS. Measured on a device 2026-09-01. Focus
-  is a separate story — see the next two lines. →
-  src/features/editor/milkdown/mobileBlockDnd.ts,
-  packages/editor/src/bridge.ts `BlockDragMessage`
-  _(native shells, Android)_
-- An empty paragraph cannot be lifted: a hold on it lifts nothing and buzzes
-  nothing, though the press still stands the platform's own hold gestures
-  down like any block press. A tester's report — holding an empty line lifted
-  a blank "phantom" card while, by the next line's mechanism, the keyboard
-  rose underneath it — made the two visibly collide. →
-  src/features/editor/milkdown/mobileBlockDnd.ts, tests/editor-embed-milkdown-long-press-slots.spec.ts
-  _(native shells)_
-- A block press that begins with the editor unfocused never focuses it or
-  raises the keyboard, however long it lasts and whether or not it lifts; a
-  press that begins focused leaves focus alone (a drag while typing must not
-  drop the keyboard). Measured on the pool emulator 2026-09-08 (Android 16,
-  System WebView 133), touch stationary with the editor unfocused: Chromium's
-  OWN long-press fires at touch-down + ~500ms and dispatches, in the same
-  millisecond, `selectstart` on the block, `focus` on the editable, `focusin`,
-  then `contextmenu` — and the `focus` lands regardless of the page canceling
-  `selectstart`/`contextmenu`/`touchend`; none of those three levers stop it,
-  on text blocks as well as empty ones. A capture-phase `focus` listener on
-  the document undoes it for a press that began unfocused. →
-  src/features/editor/milkdown/mobileBlockDnd.ts, packages/editor/src/bridge.ts
-  `FocusMessage`, tests/editor-embed-milkdown-drag-press-focus.spec.ts _(native shells, Android)_

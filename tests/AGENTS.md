@@ -115,8 +115,7 @@ These drive actual apps, so they can leave state behind and they can touch devic
   reachable. No device means a loud SKIP and the desktop-only mesh — read the output, don't assume.
   The file is the entry point; scenarios live in `cross-platform-sync/*-scenarios.mjs` and are
   registered in `cross-platform-sync/scenario-registry.mjs`.
-- `ios-editor-stories.mjs` (`just test-ios-stories`) types at human cadence into the real iOS app and
-  uses the simulator vault as the oracle. Needs a claimed `SIM`.
+- `just test-ios-stories` runs the native iOS editor UI suites (leave, find, selection and bottom-edge input). Needs a claimed `SIM`.
 - `android-storage-migration.mjs` (`just test-android-storage`) **clears the debug app's data**.
   Claim a pool device with `just qa-claim android` first; never point it at a phone you care about.
 - `desktop-smoke.mjs` (`just test-desktop-smoke`).

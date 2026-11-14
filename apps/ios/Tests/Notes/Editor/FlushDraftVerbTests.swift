@@ -3,15 +3,7 @@ import Testing
 
 @testable import FutoNotesNative
 
-/// The engine's one draft-saving verb (persist-or-park, ADR-0001 / issue #37)
-/// exercised through the same `NoteVault` actor the app's flush paths ride —
-/// this guards the FFI wiring `NotesStore.flushDraft` / `flushAsync` and the
-/// live-pull conflict path now depend on, after the Swift-side
-/// writeIfUnchanged → createIfAbsent → park state machine was deleted.
-/// One disposition is enough to prove the actor reaches a real store and
-/// decodes the result; every disposition is walked through the same exported
-/// `NoteStore` by `flush_draft_projects_every_disposition`
-/// (crates/futo-notes-ffi/tests/note_contract.rs).
+/// The NoteVault actor projects Rust's generic persist-or-park workflow.
 @Suite("NoteVault flush_draft wiring")
 struct FlushDraftVerbTests {
     private func makeVaultRoot() throws -> URL {

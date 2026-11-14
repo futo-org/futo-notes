@@ -172,9 +172,9 @@ AGENTS.md + `codebase-organization.md` read.
 
 ## Step 6 — Conflicts
 
-- **Generated files** (`ToolbarSpec.*`, `TitleSpec.*`, `BridgeSpec.*`,
+- **Generated files** (`ToolbarSpec.*`, `TitleSpec.*`,
   bindings): never hand-merge. Take either side, run the generator
-  (`just toolbar-spec`, `just title-spec`, `just bridge-spec`, …), commit the
+  (`just toolbar-spec`, `just title-spec`, …), commit the
   regenerated output. Hand-merging a generated file is M8.
 - **AGENTS.md / spec prose**: taking "ours" silently reverts corrections that
   landed while the branch sat. Diff main's version since the merge base and

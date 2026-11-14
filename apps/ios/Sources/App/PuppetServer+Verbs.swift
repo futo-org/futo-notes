@@ -153,7 +153,7 @@
                     navigation.path.append(.note(target.id))
                     // Navigation already committed. The CLI settles the native surface's
                     // ready/loading state; never return a retryable refusal after pushing it.
-                    if !TextFirstFlag.enabled(), let refusal = await awaitEditorLoaded(for: name) {
+                    if let refusal = await awaitEditorLoaded(for: name) {
                         return refusal
                     }
                     return receipt(name, ["noteId": target.id])

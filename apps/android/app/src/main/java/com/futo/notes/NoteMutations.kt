@@ -22,40 +22,11 @@ sealed interface NoteMutationOutcome<out T> {
  */
 data class CommittedNote(val id: String, val relinkedBody: String?)
 
-/** What the editor holds after a rename/move whose relink rewrote its own body. */
-data class RelinkRebase(
-    /** The baseline: what the file now holds. */
-    val savedContent: String,
-    /** The editor's text. */
-    val content: String,
-    /** Push [content] into the live editor (selection-preserving adopt). */
-    val adoptIntoEditor: Boolean,
-)
-
-/**
- * [flushed] is the draft the engine saved before it relinked; [live] is what
- * the editor holds now; [relinkedBody] is the file after the relink.
- *
- * The file is the baseline whatever the editor holds. When nothing was typed
- * since the snapshot the editor adopts the file, so it shows the relinked link
- * text. A draft typed while the workflow committed is kept (the same
- * rebase-and-keep the desktop session applies): it still carries the old link
- * text and is saved over the file without a conflict copy (RC-70). Mirrors iOS
- * `rebasedOnRelink`.
- */
-internal fun rebasedOnRelink(flushed: String, live: String, relinkedBody: String?): RelinkRebase {
-    if (relinkedBody == null || relinkedBody == flushed) {
-        return RelinkRebase(flushed, live, adoptIntoEditor = false)
-    }
-    if (live != flushed) return RelinkRebase(relinkedBody, live, adoptIntoEditor = false)
-    return RelinkRebase(relinkedBody, relinkedBody, adoptIntoEditor = true)
-}
-
 /**
  * Run [action] and, if it fails, delete [file] before propagating — the F8
  * rule for a just-saved editor image that never got consumed. [action] is
  * `NotesStore.saveImageIntoVault`'s `useSavedImage`: a timed-out or
- * unavailable WebView insertion (`EditorWebView.insertImageAndWait`, F3)
+ * unavailable native document insertion
  * throws, and per spec a stale or failed completion leaves no orphaned blob
  * in the vault (docs/spec/editor.md, "A delayed image completion belongs to
  * the note it was started on"). `CancellationException` is deleted-then-
@@ -77,22 +48,8 @@ internal suspend fun deleteImageOnFailure(file: File, action: suspend () -> Unit
     }
 }
 
-internal fun confirmedSavedContent(
-    previousSavedContent: String,
-    writtenContent: String,
-    outcome: NoteMutationOutcome<Unit>,
-): String = when (outcome) {
-    is NoteMutationOutcome.Committed -> writtenContent
-    NoteMutationOutcome.Failed -> previousSavedContent
-}
-
 internal fun shouldCompleteNoteAction(outcome: NoteMutationOutcome<*>): Boolean =
     outcome is NoteMutationOutcome.Committed
-
-internal fun shouldContinueDeleteAfterEditorWrite(
-    hasPendingChanges: Boolean,
-    outcome: NoteMutationOutcome<Unit>?,
-): Boolean = !hasPendingChanges || outcome is NoteMutationOutcome.Committed
 
 internal suspend fun <T> runMutationTransaction(
     transaction: suspend () -> T,

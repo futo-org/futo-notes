@@ -1,7 +1,6 @@
 # Appended to .cirrus.yml by .cirrus.star: native iOS build.
 
 # Native iOS app (SwiftUI over the futo-notes-ffi UniFFI core + embedded
-# editor.html). Tag builds produce a signed Release IPA for TestFlight;
 # non-tag builds are unsigned simulator compile checks.
 build_ios_native_task:
   name: buildFutoNotesIOSNative
@@ -61,8 +60,6 @@ build_ios_native_task:
     # Shared Rust FFI -> FutoNotesFfi.xcframework + Swift bindings (uses
     # xcodebuild -create-xcframework).
     - bash scripts/build-rust-ios.sh
-    # Embedded editor bundle (single self-contained editor.html).
-    - pnpm exec vite build --config vite.editor.config.ts
     # Generate the Xcode project.
     - (cd apps/ios && xcodegen generate)
     - |

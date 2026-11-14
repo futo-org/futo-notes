@@ -1,7 +1,6 @@
 package com.futo.notes.puppet
 
 import com.futo.notes.puppet.PuppetServer.Binding
-import com.futo.notes.ui.decodeJavascriptString
 import com.futo.notes.ui.navigation.Screen
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -15,20 +14,43 @@ internal suspend fun forward(
     command: String,
     argsJson: String,
 ): PuppetReply {
-    val host = bound.host ?: return PuppetContract.refusal(503, "the native editor has no webview inspector")
-    // A renderer that never calls back (gone, or detached) must not hold the one accept loop.
-    val raw = try {
-        withTimeout(10_000) {
-            suspendCancellableCoroutine<String?> { continuation ->
-                host.webView.evaluateJavaScriptForPuppet(
-                    PuppetContract.forwardScript(command, argsJson),
-                ) { value -> continuation.resume(value) }
+    val view = findNativeEditor(bound.shellView.rootView)
+        ?: return PuppetContract.refusal(503, "native editor is not on screen")
+    if (command == "do") {
+        val request = JSONObject(argsJson)
+        val args = request.optJSONObject("args") ?: JSONObject()
+        when (val verb = request.getString("verb")) {
+            "FocusEditor" -> {
+                view.requestFocus()
+                view.context.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+                    .showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
             }
+            "BlurEditor" -> {
+                view.clearFocus()
+                view.context.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+                    .hideSoftInputFromWindow(view.windowToken, 0)
+            }
+            "Select" -> {
+                val from = args.getInt("from")
+                val to = args.optInt("to", from)
+                if (from < 0 || to < from || to > (view.text?.length ?: 0))
+                    return PuppetContract.refusal(409, "selection is outside the current native display")
+                view.setSelection(from, to)
+            }
+            "Insert", "Type" -> {
+                val input = view.onCreateInputConnection(android.view.inputmethod.EditorInfo())
+                    ?: return PuppetContract.refusal(503, "native input connection unavailable")
+                if (!input.commitText(args.getString("text"), 1))
+                    return PuppetContract.refusal(409, "native input refused the edit")
+            }
+            else -> return PuppetContract.refusal(404, "unknown native editor verb: $verb")
         }
-    } catch (_: TimeoutCancellationException) {
-        return PuppetContract.refusal(503, "the editor webview did not answer $command within 10 s")
+        return PuppetReply(200, JSONObject().put("ok", true).toString())
     }
-    return PuppetContract.response(raw)
+    if (command == "actions") {
+        return PuppetReply(200, JSONObject().put("actions", nativeEditorActions()).toString())
+    }
+    return PuppetContract.refusal(404, "unknown native editor query: $command")
 }
 
 /** The page's answer to [command] as an object, or null when it gave none. */
@@ -71,11 +93,14 @@ internal suspend fun awaitEditorLoaded(bound: Binding, action: String): PuppetRe
     return null
 }
 
-/**
- * `evaluateJavascript` hands back a JSON-encoded value, so a JS string arrives
- * quoted; the inspector always answers with one.
- */
-private fun android.webkit.WebView.evaluateJavaScriptForPuppet(
-    script: String,
-    onResult: (String?) -> Unit,
-) = evaluateJavascript(script) { raw -> onResult(decodeJavascriptString(raw)) }
+
+internal fun nativeEditorActions(): org.json.JSONArray = org.json.JSONArray().apply {
+    for (name in listOf("FocusEditor", "BlurEditor", "Select", "Insert", "Type")) {
+        val schema = when (name) {
+            "Select" -> PuppetContract.schema(listOf("from"), listOf("to"), integers = listOf("from", "to"))
+            "Insert", "Type" -> PuppetContract.schema(listOf("text"))
+            else -> PuppetContract.schema(emptyList())
+        }
+        put(JSONObject().put("name", name).put("schema", schema))
+    }
+}

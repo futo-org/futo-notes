@@ -51,51 +51,19 @@ final class NotesStore: ObservableObject {
     let notesRoot: URL
     var onLocalChange: (() -> Void)?
 
-    /// The open editors' unsaved-draft register (F8 jetsam guard). Each open
-    /// editor claims a token and publishes its DERIVED draft (`derivePendingDraft`)
-    /// under that token on every state change; the app's scenePhase handler calls
-    /// `flushPendingEditor()` when leaving `.active`, flushing every live editor's
-    /// draft so an edit caught inside the 400 ms autosave debounce is persisted
-    /// before the OS can jetsam the app. Pushed down here so the scenePhase handler
-    /// never reaches into editor internals. Mirrors Android's `PendingEditorDraft`.
-    ///
-    /// A MAP keyed by token, NOT a single slot: during a NavigationStack push/pop
-    /// several editors briefly coexist (wikilink chains share one WebView), so a
-    /// single slot would let the incoming editor's publish EVICT an outgoing dirty
-    /// editor's draft — a background+kill in that window would then flush nothing
-    /// and lose its edit (PKT-1 R2). Per-token entries never touch each other, so
-    /// the eviction is impossible by construction; `releaseDraftOwnership` removes
-    /// only the caller's own entry.
+    /// Native editor ownership survives navigation and is retired atomically on reset.
     var draftSeq: UInt64 = 0
     var retiredDraftTokensThrough: UInt64 = 0
     var resetting = false
     var resetEpoch: UInt64 = 0
-    var draftRegister: [UInt64: PendingDraft] = [:]
-    var oneShotDraftTokens: Set<UInt64> = []
     /// What a draft owner wants done, once and synchronously, when a full reset retires its token
     /// (`whenRetired`); removed by `releaseDraftOwnership`.
     var retirementHandlers: [UInt64: @MainActor () -> Void] = [:]
 
-    /// What each note's draft was flushed as during the current background episode
-    /// (id → the exact `PendingDraft` last flushed), cleared by
-    /// `rearmBackgroundFlush` on the next foreground. NOT a boolean latch: the
-    /// scenePhase handler deliberately flushes at BOTH `.inactive` AND `.background`
-    /// (belt-and-suspenders — a phase can jump straight to background), and a
-    /// boolean latched-on-entry would drop a keystroke the WebView bridge delivers
-    /// BETWEEN the two callbacks (the newest edit, lost on suspend/terminate —
-    /// defeating the jetsam guard). Comparing the registered draft to the snapshot
-    /// re-flushes only a CHANGED draft while skipping an identical re-flush (the
-    /// anti-double-park property, which the engine's `flush_draft` park
-    /// idempotency enforces on its own anyway).
-    var flushedThisEpisode: [String: PendingDraft] = [:]
-    let editorDraftCoordinator = EditorDraftCoordinator()
-    var editorDraftTail: Task<Void, Never>?
     var folderMutationTail: Task<Bool, Never>?
     // Serialized so Rust and the shell always end on the same pick.
     private var sortOrderTail: Task<Void, Never>?
     private var localTreeChangeTail: Task<Void, Never>?
-
-    let backgroundEditorFlush = BackgroundEditorFlush()
 
     /// The off-main owner of the Rust vault. The single source of truth for the
     /// rules. All FS I/O happens behind this actor.
@@ -252,11 +220,6 @@ final class NotesStore: ObservableObject {
         resetting = true
         resetEpoch += 1
         retiredDraftTokensThrough = draftSeq
-        editorDraftCoordinator.beginReset()
-        draftRegister.removeAll()
-        oneShotDraftTokens.removeAll()
-        flushedThisEpisode.removeAll()
-        backgroundEditorFlush.removeAll()
         let retired = retirementHandlers
         retirementHandlers.removeAll()
         for handler in retired.values { handler() }
@@ -267,9 +230,7 @@ final class NotesStore: ObservableObject {
         let epoch = resetEpoch
         defer {
             resetting = false
-            editorDraftCoordinator.endReset()
         }
-        await editorDraftTail?.value
         _ = await folderMutationTail?.value
         await localTreeChangeTail?.value
         try await vault.reset(epoch: epoch)

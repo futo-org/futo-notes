@@ -577,19 +577,7 @@
         "body": "Its markdown is something this version of the editor cannot read, so it is shown read-only. Nothing has been changed on disk."
       },
       "android": {
-        "bridgeVersionMismatch": "Bridge version mismatch: editor v{editorVersion} vs native v{nativeVersion}",
-        "clipboardTooLarge": "Too much text to copy. Select less and try again.",
-        "legacyWebView": {
-          "heading": "Update Android System WebView",
-          "body": "The editor couldn't start in this device's WebView. It needs Chromium {minimumVersion} or newer; this one reports Chromium {currentVersion}. WebView provider: {provider}. Update the System WebView from your app store, then reopen the note.",
-          "bodyWithoutVersion": "The editor couldn't start in this device's WebView. It needs Chromium {minimumVersion} or newer. WebView provider: {provider}. Update the System WebView from your app store, then reopen the note.",
-          "bodyWithoutProvider": "The editor couldn't start in this device's WebView. It needs Chromium {minimumVersion} or newer; this one reports Chromium {currentVersion}. Update the System WebView from your app store, then reopen the note.",
-          "bodyGeneric": "The editor couldn't start in this device's WebView. It needs Chromium {minimumVersion} or newer. Update the System WebView from your app store, then reopen the note.",
-          "updateAction": "Update WebView"
-        }
-      },
-      "ios": {
-        "bundleMissing": "The editor is unavailable because editor.html is missing from the app bundle."
+        "clipboardTooLarge": "Too much text to copy. Select less and try again."
       },
       "table": {
         "editCell": "Edit cell"

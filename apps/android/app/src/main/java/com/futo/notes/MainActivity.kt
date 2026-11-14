@@ -29,7 +29,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
-import com.futo.notes.ui.EditorHost
 import com.futo.notes.storage.NotesStorage
 import com.futo.notes.storage.StorageMigrationJournal
 import com.futo.notes.storage.StorageMode
@@ -56,8 +55,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import com.futo.notes.ui.blur
-import com.futo.notes.ui.setLocalization
 
 class MainActivity : ComponentActivity() {
     internal lateinit var localization: Localization
@@ -121,11 +118,6 @@ class MainActivity : ComponentActivity() {
         if (::sync.isInitialized) sync.resumeLiveAsync()
     }
 
-    override fun onPause() {
-        super.onPause()
-        store.value?.requestPendingEditorFlush()
-    }
-
     override fun onStop() {
         super.onStop()
         if (::sync.isInitialized) sync.pauseLive()
@@ -139,7 +131,6 @@ class MainActivity : ComponentActivity() {
         }
 
         super.onCreate(savedInstanceState)
-        com.futo.notes.textfirst.TextFirstFlag.readIntent(this, intent)
         lifecycleScope.launch {
             val icons = com.futo.notes.ui.settings.appicon.AppIconController(this@MainActivity)
             icons.refresh()
@@ -232,15 +223,6 @@ class MainActivity : ComponentActivity() {
                     license.handle(licenseLink)
                 }
                 DropLicenseLandingWithoutShell(license, noShell = hasNoShell())
-                // The text-first editor (debug builds) never uses the WebView
-                // host: don't create it, its sandbox process or its bundle.
-                val textFirstEditor = remember { com.futo.notes.textfirst.TextFirstFlag.enabled(this@MainActivity) }
-                LaunchedEffect(currentLocalization.effectiveLanguage.tag) {
-                    if (!textFirstEditor) {
-                        EditorHost.prewarm(this@MainActivity)
-                        EditorHost.get(this@MainActivity).setLocalization(currentLocalization)
-                    }
-                }
                 val selectedTheme = themeMode.value
                 val dark = when (selectedTheme) {
                     ThemeMode.LIGHT -> false
@@ -250,16 +232,7 @@ class MainActivity : ComponentActivity() {
 
                 FutoNotesTheme(darkTheme = dark) {
                     SystemBarAppearance(dark)
-                    // App-wide: back-gesture keyboard dismissal must drop the
-                    // focused field's caret (#24) — native fields via clearFocus,
-                    // the editor WebView's DOM caret via a bridge blur (it
-                    // survives clearFocus). Dialog windows install their own.
-                    ClearFocusOnImeDismiss(imeTargetVisible()) {
-                        if (!textFirstEditor) {
-                            val editorHost = EditorHost.get(this)
-                            if (editorHost.editorFocused) editorHost.blur()
-                        }
-                    }
+                    ClearFocusOnImeDismiss(imeTargetVisible()) {}
                     Surface(modifier = Modifier.fillMaxSize()) {
                         val s = store.value
                         val vaultSurface = vaultSurfaceState(

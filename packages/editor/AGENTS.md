@@ -3,23 +3,20 @@
 @README.md for the package overview. Root `AGENTS.md` still applies.
 
 This package owns the sanctioned synchronous TS mirrors of Rust note rules, the versioned
-`futoBridge` contract, and the native toolbar manifest.
+standalone browser `futoBridge` contract, and the shared desktop/native toolbar manifest.
 
 ## Ownership and traps
 
 - Rust remains canonical for filename, tag, preview, wikilink, and image rules. Hot-path TS mirrors
   live here except wikilinks (`src/shared/note/wikilinks.ts`) and stay locked by the hand-reviewed
   goldens in `tests/conformance/`.
-- `src/bridge.ts` owns bridge messages and `BRIDGE_VERSION`. A new message requires both native
-  hosts (`EditorWebView.swift` and `EditorWebView.kt`); ask before a version bump.
+- `src/bridge.ts` owns bridge messages and `BRIDGE_VERSION`. A new message updates the standalone embed implementation and its browser contract tests; ask before a version bump. Mobile uses Rust FFI sessions.
 - `src/wellFormed.ts` owns "no lone surrogate leaves the editor" (RC-48, decision 16A): `serializationLoop.ts`'s
   `readSerialized`/`hostHandle.ts`'s in-process desktop `getContent` and the desktop `invoke` wrapper (`src/lib/platform/tauri/invoke.ts`) write each
-  one as U+FFFD. Never call `String.prototype.toWellFormed` directly: the Android WebView floor (Chromium 80)
-  and iOS 15 lack it, and the helper carries the fallback.
-- `src/toolbar.ts` owns toolbar items; execution belongs in shared `createToolbarExec` (`src/features/editor/milkdown/toolbarExec.ts`), never a shell.
+  one as U+FFFD. Use the helper for standalone browser compatibility; it carries the fallback where `String.prototype.toWellFormed` is unavailable.
+- `src/toolbar.ts` owns toolbar items; desktop execution belongs in shared `createToolbarExec` (`src/features/editor/milkdown/toolbarExec.ts`); mobile dispatches through Rust editor sessions.
 - Never edit generated native specs, or the **bundled** editor output; edit the source and
-  regenerate. The repo-root `editor.html` is the hand-written source — the native copies
-  (`apps/*/…/editor.html`) are generated from it by `vite build --config vite.editor.config.ts`.
+  regenerate. The repo-root `editor.html` is the hand-written standalone browser source. `vite.editor.config.ts` produces its single-file fixture; mobile builds exclude that HTML.
 
 ## Milkdown compat plugins — the M6 carve-out
 
@@ -179,5 +176,5 @@ languages satisfy it.
    which asks both implementations the same broad corpus and fails on any divergence.
 4. Search Swift/Kotlin for un-fixtured sibling copies.
 
-Bridge/toolbar changes also run `just bridge-spec` / `just toolbar-spec` and the matching package
-tests. Finish with `just check-drift`; it rejects unregistered copies and stale projections.
+Toolbar changes also run `just toolbar-spec` and the matching package tests.
+The web bridge is a standalone browser-test surface; mobile consumes the Rust FFI session. Finish with `just check-drift`; it rejects unregistered copies and stale projections.

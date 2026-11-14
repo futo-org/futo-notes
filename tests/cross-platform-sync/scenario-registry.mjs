@@ -4,18 +4,11 @@
 
 import {
   ANDROID_MATRIX,
-  androidDefersFocusedPeerEditUntilBlur,
   androidDoesNotRewriteARawNote,
-  androidKeepsADraftTypedWhileAPeerEditIsDeferred,
   androidReceivesDesktopNoteLive,
   desktopReceivesAndroidEditorEdit,
 } from './android-leg-scenarios.mjs';
-import {
-  androidConflictsWithDesktopEdit,
-  androidFollowsPeerRenameWhileOpen,
-  androidKeepsAnUnreportedEditOverAPeerDelete,
-  androidKeepsAnUnreportedEditOverAPeerEdit,
-} from './android-unreported-edit-scenarios.mjs';
+
 import {
   deleteVsEdit,
   largeSync,
@@ -309,38 +302,8 @@ export const scenarios = [
     matrices: [ANDROID_MATRIX],
   },
   {
-    name: 'android defers a focused peer edit until blur',
-    fn: androidDefersFocusedPeerEditUntilBlur,
-    matrices: [ANDROID_MATRIX],
-  },
-  {
     name: 'android does not rewrite a raw note without a final newline',
     fn: androidDoesNotRewriteARawNote,
-    matrices: [ANDROID_MATRIX],
-  },
-  {
-    name: 'android keeps a draft typed while a peer edit is deferred',
-    fn: androidKeepsADraftTypedWhileAPeerEditIsDeferred,
-    matrices: [ANDROID_MATRIX],
-  },
-  {
-    name: 'android keeps an unreported edit over a peer edit',
-    fn: androidKeepsAnUnreportedEditOverAPeerEdit,
-    matrices: [ANDROID_MATRIX],
-  },
-  {
-    name: 'android keeps an unreported edit over a peer delete',
-    fn: androidKeepsAnUnreportedEditOverAPeerDelete,
-    matrices: [ANDROID_MATRIX],
-  },
-  {
-    name: 'android follows a peer rename while open',
-    fn: androidFollowsPeerRenameWhileOpen,
-    matrices: [ANDROID_MATRIX],
-  },
-  {
-    name: 'android conflicts with a desktop edit',
-    fn: androidConflictsWithDesktopEdit,
     matrices: [ANDROID_MATRIX],
   },
 ];

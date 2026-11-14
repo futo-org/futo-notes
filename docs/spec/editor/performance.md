@@ -6,7 +6,7 @@
   gauntlet, and the same stories against the real native Android app on the
   low-end reference phone. → tests/editor-gauntlet/performanceFloor.ts
   `PERFORMANCE_BUDGET`, tests/editor-gauntlet/milkdown-performance-floor.spec.ts,
-  tests/android-editor-perf.mjs, `just gauntlet-milkdown-perf`,
+  apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstTypingBenchmarkTest.kt, `just gauntlet-milkdown-perf`,
   `just test-android-perf`
 - Opening a note is budgeted at **under 1 s at the sizes real notes reach**, and
   above them cost must scale LINEARLY — no cliff. The floor holds a fixture's
@@ -106,7 +106,7 @@
   every fixture, blurred again before the keystroke loop so the keystroke unit
   stays the desktop gauntlet's. → tests/lib/editorDevicePerf.mjs
   `DEVICE_BUDGET.firstFocusMs`, tests/lib/editorDevicePerfSnippets.mjs,
-  tests/android-editor-perf.mjs
+  apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstTypingBenchmarkTest.kt
 - Decoration repaints are bounded to the textblocks a transaction changed, never
   the document: tag decorations and fenced-code highlighting re-derive only
   the blocks that moved, and a task checkbox edit rebuilds only the affected

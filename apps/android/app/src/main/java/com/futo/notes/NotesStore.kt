@@ -100,7 +100,7 @@ class NotesStore(
     internal val storageMigrationGate = StorageMigrationGate()
     /** Live native sessions own their drafts; migration drains them on their
      * editor threads before touching the vault. Registered on the main thread. */
-    internal val nativeEditorDrafts = mutableMapOf<Any, suspend () -> Boolean>()
+    internal val nativeEditorDrafts = mutableMapOf<Any, NativeEditorDraft>()
     val isVaultMigrationStarted: Boolean
         get() = storageMigrationGate.isMigrationStarted
 
@@ -172,7 +172,7 @@ class NotesStore(
 
     /** Save an editor image and consume its filename while holding the same
      * migration gate as note workflows. The consumer is part of the operation:
-     * migration cannot begin until WebView insertion is confirmed.
+     * migration cannot begin until native document insertion is confirmed.
      *
      * [deleteImageOnFailure] removes the file [save] just wrote when
      * [useSavedImage] fails or is canceled (F8) — see its doc for why. */
@@ -198,16 +198,8 @@ class NotesStore(
     /** Commits editors run after their screen has already left (main thread only). */
     internal val editorLeaves = mutableSetOf<Job>()
 
-    /** The open editors' unsaved-draft register (F8 jetsam guard). Each editor
-     *  registers ONE derivation closure via [setDraftProvider] under its own
-     *  token; the Activity's onPause calls [flushPendingEditor], which pulls every
-     *  live closure synchronously so an edit caught inside the 400 ms autosave
-     *  debounce — even one landing right before onPause, and even in an editor
-     *  still overlapping during a nav cross-fade — is persisted before the OS can
-     *  kill the backgrounded process. Mirrors iOS `NotesStore.pendingDraft`. */
-    internal val pendingEditor = PendingEditorDraft { draft -> flushAsync(draft) }
-    internal val editorDraftCoordinator = EditorDraftCoordinator()
-    internal var editorDraftTail: Job? = null
+    /** Native mutation tokens are retired together before a full reset. */
+    internal val editorDraftOwnership = EditorDraftOwnership()
 
     /** Full reset [settings.md:43]: delete every note, folder, and `.crashlogs`
      *  under the vault root. Parity model: desktop `resetAllNotes`
@@ -215,13 +207,11 @@ class NotesStore(
      *  for the duration and disconnect sync afterwards. */
     suspend fun deleteAll(disconnectSync: suspend () -> Unit) {
         storageMigrationGate.beginMigration()
-        editorDraftCoordinator.beginReset()
-        pendingEditor.reset()
+        editorDraftOwnership.reset()
         resetting = true
         vaultEpoch++
         try {
             disconnectSync()
-            editorDraftTail?.join()
             localTreeChangeTail?.join()
             mutationGate.withLock {
                 withContext(Dispatchers.IO) { storageMigrationGate.runMigration { core.reset() } }
@@ -230,7 +220,6 @@ class NotesStore(
             }
         } finally {
             resetting = false
-            editorDraftCoordinator.endReset()
             storageMigrationGate.resume()
         }
     }

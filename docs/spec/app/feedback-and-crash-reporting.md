@@ -8,7 +8,7 @@
   (`showToast`, guarded by ToastSlotTest)
   - "Note deleted", "Moved to {folder}", "Folder created", "Path copied", etc. _(Tauri; Android
     native shows the same toasts — delete toasts "Note deleted" from both the editor ⋮ menu
-    and the list long-press)_ → NoteEditorScreen.kt, NoteListDialogs.kt
+    and the list long-press)_ → textfirst/TextFirstEditorScreen.kt, NoteListDialogs.kt
   - Raised from 3 s on 2026-09-02. The same slot carries the sync failure toasts, which are
     the only warning that the notes folder has gone missing, and that message names a full
     path before saying where to fix it — a capture taken 3.4 s after such a failure caught

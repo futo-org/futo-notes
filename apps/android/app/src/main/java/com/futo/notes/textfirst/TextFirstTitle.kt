@@ -27,7 +27,7 @@ import kotlinx.coroutines.launch
 
 /**
  * The warning under the title. A stripped forbidden character's warning hides after 2 s,
- * as in the WebView editor, since the character never persists; a validation result
+ * for the native title field, since the character never persists; a validation result
  * (dot, length, duplicate, or none) replaces it and stays.
  */
 internal class TitleWarning(private val scope: CoroutineScope) {
