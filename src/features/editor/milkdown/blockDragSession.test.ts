@@ -121,7 +121,7 @@ describe('BlockDragSession', () => {
     clearInteractions('block-drag');
   });
 
-  // The Android WebView floor is Chromium 80 (EditorEngineSupport.kt); the
+  // The standalone browser compatibility fixture covers Chromium 80; the
   // ghost shadow's `CanvasRenderingContext2D.roundRect` is Chromium 99.
   describe('on a canvas without roundRect (an older WebView)', () => {
     /** A recording 2D context with the pre-99 surface: no `roundRect`. */

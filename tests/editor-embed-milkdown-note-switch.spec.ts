@@ -25,18 +25,13 @@ import { largeNote } from './lib/editorEmbedMilkdownStream';
 // Note switch — the outgoing note's edit belongs to the outgoing note
 // ============================================================
 //
-// Both shells share ONE WebView between notes, and a `change` carries no note
-// identity: whichever note the shell has bound when it ARRIVES is the note it
-// is saved into. So the shell reads the outgoing note (`blur(); getContent()`)
-// before the next note's push — Android in its exit before it navigates, iOS
-// also inside the attach that rebinds its callbacks (EditorWebView.swift
-// `attach`, which then holds back any `change` until that read answers).
-// Everything below is the bundle's half of that contract: the read is the
-// outgoing note's last word — whatever it still had to report goes out inside
-// the read, nothing after it — and the switch itself posts nothing.
-// `__switch` in the message log marks the point from which the shell is
-// listening for the NEXT note.
-// → docs/qa/wikilink-pop-large-edited-note.md
+// A browser host reusing the embed between notes drains the outgoing document
+// before it rebinds its callbacks to the next note. These tests cover the
+// bundle half of that contract: the read reports the outgoing note's last
+// change, and replacing it with the next note posts no synthetic edit.
+// `__switch` marks where the simulated host starts listening for the next note.
+// Native mobile uses Rust session ownership instead of this embed contract.
+// → src/editor-embed/main.ts
 
 const LINKING_NOTE = 'Parent note body\n\n[[Child]]\n';
 const LINKED_NOTE = 'Child note body\n';
