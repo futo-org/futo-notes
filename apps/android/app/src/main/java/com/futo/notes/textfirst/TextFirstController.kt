@@ -187,6 +187,21 @@ internal class TextFirstController(
 
     // ---- commands ----
 
+    /** Recolor the existing view and spans without reopening the note or losing its selection. */
+    fun updateColors(text: Int, muted: Int, link: Int, border: Int, code: Int, surface: Int) {
+        style.textColor = text
+        style.mutedColor = muted
+        style.linkColor = link
+        style.borderColor = border
+        style.codeBackground = code
+        style.surfaceColor = surface
+        view.setTextColor(text)
+        view.highlightColor = style.selectionColor
+        view.redrawTableRows()
+        view.invalidate()
+        cellView?.updateColors()
+    }
+
     /** Place the caret (host-chosen, e.g. a benchmark or a restored position). */
     fun select(start: Int, end: Int = start) { engine?.hostSelect(start, end) }
 

@@ -32,15 +32,20 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     }
     private val noteStyle = style
     init {
-        setTextColor(style.textColor); textSize = style.textSizePx / resources.displayMetrics.scaledDensity
+        updateColors()
+        textSize = style.textSizePx / resources.displayMetrics.scaledDensity
         typeface = style.regular
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
         imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI
         setPadding(style.dp(10f).toInt(), style.dp(10f).toInt(), style.dp(10f).toInt(), style.dp(10f).toInt())
-        setBackgroundColor(style.codeBackground)
         includeFontPadding = false
         filters = arrayOf(InputFilter { _, _, _, dest, a, b -> if (applying) null else dest.subSequence(a, b) })
         importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO
+    }
+    fun updateColors() {
+        setTextColor(noteStyle.textColor)
+        highlightColor = noteStyle.selectionColor
+        setBackgroundColor(noteStyle.codeBackground)
     }
     override fun isSuggestionsEnabled() = false
     // A cell is note text, never a form field: no "Autofill" item over its selection menu.
@@ -92,6 +97,18 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
                 KeyEvent.ACTION_UP -> super.onKeyUp(event.keyCode, event)
             }
         }
+    }
+    // Like the note view, keep hardware Enter's selection out of Gboard's
+    // collapse-and-delete fallback: the table key only navigates.
+    override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+            return when (event.action) {
+                KeyEvent.ACTION_DOWN -> onKeyDown(keyCode, event)
+                KeyEvent.ACTION_UP -> true
+                else -> super.onKeyPreIme(keyCode, event)
+            }
+        }
+        return super.onKeyPreIme(keyCode, event)
     }
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         // Hardware modifier down/up stay on the same native UI event queue.

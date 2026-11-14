@@ -29,12 +29,12 @@ internal class TextFirstStyle(
     val semibold: Typeface,
     val bold: Typeface,
     val mono: Typeface,
-    val textColor: Int,
-    val mutedColor: Int,
-    val linkColor: Int,
-    val borderColor: Int,
-    val codeBackground: Int,
-    val surfaceColor: Int,
+    var textColor: Int,
+    var mutedColor: Int,
+    var linkColor: Int,
+    var borderColor: Int,
+    var codeBackground: Int,
+    var surfaceColor: Int,
     val italic: Typeface = regular,
     val boldItalic: Typeface = bold,
     val semiboldItalic: Typeface = Typeface.create(italic, 600, true),
@@ -43,7 +43,7 @@ internal class TextFirstStyle(
     val listIndent = textSizePx * 1.4f
     val quoteIndent = dp(3f) + textSizePx * 0.9f
     val codePadding = dp(12f)
-    val selectionColor = (linkColor and 0x00ffffff) or 0x40000000
+    val selectionColor get() = (linkColor and 0x00ffffff) or 0x40000000
 
     /** Find-match highlight: the link colour, stronger for the current match. */
     fun findMarkColor(current: Boolean) = (linkColor and 0x00ffffff) or (if (current) 0x99000000.toInt() else 0x40000000)
@@ -134,6 +134,7 @@ internal class TfQuote(private val look: TextFirstStyle, val depth: Int) :
     override fun getLeadingMargin(first: Boolean) = (look.quoteIndent * depth).toInt()
 
     override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) {
+        paint.color = look.mutedColor
         val bar = look.dp(3f)
         for (level in 0 until depth) {
             val (left, right) = leadingSpan(x, dir, level * look.quoteIndent, level * look.quoteIndent + bar)
@@ -309,6 +310,8 @@ internal class TfMetadata(private val look: TextFirstStyle) :
     }
 
     override fun drawBackground(c: Canvas, p: Paint, left: Int, right: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, lineNumber: Int) {
+        background.color = look.surfaceColor
+        bar.color = look.borderColor
         c.drawRect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat(), background)
         c.drawRect(left.toFloat(), top.toFloat(), left + look.dp(3f), bottom.toFloat(), bar)
     }
@@ -335,6 +338,7 @@ internal class TfDivider(private val look: TextFirstStyle, private val width: ()
     override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int = width()
 
     override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
+        this.paint.color = look.borderColor
         val mid = (top + bottom) / 2f
         canvas.drawRect(x, mid - look.dp(0.5f), x + width(), mid + look.dp(0.5f), this.paint)
     }
@@ -384,6 +388,7 @@ internal class TfImage(
         if (bmp != null) {
             canvas.drawBitmap(bmp, null, rect, null)
         } else {
+            placeholder.color = look.surfaceColor
             canvas.drawRoundRect(rect, look.dp(6f), look.dp(6f), placeholder)
             if (failed) {
                 val p = TextPaint(paint).apply { color = look.mutedColor; textSize = look.textSizePx * 0.8f }

@@ -21,6 +21,7 @@ import java.util.UUID
 internal fun AndroidComposeTestRule<ActivityScenarioRule<ComponentActivity>, ComponentActivity>.withTextFirstScreen(
     note: String,
     nativeTheme: Int? = null,
+    darkTheme: () -> Boolean = { false },
     check: (TextFirstEditText, InputConnection) -> Unit,
 ) {
     NoteScrollMemory.clear()
@@ -40,12 +41,13 @@ internal fun AndroidComposeTestRule<ActivityScenarioRule<ComponentActivity>, Com
     waitUntil(15_000) { store.hasBootstrapped }
     val localization = Localization.fromGeneratedCatalogs(listOf("en"), "en-US")
     setContent {
-        FutoNotesTheme(darkTheme = false) {
+        val dark = darkTheme()
+        FutoNotesTheme(darkTheme = dark) {
             CompositionLocalProvider(LocalLocalization provides localization) {
                 if (nativeTheme != null) com.futo.notes.ui.components.ClearFocusOnImeDismiss(
                     com.futo.notes.ui.components.imeTargetVisible(),
                 )
-                TextFirstEditorScreen(store, "draft", false, false, {}, {}, registerLeave = { {} })
+                TextFirstEditorScreen(store, "draft", false, dark, {}, {}, registerLeave = { {} })
             }
         }
     }

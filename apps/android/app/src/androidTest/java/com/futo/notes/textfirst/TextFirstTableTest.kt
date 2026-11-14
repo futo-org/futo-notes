@@ -23,6 +23,67 @@ import uniffi.futo_notes_ffi.NoteStore
 
 /** Real native cell input, canonical session and persisted source; no Markdown implementation mocks. */
 class TextFirstTableTest {
+    @Test fun hardwareEnterKeepsSelectedCellTextAndSelectsTheCellBelow() = textFirstSession(
+        "| h1 | h2 |\n| --- | --- |\n| d1 | d2 |\n| d3 | d4 |\n",
+    ) { c ->
+        val source = c.sourceText()
+        val at = c.view.text.toString().indexOf("d1")
+        for ((code, meta) in listOf(
+            KeyEvent.KEYCODE_ENTER to 0,
+            KeyEvent.KEYCODE_NUMPAD_ENTER to 0,
+            KeyEvent.KEYCODE_ENTER to KeyEvent.META_SHIFT_ON,
+        )) {
+            assertTrue(c.selectDisplayRange(at, at + 2)) // The grid tap's selection entry point.
+            hardwareCellEnter(c, code, meta)
+            assertEquals("Enter must preserve the selected cell", source, c.sourceText())
+            assertEquals("d3", c.cellView!!.text.toString())
+            assertEquals(0, c.cellView!!.selectionStart)
+            assertEquals(2, c.cellView!!.selectionEnd)
+        }
+    }
+
+    @Test fun hardwareEnterAfterTabPreservesTextAndStillAppendsAtTheLastRow() = textFirstSession(
+        "| h1 | h2 |\n| --- | --- |\n| d1 | d2 |\n| d3 | d4 |\n",
+    ) { c ->
+        val source = c.sourceText()!!
+        val at = c.view.text.toString().indexOf("d1")
+        assertTrue(c.selectDisplayRange(at, at + 2))
+        textFirstIme(c, cell = true) { sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_TAB)) }
+        assertEquals(source, c.sourceText())
+        assertEquals("d2", c.cellView!!.text.toString())
+        assertEquals(0, c.cellView!!.selectionStart)
+        assertEquals(2, c.cellView!!.selectionEnd)
+        hardwareCellEnter(c)
+        assertEquals(source, c.sourceText())
+        assertEquals("d4", c.cellView!!.text.toString())
+        assertEquals(0, c.cellView!!.selectionStart)
+        assertEquals(2, c.cellView!!.selectionEnd)
+        textFirstIme(c, cell = true) { setSelection(2, 2) }
+        hardwareCellEnter(c)
+        assertEquals(source + "|  |  |\n", c.sourceText())
+        assertEquals("", c.cellView!!.text.toString())
+        assertEquals(1, c.cellView!!.placementTarget(c.view)!!.column)
+    }
+
+    /** Gboard's fallback if the cell lets hardware Enter reach the IME (as in TextFirstExitTest). */
+    private suspend fun hardwareCellEnter(c: TextFirstController, code: Int = KeyEvent.KEYCODE_ENTER, meta: Int = 0) {
+        c.sourceText() // Drain the host selection before delivering a native window key.
+        val field = c.cellView!!
+        val down = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, code, 0, meta)
+        if (!field.dispatchKeyEventPreIme(down)) {
+            val end = field.selectionEnd
+            val length = end - field.selectionStart
+            textFirstIme(c, cell = true) {
+                beginBatchEdit()
+                setSelection(end, end)
+                deleteSurroundingText(length, 0)
+                endBatchEdit()
+                sendKeyEvent(down)
+            }
+        }
+        field.dispatchKeyEventPreIme(KeyEvent.changeAction(down, KeyEvent.ACTION_UP))
+    }
+
     @Test fun cellTypingKeepsUnchangedRowLayoutsAndShiftedCellTargets() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(context.cacheDir, "table-${UUID.randomUUID()}").apply { check(mkdirs()) }

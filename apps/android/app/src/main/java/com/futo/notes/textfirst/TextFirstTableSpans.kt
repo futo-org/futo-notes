@@ -67,6 +67,7 @@ internal class TfTableRow(
             if (left + cellWidth + edge < x || left - edge > x + width()) continue
             canvas.drawRect(left, top.toFloat(), left + cellWidth, bottom.toFloat(), border)
             val layout = layouts.getOrNull(column) ?: continue
+            layout.paint.color = look.textColor
             val cellSave = canvas.save()
             canvas.translate(left + padding, top + padding)
             val cell = row.cells[column]
