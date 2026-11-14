@@ -195,7 +195,15 @@ impl Engine {
                 _ => 0..0,
             };
             let draft = Draft::of(body.entry);
-            match format::respell(&draft, body.entry, &want, touched, format, false, work) {
+            let start = if add && format == InlineFormat::Code {
+                without_code_formats(draft, body.entry, &body.selected, &touched, work)
+            } else {
+                Some((draft, body.entry.clone()))
+            };
+            let respelled = start.and_then(|(draft, read)| {
+                format::respell(&draft, &read, &want, touched, format, false, work)
+            });
+            match respelled {
                 Some((draft, read)) if draft.text != body.entry.text => {
                     edited.insert(body.index, (draft, read));
                 }
@@ -326,13 +334,16 @@ impl Engine {
 }
 
 /// `formats` a caret carries, with `format` turned on or off. Bold, Italic
-/// and Strike do not turn on beside Code.
+/// and Strike do not turn on beside Code, and Code turned on drops them.
 fn carried_with(
     mut formats: Vec<InlineFormat>,
     format: InlineFormat,
     on: bool,
 ) -> Vec<InlineFormat> {
     formats.retain(|have| *have != format);
+    if on && format == InlineFormat::Code {
+        return vec![InlineFormat::Code];
+    }
     let refused = bit(format) & CODE_TAKES_NONE != 0 && formats.contains(&InlineFormat::Code);
     if on && !refused {
         formats.push(format);
@@ -343,6 +354,41 @@ fn carried_with(
 
 /// The formats a toggle never turns on for inline code's characters.
 const CODE_TAKES_NONE: u16 = BOLD | ITALIC | STRIKE;
+
+/// `entry`'s line with Bold, Italic and Strike taken off the `selected`
+/// glyphs, before Code goes on over them. `None` when the line cannot read
+/// that way.
+fn without_code_formats(
+    draft: Draft,
+    entry: &Entry,
+    selected: &[bool],
+    touched: &Range<usize>,
+    work: &mut usize,
+) -> Option<(Draft, Entry)> {
+    let mut current = (draft, entry.clone());
+    for format in [
+        InlineFormat::Bold,
+        InlineFormat::Italic,
+        InlineFormat::Strike,
+    ] {
+        let mark = bit(format);
+        let want: Vec<bool> = glyphs(&current.1)
+            .iter()
+            .zip(selected)
+            .map(|(glyph, &selected)| !selected && glyph.style & mark != 0)
+            .collect();
+        current = format::respell(
+            &current.0,
+            &current.1,
+            &want,
+            touched.clone(),
+            format,
+            false,
+            work,
+        )?;
+    }
+    Some(current)
+}
 
 /// The format bits the selected visible characters have, as a toggle reads
 /// them: Code when every one is code; Bold, Italic and Strike when every one

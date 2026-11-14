@@ -30,5 +30,6 @@
   {"name": "toolbar: carried formats keep a caret in its link", "before": "a [‸word](u)", "command": [["bold"], ["toolbar_strike"], ["type", "x"]], "after": "a ~~[**x‸**word](u)~~"},
   {"name": "toolbar: a caret in an inline code word takes no bold", "before": "a `co‸de` b", "command": [["toolbar_bold"], ["toolbar_italic"], ["toolbar_strike"]], "after": "a `co‸de` b", "formats": ["Code"]},
   {"name": "toolbar: a word partly code takes bold on its other letters", "before": "ab`c‸d` e", "command": [["toolbar_bold"]], "after": "**ab**`c‸d` e", "formats": ["Code"]},
-  {"name": "toolbar: a word partly code, caret outside the code", "before": "a‸b`cd` e", "command": [["toolbar_bold"], ["type", "x"]], "after": "**ax‸b**`cd` e", "formats": ["Bold"]}
+  {"name": "toolbar: a word partly code, caret outside the code", "before": "a‸b`cd` e", "command": [["toolbar_bold"], ["type", "x"]], "after": "**ax‸b**`cd` e", "formats": ["Bold"]},
+  {"name": "toolbar: code on a bold word makes it plain code", "before": "a **wo‸rd** b", "command": [["toolbar_code"], ["type", "x"]], "after": "a `wox‸rd` b", "formats": ["Code"]}
 ]
