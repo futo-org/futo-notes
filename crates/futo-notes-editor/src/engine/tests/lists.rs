@@ -169,6 +169,40 @@ fn list_cases() {
     );
 }
 
+/// A host points the checkbox toggle at the clicked task's line; the
+/// selection elsewhere stays, through Undo and Redo.
+#[test]
+fn the_checkbox_toggle_keeps_the_selection_on_another_line() {
+    let source = "- [ ] a\n**b** c";
+    let after_b = Engine::open(source).display_text().find(" c").unwrap();
+    for (start, end, affinity) in [
+        (after_b, after_b, Affinity::Backward),
+        (after_b, after_b, Affinity::Forward),
+        (after_b - 1, after_b + 2, Affinity::Forward),
+    ] {
+        let mut engine = Engine::open(source);
+        super::select(&mut engine, start, end, affinity);
+        let kept = (engine.selection(), engine.affinity(), engine.caret_source());
+        let toggled = engine
+            .block(
+                engine.revision(),
+                range(0, 0),
+                BlockCommand::ToggleTask,
+                &mut ok,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(engine.source_text(), "- [x] a\n**b** c");
+        let now = |engine: &Engine| (engine.selection(), engine.affinity(), engine.caret_source());
+        assert_eq!(now(&engine), kept, "after the toggle, {affinity:?}");
+        assert_eq!((toggled.selection, toggled.affinity), (kept.0, kept.1));
+        engine.undo(engine.revision(), &mut ok).unwrap().unwrap();
+        assert_eq!(now(&engine), kept, "after Undo, {affinity:?}");
+        engine.redo(engine.revision(), &mut ok).unwrap().unwrap();
+        assert_eq!(now(&engine), kept, "after Redo, {affinity:?}");
+    }
+}
+
 #[test]
 fn the_toolbar_offers_indent_on_items_and_outdent_on_indented_items() {
     for (source, caret, indents) in [
