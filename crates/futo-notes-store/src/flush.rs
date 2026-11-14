@@ -59,12 +59,12 @@ impl LocalNoteStore {
             }
             Some(original) if original == wanted_id => {
                 let _vault_mutation = vault_mutation_guard()?;
-                let metadata = self.write_raw(original, content, modified_ms)?;
+                let metadata = self.write_draft_raw(original, content, modified_ms)?;
                 Ok(self.upsert_mutation(metadata))
             }
             Some(original) => {
                 let _vault_mutation = vault_mutation_guard()?;
-                self.write_raw(original, content, modified_ms)?;
+                self.write_draft_raw(original, content, modified_ms)?;
                 self.rename_raw(original, wanted_id)
             }
         }
@@ -158,7 +158,7 @@ impl LocalNoteStore {
                 mutation: None,
             }),
             Ok(current) if current == base => {
-                let metadata = self.write_raw(id, content, None)?;
+                let metadata = self.write_draft_raw(id, content, None)?;
                 Ok(FlushDraftResult {
                     disposition: FlushDisposition::Wrote,
                     mutation: Some(self.upsert_mutation(metadata)),
@@ -186,7 +186,7 @@ impl LocalNoteStore {
                                 mutation: None,
                             })
                         } else {
-                            let metadata = self.write_raw(id, &source, None)?;
+                            let metadata = self.write_draft_raw(id, &source, None)?;
                             Ok(FlushDraftResult {
                                 disposition: FlushDisposition::Wrote,
                                 mutation: Some(self.upsert_mutation(metadata)),
@@ -212,7 +212,9 @@ impl LocalNoteStore {
     /// so the survive and jetsam paths converge with no duplicate copy). The
     /// install is atomic no-replace: a live-sync pull that recreated the id
     /// outside the store's serialization is never clobbered — if the id
-    /// reappeared, park the draft unless it converged.
+    /// reappeared, park the draft unless it converged. The original parent must
+    /// still exist: an external folder move is not a peer note deletion and
+    /// must never be undone by recreating the old directory.
     fn recreate_missing_draft(&self, id: &str, content: &str) -> Result<FlushDraftResult, String> {
         // Never recreate at an id that cross-platform-collides (case-insensitive
         // / NFC) with a DIFFERENT surviving note. `create_new_atomic` only fails
@@ -230,7 +232,11 @@ impl LocalNoteStore {
         if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
             hook(id);
         }
-        if vault_fs::create_new(&self.root, &note_filename(id), content.as_bytes())? {
+        if vault_fs::create_new_in_existing_parent(
+            &self.root,
+            &note_filename(id),
+            content.as_bytes(),
+        )? {
             let metadata = vault::metadata(&self.root, id)
                 .ok_or_else(|| "note metadata unavailable after recreate".to_owned())?;
             self.search.notify(&change);
@@ -259,6 +265,15 @@ impl LocalNoteStore {
         &self,
         id: &str,
         content: &str,
+    ) -> Result<FlushDraftResult, String> {
+        self.park_draft_with_parent_policy(id, content, false)
+    }
+
+    pub(crate) fn park_draft_with_parent_policy(
+        &self,
+        id: &str,
+        content: &str,
+        create_parents: bool,
     ) -> Result<FlushDraftResult, String> {
         let (folder, title) = split_id(id);
         let date = current_conflict_date();
@@ -314,7 +329,12 @@ impl LocalNoteStore {
             if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
                 hook(&parked_id);
             }
-            if vault_fs::create_new(&self.root, &note_filename(&parked_id), content.as_bytes())? {
+            let create = if create_parents {
+                vault_fs::create_new
+            } else {
+                vault_fs::create_new_in_existing_parent
+            };
+            if create(&self.root, &note_filename(&parked_id), content.as_bytes())? {
                 let metadata = vault::metadata(&self.root, &parked_id)
                     .ok_or_else(|| "note metadata unavailable after park".to_owned())?;
                 self.search

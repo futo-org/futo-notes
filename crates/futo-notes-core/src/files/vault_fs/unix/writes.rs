@@ -30,23 +30,31 @@ pub(in crate::files::vault_fs) fn write_atomic(
     relative: &str,
     bytes: &[u8],
 ) -> Result<(), String> {
-    write_with_policy(root, relative, bytes, true)
+    write_with_policy(root, relative, bytes, true, true)
 }
 pub(in crate::files::vault_fs) fn write_atomic_local(
     root: &Path,
     relative: &str,
     bytes: &[u8],
 ) -> Result<(), String> {
-    write_with_policy(root, relative, bytes, false)
+    write_with_policy(root, relative, bytes, false, true)
+}
+pub(in crate::files::vault_fs) fn write_atomic_local_in_existing_parent(
+    root: &Path,
+    relative: &str,
+    bytes: &[u8],
+) -> Result<(), String> {
+    write_with_policy(root, relative, bytes, false, false)
 }
 fn write_with_policy(
     root: &Path,
     relative: &str,
     bytes: &[u8],
     strict: bool,
+    create_parents: bool,
 ) -> Result<(), String> {
-    let parent =
-        open_parent_with_policy(root, relative, true, strict).map_err(OpenParentError::message)?;
+    let parent = open_parent_with_policy(root, relative, create_parents, strict)
+        .map_err(OpenParentError::message)?;
     reject_symlink(&parent, "write", relative)?;
     write_temp_and_install(&parent, relative, bytes, |temp| {
         install_temp(&parent, temp, relative, strict)

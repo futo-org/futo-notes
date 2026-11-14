@@ -47,6 +47,7 @@ mod desktop_bridge;
 mod file;
 mod gesture;
 mod gesture_arguments;
+mod ios_accessibility;
 mod json_text;
 mod native;
 mod phone_listener;

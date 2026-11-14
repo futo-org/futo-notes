@@ -233,26 +233,6 @@
             #expect(h.source.hasPrefix("a![](https://example.test/p.png)"))
         }
 
-        @Test func caretStopsAreOnlyAtAnImagesEnds() {
-            let h = TextFirstHarness("a ![x](p.png) b\n")
-            // The image is characters 2..<13.
-            h.select(5, 5)
-            #expect(h.tv.selectedRange == NSRange(location: 2, length: 0))
-            h.select(11, 11)
-            #expect(h.tv.selectedRange == NSRange(location: 13, length: 0))
-            // One step in from an end (an arrow key) crosses the whole image.
-            h.select(2, 2)
-            h.tv.selectedRange = NSRange(location: 3, length: 0)
-            #expect(h.tv.selectedRange == NSRange(location: 13, length: 0))
-            h.tv.selectedRange = NSRange(location: 12, length: 0)
-            #expect(h.tv.selectedRange == NSRange(location: 2, length: 0))
-            // A range ending inside the image ends at its nearer end.
-            h.select(0, 4)
-            #expect(h.tv.selectedRange == NSRange(location: 0, length: 2))
-            h.select(0, 11)
-            #expect(h.tv.selectedRange == NSRange(location: 0, length: 13))
-        }
-
         @Test func aTapOnAnImageHitsItsRectAndEnterActsAfterIt() async {
             let h = TextFirstHarness(
                 "![](p.png)\n", files: ["p.png": TextFirstHarness.png(150, 90)])
@@ -306,6 +286,8 @@
 
         @Test func backspaceDeletesTheWholeImageAndTextTypedAfterItIsPlain() {
             let h = TextFirstHarness("a ![](p.png) b\n")
+            // Isolate object deletion from UIKit's process-global smart whitespace deletion.
+            h.tv.smartInsertDeleteType = .no
             // Selected as one object: Backspace removes exactly it.
             h.select(2, 12)
             h.tv.deleteBackward()

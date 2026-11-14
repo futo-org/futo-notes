@@ -144,6 +144,17 @@ pub(super) fn create_new(root: &Path, relative: &str, bytes: &[u8]) -> Result<bo
         &|error| super::note_create_failure(error, super::in_root(relative)),
     )
 }
+pub(super) fn create_new_in_existing_parent(
+    root: &Path,
+    relative: &str,
+    bytes: &[u8],
+) -> Result<bool, String> {
+    crate::files::atomic_write::create_new_atomic_in_existing_parent_reporting(
+        &checked_path(root, relative, false).map_err(OpenParentError::message)?,
+        bytes,
+        &|error| super::note_create_failure(error, super::in_root(relative)),
+    )
+}
 pub(super) fn create_new_strict(root: &Path, relative: &str, bytes: &[u8]) -> Result<bool, String> {
     create_new(root, relative, bytes)
 }
@@ -155,6 +166,16 @@ pub(super) fn move_no_replace(
     crate::files::move_no_replace(
         &checked_path(root, source, false).map_err(OpenParentError::message)?,
         &checked_path(root, destination, true).map_err(OpenParentError::message)?,
+    )
+}
+pub(super) fn move_no_replace_in_existing_parent(
+    root: &Path,
+    source: &str,
+    destination: &str,
+) -> Result<bool, String> {
+    crate::files::move_no_replace(
+        &checked_path(root, source, false).map_err(OpenParentError::message)?,
+        &checked_path(root, destination, false).map_err(OpenParentError::message)?,
     )
 }
 pub(super) fn move_no_replace_strict(
@@ -236,6 +257,17 @@ pub(super) fn sync_parent(_root: &Path, _relative: &str) -> Result<(), String> {
 
 pub(super) fn write_atomic_local(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
     write_atomic(root, relative, bytes)
+}
+pub(super) fn write_atomic_local_in_existing_parent(
+    root: &Path,
+    relative: &str,
+    bytes: &[u8],
+) -> Result<(), String> {
+    crate::files::atomic_write::write_atomic_bytes_in_existing_parent_reporting(
+        &checked_path(root, relative, false).map_err(OpenParentError::message)?,
+        bytes,
+        &|error| super::note_create_failure(error, super::in_root(relative)),
+    )
 }
 pub(super) fn create_dir(root: &Path, relative: &str) -> Result<(), String> {
     let path = checked_path(root, relative, false).map_err(OpenParentError::message)?;

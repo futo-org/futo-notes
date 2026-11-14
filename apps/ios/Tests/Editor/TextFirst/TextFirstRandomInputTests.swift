@@ -249,6 +249,26 @@
                 """)
         }
 
+        @Test func keyboardWindowPreservesTableDelimitersAfterFocusChanges() {
+            let activator = RandomRun()
+            let restoreActivator = activator.focusWindow()
+            restoreActivator()
+            var run = RandomRun()
+            let restoreWindow = run.focusWindow()
+            defer { restoreWindow() }
+            #expect(run.h.window.isKeyWindow)
+            // This sequence rewrote unrelated --- delimiters to U+2014 when the fixture
+            // inherited keyboard traits from the app's key window instead of its editor.
+            let ops = RandomInput.ops(seed: 23, count: RandomInput.opsPerSeed)
+            for (index, op) in ops.prefix(10).enumerated() {
+                run.apply(op)
+                if let failure = run.check(step: index + 1) {
+                    Issue.record(Comment(rawValue: failure.description))
+                }
+            }
+            #expect(run.h.source.contains("|---|---|"))
+        }
+
         /// A row with `knownIssue` must still fail (the item is open); any other row must pass
         /// apart from the known refusals it steps over.
         @Test(arguments: RandomInputRows.all)

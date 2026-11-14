@@ -10,6 +10,25 @@
     /// itself, never from a file name pattern.
     @Suite(.serialized) @MainActor
     struct TextFirstIdentityTests {
+        @Test func aDuplicateTitleWarnsWithoutRenamingOrLosingTheBody() async throws {
+            let rig = try await TextFirstVaultRig(body: "base")
+            defer { rig.tearDown() }
+            _ = await rig.store.createNote(title: "Straße")
+            rig.selectEnd()
+            rig.type(" edit")
+            let token = rig.store.claimDraftOwnership()
+            let refused = await TextFirstTitle.rename(
+                to: "STRASSE", controller: rig.controller, store: rig.store, ownerToken: token)
+            #expect(refused == .duplicate)
+            #expect(rig.controller.noteId == "note")
+            #expect(await rig.checkpoint())
+            #expect(rig.disk("note") == "base edit")
+            let renamed = await TextFirstTitle.rename(
+                to: "free", controller: rig.controller, store: rig.store, ownerToken: token)
+            #expect(renamed == .renamed("free"))
+            _ = await rig.controller.close()
+        }
+
         @Test func aPeerRenameMovesTheEditorToTheRenamedNote() async throws {
             let rig = try await TextFirstVaultRig(body: "alpha beta")
             defer { rig.tearDown() }
@@ -90,6 +109,28 @@
             // The draft the rename kept saves at the new name.
             #expect(await rig.checkpoint())
             #expect(rig.disk("typed")?.contains("one") == true)
+            _ = await rig.controller.close()
+        }
+
+        /// #280: a title rename adopts the store's rewritten self-link as the live
+        /// baseline, so the next typed edit cannot save the old target back or park a copy.
+        @Test func aTitleRenameKeepsItsSelfLinkThroughFurtherTyping() async throws {
+            let rig = try await TextFirstVaultRig(id: "Selfy", body: "back to [[Selfy]]\n")
+            defer { rig.tearDown() }
+            let token = rig.store.claimDraftOwnership()
+            let outcome = await TextFirstTitle.rename(
+                to: "SelfyX", controller: rig.controller, store: rig.store, ownerToken: token)
+            #expect(outcome == .renamed("SelfyX"))
+            #expect(rig.disk("SelfyX") == "back to [[SelfyX]]\n")
+            #expect(rig.source == "back to [[SelfyX]]\n")
+            rig.selectEnd()
+            rig.type("123")
+            #expect(await rig.checkpoint())
+            #expect(rig.disk("SelfyX") == "back to [[SelfyX]]\n123")
+            #expect(rig.disk("Selfy") == nil)
+            let files = try FileManager.default.contentsOfDirectory(atPath: rig.root.path)
+                .filter { $0.hasPrefix("Selfy") && $0.hasSuffix(".md") }
+            #expect(files == ["SelfyX.md"])
             _ = await rig.controller.close()
         }
 

@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn ios_shift_is_an_explicit_modifier_press_and_android_keeps_refusing_it() {
+    let frame = Frame {
+        scale: 1.0,
+        width: 402.0,
+        height: 874.0,
+    };
+    assert_eq!(
+        axe_arguments("press", &json!({"key": "Shift"}), frame, "OWNED").unwrap(),
+        strings(&["key", "225", "--udid", "OWNED"])
+    );
+    assert!(adb_arguments("press", &json!({"key": "Shift"}), frame)
+        .unwrap_err()
+        .contains("no key named"));
+}
+
+#[test]
 fn axe_arguments_aim_in_screen_points() {
     // iOS touches are points, so a screen point is sent as it is.
     let frame = Frame {

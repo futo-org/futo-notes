@@ -1,5 +1,5 @@
 import { idParent } from '$lib/platform/pathSafety';
-import { FALLBACK_TITLE, sanitizeFilename } from '$lib/rules';
+import { collisionKey, FALLBACK_TITLE, sanitizeFilename } from '$lib/rules';
 import type { NotePreview } from '$shared/types/note';
 
 export function shouldWriteNoteToDisk(params: {
@@ -76,7 +76,7 @@ export function isEditorChangeEcho(params: {
 
 /* Ids compared as the file system and the store's `collision_key` do: a case
  * or Unicode-normalization variant names the same file on macOS and Windows. */
-export const fileKey = (id: string): string => id.normalize('NFC').toLowerCase();
+export const fileKey = collisionKey;
 
 export function hasDuplicateNoteTitle(
   checkTitle: string,

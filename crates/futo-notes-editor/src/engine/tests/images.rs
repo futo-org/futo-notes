@@ -362,3 +362,39 @@ fn input_never_lands_inside_an_image() {
         .unwrap();
     assert_eq!(engine.source_text(), format!("here{image}か x"));
 }
+
+/// #393: input from a text service can reach the engine with either boundary
+/// inside the hidden image spelling. Replacement takes the whole atom.
+#[test]
+fn partial_image_selection_is_atomic() {
+    let source = "x ![i](p) y";
+    for (selected, expected) in [
+        (range(5, 11), "x Q"),
+        (range(0, 5), "Q y"),
+        (range(4, 6), "x Q y"),
+    ] {
+        for action in [crate::InputAction::Typing, crate::InputAction::Isolated] {
+            let mut engine = Engine::open(source);
+            engine
+                .replace(engine.revision(), selected, "Q", action, &mut ok)
+                .unwrap();
+            assert_eq!(engine.source_text(), expected);
+            engine.undo(engine.revision(), &mut ok).unwrap();
+            assert_eq!(engine.source_text(), source);
+        }
+    }
+}
+
+#[test]
+fn partial_image_link_selection_is_atomic() {
+    let source = "x ![i](p) y";
+    let mut engine = Engine::open(source);
+    engine
+        .set_link_view(engine.revision(), range(5, 11), "U", &mut ok)
+        .unwrap();
+    assert_eq!(
+        engine.source_text(),
+        "x [![i](p) y](U)",
+        "a link includes the whole image"
+    );
+}

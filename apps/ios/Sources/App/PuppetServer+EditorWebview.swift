@@ -7,6 +7,7 @@
         /// touch cannot reach it, so it is not there to aim at.
         @MainActor
         func webviewOnScreen() -> CGRect? {
+            guard EditorHost.isInUse else { return nil }
             let webView = EditorHost.shared.webView
             return webView.window.flatMap { window in
                 PuppetScreenReader.reaches(webView)
@@ -18,6 +19,11 @@
 
         @MainActor
         func forward(_ command: String, argsJson: String) async -> PuppetReply {
+            if TextFirstFlag.enabled() {
+                return PuppetNativeEditor.shared.reply(
+                    command,
+                    arguments: PuppetServerContract.decodeArguments(from: Data(argsJson.utf8)))
+            }
             let raw: String? = await withCheckedContinuation { continuation in
                 EditorHost.shared.webView.evaluateJavaScript(
                     PuppetServerContract.forwardScript(command: command, argsJson: argsJson)
@@ -34,6 +40,17 @@
         @MainActor
         func pageObject(_ command: String) async -> [String: Any]? {
             guard navigation.sheet == nil, editorNote != nil else { return nil }
+            if TextFirstFlag.enabled() {
+                let adapter = PuppetNativeEditor.shared
+                let note = PuppetVerbs.shared.openNote ?? editorNote
+                if command == "state" { return ["editor": adapter.state(note: note)] }
+                if command == "observe", !adapter.ready {
+                    return [
+                        "editor": adapter.state(note: note), "lines": [Any](),
+                        "elements": [Any](), "actions": [Any](),
+                    ]
+                }
+            }
             let forwarded = await forward(command, argsJson: "{}")
             guard forwarded.status == 200 else { return nil }
             return try? JSONSerialization.jsonObject(with: forwarded.body) as? [String: Any]
@@ -58,6 +75,16 @@
                     "\(action) reads the editor webview; this screen is native. "
                         + "Use `notes` for the vault and `state` for the screen")
             }
+            if TextFirstFlag.enabled() {
+                do {
+                    _ = try PuppetNativeEditor.shared.requireController()
+                    return nil
+                } catch let error as PuppetVerbRefusal {
+                    return PuppetServerContract.refusal(error.status, error.message)
+                } catch {
+                    return PuppetServerContract.refusal(500, "native editor unavailable: \(error)")
+                }
+            }
             guard webviewOnScreen() != nil else {
                 return PuppetServerContract.refusal(
                     503,
@@ -75,6 +102,16 @@
         func awaitEditorLoaded(for action: String) async -> PuppetReply? {
             guard let expected = editorNote else { return nil }
             let deadline = Date().addingTimeInterval(3)
+            if TextFirstFlag.enabled() {
+                while !PuppetNativeEditor.shared.ready {
+                    guard Date() < deadline else {
+                        return PuppetServerContract.refusal(
+                            503, "\(action): the native editor is still loading")
+                    }
+                    try? await Task.sleep(nanoseconds: 20_000_000)
+                }
+                return nil
+            }
             while EditorHost.shared.loadedNoteId != expected {
                 guard Date() < deadline else {
                     return PuppetServerContract.refusal(

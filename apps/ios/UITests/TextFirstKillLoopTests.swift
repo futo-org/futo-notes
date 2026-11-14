@@ -47,10 +47,10 @@ final class TextFirstKillLoopTests: XCTestCase {
 
     @MainActor
     private func launch(_ name: String, typing: Bool) {
-        app = makeIsolatedApplication()
+        app = makeIsolatedApplication(textFirstEditor: true)
         app.launchEnvironment["FUTO_NOTES_DATA_DIR"] = vault.path
         if typing { app.launchEnvironment["FUTO_TF_STEADY_LOG"] = steadyLog.path }
-        app.launchArguments += ["-futo.textFirstEditor", "YES", "-AppleLanguages", "(en)"]
+        app.launchArguments += ["-AppleLanguages", "(en)"]
         app.launch()
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 15), "note \(name) not listed")
@@ -106,6 +106,34 @@ final class TextFirstKillLoopTests: XCTestCase {
             return "run \(run): lost more than the save window: \(line)"
         }
         return nil
+    }
+
+    /// The lifecycle flush is rearmed after every foreground episode. Read disk
+    /// while the process is still alive in the background, before any reopen can flush.
+    @MainActor
+    func testBackgroundCheckpointPersistsEveryEpisode() throws {
+        let name = "background-" + UUID().uuidString.prefix(6).lowercased()
+        let file = vault.appendingPathComponent("\(name).md")
+        try "background baseline\n".write(to: file, atomically: true, encoding: .utf8)
+        launch(name, typing: false)
+        let editor = app.textViews["text-first-editor"]
+        for marker in ["123", "456", "789"] {
+            editor.tap()
+            editor.typeText(marker)
+            let shown = try XCTUnwrap(editor.value as? String)
+            XCTAssertTrue(shown.contains(marker))
+            XCUIDevice.shared.press(.home)
+            XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
+            let saved = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in
+                    (try? String(contentsOf: file, encoding: .utf8)) == shown
+                }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [saved], timeout: 5), .completed)
+            app.activate()
+            XCTAssertTrue(editor.waitForExistence(timeout: 5))
+            XCTAssertEqual(editor.value as? String, shown)
+        }
+        app.terminate()
     }
 
     @MainActor

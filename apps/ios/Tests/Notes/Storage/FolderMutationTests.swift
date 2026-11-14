@@ -44,4 +44,30 @@ struct FolderMutationTests {
         #expect(!(await store.createFolder("blocker/child")))
         #expect(!store.folders.contains("blocker/child"))
     }
+
+    @Test("foreground refresh projects external additions, folder moves and deletions")
+    func foregroundRefreshesExternalChanges() async throws {
+        let (store, root) = try await Self.bootstrappedStore()
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(await store.createFolder("before"))
+        let note = try #require(await store.createNote(title: "note", folder: "before"))
+        #expect(note == "before/note")
+        try FileManager.default.moveItem(
+            at: store.notesRoot.appendingPathComponent("before"),
+            to: store.notesRoot.appendingPathComponent("after"))
+        try "outside body".write(
+            to: store.notesRoot.appendingPathComponent("added.md"), atomically: true,
+            encoding: .utf8)
+
+        await store.refreshAfterForeground()
+        #expect(!store.folders.contains("before"))
+        #expect(store.folders.contains("after"))
+        #expect(!store.notes.contains { $0.id == "before/note" })
+        #expect(store.notes.contains { $0.id == "after/note" })
+        #expect(store.notes.contains { $0.id == "added" })
+
+        try FileManager.default.removeItem(at: store.notesRoot.appendingPathComponent("added.md"))
+        await store.refreshAfterForeground()
+        #expect(!store.notes.contains { $0.id == "added" })
+    }
 }

@@ -388,6 +388,9 @@ importers:
       remark-frontmatter:
         specifier: 5.0.0
         version: 5.0.0
+      unicode-case-folding:
+        specifier: 1.1.0
+        version: 1.1.0
     devDependencies:
       mdast-util-from-markdown:
         specifier: 2.1.0
@@ -2741,6 +2744,9 @@ packages:
   undici@8.12.3:
     resolution: {integrity: sha512-+fdndUTwBP86cVjihTp21hZHo7d6oj1c/47XPA3lL8mM0XHs+C4EkcjmgRsFnFk2f/UONGDy9ItBItmXsLOQHw==}
     engines: {node: '>=22.19.0'}
+
+  unicode-case-folding@1.1.0:
+    resolution: {integrity: sha512-5a1CoA7c1kNrONiWezBUFqZxCpR8XOqWUe5NKLRFPYs9DiJTQZKo6awR+eQ3ie1S7hOfuao3jZhmQP9jCIw6mg==}
 
   unified@11.0.5:
     resolution: {integrity: sha512-xKvGhPWw3k84Qjh8bI3ZeJjqnyadK+GEFtazSfZv/rKeTkTjOJho6mFqh2SM96iIcZokxiOpg78GazTSg8+KHA==}
@@ -5561,6 +5567,8 @@ snapshots:
     optional: true
 
   undici@8.12.3: {}
+
+  unicode-case-folding@1.1.0: {}
 
   unified@11.0.5:
     dependencies:

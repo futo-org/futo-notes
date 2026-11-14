@@ -21,7 +21,15 @@ pub(in crate::files::vault_fs) fn create_new(
     relative: &str,
     bytes: &[u8],
 ) -> Result<bool, String> {
-    create_with_policy(root, relative, bytes, false)
+    create_with_policy(root, relative, bytes, false, true)
+}
+
+pub(in crate::files::vault_fs) fn create_new_in_existing_parent(
+    root: &Path,
+    relative: &str,
+    bytes: &[u8],
+) -> Result<bool, String> {
+    create_with_policy(root, relative, bytes, false, false)
 }
 
 pub(in crate::files::vault_fs) fn create_new_strict(
@@ -29,7 +37,7 @@ pub(in crate::files::vault_fs) fn create_new_strict(
     relative: &str,
     bytes: &[u8],
 ) -> Result<bool, String> {
-    create_with_policy(root, relative, bytes, true)
+    create_with_policy(root, relative, bytes, true, true)
 }
 
 fn create_with_policy(
@@ -37,9 +45,10 @@ fn create_with_policy(
     relative: &str,
     bytes: &[u8],
     strict: bool,
+    create_parents: bool,
 ) -> Result<bool, String> {
-    let parent =
-        open_parent_with_policy(root, relative, true, strict).map_err(OpenParentError::message)?;
+    let parent = open_parent_with_policy(root, relative, create_parents, strict)
+        .map_err(OpenParentError::message)?;
     reject_symlink(&parent, "create", relative)?;
     let result = write_temp_and_install(&parent, relative, bytes, |temp| {
         install_no_replace(&parent.directory, temp, &parent.directory, &parent.leaf)
@@ -157,7 +166,15 @@ pub(in crate::files::vault_fs) fn move_no_replace(
     source: &str,
     destination: &str,
 ) -> Result<bool, String> {
-    move_no_replace_with_policy(root, source, destination, false)
+    move_no_replace_with_policy(root, source, destination, false, true)
+}
+
+pub(in crate::files::vault_fs) fn move_no_replace_in_existing_parent(
+    root: &Path,
+    source: &str,
+    destination: &str,
+) -> Result<bool, String> {
+    move_no_replace_with_policy(root, source, destination, false, false)
 }
 
 pub(in crate::files::vault_fs) fn move_no_replace_strict(
@@ -165,7 +182,7 @@ pub(in crate::files::vault_fs) fn move_no_replace_strict(
     source: &str,
     destination: &str,
 ) -> Result<bool, String> {
-    move_no_replace_with_policy(root, source, destination, true)
+    move_no_replace_with_policy(root, source, destination, true, true)
 }
 
 fn move_no_replace_with_policy(
@@ -173,9 +190,10 @@ fn move_no_replace_with_policy(
     source: &str,
     destination: &str,
     strict: bool,
+    create_parents: bool,
 ) -> Result<bool, String> {
     let from = open_parent(root, source, false).map_err(OpenParentError::message)?;
-    let to = open_parent_with_policy(root, destination, true, strict)
+    let to = open_parent_with_policy(root, destination, create_parents, strict)
         .map_err(OpenParentError::message)?;
     reject_symlink(&from, "move source", source)?;
     reject_symlink(&to, "move destination", destination)?;

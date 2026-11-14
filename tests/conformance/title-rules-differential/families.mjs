@@ -22,6 +22,7 @@ export const FAMILIES = [
       const titles = titleCorpus();
       const out = [];
       for (const op of [
+        'collisionKey',
         'sanitizeTitle',
         'validateTitle',
         'isValidTitle',

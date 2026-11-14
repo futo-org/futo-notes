@@ -42,13 +42,18 @@ pub(crate) fn render_diff_facts(diff: &Value) -> String {
     out.push_str(&screen_line(diff));
     if let Some(doc) = diff.get("doc").filter(|d| d.is_object()) {
         // Only where: a person sees none of a change off screen.
-        if doc["offScreen"] == json!(true) {
-            let lines = if doc["line"] == doc["to"] {
+        if doc["offScreen"] == json!(true) || doc["offscreen"] == json!(true) {
+            let lines = if doc["to"].is_null() || doc["line"] == doc["to"] {
                 format!("L{}", doc["line"])
             } else {
                 format!("L{}–{}", doc["line"], doc["to"])
             };
-            out.push_str(&format!("doc {lines} changed off screen\n"));
+            let visibility = if doc["partial"] == json!(true) {
+                "on a partially visible line"
+            } else {
+                "off screen"
+            };
+            out.push_str(&format!("doc {lines} changed {visibility}\n"));
         } else {
             out.push_str(&format!(
                 "doc L{} -{} +{}\n",

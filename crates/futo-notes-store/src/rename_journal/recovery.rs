@@ -88,12 +88,35 @@ pub(super) fn restore_sources(
         if !folder && drop_if_already_moved(root, &stage, &crate::note_filename(&source))? {
             continue;
         }
-        let home = free_name(root, &source, folder)?;
-        move_entry(root, &stage, &entry_name(&home, folder), folder)?;
+        let mut recovered_parent = !folder && parent_missing(root, &source)?;
+        if recovered_parent {
+            if let Some(home) = existing_root_recovery(root, &stage, &source)? {
+                vault_fs::remove_local(root, &stage)?;
+                warnings.push(format!("an interrupted rename of {source} was recovered as {home}: its folder disappeared"));
+                continue;
+            }
+        }
+        let mut home = if recovered_parent {
+            recovered_root_name(root, &source)?
+        } else {
+            free_name(root, &source, folder)?
+        };
+        if let Err(error) = move_entry(root, &stage, &entry_name(&home, folder), folder, folder) {
+            // It can disappear after the decision too. Never repair the old
+            // directory as a side effect of undoing a title rename.
+            if folder || recovered_parent || !parent_missing(root, &source)? {
+                return Err(error);
+            }
+            recovered_parent = true;
+            home = recovered_root_name(root, &source)?;
+            move_entry(root, &stage, &entry_name(&home, false), false, false)?;
+        }
         if home != source {
-            warnings.push(format!(
-                "an interrupted rename of {source} was undone as {home}: the name was taken"
-            ));
+            warnings.push(if recovered_parent {
+                format!("an interrupted rename of {source} was recovered as {home}: its folder disappeared")
+            } else {
+                format!("an interrupted rename of {source} was undone as {home}: the name was taken")
+            });
         }
     }
     Ok(())
@@ -120,24 +143,67 @@ fn place_destinations(
         let Some(tx) = transaction(journal, id) else {
             break;
         };
-        let (wanted, folder) = match &tx.moves {
-            Moves::Folder { to, .. } => (to.clone(), true),
-            Moves::Notes => (tx.mappings[index].to.clone(), false),
+        let (wanted, folder, create_parent) = match &tx.moves {
+            Moves::Folder { to, .. } => (to.clone(), true, true),
+            Moves::Notes => (
+                tx.mappings[index].to.clone(),
+                false,
+                !crate::paths::same_note_parent(&tx.mappings[index].from, &tx.mappings[index].to),
+            ),
         };
         if !folder && drop_if_already_moved(root, &stage, &crate::note_filename(&wanted))? {
             continue;
         }
-        let destination = free_name(root, &wanted, folder)?;
+        let source = if folder {
+            wanted.clone()
+        } else {
+            tx.mappings[index].from.clone()
+        };
+        let vanished_parent = !folder && !create_parent && parent_missing(root, &wanted)?;
+        let existing_recovery = if vanished_parent {
+            existing_root_recovery(root, &stage, &source)?
+        } else {
+            None
+        };
+        let destination = if vanished_parent {
+            match &existing_recovery {
+                Some(home) => home.clone(),
+                None => recovered_root_name(root, &source)?,
+            }
+        } else {
+            free_name(root, &wanted, folder)?
+        };
         if destination != wanted {
             relocate(journal, id, index, &wanted, &destination);
             save(root, journal)?;
-            warnings.push(if folder {
+            warnings.push(if vanished_parent {
+                format!("an interrupted rename of {source} was recovered as {destination}: its folder disappeared")
+            } else if folder {
                 format!("an interrupted folder move finished as {destination}: {wanted} was taken")
             } else {
                 format!("an interrupted rename finished as {destination}: {wanted} was taken")
             });
         }
-        move_entry(root, &stage, &entry_name(&destination, folder), folder)?;
+        if existing_recovery.is_some() {
+            vault_fs::remove_local(root, &stage)?;
+            continue;
+        }
+        if let Err(error) = move_entry(
+            root,
+            &stage,
+            &entry_name(&destination, folder),
+            folder,
+            create_parent,
+        ) {
+            if folder || create_parent || vanished_parent || !parent_missing(root, &wanted)? {
+                return Err(error);
+            }
+            let recovered = recovered_root_name(root, &source)?;
+            relocate(journal, id, index, &destination, &recovered);
+            save(root, journal)?;
+            move_entry(root, &stage, &entry_name(&recovered, false), false, false)?;
+            warnings.push(format!("an interrupted rename of {source} was recovered as {recovered}: its folder disappeared"));
+        }
     }
     Ok(transaction(journal, id)
         .map(|tx| {
@@ -176,15 +242,19 @@ fn relocate(journal: &mut Journal, id: u64, index: usize, wanted: &str, destinat
 /// crash in between leaves one file under both names. Drop the staged name
 /// then, rather than treating our own file as a newcomer.
 fn drop_if_already_moved(root: &Path, stage: &str, target: &str) -> Result<bool, String> {
-    let target_path = root.join(target);
-    let is_file = std::fs::symlink_metadata(&target_path)
-        .map(|meta| meta.file_type().is_file())
-        .unwrap_or(false);
-    if !is_file || !same_file::is_same_file(root.join(stage), &target_path).unwrap_or(false) {
+    if !same_installed_file(root, stage, target) {
         return Ok(false);
     }
     vault_fs::remove_local(root, stage)?;
     Ok(true)
+}
+
+fn same_installed_file(root: &Path, stage: &str, target: &str) -> bool {
+    let target_path = root.join(target);
+    let is_file = std::fs::symlink_metadata(&target_path)
+        .map(|meta| meta.file_type().is_file())
+        .unwrap_or(false);
+    is_file && same_file::is_same_file(root.join(stage), &target_path).unwrap_or(false)
 }
 
 fn entry_name(id: &str, folder: bool) -> String {
@@ -201,4 +271,40 @@ fn free_name(root: &Path, wanted: &str, folder: bool) -> Result<String, String> 
     } else {
         crate::paths::unique_note_id(root, wanted, None)
     }
+}
+
+pub(crate) fn parent_missing(root: &Path, id: &str) -> Result<bool, String> {
+    let (folder, _) = futo_notes_model::split_id(id);
+    if folder.is_empty() {
+        return Ok(false);
+    }
+    vault_fs::exists(root, &folder).map(|exists| !exists)
+}
+
+fn recovered_root_name(root: &Path, source: &str) -> Result<String, String> {
+    free_name(root, &recovered_root_stem(source), false)
+}
+
+pub(crate) fn recovered_root_stem(source: &str) -> String {
+    let (_, title) = futo_notes_model::split_id(source);
+    futo_notes_model::make_id("", &format!("{title} (recovered)"))
+}
+
+/// The no-replace fallback can link before it unlinks staging. A crash there
+/// must adopt that same recovered file rather than minting a second copy.
+fn existing_root_recovery(
+    root: &Path,
+    stage: &str,
+    source: &str,
+) -> Result<Option<String>, String> {
+    let stem = recovered_root_stem(source);
+    for (id, _) in crate::vault::note_paths(root) {
+        if futo_notes_model::split_id(&id).0.is_empty()
+            && crate::paths::is_unique_variant(&stem, &id)
+            && same_installed_file(root, stage, &crate::note_filename(&id))
+        {
+            return Ok(Some(id));
+        }
+    }
+    Ok(None)
 }

@@ -3,6 +3,7 @@
  */
 
 import {
+  collisionKey,
   hasCaseInsensitiveSiblingCollision,
   isValidFolderName,
   isValidFolderPath,
@@ -37,6 +38,7 @@ import {
 
 export const TS_OPS = {
   // filename.ts - titles
+  collisionKey: (input) => collisionKey(input),
   sanitizeTitle: (input) => sanitizeTitle(input),
   validateTitle: (input) => validateTitle(input).map((issue) => issue.kind),
   isValidTitle: (input) => isValidTitle(input),

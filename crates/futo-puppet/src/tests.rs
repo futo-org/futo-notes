@@ -23,6 +23,7 @@ mod gesture_arguments;
 mod gestures;
 mod look_and_relaunch;
 mod native;
+mod native_editor;
 mod receipts;
 mod refusals;
 mod render_reads;

@@ -180,12 +180,24 @@ const KEYS: [(&str, Option<u16>, u16); 14] = [
     ("Back", None, 4),
 ];
 
+/// Explicit modifier presses use AXe's ordinary down/up key action. They are
+/// never inserted automatically around typing or advertised on Android.
+const IOS_MODIFIERS: [(&str, u16); 1] = [("Shift", 225)];
+
 fn key_code(args: &Value, platform: NativePlatform) -> Result<u16, String> {
     let name = args["key"]
         .as_str()
         .ok_or("press needs {\"key\":\"Enter\"}")?;
+    if platform == NativePlatform::Ios {
+        if let Some((_, code)) = IOS_MODIFIERS.iter().find(|(key, _)| *key == name) {
+            return Ok(*code);
+        }
+    }
     let Some((_, ios, android)) = KEYS.iter().find(|(key, ..)| *key == name) else {
-        let names: Vec<&str> = KEYS.iter().map(|(key, ..)| *key).collect();
+        let mut names: Vec<&str> = KEYS.iter().map(|(key, ..)| *key).collect();
+        if platform == NativePlatform::Ios {
+            names.extend(IOS_MODIFIERS.iter().map(|(key, _)| *key));
+        }
         let character = if matches!(name.as_bytes(), [b' '..=b'~']) {
             format!(
                 " A character is typed: type {}.",

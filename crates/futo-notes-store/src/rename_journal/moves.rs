@@ -85,11 +85,13 @@ pub(crate) fn move_journaled(
     // Staged: staging into destinations.
     let destinations = destination_pairs(mappings, folder, id);
     for (index, (stage, destination)) in destinations.iter().enumerate() {
-        if let Err(error) = move_entry(root, stage, destination, folder.is_some()) {
+        let create_parent = folder.is_some()
+            || !crate::paths::same_note_parent(&mappings[index].0, &mappings[index].1);
+        if let Err(error) = move_entry(root, stage, destination, folder.is_some(), create_parent) {
             // Back through staging, so the undo below (or a recovery after a
             // crash during it) finds every entry under this transaction.
             for (stage, destination) in destinations[..index].iter().rev() {
-                let _ = move_entry(root, destination, stage, folder.is_some());
+                let _ = move_entry(root, destination, stage, folder.is_some(), true);
             }
             return Err(roll_back(root, &mut journal, id, error));
         }
@@ -204,7 +206,13 @@ pub(super) fn step(_name: &str) -> Result<(), String> {
 /// A no-replace move of a note file, or a folder rename. A folder destination
 /// was checked absent under the vault guard; POSIX rename still refuses a
 /// non-empty one.
-pub(super) fn move_entry(root: &Path, from: &str, to: &str, folder: bool) -> Result<(), String> {
+pub(super) fn move_entry(
+    root: &Path,
+    from: &str,
+    to: &str,
+    folder: bool,
+    create_parent: bool,
+) -> Result<(), String> {
     step(&format!("move {from} -> {to}"))?;
     if folder {
         if vault_fs::exists(root, to)? {
@@ -217,7 +225,12 @@ pub(super) fn move_entry(root: &Path, from: &str, to: &str, folder: bool) -> Res
         }
         return vault_fs::rename_local(root, from, to).map(|_| ());
     }
-    match vault_fs::move_no_replace(root, from, to)? {
+    let install = if create_parent {
+        vault_fs::move_no_replace
+    } else {
+        vault_fs::move_no_replace_in_existing_parent
+    };
+    match install(root, from, to)? {
         true => Ok(()),
         false if vault_fs::exists(root, from)? => Err(format!(
             "rename destination {to} appeared under a concurrent writer"

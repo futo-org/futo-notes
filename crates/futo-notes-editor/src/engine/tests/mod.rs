@@ -292,7 +292,7 @@ fn replacing_a_selection_writes_these_bytes() {
         // Marks with no hidden syntax are plain text to a selection.
         ("see https://x.y", "x.y", "", "see https://"),
         ("[[note]] x", "note]", "", "[[] x"),
-        ("![alt](p.png) x", "p.png", "", "![alt]() x"),
+        ("![alt](p.png) x", "p.png", "", " x"),
         // An escape goes with its character.
         ("x \\*y\\* z", "*y*", "", "x  z"),
         ("x\\*y", "x*", "", "y"),

@@ -121,7 +121,10 @@
                 + "\n  source: \(beforeSource.debugDescription)"
             if !c.divergences.isEmpty {
                 return Failure(
-                    kind: "divergence", detail: "\(c.divergences)", step: step, before: context)
+                    kind: "divergence",
+                    detail:
+                        "\(c.divergences)\n  view: \((h.tv.text ?? "").debugDescription)\n  engine: \(((try? c.session.displayText()) ?? "<none>").debugDescription)",
+                    step: step, before: context)
             }
             // After a refusal the editor must still agree with the engine; those checks come first.
             if h.tv.markedTextRange == nil, let failure = agreement(step: step, context: context) {
@@ -170,10 +173,28 @@
             var known: [String: String] = [:]
         }
 
+        /// UITextInput's keyboard traits belong to the key window. With a non-key fixture,
+        /// UIKit can use another field's default typography and rewrite existing Markdown.
+        func focusWindow() -> () -> Void {
+            let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                .first
+            let previous = scene?.windows.first(where: \.isKeyWindow)
+            if let scene { h.window.windowScene = scene }
+            h.window.makeKeyAndVisible()
+            _ = h.tv.becomeFirstResponder()
+            return { [h] in
+                h.tv.resignFirstResponder()
+                h.window.isHidden = true
+                previous?.makeKey()
+            }
+        }
+
         /// Run `ops` on a fresh editor. A known refusal is noted and stepped over: the editor has
         /// already shown the engine's text again.
         static func run(_ ops: [RandomOp]) -> Outcome {
             var run = RandomRun()
+            let restoreWindow = run.focusWindow()
+            defer { restoreWindow() }
             if let failure = run.check(step: 0) { return Outcome(failure: failure) }
             for (i, op) in ops.enumerated() {
                 run.apply(op)

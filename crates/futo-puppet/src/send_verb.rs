@@ -109,7 +109,7 @@ pub(crate) fn run_verb(
     if reply.status >= 400 {
         return Ok((reply, Some((before.clone(), before))));
     }
-    let after = screen::settle(target, &before, before.webview.is_some())?;
+    let after = screen::settle(target, &before, before.has_editor())?;
     if reply.body["diff"].is_object() {
         if let Some(offset) = before.page_offset() {
             screen::shift(&mut reply.body["diff"], offset);

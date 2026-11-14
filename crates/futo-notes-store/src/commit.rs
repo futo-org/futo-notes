@@ -81,6 +81,16 @@ impl LocalNoteStore {
         content: &str,
         modified_ms: Option<i64>,
     ) -> Result<NoteMetadata, String> {
+        self.install_with_parent_policy(wanted, content, modified_ms, true)
+    }
+
+    pub(crate) fn install_with_parent_policy(
+        &self,
+        wanted: &str,
+        content: &str,
+        modified_ms: Option<i64>,
+        create_parents: bool,
+    ) -> Result<NoteMetadata, String> {
         for _ in 0..1000 {
             let id = paths::unique_note_id(&self.root, wanted, None)?;
             paths::note_path(&self.root, &id)?;
@@ -88,7 +98,12 @@ impl LocalNoteStore {
             if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
                 hook(&id);
             }
-            if !vault_fs::create_new(&self.root, &note_filename(&id), content.as_bytes())? {
+            let create = if create_parents {
+                vault_fs::create_new
+            } else {
+                vault_fs::create_new_in_existing_parent
+            };
+            if !create(&self.root, &note_filename(&id), content.as_bytes())? {
                 // A writer outside this store's serialization took the id; the
                 // write did not happen. Re-allocate against the now-larger tree
                 // and retry — no suppression to unwind.
@@ -216,6 +231,25 @@ impl LocalNoteStore {
         content: &str,
         modified_ms: Option<i64>,
     ) -> Result<NoteMetadata, String> {
+        self.write_with_parent_policy(id, content, modified_ms, true)
+    }
+
+    pub(crate) fn write_draft_raw(
+        &self,
+        id: &str,
+        content: &str,
+        modified_ms: Option<i64>,
+    ) -> Result<NoteMetadata, String> {
+        self.write_with_parent_policy(id, content, modified_ms, false)
+    }
+
+    fn write_with_parent_policy(
+        &self,
+        id: &str,
+        content: &str,
+        modified_ms: Option<i64>,
+        create_parents: bool,
+    ) -> Result<NoteMetadata, String> {
         if let Some(existing) = self.colliding_note(id) {
             return Err(format!(
                 "note id collides with existing cross-platform path: {existing}"
@@ -225,7 +259,12 @@ impl LocalNoteStore {
         let change = FileChange::Changed(note_filename(id));
         self.before_write
             .before_write(std::slice::from_ref(&change));
-        vault_fs::write_atomic_local(&self.root, &note_filename(id), content.as_bytes())?;
+        let write = if create_parents {
+            vault_fs::write_atomic_local
+        } else {
+            vault_fs::write_atomic_local_in_existing_parent
+        };
+        write(&self.root, &note_filename(id), content.as_bytes())?;
         self.stamp_note(id, modified_ms)?;
         let metadata = vault::metadata(&self.root, id)
             .ok_or_else(|| "note metadata unavailable after write".to_owned())?;

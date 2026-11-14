@@ -44,6 +44,7 @@ fn string_vec(input: &Value, key: &str) -> Vec<String> {
 fn run_op(op: &str, input: &Value) -> Value {
     let s = || input.as_str().unwrap_or_default().to_string();
     match op {
+        "collisionKey" => Value::from(model::collision_key(&s())),
         "sanitizeTitle" => Value::from(model::sanitize_title(&s())),
         "validateTitle" => Value::from(kinds(&model::validate_title(&s()))),
         "isValidTitle" => Value::from(model::is_valid_title(&s())),

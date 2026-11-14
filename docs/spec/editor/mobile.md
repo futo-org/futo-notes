@@ -11,6 +11,8 @@ editor. Lines here are *(mobile)*: true on iOS and Android alike.
 - Engine behavior independent of any renderer belongs in
   [portable-core](portable-core.md), not here.
 
+- *(iOS)* Release opens notes in the native text-first editor; editor availability is independent of the Debug bundle identity and notes-root guards. Debug retains the persisted `futo.textFirstEditor` switch for comparison with the WebView editor. → apps/ios/Sources/Editor/TextFirst/TextFirstFlag.swift, apps/ios/Sources/Notes/List/NoteListView.swift
+
 The section files under `mobile/` are added as lines move.
 
 - [Clipboard and system text actions](mobile/clipboard.md)

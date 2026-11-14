@@ -5,15 +5,45 @@ import XCTest
 /// replacing the whole word. This exercises UIKit's text interaction, not an engine selection.
 final class TextFirstSelectionUITests: XCTestCase {
     @MainActor
+    func testTitleReturnHandsTypingToTheNativeBody() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("text-first-title-return-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("title-return.md")
+        try "body".write(to: file, atomically: true, encoding: .utf8)
+        let app = makeIsolatedApplication(textFirstEditor: true)
+        app.launchEnvironment["FUTO_NOTES_DATA_DIR"] = root.path
+        app.launchArguments += ["-AppleLanguages", "(en)"]
+        app.launch()
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "title-return"))
+            .firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        row.tap()
+        let editor = app.textViews["text-first-editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        let title = app.textFields.matching(NSPredicate(format: "value == %@", "title-return"))
+            .firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        title.tap()
+        app.typeText("\nQ")
+        XCTAssertEqual((editor.value as? String ?? "").filter { $0 == "Q" }.count, 1)
+        let saved = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                (try? String(contentsOf: file, encoding: .utf8))?.contains("Q") == true
+            }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [saved], timeout: 5), .completed)
+    }
+
+    @MainActor
     func testSingleTapsInNestedTextInsertWithoutReplacingTheWord() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("text-first-taps-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try "- What about\n  - Nested\n  - Elements\n".write(
             to: root.appendingPathComponent("taps.md"), atomically: true, encoding: .utf8)
-        let app = makeIsolatedApplication()
+        let app = makeIsolatedApplication(textFirstEditor: true)
         app.launchEnvironment["FUTO_NOTES_DATA_DIR"] = root.path
-        app.launchArguments += ["-futo.textFirstEditor", "YES", "-AppleLanguages", "(en)"]
+        app.launchArguments += ["-AppleLanguages", "(en)"]
         app.launch()
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "taps"))
             .firstMatch

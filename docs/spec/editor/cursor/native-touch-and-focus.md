@@ -1,5 +1,6 @@
 ### Native touch and focus
 
+- _(iOS)_ Return or Done in the title transfers focus to the note's current editor, so the next keystroke edits the body. → apps/ios/Sources/Notes/Editor/TitleTextField.swift `onSubmit`, apps/ios/UITests/TextFirstSelectionUITests.swift `testTitleReturnHandsTypingToTheNativeBody`
 - Tapping an unfocused editor places the caret at the tap and raises the
   keyboard; wrapped-line taps remain on the tapped visual row. On-text and
   off-text placement alike are the platform's own contenteditable behavior.

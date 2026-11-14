@@ -13,9 +13,9 @@ final class TextFirstBottomEdgeUITests: XCTestCase {
             .joined(separator: "\n\n")
         try body.write(
             to: vault.appendingPathComponent("edge.md"), atomically: true, encoding: .utf8)
-        let app = makeIsolatedApplication()
+        let app = makeIsolatedApplication(textFirstEditor: true)
         app.launchEnvironment["FUTO_NOTES_DATA_DIR"] = vault.path
-        app.launchArguments += ["-futo.textFirstEditor", "YES", "-AppleLanguages", "(en)"]
+        app.launchArguments += ["-AppleLanguages", "(en)"]
         app.launch()
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "edge")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 15))

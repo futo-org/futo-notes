@@ -237,14 +237,10 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 }
 
 extension EditorHost {
-    /// False when the text-first editor (dev builds, `TextFirstFlag`) replaces the WKWebView one:
+    /// False when the text-first editor (`TextFirstFlag`) replaces the WKWebView one:
     /// nothing may touch `EditorHost.shared`, whose first use creates the web view.
     static var isInUse: Bool {
-        #if FUTO_DEBUG_BUILD
-            return !TextFirstFlag.enabled()
-        #else
-            return true
-        #endif
+        return !TextFirstFlag.enabled()
     }
 
     /// The app's strings, without creating the web view when it is not in use.

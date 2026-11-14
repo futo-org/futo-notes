@@ -1,6 +1,6 @@
 ## Editor verbs
 
-**The editor is a rendered document, not its markdown.** It is Milkdown (ProseMirror): a
+**The editor is a rendered document, not its markdown.** Desktop, Android and the legacy iOS editor use Milkdown (ProseMirror): a
 heading is a heading block, bold is a mark on a run of text, a task's box is a flag on its
 list item, a wikilink is a chip. Positions are ProseMirror's own — each character is one,
 and each block boundary one more — so a line's caret positions run from its `at` to its
@@ -13,6 +13,22 @@ count them from markdown. A verb aimed at a line or text off screen (for a range
 drag autoscrolls to its end) is refused with the batch that brings it on: `ScrollToLine
 {"line"}`, a convenience (a scroll wheel's work in one call) that refuses 409 when the line
 still does not come on screen.
+
+**Native iOS** reports `state.editor.surface:"native"`. Its positions are UTF-16 offsets in
+the rendered UIKit text, read from the same `doc`/`show`/`state` queries; emoji can occupy
+two units. `doc` clips even a single wrapped paragraph to the visible viewport, and an
+explicit range must have both ends visible. Scroll or Find before targeting hidden text.
+Commands on the existing selection support Select All across the document, including
+Copy/Cut/Paste and replacement typing.
+Native `docVersion` also changes when a controller is replaced or another note opens,
+and carries a random process nonce to reject positions retained across app relaunches.
+`actions` lists the currently supported native verbs. Native `Insert`/`Replace` use one
+literal paste transaction, `Type` uses each character's native input handler, and `Press
+Enter` uses the native paragraph handler. `canUndo`/`canRedo` report availability. Native
+traces use document/selection snapshots and honestly return `events:[0,0]`; DOM listener
+and handler traces apply to web editors. Hunks touching a partially visible wrapped line
+withhold source text and report that the line is partially visible. `Copy`/`Cut`/`Paste`
+use puppet's private clipboard.
 
 **Text arrives two ways, and which one matters.**
 
@@ -61,7 +77,7 @@ PlaceCaret '{"at":16}'`.
 | `OpenFind` · `SetFindQuery {query}` (`""` clears) · `StepFind {direction: 1｜-1}` · `CloseFind` | `state.editor.find` has `open`, `query`, `current`, `total`                                                                                                                                                                         |
 | `SetTitle {title}`                                                          | every platform; types into the title field, with its validation, and settles once the rename has saved, so the receipt names the new id                                                                                                                                  |
 
-`doc {"line":N}` is one line in full: each run of text with its position and formatting
+`doc {"line":N}` describes one visible line (native iOS clips wrapped lines to the viewport): each run of text with its position and formatting
 (`bold`, `italic`, `code`, `link <url>`), each inline object — a link to a note (one
 position, and the note it `opens`, or `broken`), an image (one position), a soft line break —
 and the `#tags` the editor paints, which are text, not formatting.

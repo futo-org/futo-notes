@@ -37,6 +37,8 @@ pub(crate) struct View {
     pub scroll: Vec<Value>,
     /// With the editor on screen (no sheet over it): the web view's box in screen units.
     pub webview: Option<native::Rect>,
+    /// An explicitly reported native editor. Its geometry already uses screen units.
+    pub native_editor: bool,
     /// A push or presentation is still running, so this is not yet what the screen will show.
     pub moving: bool,
     /// The editor's page says its note has loaded (`state.editor.ready`).
@@ -78,6 +80,16 @@ impl View {
         self.webview.map(|rect| (rect.x, rect.y))
     }
 
+    pub fn editor_offset(&self) -> Option<(f64, f64)> {
+        self.native_editor
+            .then_some((0.0, 0.0))
+            .or_else(|| self.page_offset())
+    }
+
+    pub fn has_editor(&self) -> bool {
+        self.native_editor || self.webview.is_some()
+    }
+
     fn same_as(&self, other: &View) -> bool {
         self.screen == other.screen && self.rows == other.rows
     }
@@ -114,6 +126,7 @@ pub(crate) fn view(target: &Target) -> Result<View, String> {
     let state = call(target, "state", &json!({}))?;
     let screen = state.body["screen"].as_str().unwrap_or("").to_string();
     let editor = screen.starts_with("editor:") && state.body["sheet"].is_null();
+    let native_editor = editor && state.body["editor"]["surface"] == "native";
     let body = phone_tree(*platform, *port, device)?;
     let tree = native::from_tree(&body);
     let reported = body["nodes"]
@@ -125,7 +138,7 @@ pub(crate) fn view(target: &Target) -> Result<View, String> {
     let mut rows = with_refs(*platform, |refs| refs.rows(&tree.nodes));
     let mut scroll = tree.scroll;
     let moving = tree.moving;
-    let webview = if editor && body["webview"].is_object() {
+    let webview = if editor && !native_editor && body["webview"].is_object() {
         let side = |key: &str| body["webview"][key].as_f64().unwrap_or(0.0) / tree.scale;
         Some(native::Rect {
             x: side("x"),
@@ -168,6 +181,7 @@ pub(crate) fn view(target: &Target) -> Result<View, String> {
         rows,
         scroll,
         webview,
+        native_editor,
         moving,
         ready: state.body["editor"]["ready"] == json!(true),
     })
@@ -178,20 +192,7 @@ pub(crate) fn view(target: &Target) -> Result<View, String> {
 /// an empty screen that looks like an answer. Asked only when a read came back empty (a
 /// `simctl` round trip costs about 0.25 s); a setting it cannot read counts as off.
 fn accessibility_off(udid: &str) -> bool {
-    Command::new("xcrun")
-        .args([
-            "simctl",
-            "spawn",
-            udid,
-            "defaults",
-            "read",
-            "com.apple.Accessibility",
-        ])
-        .arg("ApplicationAccessibilityEnabled")
-        .output()
-        .map_or(true, |output| {
-            String::from_utf8_lossy(&output.stdout).trim() != "1"
-        })
+    !ios_accessibility::enabled(udid).unwrap_or(false)
 }
 
 fn accessibility_off_error(udid: &str) -> String {
@@ -199,10 +200,8 @@ fn accessibility_off_error(udid: &str) -> String {
         "the iOS app cannot read its own screen: accessibility is switched OFF on simulator {udid}.\n\
          The screen reader walks the app's accessibility tree, and iOS builds that tree only while \
          the simulator's ApplicationAccessibilityEnabled setting is on, so every read is empty.\n\
-         Fix: just ios-native   (switches it on, then reinstalls and relaunches the app)\n\
-         By hand: xcrun simctl spawn {udid} defaults write com.apple.Accessibility \
-         ApplicationAccessibilityEnabled -bool true\n\
-         then relaunch the app: it reads the setting at launch."
+         Fix: FUTO_PUPPET_TARGET=ios just puppet relaunch\n\
+         (restores accessibility and relaunches this worktree's claimed debug app)."
     )
 }
 
@@ -255,7 +254,7 @@ pub(crate) fn settle(target: &Target, before: &View, quick: bool) -> Result<View
         std::thread::sleep(SETTLE_POLL_PHONE);
         let next = view(target)?;
         // A note that just opened is still loading until its page says it is ready.
-        let loading = next.webview.is_some() && !next.ready;
+        let loading = next.has_editor() && !next.ready;
         if !next.same_as(&last) || loading || next.moving {
             still_since = Instant::now();
         }
@@ -279,6 +278,11 @@ pub(crate) fn change(before: &View, after: &View) -> Value {
 /// Put the whole screen's change into a page receipt, in place of the page's own element
 /// diff (CSS pixels, page rows only): the document, selection and shell keys stay.
 pub(crate) fn merge_change(receipt: &mut Value, before: &View, after: &View) {
+    // Native traces snapshot source/selection, without a DOM trace header. Their
+    // gesture receipt names the settled screen we just observed after delivery.
+    if before.native_editor && !receipt["screen"].is_string() {
+        receipt["screen"] = json!(after.screen);
+    }
     if let (Some(diff), Value::Object(whole)) = (app::receipt_diff(receipt), change(before, after))
     {
         diff.remove("elements");

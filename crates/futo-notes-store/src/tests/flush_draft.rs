@@ -405,3 +405,136 @@ fn one_paragraph_merge_preserves_source_bytes_and_parks_ambiguous_edits() {
         }
     }
 }
+
+#[test]
+fn a_draft_does_not_recreate_an_externally_renamed_folder() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("before/note", "original", None).unwrap();
+    std::fs::rename(root.0.join("before"), root.0.join("after")).unwrap();
+    let saved = store.flush_draft("before/note", "original", "original typed");
+    assert!(
+        saved.is_err(),
+        "a save must refuse the missing parent: {saved:?}"
+    );
+    assert!(!root.0.join("before").exists());
+    assert_eq!(store.read("after/note").unwrap(), "original");
+}
+
+#[test]
+fn a_folder_removed_inside_the_draft_install_window_stays_removed() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("before/note", "original", None).unwrap();
+    std::fs::remove_file(root.0.join("before/note.md")).unwrap();
+    let from = root.0.join("before");
+    let to = root.0.join("after");
+    store.set_install_window_hook(Box::new(move |_| {
+        std::fs::rename(&from, &to).unwrap();
+    }));
+    assert!(store
+        .flush_draft("before/note", "original", "draft")
+        .is_err());
+    assert!(!root.0.join("before").exists());
+    assert!(root.0.join("after").is_dir());
+}
+
+#[test]
+fn parking_a_diverged_draft_does_not_resurrect_a_moved_parent() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("before/note", "peer body", None).unwrap();
+    let from = root.0.join("before");
+    let to = root.0.join("after");
+    store.set_install_window_hook(Box::new(move |_| {
+        std::fs::rename(&from, &to).unwrap();
+    }));
+    let saved = store.flush_draft("before/note", "base body", "local draft");
+    assert!(
+        saved.is_err(),
+        "a park must refuse a moved parent: {saved:?}"
+    );
+    assert!(!root.0.join("before").exists());
+    assert_eq!(store.read("after/note").unwrap(), "peer body");
+}
+
+#[test]
+fn writing_a_current_draft_does_not_resurrect_a_moved_parent() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("before/note", "base body", None).unwrap();
+    let from = root.0.join("before");
+    let to = root.0.join("after");
+    store.set_flush_window_hook(Box::new(move |_| {
+        std::fs::rename(&from, &to).unwrap();
+    }));
+    let saved = store.flush_draft("before/note", "base body", "local draft");
+    assert!(
+        saved.is_err(),
+        "a save must refuse a moved parent: {saved:?}"
+    );
+    assert!(!root.0.join("before").exists());
+    assert_eq!(store.read("after/note").unwrap(), "base body");
+}
+
+#[test]
+fn renaming_a_draft_does_not_resurrect_a_moved_parent() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("before/note", "base body", None).unwrap();
+    std::fs::rename(root.0.join("before"), root.0.join("after")).unwrap();
+    for wanted in ["before/renamed", "BEFORE/renamed"] {
+        let saved = store.save_draft_as("before/note", wanted, "base body", "local draft");
+        assert!(
+            saved.is_err(),
+            "a rename must refuse a moved parent: {saved:?}"
+        );
+    }
+    assert!(!root.0.join("before").exists());
+    assert_eq!(store.read("after/note").unwrap(), "base body");
+}
+
+#[test]
+fn merging_a_draft_does_not_resurrect_a_moved_parent() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let base = "first\n\nsecond\n";
+    let peer = "FIRST\n\nsecond\n";
+    store.write("before/note", peer, None).unwrap();
+    let from = root.0.join("before");
+    let to = root.0.join("after");
+    store.set_flush_window_hook(Box::new(move |_| {
+        std::fs::rename(&from, &to).unwrap();
+    }));
+    let saved = store.flush_draft_merged("before/note", base, "first\n\nSECOND\n");
+    assert!(
+        saved.is_err(),
+        "a merged save must refuse a moved parent: {saved:?}"
+    );
+    assert!(!root.0.join("before").exists());
+    assert_eq!(store.read("after/note").unwrap(), peer);
+}
+
+#[test]
+fn an_explicit_draft_move_can_create_its_requested_destination_parent() {
+    for missing_source in [false, true] {
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.write("source/note", "peer body", None).unwrap();
+        if missing_source {
+            std::fs::rename(root.0.join("source"), root.0.join("moved")).unwrap();
+        }
+        let saved = store
+            .save_draft_as("source/note", "destination/note", "old base", "local draft")
+            .unwrap();
+        let final_id = saved.final_id.unwrap();
+        assert!(final_id.starts_with("destination/"));
+        assert_eq!(store.read(&final_id).unwrap(), "local draft");
+        let peer_id = if missing_source {
+            "moved/note"
+        } else {
+            "source/note"
+        };
+        assert_eq!(store.read(peer_id).unwrap(), "peer body");
+    }
+}

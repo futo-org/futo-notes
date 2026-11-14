@@ -146,6 +146,23 @@ fn an_off_screen_refusal_prints_the_way_there() {
     );
 }
 
+#[test]
+fn a_native_hidden_edit_reports_its_location_without_fabricating_text() {
+    let diff = json!({"doc": {"line": 4000, "offscreen": true,
+        "removedLines": 3, "insertedLines": 5}});
+    assert_eq!(render_diff(&diff), "doc L4000 changed off screen\n");
+}
+
+#[test]
+fn a_native_partial_line_edit_does_not_claim_it_was_fully_off_screen() {
+    let diff = json!({"doc": {"line": 4, "offscreen": true, "partial": true,
+        "removedLines": 1, "insertedLines": 1}});
+    assert_eq!(
+        render_diff(&diff),
+        "doc L4 changed on a partially visible line\n"
+    );
+}
+
 /// A gesture says its verdict first, as a `do` step does, and a refusal goes the same way: the
 /// batch that reaches its place, through the one renderer every refusal uses.
 #[test]

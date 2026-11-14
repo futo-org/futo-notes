@@ -49,7 +49,7 @@
   {"name": "ordinary text keeps one-grapheme Backspace", "before": "xa‸ ![alt](p.png) b", "command": "Backspace", "after": "x‸ ![alt](p.png) b"},
   {"name": "Backspace at a line start joins lines and keeps the image above", "before": "![](p.png)\n‸b", "command": "Backspace", "after": "![](p.png)‸b"},
   {"name": "Delete at a line end joins lines and keeps the image below", "before": "a‸\n![](p.png)", "command": "Delete", "after": "a‸![](p.png)"},
-  {"name": "Backspace over a selection that ends in an image deletes only the selection", "before": "a«b ![](p.p»ng)", "command": "Backspace", "after": "a‸ng)"},
+  {"name": "Backspace over a selection that ends in an image deletes the whole image", "before": "a«b ![](p.p»ng)", "command": "Backspace", "after": "a‸"},
   {"name": "Enter on a selected last image adds a line below", "before": "x\n\n«![](a.png)»", "command": "Enter", "after": "x\n\n![](a.png)\n‸"},
   {"name": "Enter on a selected first image adds a line below it", "before": "«![](a.png)»\n\ny", "command": "Enter", "after": "![](a.png)\n‸\n\ny"},
   {"name": "Enter on a selection wider than the image replaces it", "before": "«![](a.png) »x", "command": "Enter", "after": "\n‸x"}

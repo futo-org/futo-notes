@@ -12,4 +12,4 @@ pub use futo_notes_core::files::rename_journal::{
     set_rename_scope, with_rename_journal, IntentKey, RenameChain, RenameIntent, RenameJournal,
 };
 pub(crate) use moves::{commit, move_journaled, JournaledMove};
-pub(crate) use recovery::{commit_recovered, recover};
+pub(crate) use recovery::{commit_recovered, parent_missing, recover, recovered_root_stem};

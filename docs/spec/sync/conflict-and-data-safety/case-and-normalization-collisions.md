@@ -14,7 +14,9 @@
   insensitive FS no longer lose a note.** On apply (both incremental and
   bootstrap calls to `pull::pull_with_checkpoint`) a path collision is detected
   over the UNION of this pull's downloads, the persisted object_map, and on-disk
-  files sharing the collision key (`nfc(name).to_lowercase()`). The object with the
+  files sharing the collision key (NFD, full non-Turkic Unicode case folding,
+  then NFC). This includes `ſ`/`s`, `ß`/`ss`, `ﬁ`/`fi` and `Σ`/`σ`/`ς`,
+  whose names alias on default APFS. The object with the
   lexicographically smallest `object_id` keeps the canonical name; every other
   colliding object is materialized as `name (conflict <oid32>).md`, where
   `<oid32>` is the full 32 hexadecimal digits of the loser's UUID object_id. The
@@ -30,7 +32,10 @@
   `three_uuid_v7_name_rivals_keep_all_three_bodies`,
   `collision_destination_already_on_disk_is_never_replaced`,
   `f4_same_filename_two_clients_no_note_lost`,
-  `f5_nfc_nfd_collision_no_note_lost`, the `collision_*` unit tests
+  `f5_nfc_nfd_collision_no_note_lost`,
+  `unicode_alias_pull_preserves_both_bodies` (all original and fresh clients,
+  incremental pulls and later edits of either object), the `collision_*` unit tests
+- Ordinary local writes use the same key: a requested ID whose spelling differs from an existing filesystem alias is refused before writing, preserving the existing body. This includes aliases in parent-folder names. → futo-notes-store `write_raw` + `colliding_note`, `write_refuses_unicode_filesystem_aliases_without_overwriting`
 - Conflict-copy naming remains a fixed point for defensive non-server object-id
   shapes too: a short token that would not be recognizable as the normal
   `<oid32>` form is namespaced as `object-<short>`, and stripping a generated

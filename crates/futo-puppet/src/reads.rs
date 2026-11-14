@@ -53,7 +53,7 @@ pub(crate) fn query(target: &Target, command: &str, args: &Value) -> Result<Repl
             },
         );
     }
-    let Some(offset) = view.page_offset() else {
+    let Some(offset) = view.editor_offset() else {
         return Ok(Reply::refusal(
             409,
             format!(
@@ -84,53 +84,12 @@ fn system_elements(target: &Target) -> Result<Reply, String> {
     if identity.status != 200 {
         return Ok(identity);
     }
-    // AXe's description temporarily enables AX and then switches it OFF, even when
-    // the app already had it enabled. Preserve the claimed simulator's exact value;
-    // otherwise the next native screen transition silently loses its readable tree.
-    let preference = Command::new("xcrun")
-        .args([
-            "simctl",
-            "spawn",
-            device,
-            "defaults",
-            "read",
-            "com.apple.Accessibility",
-            "ApplicationAccessibilityEnabled",
-        ])
-        .output()
-        .map_err(|error| format!("could not read simulator accessibility preference: {error}"))?;
-    let original = match String::from_utf8_lossy(&preference.stdout).trim() {
-        "1" if preference.status.success() => "true",
-        "0" if preference.status.success() => "false",
-        _ => return Err("could not read simulator accessibility preference as a boolean".into()),
-    };
-    let described = Command::new("axe")
-        .args(["describe-ui", "--udid", device])
-        .output();
-    let restored = Command::new("xcrun")
-        .args([
-            "simctl",
-            "spawn",
-            device,
-            "defaults",
-            "write",
-            "com.apple.Accessibility",
-            "ApplicationAccessibilityEnabled",
-            "-bool",
-            original,
-        ])
-        .output()
-        .map_err(|error| {
-            format!("could not restore simulator accessibility preference: {error}")
-        })?;
-    if !restored.status.success() {
-        return Err(format!(
-            "could not restore simulator accessibility preference: {}",
-            String::from_utf8_lossy(&restored.stderr)
-        ));
-    }
-    let output =
-        described.map_err(|error| format!("system accessibility description failed: {error}"))?;
+    let output = ios_accessibility::preserve(device, || {
+        Command::new("axe")
+            .args(["describe-ui", "--udid", device])
+            .output()
+            .map_err(|error| format!("system accessibility description failed: {error}"))
+    })?;
     if !output.status.success() {
         return Err(format!(
             "system accessibility description failed: {}",
