@@ -73,6 +73,16 @@ describe('mobile Linedown cutover', () => {
     );
   });
 
+  it('keeps browser fixtures independent of retired native web hosts', () => {
+    const fixtures = files('tests').filter((file) =>
+      /^tests\/editor-embed.*\.spec\.ts$/.test(file),
+    );
+    const offenders = fixtures.filter((file) =>
+      /EditorEngineSupport\.kt|EditorWebView\.(kt|swift)|LegacyWebViewNotice\.kt/.test(read(file)),
+    );
+    expect(offenders).toEqual([]);
+  });
+
   it('preserves the desktop web editor and its standalone bundle', () => {
     expect(read('vite.editor.config.ts')).toContain('viteSingleFile()');
     expect(read('vite.editor.config.ts')).toContain("'editor.html'");

@@ -1,5 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
+import { readFileSync } from 'node:fs';
 
 import { expect, test, type Browser, type Page } from '@playwright/test';
 
@@ -7,42 +6,13 @@ import { EDITOR_BUNDLE_PATH, EDITOR_URL } from './editorEmbedBundle';
 import { flushFrames, installFakeAndroidHost, type FakeHostWindow } from './lib/editorEmbedHost';
 
 /**
- * The Android System WebView floor, executable.
- *
- * github#8 was a blank editor pane on old WebViews, and the lesson it left
- * (project history + apps/android/AGENTS.md) is that a floor is only as good as
- * an audit of the BUILT bundle: the syntax target is easy to reason about, but
- * a dependency reaching for a newer built-in method loads fine and then throws
- * at runtime. That is exactly how `Element.replaceChildren` (Chromium 86)
- * shipped inside a bundle whose declared floor was 80.
- *
- * Milkdown made this live again — `@milkdown/transformer` calls
- * `Array.prototype.at` (Chromium 92) on every parse and every serialize — so
- * this spec keeps the two halves of the floor honest:
- *
- *   1. BEHAVIOR: with each post-floor built-in deleted (what a WebView below
- *      its version actually looks like), the shipping editor still mounts,
- *      renders a document, and serializes it back to markdown — which is the
- *      round trip `.at` sits in the middle of.
- *   2. AUDIT: the built bundle uses no post-floor built-in that is NOT covered
- *      by a shim in `editor.html`. A new dependency that reaches past the floor
- *      fails here instead of on a user's phone.
- *
- * The floor number itself is read from the Android gate so a bump can never be
- * recorded in only one place.
+ * Standalone browser compatibility fixture. Keep the built bundle's existing
+ * Chromium 80 shim coverage independent of the retired mobile web hosts.
+ * Syntax targeting alone cannot protect a dependency that calls a newer
+ * built-in, so both runtime round trips and the built bundle are checked.
+ * Mobile uses native Rust sessions and has no Chromium requirement.
  */
-
-const ENGINE_SUPPORT_KT = path.resolve(
-  'apps/android/app/src/main/java/com/futo/notes/ui/EditorEngineSupport.kt',
-);
-
-/** The floor the Android notice quotes — the single source for this spec. */
-function declaredChromiumFloor(): number {
-  const source = readFileSync(ENGINE_SUPPORT_KT, 'utf8');
-  const major = /EDITOR_CHROMIUM_FLOOR_MAJOR\s*=\s*(\d+)/.exec(source)?.[1];
-  if (!major) throw new Error(`EDITOR_CHROMIUM_FLOOR_MAJOR not found in ${ENGINE_SUPPORT_KT}`);
-  return Number(major);
-}
+const CHROMIUM_FIXTURE_MAJOR = 80;
 
 /**
  * Built-ins the bundle uses that arrived AFTER the floor, each one shimmed by
@@ -130,12 +100,12 @@ function excerpt(source: string, at: number): string {
  * Opens the shipping editor with `remove` applied before any page script runs,
  * then proves it is a working editor: it mounted, it rendered the document it
  * was handed, and it serialized that document back out. `url` is passed so the
- * same proof covers both engines the bundle ships.
+ * same proof covers any isolated bundle fixture.
  */
 async function editorSurvivesWithout(
   browser: Browser,
   url: string,
-  remove: () => void,
+  remove: (() => void) | string,
 ): Promise<{ serialized: string; page: Page; close: () => Promise<void> }> {
   const context = await browser.newContext({ hasTouch: true });
   await context.addInitScript(remove);
@@ -159,8 +129,7 @@ async function editorSurvivesWithout(
 }
 
 for (const builtin of SHIMMED_BUILTINS) {
-  // The engine that lacks this built-in is a real, still-supported WebView (the
-  // floor is below every version here).
+  // Delete the method before startup to exercise the bundle’s fallback.
   test(`below Chromium ${builtin.chromium} (no ${builtin.name}): the Milkdown editor still round-trips`, async ({
     browser,
   }) => {
@@ -185,9 +154,21 @@ for (const builtin of SHIMMED_BUILTINS) {
 test('an engine at the floor, with every shimmed built-in missing, runs the editor', async ({
   browser,
 }) => {
-  const { serialized, page, close } = await editorSurvivesWithout(browser, EDITOR_URL, () => {
-    for (const remove of removeEveryShimmedBuiltin) remove();
-  });
+  const { serialized, page, close } = await editorSurvivesWithout(
+    browser,
+    EDITOR_URL,
+    removeEveryShimmedBuiltin,
+  );
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { __futoCompatMissingBeforeBundle: string[] })
+          .__futoCompatMissingBeforeBundle,
+    ),
+  ).toEqual(['undefined', 'undefined', 'undefined']);
+  for (const builtin of SHIMMED_BUILTINS) {
+    expect(await page.evaluate(builtin.present)).toBe('function');
+  }
   expect(serialized.trim()).toBe('floor probe');
   await expect(page.locator('.ProseMirror')).toContainText('floor probe');
   await close();
@@ -216,7 +197,7 @@ test('the Array.prototype.at shim never becomes an enumerable own key', async ({
 // a test.
 test('the built bundle reaches for no post-floor built-in the shims do not cover', async () => {
   const source = bundleSource();
-  const floor = declaredChromiumFloor();
+  const floor = CHROMIUM_FIXTURE_MAJOR;
   const offenders: string[] = [];
   for (const { pattern, chromium, name } of UNSHIMMED_POST_FLOOR_BUILTINS) {
     if (chromium <= floor) continue;
@@ -228,9 +209,9 @@ test('the built bundle reaches for no post-floor built-in the shims do not cover
   }
   expect(
     offenders,
-    `The bundle would throw on a Chromium ${floor} WebView. Either shim these in editor.html ` +
+    `The standalone fixture would throw on Chromium ${floor}. Either shim these in editor.html ` +
       "(and move them to SHIMMED_BUILTINS), remove the dependency's use of them, or raise the " +
-      'floor — which is a support-surface change, not a test fix.',
+      'fixture baseline deliberately.',
   ).toEqual([]);
 });
 
@@ -246,93 +227,10 @@ test('every shim in editor.html is still earning its place in the bundle', () =>
   ).toEqual([]);
 });
 
-/* ------------------------------------------------------------------------ *
- * The gate itself: "the editor mounted" has to mean the EDITOR, not the host
- * API next to it.
- *
- * Measured on futo-api30 (Chromium 83, Android 11): with the Array.prototype.at
- * shim removed, opening a note gave a blank editor pane and the "update Android
- * System WebView" notice NEVER appeared — not even after the boot grace period.
- * Milkdown's `Editor.make().create()` is async, so Svelte's synchronous
- * `mount()` returns (and `window.FutoEditor` is published, and `ready` is
- * posted) whether or not the engine came up behind it. The gate read
- * `window.FutoEditor` and called that a healthy engine.
- *
- * So the editor now publishes its own mount, and these tests hold the two ends
- * of that: the real probe program is read out of the Android source rather than
- * re-spelled here, so a change on either side fails.
- * ------------------------------------------------------------------------ */
-
-/** The Kotlin host's probe program, with its Kotlin interpolations resolved. */
-function engineProbeProgram(): string {
-  const source = readFileSync(ENGINE_SUPPORT_KT, 'utf8');
-  const body = /ENGINE_PROBE_JS\s*=\s*"""([\s\S]*?)"""/.exec(source)?.[1];
-  if (!body) throw new Error(`ENGINE_PROBE_JS not found in ${ENGINE_SUPPORT_KT}`);
-  return body.replace(/\$(\w+)/g, (whole, name: string) => {
-    const value = new RegExp(`val ${name}\\s*=\\s*"([^"]*)"`).exec(source)?.[1];
-    if (value === undefined) throw new Error(`ENGINE_PROBE_JS interpolates unknown ${whole}`);
-    return value;
-  });
-}
-
-function probeEngine(page: Page): Promise<string> {
-  return page.evaluate(engineProbeProgram()) as Promise<string>;
-}
-
-/**
- * Every `remove` in SHIMMED_BUILTINS, in one array the all-at-once init script
- * closes over. Module scope because `addInitScript` serializes the function it
- * is handed, and a serialized closure can only reach module-level bindings.
- */
-const removeEveryShimmedBuiltin = SHIMMED_BUILTINS.map((b) => b.remove);
-
-/**
- * The shipping bundle with the `Array.prototype.at` shim disabled — a Chromium
- * 80–91 WebView as it was before this work. One-line, brace-balanced, and
- * asserted to have changed something so it can never silently no-op.
- */
-function writeUnshimmedBundle(): string {
-  const html = readFileSync(EDITOR_BUNDLE_PATH, 'utf8');
-  const guard = 'if (!Array.prototype.at) define(Array.prototype);';
-  if (!html.includes(guard)) throw new Error('editor.html no longer guards the at shim this way');
-  const unshimmed = html.replace(guard, '');
-  const target = path.join(path.dirname(EDITOR_BUNDLE_PATH), 'editor-unshimmed-at-test.html');
-  writeFileSync(target, unshimmed);
-  return `file://${target}`;
-}
-
-test('the Android engine probe reports a mounted editor as booted', async ({ browser }) => {
-  const context = await browser.newContext({ hasTouch: true });
-  await context.addInitScript(installFakeAndroidHost);
-  const page = await context.newPage();
-  await page.goto(EDITOR_URL);
-  await page.waitForFunction(() =>
-    (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
-  );
-  await expect(page.locator('.ProseMirror')).toBeAttached();
-  await expect.poll(() => probeEngine(page)).toBe('booted');
-  await context.close();
-});
-
-test('an editor that never mounts is not reported as booted, so the notice can show', async ({
-  browser,
-}) => {
-  const context = await browser.newContext({ hasTouch: true });
-  await context.addInitScript(() => {
-    delete (Array.prototype as { at?: unknown }).at;
-  });
-  await context.addInitScript(installFakeAndroidHost);
-  const page = await context.newPage();
-  await page.goto(writeUnshimmedBundle());
-  // `ready` still posts: the host API is published by the module's top level,
-  // which is exactly why it cannot stand in for a mounted editor.
-  await page.waitForFunction(() =>
-    (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
-  );
-  await flushFrames(page);
-  expect(await page.locator('.ProseMirror').count()).toBe(0);
-  // 'pending' is the honest answer, and it is what the host's grace-period
-  // probe turns into "bundle never mounted" -> LegacyWebViewNotice.
-  expect(await probeEngine(page)).toBe('pending');
-  await context.close();
-});
+// Execute each removal in the browser context; serialized init scripts cannot
+// close over this test module's bindings. Record the pre-bundle state so this
+// combined test cannot silently pass without deleting the methods.
+const removeEveryShimmedBuiltin =
+  SHIMMED_BUILTINS.map((builtin) => `(${builtin.remove.toString()})();`).join('\n') +
+  '\nglobalThis.__futoCompatMissingBeforeBundle = [' +
+  'typeof String.prototype.replaceAll, typeof Array.prototype.at, typeof String.prototype.at];';
