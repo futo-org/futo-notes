@@ -27,15 +27,20 @@
 // of the run (labeled `[<dir name>]`). It is how to A/B a change to the
 // gesture layer, which the session variants below do not reach, without
 // touching the working tree: copy the old files out with `git show`, run once
-// with `--gestures` and once without. Not for `--device ios-app`, which builds
-// only the working tree.
+// with `--gestures` and once without.
 //
 // `--device android` runs the same benchmarks on the phone in $ANDROID_SERIAL,
 // in its own Chrome (the same Chromium as its System WebView), inside the real
-// editor.html bundle the app ships — see block-drag-bench/phone.ts. Each
+// standalone editor.html browser fixture — see block-drag-bench/phone.ts. Each
 // variant is a fresh production build of that bundle (~10s), never staged
 // into the app. `--profile <dir>` also saves one Chromium trace per variant
 // of the 1000-block scroll-drag (open it in chrome://tracing or Perfetto).
+
+import { execFileSync, spawn } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createServer } from 'vite';
 
 import { PHONE_REPS, REPS, parseArgs } from './block-drag-bench/args.mjs';
 import { evaluateBudget } from './block-drag-bench/budget.mjs';

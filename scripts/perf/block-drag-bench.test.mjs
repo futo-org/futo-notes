@@ -1,3 +1,6 @@
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import { assertModes, forceLineMode, gestureOverride } from './block-drag-bench/variant.mjs';
@@ -142,4 +145,14 @@ describe('evaluateBudget', () => {
     expect(budgetKeys({ device: 'ios-app', target: 'editor' }).drop).toBe('drop frame');
     expect(budgetKeys({ device: 'desktop', target: 'app' }).lift).toBeNull();
   });
+});
+
+it('keeps the retained browser benchmark CLI argument validation runnable', () => {
+  const result = spawnSync(
+    process.execPath,
+    [fileURLToPath(new URL('./block-drag-bench.mjs', import.meta.url)), '--device', 'ios-app'],
+    { encoding: 'utf8' },
+  );
+  expect(result.status, result.stderr).toBe(1);
+  expect(result.stderr).toContain('unknown device ios-app; mobile apps use the native editor');
 });
