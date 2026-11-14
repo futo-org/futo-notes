@@ -16,6 +16,13 @@ current source. Rebuild after edits. `--only paragraph`, `--only typing`, and
 `--cycles 1` measures one open/close of each fixture. `--unoptimized` explicitly
 selects an unoptimized debug control; the runner verifies the R8 marker in the APK.
 
+`--fixture /path/to/original-note.md --find-cell 'unique cell text'` instead measures
+one whole corpus note through its real table-cell field and Gboard. Find reaches
+the cell through the app UI; the runner refuses a missing native cell. The typing
+plan includes deletion but no Enter, so it stays in that cell. This mode retains
+the original fixture in its evidence and uses a new isolated test folder, like the
+built-in stories. It does not measure navigation.
+
 Requirements: a claimed Moto g play (2023), Android SDK 36 platform and build-tools,
 javac, unzip, and Perfetto trace_processor_shell (`PERFETTO_TRACE_PROCESSOR` or its
 usual user cache). The supported 720×1600 keyboard maps were visually checked for
@@ -42,7 +49,9 @@ even if they have no matching SurfaceFlinger presentation record.
 
 Native timing starts when an input operation reaches the editor and ends at the
 end of onDraw. It excludes keyboard processing, RenderThread/GPU work, and panel
-latency. `workP95` sums elapsed editor, view-update, and draw stages, excluding UI
+latency. In table-cell mode this is the note view’s onDraw; the cell overlay
+may draw afterward. FrameTimeline observes the whole app window separately.
+`workP95` sums elapsed editor, view-update, and draw stages, excluding UI
 queue and refresh waiting; it is not a CPU-time measurement or a frame deadline.
 Windows contain up to 50 drawn updates; idle and close flush the partial tail.
 First/final input coverage is checked. No-op keyboard operations need not draw.

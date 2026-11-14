@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url';
 import {
   encodePlan,
   failures,
-  fixtures,
+  fixtures as builtinFixtures,
   frameSummary,
   latencyWindows,
   navigationTrials,
@@ -40,7 +40,20 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const pkg = 'com.futo.notes.dev';
 const args = process.argv.slice(2);
-const only = args.includes('--only') ? args[args.indexOf('--only') + 1] : 'all';
+const fixtureFile = args.includes('--fixture') ? args[args.indexOf('--fixture') + 1] : null;
+const findCell = args.includes('--find-cell') ? args[args.indexOf('--find-cell') + 1] : null;
+if (Boolean(fixtureFile) !== Boolean(findCell))
+  throw new Error('--fixture and --find-cell must be supplied together');
+const fixtures = fixtureFile
+  ? { corpus: readFileSync(path.resolve(fixtureFile), 'utf8') }
+  : builtinFixtures;
+const only = args.includes('--only')
+  ? args[args.indexOf('--only') + 1]
+  : fixtureFile
+    ? 'typing'
+    : 'all';
+if (fixtureFile && only !== 'typing')
+  throw new Error('A corpus cell fixture supports --only typing');
 const cycles = args.includes('--cycles') ? Number(args[args.indexOf('--cycles') + 1]) : 3;
 if (!Number.isInteger(cycles) || cycles < 1 || cycles > 10)
   throw new Error('--cycles must be 1..10');
@@ -297,6 +310,7 @@ const report = {
     .split('Dexopt state:')[1]
     ?.split('Compiler stats:')[0],
   folder,
+  corpusCell: fixtureFile ? { file: path.resolve(fixtureFile), query: findCell } : null,
   acceptancePolicy:
     'Diagnostic only: collection integrity is checked; performance thresholds are not calibrated.',
   limitations: [
@@ -325,14 +339,35 @@ try {
       const ref = line?.match(/^\s*(n\d+)\s/)?.[1];
       if (!ref) throw new Error(`Fixture ${name} is not visible`);
       puppet('tap', JSON.stringify({ ref }));
-      puppet('tap', JSON.stringify({ x: 200, y: 275 }));
+      if (findCell) {
+        puppet(
+          'do',
+          JSON.stringify([
+            ['ToggleNoteActionsMenu', {}],
+            ['OpenFind', {}],
+            ['SetFindQuery', { query: findCell }],
+            ['StepFind', { direction: 1 }],
+            ['CloseFind', {}],
+          ]),
+        );
+        const cellElements = puppet('elements');
+        const cellLine = cellElements
+          .split('\n')
+          .find((s) => s.includes(' field ') && s.includes(findCell));
+        const cellRef = cellLine?.match(/^\s*(n\d+)\s/)?.[1];
+        if (!cellRef) throw new Error('Find did not expose the requested native table cell');
+        puppet('tap', JSON.stringify({ ref: cellRef }));
+        // R8 may rename the field class; this action exists only for the native cell editor.
+        if (!puppet('actions').includes('FinishTableCell'))
+          throw new Error('Corpus typing requires the actual native cell field');
+      } else puppet('tap', JSON.stringify({ x: 200, y: 275 }));
       if (
         !adb('shell', 'dumpsys', 'activity', 'top').includes(
           'com.futo.notes.textfirst.TextFirstEditText',
         )
       )
         throw new Error('The running editor is not the native Rust renderer');
-      const result = await capture(name, typingPlan(name));
+      const result = await capture(name, typingPlan(findCell ? 'paragraph' : name));
       const body = adb('shell', `cat ${shellQuote(`${state.vaultPath}/${folder}/${name}.md`)}`);
       if (!body.toLowerCase().includes('the quick brown fox jumps over the lazy dog'))
         throw new Error(`${name}: keyboard input was not saved`);
