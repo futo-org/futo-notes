@@ -211,9 +211,8 @@
             #expect(rig.store.folders == ["Projects"])
         }
 
-        /// A skipped delete is not a committed identity change: the note still takes later
-        /// fire-and-forget flushes (the pop and background saves of the WKWebView editor).
-        @Test func aKeptNoteStillAcceptsFireAndForgetFlushes() async throws {
+        /// A skipped empty-only delete leaves the note available for later draft writes.
+        @Test func aKeptNoteStillAcceptsDraftWrites() async throws {
             let rig = try await TextFirstVaultRig(body: "")
             defer { rig.tearDown() }
             try rig.peerWrite("note", "the peer's words\n")
@@ -222,21 +221,9 @@
                 ownerToken: rig.store.claimDraftOwnership(), discardIfEmpty: true,
                 originalId: "note")
             #expect(await rig.until { TextFirstLeaves.unsettled == 0 })
-            rig.store.flushAsync(
+            _ = await rig.store.flushDraft(
                 PendingDraft(id: "note", base: "the peer's words\n", content: "mine too\n"))
-            await rig.store.waitForEditorFlushes()
             #expect(rig.disk("note") == "mine too\n")
-        }
-
-        /// The shipping (WKWebView) editor's untouched-capture discard is the same empty-only
-        /// delete: a peer's write that landed meanwhile survives it, an empty note does not.
-        @Test func theShippingEditorsUntouchedDiscardKeepsAPeerWrittenNote() async throws {
-            let rig = try await TextFirstVaultRig(body: "")
-            defer { rig.tearDown() }
-            try rig.peerWrite("note", "the peer's words\n")
-            rig.store.deleteAsync("note", onlyIfEmpty: true)
-            try await Task.sleep(nanoseconds: 500_000_000)
-            #expect(rig.disk("note") == "the peer's words\n")
         }
 
         @Test func anUntouchedNewNoteIsDeleted() async throws {

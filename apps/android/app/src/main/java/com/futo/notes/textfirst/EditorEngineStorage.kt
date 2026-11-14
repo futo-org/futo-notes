@@ -126,28 +126,40 @@ private fun EditorEngine.install(opened: NativeEditorSession): Throwable? = try 
     failure
 }
 
-/** Migration already holds the vault gate. Drain accepted IME work,
- * including marked text, on its owning thread before staging the copy. */
-internal fun EditorEngine.checkpointForMigration(done: (Boolean) -> Unit) {
+/** Ordinary saved-file/language handoffs acquire the same gate as native autosaves. */
+internal fun EditorEngine.checkpointForHandoff(done: (Boolean) -> Unit) {
     if (!handler.post {
-        val s = session
-        var saved = true
-        try {
-            if (!closed && s != null) {
-                if (mirror.overlay != null) commitComposition(null)
-                val result = s.checkpoint()
-                drainAfterCheckpoint()
-                val id = s.noteId()
-                ui.post { sink.onCheckpoint(result, id) }
-            }
-        } catch (e: EditorSessionException) {
-            saved = false
-            handleFailure(e)
-        } finally {
-            drainAfterCheckpoint()
-        }
+        var saved = false
+        storageAccess { saved = checkpointSession() }
         ui.post { done(saved) }
     }) ui.post { done(false) }
+}
+
+/** Migration holds the vault gate while draining accepted IME work on its owner thread. */
+internal fun EditorEngine.checkpointForMigration(done: (Boolean) -> Unit) {
+    if (!handler.post {
+        val saved = checkpointSession()
+        ui.post { done(saved) }
+    }) ui.post { done(false) }
+}
+
+private fun EditorEngine.checkpointSession(): Boolean {
+    val s = session
+    return try {
+        if (!closed && s != null) {
+            if (mirror.overlay != null) commitComposition(null)
+            val result = s.checkpoint()
+            drainAfterCheckpoint()
+            val id = s.noteId()
+            ui.post { sink.onCheckpoint(result, id) }
+        }
+        true
+    } catch (e: EditorSessionException) {
+        handleFailure(e)
+        false
+    } finally {
+        drainAfterCheckpoint()
+    }
 }
 
 internal fun EditorEngine.storageAccess(block: () -> Unit): GateAccess =

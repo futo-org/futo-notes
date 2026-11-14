@@ -46,7 +46,6 @@ import com.futo.notes.delete
 import com.futo.notes.launchEditorLeave
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.moveNote
-import com.futo.notes.releaseDraftOwnership
 import com.futo.notes.rename
 import com.futo.notes.ui.EditorToolbar
 import com.futo.notes.ui.TitleFieldState
@@ -307,7 +306,6 @@ internal fun TextFirstEditorScreen(
                 val saved = controller.close()
                 if (saved != null || !controller.opened) {
                     controller.dispose()
-                    store.releaseDraftOwnership(ownerToken)
                 }
             }
         }

@@ -24,10 +24,8 @@ extension NotesStore {
         let epoch = resetEpoch
         guard ownsDraft(ownerToken) else { return .failed }
         do {
-            let retainedAtAdmission = retainedDraftSnapshot(for: id)
             applyMutation(
                 try await vault.write(id, content: content, epoch: epoch), expectedEpoch: epoch)
-            completeRetainedDraftSnapshot(retainedAtAdmission)
             onLocalChange?()
             return .committed(())
         } catch {
@@ -46,7 +44,6 @@ extension NotesStore {
             let mutation = try await vault.createNote(title: title, folder: folder, epoch: epoch)
             applyMutation(mutation, expectedEpoch: epoch)
             let createdId = mutation.finalId ?? title
-            editorDraftCoordinator.reopen(createdId)
             onLocalChange?()
             return createdId
         } catch {
@@ -62,29 +59,14 @@ extension NotesStore {
     ) async -> NoteMutationOutcome<Void> {
         let epoch = resetEpoch
         guard ownsDraft(ownerToken) else { return .failed }
-        let identity = editorDraftCoordinator.beginIdentityMutation(id)
-        let pendingFlushes = editorDraftTail
         do {
-            await pendingFlushes?.value
-            guard ownsDraft(ownerToken) else { return .failed }
             let mutation = try await vault.delete(id, epoch: epoch, onlyIfEmpty: onlyIfEmpty)
             applyMutation(mutation, expectedEpoch: epoch)
-            let removed = !onlyIfEmpty || !mutation.removed.isEmpty
-            if removed { discardDrafts(for: id) }
-            editorDraftCoordinator.finishIdentityMutation(identity, committed: removed)
             onLocalChange?()
             return .committed(())
         } catch {
-            editorDraftCoordinator.finishIdentityMutation(identity, committed: false)
             print("delete failed for \(id): \(error)")
             return .failed
-        }
-    }
-
-    func deleteAsync(_ id: String, ownerToken: UInt64? = nil, onlyIfEmpty: Bool = false) {
-        if let ownerToken, ownerToken <= retiredDraftTokensThrough { return }
-        Task {
-            _ = await delete(id, ownerToken: ownerToken, onlyIfEmpty: onlyIfEmpty)
         }
     }
 
@@ -94,11 +76,7 @@ extension NotesStore {
     ) async -> NoteMutationOutcome<CommittedNote> {
         let epoch = resetEpoch
         guard ownsDraft(ownerToken) else { return .failed }
-        let identity = editorDraftCoordinator.beginIdentityMutation(oldId)
-        let pendingFlushes = editorDraftTail
         do {
-            await pendingFlushes?.value
-            guard ownsDraft(ownerToken) else { return .failed }
             let mutation: NoteMutation
             if let draft {
                 mutation = try await vault.saveDraftAs(draft, wantedId: newId, epoch: epoch)
@@ -107,13 +85,9 @@ extension NotesStore {
             }
             let finalId = mutation.finalId ?? oldId
             applyMutation(mutation, expectedEpoch: epoch)
-            retargetRetainedDrafts(from: oldId, to: finalId)
-            editorDraftCoordinator.finishIdentityMutation(identity, committed: true)
-            editorDraftCoordinator.reopen(finalId)
             onLocalChange?()
             return .committed(CommittedNote(id: finalId, relinkedBody: mutation.finalBody))
         } catch {
-            editorDraftCoordinator.finishIdentityMutation(identity, committed: false)
             print("rename failed \(oldId) -> \(newId): \(error)")
             return .failed
         }
@@ -156,40 +130,12 @@ extension NotesStore {
         }
     }
 
-    /// Fire-and-forget flush for contexts that cannot `await` —
-    /// `NoteEditorView.onDisappear` (pop) and the app's scenePhase background
-    /// handler (the F8 jetsam guard).
-    func waitForEditorFlushes() async { await editorDraftTail?.value }
-
-    func flushRetainedEditor(_ draft: PendingDraft, ownerToken: UInt64) {
-        publishDraft(token: ownerToken, draft)
-        retainDraftUntilFlushed(token: ownerToken)
-        flushAsync(draft, ownerToken: ownerToken)
-    }
-
-    func flushAsync(_ draft: PendingDraft, ownerToken: UInt64? = nil) {
-        if let ownerToken, ownerToken <= retiredDraftTokensThrough { return }
-        guard let admission = editorDraftCoordinator.admit(draft.id) else { return }
-        let previous = editorDraftTail
-        editorDraftTail = Task { @MainActor in
-            await previous?.value
-            guard editorDraftCoordinator.permits(admission) else { return }
-            if await flushDraftDirect(draft) != nil {
-                completeRetainedDraft(draft)
-            }
-        }
-    }
-
     func moveNote(
         _ id: String, toFolder folder: String, draft: PendingDraft? = nil, ownerToken: UInt64? = nil
     ) async -> NoteMutationOutcome<CommittedNote> {
         let epoch = resetEpoch
         guard ownsDraft(ownerToken) else { return .failed }
-        let identity = editorDraftCoordinator.beginIdentityMutation(id)
-        let pendingFlushes = editorDraftTail
         do {
-            await pendingFlushes?.value
-            guard ownsDraft(ownerToken) else { return .failed }
             let mutation: NoteMutation
             if let draft {
                 mutation = try await vault.moveDraft(draft, folder: folder, epoch: epoch)
@@ -198,13 +144,9 @@ extension NotesStore {
             }
             let finalId = mutation.finalId ?? id
             applyMutation(mutation, expectedEpoch: epoch)
-            retargetRetainedDrafts(from: id, to: finalId)
-            editorDraftCoordinator.finishIdentityMutation(identity, committed: true)
-            editorDraftCoordinator.reopen(finalId)
             onLocalChange?()
             return .committed(CommittedNote(id: finalId, relinkedBody: mutation.finalBody))
         } catch {
-            editorDraftCoordinator.finishIdentityMutation(identity, committed: false)
             print("moveNote failed \(id) -> \(folder): \(error)")
             return .failed
         }

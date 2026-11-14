@@ -55,13 +55,7 @@
                         "the native editor has edits that did not save; save:false reads disk unchanged"
                     )
                 }
-                await store.flushPendingEditorAndWait()
-                if store.unsavedNoteIds.contains(noteId) {
-                    return PuppetServerContract.refusal(
-                        409,
-                        "\"\(noteId)\" has edits that did not save, so its file is not what the "
-                            + #"editor shows; "save":false reads the disk as it is"#)
-                }
+
             }
             do {
                 // Only an id `notes` lists: a case-insensitive disk would read "Work/Retro" as
@@ -146,7 +140,7 @@
                     "lastError": sync.lastErrorMessage?.path ?? NSNull(),
                 ],
                 // Work still in flight: an action whose receipt shows this has not finished yet.
-                "pending": ["unsaved": store.unsavedNoteIds, "sync": sync.busy],
+                "pending": ["unsaved": [String](), "sync": sync.busy],
                 "copied": PuppetVerbs.shared.copied.map { ["count": $0.count, "text": $0.text] }
                     ?? NSNull(),
                 "opened": PuppetVerbs.shared.opened.map { ["count": $0.count, "url": $0.url] }
@@ -163,7 +157,7 @@
             ]
             if let id = PuppetNativeEditor.shared.unsavedId {
                 object["pending"] = [
-                    "unsaved": Array(Set(store.unsavedNoteIds + [id])).sorted(), "sync": sync.busy,
+                    "unsaved": [id], "sync": sync.busy,
                 ]
             }
             if navigation.path.isEmpty {

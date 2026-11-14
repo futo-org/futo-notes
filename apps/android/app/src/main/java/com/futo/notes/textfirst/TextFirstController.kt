@@ -2,6 +2,7 @@ package com.futo.notes.textfirst
 
 import android.content.Context
 import com.futo.notes.NotesStore
+import com.futo.notes.NativeEditorDraft
 import com.futo.notes.storage.StorageMigrationGate
 import android.os.SystemClock
 import android.util.Log
@@ -48,6 +49,7 @@ internal class TextFirstController(
     val canNavigateWithoutSaving: Boolean get() = openFailure != null || released
     var completion by mutableStateOf<CompletionDraft?>(null); private set
     var caret by mutableStateOf(CaretState.Empty); private set
+    private var attachedNoteId: String? = null
     /** Edits not yet saved as Markdown. */
     var dirty by mutableStateOf(false); private set
     var isEmpty by mutableStateOf(true); private set
@@ -65,15 +67,11 @@ internal class TextFirstController(
     private val latencyFlush = Runnable { latencyWindow.flush()?.let { Log.i("TextFirstLatency", it.toString()) } }
 
     init {
-        vault?.nativeEditorDrafts?.put(this) {
-            withContext(Dispatchers.Main.immediate) {
-                suspendCancellableCoroutine { cont ->
-                    val e = engine
-                    if (e == null) cont.resume(true)
-                    else e.checkpointForMigration { cont.resume(it) }
-                }
-            }
-        }
+        vault?.nativeEditorDrafts?.put(this, NativeEditorDraft(
+            checkpoint = { checkpointDraft() },
+            unsavedNoteId = { if (dirty) attachedNoteId else null },
+            checkpointForMigration = { checkpointDraft(forMigration = true) },
+        ))
         view.onTableCell = { start, end, seq -> engine?.selectDisplayRange(start, end, seq) {} }
         view.clipboard.onCopyRefused = { onClipboardRefused() }
         MainThreadWatchdog.start()
@@ -90,9 +88,20 @@ internal class TextFirstController(
         }
     }
 
+    private suspend fun checkpointDraft(forMigration: Boolean = false): Boolean =
+        withContext(Dispatchers.Main.immediate) {
+            suspendCancellableCoroutine { cont ->
+                val e = engine
+                if (e == null) cont.resume(true)
+                else if (forMigration) e.checkpointForMigration { cont.resume(it) }
+                else e.checkpointForHandoff { cont.resume(it) }
+            }
+        }
+
     /** [restore] is where the note was last left; the first screens reach it and the view scrolls there. */
     fun open(noteId: String, restore: ScrollAnchor? = null, onOpened: (Throwable?) -> Unit = {}) {
         check(engine == null) { "already open" }
+        attachedNoteId = noteId
         opened = false
         released = false
         openFailure = null
@@ -167,9 +176,13 @@ internal class TextFirstController(
         view.setCodeInput(state.code)
     }
 
-    override fun onAttachmentId(noteId: String) = onAttachmentChanged(noteId)
+    override fun onAttachmentId(noteId: String) {
+        attachedNoteId = noteId
+        onAttachmentChanged(noteId)
+    }
 
     override fun onCheckpoint(result: FlushDraftResult, noteId: String) {
+        attachedNoteId = noteId
         dirty = false
         onCheckpointed(result, noteId)
     }

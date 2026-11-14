@@ -12,7 +12,7 @@ import kotlinx.coroutines.withContext
 
 internal fun MainActivity.selectLanguage(store: NotesStore, languageTag: String?) {
     lifecycleScope.launch {
-        if (store.settlePendingEditorDrafts()) {
+        if (store.checkpointNativeEditors()) {
             appLanguage.select(languageTag)
         } else {
             showToast(

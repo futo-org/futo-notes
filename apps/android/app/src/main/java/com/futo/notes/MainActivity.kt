@@ -118,11 +118,6 @@ class MainActivity : ComponentActivity() {
         if (::sync.isInitialized) sync.resumeLiveAsync()
     }
 
-    override fun onPause() {
-        super.onPause()
-        store.value?.requestPendingEditorFlush()
-    }
-
     override fun onStop() {
         super.onStop()
         if (::sync.isInitialized) sync.pauseLive()

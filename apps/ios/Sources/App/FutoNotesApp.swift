@@ -121,17 +121,10 @@ struct FutoNotesApp: App {
                 let refreshedLocalization = Localization.system()
                 localization = refreshedLocalization
                 sync.resumeLiveAsync()
-                // Re-arm the once-per-episode background flush so the next
-                // backgrounding persists again (the flush is coalesced across the
-                // deliberate .inactive/.background pair — NotesStore.flushPendingEditor).
-                store.rearmBackgroundFlush()
                 Task { await store.refreshAfterForeground() }
             case .inactive:
-                store.requestPendingEditorFlush()
+                break
             case .background:
-                // Belt-and-suspenders flush (a phase can jump straight to
-                // background), then pause the SSE stream.
-                store.requestPendingEditorFlush()
                 sync.pauseLive()
             @unknown default:
                 break
