@@ -4,7 +4,7 @@
 use super::super::super::line::Entry;
 use super::super::super::{read, store, Engine};
 use super::draft::{glyphs, inline_line, regions};
-use super::Accept;
+use super::{carried_with, Accept};
 use crate::{DisplayOffset, DisplayRange, EditorError, InlineFormat, Revision, ViewChange};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -115,12 +115,11 @@ impl Engine {
                 // and its place inside or outside links: it lands among the
                 // word's hidden marks where it reads both (so Redo lands
                 // there too), else it carries the formats.
-                let mut formats = engine.active_formats();
-                formats.retain(|have| *have != format);
-                if !engine.range_formats(range).contains(&format) {
-                    formats.push(format);
-                    formats.sort();
-                }
+                let formats = carried_with(
+                    engine.active_formats(),
+                    format,
+                    !engine.range_formats(range).contains(&format),
+                );
                 let caret = engine.caret_source();
                 let (index, before) = read::line_at(&engine.store, caret);
                 let links = Landing::at(engine.store.get(index), caret - before.source).links;
