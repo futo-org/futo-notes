@@ -1,6 +1,10 @@
 ## Saving & rename
 
-- Every edit the user makes reaches the host once the document settles (~200 ms
+Desktop uses the Milkdown save path below. Native mobile source ownership, checkpoints,
+merge adoption and leave handling follow [portable recovery](portable-core/recovery.md)
+and [native exits](editor-exits.md).
+
+- *(desktop)* Every edit the user makes reaches the host once the document settles (~200 ms
   debounce), and clearing the whole note is one of them: select-all-delete is
   reported as a change to the empty document, however soon after the note was
   opened. The editor knows an edit happened because it saw the TRANSACTION,
@@ -11,7 +15,7 @@
   src/features/editor/milkdown/serializationLoop.ts `reportDocumentChange`,
   src/features/editor/milkdown/MilkdownEditor.test.ts,
   tests/note-never-emptied.spec.ts
-- A note that has content is never written back empty on the strength of an
+- *(desktop)* A note that has content is never written back empty on the strength of an
   editor's word alone (CRITICAL). An empty document is only saved as a deletion
   when the editor REPORTED the emptying as a change; an editor that went blank
   on its own — a parse that threw, a replaced component — has notified nobody,
@@ -19,7 +23,7 @@
   lands, carrying the body the session last knew. → src/features/notes/
   noteSessionChanges.ts `editorLostTheNote`, createNotePersistence.ts,
   src/features/notes/noteSession.test.ts, tests/note-never-emptied.spec.ts
-- Opening a note never adopts an EMPTY editor serialization as the save
+- *(desktop)* Opening a note never adopts an EMPTY editor serialization as the save
   baseline for a note that read non-empty from disk. The editor's own
   serialization is otherwise the baseline, because Milkdown normalizes syntax
   on parse — but an empty one is a failed load, not a normalization, and
@@ -33,148 +37,33 @@
   discards its unsaved text. _(desktop)_ → `noteSaveQueue.ts`,
   `createNotePersistence.ts`, `createTabNoteTransition.ts`,
   `noteSession.svelte.ts` `flushBeforeLeaving`
-- Editor rename and move send the body, saved baseline, and destination through
+- *(desktop)* Editor rename and move send the body, saved baseline, and destination through
   one Rust workflow. A peer-changed source remains untouched; the local draft
   becomes a conflict copy at the requested destination, and the editor follows
   the engine's final id and title. Collision handling and backlink changes stay
   under the same vault guard. → `LocalNoteStore::save_draft_as`, `move_draft`
 
-- Body edits autosave on a debounce (~400 ms). The save re-reads the current
-  note id at fire time, so a save landing **after** a rename writes to the
-  renamed note, not a stale id. → NoteEditorScreen.kt / NoteEditorView.swift
-  `scheduleSave`
-- Native saves return an explicit committed/failed outcome. A failed write does
-  not advance the editor's saved snapshot, so the draft remains dirty and a
-  visible message tells the user it is still pending. Rename and move stop
-  before changing the note's identity when their required body flush fails;
-  conflict adoption likewise waits until the local conflict copy is durable.
-  A dirty native editor that leaves the screen retains its final draft registration
-  until the asynchronous leave flush writes or parks it successfully. A later
-  successful ordinary save clears only the exact retained revision it observed,
-  so it cannot accidentally discard a newer retained edit. Identity mutations
-  advance a store-owned draft generation before suspending: delete first commits
-  every dirty editor snapshot and aborts visibly when that write fails, then
-  discards the old identity's live and retained drafts only after the delete
-  commits; rename/move retarget retained drafts to the authoritative final id.
-  Failed identity mutations reopen a fresh generation. A queued or failed leave
-  flush from the old generation therefore cannot resurrect a deleted note or
-  create an old-id ghost after rename/move. Android Back commits a valid visible
-  title immediately after the body rather than waiting for the rename debounce. The iOS move awaits the final posted editor document
-  after destination selection, persists or parks it through the draft workflow,
-  and moves the parked conflict identity when that is where the local draft was
-  committed. _(iOS, Android)_ → `NotesStore.write`,
-  NoteEditorScreen.kt / NoteEditorView.swift,
-  NativeMutationOutcomeTest / NativeMutationOutcomeTests
-- Android title edits debounce into a rename; iOS commits via the rename dialog.
-  Both use the baseline-aware save-and-rename workflow after pending saves are
-  canceled/drained. Only an actual durable result advances the saved body
-  snapshot; a no-op title never marks a dirty body saved.
-  → NoteEditorScreen.kt / NoteEditorView.swift
+- *(mobile)* A renderer that becomes blank without an accepted user edit cannot empty a note: the Rust attachment remains the source of document bytes and saves, including while a title rename runs. Clearing a note through accepted input saves the intended empty source. → crates/futo-notes-store/src/editor_session/, apps/ios/Sources/Editor/TextFirst/TextFirstEditorController+Saving.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/EditorEngineStorage.kt
+- *(mobile)* Body edits stay in the Rust attachment and save 500 ms after the last edit, or at most 2 s after the first unsaved edit. A rename retargets that attachment, so a later save uses its current identity rather than recreating the old name. → crates/futo-notes-store/src/editor_session/{save,identity}.rs
+- *(mobile)* A failed save leaves the exact draft and attachment dirty and retryable, with visible save-failure feedback; a durable write advances the engine's baseline. A checkpoint may merge an independent outside edit or park an ambiguous draft and follow the returned conflict identity. Native views apply the returned source, selection, history and complete mutation. → apps/ios/Sources/Editor/TextFirst/TextFirstEditorController+Saving.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/EditorEngineStorage.kt
+- *(mobile)* Title edits debounce into a rename; iOS also offers a Rename dialog. Leaving settles a valid pending title immediately. A blank, illegal, duplicate or unchanged title leaves the body save independent; only an attempted rename that fails is a save failure. → apps/ios/Sources/Editor/TextFirst/{TextFirstNoteScreen,TextFirstTitle,TextFirstLeaves}.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt
+- *(mobile)* Rename and move preserve the live attachment's unsaved input and follow the store's final identity and backlink changes. Destructive actions settle admitted input and pending title work first; a failed required save keeps the draft available. → apps/ios/Sources/Editor/TextFirst/TextFirstNoteScreen.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt, crates/futo-notes-store/src/editor_session/identity.rs
 - Leaving the editor flushes a pending save only if the content changed. The
   engine then decides whether the note is written, recreated, or parked.
 - A dirty draft whose original parent folder disappeared never recreates a folder renamed or removed outside the app, including a folder moved between the save decision and installation. Native iOS checkpoints (autosave, background and Back) preserve the draft as a collision-safe `<title> (recovered)` note at the vault root, project it into the list, and follow that copy for further edits; the save banner shows the copy's id. If root recovery also fails, the draft remains pending with the save-failure message. Legacy draft flushes and same-folder title renames refuse the missing parent and remain pending. Filesystem aliases count as the same parent. A peer-deleted note whose parent still exists retains the ordinary edit-wins recreation rule; an explicit move to a different destination folder may create that requested folder. → crates/futo-notes-store/src/editor_session/checkpoint.rs, `flush.rs`, `commit.rs`, `editor_draft.rs`; `a_native_draft_survives_a_vanished_parent_at_a_collision_safe_root_id`, `a_native_close_recovers_when_the_parent_vanishes_inside_the_write_window`, `a_draft_does_not_recreate_an_externally_renamed_folder`, `a_folder_removed_inside_the_draft_install_window_stays_removed`, the `does_not_resurrect_a_moved_parent` regressions and `an_explicit_draft_move_can_create_its_requested_destination_parent`
 - If a same-folder retitle already staged the note when its parent disappears, its failed rename or later crash recovery preserves the staged body as a collision-safe `<title> (recovered)` note at the vault root, never recreating the vanished folder or overwriting an existing root note. Recovery recognizes an already-installed copy, removes the staging artifact only after the body is durable, and preserves the final identity for sync when finishing a staged transaction. → crates/futo-notes-store/src/rename_journal/{moves,recovery}.rs; `a_retitle_whose_parent_moves_after_staging_recovers_visibly_without_recreating_it`, `recovery_of_a_retitle_with_a_missing_parent_keeps_one_visible_root_copy`
-- A confirmed local delete is the final editor mutation for that note. Android
-  serializes body saves, title flush/rename, conflict adoption, the complete
-  flush-and-move transaction (including its final id update), and delete through
-  one editor session (see "Editor exits"). iOS cancellation chains own the
-  actual committed move—not only presentation of its picker—and delete awaits
-  the complete save/rename/adoption/move chain before removing the final id.
-  Once closing starts, iOS blurs the WebView, quarantines late bridge changes,
-  and never flushes that closing view on disappear. Its centered delete card is a
-  transparent cover, and presenting that cover is explicitly excluded from the
-  editor's navigation-disappear cleanup. A committed delete discards the
-  quarantine; a failed delete restores and autosaves it, so the note is neither
-  recreated after success nor stripped of a late edit after failure. An
-  in-flight conflict flush, move, title debounce, or queued bridge callback
-  therefore cannot recreate or rename a note after its delete commits. _(iOS,
-  Android)_ → `EditorSession` (EditorSession.kt / EditorSession.swift),
-  `EditorDraftCoordinator`, NoteEditorScreen.kt, NoteEditorView.swift,
-  NativeMutationOutcomeTests
-- Backgrounding the app makes a **best-effort** flush of the open editor's
-  pending edit at the first leave-foreground signal, so an edit caught inside the
-  autosave debounce is usually persisted before the OS jetsams the process. The
-  flush is fire-and-forget, so an immediate process death can still beat the
-  write — true on both native shells. → Android MainActivity `onPause` →
-  `NotesStore.flushPendingEditor`; iOS FutoNotesApp scenePhase
-  `.inactive`/`.background` → `NotesStore.flushPendingEditor`
-- A native leave/background flush and the desktop editor's debounced body save
-  go through the engine's ONE draft-saving verb (persist-or-park, ADR-0001):
-  `flush_draft(id, base, content)` resolves every surprise itself under the
-  store gate plus the process-wide vault mutation guard shared with sync, and
-  returns one flush disposition plus the mutation to apply — **wrote** (the
-  note still held `base`; content a live pull adopted since the editor's last read is never
-  clobbered by a stale flush), **converged** (disk already equals the draft —
-  explicit, no rewrite, no mtime bump; shells never read disk to compare),
-  **recreated** (peer deleted; the edit wins at the ORIGINAL id — the same home
-  the editor's resume autosave rewrites, so survive + jetsam converge with no
-  duplicate copy; the install is no-replace on every filesystem — atomic where
-  one offers the primitive, an exclusive create plus copy where none does (see
-  app.md) — so a live-sync write that recreates the id outside the engine's
-  serialization in the flush window is not clobbered — the draft is parked
-  instead), or **parked** as a conflict
-  copy (peer changed; both versions survive, the copy id reported). A dirty
-  draft is never silently dropped; a clean editor never flushes, so a genuinely
-  abandoned note is never resurrected. A clean editor session never parks a conflict copy; it reloads from disk
-  (a peer edit is followed, not parked against). Conflict copies are named by the
-  engine's one conflict-naming rule ("<title> (conflict YYYY-MM-DD)", counter
-  suffix on a same-day collision), and parking is idempotent — a crash-window
-  double-park mints ONE copy. On desktop, a parked disposition adds the
-  conflict copy's returned mutation to the note projection, leaves the draft
-  baseline uncommitted, then re-reads and adopts the diverged original from
-  disk through `reconcileOpenNote`; the copy appears in the list with no toast.
-  On desktop, only a same-id body save uses `flush_draft`; a rename persists
-  the title and body through the store's single save workflow, never as a
-  separately committed flush followed by a move. _(desktop, iOS, Android)_ →
-  `futo_notes_store::LocalNoteStore::flush_draft` via FFI `flush_draft`;
-  desktop `notes.svelte.ts updateNote` through
-  `createNotePersistence`/`noteSession.svelte.ts`; native
-  `NotesStore.flushDraft`/`flushAsync`; conflict naming
-  `futo_notes_core::conflict_names`. Guarded by the flush_draft unit tests in
-  crates/futo-notes-store/src/tests.rs (all four dispositions, converged/park
-  boundary, recreate-vs-reappeared window, park idempotency, recreate-arm
-  mutation positioning, store-vs-sync serialization), desktop
-  `notes.contract.test.ts` / `createNotePersistence.test.ts` /
-  `createExternalChangeCoordinator.test.ts`, the FFI note_contract test, and
-  apps/ios/Tests/Notes/Editor/FlushDraftVerbTests.swift and Android's
-  `EditorLifecycleFlushTest`. Earlier behavior verified on iOS 2026-07-13
-  (sim); iOS verb wiring verified via `just test-ios-native` 2026-07-21 and
-  Android verb/adoption wiring via `just test-android-native` 2026-07-23.
-- A durable native autosave flush **always advances the open editor's saved
-  baseline to the bytes that landed**. Rescheduling the debounce on the next
-  keystroke may cancel the task, but it must never skip that post-flush record;
-  only an editor identity that has already moved elsewhere may veto it. A
-  parked disposition follows the returned copy and advances its baseline in
-  the same step, so the next save cannot re-park against the original note.
-  iOS makes this liveness-free decision in `settledFlush`; Android holds the
-  flush-and-record span in `withContext(NonCancellable)`. _(iOS, Android)_ →
-  NoteEditorView.swift / NotesStore.swift `settledFlush`, EditorSession.kt
-  `NonCancellable`; guarded by `SettledFlushTests`,
-  `EditorSessionTests.cancelledSaveStillResumes`, and Android
-  `EditorSessionTest`.
-- The open editor's unsaved-draft register is **derived** from the editor's live
-  state (note id, buffer, saved content, loaded) rather than hand-synced, so it
-  goes clean the instant a save completes or a remote is adopted (no stale draft
-  clobbers the adopted content). It is owner-scoped so a screen leaving during a
-  push/pop transition can't drop the incoming screen's draft. Android registers
-  one derivation closure the flush pulls synchronously; iOS publishes the derived
-  value both synchronously in the WebView change callback (so the register is
-  current the instant before a background flush reads it) and reactively via
-  `.onChange` for the clear-on-save / clear-on-adopt transitions — SwiftUI
-  `@State` can't be pulled from an escaping closure the way Compose snapshot state
-  can. _(iOS, Android)_ → NoteEditorScreen.kt / NoteEditorView.swift →
-  `NotesStore.setDraftProvider`/`publishDraft` + `claimDraftOwnership`. Verified
-  on iOS 2026-07-13 (sim: edit → immediate background before the debounce
-  persisted; rename with a pending body edit preserved the edit under the new id
-  with no ghost). NOTE: a simulator can't reproduce OS jetsam, so this validates
-  the surviving-process flush path, not an actual jetsam-during-background kill.
+- *(mobile)* A confirmed local delete is the final editor mutation for that attachment. The store marks it terminal only after deletion commits; later input and checkpoints refuse rather than recreating the deleted note. A failed delete retains the attachment and draft. Native action coordination drains title and move work and checkpoints before deletion; presenting the iOS confirmation cover alone never retires the editor. → crates/futo-notes-store/src/notes.rs, apps/ios/Sources/Editor/TextFirst/TextFirstNoteScreen.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt
+- *(mobile)* Backgrounding requests a best-effort checkpoint at the first leave-foreground signal, including edits inside the autosave window. Failed saves remain owned and retryable; immediate process death can still precede persistence. iOS keeps background time for the attempt and retries retained leaves; Android requests the checkpoint on `ON_PAUSE`. → apps/ios/Sources/Editor/TextFirst/{TextFirstNoteScreen,TextFirstLeaves}.swift, apps/ios/Sources/Notes/Editor/EditorBackgroundTask.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt
+- *(desktop)* Same-id body saves use `flush_draft(id, base, content)` under the store gate and vault mutation guard: unchanged disk writes the draft, equal disk converges without rewriting, a missing note recreates at the original id, and divergence parks the draft without overwriting the peer. Recreation uses no-replace installation; a concurrently reappearing note parks instead. Conflict naming is collision-safe and parking is idempotent. A clean session never creates a conflict copy or resurrects an abandoned note. Rename persists title and body through one store workflow. → crates/futo-notes-store/src/flush.rs, src/features/notes/createNotePersistence.ts
+- *(desktop)* A parked save applies the returned conflict-copy mutation, then re-reads and adopts the diverged original through `reconcileOpenNote`; the copy appears in the list without a toast. The saved baseline advances only to durable authoritative bytes. → src/features/notes/noteSession.svelte.ts, src/features/sync/createExternalChangeCoordinator.ts
+- *(mobile)* The Rust session owns dirty state and the saved baseline; native screens do not publish a second whole-note snapshot register. Ownership tokens retire work on reset, and native leave owners keep failed attachments until retry or explicit discard. → apps/ios/Sources/Editor/TextFirst/TextFirstLeaves.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstController.kt, [native exits](editor-exits.md)
 - An empty title shows the placeholder "Untitled"; the title field strips
   newlines. Leaving with an empty title keeps the note's current name: the body
   still saves and Back leaves normally.
 - A refused title (empty, illegal, or a duplicate) is never a save failure; only
   a rename the store attempted and failed keeps the editor open with the
-  "Couldn't save note" banner. → apps/android/app/src/main/java/com/futo/notes/ui/EditorNavigationCommit.kt
-  (`commitEditorTitleSnapshot`, shared by both Android editors)
+  "Couldn't save note" banner. → apps/android/app/src/main/java/com/futo/notes/ui/EditorTitleCommit.kt
+  `commitEditorTitleSnapshot`
 - A title that differs from the saved title only by leading or trailing
   whitespace leaves the session clean and skips the write. Only the saved-title
   comparison is normalized; the visible editor title keeps its whitespace.
@@ -187,11 +76,10 @@
 - The editor chrome shows **no word count** (or any other document
   statistic) — just the title and the document (spec decision 2026-06-10;
   Android native previously rendered an "N words" line under the title, no
-  other platform ever did). → NoteEditorScreen.kt
-- On Tauri the same contract holds via the shared shell: the title is a
+  other platform ever did). → apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt
+- On desktop Tauri the same contract holds via the shared shell: the title is a
   textarea above the tag bar; edits debounce into a file rename and rewrite
-  backlinks (see "Wikilinks — navigation & integrity"). Verified on Android
-  Tauri 2026-06-09.
+  backlinks (see "Wikilinks — navigation & integrity"). → src/features/notes/createNoteTitleController.svelte.ts
   - Title-only edits use an aggressive ~10 s debounce (body edits keep ~500 ms)
     so a rename round-trip never fires mid-typing and clobbers in-flight
     keystrokes.

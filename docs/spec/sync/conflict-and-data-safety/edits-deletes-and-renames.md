@@ -129,11 +129,12 @@
   `projection_carries_every_engine_field`)
   Both native shells act on that report directly: their list projections apply
   the engine's complete scoped mutation (canonical positions and folders
-  included), and their open-note executors follow reported renames before
-  reading the target. → `NoteStore.refresh_external_changes`;
+  included), and the Rust store retargets attached sessions through reported
+  renames before the native views checkpoint or refresh their identity. →
+  `NoteStore.refresh_external_changes`, crates/futo-notes-store/src/editor_session/identity.rs;
   iOS `SyncManager.onLocalTreeChanged` / `NotesStore.localTreeChanged` /
-  `OpenNoteReconciler`; Android `SyncManager.kt`, `NotesStore.kt`,
-  `NoteEditorScreen.kt`
+  `TextFirstNoteScreen.swift`; Android `SyncManager.kt`, `NotesStore.kt`,
+  `textfirst/TextFirstEditorScreen.kt`
 - **A relocation the ENGINE performs never hides a real update OR deletion of
   its target.** Summary ghost-stripping removes only the rename's from-side from
   `deletedIds`/`peerDeletedIds` (the "delete at the old name" byproduct every

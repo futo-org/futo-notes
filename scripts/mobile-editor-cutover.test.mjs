@@ -21,7 +21,7 @@ describe('mobile Linedown cutover', () => {
       ...files('apps/android/app/src').filter((file) => !file.includes('/uniffi/')),
     ].filter((file) => /\.(swift|kt)$/.test(file));
     const offenders = sources.filter((file) =>
-      /import WebKit|import android\.webkit\.(WebView|JavascriptInterface)|TextFirstFlag|class EditorHost|FutoEditor\.initialize/.test(
+      /import WebKit|import android\.webkit\.(WebView|JavascriptInterface)|TextFirstFlag|class EditorHost|FutoEditor\.initialize|EditorDraftCoordinator|PendingEditorDraft|publishDraft|setDraftProvider|setDraftFlushWaiter|setEditorFlushWaiter/.test(
         read(file),
       ),
     );

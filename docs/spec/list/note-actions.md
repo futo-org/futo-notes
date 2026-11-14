@@ -77,7 +77,7 @@
   native shells asks for confirmation** ("Delete this note? This action
   cannot be undone.") — editor menus, list rows, swipe actions, and search
   results alike (verified on emulator + simulator 2026-06-09). →
-  NoteEditorScreen.kt, NoteEditorView.swift, ConfirmDialog.kt
+  textfirst/TextFirstEditorScreen.kt, TextFirstNoteScreen.swift, ConfirmDialog.kt
   > **iOS native**: the delete-note and delete-folder confirmations render as a
   > centered, non-anchored card (a transparent `fullScreenCover`), never as an
   > arrow popover. `.confirmationDialog`, attached at a container view far from
@@ -86,7 +86,7 @@
   > pointing the arrow at an unrelated row instead of the one being deleted
   > (fixed 2026-07-22). The editor menu uses the same presentation, and opening
   > its cover does not trigger editor-leave draft cleanup. →
-  > DestructiveConfirmDialog.swift, NoteListView.swift, NoteEditorView.swift
+  > DestructiveConfirmDialog.swift, NoteListView.swift, TextFirstNoteScreen.swift
 - **iOS native** note rows expose **Move to Folder…** and **Delete** via
   long-press context menu / swipe actions; the move sheet lists Root and every
   folder, and the move is applied on disk immediately (verified 2026-06-09).
@@ -110,7 +110,7 @@
   failure toast states that the note was not deleted or moved. The New Folder
   dialog also dismisses only after a committed create; failure leaves it open
   for retry and shows a failure toast. →
-  NotesStore.kt, NoteEditorScreen.kt, NoteListScreen.kt,
+  NotesStore.kt, textfirst/TextFirstEditorScreen.kt, NoteListScreen.kt,
   NoteActionCompletionTest
 - Android's FAB → New note consumes the same explicit outcome: the editor opens
   only on a committed create, and a failed create says "Couldn't create note.
@@ -122,28 +122,9 @@
   prompt, keyboard straight on the note text (desktop parity). An **untouched**
   quick-capture note — opened brand-new, never renamed, body still empty — is
   **discarded on back-out** so nothing is left behind, matching desktop. →
-  NoteListView.swift / NoteEditorView.swift `onDisappear`, NoteListScreen.kt /
-  NoteEditorScreen.kt `onDispose`
-- **A new note opens with the caret in the body and the keyboard up**, both on a
-  warm editor and on the first note after a cold launch. The focus is
-  native first, then the page: the web view takes first responder (iOS) or
-  view focus (Android), and only then does the script focus the editor.
-  Chromium holds back a script focus while the document is unfocused, and from
-  iOS 27 WebKit does not report one to the app at all, which is where the
-  keyboard-forcing swizzle hooks in. So the page half alone gives a focused page
-  with no keyboard. Also on iOS: the focus waits until the editor screen is in
-  the window (a new note attaches while its screen is still being built), and
-  the "force keyboard" gate stays open until the focus script has actually run
-  rather than for a fixed 0.6 s. Verified on the iOS 27.0 and 26.5 simulators
-  and on an iPhone (iOS 27.0) 2026-09-23. On Android it holds warm and on a cold
-  launch whose FAB tap attached the note before the editor had initialized, so
-  focus came through the `initialized` reply rather than `attach`; verified on
-  the emulator (API 36, System WebView 133.0.6943.137) 2026-09-23. Desktop has
-  no keyboard to raise; its New note puts the caret in the body, not the title,
-  so typing goes straight into the note (verified on macOS 2026-09-23). →
-  EditorWebView.swift `EditorHost.startAutoFocus` /
-  `runPendingAutoFocus`, EditorWebView.kt `EditorHost.focusEditor`,
-  src/features/notes/createNoteLoader.ts `finishNewNote`
+  NoteListView.swift / TextFirstNoteScreen.swift `onDisappear`, NoteListScreen.kt /
+  textfirst/TextFirstEditorScreen.kt `onDispose`
+- **A new note opens with the caret in the body and the keyboard up**, on a warm editor and on the first note after a cold launch. Native screens request focus on their text view when the new-note session is ready; the desktop New note path likewise focuses the body. → apps/ios/Sources/Editor/TextFirst/TextFirstNoteScreen.swift `show`, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt, src/features/notes/createNoteLoader.ts `finishNewNote`
 - **Both native shells have an inline, tappable title field** above the editor
   body (iOS via a `UITextField`-backed `TitleTextField`, Android via a
   `BasicTextField`); tapping it edits the title in place and renames the file,
@@ -151,23 +132,9 @@
   placeholder — "Untitled" or a dedup "Untitled-N" — **selects the whole title**
   so the next keystroke replaces it; tapping any other title places the caret at
   the tapped character. iOS also keeps a ⋯ → Rename alert as a secondary path. →
-  NoteEditorView.swift `TitleTextField` / `isPlaceholderTitle`,
-  NoteEditorScreen.kt `isPlaceholderTitle`
-- **Return in the title moves on into the body**: the title commits, the caret
-  goes to the note body, and on a phone the keyboard stays up, so typing
-  continues straight into the note. The title never takes a newline. On iOS,
-  Return resigns the title field and runs the same native-then-page focus a new
-  note uses; on desktop, Enter focuses the editor. On Android the keyboard's
-  action key reads "next", and it and a hardware Enter both run
-  `EditorHost.focusEditor`, the new-note focus; the keyboard never hides on
-  the way into the body. The pending rename still commits on its own debounce.
-  Verified on the iOS 27.0 and 26.5 simulators and on an iPhone (iOS 27.0)
-  2026-09-23, on desktop (macOS) 2026-09-23, and on the Android emulator (API
-  36, System WebView 133.0.6943.137) 2026-09-23. → NoteEditorView.swift
-  `TitleTextField`
-  `textFieldShouldReturn`, EditorWebView.swift `EditorHost.focusBody`,
-  src/features/notes/createNoteTitleController.svelte.ts, NoteTitleField.kt,
-  NoteTitleFieldTest.kt
+  TitleTextField.swift `TitleTextField` / `isPlaceholderTitle`,
+  textfirst/TextFirstEditorScreen.kt `isPlaceholderTitle`
+- **Return in the title moves on into the body**: the caret goes to the note body and the keyboard stays up, so typing continues straight into the note. The title never takes a newline; its pending rename still commits through the title workflow. iOS hands first responder to the native text view, Android's Next action focuses the native editor, and desktop Enter focuses its editor. → apps/ios/Sources/Notes/Editor/TitleTextField.swift `textFieldShouldReturn`, apps/ios/Sources/Editor/TextFirst/TextFirstNoteScreen.swift `onSubmit`, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt, src/features/notes/createNoteTitleController.svelte.ts
 - **While the title field is focused, only typing changes it.** A title the app
   commits meanwhile — a rename that trimmed or suffixed what was typed ("jkl "
   saves as `jkl.md`, "con" as `con_.md`), a move, a sync rename, a conflict
@@ -177,7 +144,7 @@
   desktop). Verified on the Android emulator (API 36) and desktop (macOS)
   2026-10-05. → NoteTitleField.kt `TitleFieldState`, TitleFieldStateTest.kt,
   src/features/notes/noteSession.svelte.ts `showCommittedTitle`,
-  NoteEditorView.swift `TitleTextField.updateUIView`
+  TitleTextField.swift `updateUIView`
 - **A title longer than the screen never widens the editor** on any of the
   three apps. The title field takes the width of the editor column and no more,
   so an over-long title is cut off at the column edge rather than pushing
@@ -186,11 +153,11 @@
   is cosmetic: iOS ellipsizes the unfocused title, Android clips it mid-glyph.
   iOS needs `TitleTextField.sizeThatFits` to report the proposed width, because
   a `UIViewRepresentable` otherwise sizes itself to the text's natural width and
-  drags the whole editor VStack — embedded web view included — with it; Android
+  drags the whole editor VStack with it; Android
   and desktop are pinned declaratively (`fillMaxWidth()`, `width: 100%`).
   _(verified iOS simulator + Android emulator 2026-07-27)_ →
-  NoteEditorView.swift `TitleTextField`, TitleTextFieldLayoutTests,
-  NoteEditorScreen.kt `BasicTextField`, NoteWorkspace.svelte `.title-input`
+  TitleTextField.swift, TitleTextFieldLayoutTests,
+  textfirst/TextFirstEditorScreen.kt `BasicTextField`, NoteWorkspace.svelte `.title-input`
 - **The native title fields detect and reject illegal titles, matching desktop.**
   A forbidden filesystem char (`< > : " / \ | ? *` or a control char) is stripped
   in place as you type, with a transient (~2 s) warning "That character can't be
@@ -202,7 +169,7 @@
   shared `validate_title` exposed over FFI (futo-notes-ffi) — the same
   conformance-locked source as desktop's `validateTitle`; only the forbidden-char
   input filter is mirrored locally per shell. → futo-notes-ffi `validate_title`,
-  NoteEditorView.swift, NoteEditorScreen.kt, textfirst/TextFirstEditorScreen.kt;
+  TextFirstNoteScreen.swift, textfirst/TextFirstEditorScreen.kt;
   desktop NotesShell.svelte /
   noteSession.svelte.ts `handleTitleInput`
 - **The canonical title→filename sanitizer produces a name legal on EVERY

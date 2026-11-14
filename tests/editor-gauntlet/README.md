@@ -28,9 +28,9 @@ oracles do not import a specific editor model.
 - `driverProtocol.ts`: the `DriverState` contract every adapter reports through. It is the
   FUTO-side half of the deleted `factory/` Obsidian parity judge (removed 2026-08-24; recover from
   git history); the gauntlet is its only remaining consumer, so it lives here.
-- `milkdownAdapter.ts`: the adapter for the shipping editor. It drives the single-file
-  `editor.html` the native shells ship, over `file://`, with the editor-embed harness's fake
-  native host, so it measures exactly the bytes that ship. Two translations it owns: markdown
+- `milkdownAdapter.ts`: the adapter for the desktop Milkdown editor. It drives the standalone
+  single-file `editor.html` fixture over `file://`, with the editor-embed harness’s simulated
+  host. Two translations it owns: markdown
   source offsets become (top-level block, visible-character offset) via `sourcePositions.ts`, and
   the `DriverState` is read off the rendered ProseMirror DOM.
 - `lossOracle.ts`: "did any writing disappear?", as a token multiset containment check. This is the

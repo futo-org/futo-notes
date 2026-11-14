@@ -64,60 +64,20 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   folder route whose folder stops existing is dropped, popping to the nearest
   surviving ancestor. → AppNavigation.kt `rebaseFolderRoutes` /
   `pruneFolderRoutes`, AppNavStackTest.kt _(Android)_
-- The editor keeps the system back button, so the leading-edge swipe is the
-  native, finger-tracked interactive pop, over the full-bleed editor WebView.
-  The one exception is while a block is airborne in the long-press drag: both
-  pop recognizers stand down then, so moving the block sideways can't swipe the
-  note away (see editor.md, "Selection").
-  Hiding that button (as the editor once did, to force every exit through the
-  vetoable `requestNavigation`) also disables the gesture. A system pop cannot be
-  refused, so the exit commits after the fact instead: in-flight rename/move/adopt
-  work drains, a pending title rename commits immediately rather than after its
-  debounce, and the freshest body commits, falling back to the shell's copy when
-  the editor cannot answer. A commit that fails leaves the draft retained for
-  lifecycle retry. Leaving is never blocked. _(iOS)_ → NoteEditorView.swift
-  `finishLeave`, docs/learnings/ios-swipe-back-over-webview.md
-- Leaving the editor waits for the editor's own answer. When that wait runs out
-  on an editor that is still responding — a note editable from its first chunk
-  while the rest streams — the screen stays where it is rather than leaving on
-  the shell's copy, which can be missing the edit; the usual pending-changes
-  message is shown and pressing Back again is the way out. An editor that
-  responds to nothing at all is not holding anything, and leaving it always
-  works. _(iOS/Android)_ On iOS this applies to the in-editor exits (a resolved
-  wikilink). System Back and the edge swipe cannot stay, so they retry the capture
-  and then commit the shell's copy. _(iOS)_
-  → docs/spec/editor.md "Editor exits — every way an open note ends"
-- Creating a note pushes the editor focused for immediate typing (Android
-  focuses the native title field; desktop and iOS focus the editor body/heading);
-  opening an existing note pushes it without autofocus. → AppNavigation.kt /
-  NoteEditorScreen.kt, noteSession.svelte.ts `loadNote('new')`, NoteListView.swift
-  The shared editor never focuses itself on mount, on any surface — the
-  pre-warmed native WebView stays unfocused until the host asks (bridge
-  `focus`), and desktop focus comes from the shell's own new-note path. →
-  src/features/editor/milkdown/hostHandleView.ts `focus`,
-  noteSession.svelte.ts `focusEditor`
-  iOS autofocus is confirmed on the simulator in both directions: opening an
-  EXISTING note stays keyboard-less (2026-07-13 — no editor accessory toolbar
-  appears on open; it only appears after tapping the body), and creating a NEW
-  note raises the keyboard (2026-07-27 — driving "+" → "New Note" with `axe`,
-  the accessory toolbar is present immediately, which only happens while a field
-  is focused). _(iOS native)_
-  > **Gap:** Android on-device autofocus QA (existing note keyboard-less +
-  > native-title autofocus) is still pending. _(Android)_
+- *(iOS)* The editor keeps the system Back button and native leading-edge interactive pop. System Back and edge swipe may leave before persistence completes; the leave owner drains admitted title/action work, commits a pending title and saves the Rust session. A failed save keeps the attachment for retry or for reopening the same draft. → apps/ios/Sources/Editor/TextFirst/{TextFirstNoteScreen,TextFirstLeaves}.swift
+- *(Android)* Ordinary editor navigation completes the native close workflow before changing screens. Failure keeps the editor and save error available; retry or an explicit discard can settle the departure. A partially opened long note applies queued input before saving. → apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt, [native exits](editor/editor-exits.md)
+- Creating a note pushes the editor with the body focused for immediate typing; opening an existing note pushes it without autofocus. Native views receive focus from their new-note path, and desktop focus comes from its shell rather than editor mount. → apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt, apps/ios/Sources/Editor/TextFirst/TextFirstNoteScreen.swift, src/features/notes/createNoteLoader.ts
+  > **Gap:** Android on-device autofocus QA (existing note keyboard-less + new-note autofocus) is still pending. _(Android)_
 - Following a wikilink PUSHES another editor onto the stack (it does not replace
   the current one), so System Back returns to the note you came from rather than
   to the List — a browser-like history of visited notes. See the wikilink
   navigation rule in [editor.md](editor.md). → AppNavigation.kt
   `AppNavigator.openNote`
-  (push), NoteEditorView.swift `openLinkedNote`
+  (push), apps/ios/Sources/Editor/TextFirst/TextFirstNoteScreen.swift `onOpenNote`
   _(desktop)_ deliberately diverges: a wikilink opens the target in the
   **current tab** (replace, not push) — tabs, not a nav stack, are the desktop
   history model. → NotesShell.svelte `handleWikilinkOpen`
-- The editor WebView is pre-warmed while the list is showing, so opening a note
-  is a warm mount, not a cold renderer boot. Both native shells keep ONE shared
-  pre-warmed WebView and swap content via `setContent` on open. →
-  MainActivity.kt / EditorHost _(Android)_; FutoNotesApp
-  `EditorHost.prewarm()` / EditorWebView `EditorHost.shared` _(iOS)_
+- *(mobile)* The shell renders immediately and opens each note through its Rust session and native renderer. Long notes may show a read-only first screen while the attachment opens; queued input is applied before the complete view becomes editable. → [native boot](editor/native-host-boot.md), [long notes](editor/mobile/long-notes.md)
 
 - [Desktop shell _(desktop)_](nav/desktop-shell.md)
 - [Native app icon sheet](nav/native-app-icon-sheet.md)
