@@ -14,8 +14,8 @@ struct FutoNotesApp: App {
 
     /// "light" | "dark" | "auto" — set from Settings (futo.themeMode), applied
     /// app-wide here by overriding the scene's windows, so an already-presented
-    /// sheet follows a change too. The editor WebView follows automatically:
-    /// NoteEditorView derives its pushed theme from @Environment(\.colorScheme),
+    /// sheet follows a change too. The native editor follows automatically:
+    /// TextFirstNoteScreen derives its theme from @Environment(\.colorScheme),
     /// which the window override drives.
     @AppStorage(ThemeMode.storageKey) private var themeMode = ThemeMode.auto.rawValue
 

@@ -33,7 +33,8 @@ struct BackgroundEditorFlushTests {
                 end: { _ in ends += 1 }
             ))
         flush.register(token: 1) {
-            _ = await awaitEditorSignal(deadline: 60) { _ in }
+            // Stand in for a checkpoint that remains pending until cancellation.
+            try? await Task.sleep(for: .seconds(60))
         }
         flush.run { wrote = true }
         await Task.yield()

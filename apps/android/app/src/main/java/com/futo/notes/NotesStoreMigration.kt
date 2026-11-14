@@ -11,7 +11,7 @@ import uniffi.futo_notes_ffi.VaultMigrationFinalization
 import java.io.File
 
 /** Claim exclusive vault access for migration. Refuse while a write is
- * active because image saves include their later WebView insertion. */
+ * active because image saves include their later native document insertion. */
 fun NotesStore.tryBeginStorageMigration(): Boolean =
     storageMigrationGate.tryBeginMigrationWhenIdle()
 

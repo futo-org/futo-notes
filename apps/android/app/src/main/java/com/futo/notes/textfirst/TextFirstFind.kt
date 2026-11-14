@@ -66,7 +66,7 @@ internal fun rememberTextFirstFind(controller: TextFirstController, key: Any): T
     return remember(key) { TextFirstFind(controller, scope, focus) }
 }
 
-/** The find bar's verbs exist only while it is up, as on the WebView screen. */
+/** The find bar's verbs exist only while it is up, for the visible native editor. */
 @Composable
 internal fun TextFirstFindVerbs(find: TextFirstFind, enabled: Boolean) {
     PuppetVerbScope {

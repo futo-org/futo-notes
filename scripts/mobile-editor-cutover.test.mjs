@@ -38,6 +38,7 @@ describe('mobile Linedown cutover', () => {
     for (const file of [
       'just/mobile.justfile',
       'just/android-test.justfile',
+      'apps/android/run.sh',
       'apps/ios/run.sh',
       'apps/ios/run-device.sh',
       'apps/ios/deploy.sh',

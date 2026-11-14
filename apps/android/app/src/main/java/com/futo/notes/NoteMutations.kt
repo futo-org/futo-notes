@@ -55,7 +55,7 @@ internal fun rebasedOnRelink(flushed: String, live: String, relinkedBody: String
  * Run [action] and, if it fails, delete [file] before propagating — the F8
  * rule for a just-saved editor image that never got consumed. [action] is
  * `NotesStore.saveImageIntoVault`'s `useSavedImage`: a timed-out or
- * unavailable WebView insertion (`EditorWebView.insertImageAndWait`, F3)
+ * unavailable native document insertion
  * throws, and per spec a stale or failed completion leaves no orphaned blob
  * in the vault (docs/spec/editor.md, "A delayed image completion belongs to
  * the note it was started on"). `CancellationException` is deleted-then-

@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Build & run the FUTO Notes NATIVE Android app on a connected device/emulator.
 #
-# A from-scratch native Compose app that reuses the SAME web markdown editor
-# (editor.html) as an embedded WebView and the SAME Rust core (futo-notes-ffi)
-# as iOS. It does NOT use Tauri.
+# Native Compose views render the Rust Linedown editor through futo-notes-ffi.
+# Desktop keeps the web editor; mobile does not bundle it.
 #
 # Requires: Android SDK (ANDROID_HOME), NDK (ANDROID_NDK_HOME), `cargo install
 # cargo-ndk`, the android rust targets, and a Gradle wrapper or system gradle.
@@ -53,14 +52,6 @@ fi
 echo "==> Building Rust core (UniFFI) -> jniLibs/<abi>/libfuto_notes_ffi.so + Kotlin bindings"
 # Only the connected device's ABI unless ABIS says otherwise: see the script.
 ABIS="${ABIS:-device}" bash scripts/build-rust-android.sh
-
-echo "==> Building the SAME embedded editor bundle (single self-contained editor.html)"
-# With the puppet inspector (apps/ios/run.sh); `just test-android-perf` passes
-# false to measure the bundle that ships.
-VITE_INCLUDE_TEST_HOOKS="${VITE_INCLUDE_TEST_HOOKS:-true}" node_modules/.bin/vite build --config vite.editor.config.ts
-# Stage editor.html into the app's assets (same artifact iOS bundles).
-mkdir -p apps/android/app/src/main/assets
-cp apps/ios/Resources/editor.html apps/android/app/src/main/assets/editor.html
 
 echo "==> Building + installing the app ($FLAVOR flavor)"
 cd apps/android

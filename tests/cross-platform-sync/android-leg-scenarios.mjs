@@ -47,9 +47,14 @@ export async function desktopReceivesAndroidEditorEdit(desktop, android, server)
   await desktop.syncNow();
   await android.waitForNoteContent(ANDROID_SHARED_NOTE, base);
 
-  // Native input changes the Rust session, whose committed mutation triggers sync.
-  const edited = '# shared\n\nedited in the Android editor\n';
-  await android.editNoteViaEditor(ANDROID_SHARED_NOTE, edited);
+  // Insert into the native paragraph; the engine preserves the heading's hidden source.
+  const edited = '# shared\nedited in the Android editor\nbase text';
+  await android.openNoteInEditor(ANDROID_SHARED_NOTE);
+  await android.focusOpenEditor();
+  await android.placeCaretAtStartOf('base text');
+  await android.typeIntoOpenEditor('edited in the Android editor\n');
+  await android.waitForNoteContent(ANDROID_SHARED_NOTE, edited);
+  await android.openNoteList();
 
   await waitForDesktopNoteContent(desktop, ANDROID_SHARED_NOTE, edited);
 }

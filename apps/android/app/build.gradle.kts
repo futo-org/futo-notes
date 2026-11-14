@@ -68,10 +68,7 @@ android {
 
     defaultConfig {
         applicationId = "com.futo.notes"
-        // minSdk 28 (Android 9): the minimum supported OS version. The 7.0–8.1
-        // tier (API 24–27) is dropped (github#8). Note the System WebView, which
-        // gates editor rendering, updates independently of the OS — so 9/10 with
-        // a stale WebView still needs the editor's legacy-WebView handling.
+        // Android 9 is the minimum supported OS version.
         minSdk = 28
         targetSdk = 36
         versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()

@@ -264,4 +264,22 @@ class PuppetContractTest {
         assertEquals(row, row.uncoveredBy(IntRect(80, 180, 120, 220)))
         assertNull(row.uncoveredBy(IntRect(-1, 99, 101, 201)))
     }
+
+    @Test
+    fun nativeEditorActionsAdvertiseTextAndDisplayCoordinates() {
+        val actions = nativeEditorActions()
+        val schemas = (0 until actions.length()).associate { index ->
+            val action = actions.getJSONObject(index)
+            action.getString("name") to action.getJSONObject("schema")
+        }
+        for (name in listOf("Type", "Insert")) {
+            assertEquals("text", schemas.getValue(name).getJSONArray("required").getString(0))
+            assertEquals("string", schemas.getValue(name).getJSONObject("properties").getJSONObject("text").getString("type"))
+        }
+        val selection = schemas.getValue("Select")
+        assertEquals("from", selection.getJSONArray("required").getString(0))
+        for (key in listOf("from", "to")) {
+            assertEquals("integer", selection.getJSONObject("properties").getJSONObject(key).getString("type"))
+        }
+    }
 }

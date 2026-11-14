@@ -2,8 +2,7 @@
 #
 # Minification is enabled on release builds to (a) shrink the app and (b)
 # produce the deobfuscation mapping file Play asks for. The app reaches native
-# code through JNA (UniFFI bindings) and exposes a WebView JS bridge — both rely
-# on names surviving verbatim, so they must be kept explicitly.
+# code through JNA (UniFFI bindings), which relies on names surviving verbatim.
 
 # ── JNA ──────────────────────────────────────────────────────────────────
 # JNA maps Java method/field names directly to native symbols and reads struct
@@ -21,13 +20,6 @@
 # ── rustls-platform-verifier (TLS trust) ──────────────────────────────────
 -keep class org.rustls.platformverifier.** { *; }
 -keepclasseswithmembernames class com.futo.notes.PlatformTrust { native <methods>; }
-
-# ── WebView JS bridge ─────────────────────────────────────────────────────
-# Methods annotated @JavascriptInterface are invoked by name from editor.html
-# (window.futoBridge.*). R8 would otherwise rename/strip them.
--keepclassmembers class * {
-    @android.webkit.JavascriptInterface <methods>;
-}
 
 # Native editor JNI entry points are looked up by their JVM class/method names.
 -keepclasseswithmembernames class com.futo.notes.textfirst.FastKeys { native <methods>; }

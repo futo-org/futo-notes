@@ -4,6 +4,7 @@
  */
 
 import { join } from 'node:path';
+import { portsFor } from '../../../scripts/lib/slot.mjs';
 import { rewriteLoopbackHost } from '../tauri-test-client.mjs';
 import {
   CONNECT_RETRY_AFTER_MS,
@@ -27,6 +28,20 @@ export class AndroidNativeAppClient {
 
   get vaultPath() {
     return this.device.vaultPath();
+  }
+
+  async requestNative(path, args = {}) {
+    const port = portsFor(this.repoRoot).puppetAndroid;
+    this.device.adb(['forward', `tcp:${port}`, 'localabstract:futo-puppet']);
+    const response = await fetch(`http://127.0.0.1:${port}/${path}`, {
+      method: 'POST',
+      signal: globalThis.AbortSignal.timeout(UI_TIMEOUT_MS),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    const value = await response.json();
+    if (!response.ok) throw new Error(`${this.name}: ${path}: ${JSON.stringify(value)}`);
+    return value;
   }
 
   // ── Screens ───────────────────────────────────────────────────
@@ -104,13 +119,7 @@ export class AndroidNativeAppClient {
     // A no-op when the previous scenario already tore the session down.
     await this.disconnectSync();
 
-    await this.#fillField('Server URL', url, { expectVisibleValue: true });
-    await this.#fillField('Password', password);
-    // The soft keyboard covers the buttons; a tap would land on a key instead
-    // (and silently type into the field), so drop the IME before tapping.
-    await this.dismissKeyboard();
-
-    await this.device.tap('Connect & Sync', { scroll: false });
+    await this.requestNative('do/ConnectSync', { url, password });
     // Connected == the session buttons replaced the connect form. The status
     // line is user-facing copy, so it is never the assertion (AGENTS.md M15).
     // The emulator's route to the host intermittently drops connections for a
@@ -153,28 +162,6 @@ export class AndroidNativeAppClient {
   async syncNow() {
     await this.openSyncScreen();
     await this.device.tap('Sync now', { scroll: false });
-  }
-
-  /** Type `value` into the labeled text field, replacing whatever is there.
-   *  `expectVisibleValue` re-types once if the IME dropped characters — only
-   *  usable for a field that renders its value (a password renders as dots). */
-  async #fillField(label, value, { expectVisibleValue = false } = {}) {
-    const field = await this.device.waitFor(`the "${label}" field`, UI_TIMEOUT_MS, () =>
-      this.device.findNode(label),
-    );
-    // The label is drawn inside the text field's box, so its center focuses the
-    // field itself.
-    this.device.tapPoint(field.x, field.y);
-    await this.device.waitFor(`the "${label}" field to accept input`, UI_TIMEOUT_MS, () =>
-      this.device.isImeInputActive(),
-    );
-    this.device.typeReplacingSelection(value);
-    if (!expectVisibleValue) return;
-    await this.device.waitFor(`"${label}" to hold ${value}`, UI_TIMEOUT_MS, () => {
-      if (this.device.isVisible(value)) return true;
-      this.device.typeReplacingSelection(value);
-      return false;
-    });
   }
 
   /** Close the soft keyboard with Back and return once it is gone. Returning

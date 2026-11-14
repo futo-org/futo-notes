@@ -1,41 +1,12 @@
 ## External links
 
-- Tapping/clicking an external link (`http(s)://`, autolinks, bare URLs) opens
-  it in the system browser, never inside the editor. On the native shells a tap
-  is detected via a dedicated `touchend` path (mirroring wikilinks — a
-  click-only handler dead-ends on iOS WebKit) and the resolved URL
-  is posted to the host via the `openUrl` bridge message (bridge v6); the host
-  opens it in the system browser (iOS `UIApplication.open`, Android
-  `ACTION_VIEW`), scheme-guarded to `http/https/mailto/tel` (iOS also `sms`, below). `window.open` is a
-  no-op inside a WKWebView, which is why the bridge round-trip is required.
-  Android additionally enforces in `EditorWebView.kt` that only `file://` editor
-  assets may load in the reused WebView; all other schemes are intercepted and
-  launched with `ACTION_VIEW`. iOS enforces the same policy in
-  `EditorWebView.swift`'s `decidePolicyFor` (added 2026-07-30): main-frame loads
-  are allowed only for the bundled `editor.html` itself (exact standardized-path
-  match — any other `file://` URL is denied, since `loadFileURL` grants read
-  access to the whole bundle resources directory) and the `about:blank`
-  missing-bundle fallback; `http/https/mailto/tel/sms` navigations are canceled and
-  routed through the same scheme-guarded external open as the `openUrl` bridge
-  case; every other scheme (including `javascript:`/`data:`) is denied, so a
-  programmatic top-level navigation can never replace the editor. Policy is a
-  pure function (`editorNavigationDecision`) unit-tested in
-  `EditorNavigationDecisionTests.swift`. Verified emulator + simulator
-  2026-07-08 (tapping a rendered link opens Safari / Chrome to the target; iOS
-  `openUrl` case and Android `ACTION_VIEW` intent both fire).
-  Scrolling from a link or holding it for a block drag does not open it;
-  separate rapid mouse clicks on links each open their URL.
-  → platform/openExternalUrl.ts,
-  src/features/editor/milkdown/linkTaps.ts `linkAt` / `activateLink`,
-  editor-embed/main.ts, packages/editor bridge v6 `openUrl`,
-  EditorWebView.swift `openUrl` case, EditorWebView.kt `openExternalUrl` /
-  `shouldOverrideUrlLoading` / `isInAppEditorNavigation`,
-  tests/editor-embed-milkdown.spec.ts
+- *(desktop)* Clicking an external link opens the system browser. Scrolling or dragging from a link does not open it; separate rapid clicks each open the URL. → src/features/editor/milkdown/linkTaps.ts
+- *(mobile)* Native link taps ask the Rust engine for the destination and use a scheme-guarded OS open (`UIApplication.open` / `ACTION_VIEW`); they never navigate an editor web page. → crates/futo-notes-ffi/src/editor/links.rs, apps/ios/Sources/Editor/TextFirst/TextFirstEditorController+Links.swift, apps/android/app/src/main/java/com/futo/notes/ui/ExternalLinks.kt
 
-  > **Gap:** _(Android, desktop)_ the iOS guard (`editorNavigationDecision`, also used by the
+  > **Gap:** _(Android, desktop)_ the iOS guard (`TextFirstEditorController.externalLinkURL`, also used by the
   > native text-first editor's link taps) opens `sms:` links, matching the engine's link rule
   > (`http`, `https`, `mailto`, `tel`, `sms`); Android's `openExternalUrl` in
-  > `EditorHostCommands.kt` and the desktop dev opener (`dev_open_url.rs`) still deny `sms:`.
+  > `ExternalLinks.kt` and the desktop dev opener (`dev_open_url.rs`) still deny `sms:`.
   > The set is pinned on iOS in `TextFirstLinkTests.swift`.
 
 - Only the link's own glyphs open it: the hit is the anchor element under the
@@ -67,9 +38,9 @@
   src/features/editor/milkdown/autolink.ts,
   tests/editor-embed-milkdown-parity.spec.ts
 
-- The portable replacement core preserves canonical link meaning, exact source and transient input lifetimes through correction, Code, structural commands, own-action relinks and saving; its source contract is [link editing and source ownership](portable-core/links.md). Shipping renderer activation and external-open guards remain the contract above until cutover. → crates/futo-notes-editor/src/engine/commands/inline/links/mod.rs, crates/futo-notes-ffi/src/editor/links.rs
+- The portable replacement core preserves canonical link meaning, exact source and transient input lifetimes through correction, Code, structural commands, own-action relinks and saving; its source contract is [link editing and source ownership](portable-core/links.md). Native mobile consumes this contract through the Rust session. → crates/futo-notes-editor/src/link_target.rs, crates/futo-notes-ffi/src/editor/links.rs
 
-- *(Android native text-first editor)* A link whose destination has no scheme but names a host (`futo.org`, `www.example.org/a`) opens over `https`. A tap on a link the system cannot open — another scheme, a note file name such as `other.md`, no app to handle it — is an ordinary tap that places the caret, never swallowed. → apps/android/app/src/main/java/com/futo/notes/ui/EditorHostCommands.kt `externalLinkTarget`, apps/android/app/src/main/java/com/futo/notes/textfirst/ExternalLinkTouch.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstTapGestureTest.kt
+- *(Android native text-first editor)* A link whose destination has no scheme but names a host (`futo.org`, `www.example.org/a`) opens over `https`. A tap on a link the system cannot open — another scheme, a note file name such as `other.md`, no app to handle it — is an ordinary tap that places the caret, never swallowed. → apps/android/app/src/main/java/com/futo/notes/ui/ExternalLinks.kt `externalLinkTarget`, apps/android/app/src/main/java/com/futo/notes/textfirst/ExternalLinkTouch.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstTapGestureTest.kt
 - *(Android native text-first editor)* The keyboard toolbar's Link action opens a native form with link text and destination. A selection supplies its visible label; a caret inside an existing link supplies the complete link label and current destination. → apps/android/app/src/main/java/com/futo/notes/textfirst/EditorEngineLinks.kt, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstLinkDialog.kt
 - *(Android native text-first editor)* Add or Update submits one canonical engine edit and one Undo step, preserving surrounding source; saving and reopening retain the intended label and destination. → apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstLinkTest.kt
 - *(Android native text-first editor)* Remove link retains its label, including existing formatting; Cancel changes no text or history. → apps/android/app/src/main/java/com/futo/notes/textfirst/EditorEngineLinks.kt

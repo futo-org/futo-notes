@@ -42,29 +42,6 @@ struct NativeMutationOutcomeTests {
         )
     }
 
-    @Test("a failed rename keeps the current identity and blocks navigation")
-    func failedRenameKeepsCurrentIdentity() {
-        let result = resolvedRename(
-            currentId: "Folder/Old title",
-            outcome: NoteMutationOutcome<CommittedNote>.failed
-        )
-
-        #expect(result.id == "Folder/Old title")
-        #expect(!result.isCommitted)
-    }
-
-    @Test("a committed rename hands the relinked body to the editor")
-    func committedRenameCarriesRelinkedBody() {
-        let result = resolvedRename(
-            currentId: "Old",
-            outcome: .committed(CommittedNote(id: "New", relinkedBody: "back to [[New]]"))
-        )
-
-        #expect(result.id == "New")
-        #expect(result.isCommitted)
-        #expect(result.relinkedBody == "back to [[New]]")
-    }
-
     // RC-71: the engine saved the draft, then relinked the note's own link. The
     // baseline is the relinked file; a baseline left at the draft made the next
     // save read the relink as a peer's edit and park a conflict copy.

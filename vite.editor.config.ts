@@ -12,19 +12,8 @@ export default defineConfig({
   root: '.',
   base: './',
   build: {
-    // ES2020 (optional chaining/nullish coalescing) sets the editor's WebView
-    // SYNTAX floor at Chromium 80. Non-updated Android System WebViews below that
-    // (down to Chromium 66 on stock Android 9/10) can't parse the bundle at all,
-    // so editor.html's ES5 preflight compiles this syntax up front and the
-    // Android shell shows an "update System WebView" screen instead of a blank
-    // editor (github#8). Raising this target means widening that preflight's
-    // probe.
-    //
-    // The target does NOT settle the floor on its own: a dependency calling a
-    // built-in method that landed later parses fine here and throws on the
-    // device. editor.html shims those (replaceAll, at) and
-    // tests/editor-embed-webview-floor.spec.ts audits the BUILT bundle for any
-    // that no shim covers.
+    // Keep the standalone fixture's browser syntax floor and built-in shims stable.
+    // tests/editor-embed-webview-floor.spec.ts audits the built bundle.
     target: 'es2020',
     outDir: nativeEditorOutDir,
     sourcemap: false,

@@ -48,11 +48,7 @@ internal suspend fun forward(
         return PuppetReply(200, JSONObject().put("ok", true).toString())
     }
     if (command == "actions") {
-        val actions = org.json.JSONArray()
-        for (name in listOf("FocusEditor", "BlurEditor", "Select", "Insert", "Type")) {
-            actions.put(JSONObject().put("name", name).put("schema", PuppetContract.schema(emptyList())))
-        }
-        return PuppetReply(200, JSONObject().put("actions", actions).toString())
+        return PuppetReply(200, JSONObject().put("actions", nativeEditorActions()).toString())
     }
     return PuppetContract.refusal(404, "unknown native editor query: $command")
 }
@@ -97,3 +93,14 @@ internal suspend fun awaitEditorLoaded(bound: Binding, action: String): PuppetRe
     return null
 }
 
+
+internal fun nativeEditorActions(): org.json.JSONArray = org.json.JSONArray().apply {
+    for (name in listOf("FocusEditor", "BlurEditor", "Select", "Insert", "Type")) {
+        val schema = when (name) {
+            "Select" -> PuppetContract.schema(listOf("from"), listOf("to"), integers = listOf("from", "to"))
+            "Insert", "Type" -> PuppetContract.schema(listOf("text"))
+            else -> PuppetContract.schema(emptyList())
+        }
+        put(JSONObject().put("name", name).put("schema", schema))
+    }
+}

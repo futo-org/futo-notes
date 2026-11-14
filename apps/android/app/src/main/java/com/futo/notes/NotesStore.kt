@@ -172,7 +172,7 @@ class NotesStore(
 
     /** Save an editor image and consume its filename while holding the same
      * migration gate as note workflows. The consumer is part of the operation:
-     * migration cannot begin until WebView insertion is confirmed.
+     * migration cannot begin until native document insertion is confirmed.
      *
      * [deleteImageOnFailure] removes the file [save] just wrote when
      * [useSavedImage] fails or is canceled (F8) — see its doc for why. */

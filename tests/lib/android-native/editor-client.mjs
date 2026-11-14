@@ -1,21 +1,8 @@
 /** Native Android editor driving through the debug listener and platform input connection. */
-import { portsFor } from '../../../scripts/lib/slot.mjs';
 import { AndroidNativeAppClient } from './app-client.mjs';
 import { LIVE_TIMEOUT_MS, SAVE_TIMEOUT_MS, UI_TIMEOUT_MS } from './constants.mjs';
 
 export class AndroidNativeEditorClient extends AndroidNativeAppClient {
-  async requestNative(path, args = {}) {
-    const port = portsFor(this.repoRoot).puppetAndroid;
-    this.device.adb(['forward', `tcp:${port}`, `tcp:${port}`]);
-    const response = await fetch(`http://127.0.0.1:${port}/${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(args),
-    });
-    const value = await response.json();
-    if (!response.ok) throw new Error(`${this.name}: ${path}: ${JSON.stringify(value)}`);
-    return value;
-  }
   async openNoteInEditor(id) {
     await this.openNoteList();
     await this.device.tap(id, { scroll: true });
@@ -54,12 +41,6 @@ export class AndroidNativeEditorClient extends AndroidNativeAppClient {
     if (from < 0) throw new Error(`native editor does not contain ${text}`);
     await this.requestNative('do/Select', { from, to: from });
   }
-  async replaceOpenEditorContent(text) {
-    const state = (await this.requestNative('state')).editor;
-    if (state.truncated) throw new Error('whole-document replacement needs an untruncated display');
-    await this.requestNative('do/Select', { from: 0, to: state.display.length });
-    await this.requestNative('do/Insert', { text });
-  }
   async renameOpenNote(currentId, newId) {
     const field = await this.device.waitFor(`the title field of ${currentId}`, UI_TIMEOUT_MS, () =>
       this.device.findNode(currentId),
@@ -84,14 +65,5 @@ export class AndroidNativeEditorClient extends AndroidNativeAppClient {
     await this.device.waitFor(`${id} to be absent from ${this.name}'s vault`, timeoutMs, () => {
       return !this.noteExists(id);
     });
-  }
-
-  /** Open `id`, make a whole-document user edit through the debug hook, and
-   *  return once the app has written it to disk. */
-  async editNoteViaEditor(id, content) {
-    await this.openNoteInEditor(id);
-    await this.replaceOpenEditorContent(content);
-    await this.waitForNoteContent(id, content, SAVE_TIMEOUT_MS);
-    await this.openNoteList();
   }
 }

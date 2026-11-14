@@ -17,8 +17,8 @@ struct SettingsView: View {
     @Environment(\.localization) private var localization
 
     /// "light" | "dark" | "auto". Applied app-wide by FutoNotesApp's
-    /// appearanceOverride; the editor WebView follows automatically because
-    /// NoteEditorView derives its pushed theme from @Environment(\.colorScheme).
+    /// appearanceOverride; the native editor follows automatically because
+    /// TextFirstNoteScreen derives its theme from @Environment(\.colorScheme).
     @AppStorage(ThemeMode.storageKey) private var themeMode = ThemeMode.auto.rawValue
     /// Crash-reporting prefs, read by CrashReporter's launch scan. Mirror the
     /// desktop prefs.crashReporting.{enabled,alwaysSend} pair.
