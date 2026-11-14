@@ -1,7 +1,6 @@
 package com.futo.notes.puppet
 
 import com.futo.notes.puppet.PuppetServer.Binding
-import com.futo.notes.ui.decodeJavascriptString
 import com.futo.notes.ui.navigation.Screen
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -15,20 +14,7 @@ internal suspend fun forward(
     command: String,
     argsJson: String,
 ): PuppetReply {
-    val host = bound.host ?: return PuppetContract.refusal(503, "the native editor has no webview inspector")
-    // A renderer that never calls back (gone, or detached) must not hold the one accept loop.
-    val raw = try {
-        withTimeout(10_000) {
-            suspendCancellableCoroutine<String?> { continuation ->
-                host.webView.evaluateJavaScriptForPuppet(
-                    PuppetContract.forwardScript(command, argsJson),
-                ) { value -> continuation.resume(value) }
-            }
-        }
-    } catch (_: TimeoutCancellationException) {
-        return PuppetContract.refusal(503, "the editor webview did not answer $command within 10 s")
-    }
-    return PuppetContract.response(raw)
+    return PuppetContract.refusal(404, "native editor query unavailable: $command; use state or native input")
 }
 
 /** The page's answer to [command] as an object, or null when it gave none. */
@@ -71,11 +57,3 @@ internal suspend fun awaitEditorLoaded(bound: Binding, action: String): PuppetRe
     return null
 }
 
-/**
- * `evaluateJavascript` hands back a JSON-encoded value, so a JS string arrives
- * quoted; the inspector always answers with one.
- */
-private fun android.webkit.WebView.evaluateJavaScriptForPuppet(
-    script: String,
-    onResult: (String?) -> Unit,
-) = evaluateJavascript(script) { raw -> onResult(decodeJavascriptString(raw)) }

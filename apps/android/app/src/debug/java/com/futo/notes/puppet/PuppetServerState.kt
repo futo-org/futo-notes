@@ -162,7 +162,7 @@ internal suspend fun stateObject(bound: Binding): JSONObject {
         )
     }
     if (screen is Screen.Editor) {
-        val native = if (bound.host == null) nativeEditorState(bound.shellView.rootView) else null
+        val native = nativeEditorState(bound.shellView.rootView)
         if (native != null) reply.put("editor", native.put("note", PuppetVerbs.openNote ?: screen.noteId))
         else forwardedObject(bound, "state")?.let { editor ->
             for (key in editor.keys()) if (!reply.has(key)) reply.put(key, editor.get(key))

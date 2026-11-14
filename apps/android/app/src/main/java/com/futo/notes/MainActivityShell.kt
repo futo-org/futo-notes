@@ -16,7 +16,6 @@ import com.futo.notes.ui.FeedbackScreen
 import com.futo.notes.ui.navigation.AppNavigation
 import com.futo.notes.ui.navigation.LicenseLandingEffect
 import com.futo.notes.ui.navigation.Screen
-import com.futo.notes.ui.NoteEditorScreen
 import com.futo.notes.ui.NoteListScreen
 import com.futo.notes.ui.SearchScreen
 import com.futo.notes.ui.SettingsScreen
@@ -34,8 +33,6 @@ internal fun MainActivity.AppShell(
     onThemeMode: (ThemeMode) -> Unit,
     dark: Boolean,
 ) {
-    // Debug builds open notes in the text-first editor (textfirst/TextFirstFlag.kt).
-    val textFirstEditor = androidx.compose.runtime.remember { com.futo.notes.textfirst.TextFirstFlag.enabled(this) }
     AppNavigation(
         hasBootstrapped = s.hasBootstrapped,
         availableFolderPaths = s.folders,
@@ -68,7 +65,7 @@ internal fun MainActivity.AppShell(
                 onOpenSettings = navigator::openSettings,
                 onBack = navigator::goBack,
             )
-            is Screen.Editor -> if (textFirstEditor) com.futo.notes.textfirst.TextFirstEditorScreen(
+            is Screen.Editor -> com.futo.notes.textfirst.TextFirstEditorScreen(
                 store = s,
                 initialNoteId = screen.noteId,
                 autoFocus = screen.autoFocus,
@@ -77,16 +74,6 @@ internal fun MainActivity.AppShell(
                 onOpenNote = navigator::openNote,
                 imagePicker = imagePicker,
                 registerLeave = { handler -> navigator.registerEditorLeave(screen, handler) },
-            ) else NoteEditorScreen(
-                store = s,
-                initialNoteId = screen.noteId,
-                autoFocus = screen.autoFocus,
-                darkTheme = dark,
-                onBack = navigator::goBack,
-                // Wikilink tap [editor.md:77]: PUSH a new editor entry so Back
-                // returns to the note you came FROM (not straight to the list).
-                onOpenNote = navigator::openNote,
-                imagePicker = imagePicker,
             )
             is Screen.Search -> SearchScreen(
                 store = s,

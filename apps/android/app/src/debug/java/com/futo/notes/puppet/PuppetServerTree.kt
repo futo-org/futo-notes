@@ -17,15 +17,6 @@ import androidx.core.view.WindowInsetsCompat
 import com.futo.notes.puppet.PuppetServer.Binding
 import org.json.JSONObject
 
-/** Where the editor WebView is on screen, or null: under a dialog or menu a touch cannot reach it. */
-private fun webviewOnScreen(bound: Binding): IntRect? {
-    val webView = bound.host?.webView ?: return null
-    val covered = touchModalAbove(windows(bound), webView.rootView) >= 0
-    val onScreen = webView.isAttachedToWindow && webView.isShown && webView.width > 0 &&
-        webView.height > 0 && !covered
-    return if (onScreen) webView.screenRect() else null
-}
-
 /**
  * Every Compose root on screen as its merged semantics, root windows bottom to top, so a
  * dialog, popup or menu comes after the screen under it. Nodes are clipped to the part of

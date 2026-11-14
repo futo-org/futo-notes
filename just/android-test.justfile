@@ -23,7 +23,6 @@ test-android-native-ui *classes: qa-android-target _preflight-android android-en
   SELECTOR_ARG="$(node scripts/android-instrument.mjs --gradle-arg "$@")"
   if [ -n "$SELECTOR_ARG" ]; then TEST_ARGS+=("$SELECTOR_ARG"); fi
   # The Compose tests drive the bundled editor.html: rebuild it first (L1-008).
-  node_modules/.bin/vite build --config vite.editor.config.ts
   node scripts/qa.mjs android-target
   # Connected tests uninstall the app: claimed emulators only, never a phone.
   node scripts/android-instrument.mjs --assert-emulator
@@ -76,7 +75,6 @@ test-android-ui *args: _preflight-android android-env-check
     rm -f "$STAMP"
     ABIS="$ABI" bash scripts/build-rust-android.sh
     # The Compose tests drive the bundled editor.html: rebuild it first (L1-008).
-    node_modules/.bin/vite build --config vite.editor.config.ts
     (cd apps/android && ./gradlew :app:assembleDirectDebug :app:assembleDirectDebugAndroidTest "-PfutoAbis=$ABI")
     build_key > "$STAMP"
   fi

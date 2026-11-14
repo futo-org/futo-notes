@@ -57,7 +57,7 @@ final class EditorToolbarAccessory: FutoKeyboardAccessory<EditorToolbarView> {
 
     @MainActor
     init(
-        state: WebEditorToolbarState,
+        state: EditorToolbarState,
         localization: Localization,
         hiding: Set<String> = [],
         perform: @escaping (ToolbarItemSpec) -> Void

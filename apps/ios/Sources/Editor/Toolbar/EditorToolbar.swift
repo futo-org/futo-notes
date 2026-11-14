@@ -12,7 +12,7 @@ import UIKit
 /// toolbarExec.ts commands the web toolbar runs.
 struct EditorToolbarView: View {
     @Environment(\.displayScale) private var displayScale
-    @ObservedObject var state: WebEditorToolbarState
+    @ObservedObject var state: EditorToolbarState
     @ObservedObject var toolbarLocalization: EditorToolbarLocalization
     /// Manifest ids this editor leaves out (the text-first toolbar has no Text control).
     var hiding: Set<String> = []

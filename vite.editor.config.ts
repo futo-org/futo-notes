@@ -14,30 +14,10 @@ import tailwindcss from '@tailwindcss/vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import path from 'path';
-import { copyFileSync, mkdirSync } from 'node:fs';
 
 const nativeEditorOutDir = 'build/native-editor';
-const stagedEditorTargets = [
-  'apps/ios/Resources/editor.html',
-  'apps/android/app/src/main/assets/editor.html',
-];
-
-function stageNativeEditorBundle() {
-  return {
-    name: 'stage-native-editor-bundle',
-    closeBundle() {
-      const source = path.resolve(import.meta.dirname, nativeEditorOutDir, 'editor.html');
-      for (const target of stagedEditorTargets) {
-        const output = path.resolve(import.meta.dirname, target);
-        mkdirSync(path.dirname(output), { recursive: true });
-        copyFileSync(source, output);
-      }
-    },
-  };
-}
-
 export default defineConfig({
-  plugins: [tailwindcss(), svelte(), viteSingleFile(), stageNativeEditorBundle()],
+  plugins: [tailwindcss(), svelte(), viteSingleFile()],
   root: '.',
   base: './',
   build: {

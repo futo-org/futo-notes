@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// The note screen when `TextFirstFlag` is on: a native title field above the text-first
+/// The shipping note screen: a native title field above the text-first
 /// editor. Saving is the engine's (the Store's debounce, a checkpoint when the app leaves the
 /// foreground, a detach when this screen leaves), so the screen never holds the note body;
 /// a rename goes through the Store's ordinary workflow, which retargets the live attachment.

@@ -37,11 +37,9 @@ build-ios-native configuration="Debug": _preflight-ios build-rust-ios
   #!/usr/bin/env bash
   set -euo pipefail
   case "{{configuration}}" in
-    Debug) export VITE_INCLUDE_TEST_HOOKS=true ;;
-    Release) export VITE_INCLUDE_TEST_HOOKS=false ;;
+    Debug|Release) ;;
     *) echo "Expected Debug or Release configuration" >&2; exit 2 ;;
   esac
-  node_modules/.bin/vite build --config vite.editor.config.ts
   cd apps/ios
   xcodegen generate
   # Generic destination: links both arches; see justfile-notes.md.
