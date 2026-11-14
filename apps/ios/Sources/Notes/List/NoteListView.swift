@@ -211,6 +211,7 @@ struct NoteListView: View {
     /// Both shipping and debug builds use the native Linedown renderer.
     private func noteScreen(id: String, autoFocus: Bool) -> some View {
         TextFirstNoteScreen(noteId: id, autoFocus: autoFocus, navPath: $navigation.path)
+            .id(id)
     }
 
     @ToolbarContentBuilder

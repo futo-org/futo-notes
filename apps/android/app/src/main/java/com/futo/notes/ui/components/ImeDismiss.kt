@@ -18,8 +18,8 @@ import androidx.compose.ui.platform.LocalFocusManager
  * functionless caret blinking in whatever field owned the keyboard (#24).
  *
  * Installed once at the app root (MainActivity), which covers every screen in
- * the Activity window; [onDismiss] is the root's hook to also blur the editor
- * WebView, whose DOM caret survives a view-level clearFocus. A Dialog is its
+ * the Activity window; [onDismiss] lets a screen finish any additional
+ * native focus cleanup. A Dialog is its
  * OWN window with its own focus manager, so a dialog hosting a text field
  * installs its own copy (NewFolderDialog, CrashReportDialog).
  *

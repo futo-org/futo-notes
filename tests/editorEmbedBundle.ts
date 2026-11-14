@@ -5,8 +5,8 @@ import { pathToFileURL } from 'node:url';
 import type { Plugin, PluginOption } from 'vite';
 
 // Workers inherit the private path exported by globalSetup. Test discovery
-// happens earlier but does not load the page. Native builds may empty their
-// staging output while a suite runs, so no running test reads that directory.
+// happens earlier but does not load the page. Per-run output keeps concurrent
+// browser suites isolated; no test reads another build’s staging directory.
 export const EDITOR_BUNDLE_PATH =
   process.env.FUTO_EDITOR_EMBED_BUNDLE_PATH ??
   path.resolve(process.cwd(), 'build/native-editor/editor.html');
