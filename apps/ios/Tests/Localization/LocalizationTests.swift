@@ -77,6 +77,29 @@ private func runtimeCatalog(languageTag: String) -> RuntimeCatalog {
 
 @Suite("Localization conformance")
 struct LocalizationTests {
+    @Test("plain list actions do not pay numeric formatting cost")
+    @MainActor func plainListActionPerformance() {
+        let localization = Localization(
+            runtimeCatalogs: [runtimeCatalog(languageTag: "en")],
+            requestedLanguageTags: ["en"], regionalLanguageTag: nil,
+            reportDiagnostic: { _ in })
+        let paths = [
+            "common.actions.delete", "common.actions.move",
+            "notes.actions.moveToFolderEllipsis", "common.actions.delete",
+        ]
+        // Several list rebuilds over a 2,000-note collection. Keep catalog construction
+        // outside the measurement; these are the labels evaluated on the UI thread.
+        var characters = 0
+        let start = ContinuousClock.now
+        for _ in 0..<5_000 {
+            for path in paths { characters += localization.localizedText(path).utf8.count }
+        }
+        let duration = start.duration(to: .now)
+        print("LIST_LABEL_BENCH calls=20000 duration=\(duration)")
+        #expect(characters > 0)
+        #expect(duration < .milliseconds(100))
+    }
+
     @Test("the Language row opens this app's own iOS Settings page")
     func languageRowOpensAppSettings() {
         #expect(SettingsView.systemSettingsURL.scheme == "app-settings")
