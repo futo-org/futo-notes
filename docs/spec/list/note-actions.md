@@ -92,6 +92,7 @@
   folder, and the move is applied on disk immediately (verified 2026-06-09).
   The sheet does not create folders: it could not show where a new one would
   go (dropped 2026-10-19). → NoteListView.swift
+- *(iOS)* Tapping a note, folder, or search-result row's swipe Delete action only opens confirmation: neighboring rows keep their positions throughout presentation. Cancel preserves the list; rows disappear or move only after confirmed deletion commits. → FolderContentsView+List.swift, NoteListView.swift, `just test-ios-delete-confirmation`
 - **Android native** note rows expose the same Move to Folder… / Delete via
   long-press; the move sheet matches iOS (Root and every folder, no folder
   creation) and applies the move + backlink relink immediately, with a

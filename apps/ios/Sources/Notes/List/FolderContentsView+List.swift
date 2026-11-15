@@ -33,10 +33,10 @@ extension FolderContentsView {
                         }
                         .listRowBackground(Theme.surface)
                         .accessibilityIdentifier(ListRowID.folder(child))
-                        // allowsFullSwipe off: a destructive full swipe animates
-                        // the row away even though we only show a confirmation.
+                        // This action only asks for confirmation. A destructive
+                        // role makes List animate removal even on a button tap.
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
+                            Button {
                                 setFolderDeleteTarget(child)
                             } label: {
                                 Label(
@@ -46,6 +46,7 @@ extension FolderContentsView {
                                     systemImage: "trash"
                                 )
                             }
+                            .tint(Theme.danger)
                         }
                         .contextMenu {
                             Button {
@@ -88,9 +89,9 @@ extension FolderContentsView {
                         }
                         .listRowBackground(Theme.surface)
                         .accessibilityIdentifier(ListRowID.note(note.id))
-                        // allowsFullSwipe off — see the folder rows above.
+                        // Keep the row in place until deletion is confirmed.
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
+                            Button {
                                 setDeleteTarget(note)
                             } label: {
                                 Label(
@@ -98,6 +99,7 @@ extension FolderContentsView {
                                     systemImage: "trash"
                                 )
                             }
+                            .tint(Theme.danger)
                             Button {
                                 moveTarget = note
                             } label: {

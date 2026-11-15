@@ -260,8 +260,19 @@ struct NoteListView: View {
                             }
                             .listRowBackground(Theme.surface)
                             .accessibilityIdentifier(ListRowID.note(note.id))
+                            // onDelete eagerly animates removal before our confirmation.
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button {
+                                    setSearchDelete([note.id], visible: true)
+                                } label: {
+                                    Label(
+                                        localization.localizedText("common.actions.delete"),
+                                        systemImage: "trash"
+                                    )
+                                }
+                                .tint(Theme.danger)
+                            }
                         }
-                        .onDelete(perform: deleteSearchRows)
                     }
                     .listStyle(.insetGrouped)
                     .scrollContentBackground(.hidden)
@@ -272,11 +283,6 @@ struct NoteListView: View {
                 }
             }
         }
-    }
-
-    private func deleteSearchRows(_ offsets: IndexSet) {
-        // Destructive: stash the ids and confirm before deleting (list.md).
-        setSearchDelete(offsets.map { filtered[$0].id }, visible: true)
     }
 
     /// Sets the search-results delete-confirmation target without the

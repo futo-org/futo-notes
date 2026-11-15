@@ -314,3 +314,7 @@ test-ios-capture-fixture:
 # Analyze public corpus percentiles and export targeted whole-note benchmark fixtures.
 corpus-baseline *args:
   node scripts/perf/corpus-baseline.mjs {{args}}
+
+# Check swipe-delete confirmation geometry on this worktree's running iPhone simulator (ffmpeg required)
+test-ios-delete-confirmation:
+  node tests/ios-delete-confirmation.mjs
