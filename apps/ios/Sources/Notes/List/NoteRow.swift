@@ -6,6 +6,19 @@ struct NoteRow: View {
     /// Whether to show the folder label (true in flat search results).
     var showFolder: Bool = false
 
+    #if DEBUG
+        /// The native list test counts construction, including rows never shown on screen.
+        static var didInitializeForTesting: ((String) -> Void)?
+    #endif
+
+    init(note: NoteItem, showFolder: Bool = false) {
+        self.note = note
+        self.showFolder = showFolder
+        #if DEBUG
+            Self.didInitializeForTesting?(note.id)
+        #endif
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {

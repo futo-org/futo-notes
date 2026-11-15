@@ -1,5 +1,10 @@
 import SwiftUI
 
+private struct FolderListItem: Identifiable {
+    let path: String
+    var id: String { ListRowID.folder(path) }
+}
+
 extension FolderContentsView {
     var list: some View {
         ScrollViewReader { proxy in
@@ -15,7 +20,8 @@ extension FolderContentsView {
         List {
             if !subfolders.isEmpty {
                 Section {
-                    ForEach(subfolders, id: \.self) { child in
+                    ForEach(subfolders.map { FolderListItem(path: $0) }) { item in
+                        let child = item.path
                         NavigationLink(value: Route.folder(child)) {
                             Label {
                                 Text(child.split(separator: "/").last.map(String.init) ?? child)
@@ -26,7 +32,6 @@ extension FolderContentsView {
                             }
                         }
                         .listRowBackground(Theme.surface)
-                        .id(ListRowID.folder(child))
                         .accessibilityIdentifier(ListRowID.folder(child))
                         // allowsFullSwipe off: a destructive full swipe animates
                         // the row away even though we only show a confirmation.
@@ -77,12 +82,11 @@ extension FolderContentsView {
             }
             if !notes.isEmpty {
                 Section {
-                    ForEach(notes) { note in
+                    ForEach(notes, id: \.listRowID) { note in
                         NavigationLink(value: Route.note(note.id)) {
                             NoteRow(note: note, showFolder: false)
                         }
                         .listRowBackground(Theme.surface)
-                        .id(ListRowID.note(note.id))
                         .accessibilityIdentifier(ListRowID.note(note.id))
                         // allowsFullSwipe off — see the folder rows above.
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
