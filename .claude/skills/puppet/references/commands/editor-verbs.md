@@ -116,7 +116,9 @@ position. `show {"ref":"n…"}` gives any of them by ref.
 `ReplaceLine`), `task` (`ToggleTask`), `opened` (`OpenLink`), `accepted` (`AcceptSuggestion`),
 `selected` (`Select`, `PlaceCaret`). No `events`. Once a verb has changed the note it never
 answers with a retryable refusal: a later failure is 500 with `changed:true,
-retryable:false` and the new `docVersion` (receipts.md).
+retryable:false` and the new `docVersion`; a toolbar command still running on a huge
+selection after 5 s is 500 with `pending:true, retryable:false`, and lands on its own
+(receipts.md).
 
 **Recipe.** `just test-ios-editor-stories` (needs a claimed `$SIM`) builds, launches and runs
 `tests/ios-editor-stories.mjs`: a puppet-only story of the editing loop, compared against the

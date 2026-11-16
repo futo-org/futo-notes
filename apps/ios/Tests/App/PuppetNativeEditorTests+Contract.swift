@@ -190,5 +190,27 @@
                     == 200)
             #expect(h.source.hasPrefix("[[Other]]"))
         }
+
+        @Test func aCommandStillLandingIsNeverAnsweredAsRetryable() async throws {
+            // Past `heavySelection`: Bold over all of it runs on the engine's queue.
+            let h = TextFirstHarness(String(repeating: "word ", count: 12_000))
+            let unmount = mount(h)
+            defer { unmount() }
+            let adapter = attached(h)
+            #expect(await adapter.perform("SelectAll", arguments: [:]).status == 200)
+            let reply = await adapter.perform("Bold", arguments: [:], settle: 0)
+            #expect(reply.status == 500)
+            let body = try object(reply)
+            #expect(body["retryable"] as? Bool == false)
+            #expect(body["pending"] as? Bool == true)
+            #expect(body["docVersion"] != nil)
+            // It lands on its own: a retry would have toggled it back off.
+            let deadline = Date().addingTimeInterval(30)
+            while h.controller.commandRunning && Date() < deadline {
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+            #expect(!h.controller.commandRunning)
+            #expect(h.source.hasPrefix("**word"))
+        }
     }
 #endif

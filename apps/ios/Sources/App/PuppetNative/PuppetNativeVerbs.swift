@@ -62,8 +62,12 @@
 
         /// Runs one editor verb. A refusal before the note changed is retryable as usual (409,
         /// 503); once the note has changed nothing answers with one: a later failure is a
-        /// non-retryable 500 carrying the new `docVersion`.
-        func perform(_ verb: String, arguments args: [String: Any]) async -> PuppetReply {
+        /// non-retryable 500 carrying the new `docVersion`. So is a command still running on the
+        /// engine's queue after `settle` seconds (a toolbar command over a huge selection): it
+        /// lands later, and a retry would apply it twice.
+        func perform(_ verb: String, arguments args: [String: Any], settle: TimeInterval = 5)
+            async -> PuppetReply
+        {
             let c: TextFirstEditorController
             do { c = try requireController() } catch let error as PuppetVerbRefusal {
                 return PuppetServerContract.refusal(error.status, error.message)
@@ -73,17 +77,15 @@
             var reported: [String: Any] = [:]
             do {
                 reported = try await run(verb, args, in: c)
-                let deadline = Date().addingTimeInterval(5)
-                while c.commandRunning && Date() < deadline { await Task.yield() }
-                if c.commandRunning {
-                    throw PuppetVerbRefusal(503, "\(verb) is still running in the editor")
-                }
             } catch let error as PuppetVerbRefusal {
                 return failure(verb, error.status, error.message, c, before: before.source)
             } catch {
                 return failure(
                     verb, 500, "native \(verb) failed: \(error)", c, before: before.source)
             }
+            let deadline = Date().addingTimeInterval(settle)
+            while c.commandRunning && Date() < deadline { await Task.yield() }
+            if c.commandRunning { return stillRunning(verb, c) }
             let after = snapshot()
             let source = c.closed ? nil : try? c.session.sourceText()
             var receipt: [String: Any] = [
@@ -102,7 +104,9 @@
             _ verb: String, _ status: Int, _ message: String, _ c: TextFirstEditorController,
             before: String?
         ) -> PuppetReply {
-            let now = c.closed ? nil : try? c.session.sourceText()
+            // A job on the engine's queue holds the session, and may be this verb's own edit.
+            if c.commandRunning { return stillRunning(verb, c) }
+            let now = c.closed || c.engineBusy ? nil : try? c.session.sourceText()
             guard let now, now != before else {
                 return PuppetServerContract.refusal(status, message)
             }
@@ -113,6 +117,19 @@
                     "docVersion": Self.version(c),
                     "error":
                         "\(message), after \(verb) had already changed the note: do not retry; read doc and go on from there",
+                ])
+            )
+        }
+
+        /// A command still on the engine's queue: it changes the note when it lands.
+        private func stillRunning(_ verb: String, _ c: TextFirstEditorController) -> PuppetReply {
+            (
+                500,
+                PuppetServerContract.json([
+                    "ok": false, "pending": true, "retryable": false,
+                    "docVersion": Self.version(c),
+                    "error":
+                        "\(verb) is still running in the editor and changes the note when it lands: do not retry; wait until state.editor.loading is false, then read doc",
                 ])
             )
         }

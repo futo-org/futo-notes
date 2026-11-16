@@ -5,7 +5,9 @@
  * through `tap`; the oracle is the note's source text read from the simulator's disk, never
  * puppet's own account of what it did. Each convenience verb is run beside the tap it stands
  * for, from the same starting state, and must land in the same source, selection and undo
- * state (and, for a link, the same screen).
+ * state (and, for a link, the same screen). Reads run mid-edit, during a pending save and
+ * during a composition, and must change nothing: the last story switches the simulator to a
+ * Japanese romaji keyboard for its composition, and puts the keyboards back after.
  *
  * Typed text is lowercase: a capital sent through the simulator's key input leaves Shift held
  * for every key after it (papercut pc_7e2c60a86250). The keyboard still capitalizes a
@@ -19,10 +21,12 @@
  *                                                       # "…toolbar…" (each builds on the last)
  */
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { portsFor } from '../scripts/lib/slot.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // This worktree's claimed simulator, the one `just puppet` drives: never "whatever is booted".
@@ -117,10 +121,8 @@ function tapElement(role, text) {
   return gesture('tap', { ref });
 }
 
-/** The note's file on the simulator's disk, after `file` has saved the open note. */
-function saved(noteId) {
-  const answer = puppet('file', { noteId });
-  if (answer.ok === false) throw new StepFailure(`file ${noteId}: ${answer.error}`);
+/** The note's file on the simulator's disk as it is: no save is asked for. */
+function onDisk(noteId) {
   const container = spawnSync(
     'xcrun',
     ['simctl', 'get_app_container', SIM, 'com.futo.notes.dev', 'data'],
@@ -128,6 +130,72 @@ function saved(noteId) {
   ).stdout.trim();
   const disk = readFileSync(join(container, 'Documents', 'fake-notes', `${noteId}.md`), 'utf8');
   return disk.endsWith('\n') && !disk.endsWith('\n\n') ? disk.slice(0, -1) : disk;
+}
+
+/** The note's file on the simulator's disk, after `file` has saved the open note. */
+function saved(noteId) {
+  const answer = puppet('file', { noteId });
+  if (answer.ok === false) throw new StepFailure(`file ${noteId}: ${answer.error}`);
+  return onDisk(noteId);
+}
+
+/**
+ * The listener itself, the HTTP surface `just puppet` speaks to: tens of milliseconds a read
+ * instead of a process each, so a run of reads fits inside the editor's save debounce.
+ */
+const PORT = Number(process.env.FUTO_PUPPET_PORT ?? portsFor(repoRoot).puppet);
+async function listener(query, args = {}) {
+  const response =
+    query === 'tree' || query === 'actions'
+      ? await fetch(`http://127.0.0.1:${PORT}/${query}`)
+      : await fetch(`http://127.0.0.1:${PORT}/${query}`, {
+          method: 'POST',
+          body: JSON.stringify(args),
+        });
+  return response.json();
+}
+
+/** The simulator's keyboards (`AppleKeyboards`), to switch for a story and put back. */
+function keyboards() {
+  const out = spawnSync(
+    'xcrun',
+    ['simctl', 'spawn', SIM, 'defaults', 'read', '-g', 'AppleKeyboards'],
+    {
+      encoding: 'utf8',
+    },
+  ).stdout;
+  return [...out.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+}
+function setKeyboards(list) {
+  const out = spawnSync(
+    'xcrun',
+    ['simctl', 'spawn', SIM, 'defaults', 'write', '-g', 'AppleKeyboards', '-array', ...list],
+    { encoding: 'utf8' },
+  );
+  if (out.status !== 0) throw new StepFailure(`could not set the keyboards: ${out.stderr}`);
+}
+function relaunch() {
+  const out = spawnSync('just', ['puppet', 'relaunch'], { cwd: repoRoot, env, encoding: 'utf8' });
+  if (out.status !== 0) throw new StepFailure(`relaunch failed: ${out.stdout}${out.stderr}`);
+}
+
+/** The reads an agent makes between steps, over the listener (`/tree` is `elements`). */
+async function everyRead(near) {
+  const shown = (await listener('show', { text: near })).rect;
+  if (!shown) throw new StepFailure(`${JSON.stringify(near)} is not on screen to read near`);
+  for (const [read, args] of [
+    ['state', {}],
+    ['doc', {}],
+    ['doc', { line: 1 }],
+    ['actions', {}],
+    ['tree', {}],
+    ['observe', {}],
+    ['show', { text: near }],
+    ['at', { x: shown.x + 2, y: shown.y + 2 }],
+  ]) {
+    const answer = await listener(read, args);
+    if (answer.ok === false) throw new StepFailure(`${read} refused: ${answer.error}`);
+  }
 }
 
 function expectSaved(noteId, expected, step) {
@@ -197,7 +265,6 @@ story('reads change nothing mid-edit', () => {
   act('Select', { find: 'Hello' });
   const before = editor();
   const pending = state().pending.unsaved;
-  if (!pending.includes(NOTE_A)) console.log('    (the typing had already saved before the reads)');
   const shown = puppet('show', { text: 'Hello' }).rect;
   for (const [read, args] of [
     ['state', {}],
@@ -219,6 +286,38 @@ story('reads change nothing mid-edit', () => {
   expectEqual(doc.source, 'Hello x\nSecond row', 'doc source holds the unsaved edit');
   act('Undo');
   expectSaved(NOTE_A, 'Hello world\nSecond row', 'undo after the reads undoes the typing');
+});
+
+story('reads leave a pending save pending', async () => {
+  const start = saved(NOTE_A);
+  caretAtEnd();
+  // Steady typing keeps the save pending: the editor saves 500 ms after the last edit, or 2 s
+  // after the first unsaved one. Read while it is: a read that saved would change the disk.
+  const typing = spawn(
+    'just',
+    ['puppet', 'type', JSON.stringify({ text: ' and then a few more words', json: true })],
+    { cwd: repoRoot, env, stdio: 'ignore' },
+  );
+  const finished = new Promise((done) => typing.on('exit', done));
+  let ended = false;
+  void finished.then(() => (ended = true));
+  for (let deadline = Date.now() + 3_000; ;) {
+    if ((await listener('state')).pending.unsaved.includes(NOTE_A)) break;
+    if (Date.now() > deadline) throw new StepFailure('the typing never left a save pending');
+  }
+  const began = Date.now();
+  await everyRead('Hello');
+  const pendingAfter = (await listener('state')).pending.unsaved;
+  const disk = onDisk(NOTE_A);
+  const took = Date.now() - began;
+  if (ended || took > 1_500) {
+    throw new StepFailure(`inconclusive: the reads took ${took} ms, typing ended: ${ended}`);
+  }
+  expectEqual(disk, start, `the disk after ${took} ms of reads during a pending save`);
+  expectEqual(pendingAfter.includes(NOTE_A), true, 'the save is still pending after the reads');
+  await finished;
+  expectSaved(NOTE_A, `${start} and then a few more words`, 'the typing saved once it stopped');
+  undoTo(NOTE_A, start);
 });
 
 story('toolbar tap and toolbar verb land alike', () => {
@@ -327,6 +426,33 @@ story('reopen the note', () => {
     'Hello **world**\nSecond row\n- [x] chore\n\n| a1 | b1 |\n| --- | --- |\n| qqx | qqx |',
     'the whole loop',
   );
+});
+
+story('reads leave a composition alone', async () => {
+  // A Japanese romaji keyboard turns the simulator's real keys into marked text.
+  const kept = keyboards();
+  try {
+    setKeyboards(['ja_JP-Romaji@sw=QWERTY-Japanese;hw=Automatic']);
+    relaunch();
+    act('OpenNote', { noteId: NOTE_B });
+    caretAtEnd();
+    const start = saved(NOTE_B);
+    gesture('type', { text: 'nihon' });
+    const before = editor();
+    expectEqual(before.composing, true, 'romaji typing is composing');
+    await everyRead('See');
+    const after = editor();
+    expectEqual(after.composing, true, 'still composing after the reads');
+    expectEqual(after.docVersion, before.docVersion, 'docVersion after the reads');
+    expectEqual(after.selection, before.selection, 'selection after the reads');
+    expectEqual(onDisk(NOTE_B), start, 'nothing saved during the composition');
+    gesture('press', { key: 'Enter' });
+    expectEqual(editor().composing, false, 'Enter committed the composition');
+    expectSaved(NOTE_B, `${start}にほn`, 'the committed composition');
+  } finally {
+    setKeyboards(kept);
+    relaunch();
+  }
 });
 
 // MARK: runner
