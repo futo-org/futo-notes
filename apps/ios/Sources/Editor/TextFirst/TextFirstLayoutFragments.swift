@@ -99,9 +99,11 @@ final class TextFirstLayoutFragment: NSTextLayoutFragment {
 
     override var renderingSurfaceBounds: CGRect {
         // Gutter art lives left of the text and code backgrounds span the full width. The
-        // empty last line's art may run a line's spacing past the frame TextKit measured.
+        // empty last line's art may run a line's spacing past the frame TextKit measured, or
+        // a whole line when TextKit put that line inside the paragraph's own.
         let spill: CGFloat =
-            MainActor.assumeIsolated { host?.trailingBlock } == nil ? 0 : 8
+            MainActor.assumeIsolated { host?.trailingBlock } == nil
+            ? 0 : max(8, (misplacedTrailingLine?.height ?? 0) + 8)
         return super.renderingSurfaceBounds.union(
             CGRect(
                 x: -layoutFragmentFrame.minX - 24, y: 0,
@@ -151,9 +153,23 @@ final class TextFirstLayoutFragment: NSTextLayoutFragment {
         if textLineFragments.count > 1, let last = textLineFragments.last,
             last.characterRange.length == 0
         {
-            height = last.typographicBounds.minY
+            height = misplacedTrailingLine?.minY ?? last.typographicBounds.minY
         }
         return Row(top: 0, height: height, baseline: firstBaseline, font: font)
+    }
+
+    /// Where the note's empty last line belongs when TextKit misplaced it, or nil. Below an
+    /// empty paragraph TextKit lays that line out at the default font's metrics, from the
+    /// default line height down, inside the paragraph's own line (which a list or heading
+    /// makes taller): its art would draw over the paragraph's. It belongs one line further
+    /// down, a line as tall as the one above, where the caret and the typed line go.
+    private var misplacedTrailingLine: CGRect? {
+        guard textLineFragments.count == 2, let first = textLineFragments.first,
+            let last = textLineFragments.last, last.characterRange.length == 0,
+            last.typographicBounds.minY < first.typographicBounds.maxY - 0.5
+        else { return nil }
+        let line = first.typographicBounds
+        return CGRect(x: 0, y: line.maxY, width: 0, height: line.height)
     }
 
     /// The empty last line of the note: TextKit lays it out as a zero-length line fragment at
@@ -176,6 +192,11 @@ final class TextFirstLayoutFragment: NSTextLayoutFragment {
                 (TextFirstEditorController.baseAttributes[.paragraphStyle]
                     as? NSParagraphStyle)?.lineSpacing ?? 0
             } : 0
+        if let moved = misplacedTrailingLine {
+            return Row(
+                top: moved.minY, height: moved.height + spacing,
+                baseline: moved.minY + firstBaseline - firstLine.minY, font: font)
+        }
         return Row(
             top: bounds.minY, height: bounds.height + spacing,
             baseline: bounds.minY + line.glyphOrigin.y, font: font)
