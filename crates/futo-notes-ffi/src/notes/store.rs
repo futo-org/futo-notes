@@ -283,6 +283,15 @@ impl NoteStore {
             .map_err(NoteError::Io)
     }
 
+    /// Permanently deletes every note under the folder (subfolders included), then removes the
+    /// folder. Non-note files move to the parent instead of being deleted.
+    pub fn delete_folder_and_notes(&self, folder: String) -> Result<NoteMutation, NoteError> {
+        self.inner
+            .delete_folder_and_notes(&folder)
+            .map(|mutation| self.project(mutation))
+            .map_err(NoteError::Io)
+    }
+
     pub fn reset(&self) -> Result<(), NoteError> {
         self.inner.reset().map_err(NoteError::Io)
     }

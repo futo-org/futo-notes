@@ -135,6 +135,69 @@ impl LocalNoteStore {
         })
     }
 
+    /// Delete every note under `folder` (subfolders included) as if each had been
+    /// deleted individually, so sync sees one removal per note. Non-note files
+    /// keep the native policy of `delete_folder`: they move up, never deleted.
+    pub fn delete_folder_and_notes(&self, folder: &str) -> Result<MutationResult, String> {
+        let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
+        paths::folder_path(&self.root, folder)?;
+        let folder = sanitize_folder_path(folder);
+        let target = paths::folder_path(&self.root, &folder)?;
+        if !target.exists() {
+            return Ok(self.finish_mutation(Vec::new(), MutationResult::default()));
+        }
+        let prefix = format!("{folder}/");
+        let ids = vault::note_paths(&self.root)
+            .into_iter()
+            .map(|(id, _)| id)
+            .filter(|id| id.starts_with(&prefix))
+            .collect::<Vec<_>>();
+        let changes = ids
+            .iter()
+            .map(|id| FileChange::Removed(note_filename(id)))
+            .collect::<Vec<_>>();
+        self.before_write.before_write(&changes);
+        let mut removed = Vec::with_capacity(ids.len());
+        let mut warnings = Vec::new();
+        let mut failure = None;
+        for (id, change) in ids.iter().zip(&changes) {
+            if let Err(error) = vault_fs::remove_local(&self.root, &note_filename(id)) {
+                failure = Some(error);
+                break;
+            }
+            warnings.extend(self.forget_rename_into(id));
+            if let Err(error) = crate::editor_session::terminate_deleted(&self.root, id) {
+                warnings.push(error);
+            }
+            self.search.notify(change);
+            removed.push(id.clone());
+        }
+        if failure.is_none() {
+            let cleanup = move_remaining_folder_files_up(&self.root, &target)
+                .and_then(|()| remove_empty_folder_tree(&self.root, &target));
+            if let Err(error) = cleanup {
+                warnings.push(format!("notes deleted, but folder cleanup failed: {error}"));
+            }
+        }
+        let mutation = self.finish_mutation(
+            Vec::new(),
+            MutationResult {
+                removed,
+                warnings,
+                ..MutationResult::default()
+            },
+        );
+        match failure {
+            Some(error) => Err(format!(
+                "deleted {} of {} notes before failing: {error}",
+                mutation.removed.len(),
+                ids.len()
+            )),
+            None => Ok(mutation),
+        }
+    }
+
     /// Move every note out first, with rollback on a failed move. Only after
     /// all notes are safe does the supplied platform removal policy receive
     /// the remaining tree (desktop trash or native file-preserving move-up).

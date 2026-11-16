@@ -8,14 +8,14 @@ import org.junit.Test
 class FolderDeletedMessageTest {
     @Test
     fun emptyFolderSaysOnlyFolderDeleted() {
-        assertEquals(LocalizedMessage("folders.deleted"), folderDeletedMessage(0u))
+        assertEquals(LocalizedMessage("folders.deleted"), folderDeletedMessage(0, "Empty"))
     }
 
     @Test
-    fun movedNotesAreCounted() {
+    fun keptNotesAreCountedAndNameTheFolder() {
         assertEquals(
-            LocalizedMessage("folders.delete.movedNotes", mapOf("count" to 2L)),
-            folderDeletedMessage(2u),
+            LocalizedMessage("folders.delete.keptToast", mapOf("count" to 2L, "folderName" to "Trip")),
+            folderDeletedMessage(2, "Trip"),
         )
     }
 }

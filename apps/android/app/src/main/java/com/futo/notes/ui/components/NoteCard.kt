@@ -1,5 +1,7 @@
 package com.futo.notes.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import com.futo.notes.NoteItem
 import com.futo.notes.puppet.noteRowTag
 import com.futo.notes.localization.LocalLocalization
+import com.futo.notes.ui.theme.FutoMotion
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
@@ -54,6 +58,8 @@ fun NoteCard(
     showFolder: Boolean = false,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
+    /** A folder delete just moved this note here: tinted, fading back to the card color. */
+    highlighted: Boolean = false,
 ) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
@@ -66,7 +72,11 @@ fun NoteCard(
 
     Surface(
         shape = RoundedCornerShape(FutoRadius.md),
-        color = c.surface,
+        color = animateColorAsState(
+            if (highlighted) MaterialTheme.colorScheme.primaryContainer else c.surface,
+            tween(if (highlighted) FutoMotion.Fast else 1000),
+            label = "note-arrival-tint",
+        ).value,
         border = BorderStroke(1.dp, c.border),
         modifier = modifier
             .fillMaxWidth()

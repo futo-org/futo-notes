@@ -31,7 +31,9 @@ extension FolderContentsView {
                                     .foregroundStyle(Theme.primary)
                             }
                         }
-                        .listRowBackground(Theme.surface)
+                        .listRowBackground(
+                            folderDeleteTarget == child ? Theme.folderDeleteTint : Theme.surface
+                        )
                         .accessibilityIdentifier(ListRowID.folder(child))
                         // This action only asks for confirmation. A destructive
                         // role makes List animate removal even on a button tap.
@@ -87,7 +89,10 @@ extension FolderContentsView {
                         NavigationLink(value: Route.note(note.id)) {
                             NoteRow(note: note, showFolder: false)
                         }
-                        .listRowBackground(Theme.surface)
+                        .listRowBackground(
+                            arrivedNoteIDs.contains(note.id)
+                                ? Theme.folderArrivalTint : Theme.surface
+                        )
                         .accessibilityIdentifier(ListRowID.note(note.id))
                         // Keep the row in place until deletion is confirmed.
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
