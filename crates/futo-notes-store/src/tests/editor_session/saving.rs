@@ -457,11 +457,17 @@ fn the_portable_host_saves_through_the_same_schedule() {
         .into_portable_host(SessionToken(7))
         .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
-    let first = page.replace(Revision(0), range(5, 5), "!").unwrap();
+    let first = page
+        .replace(Revision(0), range(5, 5), "!")
+        .unwrap()
+        .unwrap();
     page.acknowledge(host.handle(first.request)).unwrap();
     assert_eq!(host.save_delay(), ms(500));
     clock.advance(400);
-    let second = page.replace(Revision(1), range(6, 6), "?").unwrap();
+    let second = page
+        .replace(Revision(1), range(6, 6), "?")
+        .unwrap()
+        .unwrap();
     page.acknowledge(host.handle(second.request)).unwrap();
     // The first unsaved edit still owns the max wait; the second restarted idle.
     assert_eq!(host.save_delay(), ms(500));

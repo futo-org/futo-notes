@@ -15,6 +15,35 @@ import { runMergeRegressions } from './wasm-merge-consumer.mjs';
 import { runBlockRegressions } from './wasm-block-consumer.mjs';
 const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 
+// Input that changes no source returns null, sends nothing, collapses the selection to the
+// end of its text and leaves the session taking input.
+{
+  const opening = { token: 1, source: 'ab cd', revision: 0, paused: false };
+  const session = WasmSession.restore(JSON.stringify(opening));
+  const unchanged = (json, selection) => {
+    assert.equal(JSON.parse(json), null);
+    assert.deepEqual(JSON.parse(session.selection()), selection);
+    assert.equal(JSON.parse(session.status()).outstanding, 0);
+    assert.equal(session.draft_text(), 'ab cd');
+  };
+  session.select_with_affinity(0n, 1, 2, '"Backward"');
+  unchanged(session.replace_utf16_action(0n, 1, 2, new Uint16Array([98]), '"Typing"'), {
+    start: 2,
+    end: 2,
+  });
+  unchanged(session.replace(0n, 0, 2, 'ab'), { start: 2, end: 2 });
+  const runs = [
+    { range: { start: 0, end: 2 }, inserted: [97, 98] },
+    { range: { start: 3, end: 5 }, inserted: [99, 100] },
+  ];
+  unchanged(session.replace_many_utf16(0n, JSON.stringify(runs)), { start: 5, end: 5 });
+  unchanged(session.replace(0n, 0, 0, ''), { start: 5, end: 5 });
+  assert.equal(JSON.parse(session.undo(0n)), null);
+  assert.equal(JSON.parse(session.replace(0n, 5, 5, '!')).change.revision, 1);
+  assert.equal(session.draft_text(), 'ab cd!');
+  session.free();
+}
+
 (async () => {
   const vault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-'));
   const worker = spawn(process.argv[3], [vault], { stdio: ['pipe', 'pipe', 'inherit'] });

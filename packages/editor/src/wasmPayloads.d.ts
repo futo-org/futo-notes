@@ -338,8 +338,9 @@ export type TableOutcome = { selected: SelectionChange } | { edited: Applied };
 // `undo`, `redo`, `set_link`, `insert_image`, `add_header_tag`, `remove_header_tag`,
 // `paste_markdown`, `commit_composition_utf16`, `replace_os_utf16`, `apply_relink_offer`,
 // `table_command*`) apply the edit to the page's engine and return `Applied | null`
-// (`null` = nothing to do), except `replace*`/`accept_wikilink_completion`, which always
-// return `Applied`. Show `change` now and send `request` to the worker. `resume` returns a
+// (`null` = the source did not change: nothing to send, but the selection may have moved,
+// so read `selection`), except `accept_wikilink_completion`, which always returns
+// `Applied`. Show `change` now and send `request` to the worker. `resume` returns a
 // `HostRequest`. `acknowledge` returns `HostRequest[]`: empty, except the reply to `resume`,
 // which returns the outstanding requests (renumbered) the worker lacks. `compose_utf16` and
 // `composition` return `Composition` / `Composition | null`.

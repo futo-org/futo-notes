@@ -294,8 +294,8 @@ impl Engine {
         batch.work.parsed_source_bytes += plan.parsed;
         self.raw(&mut batch, plan.range.clone(), &plan.inserted);
         let Some((edit, shown, records)) = self.accept(batch, accept)? else {
-            // An unchanged commit still finishes at the end of its text.
-            if action != InputAction::Typing && range.start != range.end {
+            // Unchanged input still finishes at the end of its text.
+            if range.start != range.end {
                 self.caret_at(plan.caret);
             }
             return Ok(None);
@@ -360,7 +360,8 @@ impl Engine {
             _ if !ordered => return Err(EditorError::InvalidRange),
             _ => {}
         }
-        self.run(
+        let mut landing = None;
+        let change = self.run(
             expected,
             |engine| {
                 let mut plans = Vec::new();
@@ -378,6 +379,7 @@ impl Engine {
                     .map(|plan| plan.inserted.len() as isize - plan.range.len() as isize)
                     .sum();
                 let caret = (last.caret as isize + growth) as usize;
+                landing = Some(caret);
                 let lines =
                     engine.line_of(plans[0].range.start)..engine.line_of(last.range.end) + 1;
                 let edits = plans
@@ -391,7 +393,13 @@ impl Engine {
                 Ok(Some(command))
             },
             accept,
-        )
+        )?;
+        // `run` puts the selection back when nothing changed; unchanged input
+        // still finishes after its last run.
+        if let (None, Some(caret)) = (&change, landing) {
+            self.caret_at(caret);
+        }
+        Ok(change)
     }
 
     /// Backspace or Delete: remove the selection, or one visible grapheme.

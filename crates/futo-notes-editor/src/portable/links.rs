@@ -16,15 +16,7 @@ impl PortableSession {
         range: DisplayRange,
         destination: &str,
     ) -> Result<Option<Applied>, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let change = self
-            .engine
-            .set_link(expected, range, destination, &mut |edit| {
-                record = Some(edit.clone());
-                Ok(())
-            })?;
-        Ok(change.map(|change| self.issue(record.unwrap(), change)))
+        self.apply_input(|engine, accept| engine.set_link(expected, range, destination, accept))
     }
 
     pub fn edit_link(
@@ -34,15 +26,9 @@ impl PortableSession {
         label: &str,
         destination: &str,
     ) -> Result<Option<Applied>, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let change = self
-            .engine
-            .edit_link(expected, range, label, destination, &mut |edit| {
-                record = Some(edit.clone());
-                Ok(())
-            })?;
-        Ok(change.map(|change| self.issue(record.unwrap(), change)))
+        self.apply_input(|engine, accept| {
+            engine.edit_link(expected, range, label, destination, accept)
+        })
     }
 
     /// Note ids never append; like a query they never wait on acknowledgements.

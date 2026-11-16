@@ -1,4 +1,6 @@
 mod common;
+#[path = "portable/unchanged_input.rs"]
+mod unchanged_input;
 
 use futo_notes_editor::{
     Affinity, DisplayOffset, DisplayRange, HostError, HostErrorKind, HostOperation, PortableError,
@@ -16,7 +18,10 @@ fn at(start: usize, end: usize) -> DisplayRange {
 fn an_edit_shows_at_once_and_acknowledgement_only_advances_accepted() {
     let mut session = PortableSession::open(SessionToken(7), "plain", Revision(0));
     let mut view = common::ReferenceView::new("plain");
-    let applied = session.replace(Revision(0), at(5, 5), "!").unwrap();
+    let applied = session
+        .replace(Revision(0), at(5, 5), "!")
+        .unwrap()
+        .unwrap();
     view.apply(applied.change.clone());
     assert_eq!(view.text, "plain!");
     assert_eq!(session.draft_text(), "plain!");
@@ -37,6 +42,7 @@ fn several_edits_can_be_outstanding_and_each_displays_immediately() {
     for (index, ch) in ["a", "b", "c"].into_iter().enumerate() {
         let applied = page
             .replace(Revision(index as u64), at(index, index), ch)
+            .unwrap()
             .unwrap();
         view.apply(applied.change);
         requests.push(applied.request);
@@ -72,7 +78,7 @@ fn utf16(start: usize, end: usize) -> futo_notes_editor::DisplayUtf16Range {
 #[test]
 fn an_invalid_or_foreign_ack_changes_nothing() {
     let mut page = PortableSession::open(SessionToken(8), "a", Revision(0));
-    let applied = page.replace(Revision(0), at(0, 0), "!").unwrap();
+    let applied = page.replace(Revision(0), at(0, 0), "!").unwrap().unwrap();
     // A success ack must report exactly the edit's resulting revision.
     assert!(page
         .acknowledge(applied.request.accepted(Revision(0)))
@@ -91,7 +97,7 @@ fn an_invalid_or_foreign_ack_changes_nothing() {
 #[test]
 fn an_error_ack_pauses_input_but_queries_work_and_the_draft_stays_copyable() {
     let mut page = PortableSession::open(SessionToken(9), "a", Revision(0));
-    let applied = page.replace(Revision(0), at(0, 0), "!").unwrap();
+    let applied = page.replace(Revision(0), at(0, 0), "!").unwrap().unwrap();
     let mut failed = applied.request.accepted(Revision(0));
     failed.error = Some(HostError::new(HostErrorKind::Rejected, "append failed"));
     assert!(page.acknowledge(failed).unwrap().is_empty());
@@ -109,9 +115,9 @@ fn an_error_ack_pauses_input_but_queries_work_and_the_draft_stays_copyable() {
 #[test]
 fn resume_resends_only_what_the_worker_lacks_in_order() {
     let mut page = PortableSession::open(SessionToken(10), "", Revision(0));
-    let one = page.replace(Revision(0), at(0, 0), "a").unwrap();
-    let two = page.replace(Revision(1), at(1, 1), "b").unwrap();
-    let three = page.replace(Revision(2), at(2, 2), "c").unwrap();
+    let one = page.replace(Revision(0), at(0, 0), "a").unwrap().unwrap();
+    let two = page.replace(Revision(1), at(1, 1), "b").unwrap().unwrap();
+    let three = page.replace(Revision(2), at(2, 2), "c").unwrap().unwrap();
     // The worker took the first edit; its reply and the other requests were lost.
     page.acknowledge(one.request.accepted(Revision(1))).unwrap();
     let resume = page.resume().unwrap();
@@ -156,7 +162,7 @@ fn resume_resends_only_what_the_worker_lacks_in_order() {
 #[test]
 fn resume_with_a_caught_up_worker_resends_nothing() {
     let mut page = PortableSession::open(SessionToken(16), "a", Revision(0));
-    let applied = page.replace(Revision(0), at(0, 0), "!").unwrap();
+    let applied = page.replace(Revision(0), at(0, 0), "!").unwrap().unwrap();
     let resume = page.resume().unwrap();
     // The append's reply was lost but the worker had it.
     let resent = page.acknowledge(resume.accepted(Revision(1))).unwrap();
@@ -174,7 +180,7 @@ fn a_relink_offer_is_applied_only_at_the_revision_it_was_made_for() {
     use futo_notes_editor::RelinkOffer;
     let offer = |revision| {
         let mut page = PortableSession::open(SessionToken(17), "[[old]]", Revision(0));
-        let applied = page.replace(Revision(0), at(0, 0), "x").unwrap();
+        let applied = page.replace(Revision(0), at(0, 0), "x").unwrap().unwrap();
         let mut ack = applied.request.accepted(Revision(1));
         ack.relink = Some(RelinkOffer {
             revision: Revision(revision),
@@ -211,6 +217,7 @@ fn portable_native_utf16_input_rejects_surrogate_splits_without_issuing_a_reques
     };
     let applied = page
         .replace_utf16(Revision(0), valid, &[0x65, 0x301])
+        .unwrap()
         .unwrap();
     assert_eq!(page.draft_text(), "ae\u{301}b");
     assert_eq!(applied.change.inserted, "e\u{301}");
@@ -287,7 +294,11 @@ fn portable_collapsed_formatting_carries_without_a_source_record() {
         page.active_formats().unwrap(),
         vec![InlineFormat::Italic, InlineFormat::Strike]
     );
-    let change = page.replace(Revision(0), boundary, "日").unwrap().change;
+    let change = page
+        .replace(Revision(0), boundary, "日")
+        .unwrap()
+        .unwrap()
+        .change;
     assert_eq!(page.draft_text(), "**a**_~~日~~b_");
     assert_eq!(change.selection.start, DisplayOffset(4));
 }
@@ -347,7 +358,10 @@ fn link_commands_apply_at_once_and_return_canonical_semantics_with_exact_history
 fn explicit_merge_adoption_mirrors_an_append_and_keeps_local_undo() {
     let mut page = PortableSession::open(SessionToken(7), "first\n\nsecond\n", Revision(0));
     let mut view = common::ReferenceView::new("first\n\nsecond\n");
-    let edit = page.replace(Revision(0), at(7, 13), "LOCAL").unwrap();
+    let edit = page
+        .replace(Revision(0), at(7, 13), "LOCAL")
+        .unwrap()
+        .unwrap();
     view.apply(edit.change);
     page.acknowledge(edit.request.accepted(Revision(1)))
         .unwrap();
