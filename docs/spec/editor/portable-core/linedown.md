@@ -199,6 +199,8 @@ Inline marks open and close on the same line. A line break ends them.
 
 The rules for when `*`, `_` and `~` open and close are CommonMark's, applied to one line. So `snake_case_word` is not italic.
 
+Inline code shows as code only. Bold, italic and strikethrough marks around it do not reach its text: ``**a `b` c**`` shows `a` and `c` bold and `b` as plain code.
+
 Bold left open on one line is literal text. It does not carry to the next line:
 
 ```
@@ -213,6 +215,7 @@ and neither is this**
 | `title` with `---`, `===` or `-` under it | Heading                                      | Plain line, then a divider, plain line or bullet |
 | `foo` then `bar` on the next line         | One paragraph; many renderers join the lines | Two lines                                        |
 | Several blank lines in a row              | Collapsed to one gap                         | Shown as written                                 |
+| ``**`code`**``                            | Bold code                                    | Code only                                        |
 | Plain line under a bullet                 | Part of the bullet                           | Its own line                                     |
 | Plain line under a `>` line               | Part of the quote                            | Its own line, not quoted                         |
 | Text indented 4 spaces                    | Code block                                   | Plain line, or list nesting                      |

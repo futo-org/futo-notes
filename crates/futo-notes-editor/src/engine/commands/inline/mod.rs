@@ -169,7 +169,7 @@ impl Engine {
             return Ok(None);
         };
         let add = style & mark == 0;
-        let spares_code = add && mark & CODE_TAKES_NONE != 0;
+        let spares_code = mark & CODE_TAKES_NONE != 0;
         let mut edited = BTreeMap::new();
         let mut refused = false;
         for body in &bodies {
@@ -392,10 +392,10 @@ fn without_code_formats(
 
 /// The format bits the selected visible characters have, as a toggle reads
 /// them: Code when every one is code; Bold, Italic and Strike when every one
-/// outside inline code has it and at least one has it. `None` when no
+/// outside inline code has it (none when all are code). `None` when no
 /// visible character is selected.
 fn selected_style(bodies: &[Body]) -> Option<u16> {
-    let (mut every, mut outside_code, mut any, mut seen) = (u16::MAX, u16::MAX, 0, false);
+    let (mut every, mut outside_code, mut seen) = (u16::MAX, None, false);
     for body in bodies {
         for (glyph, &selected) in body.glyphs.iter().zip(&body.selected) {
             if !selected || glyph.space() {
@@ -403,13 +403,12 @@ fn selected_style(bodies: &[Body]) -> Option<u16> {
             }
             seen = true;
             every &= glyph.style;
-            any |= glyph.style;
             if glyph.style & CODE == 0 {
-                outside_code &= glyph.style;
+                outside_code = Some(outside_code.unwrap_or(u16::MAX) & glyph.style);
             }
         }
     }
-    seen.then_some((every & !CODE_TAKES_NONE) | (outside_code & any & CODE_TAKES_NONE))
+    seen.then_some((every & !CODE_TAKES_NONE) | (outside_code.unwrap_or(0) & CODE_TAKES_NONE))
 }
 
 /// Source `range` of a line's text as a range of its glyphs, trimmed of

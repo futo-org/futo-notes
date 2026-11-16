@@ -3,7 +3,7 @@
 //! lines except the fence language a code line carries.
 use super::line::{Cut, Entry, Role, DIVIDER};
 use super::Engine;
-use crate::lines::{FenceRole, FrontMatterRole, Kind, SpanKind};
+use crate::lines::{reading_spans, FenceRole, FrontMatterRole, Kind, SpanKind};
 use crate::{
     AtomDescription, AtomKind, BlockDescription, Correspondence, CorrespondenceKind, DisplayOffset,
     DisplayRange, ImageDescription, InlineFormat, LinkDescription, ListDescription,
@@ -96,14 +96,11 @@ impl Engine {
     pub(crate) fn formats_at(&self, at: usize) -> Vec<InlineFormat> {
         let (index, before) = super::read::line_at(&self.store, at);
         let local = at - before.source;
-        let mut formats: Vec<InlineFormat> = self
-            .store
-            .get(index)
-            .spans
-            .iter()
-            .filter(|span| span.open.end <= local && local <= span.close.start)
-            .filter_map(|span| format_of(&span.kind))
-            .collect();
+        let mut formats: Vec<InlineFormat> = reading_spans(&self.store.get(index).spans, |span| {
+            span.open.end <= local && local <= span.close.start
+        })
+        .filter_map(|span| format_of(&span.kind))
+        .collect();
         formats.sort();
         formats.dedup();
         formats
@@ -350,25 +347,23 @@ fn correspond(entry: &Entry, source: usize, display: usize, slice: &mut Projecti
 
 /// Line `entry`'s inline formats: each visible stretch between format edges is one run.
 fn runs(entry: &Entry, to_display: &dyn Fn(usize) -> usize, slice: &mut ProjectionSlice) {
-    let formatted: Vec<_> = entry
-        .spans
-        .iter()
-        .filter_map(|span| format_of(&span.kind).map(|f| (span.open.end..span.close.start, f)))
-        .collect();
-    if !formatted.is_empty() {
-        let mut edges: Vec<usize> = formatted
+    let formatted = |span: &&crate::lines::Span| format_of(&span.kind).is_some();
+    if entry.spans.iter().any(|span| formatted(&span)) {
+        let mut edges: Vec<usize> = entry
+            .spans
             .iter()
-            .flat_map(|(range, _)| [range.start, range.end])
+            .filter(formatted)
+            .flat_map(|span| [span.open.end, span.close.start])
             .collect();
         edges.sort_unstable();
         edges.dedup();
         for pair in edges.windows(2) {
             let (from, to) = (pair[0], pair[1]);
-            let mut formats: Vec<InlineFormat> = formatted
-                .iter()
-                .filter(|(range, _)| range.start <= from && to <= range.end)
-                .map(|(_, f)| *f)
-                .collect();
+            let mut formats: Vec<InlineFormat> = reading_spans(&entry.spans, |span| {
+                span.open.end <= from && to <= span.close.start
+            })
+            .filter_map(|span| format_of(&span.kind))
+            .collect();
             let (start, end) = (to_display(from), to_display(to));
             if formats.is_empty() || start >= end {
                 continue;

@@ -17,7 +17,7 @@ pub(crate) mod url;
 mod tests;
 
 pub(crate) use block::{Carry, FenceRole, FrontMatterRole, Kind, Line, TableRole};
-pub(crate) use inline::{Span, SpanKind};
+pub(crate) use inline::{reading_spans, Span, SpanKind};
 use std::ops::Range;
 
 /// A whole note's reading: its lines, the carry before each, and each line's

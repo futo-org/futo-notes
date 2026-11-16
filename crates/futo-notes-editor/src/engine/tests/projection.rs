@@ -232,3 +232,61 @@ fn cached_line_sizes_match_rendered_unicode_and_hidden_frames() {
         }
     }
 }
+
+/// Inline code reads as code only, whatever marks surround it: the runs a
+/// view draws, the formats at a caret inside it, and those a selection of
+/// it has all agree. `code` is the display offset of the code's first
+/// character.
+#[test]
+fn inline_code_reads_as_code_only_inside_any_marks() {
+    use crate::InlineFormat::{Bold, Code, Italic, Strike};
+    let cases = [
+        (
+            "**a `b` c**",
+            2,
+            vec![("a ", vec![Bold]), ("b", vec![Code]), (" c", vec![Bold])],
+        ),
+        ("**`code`**", 0, vec![("code", vec![Code])]),
+        ("*a `b`*", 2, vec![("a ", vec![Italic]), ("b", vec![Code])]),
+        (
+            "~~`b` c~~",
+            0,
+            vec![("b", vec![Code]), (" c", vec![Strike])],
+        ),
+        (
+            "***a `b`***",
+            2,
+            vec![("a ", vec![Bold, Italic]), ("b", vec![Code])],
+        ),
+        ("~~**`b`**~~", 0, vec![("b", vec![Code])]),
+        (
+            "[**a `b`**](u)",
+            2,
+            vec![("a ", vec![Bold]), ("b", vec![Code])],
+        ),
+        (
+            "# **h `c`**",
+            2,
+            vec![("h ", vec![Bold]), ("c", vec![Code])],
+        ),
+    ];
+    for (source, code, runs) in cases {
+        let slice = projected(source);
+        let shown: Vec<_> = slice
+            .runs
+            .iter()
+            .map(|run| {
+                (
+                    &slice.text[run.range.start.0..run.range.end.0],
+                    run.formats.clone(),
+                )
+            })
+            .collect();
+        assert_eq!(shown, runs, "{source}: runs");
+        let mut engine = Engine::open(source);
+        select(&mut engine, code + 1, code + 1, Affinity::Backward);
+        assert_eq!(engine.active_formats(), [Code], "{source}: caret in code");
+        select(&mut engine, code, code + 1, Affinity::Forward);
+        assert_eq!(engine.active_formats(), [Code], "{source}: code selected");
+    }
+}

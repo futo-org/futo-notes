@@ -75,13 +75,10 @@ impl Engine {
         let at = self.caret_source();
         let (index, before) = read::line_at(&self.store, at);
         let local = at - before.source;
-        let style = self
-            .store
-            .get(index)
-            .spans
-            .iter()
-            .filter(|span| span.open.end <= local && local <= span.close.start)
-            .fold(0, |style, span| style | super::draft::span_bit(&span.kind));
+        let style = crate::lines::reading_spans(&self.store.get(index).spans, |span| {
+            span.open.end <= local && local <= span.close.start
+        })
+        .fold(0, |style, span| style | super::draft::span_bit(&span.kind));
         formats_of(style)
     }
 

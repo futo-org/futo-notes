@@ -5,6 +5,7 @@ use super::super::super::line::Entry;
 use super::super::super::{read, store, Engine};
 use super::draft::{glyphs, inline_line, regions};
 use super::{carried_with, Accept};
+use crate::lines::reading_spans;
 use crate::{DisplayOffset, DisplayRange, EditorError, InlineFormat, Revision, ViewChange};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -171,12 +172,12 @@ impl Landing {
     pub fn at(entry: &Entry, at: usize) -> Self {
         let mut formats = Vec::new();
         let mut links = Vec::new();
-        for span in &entry.spans {
-            if span.open.end <= at && at <= span.close.start {
-                match super::super::super::project::format_of(&span.kind) {
-                    Some(format) => formats.push(format),
-                    None => links.push(span.open.end),
-                }
+        for span in reading_spans(&entry.spans, |span| {
+            span.open.end <= at && at <= span.close.start
+        }) {
+            match super::super::super::project::format_of(&span.kind) {
+                Some(format) => formats.push(format),
+                None => links.push(span.open.end),
             }
         }
         if !links.is_empty() {
