@@ -92,15 +92,26 @@
     buttons stack. → FolderDeleteDialog.swift,
     `futo-notes-store::LocalNoteStore::delete_folder_and_notes`,
     `deleting_a_folder_and_its_notes_removes_every_note_but_keeps_attachments`
-    > **Gap (parity):** Android and Tauri offer no "delete the folder and its
-    > notes" choice, only the move-up delete; the Rust primitive
-    > (`delete_folder_and_notes`) is exposed through the shared FFI but has no
-    > Android caller. Desktop would need a trash policy for the notes.
-  - **Android native**: in-list folder row long-press → "Delete folder", with a
-    "Folder deleted; moved N notes" toast, or "Folder deleted" when no note
-    moved, as on desktop. Deleting the folder a pushed screen is
-    showing pops that screen (see [Folder browsing](folder-browsing.md#folder-browsing)). →
-    NoteListScreen.kt
+    > **Gap (parity):** Tauri offers no "delete the folder and its notes" choice, only
+    > the move-up delete; the Rust primitive is exposed through the shared FFI. Desktop
+    > would need a trash policy for the notes.
+  - **Android native**: in-list folder row long-press → "Delete folder" opens the
+    same two-step flow as iOS (counts, strings and the 0.6 s Delete all arming are
+    identical; an empty folder keeps the plain confirm and its "Folder deleted"
+    toast), drawn as a Material 3 dialog: step 1 stacks **Delete folder only**
+    (tonal, orange), **Delete folder and notes…** (outlined, error colour) and Cancel;
+    step 2 is the same dialog animating in place (fade plus size change; only fades
+    when the system animator scale is 0), with a trash hero icon, the first 3 titles
+    plus "and K more", and Back | **Delete all** at the bottom right, a reject haptic
+    (`HapticFeedbackConstants.REJECT`, API 30+, else long-press) when it appears.
+    The dialog scrolls at large font scale. The folder's row is tinted while the
+    dialog is up. After Delete folder only a toast "Kept N notes from “Name”" shows,
+    and notes that landed in the list (ids not in it before) are tinted for about 2 s;
+    after Delete all the row just disappears. The puppet refuses DeleteAllNotes while
+    disarmed (409). Deleting the folder a pushed screen is showing pops that screen
+    (see [Folder browsing](folder-browsing.md#folder-browsing)). Verified on the
+    emulator 2026-11-16 (disk: notes deleted, non-note files moved up). →
+    FolderDeleteDialog.kt, NoteListDialogs.kt, `NotesStore.deleteFolderAndNotes`
   - The native shells share the Rust primitive (rejects the vault root and
     path traversal; a missing folder is a no-op; relinks each moved note).
     Remaining images and other files move up with their relative subfolder

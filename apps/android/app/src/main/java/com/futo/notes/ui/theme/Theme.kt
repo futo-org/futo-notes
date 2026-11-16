@@ -55,6 +55,7 @@ private val FutoDarkColorScheme = darkColorScheme(
     inverseSurface = FutoPalette.Paper,
     inverseOnSurface = FutoPalette.TextInk,
     error = FutoPalette.Danger,
+    onError = FutoPalette.Paper,
 )
 
 val LocalFutoColors = staticCompositionLocalOf { FutoColors() }

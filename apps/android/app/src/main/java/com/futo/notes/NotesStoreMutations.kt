@@ -167,19 +167,37 @@ suspend fun NotesStore.moveFolder(from: String, destinationParent: String): Stri
 /** MOVE-UP folder delete (Tauri parity, [list.md]): notes under
  *  [path] move to the parent (Rust bails atomically — if ANY move fails
  *  nothing is deleted), wikilinks are relinked, then the folder tree goes.
- *  Returns the moved-note count, or null when the FFI rejected the delete
+ *  Returns the ids the mutation listed (the moved notes' final ids, plus any
+ *  note whose links it rewrote), or null when the FFI rejected the delete
  *  (the folder is left intact). */
-suspend fun NotesStore.deleteFolder(path: String): UInt? =
+suspend fun NotesStore.deleteFolderKeepingNotes(path: String): List<String>? =
     try {
         runMutationTransaction {
             val mutation = withCore { core.deleteFolder(path) }
             applyMutation(mutation)
             signalLocalChange()
-            mutation.removed.size.toUInt()
+            mutation.upserted.map { it.note.id }
         }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "deleteFolder failed for $path", e)
         null
+    }
+
+/** Permanently deletes every note under [path] (subfolders included), then the folder;
+ *  other files move up as in [deleteFolderKeepingNotes]. True once the lists have it. */
+suspend fun NotesStore.deleteFolderAndNotes(path: String): Boolean =
+    try {
+        runMutationTransaction {
+            val mutation = withCore { core.deleteFolderAndNotes(path) }
+            applyMutation(mutation)
+            signalLocalChange()
+            true
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        android.util.Log.e("NotesStore", "deleteFolderAndNotes failed for $path", e)
+        false
     }
