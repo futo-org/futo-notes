@@ -257,25 +257,12 @@ internal class TextFirstEditText(
         val e = editableText ?: return
         // The end sentinel is not a caret position (an empty Editable has none yet).
         val last = (e.length - 1).coerceAtLeast(0)
-        val (a, b) = clampOutOfAtoms(e, selStart.coerceAtMost(last), selEnd.coerceAtMost(last))
+        val (a, b) = clampSelectionOutOfAtoms(e, selStart.coerceAtMost(last), selEnd.coerceAtMost(last))
         if (a != selStart || b != selEnd) {
             applying = true
             try { Selection.setSelection(e, a, b) } finally { applying = false }
         }
         engine?.viewSelection(appliedSeq, a, b)
-    }
-
-    /** Atoms have caret stops only at their two ends (images.md). */
-    private fun clampOutOfAtoms(e: Editable, start: Int, end: Int): Pair<Int, Int> {
-        fun clamp(p: Int): Int {
-            for (atom in e.getSpans(p, p, TfAtom::class.java)) {
-                val s = e.getSpanStart(atom)
-                val en = e.getSpanEnd(atom)
-                if (p in (s + 1) until en) return if (p - s <= en - p) s else en
-            }
-            return p
-        }
-        return clamp(start) to clamp(end)
     }
 
     @SuppressLint("ClickableViewAccessibility")
