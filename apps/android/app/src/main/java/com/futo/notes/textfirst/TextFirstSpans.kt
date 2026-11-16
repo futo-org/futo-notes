@@ -65,6 +65,8 @@ internal class TextFirstStyle(
     val codeLabelHeader = textSizePx * 16f / 17f
     val codeLabelSize = textSizePx * 11f / 17f
     val selectionColor get() = (linkColor and 0x00ffffff) or 0x40000000
+    /** The body's border over the header's fill would vanish (the same colour in dark): a step of the text colour over it. */
+    val tableHeaderBorderColor get() = androidx.core.graphics.ColorUtils.compositeColors((textColor and 0x00ffffff) or 0x26000000, codeBackground)
 
     /** Find-match highlight: the link colour, stronger for the current match. */
     fun findMarkColor(current: Boolean) = (linkColor and 0x00ffffff) or (if (current) 0x99000000.toInt() else 0x40000000)

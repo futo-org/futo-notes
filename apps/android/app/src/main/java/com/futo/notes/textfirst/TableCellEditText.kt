@@ -23,7 +23,7 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     }
     fun applyGeometry(geometry: TableCellGeometry) {
         typeface = if (geometry.header) noteStyle.semibold else noteStyle.regular
-        gravity = android.view.Gravity.TOP or android.view.Gravity.START
+        gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.START
         textAlignment = when (geometry.alignment) {
             uniffi.futo_notes_ffi.EditorTableAlignment.RIGHT -> TEXT_ALIGNMENT_TEXT_END
             uniffi.futo_notes_ffi.EditorTableAlignment.CENTER -> TEXT_ALIGNMENT_CENTER

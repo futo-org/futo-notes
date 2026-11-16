@@ -26,6 +26,12 @@ class TextFirstLineMetricsTest {
         }
     }
 
+    /** The delimiter line takes no height: the first body row's top is the header row's bottom. */
+    @Test fun tableHeaderAndBodyRowsMeet() {
+        val heights = lineHeights("| a | b |\n|---|---|\n| c | d |\nz\n")
+        assertEquals("the delimiter line between header and body ($heights)", 0, heights[1])
+    }
+
     /** An H1 line is two body lines tall and H3 to H6 lines one, with tall and deep glyphs in them. */
     @Test fun headingLinesKeepTheBodyLineGrid() {
         val heights = lineHeights("x\ny\n# Ågjpq\n### Ågjpq\n#### Ågjpq\n##### Ågjpq\n###### Ågjpq\nz\n")

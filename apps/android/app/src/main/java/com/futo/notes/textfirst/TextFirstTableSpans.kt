@@ -67,6 +67,7 @@ internal class TfTableRow(
                 else -> Layout.Alignment.ALIGN_NORMAL
             }).setIncludePad(false).build()
     }
+    /** The whole line, the spacing the TextView adds below it included; 48 dp keeps a cell a touch target. */
     private val rowHeight = maxOf(look.dp(48f).toInt(), (layouts.maxOfOrNull { it.height } ?: 0) + (padding * 2).toInt())
     /** Text edits above this row shift all its offsets without changing any cell layout. */
     fun matches(next: GridRow, nextStart: Int): Boolean {
@@ -83,14 +84,18 @@ internal class TfTableRow(
     }
 
     override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
-        fm?.apply { ascent = -rowHeight; top = ascent; descent = 0; bottom = 0 }
+        fm?.apply { ascent = -(rowHeight - look.bodyLineSpacing); top = ascent; descent = 0; bottom = 0 }
         return width()
     }
     override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
         val save = canvas.save()
         canvas.clipRect(x, top.toFloat(), x + width(), bottom.toFloat())
         val origin = x - scroll.x
-        val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = look.borderColor; strokeWidth = look.dp(1f); style = Paint.Style.STROKE }
+        val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (row.header) look.tableHeaderBorderColor else look.borderColor
+            strokeWidth = look.dp(1f)
+            style = Paint.Style.STROKE
+        }
         if (row.header) canvas.drawRect(x, top.toFloat(), x + width(), bottom.toFloat(), Paint().apply { color = look.codeBackground })
         for (column in 0 until row.columns) {
             val left = origin + column * cellWidth
@@ -102,7 +107,7 @@ internal class TfTableRow(
             val layout = layouts.getOrNull(column) ?: continue
             layout.paint.color = look.textColor
             val cellSave = canvas.save()
-            canvas.translate(left + padding, top + padding)
+            canvas.translate(left + padding, top + (bottom - top - layout.height) / 2f)
             val cell = row.cells[column]
             val shift = start - displayStart
             marks.drawCell(canvas, layout, cell.start + shift, cell.end + shift, look)
@@ -135,10 +140,11 @@ internal class TfTableRow(
 }
 
 /** The delimiter belongs to Markdown, and takes no visible row in the grid. */
-internal class TfTableDelimiter : ReplacementSpan(), LineHeightSpan, TfAtom {
+internal class TfTableDelimiter(private val look: TextFirstStyle) : ReplacementSpan(), LineHeightSpan, TfAtom {
     override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fm: Paint.FontMetricsInt?) = 0
     override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {}
+    /** No height at all once the TextView adds its line spacing: the header and body rows meet. */
     override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
-        fm.ascent = -1; fm.top = -1; fm.descent = 0; fm.bottom = 0
+        fm.ascent = 0; fm.top = 0; fm.descent = -look.bodyLineSpacing; fm.bottom = fm.descent
     }
 }
