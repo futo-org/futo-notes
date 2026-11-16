@@ -259,10 +259,10 @@ internal class TfList(
         paint.typeface = look.regular
         when (marker) {
             ListMarker.Bullet -> {
-                val radius = look.dp(2.6f)
+                val radius = look.textSizePx * 2.6f / 17f
                 val cy = baseline - look.textSizePx * 0.32f
                 paint.style = Paint.Style.FILL
-                if (depth % 2 == 1) { paint.style = Paint.Style.STROKE; paint.strokeWidth = look.dp(1.2f) }
+                if (depth % 2 == 1) { paint.style = Paint.Style.STROKE; paint.strokeWidth = look.textSizePx * 1.2f / 17f }
                 c.drawCircle(leadingX(x, dir, lead + unit * 0.45f), cy, radius, paint)
             }
             ListMarker.Ordered -> {
