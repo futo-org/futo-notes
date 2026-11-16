@@ -27,6 +27,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +60,7 @@ import com.futo.notes.ui.components.pickFolderShortcut
 import com.futo.notes.ui.components.renameFolderShortcut
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
+import kotlinx.coroutines.delay
 
 /**
  * One folder's contents [list.md "Folder browsing"]: its immediate subfolders
@@ -98,6 +100,14 @@ internal fun NoteListScreen(
     var renameFolderTarget by remember { mutableStateOf<String?>(null) }
     var moveFolderTarget by remember { mutableStateOf<String?>(null) }
     var confirmDeleteFolder by remember { mutableStateOf<String?>(null) }
+    // Notes a "Delete folder only" just moved into this list, tinted for ~2 s.
+    var arrivedNoteIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    LaunchedEffect(arrivedNoteIds) {
+        if (arrivedNoteIds.isNotEmpty()) {
+            delay(1800)
+            arrivedNoteIds = emptySet()
+        }
+    }
 
     val scrolled by remember(listState) {
         derivedStateOf {
@@ -303,6 +313,7 @@ internal fun NoteListScreen(
                     Box {
                         FolderCard(
                             path = child,
+                            tinted = confirmDeleteFolder == child,
                             onClick = { onOpenFolder(child) },
                             onLongClick = { menuRow = folderRowTag(child) },
                         )
@@ -339,6 +350,7 @@ internal fun NoteListScreen(
                     Box {
                         NoteCard(
                             note,
+                            highlighted = note.id in arrivedNoteIds,
                             onClick = { onOpenNote(note.id) },
                             onLongClick = { menuRow = noteRowTag(note.id) },
                         )
@@ -383,16 +395,20 @@ internal fun NoteListScreen(
         confirmDeleteFolder = confirmDeleteFolder,
         onConfirmDeleteFolderChange = { confirmDeleteFolder = it },
         onFolderMoved = onFolderMoved,
+        onNotesArrived = { arrivedNoteIds = it },
     )
 }
 
-/** Toast body for a MOVE-UP folder delete [list.md]: "Folder deleted" when no note
- *  moved, else the pluralized moved-note count, as on desktop. */
-internal fun folderDeletedMessage(moved: UInt): LocalizedMessage =
-    if (moved == 0u) {
+/** Toast body for "Delete folder only" [folder-management.md]: "Folder deleted" for an empty
+ *  folder, else "Kept N notes from “Name”". */
+internal fun folderDeletedMessage(kept: Int, folderName: String): LocalizedMessage =
+    if (kept == 0) {
         LocalizedMessage("folders.deleted")
     } else {
-        LocalizedMessage("folders.delete.movedNotes", mapOf("count" to moved.toLong()))
+        LocalizedMessage(
+            "folders.delete.keptToast",
+            mapOf("count" to kept.toLong(), "folderName" to folderName),
+        )
     }
 
 /** Rank changes re-pin only an at-top viewport; the four-pixel allowance

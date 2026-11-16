@@ -4,8 +4,24 @@ extension NotesStore {
     /// Returns once the folder list has the change, and whether it landed.
     @discardableResult
     func deleteFolder(_ folder: String) async -> Bool {
-        await serializedFolderMutation("deleteFolder failed for \(folder)") { [vault] epoch in
+        await deleteFolderKeepingNotes(folder) != nil
+    }
+
+    /// Deletes the folder and moves its notes up a level. Returns the moved notes' final ids
+    /// once the lists have the change, or nil when it did not land.
+    func deleteFolderKeepingNotes(_ folder: String) async -> [String]? {
+        await folderMutation("deleteFolder failed for \(folder)") { [vault] epoch in
             try await vault.deleteFolder(folder, epoch: epoch)
+        }?.upserted.map(\.note.id)
+    }
+
+    /// Permanently deletes every note under the folder (subfolders included) and then the
+    /// folder. Returns once the lists have the change, and whether it landed.
+    @discardableResult
+    func deleteFolderAndNotes(_ folder: String) async -> Bool {
+        await serializedFolderMutation("deleteFolderAndNotes failed for \(folder)") {
+            [vault] epoch in
+            try await vault.deleteFolderAndNotes(folder, epoch: epoch)
         }
     }
 
@@ -22,19 +38,27 @@ extension NotesStore {
     private func serializedFolderMutation(
         _ failure: String, _ mutate: @escaping (UInt64) async throws -> NoteMutation
     ) async -> Bool {
+        await folderMutation(failure, mutate) != nil
+    }
+
+    /// `serializedFolderMutation`, returning the applied mutation (nil when it did not land).
+    private func folderMutation(
+        _ failure: String, _ mutate: @escaping (UInt64) async throws -> NoteMutation
+    ) async -> NoteMutation? {
         let epoch = resetEpoch
-        guard !resetting else { return false }
+        guard !resetting else { return nil }
         let previous = folderMutationTail
-        let mutation = Task {
+        let mutation = Task { () -> NoteMutation? in
             _ = await previous?.value
-            guard !resetting else { return false }
+            guard !resetting else { return nil }
             do {
-                applyMutation(try await mutate(epoch), expectedEpoch: epoch)
+                let applied = try await mutate(epoch)
+                applyMutation(applied, expectedEpoch: epoch)
                 onLocalChange?()
-                return true
+                return applied
             } catch {
                 print("\(failure): \(error)")
-                return false
+                return nil
             }
         }
         folderMutationTail = mutation
@@ -77,6 +101,12 @@ extension NotesStore {
             let tail = String(path.dropFirst(prefix.count))
             return !tail.isEmpty && !tail.contains("/")
         }
+    }
+
+    /// Every note in the folder or any folder beneath it, in list order.
+    func notes(under folder: String) -> [NoteItem] {
+        let prefix = folder + "/"
+        return notes.filter { $0.folder == folder || $0.folder.hasPrefix(prefix) }
     }
 
     func notes(in folder: String) -> [NoteItem] {

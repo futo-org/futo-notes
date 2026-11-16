@@ -2,6 +2,7 @@ package com.futo.notes.ui
 
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
 import com.futo.notes.localization.Localization
@@ -14,7 +15,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import com.futo.notes.createFolder
 import com.futo.notes.delete
-import com.futo.notes.deleteFolder
+import com.futo.notes.deleteFolderAndNotes
+import com.futo.notes.deleteFolderKeepingNotes
 import com.futo.notes.moveFolder
 import com.futo.notes.moveNote
 import com.futo.notes.renameFolder
@@ -44,6 +46,7 @@ internal fun NoteListDialogs(
     confirmDeleteFolder: String?,
     onConfirmDeleteFolderChange: (String?) -> Unit,
     onFolderMoved: (from: String, to: String) -> Unit,
+    onNotesArrived: (Set<String>) -> Unit,
 ) {
     fun toast(key: String, arguments: Map<String, Any> = emptyMap()) =
         showToast(context, localization.localizedText(key, arguments))
@@ -51,17 +54,25 @@ internal fun NoteListDialogs(
     suspend fun deleteNote(id: String) {
         toast(if (shouldCompleteNoteAction(store.delete(id))) "notes.deleted" else "notes.errors.deleteFailed")
     }
-    suspend fun deleteFolder(path: String) {
-        // MOVE-UP delete [list.md]: Rust bails atomically, so a null here means the folder
-        // (and its notes) are untouched. The deleted folder leaves `store.folders`, and
-        // AppNavigation's retainFolders effect drops any route into it — no explicit pop.
-        val moved = store.deleteFolder(path)
+    // Delete folder only [folder-management.md]: the notes move up a level. Rust bails
+    // atomically, so a null here means the folder (and its notes) are untouched. The
+    // deleted folder leaves `store.folders`, and AppNavigation's retainFolders effect
+    // drops any route into it — no explicit pop.
+    suspend fun deleteFolderOnly(path: String, noteCount: Int) {
+        // The mutation also lists notes whose links it rewrote; only ids new to this
+        // list are arrivals.
+        val present = store.notesIn(folder).map { it.id }.toSet()
+        val moved = store.deleteFolderKeepingNotes(path)
         if (moved == null) {
             toast("folders.errors.deleteFailed")
-        } else {
-            val message = folderDeletedMessage(moved)
-            toast(message.path, message.arguments)
+            return
         }
+        val message = folderDeletedMessage(noteCount, path.substringAfterLast('/'))
+        toast(message.path, message.arguments)
+        onNotesArrived(moved.filterNot { it in present }.toSet())
+    }
+    suspend fun deleteFolderWithNotes(path: String) {
+        if (!store.deleteFolderAndNotes(path)) toast("folders.errors.deleteFailed")
     }
 
     deleteTarget?.let { id ->
@@ -178,15 +189,36 @@ internal fun NoteListDialogs(
     }
 
     confirmDeleteFolder?.let { target ->
-        ConfirmDialog(
-            title = localization.localizedText("folders.delete.thisFolderQuestion"),
-            body = localization.localizedText("folders.delete.moveContentsWarning"),
-            confirmLabelKey = "common.actions.delete",
-            onConfirm = {
-                onConfirmDeleteFolderChange(null)
-                deleteFolder(target)
-            },
-            onDismiss = { onConfirmDeleteFolderChange(null) },
-        )
+        val name = target.substringAfterLast('/')
+        // Every note in the folder and below it, in list order, as of opening.
+        val titles = remember(target) {
+            store.notes.filter { it.folder == target || it.folder.startsWith("$target/") }.map { it.title }
+        }
+        if (titles.isEmpty()) {
+            ConfirmDialog(
+                title = localization.localizedText("folders.delete.namedTitle", mapOf("folderName" to name)),
+                body = localization.localizedText("folders.delete.emptyMessage"),
+                confirmLabelKey = "common.actions.delete",
+                onConfirm = {
+                    onConfirmDeleteFolderChange(null)
+                    deleteFolderOnly(target, 0)
+                },
+                onDismiss = { onConfirmDeleteFolderChange(null) },
+            )
+        } else {
+            FolderDeleteDialog(
+                folderName = name,
+                noteTitles = titles,
+                onCancel = { onConfirmDeleteFolderChange(null) },
+                onFolderOnly = {
+                    onConfirmDeleteFolderChange(null)
+                    deleteFolderOnly(target, titles.size)
+                },
+                onDeleteAll = {
+                    onConfirmDeleteFolderChange(null)
+                    deleteFolderWithNotes(target)
+                },
+            )
+        }
     }
 }

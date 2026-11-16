@@ -201,6 +201,16 @@ impl StoreEditorSession<'_> {
         self.live(|state| state.toggle_format(expected, format))
     }
 
+    /// The mobile toolbar's toggle: a caret inside a word or at its start
+    /// formats the whole word.
+    pub fn toggle_toolbar_format(
+        &mut self,
+        expected: Revision,
+        format: InlineFormat,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.live(|state| state.toggle_toolbar_format(expected, format))
+    }
+
     pub fn select_utf16(
         &mut self,
         expected: Revision,

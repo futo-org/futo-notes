@@ -20,6 +20,11 @@ struct FolderContentsView: View {
     @State var deleteTarget: NoteItem?
     /// Subfolder pending the delete-folder confirmation.
     @State var folderDeleteTarget: String?
+    /// "Kept N notes from …" after a folder is deleted but its notes are kept.
+    @State var keptToast: String?
+    @State var keptToastTask: Task<Void, Never>?
+    /// Notes a "Delete folder only" just moved into this list, tinted for a moment.
+    @State var arrivedNoteIDs: Set<String> = []
     /// Subfolder being renamed or moved.
     @State var folderRenameTarget: String?
     @State var renameFolderName = ""
@@ -132,6 +137,7 @@ struct FolderContentsView: View {
             }
         }
         .background(Theme.background)
+        .overlay(alignment: .bottom) { keptToastView }
         .navigationTitle(title)
         // The nav bar's two buttons, on the empty state as on the list. New folder's `name`
         // is the dialog's next two steps, typing the name and pressing Create.
@@ -283,19 +289,32 @@ struct FolderContentsView: View {
                 get: { folderDeleteTarget != nil },
                 set: { if !$0 { setFolderDeleteTarget(nil) } })
         ) {
-            DestructiveConfirmDialog(
-                message: localization.localizedText(
-                    "folders.delete.preservingContentsConfirmation"
-                ),
-                destructiveLabelKey: "folders.actions.deleteFolder",
-                onCancel: { setFolderDeleteTarget(nil) },
-                onDestructive: {
-                    let target = folderDeleteTarget
-                    setFolderDeleteTarget(nil)
-                    if let target { _ = await store.deleteFolder(target) }
-                }
-            )
-            .presentationBackground(.clear)
+            if let target = folderDeleteTarget {
+                let name = target.split(separator: "/").last.map(String.init) ?? target
+                let titles = store.notes(under: target).map(\.title)
+                FolderDeleteDialog(
+                    folderName: name,
+                    noteTitles: titles,
+                    onCancel: { setFolderDeleteTarget(nil) },
+                    onFolderOnly: {
+                        setFolderDeleteTarget(nil)
+                        // The mutation also lists notes whose links it rewrote; only new ids
+                        // here are arrivals.
+                        let present = Set(notes.map(\.id))
+                        if let moved = await store.deleteFolderKeepingNotes(target),
+                            !titles.isEmpty
+                        {
+                            showKeptToast(count: titles.count, folderName: name)
+                            highlightArrivals(moved.filter { !present.contains($0) })
+                        }
+                    },
+                    onDeleteAll: {
+                        setFolderDeleteTarget(nil)
+                        _ = await store.deleteFolderAndNotes(target)
+                    }
+                )
+                .presentationBackground(.clear)
+            }
         }
     }
 
