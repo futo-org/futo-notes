@@ -4,7 +4,7 @@
 //! back as intended.
 use super::super::super::super::line::{Cut, Entry};
 use super::super::draft::{
-    glyph_range, glyphs, inside, matches, shape, text_gap, Draft, Expect, Glyph, Shape,
+    gap, glyph_range, glyphs, inside, matches, shape, Draft, Expect, Glyph, Shape,
 };
 use crate::lines::{Span, SpanKind};
 use std::ops::Range;
@@ -46,8 +46,8 @@ pub(in super::super) fn wrap_marks(
     if glyphs.len() != expect.len() {
         return None;
     }
-    let mut opens = text_gap(entry, &glyphs, run.start);
-    let mut closes = text_gap(entry, &glyphs, run.end);
+    let mut opens = gap(entry, &glyphs, run.start);
+    let mut closes = gap(entry, &glyphs, run.end);
     if marks.innermost {
         opens.reverse();
     } else {
@@ -148,7 +148,7 @@ fn crossing(entry: &Entry, glyphs: &[Glyph], edge: usize) -> Option<(usize, Stri
         .filter(|(range, _)| range.start == edge)
         .map(|(_, span)| span.open.start)
         .min();
-    let at = after.or_else(|| text_gap(entry, glyphs, edge).first().copied())?;
+    let at = after.or_else(|| gap(entry, glyphs, edge).first().copied())?;
     if before.is_some_and(|before| before < at) {
         return None;
     }

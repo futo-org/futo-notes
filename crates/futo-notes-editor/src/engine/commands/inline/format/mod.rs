@@ -7,8 +7,8 @@
 //! every other character looking as it did, the block unchanged.
 use super::super::super::line::{Cut, Entry};
 use super::draft::{
-    bit, glyph_range, glyphs, inside, matches, regions, shape, text_gap, Draft, Expect, Glyph,
-    Shape, UNSEEN_ON_SPACE,
+    bit, gap, glyph_range, glyphs, inside, matches, regions, shape, Draft, Expect, Glyph, Shape,
+    UNSEEN_ON_SPACE,
 };
 use crate::lines::{Span, SpanKind};
 use crate::InlineFormat;
@@ -236,8 +236,8 @@ impl Rewrite<'_> {
                 .find(|(range, _, _)| range.start < run.end && range.end > run.start)
                 .map(|(_, open, close)| (open.clone(), close.clone()));
             let (open, close) = own.unwrap_or_else(|| spellings(self.format, &text).swap_remove(0));
-            let opens = text_gap(self.entry, self.glyphs, run.start);
-            let closes = text_gap(self.entry, self.glyphs, run.end);
+            let opens = gap(self.entry, self.glyphs, run.start);
+            let closes = gap(self.entry, self.glyphs, run.end);
             let (o, c) = if code {
                 (opens.last()?, closes.first()?)
             } else {

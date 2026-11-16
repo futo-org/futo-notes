@@ -234,17 +234,19 @@ fn a_link_label_takes_the_carried_format_for_the_whole_word() {
 
 #[test]
 fn line_starts_in_blocks() {
-    for (source, expected) in [
-        ("", "hello"),
-        ("- ", "- hello"),
-        ("# ", "# hello"),
-        ("> ", "> hello"),
-        ("1. ", "1. hello"),
-        ("- [ ] ", "- [ ] hello"),
+    // The caret is at each line's text start: after a list item's marker, which is one
+    // unit of the display.
+    for (source, caret, expected) in [
+        ("", 0, "hello"),
+        ("- ", 1, "- hello"),
+        ("# ", 0, "# hello"),
+        ("> ", 0, "> hello"),
+        ("1. ", 1, "1. hello"),
+        ("- [ ] ", 1, "- [ ] hello"),
     ] {
         let (session, _, _) = complete(
             source,
-            0,
+            caret,
             &[Toggle(Bold), Type("hel"), Toggle(Bold)],
             3,
             "hello",

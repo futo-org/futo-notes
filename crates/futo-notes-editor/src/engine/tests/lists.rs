@@ -9,6 +9,7 @@ use crate::{Affinity, BlockCommand, DisplayRange, InputAction, ParagraphKey};
 use serde::Deserialize;
 use std::ops::Range;
 
+mod marker_input;
 mod work;
 
 #[derive(Deserialize)]
