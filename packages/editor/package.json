@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "remark-frontmatter": "5.0.0",
-    "unicode-case-folding": "1.1.2"
+    "unicode-case-folding": "1.1.0"
   },
   "devDependencies": {
     "mdast-util-from-markdown": "2.1.0",
