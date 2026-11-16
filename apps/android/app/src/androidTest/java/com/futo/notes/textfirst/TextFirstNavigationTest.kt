@@ -58,7 +58,7 @@ class TextFirstNavigationTest {
         compose.waitUntil(10_000) {
             var found: TextFirstEditText? = null
             compose.runOnUiThread { found = findEditor(compose.activity.window.decorView) }
-            found?.let { editor = it; it.text.toString().startsWith("base") } == true
+            found?.let { editor = it; readOnMainThread { it.text.toString().startsWith("base") } } == true
         }
     }
 

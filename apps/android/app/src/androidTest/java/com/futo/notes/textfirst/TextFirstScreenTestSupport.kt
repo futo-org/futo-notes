@@ -71,6 +71,6 @@ internal fun AndroidComposeTestRule<ActivityScenarioRule<ComponentActivity>, Com
         editor.engine!!.hostSelect(editor.length() - 1, editor.length() - 1)
         connection = checkNotNull(editor.onCreateInputConnection(EditorInfo()))
     }
-    waitUntil(5_000) { editor.selectionStart == editor.length() - 1 && editor.selectionEnd == editor.length() - 1 }
+    waitUntil(5_000) { readOnMainThread { editor.selectionStart == editor.length() - 1 && editor.selectionEnd == editor.length() - 1 } }
     check(editor, connection)
 }

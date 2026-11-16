@@ -1,6 +1,7 @@
 package com.futo.notes.textfirst
 
 import android.graphics.Color
+import android.os.Looper
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import androidx.activity.ComponentActivity
@@ -19,6 +20,17 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertNull
 import uniffi.futo_notes_ffi.NoteStore
+
+/**
+ * [read] on the main thread, where the note view's Editable is written. Read from the test thread,
+ * a ChunkedEditable can pair one chunk's offset with another chunk's position.
+ */
+internal fun <T> readOnMainThread(read: () -> T): T {
+    if (Looper.myLooper() == Looper.getMainLooper()) return read()
+    var result: Result<T>? = null
+    InstrumentationRegistry.getInstrumentation().runOnMainSync { result = runCatching(read) }
+    return checkNotNull(result).getOrThrow()
+}
 
 /** The editor under test, styled like the app, for the classes that drive it through a bare activity. */
 internal fun createTextFirstController(activity: ComponentActivity, core: () -> NoteStore, root: File, storageGate: StorageMigrationGate? = null): TextFirstController {

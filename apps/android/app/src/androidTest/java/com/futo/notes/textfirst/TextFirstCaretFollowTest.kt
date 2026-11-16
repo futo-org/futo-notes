@@ -154,7 +154,7 @@ class TextFirstCaretFollowTest {
         val readingAt = view.scrollY
         assertTrue("the reader is in the middle of the note", readingAt > 0)
         compose.runOnUiThread { view.engine!!.selectAll() }
-        compose.waitUntil(5_000) { view.selectionStart == 0 && view.selectionEnd == view.length() - 1 }
+        compose.waitUntil(5_000) { readOnMainThread { view.selectionStart == 0 && view.selectionEnd == view.length() - 1 } }
         // TextView's reveal normally runs at pre-draw, after the engine's selection echo.
         compose.waitForIdle()
         compose.runOnUiThread { view.bringPointIntoView(view.selectionEnd) }
@@ -205,7 +205,7 @@ class TextFirstCaretFollowTest {
         compose.runOnUiThread {
             view.engine!!.selectAll()
         }
-        compose.waitUntil(5_000) { view.selectionStart == 0 && view.selectionEnd == view.length() - 1 }
+        compose.waitUntil(5_000) { readOnMainThread { view.selectionStart == 0 && view.selectionEnd == view.length() - 1 } }
         compose.runOnUiThread {
             // Put the top edge inside a selected line, away from the document's own first-line padding.
             view.scrollTo(0, view.layout.getLineTop(8) + view.totalPaddingTop / 2)

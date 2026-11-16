@@ -264,7 +264,7 @@ class TextFirstMigrationTest {
         val typed = CountDownLatch(1)
         input.handler!!.post { input.setComposingText("accepted ", 1); typed.countDown() }
         assertTrue(typed.await(10, TimeUnit.SECONDS))
-        compose.waitUntil(10_000) { editor.text.toString().startsWith("accepted before") }
+        compose.waitUntil(10_000) { readOnMainThread { editor.text.toString().startsWith("accepted before") } }
         try {
             if (failCheckpoint) {
                 check(File(root, "draft.md").delete())
@@ -295,7 +295,7 @@ class TextFirstMigrationTest {
                 val retry = CountDownLatch(1)
                 input.handler!!.post { input.commitText("retry ", 1); retry.countDown() }
                 assertTrue(retry.await(10, TimeUnit.SECONDS))
-                compose.waitUntil(10_000) { editor.text.toString().startsWith("accepted retry before") }
+                compose.waitUntil(10_000) { readOnMainThread { editor.text.toString().startsWith("accepted retry before") } }
                 withContext(Dispatchers.Main) {
                     assertTrue(store.tryBeginStorageMigration())
                     assertTrue(store.flushDraftsForVaultHandoff())

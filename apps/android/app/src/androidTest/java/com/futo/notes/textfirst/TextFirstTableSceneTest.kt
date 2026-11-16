@@ -26,7 +26,7 @@ class TextFirstTableSceneTest {
             view.revealRange(header, header)
         }
         compose.waitForIdle()
-        val before = compose.runOnUiThread { view.text.toString() }
+        val before = readOnMainThread { view.text.toString() }
         scene.tap(scene.pointAt("Name", 0))
         compose.waitUntil(10_000) {
             compose.onAllNodes(isDialog()).fetchSemanticsNodes().isNotEmpty() || scene.field() != null
@@ -86,17 +86,17 @@ class TextFirstTableSceneTest {
         cellKey("", 1)
         cellKey("", 0, shift = true)
         for ((column, label) in listOf(2 to "three", 1 to "two", 0 to "one", 2 to "More", 1 to "Owner", 0 to "Name")) cellKey(label, column, shift = true)
-        assertEquals("navigation changes no note text", before, compose.runOnUiThread { view.text.toString() })
+        assertEquals("navigation changes no note text", before, readOnMainThread { view.text.toString() })
         scene.tap(scene.pointAt("After"))
         compose.waitUntil(10_000) { scene.field() == null && view.isFocused }
         assertTrue("an outside note tap retains the keyboard", scene.keyboardVisible())
-        assertEquals("leaving a cell changes no note text", before, compose.runOnUiThread { view.text.toString() })
+        assertEquals("leaving a cell changes no note text", before, readOnMainThread { view.text.toString() })
         scene.tap(scene.pointAt("Name", 0))
         compose.waitUntil(10_000) { scene.field() != null }
         val done = Localization.fromGeneratedCatalogs(listOf("en"), "en-US").localizedText("common.actions.done")
         compose.onNodeWithText(done).performClick()
         compose.waitUntil(10_000) { scene.field() == null }
-        assertEquals("Done changes no note text", before, compose.runOnUiThread { view.text.toString() })
+        assertEquals("Done changes no note text", before, readOnMainThread { view.text.toString() })
     }
 
     @Test
@@ -114,7 +114,7 @@ class TextFirstTableSceneTest {
         scene.assertWrapped()
         val label = "natural words ".repeat(7).trimEnd()
         scene.assertPlacement(label)
-        val before = compose.runOnUiThread { view.text.toString() }
+        val before = readOnMainThread { view.text.toString() }
         val connection = scene.connection()
         val finishFrameCheck = scene.watchPlacementFrames()
         connection.handler!!.post { connection.setSelection(label.length, label.length); connection.commitText(" ending", 1) }
@@ -124,10 +124,10 @@ class TextFirstTableSceneTest {
         scene.assertCaretVisible()
         compose.runOnUiThread { view.engine!!.undo() }
         compose.waitUntil(10_000) { scene.field()?.text.toString() == label }
-        assertEquals(before, compose.runOnUiThread { view.text.toString() })
+        assertEquals(before, readOnMainThread { view.text.toString() })
         compose.runOnUiThread { view.engine!!.redo() }
         compose.waitUntil(10_000) { scene.field()?.text.toString() == label + " ending" }
-        assertEquals(before.replaceFirst(label, label + " ending"), compose.runOnUiThread { view.text.toString() })
+        assertEquals(before.replaceFirst(label, label + " ending"), readOnMainThread { view.text.toString() })
         compose.waitForIdle()
         scene.assertCaretVisible()
         finishFrameCheck()
@@ -141,12 +141,12 @@ class TextFirstTableSceneTest {
         compose.runOnUiThread { view.revealRange(0, 0) }
         scene.tap(scene.pointAt("Name", 0))
         compose.waitUntil(10_000) { scene.field()?.isFocused == true && scene.keyboardVisible() }
-        val before = compose.runOnUiThread { view.text.toString() }
+        val before = readOnMainThread { view.text.toString() }
         val done = Localization.fromGeneratedCatalogs(listOf("en"), "en-US").localizedText("common.actions.done")
         compose.onNodeWithText(done).performClick()
         compose.waitUntil(10_000) { scene.field() == null }
         compose.waitUntil(10_000) { !scene.keyboardVisible() }
-        assertEquals("Done preserves note text", before, compose.runOnUiThread { view.text.toString() })
+        assertEquals("Done preserves note text", before, readOnMainThread { view.text.toString() })
     }
 
     @Test
@@ -197,12 +197,12 @@ class TextFirstTableSceneTest {
         compose.runOnUiThread { view.revealRange(0, 0) }
         scene.tap(scene.pointAt("ordinary"))
         compose.waitUntil(10_000) { view.isFocused && scene.keyboardVisible() && scene.keyboardIdle() }
-        val before = compose.runOnUiThread { view.text.toString() }
+        val before = readOnMainThread { view.text.toString() }
         scene.tap(scene.pointAt("Name", 0))
         compose.waitUntil(10_000) { scene.field()?.isFocused == true && scene.keyboardVisible() && scene.keyboardIdle() }
         assertFalse("cell input replaces note input focus", view.isFocused)
         scene.assertPlacement("Name")
-        assertEquals(before, compose.runOnUiThread { view.text.toString() })
+        assertEquals(before, readOnMainThread { view.text.toString() })
     }
 
     @Test fun closingPlainNoteFindDismissesTheQueryKeyboard() = findCloseKeyboard(cell = false)
@@ -236,12 +236,12 @@ class TextFirstTableSceneTest {
             scene.tap(scene.pointAt("Name", 0))
             compose.waitUntil(10_000) { scene.field()?.isFocused == true && scene.keyboardVisible() && scene.keyboardIdle() }
         }
-        val before = compose.runOnUiThread { view.text.toString() }
-        val selection = compose.runOnUiThread { view.selectionStart to view.selectionEnd }
+        val before = readOnMainThread { view.text.toString() }
+        val selection = readOnMainThread { view.selectionStart to view.selectionEnd }
         compose.onNodeWithContentDescription(strings.localizedText("editor.find.close")).performClick()
         if (cellFocus) compose.waitUntil(10_000) { scene.field()?.isFocused == true && scene.keyboardVisible() && scene.keyboardIdle() }
         else compose.waitUntil(10_000) { !scene.queryFocused() && !scene.keyboardVisible() }
-        assertEquals("Find close preserves note text", before, compose.runOnUiThread { view.text.toString() })
-        assertEquals("Find close preserves the selection", selection, compose.runOnUiThread { view.selectionStart to view.selectionEnd })
+        assertEquals("Find close preserves note text", before, readOnMainThread { view.text.toString() })
+        assertEquals("Find close preserves the selection", selection, readOnMainThread { view.selectionStart to view.selectionEnd })
     }
 }

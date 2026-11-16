@@ -51,7 +51,7 @@ class TextFirstBlurTest {
         engine.toggleFormat(EditorInlineFormat.BOLD)
         SystemClock.sleep(1_000)
         engine.undo()
-        compose.waitUntil(5_000) { view.selectionStart == 0 && view.selectionEnd == view.length() - 1 }
+        compose.waitUntil(5_000) { readOnMainThread { view.selectionStart == 0 && view.selectionEnd == view.length() - 1 } }
         SystemClock.sleep(1_000)
         dismissAndAssertTheReaderStays()
     }
@@ -61,7 +61,7 @@ class TextFirstBlurTest {
 
         fun selectAll() {
             compose.runOnUiThread { engine.selectAll() }
-            compose.waitUntil(15_000) { view.selectionStart == 0 && view.selectionEnd == view.length() - 1 }
+            compose.waitUntil(15_000) { readOnMainThread { view.selectionStart == 0 && view.selectionEnd == view.length() - 1 } }
             compose.waitForIdle()
         }
 
