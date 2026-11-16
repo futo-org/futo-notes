@@ -74,7 +74,7 @@ pub fn bundled_roots_client_config() -> Result<ClientConfig, rustls::Error> {
 
 #[cfg(target_os = "android")]
 pub fn install_android_trust(
-    env: &mut jni::JNIEnv,
+    env: &mut jni::Env,
     context: jni::objects::JObject,
 ) -> Result<(), jni::errors::Error> {
     rustls_platform_verifier::android::init_with_env(env, context)

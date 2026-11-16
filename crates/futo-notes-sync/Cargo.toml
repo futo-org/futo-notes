@@ -13,7 +13,7 @@ futo-notes-core = { path = "../futo-notes-core" }
 # (server/mod.rs `Connections::open`), so reqwest's built-in verifier never runs.
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "stream", "http2"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-rustls-platform-verifier = "0.6"
+rustls-platform-verifier = "0.7"
 # The bundled Mozilla roots behind `bundled_roots_client_config` (license activation).
 webpki-roots = "1"
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
@@ -45,7 +45,7 @@ rcgen = "0.14"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-jni = "0.21"
+jni = "0.22"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 openssl-probe = "0.2"
