@@ -23,6 +23,10 @@ just test-android-perf         # editor perf budgets on the low-end reference ph
 `just test-android-ui com.futo.notes.textfirst.TextFirstTypingBenchmarkTest` measures
 native input and rendering. See `docs/agents/android-device-tests.md` for benchmark options.
 
+**Changed an Android dependency? Run `just android-lock` and commit `app/gradle.lockfile`.**
+The release classpaths are locked so FUTO's weekly Trivy scan can see every shipped library;
+a release build fails on a library missing from the lockfile.
+
 For app-only Kotlin iteration, `./gradlew :app:installDirectDebug` from here is
 enough **in a warm checkout**. In a FRESH worktree it is not, and the failures look
 unrelated to what you changed:

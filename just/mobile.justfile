@@ -89,6 +89,14 @@ build-android-native: _preflight-android android-env-check (build-rust-android "
   cd apps/android
   ./gradlew :app:assembleDirectDebug :app:assemblePlayDebug
 
+# Rewrite apps/android/app/gradle.lockfile after changing an Android dependency.
+android-lock: _preflight-android android-env-check
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd apps/android
+  ./gradlew :app:dependencies --write-locks --quiet > /dev/null
+  git -C ../.. status --short -- apps/android/app/gradle.lockfile
+
 [private]
 _preflight-ios: editor-deps
   @bash scripts/dev-env.sh node scripts/setup-worktree.mjs ios --check
