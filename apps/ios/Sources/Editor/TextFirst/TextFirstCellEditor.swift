@@ -168,6 +168,7 @@ final class TextFirstCellEditor: NSObject, UITextViewDelegate {
     }
 
     func textViewDidChangeSelection(_ tv: UITextView) {
+        controller.selectionChanges += 1
         guard applying == 0, tv.markedTextRange == nil, !controller.engineComposing else {
             return
         }

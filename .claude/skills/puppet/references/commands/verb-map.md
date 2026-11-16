@@ -51,7 +51,7 @@ counting from **0** across the strip. `ActivateTabByNumber {number}` is the Cmd+
 instead: 1-based, 9 = the last tab. `MoveTab {fromIndex, toIndex}` is 0-based. Every refusal
 here prints the open tabs with their indexes.
 
-**Desktop, note open.** The editor verbs plus `SetTitle`, `ToggleNoteActionsMenu`, `RemoveTag`,
+**Desktop, note open.** The editor verbs (editor-verbs.md) plus `SetTitle`, `ToggleNoteActionsMenu`, `RemoveTag`,
 `StartAddingTag {name?}` (then, while the tag field is open, `AddTag {name}` and
 `CancelAddingTag`); and once the note has a file (not on `editor:new`), while the ⋯ menu is
 open: `CopyCurrentNotePath`, `MoveCurrentNoteToFolder {targetPath?}`, `DeleteCurrentNote
@@ -136,12 +136,12 @@ the sheet is refused: `drag` it into view first) and `DismissDialog`; the rename
 
 **The editor is its own screen**: the list's verbs are not on it — no list, no rows, no
 buttons — so reach a note or a folder with `GoBack` first. What it does have, past the
-editor verbs, `PickImage {source: camera｜library}` and `DismissKeyboard`: `SetTitle {title}`
+editor verbs (editor-verbs.md), `PickImage {source: camera｜library}` and `DismissKeyboard`: `SetTitle {title}`
 (the title field's own rename; settles before it answers, so the receipt's `noteId` is the
 new one); the ⋯ menu — on Android `ToggleNoteActionsMenu`, then while it is open `OpenFind`,
 `MoveCurrentNoteToFolder {targetPath?}`, `CopyCurrentNotePath`, `DeleteCurrentNote
 {answer?}`; on iOS a real `tap` on ⋯, then on its item — and the find bar, native on both
-phones, not the page's: `SetFindQuery {query}`, `StepFind {direction: 1｜-1}` (only while
+phones: `SetFindQuery {query}`, `StepFind {direction: 1｜-1}` (only while
 there is a match) and `CloseFind` while it is open.
 
 **iOS native screens.** At the root list: `OpenSettings`, `OpenSync`, `SetSearchQuery {query}`, `ClearSearchQuery` (`state.search` has `query` and the
@@ -184,11 +184,9 @@ dialog is modal: while it is up its verbs are the only ones offered, and anythin
 **A phone screen is one outline.** `elements` lists what a finger can reach, read from the
 app's own accessibility (each listener's `/tree`: iOS its accessibility tree, hit-tested
 against its windows; Android its Compose semantics), with refs `n1`, `n2`, … that keep
-naming the same element across calls, and — while a note is open — the editor page's own
-rows (`e1`, …) in the `editor` section beside the native top bar, title field and keyboard
-toolbar. Everything is in the screen's points (iOS) or dp (Android): the page's CSS pixels
-are shifted by where the web view sits, in every read (`at`, `show`, `events`) and
-every argument sent back. Rows under a bar, behind a sheet, dialog or menu, or below the fold
+naming the same element across calls. Everything is in the screen's points (iOS) or dp
+(Android). While a note is open on iOS the `editor` section lists its task checkboxes and
+links and the `keyboard toolbar` section the toolbar's buttons (editor-verbs.md). Rows under a bar, behind a sheet, dialog or menu, or below the fold
 are not listed; `show {"ref":…}` is one of them. Every receipt, a verb's too, carries the
 screen before and after once it stops moving (an editor verb's own document and selection
 diff stays beside it). A `tap` or `drag` receipt opens with where the touch landed —
@@ -197,13 +195,11 @@ there takes a touch — and is refused when the app never received a touch aimed
 the touches it gets). An iOS `tap` is a 0.1 s press, as a finger's is: SwiftUI's switches
 ignore a touch that lasts no time. A read costs about 0.05 s on either phone; an action with its receipt
 about 0.7 s (a tap on iOS about 1.3 s, most of it `axe` delivering the touch). `doc`,
-`at`, `events`, `diff` and `show {"text"}` need the editor's page and refuse on a native
-screen; `state`, `notes`, `search`, `file` and `clipboard` answer everywhere. A native control with no
+`at` and `show {"text"}` refuse off the editor screen; `state`, `notes`, `search`, `file` and `clipboard` answer everywhere. A native control with no
 verb and no row is a papercut (`papercuts add … --tag puppet`), not a reason to reach for `adb shell input` or `axe`.
 iOS builds the accessibility tree only while the simulator's accessibility setting is on:
 `just ios-native` switches it on before every launch, and a read with it off fails saying
-so, as does a page query on an editor built without the puppet inspector (a production
-`editor.html`), each with the command that fixes it.
+so, with the command that fixes it.
 
 **A verb goes through the app's own confirmation.** A verb whose control asks first —
 `DeleteNote`, `DeleteFolder`, `DeleteCurrentNote`, `ResetAllNotes`, `SetNotesDirectory`,

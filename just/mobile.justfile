@@ -247,6 +247,14 @@ test-android-storage:
 test-ios-stories:
   just test-ios-native-ui TextFirstLeaveUITests TextFirstFindUITests TextFirstSelectionUITests TextFirstBottomEdgeUITests
 
+# Puppet-only native editor loop on the claimed $SIM: builds, launches, then real keys and taps.
+test-ios-editor-stories *args:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  : "${SIM:?claim a simulator first: eval \"\$(just qa-claim ios)\"}"
+  just ios-native
+  node tests/ios-editor-stories.mjs "$@"
+
 # Build a RELEASE-signed Android build of one flavor and install it (com.futo.notes).
 # Defaults to `direct` (GitLab/Obtainium/F-Droid); `just deploy-android play` installs
 # the Google Play flavor instead. Needs apps/android/keystore.properties (gitignored)
