@@ -106,7 +106,7 @@
                 await adapter.perform("Replace", arguments: ["from": 2, "to": 4, "text": "x"])
                     .status == 400)
             #expect(h.source == before)
-            #expect(adapter.reply("at", arguments: ["x": 1e100, "y": 0]).status == 409)
+            #expect(adapter.reply("at", arguments: ["x": 1e100, "y": 0.0]).status == 409)
         }
 
         @Test func aCharacterSeenAsOneIsNeverSplit() async throws {
