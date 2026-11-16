@@ -200,6 +200,30 @@ fn deleting_a_folder_moves_notes_up_with_collisions_before_removing_the_tree() {
 }
 
 #[test]
+fn deleting_a_folder_and_its_notes_removes_every_note_but_keeps_attachments() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("A/B/one", "1", None).unwrap();
+    store.write("A/B/C/two", "2", None).unwrap();
+    store.write("A/sibling", "keep", None).unwrap();
+    std::fs::write(root.0.join("A/B/C/photo.png"), b"image").unwrap();
+
+    let mutation = store.delete_folder_and_notes("A/B").unwrap();
+
+    let mut removed = mutation.removed.clone();
+    removed.sort();
+    assert_eq!(removed, ["A/B/C/two", "A/B/one"]);
+    assert!(store.read_existing("A/B/one").unwrap().is_none());
+    assert!(store.read_existing("A/B/C/two").unwrap().is_none());
+    assert_eq!(store.read("A/sibling").unwrap(), "keep");
+    assert_eq!(
+        std::fs::read(root.0.join("A/C/photo.png")).unwrap(),
+        b"image"
+    );
+    assert!(!root.0.join("A/B").exists());
+}
+
+#[test]
 fn native_folder_delete_preserves_nested_attachments_and_name_collisions() {
     let root = TestRoot::new();
     let store = store(&root);

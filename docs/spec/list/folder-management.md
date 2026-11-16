@@ -71,8 +71,31 @@
     trash policy. → DrawerSidebar.svelte `confirmDeleteFolder`,
     `apps/tauri/src-tauri/src/local_notes.rs`, `futo-notes-store`,
     `apps/tauri/src-tauri/src/system_trash.rs`
-  - **iOS native**: folder row swipe or long-press "Delete Folder…". →
-    NoteListView.swift
+  - **iOS native**: folder row swipe or long-press "Delete Folder…" opens one
+    centered card (`FolderDeleteDialog`) and tints the folder's row while it is
+    up. The count is every note in the folder and its subfolders. An empty
+    folder (0 notes) asks "Delete “Name”? This folder is empty." with Cancel |
+    Delete. A folder with notes asks "Its N notes will be kept unless you delete
+    them too." with **Delete folder only** (the move-up delete above, preferred),
+    **Delete folder and notes…** and Cancel. After Delete folder only the row
+    disappears and a toast "Kept N notes from “Name”" shows for about 3 s.
+    **Delete folder and notes…** morphs the same card into a second step:
+    "Delete N notes?", a warning that “Name” and every note in it are deleted
+    from all devices and can't be undone, the first 3 note titles plus "… and K
+    more", and Back | **Delete all**. Delete all is disabled for 0.6 s after the
+    step appears (a warning haptic fires then), so a double-tap on step 1 cannot
+    reach it. Delete all permanently deletes every note under the folder
+    (iOS has no trash), then removes the folder; sync propagates each note
+    deletion as it would a single delete, and non-note files move up as in the
+    native primitive below, never deleted. Reduce Motion replaces the scale and
+    spring with crossfades; at large Dynamic Type the card scrolls and side-by-side
+    buttons stack. → FolderDeleteDialog.swift,
+    `futo-notes-store::LocalNoteStore::delete_folder_and_notes`,
+    `deleting_a_folder_and_its_notes_removes_every_note_but_keeps_attachments`
+    > **Gap (parity):** Android and Tauri offer no "delete the folder and its
+    > notes" choice, only the move-up delete; the Rust primitive
+    > (`delete_folder_and_notes`) is exposed through the shared FFI but has no
+    > Android caller. Desktop would need a trash policy for the notes.
   - **Android native**: in-list folder row long-press → "Delete folder", with a
     "Folder deleted; moved N notes" toast, or "Folder deleted" when no note
     moved, as on desktop. Deleting the folder a pushed screen is

@@ -9,6 +9,16 @@ extension NotesStore {
         }
     }
 
+    /// Permanently deletes every note under the folder (subfolders included) and then the
+    /// folder. Returns once the lists have the change, and whether it landed.
+    @discardableResult
+    func deleteFolderAndNotes(_ folder: String) async -> Bool {
+        await serializedFolderMutation("deleteFolderAndNotes failed for \(folder)") {
+            [vault] epoch in
+            try await vault.deleteFolderAndNotes(folder, epoch: epoch)
+        }
+    }
+
     /// Returns once the folder list has the change, and whether it landed.
     @discardableResult
     func createFolder(_ path: String) async -> Bool {
@@ -77,6 +87,12 @@ extension NotesStore {
             let tail = String(path.dropFirst(prefix.count))
             return !tail.isEmpty && !tail.contains("/")
         }
+    }
+
+    /// Every note in the folder or any folder beneath it, in list order.
+    func notes(under folder: String) -> [NoteItem] {
+        let prefix = folder + "/"
+        return notes.filter { $0.folder == folder || $0.folder.hasPrefix(prefix) }
     }
 
     func notes(in folder: String) -> [NoteItem] {

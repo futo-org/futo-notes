@@ -31,7 +31,9 @@ extension FolderContentsView {
                                     .foregroundStyle(Theme.primary)
                             }
                         }
-                        .listRowBackground(Theme.surface)
+                        .listRowBackground(
+                            folderDeleteTarget == child ? Theme.folderDeleteTint : Theme.surface
+                        )
                         .accessibilityIdentifier(ListRowID.folder(child))
                         // This action only asks for confirmation. A destructive
                         // role makes List animate removal even on a button tap.

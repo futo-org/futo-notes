@@ -387,6 +387,31 @@
         "recoverableConfirmation": "要删除此文件夹吗？其中的笔记将移至上一级文件夹。",
         "preservingContentsConfirmation": "删除此文件夹？其中的笔记和其他文件将被移动到上级文件夹。同名文件会生成带编号的副本。",
         "permanentConfirmation": "要删除此文件夹吗？其中的笔记将移至上一级文件夹，其他内容将被永久删除。",
+        "namedTitle": "要删除“{folderName}”吗？",
+        "emptyMessage": "此文件夹为空。",
+        "keptNotesMessage": {
+          "plural": "count",
+          "variants": {
+            "other": "除非一并删除，否则其中的 {count} 篇笔记将被保留。"
+          }
+        },
+        "folderOnly": "仅删除文件夹",
+        "folderAndNotes": "删除文件夹和笔记…",
+        "notesTitle": {
+          "plural": "count",
+          "variants": {
+            "other": "要删除 {count} 篇笔记吗？"
+          }
+        },
+        "notesWarning": "“{folderName}”及其中的所有笔记将从你的所有设备中删除。此操作无法撤销。",
+        "andMore": "…以及另外 {count} 篇",
+        "deleteAll": "全部删除",
+        "keptToast": {
+          "plural": "count",
+          "variants": {
+            "other": "已保留“{folderName}”中的 {count} 篇笔记"
+          }
+        },
         "movedNotes": {
           "plural": "count",
           "variants": {

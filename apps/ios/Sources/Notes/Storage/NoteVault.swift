@@ -135,6 +135,11 @@ actor NoteVault {
         return try core.deleteFolder(folder: folder)
     }
 
+    func deleteFolderAndNotes(_ folder: String, epoch: UInt64) throws -> NoteMutation {
+        try requireGeneration(epoch)
+        return try core.deleteFolderAndNotes(folder: folder)
+    }
+
     func search(_ query: String, limit: UInt32) throws -> [SearchHit] {
         return try core.search(query: query, limit: limit)
     }
