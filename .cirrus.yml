@@ -47,6 +47,10 @@ test_rust_macos_task:
     # Incremental artifacts are per-machine scratch that a fresh VM can never
     # reuse, and they are ~0.6 GB of pure churn in every target/ cache upload.
     CARGO_INCREMENTAL: "0"
+    # Full debuginfo was over half of target/ (5.3 GB vs 2.4 GB measured on the
+    # same `cargo test --workspace --no-run`), which no test here reads; symbols
+    # and so backtrace function names stay.
+    CARGO_PROFILE_DEV_DEBUG: "0"
   cargo_registry_cache:
     folder: $HOME/.cargo/registry
     fingerprint_key: futo-notes-cargo-registry-$CIRRUS_OS-v1
@@ -63,7 +67,7 @@ test_rust_macos_task:
     # target/aarch64-apple-ios/debug (the cargo check), which is a different set
     # from the release-ffi libs the iOS tasks build.
     folder: target
-    fingerprint_key: futo-notes-target-test-rust-macos-$CIRRUS_OS-v1
+    fingerprint_key: futo-notes-target-test-rust-macos-$CIRRUS_OS-v2
     reupload_on_changes: true
   testRustMacOS_script:
     - brew install fnm
@@ -75,6 +79,10 @@ test_rust_macos_task:
     - corepack prepare pnpm@12.15.0 --activate
     - pnpm install --frozen-lockfile
     - mkdir -p dist
+    # Restores over budget are dropped (cold build) rather than uploaded again:
+    # the upload needs the folder's size free a second time. Runs before the
+    # mtime fix-ups so they never walk a tree about to be deleted.
+    - bash scripts/ci-cirrus-cache-budget.sh 5 target
     # Two different mtime lies have to be undone before cargo looks at the
     # restored caches — see each script's header.
     # (1) Cirrus untars without applying the tar header's mtime, so a restored

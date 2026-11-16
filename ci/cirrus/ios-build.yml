@@ -22,8 +22,8 @@ build_ios_native_task:
     fingerprint_key: futo-notes-cargo-git-$CIRRUS_OS-v1
     reupload_on_changes: true
   cargo_target_cache:
-    # Same blob as testFutoNotesIOSNative — identical build-rust-ios.sh
-    # output. See that task for the reasoning.
+    # Not shared with testFutoNotesIOSNative, which has its own (smaller) blob;
+    # see that task for why.
     folder: target
     fingerprint_key: futo-notes-target-ios-$CIRRUS_OS-v1
     reupload_on_changes: true
