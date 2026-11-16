@@ -7,11 +7,14 @@
 //! intended (`draft.rs`); house spelling is `**`, `*`, `~~` and backticks.
 //! A collapsed toggle writes nothing: it sets the formats typing at that
 //! caret carries (`typing.rs`), until the caret moves; a deletion that
-//! empties a span sets the span's formats there.
+//! empties a span sets the span's formats there. The mobile toolbar's
+//! toggle instead formats the word a caret is inside or at the start of
+//! (`word.rs`).
 mod draft;
 mod format;
 mod links;
 mod typing;
+mod word;
 
 use super::super::command::{Command, Edit};
 use super::super::line::Entry;
@@ -20,6 +23,7 @@ use crate::{DisplayRange, EditorError, InlineFormat, Revision, SourceEdit, ViewC
 use draft::{bit, formats_of, glyphs, inline_line, regions, Draft, Glyph};
 use std::collections::BTreeMap;
 use std::ops::Range;
+use word::Landing;
 
 type Accept<'a> = &'a mut dyn FnMut(&SourceEdit) -> Result<(), String>;
 
@@ -70,9 +74,10 @@ impl Engine {
     }
 
     /// The source offset that shows at display `at` once `edited` lines are
-    /// written.
+    /// written: the lowest, or with `want` the highest on an edited line
+    /// that reads as it asks, else the highest in the links it names.
     /// Formatting never changes the display, so the display offset holds.
-    fn source_after(&self, at: usize, edited: &Edited) -> usize {
+    fn source_after(&self, at: usize, edited: &Edited, want: Option<&Landing>) -> usize {
         let (index, before) = self.line_at_display(store::display, at);
         let shift: isize = edited
             .range(..index)
@@ -83,9 +88,31 @@ impl Engine {
                 .map(|(&index, _)| self.store.get(index).text.len() as isize)
                 .sum::<isize>();
         let local = match edited.get(&index) {
-            Some((_, entry)) => entry
-                .sources(at - before.display, true)
-                .map_or(entry.body_len(), |(lo, _)| lo),
+            Some((_, entry)) => {
+                entry
+                    .sources(at - before.display, true)
+                    .map_or(entry.body_len(), |(lo, hi)| {
+                        want.and_then(|want| {
+                            let places: Vec<(usize, Landing)> = (lo..=hi)
+                                .rev()
+                                .filter(|&p| entry.allowed(p))
+                                .map(|p| (p, Landing::at(entry, p)))
+                                .collect();
+                            // Where it reads as asked, else at least in the
+                            // same links.
+                            places
+                                .iter()
+                                .find(|(_, landing)| landing == want)
+                                .or_else(|| {
+                                    places
+                                        .iter()
+                                        .find(|(_, landing)| landing.links == want.links)
+                                })
+                                .map(|(p, _)| *p)
+                        })
+                        .unwrap_or(lo)
+                    })
+            }
             None => self.source_bounds(at).0 - before.source,
         };
         (before.source as isize + shift) as usize + local
@@ -93,6 +120,16 @@ impl Engine {
 
     /// The command for `edited` lines, keeping display selection `range`.
     fn rewrite(&self, range: DisplayRange, edited: Edited) -> Option<Command> {
+        self.rewrite_to(range, edited, None)
+    }
+
+    /// `rewrite`, with a caret landing where it reads `want` (`source_after`).
+    fn rewrite_to(
+        &self,
+        range: DisplayRange,
+        edited: Edited,
+        want: Option<&Landing>,
+    ) -> Option<Command> {
         let first = *edited.keys().next()?;
         let last = *edited.keys().next_back()?;
         let edits = edited
@@ -106,16 +143,19 @@ impl Engine {
                 Edit::new(range, text)
             })
             .collect();
-        let selection =
-            self.source_after(range.start.0, &edited)..self.source_after(range.end.0, &edited);
+        let selection = self.source_after(range.start.0, &edited, want)
+            ..self.source_after(range.end.0, &edited, want);
         Some(Command::new(edits, first..last + 1, selection))
     }
 
     /// Toggle `format` over display `range`: on every selected visible
     /// character unless all of them already carry it, then off everywhere.
+    /// The selection afterwards is `keep`, a caret where it reads `want`.
     fn format_command(
         &self,
         range: DisplayRange,
+        keep: DisplayRange,
+        want: Option<&Landing>,
         format: InlineFormat,
         work: &mut usize,
     ) -> Result<Option<Command>, EditorError> {
@@ -173,13 +213,18 @@ impl Engine {
                 Ok(None)
             };
         }
-        Ok(self.rewrite(range, edited))
+        Ok(self.rewrite_to(keep, edited, want))
     }
 
     /// The formats every selected visible character carries.
     pub(crate) fn selection_formats(&self) -> Vec<InlineFormat> {
+        self.range_formats(self.selection)
+    }
+
+    /// The formats every visible character of display `range` carries.
+    fn range_formats(&self, range: DisplayRange) -> Vec<InlineFormat> {
         let mut style: Option<u16> = None;
-        for body in self.bodies(self.selection) {
+        for body in self.bodies(range) {
             for (glyph, selected) in body.glyphs.iter().zip(&body.selected) {
                 if *selected && !glyph.space() {
                     style = Some(style.map_or(glyph.style, |style| style & glyph.style));
@@ -258,11 +303,26 @@ impl Engine {
         } else {
             self.run(
                 self.revision,
-                |engine| engine.format_command(engine.selection, format, &mut work),
+                |engine| {
+                    let selection = engine.selection;
+                    engine.format_command(selection, selection, None, format, &mut work)
+                },
                 accept,
             )?
         };
-        if collapsed && self.inline_allowed() {
+        if collapsed {
+            self.toggle_carried(format);
+        }
+        Ok(change.map(|change| {
+            let mut view = self.view(change);
+            view.work.parsed_source_bytes += work;
+            view
+        }))
+    }
+
+    /// Toggle `format` in the formats typing at the collapsed caret carries.
+    fn toggle_carried(&mut self, format: InlineFormat) {
+        if self.inline_allowed() {
             let mut formats = self.active_formats();
             match formats.iter().position(|have| *have == format) {
                 Some(at) => {
@@ -276,11 +336,6 @@ impl Engine {
             self.formats = Some(formats);
             self.typing = None;
         }
-        Ok(change.map(|change| {
-            let mut view = self.view(change);
-            view.work.parsed_source_bytes += work;
-            view
-        }))
     }
 }
 

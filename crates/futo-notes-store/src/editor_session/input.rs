@@ -18,6 +18,14 @@ impl Attachment {
         self.edit(|engine, accept| engine.toggle_format(expected, format, accept))
     }
 
+    pub fn toggle_toolbar_format(
+        &mut self,
+        expected: Revision,
+        format: InlineFormat,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.edit(|engine, accept| engine.toggle_toolbar_format(expected, format, accept))
+    }
+
     pub fn undo(&mut self, expected: Revision) -> Result<Option<ViewChange>, EditorStoreError> {
         self.edit(|engine, accept| engine.undo(expected, accept))
     }

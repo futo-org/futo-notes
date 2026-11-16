@@ -98,9 +98,9 @@ internal fun runToolbar(controller: TextFirstController, id: String) {
     when (id) {
         "undo" -> controller.undo()
         "redo" -> controller.redo()
-        "bold" -> controller.format(EditorInlineFormat.BOLD)
-        "italic" -> controller.format(EditorInlineFormat.ITALIC)
-        "strikethrough" -> controller.format(EditorInlineFormat.STRIKE)
+        "bold" -> controller.toolbarFormat(EditorInlineFormat.BOLD)
+        "italic" -> controller.toolbarFormat(EditorInlineFormat.ITALIC)
+        "strikethrough" -> controller.toolbarFormat(EditorInlineFormat.STRIKE)
         "paragraph" -> controller.block(EditorBlockCommand.Heading(0u))
         "heading-1" -> controller.block(EditorBlockCommand.ToggleHeading(1u))
         "heading-2" -> controller.block(EditorBlockCommand.ToggleHeading(2u))
