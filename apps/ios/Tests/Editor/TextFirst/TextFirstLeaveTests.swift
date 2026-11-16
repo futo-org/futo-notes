@@ -10,6 +10,31 @@
     /// The failure is the filesystem's: the vault directory has no write bit.
     @Suite(.serialized) @MainActor
     struct TextFirstLeaveTests {
+        @Test(arguments: [
+            "It's Alice's note; it’s Bob’s too. AT&T & friends.\r\n",
+            "It&#39;s Alice&apos;s &amp; Bob&#x2019;s note.\n",
+            "`&#39;` and \\&amp; and &unknown; and &#xZZ;",
+            "---\r\ntitle: A & B\r\n---\r\n\r\n__bold__ and _emphasis_\r\n* one\r\n* two\r\n",
+        ])
+        func browsingAndLeavingPreserveSourceWithoutWriting(_ source: String) async throws {
+            let rig = try await TextFirstVaultRig(body: source)
+            defer { rig.tearDown() }
+            let file = rig.root.appendingPathComponent("note.md")
+            let before = try file.resourceValues(forKeys: [.contentModificationDateKey])
+            #expect(try Data(contentsOf: file) == Data(source.utf8))
+            #expect(try rig.controller.session.sourceText() == source)
+            // Selection and a lifecycle checkpoint are not edits.
+            rig.selectEnd()
+            #expect(await rig.checkpoint())
+            guard case .success = await rig.controller.close() else {
+                Issue.record("Leaving an unedited note failed")
+                return
+            }
+            #expect(try Data(contentsOf: file) == Data(source.utf8))
+            let after = try file.resourceValues(forKeys: [.contentModificationDateKey])
+            #expect(after.contentModificationDate == before.contentModificationDate)
+        }
+
         /// Constant fast retries, for the tests that are not about pacing (the pacing and the
         /// controller's own timer are in TextFirstLeaveOwnershipTests, at production speed).
         private func hurry(_ nanoseconds: UInt64 = 10_000_000) {

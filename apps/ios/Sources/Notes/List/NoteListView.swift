@@ -16,6 +16,12 @@ enum ListRowID {
     static func folder(_ path: String) -> String { "folder:\(path)" }
 }
 
+// List must know the scroll identities from its data. An .id modifier inside
+// each row makes SwiftUI construct every offscreen row to discover those ids.
+extension NoteItem {
+    var listRowID: String { ListRowID.note(id) }
+}
+
 /// `ScrollToRow {"noteId"|"path"}`: the instant form of scrolling a list until a row
 /// shows, for the debug puppet listener. A convenience, not input a person makes, and
 /// it reaches only this list's own rows. A row's tap is the listener's OpenNote or
@@ -248,15 +254,25 @@ struct NoteListView: View {
             } else {
                 ScrollViewReader { proxy in
                     List {
-                        ForEach(filtered) { note in
+                        ForEach(filtered, id: \.listRowID) { note in
                             NavigationLink(value: Route.note(note.id)) {
                                 NoteRow(note: note, showFolder: true)
                             }
                             .listRowBackground(Theme.surface)
-                            .id(ListRowID.note(note.id))
                             .accessibilityIdentifier(ListRowID.note(note.id))
+                            // onDelete eagerly animates removal before our confirmation.
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button {
+                                    setSearchDelete([note.id], visible: true)
+                                } label: {
+                                    Label(
+                                        localization.localizedText("common.actions.delete"),
+                                        systemImage: "trash"
+                                    )
+                                }
+                                .tint(Theme.danger)
+                            }
                         }
-                        .onDelete(perform: deleteSearchRows)
                     }
                     .listStyle(.insetGrouped)
                     .scrollContentBackground(.hidden)
@@ -267,11 +283,6 @@ struct NoteListView: View {
                 }
             }
         }
-    }
-
-    private func deleteSearchRows(_ offsets: IndexSet) {
-        // Destructive: stash the ids and confirm before deleting (list.md).
-        setSearchDelete(offsets.map { filtered[$0].id }, visible: true)
     }
 
     /// Sets the search-results delete-confirmation target without the

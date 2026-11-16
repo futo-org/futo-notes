@@ -239,10 +239,16 @@ final class Localization {
         arguments: [String: Any],
         path: String
     ) -> String {
-        let numberFormatter = NumberFormatter()
-        numberFormatter.numberStyle = .decimal
-        numberFormatter.locale = Locale(identifier: formatLanguageTag)
-        numberFormatter.maximumFractionDigits = 3
+        // Most list/menu labels contain no numbers. Constructing a formatter for
+        // every one stalls large list rebuilds; numeric placeholders still share
+        // one formatter within this message.
+        lazy var numberFormatter: NumberFormatter = {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            formatter.locale = Locale(identifier: formatLanguageTag)
+            formatter.maximumFractionDigits = 3
+            return formatter
+        }()
         return template.map { token in
             switch token {
             case .text(let value):

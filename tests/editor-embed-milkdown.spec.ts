@@ -127,6 +127,9 @@ const NORMALIZED_BY_MILKDOWN = [
   ['a note with no trailing newline', 'no trailing newline'],
   ['setext heading syntax', 'Title\n=====\n\nbody'],
   ['an indented ordered list', '1. one\n2. two'],
+  ['apostrophes and ampersands', "It's Alice's note; it’s Bob’s too. AT&T & friends.\r\n"],
+  ['character references', 'It&#39;s Alice&apos;s &amp; Bob&#x2019;s note.\n'],
+  ['literal entity-like text', '`&#39;` and \\&amp; and &unknown; and &#xZZ;'],
 ] as const;
 
 for (const [label, markdown] of NORMALIZED_BY_MILKDOWN) {
