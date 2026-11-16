@@ -370,7 +370,7 @@ fn pairing_id_of(payload: &str) -> String {
     reason = "registered by the stub runner alone; see the section note"
 )]
 async fn second_identity(base: &str) -> String {
-    let response = reqwest::Client::new()
+    let response = crate::hosted_scenarios::test_http()
         .post(format!("{base}/standin/second-identity"))
         .send()
         .await
@@ -398,7 +398,7 @@ async fn as_account_with_body(
     body: serde_json::Value,
 ) -> reqwest::Response {
     let token = setup.session().expect("session").token;
-    reqwest::Client::new()
+    crate::hosted_scenarios::test_http()
         .request(method.clone(), format!("{}{path}", setup.server_url()))
         .bearer_auth(token)
         .json(&body)

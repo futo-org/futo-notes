@@ -43,6 +43,35 @@ pub(crate) fn client_config_with(
     Ok(Arc::new(config))
 }
 
+/// The config a client gets when the platform trust store could not be built:
+/// no roots, so http:// still works and every https:// handshake fails. This is
+/// what reqwest 0.12's `rustls-tls-manual-roots` built on its own; reqwest 0.13
+/// has no such mode and panics building a client without a provider, so it is
+/// handed in explicitly.
+pub(crate) fn client_config_without_trust() -> Result<Arc<ClientConfig>, rustls::Error> {
+    let mut config = ClientConfig::builder_with_provider(crypto_provider())
+        .with_safe_default_protocol_versions()?
+        .with_root_certificates(rustls::RootCertStore::empty())
+        .with_no_client_auth();
+    config.alpn_protocols = ALPN_PROTOCOLS.iter().map(|name| name.to_vec()).collect();
+    Ok(Arc::new(config))
+}
+
+/// A TLS config that trusts the bundled Mozilla root set (webpki-roots) with
+/// the ring provider: the trust reqwest 0.12's `rustls-tls` feature gave the
+/// license activation clients (desktop and FFI). Not used by sync itself.
+pub fn bundled_roots_client_config() -> Result<ClientConfig, rustls::Error> {
+    let roots = rustls::RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+    let mut config = ClientConfig::builder_with_provider(crypto_provider())
+        .with_safe_default_protocol_versions()?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    config.alpn_protocols = ALPN_PROTOCOLS.iter().map(|name| name.to_vec()).collect();
+    Ok(config)
+}
+
 #[cfg(target_os = "android")]
 pub fn install_android_trust(
     env: &mut jni::JNIEnv,

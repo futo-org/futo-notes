@@ -93,11 +93,19 @@ async fn a_blocked_response_server_does_not_block_an_independent_server() {
         .mount(&primary)
         .await;
 
-    let slow = tokio::spawn(reqwest::get(format!("{}/slow", sidecar.uri())));
+    // reqwest has no crypto provider of its own (`rustls-no-provider`), so a
+    // bare `reqwest::get` would panic building its client; hand it a config.
+    let client = reqwest::Client::builder()
+        .tls_backend_preconfigured(
+            crate::tls::bundled_roots_client_config().expect("test TLS config"),
+        )
+        .build()
+        .expect("test HTTP client");
+    let slow = tokio::spawn(client.get(format!("{}/slow", sidecar.uri())).send());
     gate.wait_until_blocked().await;
     let fast = tokio::time::timeout(
         Duration::from_secs(5),
-        reqwest::get(format!("{}/fast", primary.uri())),
+        client.get(format!("{}/fast", primary.uri())).send(),
     )
     .await
     .expect("a blocked sidecar must not freeze an independent server")

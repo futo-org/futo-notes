@@ -12,7 +12,7 @@ async fn raw_blob_lifecycle() {
     }
     let server = common::server_url().unwrap();
     let token = dev_login(&server).await;
-    let client = reqwest::Client::new();
+    let client = crate::hosted_scenarios::test_http();
     let payload: Vec<u8> = vec![0x00, 0x01, 0x02, b'o', b'p', b'a', b'q', b'u', b'e'];
 
     let res = client
@@ -148,7 +148,7 @@ async fn raw_error_contract() {
         return;
     }
     let server = common::server_url().unwrap();
-    let client = reqwest::Client::new();
+    let client = crate::hosted_scenarios::test_http();
 
     // 401: authenticated route without a token.
     let res = client
