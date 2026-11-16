@@ -24,6 +24,12 @@ enum Theme {
         dark: Color(hex: 0x3D2615)
     )
 
+    /// A note row a folder delete just moved into view: light #FFF4EC, dark a faint orange.
+    static let folderArrivalTint = Color.adaptive(
+        light: Color(hex: 0xFFF4EC),
+        dark: Color(hex: 0x2E1F14)
+    )
+
     /// Surface (cards, grouped rows): light #F2F2F2, dark #171717.
     static let surface = Color.adaptive(
         light: Color(hex: 0xF2F2F2),

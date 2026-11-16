@@ -60,7 +60,7 @@ final class NotesStore: ObservableObject {
     /// (`whenRetired`); removed by `releaseDraftOwnership`.
     var retirementHandlers: [UInt64: @MainActor () -> Void] = [:]
 
-    var folderMutationTail: Task<Bool, Never>?
+    var folderMutationTail: Task<NoteMutation?, Never>?
     // Serialized so Rust and the shell always end on the same pick.
     private var sortOrderTail: Task<Void, Never>?
     private var localTreeChangeTail: Task<Void, Never>?

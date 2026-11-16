@@ -81,6 +81,16 @@ extension FolderContentsView {
         }
     }
 
+    /// Tints the notes a folder delete just moved here, then fades the tint after about 2 s,
+    /// so the eye finds where they landed.
+    func highlightArrivals(_ ids: [String]) {
+        withAnimation(.easeOut(duration: 0.25)) { arrivedNoteIDs = Set(ids) }
+        Task {
+            try? await Task.sleep(for: .seconds(1.8))
+            withAnimation(.easeInOut(duration: 1)) { arrivedNoteIDs = [] }
+        }
+    }
+
     @ViewBuilder var keptToastView: some View {
         if let message = keptToast {
             Text(message)

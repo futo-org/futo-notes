@@ -89,7 +89,8 @@ extension FolderContentsView {
                         NavigationLink(value: Route.note(note.id)) {
                             NoteRow(note: note, showFolder: false)
                         }
-                        .listRowBackground(Theme.surface)
+                        .listRowBackground(
+                            arrivedNoteIDs.contains(note.id) ? Theme.folderArrivalTint : Theme.surface)
                         .accessibilityIdentifier(ListRowID.note(note.id))
                         // Keep the row in place until deletion is confirmed.
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {

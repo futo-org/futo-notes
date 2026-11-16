@@ -23,6 +23,8 @@ struct FolderContentsView: View {
     /// "Kept N notes from …" after a folder is deleted but its notes are kept.
     @State var keptToast: String?
     @State var keptToastTask: Task<Void, Never>?
+    /// Notes a "Delete folder only" just moved into this list, tinted for a moment.
+    @State var arrivedNoteIDs: Set<String> = []
     /// Subfolder being renamed or moved.
     @State var folderRenameTarget: String?
     @State var renameFolderName = ""
@@ -296,8 +298,14 @@ struct FolderContentsView: View {
                     onCancel: { setFolderDeleteTarget(nil) },
                     onFolderOnly: {
                         setFolderDeleteTarget(nil)
-                        if await store.deleteFolder(target), !titles.isEmpty {
+                        // The mutation also lists notes whose links it rewrote; only new ids
+                        // here are arrivals.
+                        let present = Set(notes.map(\.id))
+                        if let moved = await store.deleteFolderKeepingNotes(target),
+                            !titles.isEmpty
+                        {
                             showKeptToast(count: titles.count, folderName: name)
+                            highlightArrivals(moved.filter { !present.contains($0) })
                         }
                     },
                     onDeleteAll: {
