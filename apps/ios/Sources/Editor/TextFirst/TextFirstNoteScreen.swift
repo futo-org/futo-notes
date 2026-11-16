@@ -90,7 +90,9 @@ struct TextFirstNoteScreen: View {
                 TextFirstFindBar(model: controller.findModel, controller: controller)
             }
         }
-        .background(Theme.background)
+        // Under the keyboard too: its rounded top corners and its dismiss animation
+        // otherwise show the window's own black/white behind the note.
+        .background { Theme.background.ignoresSafeArea() }
         .allowsHitTesting(!actionBusy)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
