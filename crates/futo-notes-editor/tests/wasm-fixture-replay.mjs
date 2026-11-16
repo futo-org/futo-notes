@@ -174,8 +174,8 @@ export async function replay(WasmSession, workerPath, cases, marks) {
           : run.service !== undefined
             ? page.replace_utf16_action(revision, a, b, utf16(run.service), '"Isolated"')
             : run.block !== undefined
-            ? page.block_command_utf16(revision, a, b, JSON.stringify(run.block))
-            : page.paragraph_key_utf16(revision, a, b, JSON.stringify(run.key)),
+              ? page.block_command_utf16(revision, a, b, JSON.stringify(run.block))
+              : page.paragraph_key_utf16(revision, a, b, JSON.stringify(run.key)),
       );
       assert.equal(page.draft_text(), after.text, `${item.name}: saved bytes`);
       if (!changed) continue;
