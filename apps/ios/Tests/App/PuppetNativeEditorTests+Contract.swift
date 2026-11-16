@@ -75,6 +75,11 @@
             #expect(direction() == "forward")
             h.select(11, 16)
             #expect(direction() == "unknown")
+            // Moved away and back to the same range: puppet no longer knows how.
+            _ = await adapter.perform("Select", arguments: ["from": 0, "to": 5])
+            _ = await adapter.perform("PlaceCaret", arguments: ["at": 0])
+            h.select(0, 5)
+            #expect(direction() == "unknown")
             h.select(3, 3)
             #expect(direction() == nil)
             let backward = await adapter.perform("Select", arguments: ["from": 10, "to": 6])
@@ -101,6 +106,24 @@
                 await adapter.perform("Replace", arguments: ["from": 2, "to": 4, "text": "x"])
                     .status == 400)
             #expect(h.source == before)
+            #expect(adapter.reply("at", arguments: ["x": 1e100, "y": 0]).status == 409)
+        }
+
+        @Test func aCharacterSeenAsOneIsNeverSplit() async throws {
+            // "á" is a + U+0301 (units 0–1); 👍🏽 is a thumb and a skin tone (units 3–6).
+            let h = TextFirstHarness("a\u{301} 👍🏽 b")
+            let unmount = mount(h)
+            defer { unmount() }
+            let adapter = attached(h)
+            for at in [1, 5] {
+                #expect(await adapter.perform("PlaceCaret", arguments: ["at": at]).status == 400)
+                #expect(
+                    await adapter.perform("Insert", arguments: ["at": at, "text": "x"]).status
+                        == 400)
+            }
+            #expect(h.source == "a\u{301} 👍🏽 b")
+            #expect(await adapter.perform("PlaceCaret", arguments: ["at": 2]).status == 200)
+            #expect(await adapter.perform("PlaceCaret", arguments: ["at": 7]).status == 200)
         }
 
         @Test func readsChangeNothingTheNextStepDependsOn() async throws {

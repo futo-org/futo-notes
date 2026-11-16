@@ -167,11 +167,14 @@ function keyboards() {
   return [...out.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
 }
 function setKeyboards(list) {
-  const out = spawnSync(
-    'xcrun',
-    ['simctl', 'spawn', SIM, 'defaults', 'write', '-g', 'AppleKeyboards', '-array', ...list],
-    { encoding: 'utf8' },
-  );
+  // None were set: put it back to none, not to an empty list.
+  const args =
+    list.length === 0
+      ? ['delete', '-g', 'AppleKeyboards']
+      : ['write', '-g', 'AppleKeyboards', '-array', ...list];
+  const out = spawnSync('xcrun', ['simctl', 'spawn', SIM, 'defaults', ...args], {
+    encoding: 'utf8',
+  });
   if (out.status !== 0) throw new StepFailure(`could not set the keyboards: ${out.stderr}`);
 }
 function relaunch() {
@@ -431,6 +434,13 @@ story('reopen the note', () => {
 story('reads leave a composition alone', async () => {
   // A Japanese romaji keyboard turns the simulator's real keys into marked text.
   const kept = keyboards();
+  // An interrupted run still puts the simulator's keyboards back.
+  const restore = () => {
+    setKeyboards(kept);
+    process.exit(130);
+  };
+  process.once('SIGINT', restore);
+  process.once('SIGTERM', restore);
   try {
     setKeyboards(['ja_JP-Romaji@sw=QWERTY-Japanese;hw=Automatic']);
     relaunch();
@@ -450,6 +460,8 @@ story('reads leave a composition alone', async () => {
     expectEqual(editor().composing, false, 'Enter committed the composition');
     expectSaved(NOTE_B, `${start}にほn`, 'the committed composition');
   } finally {
+    process.off('SIGINT', restore);
+    process.off('SIGTERM', restore);
     setKeyboards(kept);
     relaunch();
   }

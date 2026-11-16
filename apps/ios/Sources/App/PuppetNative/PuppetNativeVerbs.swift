@@ -143,7 +143,8 @@
             ]
             if range.length > 0 {
                 result["direction"] =
-                    selectedBy === c && selectedRange == range ? "forward" : "unknown"
+                    selectedBy === c && selectedRange == range
+                        && selectedAt == c.selectionChanges ? "forward" : "unknown"
             }
             return result
         }
@@ -171,6 +172,7 @@
                 if verb == "Select", range.length > 0 {
                     selectedBy = c
                     selectedRange = c.effectiveSelection
+                    selectedAt = c.selectionChanges
                 }
                 return ["selected": state(note: c.noteId)["selection"] ?? NSNull()]
             case "SelectAll":
@@ -302,6 +304,10 @@
                 throw PuppetVerbRefusal(400, #"OpenLink needs {"find":"<the link's text>"}"#)
             }
             let range = try document.match(find)
+            if document.cell(containing: range) != nil {
+                throw PuppetVerbRefusal(
+                    409, "\(find.debugDescription) is in a table cell, where a tap edits the cell")
+            }
             guard
                 let link = document.links().first(where: {
                     NSIntersectionRange($0.range, range).length > 0

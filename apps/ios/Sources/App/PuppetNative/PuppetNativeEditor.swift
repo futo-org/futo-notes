@@ -16,6 +16,9 @@
         /// direction is known (forward). Any other non-empty selection reports `"unknown"`.
         weak var selectedBy: TextFirstEditorController?
         var selectedRange: NSRange?
+        /// The controller's `selectionChanges` once that `Select` settled: any later change,
+        /// even back to the same range, means puppet no longer knows the direction.
+        var selectedAt = 0
 
         func attach(_ controller: TextFirstEditorController, title: @escaping () -> String) {
             self.controller = controller

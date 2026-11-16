@@ -182,7 +182,7 @@
             }
             guard let hit else {
                 throw PuppetVerbRefusal(
-                    409, "nothing a touch reaches is at \(Int(point.x)),\(Int(point.y))")
+                    409, "nothing a touch reaches is at \(point.x),\(point.y)")
             }
             return [
                 "x": point.x, "y": point.y, "native": true,

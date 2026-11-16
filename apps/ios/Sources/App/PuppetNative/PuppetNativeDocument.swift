@@ -159,7 +159,14 @@
                 {
                     throw PuppetVerbRefusal(409, "docVersion is stale; read doc before editing")
                 }
+                // A character a person sees as one (an emoji with its modifier or joiners, a letter
+                // with combining marks, a flag) is never split, whatever its UTF-16 length.
+                func whole(_ at: Int) -> Bool {
+                    at == text.length
+                        || text.rangeOfComposedCharacterSequence(at: at).location == at
+                }
                 guard range.location >= 0, range.length >= 0, NSMaxRange(range) <= text.length,
+                    whole(range.location), whole(NSMaxRange(range)),
                     (try? controller.mirror.utf16ToByte(unit: UInt64(range.location))) != nil,
                     (try? controller.mirror.utf16ToByte(unit: UInt64(NSMaxRange(range)))) != nil
                 else {

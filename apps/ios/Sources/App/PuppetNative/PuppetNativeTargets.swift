@@ -22,11 +22,13 @@
             return list
         }
 
-        /// Every link run on screen, with what a tap on it opens (nil: nothing).
+        /// Every link run on screen, with what a tap on it opens (nil: nothing). A link in a
+        /// table cell is left out: a tap there opens the cell's editor, not the link.
         func links() -> [Link] {
             guard canReach, visible.length > 0 else { return [] }
             var found: [Link] = []
             controller.storage.enumerateAttributes(in: visible) { attributes, run, _ in
+                if cell(containing: run) != nil { return }
                 if let raw = attributes[.tfLinkURL] as? String {
                     found.append(
                         Link(range: run, target: controller.linkTarget(forDestination: raw)))
