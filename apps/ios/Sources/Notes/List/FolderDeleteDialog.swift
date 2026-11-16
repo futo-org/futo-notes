@@ -130,11 +130,12 @@ struct FolderDeleteDialog: View {
         VStack(alignment: .leading, spacing: 20) {
             heading(title, message: localization.localizedText("folders.delete.emptyMessage"))
             sideBySide {
-Button {
+                Button {
                     onCancel()
                 } label: {
                     pillLabel(
-                        localization.localizedText("common.actions.cancel"), color: .primary, weight: .regular)
+                        localization.localizedText("common.actions.cancel"), color: .primary,
+                        weight: .regular)
                 }
                 .buttonStyle(PillStyle(fill: Self.grayFill))
                 .accessibilityIdentifier("folder-delete-cancel")
@@ -142,7 +143,8 @@ Button {
                     Task { await onFolderOnly() }
                 } label: {
                     pillLabel(
-                        localization.localizedText("common.actions.delete"), color: Theme.danger, weight: .semibold)
+                        localization.localizedText("common.actions.delete"), color: Theme.danger,
+                        weight: .semibold)
                 }
                 .buttonStyle(PillStyle(fill: Self.grayFill))
                 .accessibilityIdentifier("folder-delete-confirm")
@@ -157,11 +159,12 @@ Button {
                 message: localization.localizedText(
                     "folders.delete.keptNotesMessage", arguments: ["count": count]))
             VStack(spacing: 8) {
-Button {
+                Button {
                     Task { await onFolderOnly() }
                 } label: {
                     pillLabel(
-                        localization.localizedText("folders.delete.folderOnly"), color: Self.preferredText(colorScheme), weight: .semibold)
+                        localization.localizedText("folders.delete.folderOnly"),
+                        color: Self.preferredText(colorScheme), weight: .semibold)
                 }
                 .buttonStyle(PillStyle(fill: Theme.primary.opacity(0.15)))
                 .accessibilityIdentifier("folder-delete-only")
@@ -169,7 +172,8 @@ Button {
                     advance(to: 2)
                 } label: {
                     pillLabel(
-                        localization.localizedText("folders.delete.folderAndNotes"), color: Theme.danger, weight: .regular)
+                        localization.localizedText("folders.delete.folderAndNotes"),
+                        color: Theme.danger, weight: .regular)
                 }
                 .buttonStyle(PillStyle(fill: Self.grayFill))
                 .accessibilityIdentifier("folder-delete-and-notes")
@@ -177,7 +181,8 @@ Button {
                     onCancel()
                 } label: {
                     pillLabel(
-                        localization.localizedText("common.actions.cancel"), color: .primary, weight: .regular)
+                        localization.localizedText("common.actions.cancel"), color: .primary,
+                        weight: .regular)
                 }
                 .buttonStyle(PillStyle(fill: Self.grayFill))
                 .accessibilityIdentifier("folder-delete-cancel")
@@ -197,7 +202,8 @@ Button {
             .padding(.leading, 6)
             .padding(.bottom, 12)
             .transition(
-                reduceMotion ? .opacity : .scale(scale: 0.6, anchor: .center).combined(with: .opacity))
+                reduceMotion
+                    ? .opacity : .scale(scale: 0.6, anchor: .center).combined(with: .opacity))
             heading(
                 localization.localizedText(
                     "folders.delete.notesTitle", arguments: ["count": count]),
@@ -206,11 +212,12 @@ Button {
             lostList
                 .padding(.top, 14)
             sideBySide {
-Button {
+                Button {
                     advance(to: 1)
                 } label: {
                     pillLabel(
-                        localization.localizedText("common.actions.back"), color: .primary, weight: .regular)
+                        localization.localizedText("common.actions.back"), color: .primary,
+                        weight: .regular)
                 }
                 .buttonStyle(PillStyle(fill: Self.grayFill))
                 .accessibilityIdentifier("folder-delete-back")
@@ -218,7 +225,8 @@ Button {
                     Task { await onDeleteAll() }
                 } label: {
                     pillLabel(
-                        localization.localizedText("folders.delete.deleteAll"), color: .white, weight: .semibold)
+                        localization.localizedText("folders.delete.deleteAll"), color: .white,
+                        weight: .semibold)
                 }
                 .buttonStyle(PillStyle(fill: Theme.danger))
                 .accessibilityIdentifier("folder-delete-all")
@@ -290,7 +298,10 @@ Button {
     }
 
     private func advance(to next: Int) {
-        withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.42, dampingFraction: 0.82)) {
+        withAnimation(
+            reduceMotion
+                ? .easeInOut(duration: 0.2) : .spring(response: 0.42, dampingFraction: 0.82)
+        ) {
             step = next
         }
     }

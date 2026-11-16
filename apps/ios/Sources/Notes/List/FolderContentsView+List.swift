@@ -90,7 +90,9 @@ extension FolderContentsView {
                             NoteRow(note: note, showFolder: false)
                         }
                         .listRowBackground(
-                            arrivedNoteIDs.contains(note.id) ? Theme.folderArrivalTint : Theme.surface)
+                            arrivedNoteIDs.contains(note.id)
+                                ? Theme.folderArrivalTint : Theme.surface
+                        )
                         .accessibilityIdentifier(ListRowID.note(note.id))
                         // Keep the row in place until deletion is confirmed.
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
