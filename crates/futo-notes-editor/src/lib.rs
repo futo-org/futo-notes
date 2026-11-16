@@ -1,5 +1,6 @@
 //! Portable exact-source editing; persistence and views are supplied by its host.
 
+mod backspace_length;
 mod coordinates;
 mod engine;
 mod history;

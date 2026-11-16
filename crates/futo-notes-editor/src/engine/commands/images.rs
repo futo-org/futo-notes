@@ -170,9 +170,8 @@ impl Engine {
                 } else {
                     CaretDirection::Backward
                 };
-                let at = range.start.0;
-                let stop = self.grapheme_stop(at, direction);
-                let (mut start, mut end) = (at.min(stop), at.max(stop));
+                let deletion = self.caret_deletion(range.start.0, direction);
+                let (mut start, mut end) = (deletion.start.0, deletion.end.0);
                 let mut found = false;
                 for image in self.images_in(start, end) {
                     if image.start.0 < end && image.end.0 > start {

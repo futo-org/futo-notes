@@ -16,7 +16,7 @@ mod wikilinks;
 
 use super::command::{Command, Edit};
 use super::Engine;
-use crate::{BlockCommand, CaretDirection, DisplayOffset, DisplayRange, EditorError, ParagraphKey};
+use crate::{BlockCommand, CaretDirection, DisplayRange, EditorError, ParagraphKey};
 
 /// A family's claim on a paragraph key: the command it runs, if it claims it.
 type KeyFamily = fn(&Engine, DisplayRange, ParagraphKey) -> Result<Option<Command>, EditorError>;
@@ -72,11 +72,7 @@ impl Engine {
                     } else {
                         CaretDirection::Backward
                     };
-                    let stop = self.grapheme_stop(range.start.0, direction);
-                    DisplayRange {
-                        start: DisplayOffset(range.start.0.min(stop)),
-                        end: DisplayOffset(range.start.0.max(stop)),
-                    }
+                    self.caret_deletion(range.start.0, direction)
                 };
                 if range.start == range.end || self.touches_metadata(range) {
                     return Ok(None);

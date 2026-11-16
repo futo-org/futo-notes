@@ -2,6 +2,7 @@
 //! one extended grapheme.
 use super::line::Entry;
 use super::{store, Engine};
+use crate::backspace_length::backspace_length;
 use crate::{
     Affinity, CaretDirection, DisplayOffset, DisplayRange, EditorError, Revision, SelectionChange,
 };
@@ -137,6 +138,23 @@ impl Engine {
         match direction {
             CaretDirection::Backward => start,
             CaretDirection::Forward => end,
+        }
+    }
+
+    /// What Backspace or Delete at a collapsed caret at display offset `at`
+    /// removes: one extended grapheme forward, and backward what
+    /// `backspace_length` takes of the grapheme before it.
+    pub(crate) fn caret_deletion(&self, at: usize, direction: CaretDirection) -> DisplayRange {
+        let stop = self.grapheme_stop(at, direction);
+        if direction == CaretDirection::Forward {
+            return DisplayRange {
+                start: DisplayOffset(at),
+                end: DisplayOffset(stop),
+            };
+        }
+        DisplayRange {
+            start: DisplayOffset(at - backspace_length(&self.display_slice(stop..at))),
+            end: DisplayOffset(at),
         }
     }
 

@@ -1,6 +1,6 @@
 use futo_notes_editor::{
     DisplayOffset, DisplayRange, DisplayUtf16Offset, DisplayUtf16Range, EditorError, EditorSession,
-    Revision, SourceOffset, SourceRange, SourceUtf16Offset, SourceUtf16Range,
+    ParagraphKey, Revision, SourceOffset, SourceRange, SourceUtf16Offset, SourceUtf16Range,
 };
 mod common;
 use common::ReferenceView;
@@ -350,4 +350,86 @@ fn typed_text_refuses_control_characters_and_function_key_code_points() {
         .replace_utf16_action(Revision(0), utf16(0, 4), &echo, isolated, &mut accepted)
         .unwrap();
     assert_eq!(session.source_text(), "xb\r\n");
+}
+
+fn press(session: &mut EditorSession, caret: usize, key: ParagraphKey) {
+    session
+        .paragraph_key(
+            session.revision(),
+            bytes(caret, caret),
+            key,
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+}
+
+#[test]
+fn backspace_after_a_zero_width_non_joiner_removes_only_the_non_joiner() {
+    for source in [
+        "\u{645}\u{6cc}\u{200c}",
+        "- \u{645}\u{6cc}\u{200c}",
+        "# \u{645}\u{6cc}\u{200c}",
+        "> \u{645}\u{6cc}\u{200c}",
+        "| \u{645}\u{6cc}\u{200c} | b |\n| - | - |",
+        "**\u{645}\u{6cc}\u{200c}**",
+        "**\u{645}\u{6cc}**\u{200c}",
+        "a\n\u{200c}b",
+    ] {
+        let mut session = EditorSession::open(source);
+        let caret = session.display_text().find('\u{200c}').unwrap() + 3;
+        press(&mut session, caret, ParagraphKey::Backspace);
+        assert_eq!(session.source_text(), source.replacen('\u{200c}', "", 1));
+        assert_eq!(
+            session.selection(),
+            bytes(caret - 3, caret - 3),
+            "{source:?}"
+        );
+        session.undo(session.revision(), &mut |_| Ok(())).unwrap();
+        assert_eq!(session.source_text(), source);
+        assert_eq!(session.selection(), bytes(caret, caret), "{source:?}");
+    }
+
+    let mut session = EditorSession::open("\u{6cc}\u{200c}\u{200c}");
+    for (caret, left) in [(8, "\u{6cc}\u{200c}"), (5, "\u{6cc}"), (2, "")] {
+        press(&mut session, caret, ParagraphKey::Backspace);
+        assert_eq!(session.source_text(), left);
+    }
+
+    let mut marked = EditorSession::open("\u{6cc}");
+    marked.select(Revision(0), bytes(2, 2)).unwrap();
+    marked
+        .compose(Revision(0), bytes(2, 2), "\u{200c}")
+        .unwrap();
+    press(&mut marked, 5, ParagraphKey::Backspace);
+    assert_eq!(marked.source_text(), "\u{6cc}");
+    assert!(marked.composition().is_none());
+}
+
+#[test]
+fn backspace_and_delete_still_take_whole_clusters_around_a_non_joiner() {
+    for (source, left) in [
+        ("\u{6cc}\u{200c}\u{62e}", "\u{6cc}\u{200c}"),
+        ("e\u{301}", ""),
+        ("👩🏽\u{200d}💻", ""),
+        ("a\r\n", "a"),
+    ] {
+        let mut session = EditorSession::open(source);
+        let end = session.display_len();
+        press(&mut session, end, ParagraphKey::Backspace);
+        assert_eq!(session.source_text(), left, "{source:?}");
+    }
+
+    let mut session = EditorSession::open("\u{6cc}\u{200c}");
+    press(&mut session, 0, ParagraphKey::Delete);
+    assert_eq!(session.source_text(), "");
+
+    let mut session = EditorSession::open("\u{6cc}\u{200c}");
+    session.select(Revision(0), bytes(5, 5)).unwrap();
+    assert_eq!(
+        session
+            .move_caret(Revision(0), futo_notes_editor::CaretDirection::Backward)
+            .unwrap()
+            .selection,
+        bytes(0, 0)
+    );
 }

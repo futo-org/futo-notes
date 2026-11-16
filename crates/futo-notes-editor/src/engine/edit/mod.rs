@@ -406,12 +406,7 @@ impl Engine {
         let range = if selection.start != selection.end {
             selection
         } else {
-            let at = selection.start.0;
-            let stop = self.grapheme_stop(at, direction);
-            DisplayRange {
-                start: DisplayOffset(at.min(stop)),
-                end: DisplayOffset(at.max(stop)),
-            }
+            self.caret_deletion(selection.start.0, direction)
         };
         if range.start == range.end || self.touches_metadata(range) {
             return Ok(None);

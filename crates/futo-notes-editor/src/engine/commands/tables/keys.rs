@@ -98,9 +98,8 @@ impl Engine {
         if range.start != range.end {
             return None;
         }
-        let at = range.start.0;
-        let stop = self.grapheme_stop(at, direction);
-        let (low, high) = (at.min(stop), at.max(stop));
+        let deletion = self.caret_deletion(range.start.0, direction);
+        let (low, high) = (deletion.start.0, deletion.end.0);
         if low == high {
             return None;
         }

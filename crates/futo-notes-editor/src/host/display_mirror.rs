@@ -1,6 +1,7 @@
 use ropey::Rope;
 use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete, UnicodeSegmentation};
 
+use crate::backspace_length::backspace_length;
 use crate::{CaretDirection, EditorError};
 
 /// Why a coordinate was refused; the mirror is unchanged.
@@ -178,7 +179,7 @@ impl DisplayMirror {
     /// A deletion tied to the selection (Backspace or forward delete at a caret, or over the
     /// selected range) is the engine's own: the selection when the engine has one, else one
     /// extended grapheme before (after, for a forward delete) the engine's caret, never the width
-    /// the view saw. A delete of more than one grapheme at a caret (Option-Backspace) is a word
+    /// the view saw; backward, only what `backspace_length` takes of it. A delete of more than one grapheme at a caret (Option-Backspace) is a word
     /// delete: the engine's word before (after) its caret on that line, with the spaces between.
     /// Any other key keeps its offset from the view's selection, clamped to the text and shrunk
     /// to scalar boundaries.
@@ -247,7 +248,15 @@ impl DisplayMirror {
         let word = collapsed && deleted.graphemes(true).nth(1).is_some();
         let stop = match word.then(|| self.word_stop(byte, direction)).flatten() {
             Some(stop) => stop,
-            None => grapheme_stop(&self.rope, byte, direction).ok()?,
+            None => {
+                let stop = grapheme_stop(&self.rope, byte, direction).ok()?;
+                if backward {
+                    let cluster = self.rope.byte_slice(stop..byte).to_string();
+                    byte - backspace_length(&cluster)
+                } else {
+                    stop
+                }
+            }
         };
         let other = self.byte_to_utf16(stop).ok()?;
         Some(if backward {
