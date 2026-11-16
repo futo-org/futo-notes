@@ -98,3 +98,74 @@ fn a_list_marker_is_one_unit_to_words() {
     // Option+Left from an item's text start passes its marker to the word above.
     assert_eq!(stops("a b\n- c", 8, CaretDirection::Backward), [7, 2, 0]);
 }
+
+fn display(source: &str) -> String {
+    EditorSession::open(source).display_text()
+}
+
+#[test]
+fn an_inline_code_edge_inside_a_word_splits_it() {
+    let source = "foo`bar`baz";
+    assert_eq!(display(source), "foobarbaz");
+    assert_eq!(stops(source, 0, CaretDirection::Forward), [3, 6, 9]);
+    assert_eq!(stops(source, 9, CaretDirection::Backward), [6, 3, 0]);
+    assert_eq!(word_at(source, 1), "foo");
+    assert_eq!(word_at(source, 4), "bar");
+    assert_eq!(word_at(source, 7), "baz");
+    // On an edge, between two words: the word after it.
+    assert_eq!(word_at(source, 3), "bar");
+    assert_eq!(word_at(source, 6), "baz");
+    // Inside other marks, code splits the same way.
+    let source = "**a`b`c**";
+    assert_eq!(display(source), "abc");
+    assert_eq!(stops(source, 0, CaretDirection::Forward), [1, 2, 3]);
+    assert_eq!(word_at(source, 1), "b");
+    let source = "[a`b`c](u)";
+    assert_eq!(display(source), "abc");
+    assert_eq!(stops(source, 0, CaretDirection::Forward), [1, 2, 3]);
+}
+
+#[test]
+fn an_inline_code_edge_splits_a_dictionary_word() {
+    let source = "`我`们在北京";
+    assert_eq!(display(source), "我们在北京");
+    assert_eq!(word_at(source, 0), "我");
+    assert_eq!(word_at(source, 3), "们");
+    assert_eq!(stops(source, 0, CaretDirection::Forward), [3, 6, 9, 15]);
+    assert_eq!(stops(source, 15, CaretDirection::Backward), [9, 6, 3, 0]);
+}
+
+#[test]
+fn inline_code_at_a_line_edge_or_after_a_list_marker_splits_its_word() {
+    assert_eq!(stops("`foo`bar", 0, CaretDirection::Forward), [3, 6]);
+    assert_eq!(stops("`foo`bar", 6, CaretDirection::Backward), [3, 0]);
+    assert_eq!(stops("foo`bar`", 0, CaretDirection::Forward), [3, 6]);
+    assert_eq!(stops("foo`bar`", 6, CaretDirection::Backward), [3, 0]);
+    assert_eq!(word_at("foo`bar`", 6), "bar");
+    let source = "- `a`b c";
+    assert_eq!(display(source), "\u{fffc}ab c");
+    assert_eq!(word_at(source, 0), "\u{fffc}");
+    assert_eq!(word_at(source, 3), "a");
+    assert_eq!(word_at(source, 4), "b");
+    assert_eq!(stops(source, 0, CaretDirection::Forward), [4, 5, 7]);
+    assert_eq!(stops(source, 7, CaretDirection::Backward), [6, 4, 3, 0]);
+}
+
+#[test]
+fn only_inline_code_splits_a_word() {
+    for (source, shown) in [
+        ("foo**bar**baz", "foobarbaz"),
+        ("foo*bar*baz", "foobarbaz"),
+        ("foo~~bar~~baz", "foobarbaz"),
+        ("foo[bar](u)baz", "foobarbaz"),
+    ] {
+        assert_eq!(display(source), shown, "{source:?}");
+        assert_eq!(word_at(source, 4), shown, "{source:?}");
+        assert_eq!(stops(source, 0, CaretDirection::Forward), [9], "{source:?}");
+    }
+    // Code that is whole words stops as before: spaces already separate them.
+    let source = "a `b c` d";
+    assert_eq!(display(source), "a b c d");
+    assert_eq!(stops(source, 0, CaretDirection::Forward), [1, 3, 5, 7]);
+    assert_eq!(stops(source, 7, CaretDirection::Backward), [6, 4, 2, 0]);
+}
