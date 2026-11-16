@@ -1,6 +1,8 @@
 package com.futo.notes.textfirst
 
+import uniffi.futo_notes_ffi.EditorCorrespondenceKind
 import uniffi.futo_notes_ffi.EditorListMarker
+import uniffi.futo_notes_ffi.EditorProjection
 import uniffi.futo_notes_ffi.EditorStyleSpan
 
 /**
@@ -20,7 +22,6 @@ internal fun List<EditorStyleSpan>.toStyleWindow(start: Int, end: Int, display: 
     return StyleWindow(minOf(start, specs.minOfOrNull { it.start } ?: start), maxOf(end, specs.maxOfOrNull { it.end } ?: end), specs)
 }
 
-/** Tags are not drawn yet. */
 private fun EditorStyleSpan.toSpanSpec(display: CharSequence): SpanSpec? = when (this) {
     is EditorStyleSpan.Inline -> SpanSpec.Inline(start.toInt(), end.toInt(), bold, italic, strike, code)
     is EditorStyleSpan.Heading -> SpanSpec.Heading(start.toInt(), end.toInt(), level.toInt())
@@ -30,11 +31,32 @@ private fun EditorStyleSpan.toSpanSpec(display: CharSequence): SpanSpec? = when 
     is EditorStyleSpan.Metadata -> SpanSpec.Metadata(start.toInt(), end.toInt())
     is EditorStyleSpan.Link -> SpanSpec.Link(start.toInt(), end.toInt(), destination)
     is EditorStyleSpan.Wikilink -> SpanSpec.Wikilink(start.toInt(), end.toInt(), label, noteId)
-    is EditorStyleSpan.Tag -> null
+    is EditorStyleSpan.Tag -> SpanSpec.Tag(start.toInt(), end.toInt())
     is EditorStyleSpan.Divider -> SpanSpec.Divider(start.toInt(), end.toInt())
     is EditorStyleSpan.Image -> SpanSpec.Image(start.toInt(), end.toInt(), destination, alt, vault, remote)
     is EditorStyleSpan.TableRow -> toTableSpec(display)
     is EditorStyleSpan.TableDelimiter -> SpanSpec.TableDelimiter(start.toInt(), end.toInt())
+}
+
+/**
+ * Labels the first code line of each fenced block in [projection] with the block's language;
+ * [toUtf16] places display bytes in the view. Every code line carries its block's language, so
+ * the first is told by the hidden run that starts at it: its opening fence (a projection walks
+ * back over hidden lines), or, in an empty block, the fence row itself.
+ */
+internal fun StyleWindow.withCodeLanguages(projection: EditorProjection, toUtf16: (Int) -> Int): StyleWindow {
+    val labelled = projection.blocks.filter { it.code && !it.language.isNullOrEmpty() }
+    if (labelled.isEmpty()) return this
+    val fenceEnds = projection.correspondence
+        .filter { it.kind == EditorCorrespondenceKind.HIDDEN }
+        .mapTo(HashSet()) { it.display.start }
+    val languages = HashMap<Int, String>()
+    for (block in labelled) {
+        if (block.range.start !in fenceEnds) continue
+        languages.putIfAbsent(toUtf16(block.range.start.toInt()), checkNotNull(block.language))
+    }
+    if (languages.isEmpty()) return this
+    return StyleWindow(start, end, specs.map { spec -> if (spec is SpanSpec.Code) SpanSpec.Code(spec.start, spec.end, languages[spec.start]) else spec })
 }
 
 private fun EditorStyleSpan.ListRow.toListSpec(): SpanSpec {

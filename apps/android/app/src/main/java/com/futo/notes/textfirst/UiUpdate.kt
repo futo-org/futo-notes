@@ -17,10 +17,12 @@ internal sealed class SpanSpec(val start: Int, val end: Int) {
     class ListRow(start: Int, end: Int, val depth: Int, val marker: ListMarker, val label: String, val checked: Boolean, val first: Boolean) : SpanSpec(start, end)
     /** An indented plain line under a list: it takes the list's display level and draws no marker. */
     class Indent(start: Int, end: Int, val depth: Int) : SpanSpec(start, end)
-    class Code(start: Int, end: Int) : SpanSpec(start, end)
+    /** [language] is set on a fenced block's first code line only: the label drawn above it. */
+    class Code(start: Int, end: Int, val language: String? = null) : SpanSpec(start, end)
     class Metadata(start: Int, end: Int) : SpanSpec(start, end)
     class Link(start: Int, end: Int, val destination: String) : SpanSpec(start, end)
     class Wikilink(start: Int, end: Int, val label: String, val noteId: String?) : SpanSpec(start, end)
+    class Tag(start: Int, end: Int) : SpanSpec(start, end)
     class Divider(start: Int, end: Int) : SpanSpec(start, end)
     class Image(start: Int, end: Int, val destination: String, val alt: String, val vault: Boolean, val remote: Boolean) : SpanSpec(start, end)
     class TableRow(start: Int, end: Int, val row: GridRow) : SpanSpec(start, end)

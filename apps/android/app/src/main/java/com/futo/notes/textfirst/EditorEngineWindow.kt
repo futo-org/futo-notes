@@ -7,16 +7,20 @@ import uniffi.futo_notes_ffi.EditorProjection
  * view's UTF-16 offsets. The engine clips its spans to the range it is asked for, so asking for
  * whole lines keeps each line's block span and list marker in one piece. Editor thread, with no
  * composition overlay: the plan is in the engine's display, which the mirror equals only then.
+ * Code languages come from [projection] when the caller already holds one covering the window
+ * (an accepted change), else from a projection of the window.
  */
-internal fun EditorEngine.planStyleWindow(from: Int, to: Int): StyleWindow {
+internal fun EditorEngine.planStyleWindow(from: Int, to: Int, projection: EditorProjection? = null): StyleWindow {
     val start = lineStartAt(mirror.text, from)
     val end = lineEndAfter(mirror.text, start, to)
-    val planned = checkNotNull(session).stylePlan(rev, mirror.byteRange(start, end))
-    return planned.toStyleWindow(start, end, mirror.text)
+    val session = checkNotNull(session)
+    val range = mirror.byteRange(start, end)
+    val planned = session.stylePlan(rev, range).toStyleWindow(start, end, mirror.text)
+    return planned.withCodeLanguages(projection ?: session.project(rev, range), mirror::toUtf16)
 }
 
 internal fun EditorEngine.planStyleWindow(projection: EditorProjection): StyleWindow =
-    planStyleWindow(mirror.toUtf16(projection.range.start.toInt()), mirror.toUtf16(projection.range.end.toInt()))
+    planStyleWindow(mirror.toUtf16(projection.range.start.toInt()), mirror.toUtf16(projection.range.end.toInt()), projection)
 
 private fun lineStartAt(text: CharSequence, offset: Int): Int = text.lastIndexOf('\n', offset - 1) + 1
 

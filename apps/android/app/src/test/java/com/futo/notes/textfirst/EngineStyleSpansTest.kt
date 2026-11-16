@@ -3,7 +3,13 @@ package com.futo.notes.textfirst
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import uniffi.futo_notes_ffi.EditorBlockDescription
+import uniffi.futo_notes_ffi.EditorByteRange
+import uniffi.futo_notes_ffi.EditorCorrespondence
+import uniffi.futo_notes_ffi.EditorCorrespondenceKind
 import uniffi.futo_notes_ffi.EditorListMarker
+import uniffi.futo_notes_ffi.EditorProjection
+import uniffi.futo_notes_ffi.EditorSourceByteRange
 import uniffi.futo_notes_ffi.EditorStyleCell
 import uniffi.futo_notes_ffi.EditorStyleSpan
 import uniffi.futo_notes_ffi.EditorTableAlignment
@@ -27,7 +33,21 @@ class EngineStyleSpansTest {
         val plain = specs.filterIsInstance<SpanSpec.Indent>().single()
         assertEquals(8, plain.start)
         assertEquals(1, plain.depth)
-        assertEquals("a tag draws nothing yet", 5, specs.size)
+        val tag = specs.filterIsInstance<SpanSpec.Tag>().single()
+        assertEquals(0 to 1, tag.start to tag.end)
+        assertEquals(6, specs.size)
+    }
+
+    // "a\n```js\nx\ny\nz\n```\n```py\nw\n```\n" shows as "a\nx\ny\nz\nw\n": each fence is hidden where the next shown line starts.
+    @Test fun aCodeLanguageLabelsOnlyTheFirstCodeLineOfEachBlock() {
+        val lines = listOf(block(0, 1, false, null), block(2, 3, true, "js"), block(4, 5, true, "js"), block(6, 7, true, "js"), block(8, 9, true, "py"))
+        val code = StyleWindow(0, 10, listOf(SpanSpec.Code(2, 4), SpanSpec.Code(4, 6), SpanSpec.Code(6, 8), SpanSpec.Code(8, 10)))
+
+        val whole = code.withCodeLanguages(projection(lines, fencesAt = listOf(2, 8, 8, 10)), toUtf16 = { it })
+        assertEquals(listOf("js", null, null, "py"), whole.specs.map { (it as SpanSpec.Code).language })
+
+        val insideBlock = code.withCodeLanguages(projection(lines.subList(2, 4), fencesAt = emptyList()), toUtf16 = { it })
+        assertEquals(listOf(null, null, null, null), insideBlock.specs.map { (it as SpanSpec.Code).language })
     }
 
     @Test fun aTableRowReadsItsCellsFromTheDisplayAndHidesTheSpansInsideIt() {
@@ -47,6 +67,15 @@ class EngineStyleSpansTest {
         assertEquals(EditorTableAlignment.RIGHT, row.cells[1].alignment)
         assertEquals(2, row.tableStart)
     }
+
+    private fun block(start: Int, end: Int, code: Boolean, language: String?) =
+        EditorBlockDescription(EditorByteRange(start.toULong(), end.toULong()), 0u, 0uL, false, null, code, language, false)
+
+    private fun projection(blocks: List<EditorBlockDescription>, fencesAt: List<Int>) = EditorProjection(
+        0uL, EditorByteRange(0uL, 10uL), "", emptyList(),
+        fencesAt.map { EditorCorrespondence(EditorSourceByteRange(0uL, 1uL), EditorByteRange(it.toULong(), it.toULong()), EditorCorrespondenceKind.HIDDEN) },
+        blocks, emptyList(), emptyList(), emptyList(),
+    )
 
     private fun listRow(start: Int, end: Int, level: Int, marker: EditorListMarker, text: String, checked: Boolean = false) =
         EditorStyleSpan.ListRow(start.toULong(), end.toULong(), 0uL, level.toULong(), marker, text, checked, true)

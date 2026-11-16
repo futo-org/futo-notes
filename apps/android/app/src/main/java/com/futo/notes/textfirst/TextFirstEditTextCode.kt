@@ -5,7 +5,7 @@ import android.graphics.Paint
 import android.graphics.Path
 
 /**
- * Each visible code line's background, full width. The view paints it, ahead of
+ * Each visible code line's background, full width, and a block's language label. The view paints them, ahead of
  * the TextView's own drawing, because the TextView draws the caret before the
  * layout's line backgrounds: a LineBackgroundSpan would cover the caret.
  */
@@ -29,6 +29,8 @@ internal fun TextFirstEditText.drawCodeBackgrounds(canvas: Canvas) {
         for (line in from..to) {
             canvas.drawRect(0f, l.getLineTop(line).toFloat(), l.width.toFloat(), l.getLineBottom(line).toFloat(), paint)
         }
+        val labelLine = l.getLineForOffset(s)
+        if (labelLine in from..to) block.drawLabel(canvas, l.width, l.getLineTop(labelLine))
     }
     canvas.restoreToCount(save)
 }

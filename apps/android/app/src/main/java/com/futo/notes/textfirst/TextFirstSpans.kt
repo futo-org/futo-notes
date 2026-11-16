@@ -43,6 +43,9 @@ internal class TextFirstStyle(
     val listIndent = textSizePx * 1.4f
     val quoteIndent = dp(3f) + textSizePx * 0.9f
     val codePadding = dp(12f)
+    // iOS's 16-point header and 11-point label against its 17-point body, scaled with the body text.
+    val codeLabelHeader = textSizePx * 16f / 17f
+    val codeLabelSize = textSizePx * 11f / 17f
     val selectionColor get() = (linkColor and 0x00ffffff) or 0x40000000
 
     /** Find-match highlight: the link colour, stronger for the current match. */
@@ -271,27 +274,6 @@ internal class TfList(
     }
 }
 
-/**
- * A code line's monospace face and inset. Its background is not a
- * LineBackgroundSpan: the TextView draws the caret before the layout's line
- * backgrounds, so an opaque one would cover the caret on a code line. The view
- * paints it first instead (`drawCodeBackgrounds`).
- */
-internal class TfCodeBlock(private val look: TextFirstStyle) :
-    MetricAffectingSpan(), LeadingMarginSpan, TfSpan {
-    override fun slice(head: Boolean): TfSpan = if (head) this else TfCodeBlock(look)
-
-    override fun updateMeasureState(paint: TextPaint) {
-        paint.typeface = look.mono
-        paint.textSize = look.textSizePx * 0.85f
-    }
-
-    override fun updateDrawState(paint: TextPaint) = updateMeasureState(paint)
-
-    override fun getLeadingMargin(first: Boolean) = look.codePadding.toInt()
-    override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) = Unit
-}
-
 internal class TfMetadata(private val look: TextFirstStyle) :
     MetricAffectingSpan(), LineBackgroundSpan, LeadingMarginSpan, TfSpan {
     private val background = Paint().apply { color = look.surfaceColor }
@@ -327,6 +309,12 @@ internal class TfLink(private val look: TextFirstStyle, val destination: String)
         tp.color = look.linkColor
         tp.isUnderlineText = true
     }
+}
+
+/** Colour only, so typing in a tag never shifts the line (tags.md). */
+internal class TfTag(private val look: TextFirstStyle) : CharacterStyle(), UpdateAppearance, TfSpan {
+    override fun slice(head: Boolean): TfSpan = if (head) this else TfTag(look)
+    override fun updateDrawState(tp: TextPaint) { tp.color = look.linkColor }
 }
 
 /** Atoms: one drawn unit whose caret stops are only its two ends (images.md). */
