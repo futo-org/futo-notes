@@ -24,6 +24,45 @@ class TextFirstCaretTest {
     @Test fun caretShowsOnAnEmptyQuotedCodeLine() = shows("text\n", EditorBlockCommand.CodeBlock, quoted = true)
     @Test fun caretShowsOnAnEmptyQuoteLine() = shows("text\n", EditorBlockCommand.Quote)
 
+    /** An h1 line is two body lines tall; its caret is only as tall as the h1's text and sits on it. */
+    @Test fun caretOnAHeadingIsTheHeightOfItsText() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "caret-${UUID.randomUUID()}").apply { check(mkdirs()) }
+        val scenario = ActivityScenario.launch(ComponentActivity::class.java)
+        val store = NoteStore(root.path)
+        lateinit var controller: TextFirstController
+        try {
+            store.createNote("n", "", "# Hi\nbody\n")
+            withContext(Dispatchers.Main) {
+                suspendCancellableCoroutine<Unit> { done ->
+                    scenario.onActivity { activity ->
+                        controller = createTextFirstController(activity, { store }, root)
+                        activity.setContentView(controller.view)
+                        controller.open("n") { assertNull(it); done.resume(Unit) }
+                    }
+                }
+                val view = controller.view
+                view.isFocusableInTouchMode = true; view.requestFocusFromTouch()
+                val caret = checkNotNull(caretExtent(controller, 2)) { "the caret draws on the h1" }
+                val layout = view.layout
+                val paint = android.text.TextPaint(view.paint)
+                for (span in view.editableText.getSpans(1, 2, android.text.style.MetricAffectingSpan::class.java)) span.updateMeasureState(paint)
+                val baseline = view.totalPaddingTop + layout.getLineBaseline(0)
+                val textTop = baseline + paint.fontMetricsInt.ascent
+                val textBottom = baseline + paint.fontMetricsInt.descent
+                val lineHeight = layout.getLineBottom(0) - layout.getLineTop(0)
+                assertTrue("the h1 line ($lineHeight px) is taller than its text", lineHeight > textBottom - textTop)
+                assertTrue("the caret ${caret.first}..${caret.last} lies within the h1 text $textTop..$textBottom",
+                    caret.first >= textTop - 1 && caret.last <= textBottom + 1)
+            }
+        } finally {
+            withContext(Dispatchers.Main) { controller.discard(); controller.dispose() }
+            scenario.close()
+            store.destroy()
+            root.deleteRecursively()
+        }
+    }
+
     /** The blank line above a heading is drawn half height, but its caret is as tall as the one on a line of text. */
     @Test fun caretOnABlankLineIsAsTallAsOnALineOfText() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -58,7 +97,11 @@ class TextFirstCaretTest {
     }
 
     /** The tallest caret seen with the selection at [offset], across more than one blink period; 0 if it never drew. */
-    private suspend fun caretHeight(controller: TextFirstController, offset: Int): Int {
+    private suspend fun caretHeight(controller: TextFirstController, offset: Int): Int =
+        caretExtent(controller, offset)?.let { it.last - it.first + 1 } ?: 0
+
+    /** The view rows the tallest caret seen at [offset] covers, across more than one blink period; null if it never drew. */
+    private suspend fun caretExtent(controller: TextFirstController, offset: Int): IntRange? {
         val view = controller.view
         controller.select(offset)
         delay(300L)
@@ -66,7 +109,7 @@ class TextFirstCaretTest {
         val line = layout.getLineForOffset(offset)
         val y = (layout.getLineTop(line) + layout.getLineBottom(line)) / 2 + view.totalPaddingTop
         val caretX = view.totalPaddingLeft + layout.getPrimaryHorizontal(offset).toInt()
-        var tallest = 0
+        var tallest: IntRange? = null
         repeat(24) {
             val shot = copyViewPixels(view)
             val background = shot.getPixel(caretX + 40, y)
@@ -76,9 +119,9 @@ class TextFirstCaretTest {
                 while (up > 0 && shot.getPixel(x, up - 1) != background) up--
                 var down = y
                 while (down < shot.height - 1 && shot.getPixel(x, down + 1) != background) down++
-                tallest = maxOf(tallest, down - up + 1)
+                if (tallest == null || down - up > tallest!!.last - tallest!!.first) tallest = up..down
             }
-            if (tallest == 0) delay(60L)
+            if (tallest == null) delay(60L)
         }
         return tallest
     }
