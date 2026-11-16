@@ -7,6 +7,7 @@
 #
 # Usage:
 #   apps/ios/run-device.sh              # auto-detect device + team
+#   FUTO_IOS_DEVICE="aha" apps/ios/run-device.sh   # pick a device by name/UDID
 #   FUTO_DEV_TEAM=XXXXXXXXXX apps/ios/run-device.sh
 #   echo XXXXXXXXXX > apps/ios/.signing-team
 set -euo pipefail
@@ -24,7 +25,6 @@ BUNDLE_ID="com.futo.notes.dev"
 
 # ── Detect the connected physical device (shared with `just deploy-ios`) ──
 UDID=$(node scripts/ios-device-id.mjs)
-echo "==> Device: $UDID"
 
 # ── Signing team ──
 # FUTO_DEV_TEAM, else apps/ios/.signing-team here or in the primary checkout.

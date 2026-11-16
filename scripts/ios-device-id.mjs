@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 // Print the CoreDevice identifier (UUID) of a physical iOS device — the value
 // `xcrun devicectl device install/launch` wants. Exits 1 with a message on
-// stderr when there is no physical device at all.
+// stderr when there is no reachable physical device.
+//
+// FUTO_IOS_DEVICE picks one by name, UDID or CoreDevice identifier. Otherwise:
+// devices devicectl reports "unavailable" (out of reach, e.g. an iPad at home)
+// are skipped, then a live tunnel wins, then the most recently connected.
 //
 // Single source of the device-detection logic that used to be copy-pasted as
 // an inline python3 block across several justfile recipes + apps/ios scripts.
@@ -58,6 +62,39 @@ function isPhysicalDevice(device) {
   return Boolean(transportType) && transportType !== SIMULATOR_TRANSPORT;
 }
 
+// "unavailable" is devicectl's word for a paired device it cannot reach at all;
+// "disconnected" is one whose tunnel comes up on demand (see above).
+function isUnavailable(device) {
+  const state = device?.properties?.connection?.state ?? device?.connectionProperties?.tunnelState;
+  return state === 'unavailable';
+}
+
+function lastConnected(device) {
+  const raw =
+    device?.properties?.connection?.lastConnectionDate ??
+    device?.connectionProperties?.lastConnectionDate;
+  if (typeof raw === 'number') return raw + 978307200; // CFAbsoluteTime → Unix seconds
+  const ms = Date.parse(raw ?? '');
+  return Number.isNaN(ms) ? 0 : ms / 1000;
+}
+
+// Device names carry a typographic apostrophe ("Justin’s iPad"); accept a typed one.
+const fold = (v) =>
+  v
+    .trim()
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'");
+
+function matchesWanted(device, wanted) {
+  const w = fold(wanted);
+  return [
+    deviceName(device),
+    device?.identifier,
+    device?.properties?.hardware?.udid,
+    device?.hardwareProperties?.udid,
+  ].some((v) => typeof v === 'string' && fold(v) === w);
+}
+
 function isConnected(device) {
   const state = device?.properties?.connection?.state;
   if (state) return state === 'connected';
@@ -87,21 +124,34 @@ function deviceName(device) {
 // `xcrun devicectl list devices --json-output`. Must never return a
 // simulator, whatever its tunnelState (see the transportType note above).
 //
-//   status 'ok'   - a physical device: use `id`. `connected` says whether its
-//                   tunnel was already up (informational only — a
-//                   "disconnected" localNetwork device still installs fine).
-//   status 'none' - no physical device at all; the caller must fail loudly.
-export function selectPhysicalDevice(devices) {
+//   status 'ok'      - use `id`. `others` names the physical devices passed
+//                      over, so the caller can say how to pick another.
+//   status 'none'    - no reachable physical device; the caller fails loudly.
+//   status 'nomatch' - `wanted` (FUTO_IOS_DEVICE) named none of `physical`.
+export function selectPhysicalDevice(devices, wanted = '') {
   const physical = (devices ?? []).filter(isPhysicalDevice);
-  if (physical.length === 0) return { status: 'none' };
+  const describe = (d) => ({
+    id: d.identifier,
+    name: deviceName(d),
+    connected: isConnected(d),
+    transportType: transportTypeOf(d),
+  });
 
-  const chosen = physical.find(isConnected) ?? physical[0];
+  let chosen;
+  if (wanted) {
+    chosen = physical.find((d) => matchesWanted(d, wanted));
+    if (!chosen) return { status: 'nomatch', physical: physical.map(describe) };
+  } else {
+    const ranked = physical
+      .filter((d) => !isUnavailable(d))
+      .sort((a, b) => isConnected(b) - isConnected(a) || lastConnected(b) - lastConnected(a));
+    chosen = ranked[0];
+    if (!chosen) return { status: 'none', physical: physical.map(describe) };
+  }
   return {
     status: 'ok',
-    id: chosen.identifier,
-    name: deviceName(chosen),
-    connected: isConnected(chosen),
-    transportType: transportTypeOf(chosen),
+    ...describe(chosen),
+    others: physical.filter((d) => d !== chosen).map(describe),
   };
 }
 
@@ -131,20 +181,33 @@ function listDevices() {
 }
 
 function main() {
-  const result = selectPhysicalDevice(listDevices());
+  const wanted = process.env.FUTO_IOS_DEVICE ?? '';
+  const result = selectPhysicalDevice(listDevices(), wanted);
+  const names = (list) => list.map((d) => `"${d.name}"`).join(', ');
 
+  if (result.status === 'nomatch') {
+    console.error(
+      `FUTO_IOS_DEVICE="${wanted}" matches no paired device` +
+        (result.physical.length ? `; paired: ${names(result.physical)}.` : '.'),
+    );
+    process.exit(1);
+  }
   if (result.status === 'none') {
-    console.error('No connected iPhone found. Plug one in (and trust this Mac), then retry.');
+    console.error(
+      'No reachable iPhone found. Plug one in or put it on this network (and trust this Mac), then retry.' +
+        (result.physical.length ? ` Paired but unavailable: ${names(result.physical)}.` : ''),
+    );
     process.exit(1);
   }
 
   // The identifier is the only thing on stdout (callers capture it directly),
   // so anything for a human goes to stderr.
-  if (!result.connected) {
-    console.error(
-      `Selected "${result.name}" (${result.transportType}, tunnel not yet up — ` +
-        'devicectl will connect on demand).',
-    );
+  console.error(
+    `==> Device: "${result.name}" (${result.transportType}` +
+      (result.connected ? ')' : ', tunnel comes up on demand)'),
+  );
+  if (result.others.length) {
+    console.error(`    also paired: ${names(result.others)}; choose with FUTO_IOS_DEVICE="<name>"`);
   }
   process.stdout.write(result.id);
 }
