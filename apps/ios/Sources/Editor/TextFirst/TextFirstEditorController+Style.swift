@@ -232,6 +232,9 @@ extension TextFirstEditorController {
         {
             manager.invalidateLayout(for: range.isEmpty ? manager.documentRange : range)
         }
+        // A relaid fragment is not redrawn on its own: an empty note's only line, given a
+        // task by the toolbar, kept its old (blank) drawing on a device until typed into.
+        textView.setNeedsDisplay()
     }
 
     /// Restyle the window the engine reparsed for `change`.
