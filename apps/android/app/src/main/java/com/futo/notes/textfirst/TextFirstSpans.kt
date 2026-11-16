@@ -18,8 +18,8 @@ import android.text.style.UpdateAppearance
 
 /**
  * The look of the text-first editor, matched to the Milkdown surface
- * (milkdownEditor.surface.css): 17px Barlow at 1.55 line height, headings at
- * 1.7/1.4/1.2em weight 650, muted quotes behind a 3px rule, monospace code at
+ * (milkdownEditor.surface.css): 17px Barlow at 1.55 line height, headings at the
+ * desktop editor's sizes and weights, muted quotes behind a 3px rule, monospace code at
  * 0.9em on the code background. Pixel values are resolved once per view.
  */
 internal class TextFirstStyle(
@@ -38,8 +38,26 @@ internal class TextFirstStyle(
     val italic: Typeface = regular,
     val boldItalic: Typeface = bold,
     val semiboldItalic: Typeface = Typeface.create(italic, 600, true),
+    val medium: Typeface = Typeface.create(regular, 500, false),
+    val mediumItalic: Typeface = Typeface.create(italic, 500, true),
+    val extraBold: Typeface = Typeface.create(bold, 800, false),
+    val extraBoldItalic: Typeface = Typeface.create(boldItalic, 800, true),
 ) {
     fun dp(value: Float) = value * density
+    val bodyLineHeight = (textSizePx * 1.55f).toInt()
+    /** What the TextView adds below every line to reach [bodyLineHeight] (TextView.setLineHeight). */
+    val bodyLineSpacing = bodyLineHeight - TextPaint().apply { typeface = regular; textSize = textSizePx }.getFontMetricsInt(null)
+
+    fun faceForWeight(weight: Int, italic: Boolean): Typeface = when {
+        weight <= 400 -> if (italic) this.italic else regular
+        weight <= 500 -> if (italic) mediumItalic else medium
+        weight <= 600 -> if (italic) semiboldItalic else semibold
+        weight <= 700 -> if (italic) boldItalic else bold
+        else -> if (italic) extraBoldItalic else extraBold
+    }
+
+    /** Bold text on a run of [baseWeight], as on desktop: 700 over a lighter base, 800 over 600 and up. */
+    fun boldWeightOver(baseWeight: Int): Int = if (baseWeight >= 600) 800 else 700
     val listIndent = textSizePx * 1.4f
     val quoteIndent = dp(3f) + textSizePx * 0.9f
     val codePadding = dp(12f)
@@ -77,11 +95,11 @@ internal class TfInline(
         // pushed glyphs past their advance, so the caret overlapped them. Code stays upright.
         val face = when {
             code -> look.mono
-            italic && bold -> look.boldItalic
-            italic && (base === look.semibold || base === look.semiboldItalic) -> look.semiboldItalic
-            italic -> look.italic
-            bold -> look.bold
-            else -> base ?: look.regular
+            !bold && !italic -> base ?: look.regular
+            else -> {
+                val weight = (base ?: look.regular).weight
+                look.faceForWeight(if (bold) look.boldWeightOver(weight) else weight, italic || base?.isItalic == true)
+            }
         }
         paint.typeface = face
         if (code) paint.textSize *= 0.9f
@@ -100,31 +118,37 @@ internal class TfHeading(private val look: TextFirstStyle, val level: Int) :
     MetricAffectingSpan(), LineHeightSpan, TfSpan {
     override fun slice(head: Boolean): TfSpan = if (head) this else TfHeading(look, level)
 
-    private val scale = when (level) { 1 -> 1.7f; 2 -> 1.4f; 3 -> 1.2f; else -> 1.05f }
+    private val scale = when (level) { 1 -> 1.5f; 2 -> 1.375f; 3 -> 1.25f; 4 -> 1.1875f; 5 -> 1.125f; else -> 1.0625f }
+    private val weight = when (level) { 1, 2 -> 700; 3, 4 -> 600; else -> 500 }
+    private val bodyLines = if (level == 1) 2 else 1
 
+    // A retained inline span may run before or after this one: a run it already made heavier than
+    // the body's regular face is bold, and the heading makes it heavier than its own weight.
     private fun apply(paint: TextPaint) {
-        val base = paint.typeface
-        // A restyle can replace the heading after retaining its inline spans.
-        // Compose in either order: the block supplies size and base weight,
-        // while a stronger weight, italic face or code face stays on its run.
+        val base = paint.typeface ?: look.regular
         paint.textSize = look.textSizePx * scale * if (base === look.mono) 0.9f else 1f
-        paint.typeface = when (base) {
-            look.bold, look.boldItalic, look.semiboldItalic, look.mono -> base
-            look.italic -> look.semiboldItalic
-            else -> look.semibold
-        }
+        if (base === look.mono) return
+        val bold = base.weight > look.regular.weight
+        paint.typeface = look.faceForWeight(if (bold) look.boldWeightOver(weight) else weight, base.isItalic)
     }
 
     override fun updateMeasureState(paint: TextPaint) = apply(paint)
     override fun updateDrawState(paint: TextPaint) = apply(paint)
 
-    // CSS margin-top: 1.2em above a heading — but not when it opens the note.
+    /**
+     * Every visual line of an H1 is two body lines tall and every other level's one, with the text
+     * centred; a level whose glyph box is taller than that keeps its own height. The TextView adds
+     * [TextFirstStyle.bodyLineSpacing] below each line afterwards.
+     */
     override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
-        val spanStart = (text as Spanned).getSpanStart(this)
-        if (start != spanStart || spanStart == 0) return
-        val extra = (look.textSizePx * 0.6f).toInt()
-        fm.ascent -= extra
-        fm.top -= extra
+        val glyphs = fm.descent - fm.ascent
+        val line = look.bodyLineHeight * bodyLines
+        if (glyphs > line) return
+        val space = (line - glyphs) / 2
+        fm.ascent -= space
+        fm.descent = fm.ascent + line - look.bodyLineSpacing
+        fm.top = fm.ascent
+        fm.bottom = fm.descent
     }
 }
 

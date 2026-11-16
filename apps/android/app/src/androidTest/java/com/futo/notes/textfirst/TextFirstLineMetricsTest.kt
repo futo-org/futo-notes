@@ -26,6 +26,14 @@ class TextFirstLineMetricsTest {
         }
     }
 
+    /** An H1 line is two body lines tall and H3 to H6 lines one, with tall and deep glyphs in them. */
+    @Test fun headingLinesKeepTheBodyLineGrid() {
+        val heights = lineHeights("x\ny\n# Ågjpq\n### Ågjpq\n#### Ågjpq\n##### Ågjpq\n###### Ågjpq\nz\n")
+        val body = heights[1]
+        assertEquals("an H1 line is two body lines ($heights)", body * 2, heights[2])
+        for (line in 3..6) assertEquals("a level ${line} heading line is one body line ($heights)", body, heights[line])
+    }
+
     /** A fallback font (Arabic, Hebrew) must not make its row taller than a Latin row of the same list. */
     @Test fun rightToLeftListItemIsAsTallAsALatinOne() {
         val heights = lineHeights("- one\n- two\n- العربية\n- three\n- עברית\n- four\n")

@@ -33,6 +33,10 @@ internal fun createTextFirstController(activity: ComponentActivity, core: () -> 
         italic = ResourcesCompat.getFont(activity, R.font.barlow_italic)!!,
         boldItalic = ResourcesCompat.getFont(activity, R.font.barlow_bold_italic)!!,
         semiboldItalic = ResourcesCompat.getFont(activity, R.font.barlow_semibold_italic)!!,
+        medium = ResourcesCompat.getFont(activity, R.font.barlow_medium)!!,
+        mediumItalic = ResourcesCompat.getFont(activity, R.font.barlow_medium_italic)!!,
+        extraBold = ResourcesCompat.getFont(activity, R.font.barlow_extrabold)!!,
+        extraBoldItalic = ResourcesCompat.getFont(activity, R.font.barlow_extrabold_italic)!!,
     ), storageGate = storageGate)
 }
 

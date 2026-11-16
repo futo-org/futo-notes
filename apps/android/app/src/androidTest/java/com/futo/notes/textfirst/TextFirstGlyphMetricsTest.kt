@@ -30,6 +30,10 @@ class TextFirstGlyphMetricsTest {
             italic = ResourcesCompat.getFont(context, R.font.barlow_italic)!!,
             boldItalic = ResourcesCompat.getFont(context, R.font.barlow_bold_italic)!!,
             semiboldItalic = ResourcesCompat.getFont(context, R.font.barlow_semibold_italic)!!,
+            medium = ResourcesCompat.getFont(context, R.font.barlow_medium)!!,
+            mediumItalic = ResourcesCompat.getFont(context, R.font.barlow_medium_italic)!!,
+            extraBold = ResourcesCompat.getFont(context, R.font.barlow_extrabold)!!,
+            extraBoldItalic = ResourcesCompat.getFont(context, R.font.barlow_extrabold_italic)!!,
         )
     }
 
@@ -44,20 +48,24 @@ class TextFirstGlyphMetricsTest {
 
     /** The reference sets its bundled face directly, independently of the renderer span. */
     private fun ink(bold: Boolean, italic: Boolean, text: String = "wmvl", reference: Typeface? = null, fakeBold: Boolean = false): GlyphInk {
-        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        val base = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = look.textSizePx
-            typeface = look.regular
+            typeface = reference ?: look.regular
             color = Color.BLACK
+            isFakeBoldText = fakeBold
         }
-        if (reference != null) paint.typeface = reference
-        else TfInline(look, bold, italic, strike = false, code = false).updateMeasureState(paint)
-        if (fakeBold) paint.isFakeBoldText = true
-        val advance = paint.measureText(text)
+        // As the platform does, measuring and drawing each style their own copy of the run's paint.
+        val measure = TextPaint(base)
+        val paint = TextPaint(base)
+        if (reference == null) {
+            TfInline(look, bold, italic, strike = false, code = false).updateMeasureState(measure)
+            TfInline(look, bold, italic, strike = false, code = false).updateDrawState(paint)
+        }
+        val advance = measure.measureText(text)
         val bitmap = Bitmap.createBitmap((advance + look.textSizePx * 2).toInt(), (look.textSizePx * 2).toInt(), Bitmap.Config.ARGB_8888)
         try {
             bitmap.eraseColor(Color.WHITE)
             val canvas = Canvas(bitmap)
-            if (reference == null) TfInline(look, bold, italic, strike = false, code = false).updateDrawState(paint)
             canvas.drawText(text, look.textSizePx / 2, look.textSizePx * 1.4f, paint)
             val pixels = IntArray(bitmap.width * bitmap.height)
             bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
@@ -118,13 +126,18 @@ class TextFirstGlyphMetricsTest {
                 for (span in text.getSpans(at, at + 1, MetricAffectingSpan::class.java)) span.updateDrawState(this)
             }
             val bold = paintAt(0)
-            assertEquals("heading bold is heavier than its base", 700, bold.typeface.weight)
+            assertEquals("bold on a 700 heading is 800", 800, bold.typeface.weight)
             val italic = paintAt(2)
             assertTrue("heading italic is still italic", italic.typeface.isItalic)
-            assertEquals("heading italic keeps the heading's weight", 600, italic.typeface.weight)
+            assertEquals("heading italic keeps the heading's weight", 700, italic.typeface.weight)
             assertTrue("heading strike survives its base style", paintAt(4).isStrikeThruText)
-            assertEquals(look.textSizePx * 1.4f, bold.textSize, 0.01f)
-            assertEquals(look.textSizePx * 1.4f, italic.textSize, 0.01f)
+            assertEquals(look.textSizePx * 1.375f, bold.textSize, 0.01f)
+            assertEquals(look.textSizePx * 1.375f, italic.textSize, 0.01f)
+            view.restyle(text, StyleWindow(0, 5, listOf(SpanSpec.Heading(0, 5, 5)) + inline))
+            assertEquals("bold on a 500 heading is 700", 700, paintAt(0).typeface.weight)
+            assertEquals("italic on a 500 heading keeps 500", 500, paintAt(2).typeface.weight)
+            assertTrue(paintAt(2).typeface.isItalic)
+            assertEquals(look.textSizePx * 1.125f, paintAt(0).textSize, 0.01f)
             assertEquals("inline markers stay hidden in the display", "a b c" + TextFirstEditText.END_SENTINEL, text.toString())
         } finally {
             images.shutdown()

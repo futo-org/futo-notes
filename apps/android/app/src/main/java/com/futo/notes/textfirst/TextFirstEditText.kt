@@ -79,7 +79,7 @@ internal class TextFirstEditText(
         typeface = style.regular
         // CSS line-height 1.55 is 1.55 × the font size; Android's multiplier
         // would scale Barlow's taller full height instead.
-        lineHeight = (style.textSizePx * 1.55f).toInt()
+        lineHeight = style.bodyLineHeight
         // A fallback font's taller metrics (Arabic, Hebrew) would grow its row past
         // that height; CSS keeps line-height fixed whatever font draws the glyphs.
         isFallbackLineSpacing = false
