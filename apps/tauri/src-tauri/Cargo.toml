@@ -46,9 +46,9 @@ rand = "0.8"
 # Linux); a direct edge just makes it available on every desktop OS.
 gethostname = "1.1"
 tauri-plugin-mcp-bridge = "0.13"
-# =2.6.1: 2.6.2 does not compile on Linux — it builds `ini::ParseOption` with a struct
-# literal that misses two fields rust-ini 0.21.3 has (E0063). Lift when a fixed 2.6.x ships.
-tauri-plugin-deep-link = "=2.6.1"
+# 2.6.3 floor: 2.6.2 does not compile on Linux (an `ini::ParseOption` struct literal misses
+# two fields rust-ini 0.21.3 has, E0063); 2.6.3 does.
+tauri-plugin-deep-link = "2.6.3"
 futo-notes-license = { version = "0.1.0", path = "../../../crates/futo-notes-license" }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 

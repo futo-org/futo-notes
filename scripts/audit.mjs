@@ -205,7 +205,7 @@ function prune({ file, stale }) {
     while (end < lines.length && lines[end].trim() !== '') end += 1;
     const block = lines.slice(i, end);
     const blockIds = block.map(idIn).filter(Boolean);
-    const allStale = blockIds.length > 0 && blockIds.every((id) => doomed.has(id));
+    const allStale = blockIds.length > 0 && blockIds.every((id) => doomed.has(canon(id)));
     out.push(
       ...block.filter((line) => {
         const id = idIn(line);
