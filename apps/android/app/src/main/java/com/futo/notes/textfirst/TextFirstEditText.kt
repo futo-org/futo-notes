@@ -100,6 +100,7 @@ internal class TextFirstEditText(
         importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
         if (android.os.Build.VERSION.SDK_INT >= 30) importantForContentCapture = IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS
         highlightColor = style.selectionColor
+        tintSelectionHandles(style.linkColor)
         fitCaretToItsText()
         filters = arrayOf(InputFilter { source, _, _, dest, dstart, dend ->
             if (applying) null else dest.subSequence(dstart, dend)

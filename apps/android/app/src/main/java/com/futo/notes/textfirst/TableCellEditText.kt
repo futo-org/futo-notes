@@ -45,6 +45,7 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     fun updateColors() {
         setTextColor(noteStyle.textColor)
         highlightColor = noteStyle.selectionColor
+        tintSelectionHandles(noteStyle.linkColor)
         setBackgroundColor(noteStyle.codeBackground)
     }
     override fun isSuggestionsEnabled() = false
