@@ -99,15 +99,7 @@ const source =
   '---\ntitle: x\n---\n# Head\n\n**bé** [l](http://x.test "t") [[Road]] ![alt](img.png)\n\n- [ ] task\n1. num\n\n| a | b |\n| --- | --- |\n| c | d |\n\n```rust hl:1\ncode\n```\n---\n';
 const session = new WasmSession(1n, source, 0n);
 session.update_note_ids('["Road"]');
-let length = Buffer.byteLength(session.draft_text());
-while (length > 0) {
-  try {
-    session.project(0n, 0, length);
-    break;
-  } catch {
-    length -= 1;
-  }
-}
+const length = session.display_len();
 const slice = shape('ProjectionSlice', session.project(0n, 0, length));
 assert.ok(slice.blocks.some((b) => b.metadata && b.code === null));
 assert.ok(slice.blocks.some((b) => b.list && b.code === null) && slice.atoms.length > 0);

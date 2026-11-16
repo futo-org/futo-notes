@@ -37,16 +37,21 @@ const KEYS = new Set([
   'ShiftTab',
 ]);
 
-/// The cases of `file` (relative to `fixtures/engine/`) whose command the
-/// replayer runs: block commands, paragraph keys and typing.
+/// Every case of `file` (relative to `fixtures/engine/`): block commands,
+/// paragraph keys, typing and a text service's replacement. A command the
+/// replayer cannot run fails here rather than being left out.
 export function fixtureCases(file) {
   const cases = JSON.parse(readFileSync(new URL(`fixtures/engine/${file}`, import.meta.url)));
-  return cases.filter((item) => typeof item.command === 'string' && command(item.command));
+  for (const item of cases) assert.ok(command(item.command), `${file}: ${item.name}: command`);
+  return cases;
 }
 
 function command(text) {
+  if (typeof text !== 'string') return null;
   const typed = /^type[: ]([\s\S]*)$/.exec(text);
   if (typed) return { type: typed[1] };
+  const service = /^os:([\s\S]*)$/.exec(text);
+  if (service) return { service: service[1] };
   const heading = /^(Toggle)?Heading\((\d)\)$/.exec(text);
   if (heading) return { block: { [heading[1] ? 'ToggleHeading' : 'Heading']: Number(heading[2]) } };
   if (BLOCK.has(text)) return { block: text };
@@ -97,23 +102,9 @@ function worker(path, vault, source) {
   };
 }
 
-/// The page's whole display text at `revision`.
-function displayText(page, revision, source) {
-  let low = 0;
-  let high = source.length + 8;
-  while (low < high) {
-    const mid = Math.ceil((low + high) / 2);
-    let fits = true;
-    try {
-      page.utf16_to_display(revision, mid, mid);
-    } catch {
-      fits = false;
-    }
-    if (fits) low = mid;
-    else high = mid - 1;
-  }
-  const end = JSON.parse(page.utf16_to_display(revision, low, low)).end;
-  return JSON.parse(page.project(revision, 0, end));
+/// The page's whole display projected at `revision`.
+function displayText(page, revision) {
+  return JSON.parse(page.project(revision, 0, page.display_len()));
 }
 
 /// The display offset source byte `at` shows at, and the affinity that puts
@@ -155,7 +146,7 @@ export async function replay(WasmSession, workerPath, cases, marks) {
         revision = BigInt(change.revision);
         return change;
       };
-      const slice = displayText(page, revision, before.text);
+      const slice = displayText(page, revision);
       const start = toDisplay(slice, before.from);
       const end = toDisplay(slice, before.to);
       page.select_with_affinity(
@@ -172,7 +163,7 @@ export async function replay(WasmSession, workerPath, cases, marks) {
       if (item.typed !== undefined) {
         const setup = await send(page.replace_utf16(revision, a, b, utf16(item.typed)));
         assert.ok(setup, `${item.name}: typed setup`);
-        const shown = displayText(page, revision, page.draft_text());
+        const shown = displayText(page, revision);
         [a, b] = [units(shown.text, setup.selection.start), units(shown.text, setup.selection.end)];
       }
       const opening = page.draft_text();
@@ -180,7 +171,9 @@ export async function replay(WasmSession, workerPath, cases, marks) {
       const changed = await send(
         run.type !== undefined
           ? page.replace_utf16(revision, a, b, utf16(run.type))
-          : run.block !== undefined
+          : run.service !== undefined
+            ? page.replace_utf16_action(revision, a, b, utf16(run.service), '"Isolated"')
+            : run.block !== undefined
             ? page.block_command_utf16(revision, a, b, JSON.stringify(run.block))
             : page.paragraph_key_utf16(revision, a, b, JSON.stringify(run.key)),
       );
