@@ -99,14 +99,11 @@ Do them one at a time, each with its owning device tests.
 | Kotlin today | Rust on main | MR | Notes |
 |---|---|---|---|
 | `DisplayIndex.kt` (219 lines), `DisplayMirror.kt` index half | `host::DisplayMirror` / `EditorDisplayMirror.apply_change` (returns UTF-16 edit and selection) | !589 | The Rust mirror has no revision check (!589 review M1), so it is not a drop-in replacement for all of `DisplayMirror.kt`. |
-| `SpanPlan.kt` `planSpans` / `splitAtLines` | `NativeEditorSession.style_plan(expected, byteRange)` → `[EditorStyleSpan]` (UTF-16, cut at line ends) | !592 | The FFI uses `map_or(0, ..)` on conversion errors (open shared follow-up). !631 added CRLF empty-row spans. A lone `\r` before `\r\n` in a window disagrees with the whole plan (LOW, latent until a host uses windows). |
-| `SpanPlan.kt` image branch (`SpanSpec.Image`) | `EditorStyleSpan.Image` | !593 | |
 | `TextFirstToolbar.kt` `toolbarActive`, `EditorEngineCaret.kt` disabled-id set | `NativeEditorSession.toolbar_highlights()` | !594 | Known low-severity bug: H4–H6 light "paragraph" in the Rust mapping. Android hides "paragraph" anyway. |
-| `EditorEngineTables.kt` `tableSpans`, lookup half of `publishCell` | `style_plan` `TableRow`/`TableDelimiter` + `NativeEditorSession.cell_view` | !596 (incl. !602) | !602 also removed quadratic `inspect_tables` work (8,000 lines took 40 s). iOS needed three windowed-table follow-ups (`mrqa-engine-artifacts/mr-596/recheck.md`). Android's prefix streaming may avoid them; unverified. |
+| `EditorEngineTables.kt` lookup half of `publishCell` | `NativeEditorSession.cell_view` | !596 | |
 | `EditorEngineFind.kt` `snapshot` (UTF-16 marks, hidden while composing, reveal target), `findStep` first-press rule | `find_snapshot`, `find_step_landing`, `EditorFindLanding` | !598 | `FindMarks.kt` (drawing) stays. |
 | `EditorEngineOpening.kt` `selectWhileOpening`, `RenderWork.map` | `host::PendingEdits` / `EditorPendingEdits` | !603 | |
 | `EditorEngineStream.kt` `OpenSlices.sliceEnd`; `EditorEngineStorage.kt:101` `display.startsWith(quick)` | `EditorDisplayMirror.slice_end`, `begins_with` | !603 | |
-| `EditorEngineStorage.kt:71` `showQuickOpen` (`window(quick.projection, tableSpans(...))`) | `host::plan_quick_open`, `NoteStore.quick_open_view` → `EditorQuickView` | !603 | |
 | `ToolbarCommandGate.kt` | none | — | Stays Kotlin; iOS runs commands differently. |
 
 Nothing to migrate for !595 (image Backspace), !597 (carried formats across OS replace) and

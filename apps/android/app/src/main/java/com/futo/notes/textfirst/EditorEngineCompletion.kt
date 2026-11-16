@@ -53,5 +53,13 @@ internal fun EditorEngine.acceptCompletion(draft: CompletionDraft, noteId: Strin
 /** A vault change refreshes the delivered catalog once, never per completion request. */
 internal fun EditorEngine.refreshCompletionNoteIds() = command {
     val change = session?.refreshNoteIds() ?: return@command
-    if (change.projections.isNotEmpty()) postUpdate(emptyList(), change.projections.map(::window))
+    if (change.projections.isEmpty()) return@command
+    val composition = mirror.overlay
+    if (composition != null) {
+        // Marked text shifts the mirror off the engine's display, so the links cannot be placed
+        // yet: the shown text is restyled in slices once the composition ends.
+        renderWork.dirty(0, tailStart() - (composition.marked.length - composition.original.length))
+        return@command
+    }
+    postUpdate(emptyList(), change.projections.map { planStyleWindow(it) })
 }

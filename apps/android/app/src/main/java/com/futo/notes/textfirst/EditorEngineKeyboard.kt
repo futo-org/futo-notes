@@ -117,7 +117,7 @@ internal fun EditorEngine.commitComposition(value: String?) {
         mirror.overlay = null
         mirror.selStart = o.start + o.original.length; mirror.selEnd = mirror.selStart
         if (edits.any { it.text.length > OpenSlices.NEXT_CHARS * 2 || it.end > tailStart() }) resetViewProgressively(edits)
-        else postUpdate(edits, listOf(projectWindow(o.start, (o.start + o.original.length).coerceAtMost(tailStart()))))
+        else postUpdate(edits, listOf(planStyleWindow(o.start, (o.start + o.original.length).coerceAtMost(tailStart()))))
     }
     streamTail(0)
 }

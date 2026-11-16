@@ -3,6 +3,7 @@ package com.futo.notes.textfirst
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.text.Layout
+import android.text.Spanned
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.style.LineHeightSpan
@@ -10,6 +11,38 @@ import android.text.style.ReplacementSpan
 import uniffi.futo_notes_ffi.EditorTableAlignment
 
 internal class TableScroll { var x = 0f }
+
+/**
+ * The engine plans only the table rows a window meets, and a row's `tableStart` is where its
+ * table starts now; rows it did not plan keep the key they were drawn with. A body row takes the
+ * key of the row above it, so a table keeps one key (one sideways scroll). A header, which every
+ * whole-table plan includes, mints it: [mintedKeys] are the tables whose header is being added.
+ * Rows are added in document order, so the row above is already in place.
+ */
+internal fun Spanned.keyedToTableAbove(spec: SpanSpec, mintedKeys: Set<Int>): SpanSpec {
+    if (spec !is SpanSpec.TableRow || spec.row.header || spec.row.tableStart in mintedKeys) return spec
+    val key = tableKeyAbove(spec.start) ?: return spec
+    if (key == spec.row.tableStart) return spec
+    return SpanSpec.TableRow(spec.start, spec.end, spec.row.copy(tableStart = key))
+}
+
+internal fun mintedTableKeys(specs: List<SpanSpec>): Set<Int> {
+    if (specs.none { it is SpanSpec.TableRow }) return emptySet()
+    return specs.mapNotNullTo(HashSet()) { spec -> (spec as? SpanSpec.TableRow)?.row?.takeIf { it.header }?.tableStart }
+}
+
+/** The key of the table row on the line before [rowStart], looking through the delimiter line to the header. */
+private fun Spanned.tableKeyAbove(rowStart: Int): Int? {
+    var at = rowStart
+    repeat(2) {
+        if (at <= 0) return null
+        val line = lastIndexOf('\n', at - 2) + 1
+        getSpans(line, at, TfTableRow::class.java).firstOrNull { getSpanStart(it) == line }?.let { return it.row.tableStart }
+        if (getSpans(line, at, TfTableDelimiter::class.java).none { getSpanStart(it) == line }) return null
+        at = line
+    }
+    return null
+}
 
 /** One physical row, drawn from canonical cell descriptions. Width and scrolling are view concerns. */
 internal class TfTableRow(

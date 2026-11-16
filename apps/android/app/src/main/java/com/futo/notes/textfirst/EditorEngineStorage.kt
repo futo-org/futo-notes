@@ -72,19 +72,19 @@ internal fun EditorEngine.showQuickOpen() {
     if (closed || session != null) return
     val began = SystemClock.elapsedRealtimeNanos()
     val quick = try {
-        store().quickOpenEditor(noteId)
+        store().run { readForEditor(noteId).use { quickOpenView(it) } }
     } catch (failure: Exception) {
         Log.w(EditorEngine.TAG, "quick open $noteId failed", failure)
         null
     } ?: return
-    val display = quick.projection.text
+    val display = quick.display
     // A reader returning deep into the note waits for the whole open, which reaches their line.
     if (openThrough > display.length) return
     mirror.reset(display)
     mirror.selStart = 0; mirror.selEnd = 0
     viewEdits.discontinue()
     quickDisplay = display
-    postUpdate(reset = display, edits = emptyList(), windows = listOf(window(quick.projection, tableSpans(quick.tables))))
+    postUpdate(reset = display, edits = emptyList(), windows = listOf(quick.spans.toStyleWindow(0, display.length, mirror.text)))
     Log.i(EditorEngine.TAG, "quick open ${display.length} chars in ${(SystemClock.elapsedRealtimeNanos() - began) / 1000} us")
 }
 
@@ -109,9 +109,8 @@ private fun EditorEngine.install(opened: NativeEditorSession): Throwable? = try 
         // The first screens now, the rest in slices (EditorEngineStream.kt).
         val shown = OpenSlices.sliceEnd(mirror.text, 0, OpenSlices.FIRST_CHARS + openThrough.coerceIn(0, OpenSlices.REACH_BACK_CHARS))
         tailLength = mirror.text.length - shown
-        val projection = opened.project(rev, mirror.byteRange(0, shown))
         mirror.selStart = 0; mirror.selEnd = 0
-        postUpdate(reset = display.substring(0, shown), edits = emptyList(), windows = listOf(window(projection)), paced = true)
+        postUpdate(reset = display.substring(0, shown), edits = emptyList(), windows = listOf(planStyleWindow(0, shown)), paced = true)
     }
     Log.i(EditorEngine.TAG, "installed ${display.length} chars in ${(SystemClock.elapsedRealtimeNanos() - began) / 1000} us")
     // Taps, keys and commands made while it opened, in order.

@@ -97,13 +97,14 @@ internal fun TextFirstEditText.restyleMarked(e: Editable, start: Int, composingE
 }
 
 internal fun TextFirstEditText.addSpans(target: Spannable, specs: List<SpanSpec>) {
+    val mintedKeys = mintedTableKeys(specs)
     for (spec in specs) {
         if (spec.end < spec.start || spec.end > target.length - 1) continue
         // A block on the empty last line (a new list item at the end) sits
         // on the end sentinel; Android lays out no paragraph spans for an
         // empty last line.
         val end = if (spec.start == spec.end && spec.start == target.length - 1) spec.end + 1 else spec.end
-        setRendererSpan(target, spans.create(spec), spec.start, end)
+        setRendererSpan(target, spans.create(target.keyedToTableAbove(spec, mintedKeys)), spec.start, end)
     }
 }
 

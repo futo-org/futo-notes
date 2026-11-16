@@ -1,9 +1,6 @@
 package com.futo.notes.textfirst
 
-import uniffi.futo_notes_ffi.EditorByteRange
-import uniffi.futo_notes_ffi.EditorProjection
 import uniffi.futo_notes_ffi.EditorTableAlignment
-import uniffi.futo_notes_ffi.EditorTableDescription
 import uniffi.futo_notes_ffi.EditorTableKey
 import uniffi.futo_notes_ffi.EditorUtf16Range
 
@@ -12,37 +9,6 @@ internal data class GridCell(val start: Int, val end: Int, val text: String, val
 internal data class GridRow(val cells: List<GridCell>, val columns: Int, val header: Boolean, val tableStart: Int)
 internal data class CellUpdate(val start: Int, val end: Int, val text: String, val selectionStart: Int, val selectionEnd: Int,
     val composingStart: Int, val composingEnd: Int, val viewSeq: Int, val rowStart: Int, val column: Int)
-
-/** The window's tables as grid spans; Rust finds them all in one call. */
-internal fun EditorEngine.tableSpans(p: EditorProjection): List<SpanSpec> {
-    val s = session ?: return emptyList()
-    // One engine call finds every table starting in the window.
-    return tableSpans(s.inspectTables(rev, p.range))
-}
-
-internal fun EditorEngine.tableSpans(tables: List<EditorTableDescription>): List<SpanSpec> {
-    val out = ArrayList<SpanSpec>()
-    for (table in tables) {
-        val tableStart = mirror.toUtf16(table.display.start.toInt())
-        for ((i, row) in table.rows.withIndex()) {
-            val line = table.rowLines[i]
-            val start = mirror.toUtf16(line.start.toInt())
-            val end = mirror.toUtf16(line.end.toInt())
-            // Cell boundaries arrive in row order. Walk Unicode text forward once,
-            // instead of rescanning the row from its start for every boundary.
-            val offsets = LocalOffsets(mirror.text.substring(start, end), line.start.toInt(), start, mirror::toUtf16)
-            val cells = row.map { cell ->
-                val a = offsets.utf16(cell.content.start.toInt())
-                val b = offsets.utf16(cell.content.end.toInt())
-                GridCell(a, b, mirror.text.substring(a, b), table.alignments[cell.column.toInt()])
-            }
-            if (cells.isEmpty()) continue
-            out += SpanSpec.TableRow(start, end, GridRow(cells, table.columns.toInt(), i == 0, tableStart))
-            if (i == 0) table.delimiterLine?.let { out += SpanSpec.TableDelimiter(mirror.toUtf16(it.start.toInt()), mirror.toUtf16(it.end.toInt())) }
-        }
-    }
-    return out
-}
 
 /**
  * Used by a grid tap and Find alike: the selected range is the actual displayed range.
