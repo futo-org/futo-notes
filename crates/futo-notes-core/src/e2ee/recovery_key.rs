@@ -328,4 +328,17 @@ mod tests {
             RecoveryKey::generate().derive_wrap_key(&salt),
         );
     }
+
+    /// Known answer from an independent HKDF-SHA256 (Python `cryptography`
+    /// 46). Recovery envelopes already on the server open only while this
+    /// derivation is byte-identical.
+    #[test]
+    fn wrap_key_matches_an_independent_implementation() {
+        let key = RecoveryKey::from_bytes(std::array::from_fn(|index| 0x10 + index as u8));
+        let salt: Vec<u8> = (0u8..16).collect();
+        assert_eq!(
+            hex::encode(key.derive_wrap_key(&salt)),
+            "920d7859588ddf414d64201c2f48a3ab387506b450a8aad2556cab292c80654e",
+        );
+    }
 }

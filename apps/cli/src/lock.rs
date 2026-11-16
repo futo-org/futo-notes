@@ -88,4 +88,16 @@ mod tests {
         assert!(lock_file(&path, Duration::ZERO).is_ok());
         let _ = std::fs::remove_file(path);
     }
+
+    /// The lock and search-index file names come from this digest, so a
+    /// change would orphan every existing index and let two CLI versions
+    /// lock the same vault under different names. Expected value from
+    /// Python `hashlib.sha256`.
+    #[test]
+    fn vault_digest_is_the_sha256_prefix() {
+        assert_eq!(
+            vault_digest(Path::new("/home/user/notes")),
+            "ac4d567bf3e35ee0"
+        );
+    }
 }

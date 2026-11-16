@@ -132,3 +132,22 @@ pub(super) fn file_count(manifest: &BTreeMap<PathBuf, ManifestEntry>) -> u32 {
         .try_into()
         .unwrap_or(u32::MAX)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A file larger than the 64 KiB read buffer, so the digest is fed in
+    /// several chunks. Expected value from Python `hashlib.sha256`.
+    #[test]
+    fn sha256_of_a_multi_chunk_file_matches_an_independent_implementation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big.bin");
+        let bytes: Vec<u8> = (0..200_000u32).map(|index| (index % 251) as u8).collect();
+        fs::write(&path, bytes).unwrap();
+        assert_eq!(
+            sha256(&path).unwrap(),
+            "e24bc62381f1224fbbb74688663f8f9743b9680b193edd666835e97b06e730eb",
+        );
+    }
+}

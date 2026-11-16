@@ -465,4 +465,58 @@ mod tests {
         assert_eq!(note.path, "Inbox/today.md");
         assert_eq!(note.content, "remember the milk");
     }
+
+    /// Both envelopes were written outside this crate: the password envelope
+    /// with OpenSSL 3.6 Argon2id (the app's 64 MiB / 3 passes / 1 lane) plus
+    /// Python `cryptography` AES-256-GCM, the recovery envelope with Python
+    /// HKDF-SHA256 plus AES-256-GCM. They stand for the hosted vaults already
+    /// on the server and must keep opening across dependency upgrades.
+    #[test]
+    fn unwraps_pinned_argon2id_and_recovery_envelopes() {
+        let material = KeyMaterial {
+            key_salt: "202122232425262728292a2b2c2d2e2f".to_owned(),
+            key_kdf: KeyKdf::argon2id_default(),
+            encrypted_vault_key: concat!(
+                "313131313131313131313131",
+                "967dd4e1597fbc713df874c1813e5588b51104a60eb3115b94335400b8969420",
+                "d2df096070e33825f0f0b65295faf9dc",
+            )
+            .to_owned(),
+            key_updated_at: None,
+            recovery_key_salt: Some("000102030405060708090a0b0c0d0e0f".to_owned()),
+            recovery_key_kdf: Some(RecoveryKdf::hkdf_sha256_default()),
+            recovery_encrypted_vault_key: Some(
+                concat!(
+                    "323232323232323232323232",
+                    "941a14411019e712bce77c5f9d1e9cf9c9f0c05e6ff6e937f6eee12ae4c52c78",
+                    "48c0394182917c12be3c07870d55aff0",
+                )
+                .to_owned(),
+            ),
+        };
+        assert_eq!(
+            unwrap_vault_key("known-answer vault password", &material).unwrap(),
+            [0x5Au8; KEY_BYTES],
+        );
+        let recovery_key = RecoveryKey::from_bytes(std::array::from_fn(|index| 0x10 + index as u8));
+        assert_eq!(
+            unwrap_vault_key_with_recovery_key(&recovery_key, &material).unwrap(),
+            [0x5Au8; KEY_BYTES],
+        );
+    }
+
+    /// An encrypted v2 note blob written outside this crate (Python
+    /// `cryptography` AES-256-GCM over the v2 frame), as sync downloads it.
+    #[test]
+    fn decrypts_a_pinned_note_blob() {
+        let blob = hex::decode(concat!(
+            "343434343434343434343434",
+            "6ce7362ae77af55fbfe8b88a01e389f0dcf65d298c64aa3518ab66e2fd198a9e",
+            "7cc635aea60a13aa4a9800df20ed5242d6c65cbbef7e850599443aa7",
+        ))
+        .unwrap();
+        let note = unpack_note(&aes_gcm_decrypt(&[0x5Au8; KEY_BYTES], &blob).unwrap()).unwrap();
+        assert_eq!(note.path, "Inbox/known answer.md");
+        assert_eq!(note.content, "café ☕️ body\n");
+    }
 }

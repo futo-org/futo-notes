@@ -101,4 +101,25 @@ mod tests {
             Err(E2eeError::CipherTooShort)
         ));
     }
+
+    /// Known answer from an independent AES-256-GCM (Python `cryptography`
+    /// 46, `AESGCM`), not from this crate. Every note and vault-key envelope on
+    /// the server was written by this function, so these bytes must never move.
+    #[test]
+    fn aes_gcm_matches_an_independent_implementation() {
+        let key: [u8; KEY_BYTES] = std::array::from_fn(|index| index as u8);
+        let iv: [u8; IV_BYTES] = std::array::from_fn(|index| 0xa0 + index as u8);
+        let plaintext = b"FUTO Notes known-answer plaintext";
+        let expected = hex::decode(concat!(
+            "a0a1a2a3a4a5a6a7a8a9aaab",
+            "a04d286265856dcb0716a7b86915b7b05dcd3763e5d2304cec6247ef11df1079a6",
+            "0fd8822e1d54abafe6d7651a2f9d3eb5",
+        ))
+        .unwrap();
+        assert_eq!(
+            aes_gcm_encrypt_with_iv(&key, &iv, plaintext).unwrap(),
+            expected
+        );
+        assert_eq!(aes_gcm_decrypt(&key, &expected).unwrap(), plaintext);
+    }
 }
