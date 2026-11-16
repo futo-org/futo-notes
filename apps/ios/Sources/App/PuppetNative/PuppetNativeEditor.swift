@@ -12,6 +12,10 @@
         var snapshotId = 0
         var pendingTrace: Snapshot?
         var lastTrace: [String: Any]?
+        /// The controller and range of puppet's own last `Select`: the one selection whose
+        /// direction is known (forward). Any other non-empty selection reports `"unknown"`.
+        weak var selectedBy: TextFirstEditorController?
+        var selectedRange: NSRange?
 
         func attach(_ controller: TextFirstEditorController, title: @escaping () -> String) {
             self.controller = controller
@@ -82,13 +86,11 @@
                 "focused": c.textView.isFirstResponder
                     || c.cellEditor?.field.isFirstResponder == true,
                 "composing": c.engineComposing || c.textView.markedTextRange != nil,
-                "selection": [
-                    "anchor": range.location, "head": NSMaxRange(range),
-                    "from": range.location, "to": NSMaxRange(range),
-                    "empty": range.length == 0, "text": String(selected.prefix(80)),
+                "selection": selection(c).merging([
+                    "text": String(selected.prefix(80)),
                     "line": line.number, "col": range.location - line.range.location + 1,
                     "formats": Array(active).sorted(),
-                ],
+                ]) { _, new in new },
                 "find": [
                     "open": c.findModel.visible, "query": c.findModel.query,
                     "current": c.findModel.current, "total": c.findModel.total,

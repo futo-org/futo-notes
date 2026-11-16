@@ -30,11 +30,12 @@ opens an unsaved buffer: `screen` is `editor:new` and `state.note` is `null`
 until you `SetTitle` (or it autosaves as `Untitled (N)`), after which `screen`
 becomes `editor:<title>`.
 
-**The editor** is Milkdown, a ProseMirror document: blocks (paragraphs, headings, list
+**The desktop editor** is Milkdown, a ProseMirror document: blocks (paragraphs, headings, list
 items, table cells, code) holding text with marks (bold, links) and inline objects (wikilink
 chips, images). Positions are ProseMirror's own: each character is one, each block boundary
 one more, so a line's caret positions run from its `at` to its `end` and the gap between two
-lines holds none. A chip is one position, however long its text. `state.editor` reports
+lines holds none. A chip is one position, however long its text. iOS and Android edit in native
+editors (iOS: UTF-16 offsets into the display text; editor-verbs.md). Desktop `state.editor` reports
 `note` (the path of the note it holds), `onScreen` (which lines show), `loading`, `docVersion`, `focused`, `ready`, `find`, and `selection` with
 `from`/`to`, `anchor`/`head`, `line`/`col`, the selected `text`, a `kind` when it is not a text
 range (`node hr`, `cells`), and `formats`: what the toolbar shows as on there (`bold`,
@@ -71,19 +72,22 @@ note refuses 409 — that note belongs to its session.
   stays `editor:new` until the debounced save mints the id: poll `state` again
   rather than treating the first answer as final. `SetTitle` settles on the
   rename and is the way to name it deliberately.
-- **What you type is not always what lands.** `Type` delivers a `\n` as the Enter
-  KEY and every character through the editor's input rules, so `# ` makes a heading,
-  `- ` a bullet, `---` a divider, and Enter inside a list continues it — which is what it
-  does to a person. That is the point of `Type` when typing is what you are checking; to
-  just put text in a document, the fast writes (`AppendLine`, `InsertLine`, …) read it as
-  markdown in one step.
+- **What you type is not always what lands.** Real typing (`type`; desktop's `do Type`)
+  delivers every character through the editor's input rules, so `# ` makes a heading, `- `
+  a bullet, and Enter inside a list continues it — which is what it does to a person. To just
+  put text in a document, the direct edits (`Insert`, `Replace`, `ReplaceLine`; desktop's
+  `AppendLine`, `InsertLine`) read it as markdown in one step.
+- **iOS `type` leaves Shift held after a capital letter** for the later keys (papercut
+  pc_7e2c60a86250), and the keyboard autocapitalizes a sentence's first letter. Read `doc`
+  back after typing.
 
 ## Gaps to know about
 
-- **A phone's page queries refuse off the editor screen**, rather than answering about
-  the note the webview still holds: `doc`, `at`, `events`, `diff` and `show {"text"}` are
-  409 from `list` or a folder, where `elements` and `show {"ref"}` read the native rows.
-  `state`, `notes`, `search`, `file` and `clipboard` answer everywhere.
+- **A phone's editor queries refuse off the editor screen**: `doc`, `at` and `show {"text"}`
+  are 409 from `list` or a folder, where `elements` reads the native rows. `state`, `notes`,
+  `search`, `file` and `clipboard` answer everywhere. `events` and `diff` are desktop's.
+- **Android's editor is behind iOS's contract**: no `doc`/`at`/`show {"text"}` (404), `Type`
+  and `Insert` commit through the input connection, missing verbs are 404 not 501.
 - Desktop real input (`click`, `drag`, `scroll`, `type`, `press`) is handed by the app to its
   own web view, on macOS, Linux and Windows alike. `tap` on desktop refuses and
   names `click`; `click` on a phone refuses and names `tap`. The window need not be focused

@@ -116,6 +116,9 @@ These drive actual apps, so they can leave state behind and they can touch devic
   The file is the entry point; scenarios live in `cross-platform-sync/*-scenarios.mjs` and are
   registered in `cross-platform-sync/scenario-registry.mjs`.
 - `just test-ios-stories` runs the native iOS editor UI suites (leave, find, selection and bottom-edge input). Needs a claimed `SIM`.
+- `ios-editor-stories.mjs` (`just test-ios-editor-stories`) drives the native iOS editor only through
+  `just puppet` (real keys and taps, convenience verbs beside their taps) and checks the saved source
+  on the simulator's disk. Needs a claimed `SIM`; it creates notes in that simulator's vault.
 - `android-storage-migration.mjs` (`just test-android-storage`) **clears the debug app's data**.
   Claim a pool device with `just qa-claim android` first; never point it at a phone you care about.
 - `desktop-smoke.mjs` (`just test-desktop-smoke`).
