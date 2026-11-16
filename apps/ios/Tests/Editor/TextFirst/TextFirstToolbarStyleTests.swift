@@ -92,16 +92,29 @@
             #expect(!h.controller.toolbarState.disabledFormats.contains("outdent"))
         }
 
-        @Test func aCollapsedBoldToggleStylesTheNextCharacter() {
+        @Test func aCollapsedBoldToggleAtAWordsEndStylesTheNextCharacter() {
             let h = TextFirstHarness("ab")
             h.controller.installToolbar(localization: Localization.system())
-            h.select(1, 1)
+            h.select(2, 2)
             tap(h, "bold")
             let traits = (h.tv.typingAttributes[.font] as! UIFont).fontDescriptor.symbolicTraits
             #expect(traits.contains(.traitBold))
             h.type("X")
-            #expect(h.source.hasPrefix("a**X**b"))
-            #expect(font(h, at: 1).fontDescriptor.symbolicTraits.contains(.traitBold))
+            #expect(h.source.hasPrefix("ab**X**"))
+            #expect(font(h, at: 2).fontDescriptor.symbolicTraits.contains(.traitBold))
+        }
+
+        // Inside a word, the toolbar's Bold formats the whole word and the caret stays put.
+        @Test func aCollapsedBoldToggleInsideAWordBoldsTheWord() {
+            let h = TextFirstHarness("a word b")
+            h.controller.installToolbar(localization: Localization.system())
+            h.select(4, 4)
+            tap(h, "bold")
+            #expect(h.source.hasPrefix("a **word** b"))
+            #expect(h.tv.selectedRange == NSRange(location: 4, length: 0))
+            #expect(font(h, at: 2).fontDescriptor.symbolicTraits.contains(.traitBold))
+            tap(h, "bold")
+            #expect(h.source.hasPrefix("a word b"))
         }
 
         // A collapsed Strike toggle changes what the next character will be, like Bold: the view's

@@ -65,4 +65,46 @@ extension FolderContentsView {
             renameFolderName = path?.split(separator: "/").last.map(String.init) ?? ""
         }
     }
+
+    /// A capsule at the bottom that slides up, says what the folder delete kept, and leaves
+    /// after about 3 s.
+    func showKeptToast(count: Int, folderName: String) {
+        keptToastTask?.cancel()
+        let message = localization.localizedText(
+            "folders.delete.keptToast",
+            arguments: ["count": count, "folderName": folderName])
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) { keptToast = message }
+        keptToastTask = Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeIn(duration: 0.25)) { keptToast = nil }
+        }
+    }
+
+    /// Tints the notes a folder delete just moved here, then fades the tint after about 2 s,
+    /// so the eye finds where they landed.
+    func highlightArrivals(_ ids: [String]) {
+        withAnimation(.easeOut(duration: 0.25)) { arrivedNoteIDs = Set(ids) }
+        Task {
+            try? await Task.sleep(for: .seconds(1.8))
+            withAnimation(.easeInOut(duration: 1)) { arrivedNoteIDs = [] }
+        }
+    }
+
+    @ViewBuilder var keptToastView: some View {
+        if let message = keptToast {
+            Text(message)
+                .font(.system(.subheadline, weight: .medium))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.14), radius: 15, y: 8)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 40)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .accessibilityIdentifier("folder-kept-toast")
+        }
+    }
 }

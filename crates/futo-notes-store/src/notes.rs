@@ -218,7 +218,7 @@ impl LocalNoteStore {
 
     /// A pending rename that ended at the deleted `id` is over: a later note
     /// at that name must not inherit the moved note's sync identity.
-    fn forget_rename_into(&self, id: &str) -> Option<String> {
+    pub(crate) fn forget_rename_into(&self, id: &str) -> Option<String> {
         crate::rename_journal::forget_deleted_locked(&self.root, &note_filename(id))
             .err()
             .map(|error| format!("deleted, but the rename journal kept its intent: {error}"))

@@ -10,6 +10,7 @@
 # Usage:
 #   apps/ios/deploy.sh
 #   FUTO_DEV_TEAM=XXXXXXXXXX apps/ios/deploy.sh
+#   FUTO_IOS_DEVICE="aha" apps/ios/deploy.sh   # pick a device by name/UDID
 #   echo XXXXXXXXXX > apps/ios/.signing-team
 set -euo pipefail
 
@@ -21,7 +22,6 @@ DERIVED="$APP_DIR/.build-device-release"
 
 # ── Connected device (shared detection with run-device.sh) ──
 UDID=$(node scripts/ios-device-id.mjs)
-echo "==> Device: $UDID"
 
 # ── Signing team ──
 # FUTO_DEV_TEAM, else apps/ios/.signing-team here or in the primary checkout.

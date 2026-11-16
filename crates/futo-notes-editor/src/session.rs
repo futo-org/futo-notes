@@ -330,6 +330,17 @@ impl EditorSession {
     ) -> Result<Option<ViewChange>, EditorError> {
         self.run(|e| e.toggle_format_view(expected, format, accept))
     }
+
+    /// The mobile toolbar's toggle: a collapsed caret inside a word or at
+    /// its start formats the whole word; otherwise as `toggle_format`.
+    pub fn toggle_toolbar_format(
+        &mut self,
+        expected: Revision,
+        format: InlineFormat,
+        accept: Accept,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.run(|e| e.toggle_toolbar_format_view(expected, format, accept))
+    }
 }
 
 /// How marked text draws until it commits, as the surface reports it.

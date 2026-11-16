@@ -70,4 +70,28 @@ struct FolderMutationTests {
         await store.refreshAfterForeground()
         #expect(!store.notes.contains { $0.id == "added" })
     }
+
+    // "Delete folder and notes" is the one delete that destroys notes; a nested note must go
+    // with it while a non-note file is kept, not deleted.
+    @Test("deleting a folder and its notes removes nested notes and keeps other files")
+    func deletesNotesUnderFolder() async throws {
+        let (store, root) = try await Self.bootstrappedStore()
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(await store.createFolder("a/b"))
+        _ = try #require(await store.createNote(title: "one", folder: "a"))
+        _ = try #require(await store.createNote(title: "two", folder: "a/b"))
+        _ = try #require(await store.createNote(title: "other", folder: ""))
+        try Data("img".utf8).write(to: store.notesRoot.appendingPathComponent("a/b/pic.png"))
+        #expect(store.notes(under: "a").count == 2)
+
+        #expect(await store.deleteFolderAndNotes("a"))
+
+        #expect(store.notes.contains { $0.id == "other" })
+        #expect(store.notes(under: "a").isEmpty)
+        #expect(!store.notes.contains { $0.id.hasPrefix("a/") })
+        #expect(!store.folders.contains("a"))
+        #expect(
+            FileManager.default.fileExists(
+                atPath: store.notesRoot.appendingPathComponent("b/pic.png").path))
+    }
 }

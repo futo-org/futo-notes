@@ -387,6 +387,34 @@
         "recoverableConfirmation": "Delete this folder? Notes inside it will be moved to the parent folder.",
         "preservingContentsConfirmation": "Delete this folder? Notes and other files inside it will be moved to the parent folder. A file with the same name gets a numbered copy.",
         "permanentConfirmation": "Delete this folder? Notes inside it will be moved to the parent folder. Anything else inside it is deleted for good.",
+        "namedTitle": "Delete “{folderName}”?",
+        "emptyMessage": "This folder is empty.",
+        "keptNotesMessage": {
+          "plural": "count",
+          "variants": {
+            "one": "Its {count} note will be kept unless you delete it too.",
+            "other": "Its {count} notes will be kept unless you delete them too."
+          }
+        },
+        "folderOnly": "Delete folder only",
+        "folderAndNotes": "Delete folder and notes…",
+        "notesTitle": {
+          "plural": "count",
+          "variants": {
+            "one": "Delete {count} note?",
+            "other": "Delete {count} notes?"
+          }
+        },
+        "notesWarning": "“{folderName}” and every note in it will be deleted from all your devices. You can’t undo this.",
+        "andMore": "and {count} more",
+        "deleteAll": "Delete all",
+        "keptToast": {
+          "plural": "count",
+          "variants": {
+            "one": "Kept {count} note from “{folderName}”",
+            "other": "Kept {count} notes from “{folderName}”"
+          }
+        },
         "movedNotes": {
           "plural": "count",
           "variants": {

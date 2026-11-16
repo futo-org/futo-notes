@@ -101,9 +101,9 @@ extension TextFirstEditorController {
         switch id {
         case "undo": undo()
         case "redo": redo()
-        case "bold": format(.bold)
-        case "italic": format(.italic)
-        case "strikethrough": format(.strike)
+        case "bold": toolbarFormat(.bold)
+        case "italic": toolbarFormat(.italic)
+        case "strikethrough": toolbarFormat(.strike)
         case "heading-1": block(.toggleHeading(level: 1))
         case "heading-2": block(.toggleHeading(level: 2))
         case "heading-3": block(.toggleHeading(level: 3))
@@ -123,6 +123,28 @@ extension TextFirstEditorController {
         runCommand("format") { session, expected in
             try session.toggleFormat(expected: expected, format: format)
         }
+    }
+
+    /// A toolbar tap: a caret inside a word or at its start formats the whole word, so a
+    /// caret on a line as long as a heavy selection runs off the main thread as one does.
+    func toolbarFormat(_ format: EditorInlineFormat) {
+        let selection = effectiveSelection
+        let heavy =
+            selection.length == 0 && lineLength(at: selection.location) >= Self.heavySelection
+        runCommand("format", heavy: heavy) { session, expected in
+            try session.toggleToolbarFormat(expected: expected, format: format)
+        }
+    }
+
+    /// The UTF-16 length of the engine line (split at LF only) holding `location`.
+    private func lineLength(at location: Int) -> Int {
+        let text = textView.textStorage.string as NSString
+        let start = text.range(
+            of: "\n", options: .backwards, range: NSRange(location: 0, length: location))
+        let from = start.location == NSNotFound ? 0 : start.location + 1
+        let end = text.range(
+            of: "\n", range: NSRange(location: location, length: text.length - location))
+        return (end.location == NSNotFound ? text.length : end.location) - from
     }
 
     func block(_ command: EditorBlockCommand) {

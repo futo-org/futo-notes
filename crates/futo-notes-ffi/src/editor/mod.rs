@@ -308,6 +308,21 @@ impl NativeEditorSession {
         })
     }
 
+    /// The toolbar's Bold/Italic/Strikethrough tap: a collapsed caret inside
+    /// a word or at its start formats the whole word; at a word's end or
+    /// away from words it toggles the carried format, as `toggle_format`.
+    pub fn toggle_toolbar_format(
+        &self,
+        expected: u64,
+        format: EditorInlineFormat,
+    ) -> Result<Option<EditorViewChange>, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            Ok(session
+                .toggle_toolbar_format(Revision(expected), format.into())?
+                .map(Into::into))
+        })
+    }
+
     pub fn active_formats(&self) -> Result<Vec<EditorInlineFormat>, EditorSessionError> {
         self.with_session(|session| {
             Ok(session

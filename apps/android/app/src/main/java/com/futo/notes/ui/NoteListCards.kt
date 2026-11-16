@@ -1,5 +1,7 @@
 package com.futo.notes.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
@@ -23,6 +25,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,6 +45,7 @@ import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.puppet.folderRowTag
 import com.futo.notes.ui.components.NoteCard
 import com.futo.notes.ui.components.pressScale
+import com.futo.notes.ui.theme.FutoMotion
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
@@ -58,6 +62,8 @@ internal fun FolderCard(
     path: String,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    /** True while this folder's delete dialog is up: the row is tinted. */
+    tinted: Boolean = false,
 ) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
@@ -67,7 +73,11 @@ internal fun FolderCard(
 
     Surface(
         shape = RoundedCornerShape(FutoRadius.md),
-        color = c.surface,
+        color = animateColorAsState(
+            if (tinted) MaterialTheme.colorScheme.primaryContainer else c.surface,
+            tween(FutoMotion.Fast),
+            label = "folder-row-tint",
+        ).value,
         border = BorderStroke(1.dp, c.border),
         modifier = Modifier
             .fillMaxWidth()

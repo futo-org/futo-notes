@@ -220,6 +220,7 @@ internal class TextFirstController(
     fun select(start: Int, end: Int = start) { engine?.hostSelect(start, end) }
 
     fun format(format: EditorInlineFormat) { engine?.toggleFormat(format) }
+    fun toolbarFormat(format: EditorInlineFormat) { engine?.toggleToolbarFormat(format) }
     fun block(command: EditorBlockCommand) { engine?.blockCommand(command) }
     fun paste(text: String) { engine?.paste(text) }
     fun finishCellEditing() { engine?.finishCellEditing() }
