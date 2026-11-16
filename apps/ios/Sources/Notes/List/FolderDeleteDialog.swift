@@ -237,7 +237,7 @@ Button {
             }
             if count > Self.listed {
                 row(
-                    icon: nil,
+                    icon: "ellipsis",
                     text: localization.localizedText(
                         "folders.delete.andMore", arguments: ["count": count - Self.listed]),
                     secondary: true)
@@ -250,16 +250,12 @@ Button {
         )
     }
 
-    private func row(icon: String?, text: String, secondary: Bool) -> some View {
+    private func row(icon: String, text: String, secondary: Bool) -> some View {
         HStack(spacing: 10) {
-            if let icon {
-                Image(systemName: icon)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18)
-            } else {
-                Color.clear.frame(width: 18, height: 1)
-            }
+            Image(systemName: icon)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
             Text(text)
                 .font(.subheadline)
                 .foregroundStyle(secondary ? .secondary : .primary)
@@ -367,9 +363,11 @@ private struct PillStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(
-                Capsule().fill(fill)
-                    .overlay(Capsule().fill(Color(hex: 0x787880, alpha: configuration.isPressed ? 0.14 : 0)))
+                RoundedRectangle(cornerRadius: 24, style: .continuous).fill(fill)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(Color(hex: 0x787880, alpha: configuration.isPressed ? 0.14 : 0)))
             )
-            .contentShape(Capsule())
+            .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }

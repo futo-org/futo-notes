@@ -404,7 +404,7 @@
           }
         },
         "notesWarning": "“{folderName}”及其中的所有笔记将从你的所有设备中删除。此操作无法撤销。",
-        "andMore": "…以及另外 {count} 篇",
+        "andMore": "以及另外 {count} 篇",
         "deleteAll": "全部删除",
         "keptToast": {
           "plural": "count",

@@ -406,7 +406,7 @@
           }
         },
         "notesWarning": "“{folderName}” and every note in it will be deleted from all your devices. You can’t undo this.",
-        "andMore": "… and {count} more",
+        "andMore": "and {count} more",
         "deleteAll": "Delete all",
         "keptToast": {
           "plural": "count",
