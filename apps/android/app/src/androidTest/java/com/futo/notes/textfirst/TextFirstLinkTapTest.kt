@@ -3,6 +3,7 @@ package com.futo.notes.textfirst
 import android.graphics.Color
 import android.os.SystemClock
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.core.content.res.ResourcesCompat
@@ -64,9 +65,14 @@ class TextFirstLinkTapTest {
                 assertTrue("label wraps over at least three lines", tall > view.paint.fontSpacing * 3)
                 val left = view.totalPaddingLeft + 2f
                 val right = width - view.totalPaddingRight - 2f
+                // Taps this close in time and place are a double-tap: the platform selects the word, and its
+                // selection can land long after the tap (hundreds of ms on a loaded CI emulator), over the caret
+                // a later tap placed. Stamp each tap past the double-tap window so every one is a single tap.
+                var clock = SystemClock.uptimeMillis()
                 suspend fun tap(x: Float, fraction: Float): Int {
                     view.setSelection(0)
-                    val down = SystemClock.uptimeMillis()
+                    clock += ViewConfiguration.getDoubleTapTimeout() + 100
+                    val down = clock
                     val y = top + tall * fraction
                     for ((action, at) in listOf(MotionEvent.ACTION_DOWN to down, MotionEvent.ACTION_UP to down + 20)) {
                         val e = MotionEvent.obtain(down, at, action, x, y, 0)
