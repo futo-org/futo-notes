@@ -214,5 +214,41 @@
   "before": "‸1. **a**",
   "command": "Delete",
   "after": "‸**a**"
+ },
+ {
+  "name": "Enter before a nested marker opens an empty plain line above; the item keeps its indent",
+  "before": "- a\n  ‸- b",
+  "command": "Enter",
+  "after": "- a\n\n  ‸- b"
+ },
+ {
+  "name": "Enter before a quoted marker opens an empty line above; the item keeps its quote",
+  "before": "> ‸- a",
+  "command": "Enter",
+  "after": "\n> ‸- a"
+ },
+ {
+  "name": "Enter before a quoted nested task's marker keeps quote and indent",
+  "before": "> - a\n>   ‸- [ ] b",
+  "command": "ShiftEnter",
+  "after": "> - a\n\n>   ‸- [ ] b"
+ },
+ {
+  "name": "Enter before a nested number's marker renumbers nothing",
+  "before": "1. a\n   ‸1. b\n   2. c",
+  "command": "Enter",
+  "after": "1. a\n\n   ‸1. b\n   2. c"
+ },
+ {
+  "name": "Enter before a nested marker on a CRLF line writes CRLF",
+  "before": "- a\r\n\t‸- b\r\nc",
+  "command": "Enter",
+  "after": "- a\r\n\r\n\t‸- b\r\nc"
+ },
+ {
+  "name": "Enter before the last line's quoted marker takes the line ending above",
+  "before": "x\r\n> ‸* y",
+  "command": "Enter",
+  "after": "x\r\n\r\n> ‸* y"
  }
 ]

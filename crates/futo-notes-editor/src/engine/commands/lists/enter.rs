@@ -17,7 +17,9 @@ impl Engine {
     /// it opens an empty item above. On an empty item it outdents an
     /// indented item, else takes the marker off. A selection's text goes
     /// first; one spanning lines leaves the line it ends on its own block.
-    /// From before the marker Enter is typing: a line break before it.
+    /// With the caret before the marker it opens an empty line above the
+    /// item, which keeps its indent and quotes; a selection starting there
+    /// is replaced as typing replaces it.
     pub(super) fn list_enter(&self, range: DisplayRange) -> Result<Option<Command>, EditorError> {
         let selected = self.source_selection(range);
         let first = self.line_of(selected.start);
@@ -44,7 +46,19 @@ impl Engine {
         // Where the item's text shows: after its marker, before any marks it opens with.
         let text_start = self.display_of(start + part.content);
         if range.start.0 < text_start {
-            return Ok(None);
+            if range.start != range.end {
+                return Ok(None);
+            }
+            let ending = match entry.ending() {
+                "" => self.empty_line_ending(first),
+                ending => ending.to_owned(),
+            };
+            let caret = selected.start + ending.len();
+            return Ok(Some(Command::new(
+                vec![Edit::insert(start, ending)],
+                first..first + 1,
+                caret..caret,
+            )));
         }
         let empty = body[part.content..].trim_matches([' ', '\t']).is_empty();
         if range.start == range.end && empty {
