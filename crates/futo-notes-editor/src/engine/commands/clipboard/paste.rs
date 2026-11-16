@@ -167,7 +167,10 @@ impl Engine {
         }
         let pasted: Vec<&str> = text.split(newline.as_str()).collect();
         let first = read_alone(pasted[0]);
-        let shaped = pasted.len() > 1 || is_block(&first);
+        // Over a selected list marker one line lands as typing does, so a
+        // pasted marker takes the selected one's place.
+        let shaped =
+            pasted.len() > 1 || (is_block(&first) && self.selected_marker(range).is_none());
         if !shaped {
             if let Some(mut command) = self.carried_paste(range, &text) {
                 command.typed = true;

@@ -382,6 +382,10 @@ pub struct ProjectionSlice {
 pub enum AtomKind {
     Image,
     Divider,
+    /// A list item's marker (`-`, `10.`, `- [ ]`) through the space after it,
+    /// shown as one U+FFFC at the item's display start; its block's
+    /// `ListDescription` says what to draw.
+    ListMarker,
 }
 
 /// A non-text atom. `range` covers its visible glyphs (an image keeps its

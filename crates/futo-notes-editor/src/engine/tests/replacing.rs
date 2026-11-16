@@ -13,8 +13,8 @@ fn deleting_text_keeps_the_formats_around_it_and_drops_emptied_spans() {
         ("a**bc**d", 2, 4, "x", "a**bx**"),
         ("a**b**c", 1, 2, "x", "a**x**c"),
         ("**_b_**", 0, 1, "", ""),
-        ("a\n- b", 1, 2, "", "ab"),
-        ("- a\n- b", 0, 2, "", "- b"),
+        ("a\n- b", 1, 5, "", "ab"),
+        ("- a\n- b", 3, 8, "", "- b"),
         ("x\\*y", 1, 2, "", "xy"),
         ("[ab](u)", 0, 2, "", ""),
     ] {
@@ -79,13 +79,15 @@ fn replacing_a_selection_writes_these_bytes() {
         // An escape goes with its character.
         ("x \\*y\\* z", "*y*", "", "x  z"),
         ("x\\*y", "x*", "", "y"),
-        // Lines: joining takes the later line's marker.
+        // Lines: joining takes the later line's hidden markers; a list
+        // marker shows, so it goes only when it is selected.
         ("# Title\nbody", "le\nbo", "", "# Titdy"),
-        ("- one\n- two", "ne\ntw", "", "- oo"),
-        ("- one\n- two", "one\n", "", "- two"),
+        ("- one\n- two", "ne\n\u{fffc}tw", "", "- oo"),
+        ("- one\n- two", "one\n\u{fffc}", "", "- two"),
+        ("- one\n- two", "one\n", "", "- - two"),
         ("> a\n> b", "a\nb", "X", "> X"),
         ("# Title", "Title", "X", "# X"),
-        ("1. a\n2. b\n3. c", "a\nb\nc", "", "1. "),
+        ("1. a\n2. b\n3. c", "a\n\u{fffc}b\n\u{fffc}c", "", "1. "),
         // Hidden lines inside the selection go with it, and a code block it
         // reaches into or out of goes whole (fences/reach.rs).
         ("a\n```\ncode\n```\nb", "a\nco", "", "\nb"),

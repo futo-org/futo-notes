@@ -2,14 +2,15 @@
 //! the offsets a caret may take in it.
 use super::super::Engine;
 use super::{range, select};
-use crate::{Affinity, EditorError, Revision};
+use crate::{Affinity, CaretDirection, EditorError, Revision};
 
 #[test]
-fn markers_and_inline_syntax_are_hidden() {
+fn markers_and_inline_syntax_are_hidden_and_a_list_marker_is_one_object_character() {
     for (source, display) in [
         ("# Title", "Title"),
-        ("- milk\n  the oat kind", "milk\nthe oat kind"),
-        ("3) third\n- [x] done", "third\ndone"),
+        ("- milk\n  the oat kind", "\u{fffc}milk\nthe oat kind"),
+        ("3) third\n- [x] done", "\u{fffc}third\n\u{fffc}done"),
+        ("> \t10. a\n  - ", "\u{fffc}a\n\u{fffc}"),
         ("> quoted\n>\n> > deep", "quoted\n\ndeep"),
         ("a **b** _c_ ~~d~~ `e`", "a b c d e"),
         (
@@ -18,7 +19,7 @@ fn markers_and_inline_syntax_are_hidden() {
         ),
         ("![alt](p.png) [[note]] #tag", "![alt](p.png) [[note]] #tag"),
         ("\\*not italic\\*", "*not italic*"),
-        ("-\n#\n>text\n- - -", "-\n#\n>text\n- -"),
+        ("-\n#\n>text\n- - -", "-\n#\n>text\n\u{fffc}- -"),
         ("**not\nbold**", "**not\nbold**"),
         ("a\r\nb\rc\n", "a\r\nb\rc\n"),
         (
@@ -62,12 +63,48 @@ fn a_divider_is_one_object_character() {
 #[test]
 fn a_caret_never_stands_inside_a_marker_or_an_escape() {
     let engine = Engine::open("- **a** \\*b");
-    // Display "a *b": at 0 the caret is after the bullet, before or after `**`.
-    assert_eq!(engine.display_text(), "a *b");
-    assert_eq!(engine.source_bounds(0), (2, 4));
-    assert_eq!(engine.source_bounds(1), (5, 7));
+    // Display "￼a *b": before the bullet's unit, then after it, before or
+    // after `**`; never inside the unit.
+    assert_eq!(engine.display_text(), "\u{fffc}a *b");
+    assert_eq!(engine.source_bounds(0), (0, 0));
+    assert!(engine.check_display(1).is_err());
+    assert_eq!(engine.source_bounds(3), (2, 4));
+    assert_eq!(engine.source_bounds(4), (5, 7));
     // Before `*`: only before the backslash.
-    assert_eq!(engine.source_bounds(2), (8, 8));
+    assert_eq!(engine.source_bounds(5), (8, 8));
+    // A nested, quoted task: the quote and indent stay hidden before it.
+    let engine = Engine::open("> \t- [ ] a");
+    assert_eq!(engine.display_text(), "\u{fffc}a");
+    assert_eq!(engine.source_bounds(0), (3, 3));
+    assert_eq!(engine.source_bounds(3), (9, 9));
+}
+
+/// The caret stops before and after an item's marker, never inside it.
+#[test]
+fn left_from_an_items_text_stops_before_its_marker_then_the_line_above() {
+    for (source, before_marker) in [("a\n- b", 2), ("a\n10. b", 2), ("a\n> \t- [x] b", 5)] {
+        let mut engine = Engine::open(source);
+        select(&mut engine, 5, 5, Affinity::Forward);
+        let step = |engine: &mut Engine, direction| {
+            engine.move_caret(engine.revision(), direction).unwrap();
+            (engine.selection().start.0, engine.caret_source())
+        };
+        assert_eq!(
+            step(&mut engine, CaretDirection::Backward),
+            (2, before_marker)
+        );
+        assert_eq!(step(&mut engine, CaretDirection::Backward), (1, 1));
+        assert_eq!(
+            step(&mut engine, CaretDirection::Forward),
+            (2, before_marker)
+        );
+        let text = source.len() - 1;
+        assert_eq!(
+            step(&mut engine, CaretDirection::Forward),
+            (5, text),
+            "{source:?}"
+        );
+    }
 }
 
 #[test]

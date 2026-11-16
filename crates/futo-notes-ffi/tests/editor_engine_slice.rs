@@ -38,9 +38,36 @@ fn a_typed_list_item_draws_its_marker_as_typed_and_saves_exactly_what_was_typed(
     let session = store.open_editor("n".into()).unwrap();
     assert_eq!(
         session.display_text().unwrap(),
-        "one\nthree spaces\none space\n"
+        "\u{fffc}one\n\u{fffc}three spaces\n\u{fffc}one space\n"
     );
     let mut rev = session.revision().unwrap();
+    // Each marker is one unit at its row's start, in UTF-16 units.
+    let end = session.display_text().unwrap().len() as u64;
+    let units: Vec<_> = session
+        .style_plan(rev, EditorByteRange { start: 0, end })
+        .unwrap()
+        .into_iter()
+        .filter_map(|span| match span {
+            EditorStyleSpan::ListMarker { start, end } => Some((start, end)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(units, [(0, 1), (5, 6), (19, 20)]);
+    let atoms: Vec<_> = session
+        .project(rev, EditorByteRange { start: 0, end })
+        .unwrap()
+        .atoms
+        .into_iter()
+        .map(|atom| (format!("{:?}", atom.kind), atom.range.start, atom.range.end))
+        .collect();
+    assert_eq!(
+        atoms,
+        [
+            ("ListMarker".to_owned(), 0, 3),
+            ("ListMarker".to_owned(), 7, 10),
+            ("ListMarker".to_owned(), 23, 26),
+        ]
+    );
     assert_eq!(
         rows(&session, rev),
         [
@@ -68,7 +95,7 @@ fn a_typed_list_item_draws_its_marker_as_typed_and_saves_exactly_what_was_typed(
     }
     assert_eq!(
         session.display_text().unwrap(),
-        "one\nthree spaces\none space\nthird"
+        "\u{fffc}one\n\u{fffc}three spaces\n\u{fffc}one space\n\u{fffc}third"
     );
     assert_eq!(
         rows(&session, rev).last(),

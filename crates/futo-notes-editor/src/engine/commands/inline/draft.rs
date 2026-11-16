@@ -262,13 +262,16 @@ pub(super) fn glyph_range(glyphs: &[Glyph], range: &Range<usize>) -> Range<usize
 }
 
 /// The source positions between glyph `index - 1` and glyph `index` where a
-/// mark may be written: not inside a line marker, a mark or an escape.
+/// mark may be written: not inside or before a line marker, nor inside a mark
+/// or an escape.
 pub(super) fn gap(entry: &Entry, glyphs: &[Glyph], index: usize) -> Vec<usize> {
     let from = if index == 0 { 0 } else { glyphs[index - 1].end };
     let to = glyphs
         .get(index)
         .map_or(entry.body_len(), |glyph| glyph.src);
     (from..=to)
-        .filter(|&at| entry.text.is_char_boundary(at) && entry.allowed(at))
+        .filter(|&at| {
+            at >= entry.line.marker.end && entry.text.is_char_boundary(at) && entry.allowed(at)
+        })
         .collect()
 }

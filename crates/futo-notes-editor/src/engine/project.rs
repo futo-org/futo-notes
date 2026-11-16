@@ -3,7 +3,7 @@
 //! lines except a code line's block (`code_block.rs`) and a table line's
 //! table (`table_block.rs`).
 use super::code_block::{is_code_line, CodeBlock};
-use super::line::{Cut, Entry, Role, DIVIDER};
+use super::line::{Cut, Entry, Role};
 use super::table_block::{table_role, TableBlock};
 use super::Engine;
 use crate::lines::{reading_spans, FrontMatterRole, Kind, SpanKind};
@@ -319,7 +319,8 @@ fn block_of(entry: &Entry, display: usize, shown: usize) -> BlockDescription {
     block
 }
 
-/// Line `entry`'s correspondence (a shown line), and its divider atom.
+/// Line `entry`'s correspondence (a shown line), and its divider or list
+/// marker atom.
 fn correspond(entry: &Entry, source: usize, display: usize, slice: &mut ProjectionSlice) {
     let view = &entry.view;
     let body = entry.body_len();
@@ -340,10 +341,11 @@ fn correspond(entry: &Entry, source: usize, display: usize, slice: &mut Projecti
     for (range, cut) in &view.cuts {
         literal(slice, at, range.start, shown_at);
         shown_at += range.start - at;
-        let width = if *cut == Cut::Divider {
-            DIVIDER.len()
-        } else {
-            0
+        let width = cut.shown().len();
+        let atom = match cut {
+            Cut::Divider => Some(AtomKind::Divider),
+            Cut::ListMarker => Some(AtomKind::ListMarker),
+            Cut::Marker | Cut::Syntax | Cut::Escape => None,
         };
         slice.correspondence.push(Correspondence {
             source: SourceRange {
@@ -351,15 +353,15 @@ fn correspond(entry: &Entry, source: usize, display: usize, slice: &mut Projecti
                 end: SourceOffset(source + range.end),
             },
             display: display_range(shown_at, shown_at + width),
-            kind: if *cut == Cut::Divider {
+            kind: if atom.is_some() {
                 CorrespondenceKind::Replaced
             } else {
                 CorrespondenceKind::Hidden
             },
         });
-        if *cut == Cut::Divider {
+        if let Some(kind) = atom {
             slice.atoms.push(AtomDescription {
-                kind: AtomKind::Divider,
+                kind,
                 range: display_range(shown_at, shown_at + width),
                 before: DisplayOffset(shown_at),
                 after: DisplayOffset(shown_at + width),

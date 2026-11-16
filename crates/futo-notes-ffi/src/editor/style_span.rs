@@ -88,6 +88,11 @@ pub enum EditorStyleSpan {
         start: u64,
         end: u64,
     },
+    /// A list item's marker unit: one U+FFFC at the row's start. Draw the row's marker over it.
+    ListMarker {
+        start: u64,
+        end: u64,
+    },
     Image {
         start: u64,
         end: u64,
@@ -241,6 +246,10 @@ impl From<StyleSpec> for EditorStyleSpan {
                 end: u(end),
             },
             StyleSpec::Divider { start, end } => Self::Divider {
+                start: u(start),
+                end: u(end),
+            },
+            StyleSpec::ListMarker { start, end } => Self::ListMarker {
                 start: u(start),
                 end: u(end),
             },

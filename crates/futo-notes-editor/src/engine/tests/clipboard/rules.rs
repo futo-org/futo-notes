@@ -35,7 +35,7 @@ fn cut_then_paste_puts_quote_lines_back() {
 fn copy_then_paste_of_nested_items_lands_beside_the_caret_item() {
     let mut engine = Engine::open("- a\n  - b\n    - c\n- d");
     let copied = engine
-        .copy_markdown(engine.revision(), range(2, 5))
+        .copy_markdown(engine.revision(), range(5, 14))
         .unwrap();
     assert_eq!(copied, "- b\n  - c");
     let end = engine.display_len();

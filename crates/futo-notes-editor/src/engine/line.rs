@@ -22,18 +22,22 @@
 //!    shows as an empty quoted line. Typing there text that as typed would
 //!    take the line out of its quote (`>x` is plain) writes the space the
 //!    quote needs, then the text (`edit/plan.rs` `quote_space`).
+//! 7. A list item's marker, from its first character through the space
+//!    after it (a task's box included), shows as one U+FFFC, which
+//!    renderers draw as the item's bullet, number or box.
 //!
 //! Front matter lines show their whole text; a table's delimiter row shows
-//! as typed. Everything else hides its marker (quote, list, heading markers,
-//! an indented line's leading whitespace, which renderers draw from the
-//! line's indent, and the opening fence's indent on a code line) and its
-//! inline syntax.
+//! as typed. Everything else hides its marker (quote and heading markers,
+//! the leading whitespace of a list or indented line, which renderers draw
+//! from the line's indent, and the opening fence's indent on a code line)
+//! and its inline syntax.
 use super::store::Size;
 use crate::lines::{block, line_spans, Carry, FenceRole, FrontMatterRole, Kind, Line, Span};
 use crate::lines::{SpanKind, TableRole};
 use std::ops::Range;
 
-pub(crate) const DIVIDER: &str = "\u{fffc}";
+/// How a divider or a list item's marker shows (rules 4 and 7).
+pub(crate) const ATOM_TEXT: &str = "\u{fffc}";
 
 /// Whether, and how, a line shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,6 +64,19 @@ pub(crate) enum Cut {
     Escape,
     /// A divider, shown as one U+FFFC (rule 4).
     Divider,
+    /// A list item's marker, shown as one U+FFFC (rule 7).
+    ListMarker,
+}
+
+impl Cut {
+    /// What the piece shows as: a divider and a list marker show as one
+    /// U+FFFC, a caret standing only at its edges; the rest show nothing.
+    pub(crate) fn shown(self) -> &'static str {
+        match self {
+            Cut::Divider | Cut::ListMarker => ATOM_TEXT,
+            Cut::Marker | Cut::Syntax | Cut::Escape => "",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -247,10 +264,8 @@ impl Entry {
         for (range, cut) in &self.view.cuts {
             display -= range.len();
             display16 -= self.text[range.clone()].encode_utf16().count();
-            if *cut == Cut::Divider {
-                display += DIVIDER.len();
-                display16 += 1;
-            }
+            display += cut.shown().len();
+            display16 += cut.shown().encode_utf16().count();
         }
         if ending {
             display += self.ending().len();
@@ -272,8 +287,15 @@ impl Entry {
             _ => {}
         }
         let mut cuts = Vec::new();
-        if !line.marker.is_empty() {
-            cuts.push((line.marker.clone(), Cut::Marker));
+        let unit = match &line.kind {
+            Kind::List { text, .. } => text.start,
+            _ => line.marker.end,
+        };
+        if unit > line.marker.start {
+            cuts.push((line.marker.start..unit, Cut::Marker));
+        }
+        if unit < line.marker.end {
+            cuts.push((unit..line.marker.end, Cut::ListMarker));
         }
         for span in &self.spans {
             let open = if span.kind == SpanKind::Escape {
@@ -292,6 +314,15 @@ impl Entry {
         cuts
     }
 
+    /// Where the line's list marker unit lies (rule 7), when it shows one.
+    pub(crate) fn marker_unit(&self) -> Option<Range<usize>> {
+        self.view
+            .cuts
+            .iter()
+            .find(|(_, cut)| *cut == Cut::ListMarker)
+            .map(|(range, _)| range.clone())
+    }
+
     /// The display of the line's text, without its ending.
     pub fn shown_body(&self) -> String {
         if self.view.role != Role::Text {
@@ -302,9 +333,7 @@ impl Entry {
         let mut at = 0;
         for (range, cut) in &self.view.cuts {
             out.push_str(&body[at..range.start]);
-            if *cut == Cut::Divider {
-                out.push_str(DIVIDER);
-            }
+            out.push_str(cut.shown());
             at = range.end;
         }
         out.push_str(&body[at..]);
@@ -349,12 +378,7 @@ impl Entry {
         let mut display = at;
         for (range, cut) in &self.view.cuts {
             if range.end <= at {
-                display = display - range.len()
-                    + if *cut == Cut::Divider {
-                        DIVIDER.len()
-                    } else {
-                        0
-                    };
+                display = display - range.len() + cut.shown().len();
             } else if range.start < at {
                 display -= at - range.start;
                 break;
@@ -370,7 +394,7 @@ impl Entry {
     pub(crate) fn allowed(&self, at: usize) -> bool {
         self.view.cuts.iter().all(|(range, cut)| match cut {
             Cut::Marker => at >= range.end,
-            Cut::Syntax | Cut::Divider => at <= range.start || at >= range.end,
+            Cut::Syntax | Cut::Divider | Cut::ListMarker => at <= range.start || at >= range.end,
             Cut::Escape => at != range.end,
         })
     }
@@ -410,11 +434,11 @@ impl Entry {
                 consider(source + at - display);
             }
             display += visible;
-            if *cut == Cut::Divider {
+            if !cut.shown().is_empty() {
                 if at == display {
                     consider(range.start);
                 }
-                display += DIVIDER.len();
+                display += cut.shown().len();
                 if at == display {
                     consider(range.end);
                 }

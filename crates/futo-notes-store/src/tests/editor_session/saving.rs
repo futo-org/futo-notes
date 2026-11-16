@@ -382,7 +382,7 @@ fn a_note_is_saved_exactly_as_typed() {
     // A line break typed at the end of a note with no final line ending.
     plant_note(&root, "list", "- a\nb");
     let mut editor = store.open_editor("list").unwrap();
-    editor.replace(Revision(0), range(3, 3), "\n").unwrap();
+    editor.replace(Revision(0), range(6, 6), "\n").unwrap();
     assert_eq!(editor.source_text(), "- a\nb\n");
     assert!(editor.checkpoint().unwrap().mutation.is_some());
     assert_eq!(

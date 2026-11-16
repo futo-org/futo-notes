@@ -1,0 +1,218 @@
+[
+ {
+  "name": "Delete before a bullet's marker takes it off",
+  "before": "‸- a",
+  "command": "Delete",
+  "after": "‸a"
+ },
+ {
+  "name": "Delete before a number's marker takes it off",
+  "before": "‸10. a",
+  "command": "Delete",
+  "after": "‸a"
+ },
+ {
+  "name": "Delete before a task's marker takes the box off with it",
+  "before": "‸- [x] a",
+  "command": "Delete",
+  "after": "‸a"
+ },
+ {
+  "name": "Delete before a nested marker keeps the indent",
+  "before": "- a\n  ‸- b",
+  "command": "Delete",
+  "after": "- a\n  ‸b"
+ },
+ {
+  "name": "Delete before a quoted marker keeps the quote",
+  "before": "> ‸3) a",
+  "command": "Delete",
+  "after": "> ‸a"
+ },
+ {
+  "name": "Delete before an empty item's marker leaves an empty line",
+  "before": "- a\n  ‸- ",
+  "command": "Delete",
+  "after": "- a\n‸"
+ },
+ {
+  "name": "Delete before a marker writes a backslash so the text stays plain",
+  "before": "‸- # x",
+  "command": "Delete",
+  "after": "‸\\# x"
+ },
+ {
+  "name": "Delete before a marker on a CRLF line",
+  "before": "a\r\n‸- b\r\nc",
+  "command": "Delete",
+  "after": "a\r\n‸b\r\nc"
+ },
+ {
+  "name": "Backspace after a quoted nested task's marker",
+  "before": "> - a\n>   - [ ] ‸b",
+  "command": "Backspace",
+  "after": "> - a\n>   ‸b"
+ },
+ {
+  "name": "Backspace after a number's marker on a CRLF line",
+  "before": "1. a\r\n2. ‸b\r\n",
+  "command": "Backspace",
+  "after": "1. a\r\n‸b\r\n"
+ },
+ {
+  "name": "Backspace over a selected bullet marker takes it off",
+  "before": "«- »a",
+  "command": "Backspace",
+  "after": "‸a"
+ },
+ {
+  "name": "Delete over a selected number marker takes it off",
+  "before": "«10. »a",
+  "command": "Delete",
+  "after": "‸a"
+ },
+ {
+  "name": "Backspace over a selected nested task marker keeps the indent",
+  "before": "- a\n  «- [ ] »b",
+  "command": "Backspace",
+  "after": "- a\n  ‸b"
+ },
+ {
+  "name": "Delete over a selected quoted empty item's marker keeps the quote",
+  "before": "> «- »",
+  "command": "Delete",
+  "after": "> ‸"
+ },
+ {
+  "name": "Deleting a selected marker writes a backslash so the text stays plain",
+  "before": "«1. »- a",
+  "command": "Backspace",
+  "after": "‸\\- a"
+ },
+ {
+  "name": "Typing over a selected number writes the typed text in its place",
+  "before": "«10. »a",
+  "command": "type:5",
+  "after": "5‸a"
+ },
+ {
+  "name": "Typing a new marker over a selected number makes it that item",
+  "before": "«10. »a",
+  "command": "type:5. ",
+  "after": "5. ‸a"
+ },
+ {
+  "name": "Typing over a selected task marker writes the text in its place",
+  "before": "«- [ ] »a",
+  "command": "type:x",
+  "after": "x‸a"
+ },
+ {
+  "name": "Typing a bullet over a quoted nested number keeps quote and indent",
+  "before": "> «1) »a",
+  "command": "type:* ",
+  "after": "> * ‸a"
+ },
+ {
+  "name": "Typing over a nested marker keeps the indent",
+  "before": "- a\n  «- »b",
+  "command": "type:+ ",
+  "after": "- a\n  + ‸b"
+ },
+ {
+  "name": "Typing before a bullet's marker makes a plain line",
+  "before": "‸- a",
+  "command": "type:x",
+  "after": "x‸- a"
+ },
+ {
+  "name": "Typing before a nested number's marker keeps the indent",
+  "before": "- a\n  ‸2. b",
+  "command": "type:x",
+  "after": "- a\n  x‸2. b"
+ },
+ {
+  "name": "Typing before a quoted task's marker keeps the quote",
+  "before": "> ‸- [ ] a",
+  "command": "type:x",
+  "after": "> x‸- [ ] a"
+ },
+ {
+  "name": "Backspace before an item's marker joins it to the line above",
+  "before": "a\n‸- b",
+  "command": "Backspace",
+  "after": "a‸- b"
+ },
+ {
+  "name": "Backspace before a nested marker joins it to the item above",
+  "before": "- a\n  ‸- b",
+  "command": "Backspace",
+  "after": "- a‸- b"
+ },
+ {
+  "name": "Backspace before a task's marker joins it to the task above",
+  "before": "- [ ] a\n‸- [x] b",
+  "command": "BackspaceJoiningHeading",
+  "after": "- [ ] a‸- [x] b"
+ },
+ {
+  "name": "Backspace before a quoted marker joins it to the quote above",
+  "before": "> a\n> ‸1. b",
+  "command": "Backspace",
+  "after": "> a‸1. b"
+ },
+ {
+  "name": "Backspace before a marker on a CRLF line",
+  "before": "a\r\n‸- b",
+  "command": "Backspace",
+  "after": "a‸- b"
+ },
+ {
+  "name": "Backspace before the first line's marker changes nothing",
+  "before": "‸- a",
+  "command": "Backspace",
+  "after": "‸- a"
+ },
+ {
+  "name": "Enter before a bullet's marker opens an empty line above",
+  "before": "‸- a",
+  "command": "Enter",
+  "after": "\n‸- a"
+ },
+ {
+  "name": "Enter before a number's marker renumbers nothing",
+  "before": "1. a\n‸2. b",
+  "command": "Enter",
+  "after": "1. a\n\n‸2. b"
+ },
+ {
+  "name": "Enter before a task's marker keeps the task",
+  "before": "‸- [x] a",
+  "command": "ShiftEnter",
+  "after": "\n‸- [x] a"
+ },
+ {
+  "name": "Enter before a marker on a CRLF line writes CRLF",
+  "before": "a\r\n‸- b",
+  "command": "Enter",
+  "after": "a\r\n\r\n‸- b"
+ },
+ {
+  "name": "Enter at a task's text start opening with a mark opens an empty task above",
+  "before": "- [x] **‸a**",
+  "command": "Enter",
+  "after": "- [ ] \n- [x] **‸a**"
+ },
+ {
+  "name": "Backspace at an item's text start opening with a mark takes the marker off",
+  "before": "- **‸a**",
+  "command": "Backspace",
+  "after": "‸**a**"
+ },
+ {
+  "name": "Delete before a marker whose text opens with a mark takes it off",
+  "before": "‸1. **a**",
+  "command": "Delete",
+  "after": "‸**a**"
+ }
+]

@@ -6,7 +6,8 @@ use crate::{CaretDirection, DisplayOffset, DisplayRange, EditorError, InputActio
 impl Engine {
     /// The graphemes on either side of a caret, or the two before it at a line's end,
     /// swapped as typing them over the pair would land, the caret after them. A
-    /// selection, a line's start and a lone character on a line are no edit.
+    /// selection, a line's start, a lone character on a line and a pair holding
+    /// a list item's marker are no edit.
     pub(crate) fn transpose_command(
         &self,
         range: DisplayRange,
@@ -27,7 +28,12 @@ impl Engine {
             start: DisplayOffset(start),
             end: DisplayOffset(end),
         };
-        if start < line.start || start == caret || end == caret || self.touches_metadata(pair) {
+        if start < line.start
+            || start == caret
+            || end == caret
+            || self.touches_metadata(pair)
+            || self.touches_marker(pair)
+        {
             return Ok(None);
         }
         let swapped = self.display_slice(caret..end) + &self.display_slice(start..caret);

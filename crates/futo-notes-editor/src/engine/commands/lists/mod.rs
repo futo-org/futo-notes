@@ -1,6 +1,6 @@
 //! List commands: Enter, Enter at an item's start, Enter on an empty item,
-//! Backspace at an item's text start, Indent and Outdent (and their Tab
-//! keys), the list toggles, the checkbox toggle, and renumbering.
+//! removing an item's marker (`marker.rs`), Indent and Outdent (and their
+//! Tab keys), the list toggles, the checkbox toggle, and renumbering.
 //!
 //! A list item is one line. A command edits the lines it is pointed at;
 //! renumbering is the one exception, and names the lines it bumps
@@ -10,6 +10,7 @@ mod arrival;
 mod draft;
 mod enter;
 mod indent;
+mod marker;
 mod number;
 mod shift;
 mod toggle;
@@ -49,8 +50,9 @@ impl Engine {
         }
     }
 
-    /// Keys on list lines: Enter and Shift+Enter, Backspace at an item's
-    /// text start, Tab and Shift+Tab. Delete joins as typing does.
+    /// Keys on list lines: Enter and Shift+Enter, Backspace and Delete
+    /// beside or over an item's marker, Tab and Shift+Tab. Elsewhere Delete
+    /// and Backspace join as typing does.
     pub(super) fn list_key(
         &self,
         range: DisplayRange,
@@ -61,7 +63,8 @@ impl Engine {
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => self.list_enter(range),
             ParagraphKey::Backspace
             | ParagraphKey::BackspaceJoiningHeading
-            | ParagraphKey::PairedBackspace => self.list_backspace(range),
+            | ParagraphKey::PairedBackspace => Ok(self.marker_key(range, false)),
+            ParagraphKey::Delete => Ok(self.marker_key(range, true)),
             ParagraphKey::Tab | ParagraphKey::ShiftTab => {
                 let touches_list = self
                     .lines_of(range)
@@ -71,7 +74,7 @@ impl Engine {
                 }
                 self.indent_command(range, key == ParagraphKey::ShiftTab)
             }
-            ParagraphKey::Delete | ParagraphKey::Transpose => Ok(None),
+            ParagraphKey::Transpose => Ok(None),
         }
     }
 

@@ -45,7 +45,7 @@
   {"name": "lines are formatted one at a time", "before": "⟦one\ntwo⟧", "command": [["bold"]], "after": "**⟦one**\n**two⟧**"},
   {"name": "a selection from mid line to mid line", "before": "ab⟦cd\nef⟧gh", "command": [["bold"]], "after": "ab**⟦cd**\n**ef⟧**gh"},
   {"name": "blank lines, dividers and code are skipped", "before": "⟦a\n\n---\n```\ncode\n```\nb⟧", "command": [["bold"]], "after": "**⟦a**\n\n---\n```\ncode\n```\n**b⟧**"},
-  {"name": "list, heading, quote and task text", "before": "⟦- a\n# b\n> c\n- [ ] d⟧", "command": [["italic"]], "after": "- *⟦a*\n# *b*\n> *c*\n- [ ] *d⟧*"},
+  {"name": "list, heading, quote and task text", "before": "⟦- a\n# b\n> c\n- [ ] d⟧", "command": [["italic"]], "after": "⟦- *a*\n# *b*\n> *c*\n- [ ] *d⟧*"},
   {"name": "every line already bold: bold comes off", "before": "⟦**a**\n**b**⟧", "command": [["bold"]], "after": "⟦a\nb⟧"},
   {"name": "some lines bold: bold goes on the rest", "before": "⟦**a**\nb⟧", "command": [["bold"]], "after": "**⟦a**\n**b⟧**"},
   {"name": "a section heading and a partly bold body line", "before": "⟦## Section 0\n\nBody line 0 with **bold**.⟧", "command": [["bold"]], "after": "## **⟦Section 0**\n\n**Body line 0 with bold.⟧**"},
@@ -118,5 +118,7 @@
   {"name": "Backspace emptying a bold span keeps bold for the caret", "before": "a **b‸**", "command": [["key", "backspace"]], "after": "a ‸", "formats": ["bold"]},
   {"name": "a carried format from a deletion ends when the caret moves", "before": "a **⟦Owner⟧** b", "command": [["key", "backspace"], ["select", 0, 0], ["select", 2, 2], ["type", "x"]], "after": "a x‸ b"},
   {"name": "a carried format on an empty quote line types after the space the quote needs", "before": "> a\n>‸", "command": [["bold"], ["type", "x"]], "after": "> a\n> **x‸**"},
-  {"name": "a text service's text on an empty quote line takes the space the quote needs", "before": "> a\n>‸", "command": [["replace", 0, 2, "a\nz"]], "after": "> a\n> z‸"}
+  {"name": "a text service's text on an empty quote line takes the space the quote needs", "before": "> a\n>‸", "command": [["replace", 0, 2, "a\nz"]], "after": "> a\n> z‸"},
+  {"name": "a link over an item from before its marker links only the text", "before": "⟦- a⟧", "command": [["link", "u"]], "after": "⟦- [a](u)⟧"},
+  {"name": "bold over a selected list marker alone changes nothing", "before": "⟦- ⟧a", "command": [["bold"]], "after": "⟦- ⟧a"}
 ]

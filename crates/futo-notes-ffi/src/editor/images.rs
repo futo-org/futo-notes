@@ -7,6 +7,8 @@ use futo_notes_editor as editor;
 pub enum EditorAtomKind {
     Image,
     Divider,
+    /// A list item's marker, shown as one U+FFFC; draw it from the block's list description.
+    ListMarker,
 }
 
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
@@ -37,6 +39,7 @@ impl From<editor::AtomDescription> for EditorAtomDescription {
             kind: match value.kind {
                 editor::AtomKind::Image => EditorAtomKind::Image,
                 editor::AtomKind::Divider => EditorAtomKind::Divider,
+                editor::AtomKind::ListMarker => EditorAtomKind::ListMarker,
             },
             range: value.range.into(),
             before: value.before.0 as u64,

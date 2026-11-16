@@ -65,7 +65,7 @@ fn undo_restores_the_bytes_and_selection_a_command_changed() {
     let selection = engine.selection();
     assert!(retext(&mut engine, 1, "- two", 1..2));
     assert_eq!(engine.source_text(), "one\n- two\nthree");
-    assert_eq!(engine.selection(), range(7, 7));
+    assert_eq!(engine.selection(), range(10, 10));
     engine.undo(engine.revision(), &mut ok).unwrap().unwrap();
     assert_eq!(engine.source_text(), "one\ntwo\nthree");
     assert_eq!(engine.selection(), selection);

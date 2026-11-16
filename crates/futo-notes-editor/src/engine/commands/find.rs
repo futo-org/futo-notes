@@ -1,14 +1,15 @@
 //! Find in the note, over the display text: hidden markers and syntax are
 //! never found, and every line break is a barrier (there are no paragraphs).
 //! In a table only cell contents are found: pipes, padding and the
-//! delimiter row are barriers. Front matter and dividers are never found.
+//! delimiter row are barriers. Front matter, dividers and list markers are
+//! never found.
 //!
 //! Scanning is explicit, never on the input path. Each accepted change only
 //! logs its display window (`Engine::accept` calls `Find::edited`); matches
 //! are carried through that log on the next find read, those inside a
 //! replaced window are dropped, and the report is `stale` until a rescan
 //! lands. Find never edits the note, so it adds no undo step.
-use super::super::line::Role;
+use super::super::line::{Role, ATOM_TEXT};
 use super::super::{store, Engine};
 use crate::lines::{table, Kind, TableRole};
 use crate::{
@@ -303,6 +304,10 @@ impl Engine {
             if matches!(entry.line.kind, Kind::FrontMatter(_) | Kind::Divider) {
                 barrier(0, entry.size.display);
                 continue;
+            }
+            if let Some(unit) = entry.marker_unit() {
+                let at = entry.to_display(unit.start);
+                barrier(at, at + ATOM_TEXT.len());
             }
             let Kind::Table { role, .. } = &entry.line.kind else {
                 continue;

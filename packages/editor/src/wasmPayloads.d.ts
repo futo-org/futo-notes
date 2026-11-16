@@ -244,7 +244,9 @@ export interface ImageDescription {
   vault: boolean;
 }
 
-export type AtomKind = 'Image' | 'Divider';
+/** `ListMarker`: a list item's marker, one U+FFFC at the item's display start standing for its
+ * source through the space after it (a task's box included); draw it from the block's list. */
+export type AtomKind = 'Image' | 'Divider' | 'ListMarker';
 
 export interface AtomDescription {
   kind: AtomKind;

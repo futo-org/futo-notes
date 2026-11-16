@@ -42,7 +42,7 @@ fn unmark(marked: &str) -> (String, Range<usize>) {
 }
 
 /// Select source `selected`: a caret at exactly that source offset.
-fn select_source(engine: &mut Engine, selected: Range<usize>) {
+pub(super) fn select_source(engine: &mut Engine, selected: Range<usize>) {
     let (start, end) = (
         engine.display_of(selected.start),
         engine.display_of(selected.end),
@@ -120,6 +120,7 @@ fn list_cases() {
         include_str!("../../../tests/fixtures/engine/lists/indent.json"),
         include_str!("../../../tests/fixtures/engine/lists/toggles.json"),
         include_str!("../../../tests/fixtures/engine/lists/typed.json"),
+        include_str!("../../../tests/fixtures/engine/lists/marker.json"),
     ]
     .into_iter()
     .flat_map(|file| serde_json::from_str::<Vec<Case>>(file).unwrap())
@@ -214,8 +215,8 @@ fn the_toolbar_offers_indent_on_items_and_outdent_on_indented_items() {
         ("- item", 0, (true, false)),
         ("1. item", 0, (true, false)),
         ("> - item", 0, (true, false)),
-        ("- a\n\t- b", 2, (true, true)),
-        ("- a\n  - [ ] b", 2, (true, true)),
+        ("- a\n\t- b", 5, (true, true)),
+        ("- a\n  - [ ] b", 5, (true, true)),
     ] {
         let mut engine = Engine::open(source);
         super::select(&mut engine, caret, caret, Affinity::Forward);

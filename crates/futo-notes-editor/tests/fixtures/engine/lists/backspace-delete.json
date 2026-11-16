@@ -90,27 +90,27 @@
   "after": "- a‸b"
  },
  {
-  "name": "Delete at an item's end joins the next item's text",
+  "name": "Delete at an item's end joins the next line, whose marker reads as text",
   "before": "- a‸\n- b",
   "command": "Delete",
-  "after": "- a‸b"
+  "after": "- a‸- b"
  },
  {
-  "name": "Delete at a nested item's end joins its sibling",
+  "name": "Delete at a nested item's end takes the sibling's indent with the line break",
   "before": "- a\n  - b‸\n  - c",
   "command": "Delete",
-  "after": "- a\n  - b‸c"
+  "after": "- a\n  - b‸- c"
  },
  {
-  "name": "Delete at an item's end before an empty item",
+  "name": "Delete at an item's end before an empty item keeps its marker as text",
   "before": "- a‸\n- ",
   "command": "Delete",
-  "after": "- a‸"
+  "after": "- a‸- "
  },
  {
-  "name": "Delete at a task's end joins the next task's text",
+  "name": "Delete at a task's end joins the next task, box and all",
   "before": "- [ ] a‸\n- [x] b",
   "command": "Delete",
-  "after": "- [ ] a‸b"
+  "after": "- [ ] a‸- [x] b"
  }
 ]

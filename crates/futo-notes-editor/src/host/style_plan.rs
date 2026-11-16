@@ -98,6 +98,12 @@ pub enum StyleSpec {
         start: usize,
         end: usize,
     },
+    /// A list item's marker atom: one U+FFFC at the row's start standing for the marker's source
+    /// (task box included). The host draws the row's marker over it from its `ListRow`.
+    ListMarker {
+        start: usize,
+        end: usize,
+    },
     /// One physical row of a root GFM table, drawn as a grid row from its cells. `columns` and
     /// each cell's alignment are its table's (`Table`) when planned.
     TableRow {
@@ -157,7 +163,8 @@ impl StyleSpec {
             | Self::TableRow { start, end, .. }
             | Self::TableDelimiter { start, end }
             | Self::Table { start, end, .. }
-            | Self::Divider { start, end } => (*start, *end),
+            | Self::Divider { start, end }
+            | Self::ListMarker { start, end } => (*start, *end),
         }
     }
 
@@ -177,7 +184,8 @@ impl StyleSpec {
             | Self::TableRow { start, end, .. }
             | Self::TableDelimiter { start, end }
             | Self::Table { start, end, .. }
-            | Self::Divider { start, end } => (*start, *end) = (s, e),
+            | Self::Divider { start, end }
+            | Self::ListMarker { start, end } => (*start, *end) = (s, e),
             Self::ListRow {
                 start,
                 end,
@@ -373,6 +381,7 @@ pub fn plan_styles(
         let end = local.utf16(atom.range.end.0, outside);
         match (atom.kind, &atom.image) {
             (crate::AtomKind::Divider, _) => out.push(StyleSpec::Divider { start, end }),
+            (crate::AtomKind::ListMarker, _) => out.push(StyleSpec::ListMarker { start, end }),
             (crate::AtomKind::Image, Some(image)) => out.push(StyleSpec::Image {
                 start,
                 end,
@@ -410,7 +419,10 @@ fn split_at_lines(specs: Vec<StyleSpec>, units: &[u16], start_utf16: usize) -> V
         let (start, end) = spec.range();
         let atom = matches!(
             spec,
-            StyleSpec::Wikilink { .. } | StyleSpec::Divider { .. } | StyleSpec::Image { .. }
+            StyleSpec::Wikilink { .. }
+                | StyleSpec::Divider { .. }
+                | StyleSpec::ListMarker { .. }
+                | StyleSpec::Image { .. }
         );
         if atom || end <= start {
             // An atom cannot be cut, but one outside the window (its paragraph overlaps) is not

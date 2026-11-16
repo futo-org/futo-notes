@@ -72,3 +72,29 @@ fn words_read_the_display_across_hidden_syntax_and_lines() {
     // A closing fence on the last line hides the line break before it.
     assert_eq!(word_at("x\n```\ncode\n```", 6), "code");
 }
+
+#[test]
+fn a_list_marker_is_one_unit_to_words() {
+    // Each item shows its marker as one U+FFFC, the space after it and a task's box included.
+    for source in [
+        "- buy milk",
+        "10. buy milk",
+        "- [x] buy milk",
+        "> \t* buy milk",
+    ] {
+        assert_eq!(word_at(source, 0), "\u{fffc}", "{source:?}");
+        assert_eq!(word_at(source, 3), "buy", "{source:?}");
+        assert_eq!(
+            stops(source, 3, CaretDirection::Backward),
+            [0],
+            "{source:?}"
+        );
+        assert_eq!(
+            stops(source, 0, CaretDirection::Forward),
+            [6, 11],
+            "{source:?}"
+        );
+    }
+    // Option+Left from an item's text start passes its marker to the word above.
+    assert_eq!(stops("a b\n- c", 8, CaretDirection::Backward), [7, 2, 0]);
+}

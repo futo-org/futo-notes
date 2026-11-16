@@ -197,6 +197,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
         include_str!("../../futo-notes-editor/tests/fixtures/engine/lists/indent.json"),
         include_str!("../../futo-notes-editor/tests/fixtures/engine/lists/toggles.json"),
         include_str!("../../futo-notes-editor/tests/fixtures/engine/lists/typed.json"),
+        include_str!("../../futo-notes-editor/tests/fixtures/engine/lists/marker.json"),
     ]
     .into_iter()
     .flat_map(|file| serde_json::from_str::<Vec<Value>>(file).unwrap())

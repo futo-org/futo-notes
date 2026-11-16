@@ -5,7 +5,10 @@
   {"name": "copy: a link keeps its destination", "before": "x [li*n{k*](u) y}", "command": "copy", "copied": "[*k*](u) y", "after": "x [li*n{k*](u) y}", "marks": "|{}"},
   {"name": "copy: a whole heading line carries its marker", "before": "[# Head]\nbody", "command": "copy", "copied": "# Head", "after": "[# Head]\nbody"},
   {"name": "copy: part of a heading does not", "before": "# H[ea]d\nbody", "command": "copy", "copied": "ea", "after": "# H[ea]d\nbody"},
-  {"name": "copy: nested items lose the first line's indent", "before": "- a\n  - [b\n  - c]", "command": "copy", "copied": "- b\n- c", "after": "- a\n  - [b\n  - c]"},
+  {"name": "copy: nested items lose the first line's indent", "before": "- a\n  [- b\n  - c]", "command": "copy", "copied": "- b\n- c", "after": "- a\n  [- b\n  - c]"},
+  {"name": "copy: from an item's text start leaves its marker out", "before": "- a\n  - [b\n  - c]", "command": "copy", "copied": "b\n- c", "after": "- a\n  - [b\n  - c]"},
+  {"name": "copy: a selected marker alone is its source, space included", "before": "- a\n  [1. ]b", "command": "copy", "copied": "1. ", "after": "- a\n  [1. ]b"},
+  {"name": "copy: a selected task marker is its bullet and box", "marks": "^{}", "before": "> {- [x] }done", "command": "copy", "copied": "- [x] ", "after": "> {- [x] }done"},
   {"name": "copy: CRLF stays", "before": "[> a\r\n> b]", "command": "copy", "copied": "> a\r\n> b", "after": "[> a\r\n> b]"},
   {"name": "copy: spaces alone", "before": "a[  ]b", "command": "copy", "copied": "  ", "after": "a[  ]b"},
   {"name": "copy: a space in bold gets no marks", "before": "**a[ ]b**", "command": "copy", "copied": " ", "after": "**a[ ]b**"},
@@ -20,7 +23,9 @@
   {"name": "copy: a whole bullet with its box", "before": "{- [x] done}", "command": "copy", "copied": "- [x] done", "after": "{- [x] done}", "marks": "|{}"},
   {"name": "cut: bold text", "before": "a **[bold]** c", "command": "cut", "copied": "**bold**", "after": "a | c"},
   {"name": "cut: quote lines keep the first line's marker", "before": "> [a\n> b]\nz", "command": "cut", "copied": "> a\n> b", "after": "> |\nz"},
-  {"name": "cut: a whole line from its start", "before": "a\n[- b]\nc", "command": "cut", "copied": "- b", "after": "a\n- |\nc"},
+  {"name": "cut: a whole line from its start takes its marker too", "before": "a\n[- b]\nc", "command": "cut", "copied": "- b", "after": "a\n|\nc"},
+  {"name": "cut: an item's text from its text start leaves the marker", "before": "a\n- [b]\nc", "command": "cut", "copied": "b", "after": "a\n- |\nc"},
+  {"name": "cut: a selected marker alone takes it off and the line stays", "marks": "^{}", "before": "a\n{- [x] }# b", "command": "cut", "copied": "- [x] ", "after": "a\n^\\# b"},
   {"name": "cut: nothing selected cuts nothing", "before": "a|b", "command": "cut", "copied": "", "after": "a|b"},
   {"name": "cut: across lines joins them", "before": "a[b\nc]d", "command": "cut", "copied": "b\nc", "after": "a|d"}
 ]

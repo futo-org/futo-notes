@@ -119,6 +119,8 @@ assert.deepEqual(
   [[2, ['None', 'None']]],
 );
 assert.ok(slice.blocks.some((b) => b.table?.role === 'Row' && b.table.row === 1));
+assert.equal(slice.atoms.filter((a) => a.kind === 'ListMarker').length, 2);
+assert.ok(slice.atoms.every((a) => a.kind !== 'ListMarker' || Buffer.from(slice.text).subarray(a.range.start, a.range.end).toString() === '\ufffc'));
 shape('NoteIdChange', session.update_note_ids('["Road","Other"]'));
 shape('NoteIdChange', session.update_note_ids('[]'));
 const rust = slice.code_blocks.find((b) => b.language === 'rust');
