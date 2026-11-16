@@ -10,7 +10,8 @@ import android.text.style.MetricAffectingSpan
 /**
  * TextView draws the caret from its line's top, so on a line a span makes taller than its text
  * (an h1's two body lines, a code block's label header) the caret would cover that extra height.
- * Android 9 has no cursor drawable setter and keeps the platform caret.
+ * Android 9 has no cursor drawable setter and keeps the platform caret. Call it before the caret is
+ * tinted: TextView keeps the first cursor drawable it loads, so a later one would never draw.
  */
 internal fun TextFirstEditText.fitCaretToItsText() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return

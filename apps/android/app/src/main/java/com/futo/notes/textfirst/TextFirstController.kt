@@ -210,7 +210,7 @@ internal class TextFirstController(
         style.surfaceColor = surface
         view.setTextColor(text)
         view.highlightColor = style.selectionColor
-        view.tintSelectionHandles(link)
+        view.tintCaretAndSelectionHandles(link)
         view.redrawTableRows()
         view.invalidate()
         cellView?.updateColors()
