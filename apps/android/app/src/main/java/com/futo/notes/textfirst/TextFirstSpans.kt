@@ -22,6 +22,9 @@ import android.text.style.UpdateAppearance
  * desktop editor's sizes and weights, muted quotes behind a 3px rule, monospace code at
  * 0.9em on the code background. Pixel values are resolved once per view.
  */
+/** The note's text edge, at either side of the body and of the title above it. */
+internal const val NOTE_TEXT_INSET_DP = 18f
+
 internal class TextFirstStyle(
     val density: Float,
     val textSizePx: Float,

@@ -84,7 +84,7 @@ internal class TextFirstEditText(
         // that height; CSS keeps line-height fixed whatever font draws the glyphs.
         isFallbackLineSpacing = false
         gravity = Gravity.TOP or Gravity.START
-        val side = style.dp(18f).toInt()
+        val side = style.dp(NOTE_TEXT_INSET_DP).toInt()
         // TextView clips drawing to its padding, so no tall bottom padding here.
         setPadding(side, style.dp(14f).toInt(), side, style.dp(24f).toInt())
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or
