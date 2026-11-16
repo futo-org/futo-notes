@@ -113,6 +113,12 @@ internal class EditorEngine(
         session?.toggleFormat(rev, format)?.let(::accept)
     }
 
+    /** A toolbar tap: a caret inside a word or at its start formats the whole word. */
+    fun toggleToolbarFormat(format: EditorInlineFormat) = toolbarCommands.post {
+        if (mirror.overlay != null) commitComposition(null)
+        session?.toggleToolbarFormat(rev, format)?.let(::accept)
+    }
+
     fun blockCommand(command: EditorBlockCommand) = toolbarCommands.post {
         if (mirror.overlay != null) commitComposition(null)
         session?.blockCommandUtf16(rev, EditorUtf16Range(mirror.selStart.toULong(), mirror.selEnd.toULong()), command)?.let(::accept)

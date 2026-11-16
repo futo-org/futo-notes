@@ -1,5 +1,5 @@
 //! Inline formatting and links: the literal cases in
-//! `tests/fixtures/engine/inline.json` and `links.json`, and the work a
+//! `tests/fixtures/engine/inline.json`, `inline-toolbar.json` and `links.json`, and the work a
 //! select-all toggle costs.
 //!
 //! A case's `before` and `after` are note text with the selection marked:
@@ -83,6 +83,10 @@ fn run(engine: &mut Engine, step: &[Value]) -> Result<(), EditorError> {
         engine.toggle_format_view(revision, format, &mut ok)?;
         return Ok(());
     }
+    if let Some(format) = name.strip_prefix("toolbar_").and_then(format) {
+        engine.toggle_toolbar_format_view(revision, format, &mut ok)?;
+        return Ok(());
+    }
     match name {
         "type" => {
             engine.replace(
@@ -129,6 +133,12 @@ fn run(engine: &mut Engine, step: &[Value]) -> Result<(), EditorError> {
                 &mut ok,
             )?;
         }
+        "undo" => {
+            engine.undo(revision, &mut ok)?;
+        }
+        "redo" => {
+            engine.redo(revision, &mut ok)?;
+        }
         "link" => {
             engine.set_link_view(revision, selection, text(step, 1), &mut ok)?;
         }
@@ -157,6 +167,7 @@ fn error_name(error: &EditorError) -> String {
 fn the_inline_cases_hold() {
     let cases: Vec<Value> = [
         include_str!("../../../tests/fixtures/engine/inline.json"),
+        include_str!("../../../tests/fixtures/engine/inline-toolbar.json"),
         include_str!("../../../tests/fixtures/engine/links.json"),
     ]
     .into_iter()

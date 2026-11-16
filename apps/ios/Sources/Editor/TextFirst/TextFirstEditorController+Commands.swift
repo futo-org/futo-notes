@@ -17,15 +17,16 @@ extension TextFirstEditorController {
     var engineBusy: Bool { opening || engineJobs > 0 }
     var commandRunning: Bool { engineJobs > 0 }
 
-    /// Run `work` on the engine's queue when the selection is large, else right here; then
+    /// Run `work` on the engine's queue when the selection is large (or `heavy`), else right here; then
     /// apply its change.
     func runCommand(
         _ context: String,
+        heavy: Bool = false,
         _ work: @escaping @Sendable (NativeEditorSession, UInt64) throws -> EditorViewChange?
     ) {
         guard !closed, !engineBusy else { return }
         let expected = rev
-        guard effectiveSelection.length >= Self.heavySelection else {
+        guard heavy || effectiveSelection.length >= Self.heavySelection else {
             finishCommand(context, Result { try work(self.session, expected) })
             return
         }
