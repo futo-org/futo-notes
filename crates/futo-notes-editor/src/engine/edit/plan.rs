@@ -233,7 +233,10 @@ impl Engine {
         let (_, hi_e) = self.source_span(e);
         let (from, to) = match &reach {
             Some(reach) => (reach.start, self.kept_break(reach.start, reach.end, writes)),
-            None => (self.source_bounds(s).1, self.source_bounds(e).0),
+            None => {
+                let from = self.source_bounds(s).1;
+                (from, self.past_joined_marker(from, self.source_bounds(e).0))
+            }
         };
         let lo_s = lo_s.min(from);
         let hi_e = hi_e.max(to);

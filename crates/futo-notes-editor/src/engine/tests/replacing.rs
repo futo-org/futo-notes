@@ -79,12 +79,12 @@ fn replacing_a_selection_writes_these_bytes() {
         // An escape goes with its character.
         ("x \\*y\\* z", "*y*", "", "x  z"),
         ("x\\*y", "x*", "", "y"),
-        // Lines: joining takes the later line's hidden markers; a list
-        // marker shows, so it goes only when it is selected.
+        // Lines: joining takes the later line's markers, a list item's
+        // marker and box included.
         ("# Title\nbody", "le\nbo", "", "# Titdy"),
         ("- one\n- two", "ne\n\u{fffc}tw", "", "- oo"),
         ("- one\n- two", "one\n\u{fffc}", "", "- two"),
-        ("- one\n- two", "one\n", "", "- - two"),
+        ("- one\n- two", "one\n", "", "- two"),
         ("> a\n> b", "a\nb", "X", "> X"),
         ("# Title", "Title", "X", "# X"),
         ("1. a\n2. b\n3. c", "a\n\u{fffc}b\n\u{fffc}c", "", "1. "),

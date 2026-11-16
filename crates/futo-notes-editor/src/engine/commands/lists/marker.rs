@@ -1,7 +1,9 @@
 //! A list item's marker shows as one unit (`line.rs` rule 7) and acts as its
 //! text. Removing exactly the marker, by Backspace just after it, Delete just
 //! before it or deleting it selected, takes it off as `lifted` does: the line
-//! stays, with a `\` where its text would read as another block.
+//! stays, with a `\` where its text would read as another block. A deletion
+//! that joins an item onto the line above drops its marker
+//! (`past_joined_marker`).
 use super::super::super::command::{Command, Edit};
 use super::super::super::line::ATOM_TEXT;
 use super::super::super::{store, Engine};
@@ -69,6 +71,25 @@ impl Engine {
             let at = before.display + entry.to_display(unit.start);
             range.start.0 < at + ATOM_TEXT.len() && at < range.end.0
         })
+    }
+
+    /// Where a deletion from source `from` to `to` ends: past the marker
+    /// (and box) of an item it joins onto the line above, so the item's text
+    /// continues that line. A deletion that leaves the marker at its line's
+    /// display start joins nothing, and the item stays one.
+    pub(crate) fn past_joined_marker(&self, from: usize, to: usize) -> usize {
+        let index = self.line_of(to);
+        let start = self.line_start(index);
+        let entry = self.line(index);
+        let Some(unit) = entry.marker_unit() else {
+            return to;
+        };
+        let joined =
+            from < start && self.display_of(from) > self.store.before(self.line_of(from)).display;
+        if to - start != unit.start || !joined {
+            return to;
+        }
+        start + unit.end
     }
 
     /// Item `index` with its marker and box taken off; the caret goes where

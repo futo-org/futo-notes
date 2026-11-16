@@ -138,34 +138,34 @@
   "after": "> x‸- [ ] a"
  },
  {
-  "name": "Backspace before an item's marker joins it to the line above",
+  "name": "Backspace before an item's marker joins its text to the line above, marker dropped",
   "before": "a\n‸- b",
   "command": "Backspace",
-  "after": "a‸- b"
+  "after": "a‸b"
  },
  {
-  "name": "Backspace before a nested marker joins it to the item above",
+  "name": "Backspace before a nested marker joins its text to the item above",
   "before": "- a\n  ‸- b",
   "command": "Backspace",
-  "after": "- a‸- b"
+  "after": "- a‸b"
  },
  {
-  "name": "Backspace before a task's marker joins it to the task above",
+  "name": "Backspace before a task's marker drops the box with the marker",
   "before": "- [ ] a\n‸- [x] b",
   "command": "BackspaceJoiningHeading",
-  "after": "- [ ] a‸- [x] b"
+  "after": "- [ ] a‸b"
  },
  {
-  "name": "Backspace before a quoted marker joins it to the quote above",
+  "name": "Backspace before a quoted marker joins its text to the quote above",
   "before": "> a\n> ‸1. b",
   "command": "Backspace",
-  "after": "> a‸1. b"
+  "after": "> a‸b"
  },
  {
-  "name": "Backspace before a marker on a CRLF line",
+  "name": "Backspace before a marker on a CRLF line joins its text",
   "before": "a\r\n‸- b",
   "command": "Backspace",
-  "after": "a‸- b"
+  "after": "a‸b"
  },
  {
   "name": "Backspace before the first line's marker changes nothing",
@@ -250,5 +250,77 @@
   "before": "x\r\n> ‸* y",
   "command": "Enter",
   "after": "x\r\n\r\n> ‸* y"
+ },
+ {
+  "name": "Backspace before a marker under a plain line drops the marker",
+  "before": "para\n‸10. b",
+  "command": "Backspace",
+  "after": "para‸b"
+ },
+ {
+  "name": "Backspace before a task's marker under a bullet",
+  "before": "- a\n‸- [ ] b",
+  "command": "Backspace",
+  "after": "- a‸b"
+ },
+ {
+  "name": "Backspace before a marker under a blank line joins nothing: it stays an item",
+  "before": "\n‸- b",
+  "command": "Backspace",
+  "after": "‸- b"
+ },
+ {
+  "name": "Delete at an item's end before a CRLF task joins its text",
+  "before": "- a‸\r\n- [x] b\r\n",
+  "command": "Delete",
+  "after": "- a‸b\r\n"
+ },
+ {
+  "name": "Delete at a quoted item's end joins the next quoted item's text",
+  "before": "> - a‸\n> 1. b",
+  "command": "Delete",
+  "after": "> - a‸b"
+ },
+ {
+  "name": "Deleting a selection that ends before a marker drops the marker",
+  "before": "- «one\n»- two",
+  "command": "Backspace",
+  "after": "- ‸two"
+ },
+ {
+  "name": "Deleting a selection from mid-line to before a number's marker drops it",
+  "before": "- o«ne\n»10. two",
+  "command": "Delete",
+  "after": "- o‸two"
+ },
+ {
+  "name": "Deleting a selection ending before a nested task's marker drops marker, box and indent",
+  "before": "- «a\n  »- [ ] b",
+  "command": "Backspace",
+  "after": "- ‸b"
+ },
+ {
+  "name": "Typing over a selection ending before a marker lands at the join",
+  "before": "- «one\n»- two",
+  "command": "type:x",
+  "after": "- x‸two"
+ },
+ {
+  "name": "A selection from a line's start leaves the marker at the start: it stays an item",
+  "before": "«one\n»- two",
+  "command": "Backspace",
+  "after": "‸- two"
+ },
+ {
+  "name": "A selection from a quoted line's text start leaves the marker an item",
+  "before": "> «a\n> »- b",
+  "command": "Backspace",
+  "after": "> ‸- b"
+ },
+ {
+  "name": "Deleting a selection that holds the marker removes it as text",
+  "before": "- «one\n- »two",
+  "command": "Backspace",
+  "after": "- ‸two"
  }
 ]

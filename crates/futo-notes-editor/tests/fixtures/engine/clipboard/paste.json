@@ -636,5 +636,37 @@
     "command": "paste",
     "text": "x",
     "after": "  x^- a"
+  },
+  {
+    "name": "paste: a copied number marker at a line's start makes an item, nothing moved",
+    "marks": "^{}",
+    "before": "^foo",
+    "command": "paste",
+    "text": "10. ",
+    "after": "10. ^foo"
+  },
+  {
+    "name": "paste: a copied marker mid-line is its characters",
+    "marks": "^{}",
+    "before": "ab^cd",
+    "command": "paste",
+    "text": "10. ",
+    "after": "ab10. ^cd"
+  },
+  {
+    "name": "paste: a copied task marker at a line's start makes a task",
+    "marks": "^{}",
+    "before": "^foo\r\nbar",
+    "command": "paste",
+    "text": "- [ ] ",
+    "after": "- [ ] ^foo\r\nbar"
+  },
+  {
+    "name": "paste: a copied bullet marker in a quote stays on the line",
+    "marks": "^{}",
+    "before": "> ^foo",
+    "command": "paste",
+    "text": "- ",
+    "after": "> - ^foo"
   }
 ]

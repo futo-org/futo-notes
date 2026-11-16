@@ -8,6 +8,7 @@
   {"name": "copy: nested items lose the first line's indent", "before": "- a\n  [- b\n  - c]", "command": "copy", "copied": "- b\n- c", "after": "- a\n  [- b\n  - c]"},
   {"name": "copy: from an item's text start leaves its marker out", "before": "- a\n  - [b\n  - c]", "command": "copy", "copied": "b\n- c", "after": "- a\n  - [b\n  - c]"},
   {"name": "copy: a selected marker alone is its source, space included", "before": "- a\n  [1. ]b", "command": "copy", "copied": "1. ", "after": "- a\n  [1. ]b"},
+  {"name": "copy: a selected nested quoted bullet marker is only the marker", "marks": "^{}", "before": "> - a\n>   {- }b", "command": "copy", "copied": "- ", "after": "> - a\n>   {- }b"},
   {"name": "copy: a selected task marker is its bullet and box", "marks": "^{}", "before": "> {- [x] }done", "command": "copy", "copied": "- [x] ", "after": "> {- [x] }done"},
   {"name": "copy: CRLF stays", "before": "[> a\r\n> b]", "command": "copy", "copied": "> a\r\n> b", "after": "[> a\r\n> b]"},
   {"name": "copy: spaces alone", "before": "a[  ]b", "command": "copy", "copied": "  ", "after": "a[  ]b"},
