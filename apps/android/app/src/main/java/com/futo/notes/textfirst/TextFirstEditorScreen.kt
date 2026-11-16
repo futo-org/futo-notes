@@ -31,7 +31,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
-import androidx.core.content.res.ResourcesCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.futo.notes.ImagePicker
@@ -39,7 +38,6 @@ import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NoteShare
 import com.futo.notes.NotesStore
 import com.futo.notes.puppet.PuppetOpenNote
-import com.futo.notes.R
 import com.futo.notes.awaitEditorLeaves
 import com.futo.notes.claimDraftOwnership
 import com.futo.notes.delete
@@ -116,26 +114,7 @@ internal fun TextFirstEditorScreen(
     val work = remember(initialNoteId) { Mutex() }
 
     val controller = remember(initialNoteId) {
-        val density = context.resources.displayMetrics.density
-        val scaled = context.resources.displayMetrics.scaledDensity
-        val regular = ResourcesCompat.getFont(context, R.font.barlow_regular)!!
-        val style = TextFirstStyle(
-            density = density,
-            textSizePx = 17f * scaled,
-            regular = regular,
-            semibold = ResourcesCompat.getFont(context, R.font.barlow_semibold)!!,
-            bold = ResourcesCompat.getFont(context, R.font.barlow_bold)!!,
-            italic = ResourcesCompat.getFont(context, R.font.barlow_italic)!!,
-            boldItalic = ResourcesCompat.getFont(context, R.font.barlow_bold_italic)!!,
-            semiboldItalic = ResourcesCompat.getFont(context, R.font.barlow_semibold_italic)!!,
-            mono = ResourcesCompat.getFont(context, R.font.jetbrains_mono_regular)!!,
-            textColor = c.textPrimary.toArgb(),
-            mutedColor = c.textMuted.toArgb(),
-            linkColor = c.accent.toArgb(),
-            borderColor = c.border.toArgb(),
-            codeBackground = (if (darkTheme) FutoPalette.InkHairline else FutoPalette.N200).toArgb(),
-            surfaceColor = c.surfaceSunken.toArgb(),
-        )
+        val style = textFirstStyleFromTheme(context, c, darkTheme)
         TextFirstController(context, { store.core }, java.io.File(store.rootPath), style, store)
     }
     LaunchedEffect(controller, c, darkTheme) {
