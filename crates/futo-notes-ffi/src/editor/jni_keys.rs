@@ -11,7 +11,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use jni::objects::{JCharArray, JClass};
 use jni::sys::{jbyteArray, jint, jlong};
-use jni::JNIEnv;
+use jni::{Env, EnvUnowned};
 use uniffi::Lower;
 
 use super::{
@@ -47,19 +47,25 @@ unsafe fn session<'a>(handle: jlong) -> &'a NativeEditorSession {
     &*(handle as u64 as *const NativeEditorSession)
 }
 
-fn respond(env: &mut JNIEnv<'_>, work: impl FnOnce(&mut JNIEnv<'_>) -> Outcome) -> jbyteArray {
-    let bytes = match catch_unwind(AssertUnwindSafe(|| encode(work(env)))) {
-        Ok(bytes) => bytes,
-        Err(_) => encode(Err(EditorSessionError::Unavailable)),
-    };
-    env.byte_array_from_slice(&bytes)
-        .map(|array| array.into_raw())
-        .unwrap_or(std::ptr::null_mut())
+fn respond<'l>(env: &mut EnvUnowned<'l>, work: impl FnOnce(&mut Env<'l>) -> Outcome) -> jbyteArray {
+    // The work's own panic becomes a typed `Unavailable` result, as before;
+    // `with_env_no_catch` because nothing else in here can panic.
+    let array = env.with_env_no_catch(|env| -> jni::errors::Result<jbyteArray> {
+        let bytes = match catch_unwind(AssertUnwindSafe(|| encode(work(env)))) {
+            Ok(bytes) => bytes,
+            Err(_) => encode(Err(EditorSessionError::Unavailable)),
+        };
+        Ok(env.byte_array_from_slice(&bytes)?.into_raw())
+    });
+    match array.into_outcome() {
+        jni::Outcome::Ok(array) => array,
+        _ => std::ptr::null_mut(),
+    }
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_futo_notes_textfirst_FastKeys_replace<'l>(
-    mut env: JNIEnv<'l>,
+    mut env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
     expected: jlong,
@@ -71,11 +77,12 @@ pub extern "system" fn Java_com_futo_notes_textfirst_FastKeys_replace<'l>(
     respond(&mut env, |env| {
         // Copy exact UTF-16 units, including lone surrogates. Only the engine
         // decides whether an OS-provided sequence is representable.
-        let len = env
-            .get_array_length(&inserted)
+        let len = inserted
+            .len(env)
             .map_err(|_| EditorSessionError::InvalidText)?;
-        let mut text = vec![0u16; len as usize];
-        env.get_char_array_region(&inserted, 0, &mut text)
+        let mut text = vec![0u16; len];
+        inserted
+            .get_region(env, 0, &mut text)
             .map_err(|_| EditorSessionError::InvalidText)?;
         let action = input_action(action)?;
         let range = input_range(start, end)?;
@@ -89,7 +96,7 @@ pub extern "system" fn Java_com_futo_notes_textfirst_FastKeys_replace<'l>(
 
 #[no_mangle]
 pub extern "system" fn Java_com_futo_notes_textfirst_FastKeys_paragraphKey<'l>(
-    mut env: JNIEnv<'l>,
+    mut env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
     expected: jlong,
@@ -169,7 +176,7 @@ mod tests {
 /// Drops the handle clone Kotlin took for these calls.
 #[no_mangle]
 pub extern "system" fn Java_com_futo_notes_textfirst_FastKeys_release<'l>(
-    _env: JNIEnv<'l>,
+    _env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
 ) {

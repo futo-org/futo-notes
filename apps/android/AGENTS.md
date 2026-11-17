@@ -178,7 +178,7 @@ Never edit them — regenerate (M8).
 
 
 - **`app/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt` is vendored** from
-  upstream tag v/0.6.2, matching the `rustls-platform-verifier` version `Cargo.lock` pins. It is
+  upstream tag v/0.7.1, matching the `rustls-platform-verifier` version `Cargo.lock` pins. It is
   the JVM half of the TLS verifier the Rust core calls into by class name. It carries two local
   changes; when that pin moves, re-copy the file and re-apply them (`git log -p` on the file shows
   them): `reloadSystemTrustIfChanged()` rebuilds the trust manager, which upstream snapshots once

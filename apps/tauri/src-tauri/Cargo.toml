@@ -50,7 +50,10 @@ tauri-plugin-mcp-bridge = "0.13"
 # two fields rust-ini 0.21.3 has, E0063); 2.6.3 does.
 tauri-plugin-deep-link = "2.6.3"
 futo-notes-license = { version = "0.1.0", path = "../../../crates/futo-notes-license" }
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+# rustls-no-provider: no aws-lc-rs. license.rs hands the client a ring config with
+# the bundled Mozilla roots (futo_notes_sync::bundled_roots_client_config), the
+# trust reqwest 0.12's `rustls-tls` gave it.
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "rustls-no-provider"] }
 
 # OS secret store for the E2EE vault password (F6) lives in the per-OS target
 # tables below. Desktop-only, and deliberately NOT in the portable crates —

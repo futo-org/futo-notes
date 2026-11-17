@@ -20,7 +20,7 @@ futo-notes-core = { path = "../futo-notes-core" }
 futo-notes-tags = { path = "../futo-notes-tags" }
 
 # Full-text engine.
-tantivy = "0.26"
+tantivy = "0.27"
 
 # Corpus walk for reconcile.
 walkdir = "2.5"
