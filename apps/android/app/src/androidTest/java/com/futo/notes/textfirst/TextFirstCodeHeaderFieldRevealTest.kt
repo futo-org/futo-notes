@@ -114,10 +114,22 @@ class TextFirstCodeHeaderFieldRevealTest {
         delay(1_000)
         assert(view.scrollY <= view.maxScrollY()) { "the note scrolled to ${view.scrollY}, past its end ${view.maxScrollY()}" }
         val scrolled = view.scrollY
-        field.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!.commitText("x", 1)
+        val input = field.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!
+        input.commitText("x", 1)
         c.sourceText()
         delay(300)
         assertEquals("typing moved the note", scrolled, view.scrollY)
+        // Leaving puts the caret in the code and the editor toolbar comes back (about 45 dp). At the note's end there
+        // is no room kept below, so the note may move, and must, just enough that the caret's line stays in view.
+        input.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ENTER))
+        c.sourceText()
+        params.height = view.height - view.style.dp(45f).toInt()
+        view.layoutParams = params
+        withTimeout(5_000) { while (view.height != params.height) delay(20) }
+        delay(500)
+        val caretLine = view.layout.getLineForOffset(view.selectionStart)
+        val caretBottom = view.totalPaddingTop - view.scrollY + view.layout.getLineBottom(caretLine)
+        assert(caretBottom <= view.height - view.totalPaddingBottom) { "the caret's line (bottom $caretBottom) is under the toolbar (${view.height - view.totalPaddingBottom})" }
     }
 
     /**
