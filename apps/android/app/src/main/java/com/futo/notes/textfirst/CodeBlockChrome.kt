@@ -74,7 +74,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         namePaint.textSize = look.codeHeaderTextSize
         namePaint.color = look.codeChromeInk
         val language = block.language?.takeIf { it.isNotEmpty() }
-        // !300 draws a language as a Barlow 500 label and its ghost as the mono field's placeholder.
+        // !300 draws a language in Barlow 500 and its ghost as the mono field's placeholder.
         languagePaint.typeface = if (language != null) look.medium else look.mono
         languagePaint.textSize = look.codeHeaderTextSize
         languagePaint.color = look.codeChromeInk
@@ -91,7 +91,8 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         if (copiedBlock == codeStart) drawCheckmark(canvas, glyphLeft, glyphTop, glyph)
         else if (!editingLanguage) drawCopyGlyph(canvas, glyphLeft, glyphTop, glyph)
         val room = glyphLeft - look.codeChipPad - look.codeCorner
-        val languageText = language?.let(::codeLanguageLabel) ?: labels.languagePlaceholder
+        // Shown as written in the fence, as the desktop editor shows it (Mason, 2026-11-17).
+        val languageText = language ?: labels.languagePlaceholder
         val shownLanguage = TextUtils.ellipsize(languageText, languagePaint, room / 2f, TextUtils.TruncateAt.END)
         val languageRight = glyphLeft - look.codeChipPad
         val languageLeft = languageRight - languagePaint.measureText(shownLanguage, 0, shownLanguage.length)

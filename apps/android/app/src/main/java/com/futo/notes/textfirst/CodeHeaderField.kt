@@ -111,7 +111,7 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
                 }
             }
         }
-        // Both of !300's fields are mono: the language shows its fence word, not its label, while edited.
+        // Both of !300's fields are mono.
         field.typeface = look.mono
         field.setTextSize(TypedValue.COMPLEX_UNIT_PX, look.codeHeaderTextSize)
         // !300's fields are inked as text while edited, with a thin caret in the same ink (job13 run 2, K-namefield-compare.png).
