@@ -1,0 +1,30 @@
+# 10. Add a line above/below
+
+| ID | Do | !300 result | Ref | Applies | Engine today | Target |
+| --- | --- | --- | --- | --- | --- | --- |
+| P257 | On desktop, hover anywhere on the header row of a block that opens the note, or that has another block directly above. | An "add a line above" label appears. Moving the pointer onto the label does not hide it. | cb 754; cb 775-780 | desktop only | host's job (fc 29) | !300 |
+| P258 | Click the label. | A blank line is inserted at that edge with the caret on it. | cb 754-755 | both | same (fc 29) | !300 |
+| P259 | Give the block a long `name:`. | The "above" label lives in the header bar's spacer, so the name squeezes it and never collides with it. | cb 756-757 | both | host's job (fc 29; fc 30) | !300 |
+| P260 | Look at the "below" label. | It is pinned to the TOP of the skirt band, so for a trailing block it is not flung into the empty space below. | cb 757-760 | both | host's job (fc 29; fc 30) | !300 |
+| P261 | Check where labels exist. | "Above" exists at the top of the note or with another block directly above. "Below" exists at the end of the note or with another block directly below. | cb 761-764 | both | same (fc 29: the way to a line beside a block that starts or ends the note, or that touches another block) | !300 |
+| P262 | Hover the edge of a block that has a paragraph directly above or below it. | No label: clicking the end of that paragraph and pressing Enter already works. | cb 764-767 | both | host's job (fc 29; fc 30) | !300 |
+| P263 | Put two blocks directly after each other and hover each block's edge at the gap. | The gap carries both labels, each with its own wording: the upper block's "below" and the lower block's "above". They are never shown together. Each is shown by its OWN block's edge (pointer), or by its own block being active (touch). | cb 768-774 | both | host's job (fc 29; fc 30) | !300 |
+| P264 | Look at a label. | It is a divider: a hairline rule across the card's width, with the label centred on it and the rule broken on either side. | cb 786-790 | both | host's job (fc 29; fc 30) | !300 |
+| P265 | Look at a block at the top of a note. | The label is drawn on the card edge and reserves no space. It is not cut off, and no extra whitespace is added to the note. | cb 791-795 | both | host's job (fc 29; fc 30) | !300 |
+| P266 | Look below a block that ends the note. | The "below" label sits under the card. | cb 795-797 | both | host's job (fc 29; fc 30) | !300 |
+| P267 | Look at the seam between two touching blocks. | The label is centred on the LOWER card's top edge, so the upper block's skirt stays a target. | cb 798-800 | both | host's job (fc 29; fc 30) | !300 |
+| P268 | Zoom in on a label. | Its text is not clipped. | cb 801-803 | both | host's job (fc 29; fc 30) | !300 |
+| P269 | Move the pointer between a label and the strip below it. | No pixel belongs to neither of them. | cb 804-805 | desktop only | host's job (fc 29; fc 30) | !300 |
+| P270 | On a block's bottom edge, click the label, click the strip below it, and click the band above the label. | The label and the strip below both insert a line. The band above the label puts the caret on the last code line. | cb 782-785 | desktop only | host's job (fc 29; fc 30) | !300 |
+| P271 | Click or tap the empty space under a note that ends with a block. | A line opens below the block and the caret is on it. | cb 32-36; cb 806-812 | both | host's job (fc 29; fc 30) | Mason's pick: a trailing block is left by ArrowDown or the "add a line below" target |
+| P272 | Click or tap the empty space under a note that ends with text. | The caret goes into the text, as before. | cb 810-811 | both | host's job (fc 30) | !300 |
+| P273 | Hover, and press, one and two lines below a block that ends the note, and further down. | The hover zone reaches two lines below the card, and a press there opens the line. Further down, a press does the same. | cb 813-818 | both | host's job (fc 29; fc 30) | !300 |
+| P274 | Hover a block's edge, then click its name and language fields. | The fields still get the click. The zone covers only its own edge. | cb 819-821 | desktop only | host's job (fc 29; fc 30) | !300 |
+| P275 | Copy the rendered note, or read it with any text extractor. | The label text is not there. It is never part of the note's text. | cb 822-824 | both | host's job (fc 29; fc 30) | !300 |
+| P276 | Between two touching blocks, press anywhere from the "below" label down. | A line opens between the blocks. That whole region shows a text cursor. | cb 841-843 | both | host's job (fc 29) | !300 |
+| P277 | Between two touching blocks, press in the upper block's skirt above the label. | The caret goes to the end of the code. | cb 843-844 | both | host's job (fc 29; fc 30) | !300 |
+| P278 | On a phone, put the caret inside a block (or select it) where an edge has no ordinary line beyond it. | The add-a-line labels for that block appear: only where they are relevant, and only while that block is active. | cb 845-849 | touch | host's job (fc 29; fc 30) | !300 |
+| P279 | On a phone, in a note with several blocks, activate one block. | Only that block's labels light up. | cb 849-850 | touch | host's job (fc 29; fc 30) | !300 |
+| P280 | On a phone, tap a label. | The line is inserted and the caret is on it, as with the desktop click. | cb 850-851 | touch | same (fc 29) | !300 |
+| P281 | On a phone, tap the empty space under a block that ends the note. | A line opens below it. | cb 851-852 | touch | host's job (fc 29) | !300 |
+| P282 | On a phone with the editor not focused, tap a label. | The soft keyboard comes up by itself. | cb 852-857 | touch | host's job (fc 29; fc 30) | !300 |

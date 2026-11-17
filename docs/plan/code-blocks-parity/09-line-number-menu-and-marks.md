@@ -1,0 +1,32 @@
+# 9. Line-number menu and marks
+
+| ID | Do | !300 result | Ref | Applies | Engine today | Target |
+| --- | --- | --- | --- | --- | --- | --- |
+| P229 | On desktop, select text inside a block. | The selection toolbar shows ONLY Highlight and Lowlight, in place of bold/italic/strike/code/link (cb 77-79). This conflicts with ed 757-760: the toolbar "hides for empty/multi-line selections and inside tables/code". | cb 77-79; ed 757-762 | desktop only | unknown | ask Mason |
+| P230 | On desktop, select several lines inside a block. | The toolbar still shows: "The one-line-only rule lifts inside a block" (cb 79-80). This conflicts with ed 757-760, which says the toolbar hides for multi-line selections. | cb 79-80; ed 757-760 | desktop only | unknown | ask Mason |
+| P231 | Select part of a code line and press Highlight. | The whole line is marked. | cb 80 | desktop only | unknown | !300 |
+| P232 | Over lines that are all highlighted already, press Highlight. | The marks are cleared from all of them. | cb 64-66; cb 70 | both | unknown | !300 |
+| P233 | Over lines of which only some are highlighted, press Highlight. | All of them are marked. | cb 66-67 | both | unknown | !300 |
+| P234 | Over lowlighted lines, press Highlight. | They become highlighted. Applying one mark removes the other. | cb 67 | both | unknown | !300 |
+| P235 | Apply a mark from the toolbar or the line-number menu. | The caret and selection do not move, and a press on the gutter never selects the line it marks. | cb 67-69 | both | unknown | !300 |
+| P236 | Compare the toolbar's mark buttons with the gutter menu's. | They are the same two buttons, with the same icons, chrome and toggled look. A button is shown on when every line in its range has its mark, and then wears that mark's band colour. | cb 71-76 | both | unknown | !300 |
+| P237 | Click a line number. | The mark menu opens for that line. | cb 81 | desktop only | unknown | !300 |
+| P238 | Hover over line numbers, with the menu closed and with it open. | Hover never opens the menu, and hovering another number while it is open does nothing. | cb 81-82 | desktop only | unknown | !300 |
+| P239 | With the menu open, click a different line number. | The single menu moves there. | cb 82-83 | desktop only | unknown | !300 |
+| P240 | On a phone, tap a line number. | The menu opens for that line and the caret does not move. | cb 83-84; cb 88-89 | touch | unknown | !300 |
+| P241 | With the menu open, press or tap anywhere else. | The menu closes, with any pointer. On iOS it used to outlive taps. | cb 84-87; cb 95-97 | both | unknown | !300 |
+| P242 | With a text selection standing, click or tap a line number. | Nothing happens: the gutter is inert while a selection exists. | cb 89-90 | both | unknown | !300 |
+| P243 | Move the pointer from the numbers across the dividing rule into the code, and click on each side. | The clickable region and its pointer cursor end AT the rule. A click on the code's side is a text click. | cb 90-94 | desktop only | unknown | !300 |
+| P244 | Open the menu and move the pointer diagonally from the number toward the menu. | The menu stays open while the pointer is over the number, over the menu, or between them. There is no dismissal timer, whatever side the menu is on. | cb 98-101; cb 107-109 | desktop only | unknown | !300 |
+| P245 | Move the pointer into the menu, then out of it, including back onto the number. | Once the menu has been touched, leaving it dismisses it, even onto the number. A few pixels of slop absorb edge jitter. | cb 101-104 | desktop only | unknown | !300 |
+| P246 | Press a button in the menu. | The mark is applied and the button flips in place. The menu stays open. | cb 104-105 | both | unknown | !300 |
+| P247 | Open the menu and look while it is still positioning. | It does not vanish. Dismissal needs positive evidence. | cb 105-107 | both | unknown | !300 |
+| P248 | On desktop, toggle a mark from the selection toolbar repeatedly. | The toolbar is not torn down and rebuilt under the pointer mid-click, and no hover flickers. | ed 806-816 | desktop only | unknown | !300 |
+| P249 | Toggle a mark from the toolbar in one block, then select in another block and toggle again. | The buttons act on the block that is current now, never a stale one. | ed 812-814 | desktop only | unknown | !300 |
+| P250 | In a block with `hl:3`, add a line above line 3 inside the block (Enter on line 1). | The mark follows its text: the info string is rewritten to `hl:4`. Per the spec; confirm on the !300 build. | cb 226-229 | both | differs: no rule rewrites `hl:`/`ll:`. The marks of code lines below an added or removed line "shift" (fc 9). | Mason's pick: line marks follow their lines (the brief calls this an improvement on !300; !300's spec says it already did it) |
+| P251 | Delete a marked line outright. | Its mark is dropped from the info string. Per the spec; confirm on the !300 build. | cb 229-230 | both | differs: no remap (fc 9) | Mason's pick: line marks follow their lines |
+| P252 | Delete lines so that a marked number ends up past the closing fence. | That mark is dropped from the info string. Per the spec; confirm on the !300 build. | cb 230-231 | both | differs: numbers past the last line mark nothing but stay in the file (ld 161) | Mason's pick: line marks follow their lines |
+| P253 | Edit the info string itself (for example by typing a name). | The marks are not remapped. | cb 231-232 | both | same (no remap rule exists) | !300 |
+| P254 | Backspace at the start of a marked line with text, merging it into the line above. | The mark follows the text onto the merged line. Per the spec; confirm on the !300 build. | cb 233-235 | both | differs: no remap (fc 9) | Mason's pick: line marks follow their lines |
+| P255 | Backspace a marked BLANK line away. | Its mark goes with it. Per the spec; confirm on the !300 build. | cb 235-236 | both | differs: no remap (fc 9) | Mason's pick: line marks follow their lines |
+| P256 | Merge two marked lines into one. | The text-carrying line's mark wins. On a tie, the earlier line wins. Per the spec; confirm on the !300 build. | cb 236-238 | both | differs: no remap (fc 9) | Mason's pick: line marks follow their lines |
