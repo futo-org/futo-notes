@@ -400,7 +400,8 @@ fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (Stri
     }
     let ends_block = closes_block(&joined.carry, &lines[..=last]);
     if ends_block && alone {
-        caret_line = (last + 1, open_line_before_tail(&mut lines, last));
+        let column = open_line_before_tail(&mut lines, last).unwrap_or(head.len() + opens.len());
+        caret_line = (last + 1, column);
     }
     let mut out = String::new();
     let mut caret = 0;
@@ -420,17 +421,18 @@ fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (Stri
 }
 
 /// The tail line after closing fence `lines[closing]`, when it opens a block
-/// of its own, gets an empty line before it at the fence's indent; the
-/// caret's column on the line after the fence.
-fn open_line_before_tail(lines: &mut Vec<String>, closing: usize) -> usize {
+/// of its own, gets an empty line before it at the fence's indent: the
+/// caret's column on that line. `None` for any other tail, where the caret
+/// goes to the tail's own text start, after its markers.
+fn open_line_before_tail(lines: &mut Vec<String>, closing: usize) -> Option<usize> {
     let tail = lines.len() - 1;
     if !matches!(read_alone(&lines[tail]).kind, Kind::Fence { .. }) {
-        return 0;
+        return None;
     }
     let indent = leading(&lines[closing]).to_owned();
     let column = indent.len();
     lines.insert(tail, indent);
-    column
+    Some(column)
 }
 
 /// Whether the last of `lines` (read after `carry`) closes a code block.
