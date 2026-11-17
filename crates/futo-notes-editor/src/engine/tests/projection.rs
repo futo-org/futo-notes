@@ -378,7 +378,8 @@ fn code_lines_know_their_block() {
         (
             "- item\n  ```js\n  code\n  ```\n- next",
             &["1<>"],
-            &["5..9 js x1"],
+            // The item's marker unit is three bytes of display before "item".
+            &["8..12 js x1"],
         ),
         (
             "```go name:api handlers.go hl:1,3 ll:2-3\none\ntwo\nthree\nfour\n```",
