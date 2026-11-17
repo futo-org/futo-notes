@@ -21,3 +21,9 @@ internal fun holdNoteAt(view: TextFirstEditText, x: Float, y: Float) {
         try { view.dispatchTouchEvent(event) } finally { event.recycle() }
     }
 }
+
+/** The header field open beside the note, in the note's parent. */
+internal fun openHeaderField(view: TextFirstEditText): android.widget.EditText {
+    val host = view.parent as android.view.ViewGroup
+    return (0 until host.childCount).map(host::getChildAt).filterIsInstance<android.widget.EditText>().first { it !== view }
+}

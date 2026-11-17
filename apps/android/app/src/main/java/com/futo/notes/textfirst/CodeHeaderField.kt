@@ -253,10 +253,15 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
             ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom
         val inWindow = IntArray(2).also(note::getLocationInWindow)
         val keyboardTop = keyboard?.let { note.rootView.height - it - inWindow[1] } ?: note.height
-        val toolbarRoom = if (keyboard != null) note.style.codeHeaderHeight * 2 else 0f
-        val visibleBottom = minOf(note.height, keyboardTop) - note.totalPaddingBottom - toolbarRoom
         val layout = note.layout ?: return
-        val firstLineBottom = layout.getLineBottom(layout.getLineForOffset(state.codeStart)).toFloat()
+        val firstLine = layout.getLineForOffset(state.codeStart)
+        val firstLineBottom = layout.getLineBottom(firstLine).toFloat()
+        val visibleHeight = minOf(note.height, keyboardTop) - note.totalPaddingTop - note.totalPaddingBottom
+        // TextView reveals a caret with half its line clear of the edge (at most a quarter of the view): this line carries
+        // the header and skirt, so that half is large, and it is kept too, or the toolbar's return would scroll.
+        val revealSlack = minOf((firstLineBottom - layout.getLineTop(firstLine)) / 2f, visibleHeight / 4f)
+        val toolbarRoom = if (keyboard != null) note.style.codeHeaderHeight * 2 + revealSlack else 0f
+        val visibleBottom = minOf(note.height, keyboardTop) - note.totalPaddingBottom - toolbarRoom
         val top = note.totalPaddingTop - note.scrollY + area.top
         val bottom = note.totalPaddingTop - note.scrollY + maxOf(area.bottom, firstLineBottom)
         val shift = when {
