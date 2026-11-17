@@ -9,8 +9,8 @@ import android.text.TextUtils
 /** What a press on a drawn part of a code block does. */
 internal enum class CodeBlockAction { SELECT_BLOCK, NAME_FIELD, LANGUAGE_LABEL, COPY_CODE, OPEN_LINE_ABOVE, OPEN_LINE_BELOW, LINE_NUMBER, MARK_MENU, NOTHING }
 
-/** One block's header as drawn: [active] when the caret or the selection is in the block. */
-internal class CodeHeaderState(val block: CodeBlockFacts, val codeStart: Int, val width: Float, val top: Float, val lineAbove: Boolean, val active: Boolean)
+/** One block's header as drawn: [revealFields] while the caret is in the block, so its empty fields show their placeholders. */
+internal class CodeHeaderState(val block: CodeBlockFacts, val codeStart: Int, val width: Float, val top: Float, val lineAbove: Boolean, val revealFields: Boolean)
 
 /** One pressable part of a drawn block, in layout coordinates; [codeStart] is where the block's code starts. */
 internal class CodeBlockTarget(val area: RectF, val action: CodeBlockAction, val codeStart: Int, val block: CodeBlockFacts? = null)
@@ -89,12 +89,17 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         val shownLanguage = TextUtils.ellipsize(languageText, languagePaint, room / 2f, TextUtils.TruncateAt.END)
         val languageRight = glyphLeft - look.codeChipPad
         val languageLeft = languageRight - languagePaint.measureText(shownLanguage, 0, shownLanguage.length)
-        if ((language != null || header.active) && !editingLanguage) {
+        if ((language != null || header.revealFields) && !editingLanguage) {
             if (language == null) languagePaint.alpha = GHOST_ALPHA
             canvas.drawText(shownLanguage, 0, shownLanguage.length, languageLeft, baseline, languagePaint)
         }
         val nameRight = languageLeft - look.codeChipPad
         var nameEnd = look.codeCorner
+        // The ghost "name" tells a reader with no hover that the header is editable (cb 671-677).
+        if (block.name.isNullOrEmpty() && header.revealFields && openField != (codeStart to CodeHeaderField.Kind.NAME)) {
+            namePaint.alpha = GHOST_ALPHA
+            canvas.drawText(labels.namePlaceholder, look.codeCorner, baseline, namePaint)
+        }
         block.name?.takeIf { it.isNotEmpty() }?.let { name ->
             val shown = TextUtils.ellipsize(name, namePaint, nameRight - look.codeCorner, TextUtils.TruncateAt.END)
             if (openField != (codeStart to CodeHeaderField.Kind.NAME)) canvas.drawText(shown, 0, shown.length, look.codeCorner, baseline, namePaint)
@@ -119,8 +124,9 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     /** "Add a line below", centred in the skirt band [top] to [bottom]. */
     fun drawLineBelow(canvas: Canvas, codeStart: Int, width: Float, top: Float, bottom: Float) {
         val label = edgeLabel(labels.addLineBelow, width - look.codeCorner * 2)
-        if (label.isNotEmpty()) drawEdgeLabel(canvas, label, width / 2f, top, bottom)
-        targets.add(CodeBlockTarget(RectF(0f, top, width, bottom), CodeBlockAction.OPEN_LINE_BELOW, codeStart))
+        if (label.isNotEmpty()) drawEdgeLabel(canvas, label, width / 2f, top, minOf(bottom, top + look.codeSkirt * 1.6f))
+        // The band above the label keeps its meaning, the end of the code (cb 841-844).
+        targets.add(CodeBlockTarget(RectF(0f, top + look.codeSkirt / 2f, width, bottom), CodeBlockAction.OPEN_LINE_BELOW, codeStart))
     }
 
     /**

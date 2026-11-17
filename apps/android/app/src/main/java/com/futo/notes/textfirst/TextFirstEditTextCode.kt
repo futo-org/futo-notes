@@ -80,10 +80,16 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
     canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
     val active = isCardActive(e, head, tail)
     if (head.line.first && headStart == 0) codeChrome.addSpaceAbove(headStart, width, cardTop)
-    if (head.line.first) codeChrome.drawHeader(canvas, CodeHeaderState(head.line.block, headStart, width, cardTop, active && opensLineAbove(e, head), active))
+    if (head.line.first) codeChrome.drawHeader(canvas, CodeHeaderState(head.line.block, headStart, width, cardTop, active && opensLineAbove(e, head), active && selectionStart == selectionEnd && selectedCodeBlock == null))
     if (!tail.line.last) return
     val endsNote = tailEnd >= e.length - TextFirstEditText.END_SENTINEL.length
-    if (active && (endsNote || tail.touchesBlockBelow(e))) codeChrome.drawLineBelow(canvas, headStart, width, cardBottom - look.codeSkirt, cardBottom)
+    // Under a block that ends the note the label sits under the card, its space already the target (cb 791-797);
+    // between two blocks it sits in the skirt and its press reaches down across the gap (cb 841-844).
+    when {
+        !active -> Unit
+        endsNote -> codeChrome.drawLineBelow(canvas, headStart, width, cardBottom, cardBottom + look.codeSkirt * 1.6f)
+        tail.touchesBlockBelow(e) -> codeChrome.drawLineBelow(canvas, headStart, width, cardBottom - look.codeSkirt, cardBottom + look.codeBlockGap)
+    }
     if (endsNote) codeChrome.addSpaceBelow(headStart, width, cardBottom)
 }
 
