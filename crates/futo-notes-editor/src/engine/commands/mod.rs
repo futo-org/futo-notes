@@ -10,6 +10,7 @@ mod images;
 mod inline;
 mod lists;
 mod marks;
+mod paired_typing;
 mod tables;
 mod transpose;
 mod wikilinks;

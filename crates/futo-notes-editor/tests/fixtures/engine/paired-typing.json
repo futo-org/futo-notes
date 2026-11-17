@@ -1,0 +1,564 @@
+[
+ {
+  "name": "(a) three backticks on an empty line make a code block; letters write its language",
+  "before": "|",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "`|`",
+    "display": "``"
+   },
+   {
+    "do": "pair:`",
+    "after": "``|",
+    "display": "``"
+   },
+   {
+    "do": "pair:`",
+    "after": "```|\n```",
+    "display": ""
+   },
+   {
+    "do": "type:j",
+    "after": "```j|\n```",
+    "display": ""
+   },
+   {
+    "do": "type:s",
+    "after": "```js|\n```",
+    "display": ""
+   },
+   {
+    "do": "Enter",
+    "after": "```js\n|\n```",
+    "display": ""
+   },
+   {
+    "do": "type:x",
+    "after": "```js\nx|\n```",
+    "display": "x"
+   }
+  ]
+ },
+ {
+  "name": "(b) a pair, code typed in it, a backtick steps out, plain text after",
+  "before": "foo |",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "foo `|`",
+    "display": "foo ``"
+   },
+   {
+    "do": "type:b",
+    "after": "foo `b|`",
+    "display": "foo b",
+    "affinity": "Backward"
+   },
+   {
+    "do": "type:a",
+    "after": "foo `ba|`",
+    "display": "foo ba",
+    "affinity": "Backward"
+   },
+   {
+    "do": "type:r",
+    "after": "foo `bar|`",
+    "display": "foo bar",
+    "affinity": "Backward"
+   },
+   {
+    "do": "pair:`",
+    "after": "foo `bar`|",
+    "display": "foo bar",
+    "affinity": "Forward"
+   },
+   {
+    "do": "type: ",
+    "after": "foo `bar` |",
+    "display": "foo bar "
+   },
+   {
+    "do": "type:b",
+    "after": "foo `bar` b|",
+    "display": "foo bar b"
+   },
+   {
+    "do": "type:a",
+    "after": "foo `bar` ba|",
+    "display": "foo bar ba"
+   },
+   {
+    "do": "type:z",
+    "after": "foo `bar` baz|",
+    "display": "foo bar baz"
+   }
+  ]
+ },
+ {
+  "name": "(c) Backspace after a pair removes the backtick before the caret",
+  "before": "|",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "`|`",
+    "display": "``"
+   },
+   {
+    "do": "Backspace",
+    "after": "|`",
+    "display": "`"
+   }
+  ]
+ },
+ {
+  "name": "(d) a pair after text and a shown pair is another pair",
+  "before": "foo ``|",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "foo ```|`",
+    "display": "foo ````"
+   }
+  ]
+ },
+ {
+  "name": "(e) a backtick in a word writes a pair; typing in it is code",
+  "before": "ab|cd",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "ab`|`cd",
+    "display": "ab``cd"
+   },
+   {
+    "do": "type:x",
+    "after": "ab`x|`cd",
+    "display": "abxcd",
+    "affinity": "Backward"
+   },
+   {
+    "do": "pair:`",
+    "after": "ab`x`|cd",
+    "display": "abxcd",
+    "affinity": "Forward"
+   }
+  ]
+ },
+ {
+  "name": "(f) in a code block a backtick is typed as it is",
+  "before": "```\nco|de\n```",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "```\nco`|de\n```",
+    "display": "co`de"
+   },
+   {
+    "do": "pair:`",
+    "after": "```\nco``|de\n```",
+    "display": "co``de"
+   }
+  ]
+ },
+ {
+  "name": "(g) one-line selection becomes inline code",
+  "before": "x [bar] y",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "x `[bar]` y",
+    "display": "x bar y"
+   },
+   {
+    "do": "Undo",
+    "after": "x [bar] y",
+    "display": "x bar y"
+   },
+   {
+    "do": "Redo",
+    "after": "x `[bar]` y",
+    "display": "x bar y"
+   }
+  ]
+ },
+ {
+  "name": "(g) three-line selection becomes a code block",
+  "before": "[a\nb\nc]",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "```\n[a\nb\nc]\n```",
+    "display": "a\nb\nc"
+   },
+   {
+    "do": "Undo",
+    "after": "[a\nb\nc]"
+   },
+   {
+    "do": "Redo",
+    "after": "```\n[a\nb\nc]\n```"
+   }
+  ]
+ },
+ {
+  "name": "(h) Undo and Redo of a pair",
+  "before": "foo |",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "foo `|`"
+   },
+   {
+    "do": "Undo",
+    "after": "foo |"
+   },
+   {
+    "do": "Redo",
+    "after": "foo `|`"
+   }
+  ]
+ },
+ {
+  "name": "(h) Undo and Redo of a code block from a lone pair",
+  "before": "``|",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "```|\n```"
+   },
+   {
+    "do": "Undo",
+    "after": "``|"
+   },
+   {
+    "do": "Redo",
+    "after": "```|\n```"
+   },
+   {
+    "do": "type:p",
+    "after": "```p|\n```"
+   }
+  ]
+ },
+ {
+  "name": "P1: a pair at the end of a line before other lines",
+  "before": "a|\nb",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "a`|`\nb"
+   }
+  ]
+ },
+ {
+  "name": "P1: at a divider's edge the pair goes on its own line",
+  "before": "---|",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "---\n`|`"
+   }
+  ]
+ },
+ {
+  "name": "P1: in a quote",
+  "before": "> ``|",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "> ```|`"
+   }
+  ]
+ },
+ {
+  "name": "P1: after a list marker a lone pair is not a fence",
+  "before": "- ``|",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "- ```|`"
+   }
+  ]
+ },
+ {
+  "name": "P1: a pair with text after the caret is one backtick (a pair would open a fence)",
+  "before": "``|x",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "```x|",
+    "display": ""
+   }
+  ]
+ },
+ {
+  "name": "P1: a pair that would open a fence is one backtick",
+  "before": "`|x",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "``|x",
+    "display": "``x"
+   }
+  ]
+ },
+ {
+  "name": "P1: a lone backtick takes one more, then makes a block",
+  "before": "`|",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "``|"
+   },
+   {
+    "do": "pair:`",
+    "after": "```|\n```"
+   }
+  ]
+ },
+ {
+  "name": "P1: right after a code span outside it",
+  "before": "`a`|",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "`a``|`",
+    "display": "`a```"
+   }
+  ]
+ },
+ {
+  "name": "P2: a hidden opening marker after the caret: the caret goes inside",
+  "before": "a|`b`",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "a`|b`",
+    "display": "ab",
+    "affinity": "Forward"
+   },
+   {
+    "do": "type:x",
+    "after": "a`x|b`",
+    "display": "axb"
+   }
+  ]
+ },
+ {
+  "name": "P2: a closing marker inside bold: the caret leaves both",
+  "before": "**`a|`**",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "**`a`**|",
+    "display": "a",
+    "affinity": "Forward"
+   }
+  ]
+ },
+ {
+  "name": "P2: a longer closing run steps over whole",
+  "before": "``a|`` b",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "``a``| b",
+    "display": "a b",
+    "affinity": "Forward"
+   }
+  ]
+ },
+ {
+  "name": "P2: a padded code span steps over its padding too",
+  "before": "`` `a`| `` b",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "`` `a` ``| b",
+    "display": "`a` b",
+    "affinity": "Forward"
+   }
+  ]
+ },
+ {
+  "name": "P3: an indented lone pair becomes a fence at its indent",
+  "before": "- item\n  ``|",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "- item\n  ```|\n  ```"
+   }
+  ]
+ },
+ {
+  "name": "P3: the line's own CRLF",
+  "before": "``|\r\nnext",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "```|\r\n```\r\nnext"
+   }
+  ]
+ },
+ {
+  "name": "P3: a tab indent",
+  "before": "\t``|",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "\t```|\n\t```"
+   }
+  ]
+ },
+ {
+  "name": "P4: a selection of only spaces is typed over",
+  "before": "a[ ]b",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "a`|b"
+   }
+  ]
+ },
+ {
+  "name": "P4: a selection already code is typed over",
+  "before": "x `[ab]` c",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "x ``|` c",
+    "display": "x ``` c"
+   }
+  ]
+ },
+ {
+  "name": "P4: a selection in one code line is typed over",
+  "before": "```\n[co]de\n```",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "```\n`|de\n```"
+   }
+  ]
+ },
+ {
+  "name": "P4: a selection over lines of one code block is typed over",
+  "before": "```\n[a\nb]\n```",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "```\n`|\n```"
+   }
+  ]
+ },
+ {
+  "name": "P4: part of bold becomes plain code",
+  "before": "**a [b] c**",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "**a** `[b]` **c**"
+   }
+  ]
+ },
+ {
+  "name": "P4: a selection reaching into a code block takes it in",
+  "before": "[x\n```\ny]\n```",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "```\n[x\ny]\n```"
+   }
+  ]
+ },
+ {
+  "name": "P5: after an escaping backslash",
+  "before": "a\\|",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "a\\`|",
+    "display": "a`"
+   }
+  ]
+ },
+ {
+  "name": "P5: after an escaped backslash a pair",
+  "before": "a\\\\|",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "a\\\\`|`"
+   }
+  ]
+ },
+ {
+  "name": "P5: inside inline code, not at its end",
+  "before": "`a|b`",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "`a`|b`"
+   }
+  ]
+ },
+ {
+  "name": "P5: with Code carried by the toolbar",
+  "before": "a |",
+  "steps": [
+   {
+    "do": "Code",
+    "after": "a |"
+   },
+   {
+    "do": "pair:`",
+    "after": "a `` `| ``",
+    "display": "a `"
+   }
+  ]
+ },
+ {
+  "name": "P5: at the language of a typed fence",
+  "before": "|",
+  "steps": [
+   {
+    "do": "type:```",
+    "after": "```|"
+   },
+   {
+    "do": "pair:`",
+    "after": "````|"
+   }
+  ]
+ },
+ {
+  "name": "front matter: a caret placed in it stands after it, so a pair is written there",
+  "before": "---\na: |b\n---\nc",
+  "steps": [
+   {
+    "do": "pair:`",
+    "after": "---\na: b\n---\n`|`c",
+    "display": "a: b\n``c"
+   }
+  ]
+ },
+ {
+  "name": "other text under paired typing is plain typing",
+  "before": "a|",
+  "steps": [
+   {
+    "do": "pair:x",
+    "after": "ax|"
+   },
+   {
+    "do": "pair:y",
+    "after": "axy|"
+   },
+   {
+    "do": "Undo",
+    "after": "a|"
+   }
+  ]
+ }
+]

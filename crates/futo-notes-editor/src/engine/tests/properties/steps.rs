@@ -54,9 +54,10 @@ pub(in crate::engine::tests) fn step(
     view: &mut View,
     random: &mut Random,
 ) -> String {
-    match random.below(13) {
+    match random.below(14) {
         10 | 11 => command_step(engine, model, view, random),
         12 => inline_step(engine, model, view, random),
+        13 => super::paired::paired_step(engine, model, view, random),
         0 | 1 => select_step(engine, random),
         2..=4 => type_step(engine, model, view, random),
         5 => delete_step(engine, model, view, random),
@@ -222,13 +223,18 @@ pub(super) fn type_step(
 }
 
 /// Where `a` and `b` differ (without the characters they share at either
-/// end), each without inline marks. A code span's padding space (around
-/// text that starts or ends with a backtick) is part of its marks.
+/// end), each without inline marks. A code span's padding (a space each
+/// side, around text that starts or ends with a backtick) is part of its
+/// marks; a space on one side only is code text (`` `> ` ``).
 fn unmarked_difference(a: &str, b: &str) -> (String, String) {
     let unmarked = |text: &str| {
-        text.replace("` ", "`")
-            .replace(" `", "`")
-            .replace(['*', '_', '~', '`'], "")
+        let padded = text.contains("` ") && text.contains(" `");
+        let text = if padded {
+            text.replace("` ", "`").replace(" `", "`")
+        } else {
+            text.to_owned()
+        };
+        text.replace(['*', '_', '~', '`'], "")
     };
     let prefix: usize = a
         .chars()

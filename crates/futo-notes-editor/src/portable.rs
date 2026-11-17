@@ -261,6 +261,11 @@ impl PortableSession {
     pub fn selection(&self) -> DisplayRange {
         self.engine.selection()
     }
+    /// The caret's side. An input that only moves the caret returns no change,
+    /// so a view reads the side here, with `selection`.
+    pub fn affinity(&self) -> crate::Affinity {
+        self.engine.affinity()
+    }
     pub fn status(&self) -> PortableStatus {
         PortableStatus {
             local: self.engine.revision(),

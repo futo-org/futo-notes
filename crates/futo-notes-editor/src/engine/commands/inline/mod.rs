@@ -221,6 +221,18 @@ impl Engine {
         Ok(self.rewrite_to(keep, edited, want))
     }
 
+    /// Code turned on over display `range`, as the toggle turns it on;
+    /// `None` when every selected character is code already.
+    pub(crate) fn inline_code_on(
+        &self,
+        range: DisplayRange,
+    ) -> Result<Option<Command>, EditorError> {
+        if self.range_formats(range).contains(&InlineFormat::Code) {
+            return Ok(None);
+        }
+        self.format_command(range, range, None, InlineFormat::Code, &mut 0)
+    }
+
     /// The formats the selection has, which a toggle turns off
     /// (`selected_style`).
     pub(crate) fn selection_formats(&self) -> Vec<InlineFormat> {

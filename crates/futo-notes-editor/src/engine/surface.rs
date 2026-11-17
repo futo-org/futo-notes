@@ -80,10 +80,16 @@ impl Engine {
         action: InputAction,
         accept: Accept,
     ) -> Result<ViewChange, EditorError> {
-        if action == InputAction::Typing && !text.chars().all(typeable) {
+        let typed = matches!(action, InputAction::Typing | InputAction::PairedTyping);
+        if typed && !text.chars().all(typeable) {
             return Err(EditorError::InvalidText);
         }
-        Ok(match self.replace(expected, range, text, action, accept)? {
+        let change = if action == InputAction::PairedTyping {
+            self.paired_input(expected, range, text, accept)?
+        } else {
+            self.replace(expected, range, text, action, accept)?
+        };
+        Ok(match change {
             Some(change) => self.view(change),
             None => self.unchanged(),
         })

@@ -29,6 +29,7 @@ mod checks;
 mod fences;
 mod generate;
 mod inline;
+mod paired;
 mod real;
 mod steps;
 mod view;

@@ -110,6 +110,7 @@ fn input_action(value: jint) -> Result<EditorInputAction, EditorSessionError> {
         0 => Ok(EditorInputAction::Typing),
         1 => Ok(EditorInputAction::Isolated),
         2 => Ok(EditorInputAction::CompositionCommit),
+        3 => Ok(EditorInputAction::PairedTyping),
         _ => Err(EditorSessionError::InvalidRange),
     }
 }
@@ -145,7 +146,8 @@ mod tests {
     #[test]
     fn unknown_ordinals_and_negative_offsets_are_typed_failures() {
         assert!(input_action(-1).is_err());
-        assert!(input_action(3).is_err());
+        assert_eq!(input_action(3).unwrap(), EditorInputAction::PairedTyping);
+        assert!(input_action(4).is_err());
         assert!(paragraph_key(-1).is_err());
         assert_eq!(
             paragraph_key(6).unwrap(),

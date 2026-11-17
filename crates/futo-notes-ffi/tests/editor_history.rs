@@ -165,3 +165,46 @@ fn native_utf16_same_paragraph_merge_survives_undo_redo_detach_and_reopen() {
         "日本🦀 middle LOCAL\r\n"
     );
 }
+
+#[test]
+fn native_paired_typing_pairs_a_backtick_and_steps_out_of_code_with_no_history() {
+    use futo_notes_ffi::EditorAffinity;
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("paired".into(), "".into(), "foo ".into())
+        .unwrap();
+    let session = store.open_editor("paired".into()).unwrap();
+    let backtick = || "`".encode_utf16().collect::<Vec<u16>>();
+    let paired = session
+        .replace_utf16_action(
+            0,
+            EditorUtf16Range { start: 4, end: 4 },
+            backtick(),
+            EditorInputAction::PairedTyping,
+        )
+        .unwrap();
+    assert_eq!(session.source_text().unwrap(), "foo ``");
+    assert_eq!((paired.selection.start, paired.selection.end), (5, 5));
+    session
+        .replace_utf16_action(
+            1,
+            EditorUtf16Range { start: 5, end: 5 },
+            vec![120],
+            EditorInputAction::Typing,
+        )
+        .unwrap();
+    let stepped = session
+        .replace_utf16_action(
+            2,
+            EditorUtf16Range { start: 5, end: 5 },
+            backtick(),
+            EditorInputAction::PairedTyping,
+        )
+        .unwrap();
+    assert_eq!(session.source_text().unwrap(), "foo `x`");
+    assert_eq!(stepped.revision, 2);
+    assert_eq!((stepped.selection.start, stepped.selection.end), (5, 5));
+    assert_eq!(stepped.affinity, EditorAffinity::Forward);
+}

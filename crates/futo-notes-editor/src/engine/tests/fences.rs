@@ -23,39 +23,6 @@ struct Case {
     marks: Option<String>,
 }
 
-/// The note without its marks, and the marked source range.
-fn unmark(marked: &str, marks: &[char; 3]) -> (String, std::ops::Range<usize>) {
-    let mut text = String::new();
-    let (mut start, mut end) = (None, None);
-    for ch in marked.chars() {
-        if ch == marks[0] {
-            start = Some(text.len());
-            end = Some(text.len());
-        } else if ch == marks[1] {
-            start = Some(text.len());
-        } else if ch == marks[2] {
-            end = Some(text.len());
-        } else {
-            text.push(ch);
-        }
-    }
-    let start = start.expect("a selection mark");
-    (text, start..end.expect("a selection end"))
-}
-
-/// Select source `selection`, on the side of hidden text it names.
-fn select_source(engine: &mut Engine, selection: std::ops::Range<usize>) {
-    let display = |at: usize| engine.display_of(at);
-    let (start, end) = (display(selection.start), display(selection.end));
-    let (lo, _) = engine.source_bounds(start);
-    let affinity = if lo == selection.start {
-        Affinity::Backward
-    } else {
-        Affinity::Forward
-    };
-    super::select(engine, start, end, affinity);
-}
-
 fn display_selection(engine: &Engine, selection: &std::ops::Range<usize>) -> DisplayRange {
     range(
         engine.display_of(selection.start),
@@ -108,10 +75,10 @@ fn fence_cases() {
     for case in &cases {
         let marks: Vec<char> = case.marks.as_deref().unwrap_or("|[]").chars().collect();
         let marks = [marks[0], marks[1], marks[2]];
-        let (source, selection) = unmark(&case.before, &marks);
-        let (want, want_selection) = unmark(&case.after, &marks);
+        let (source, selection) = super::unmark_selection(&case.before, &marks);
+        let (want, want_selection) = super::unmark_selection(&case.after, &marks);
         let mut engine = Engine::open(&source);
-        select_source(&mut engine, selection.clone());
+        super::select_source_range(&mut engine, selection.clone());
         if let Some(text) = &case.typed {
             let at = engine.selection();
             engine

@@ -22,7 +22,7 @@ export type SourceRange = Range;
 
 export type Affinity = 'Backward' | 'Forward';
 export type InlineFormat = 'Bold' | 'Italic' | 'Strike' | 'Code';
-export type InputAction = 'Typing' | 'Isolated' | 'CompositionCommit';
+export type InputAction = 'Typing' | 'Isolated' | 'CompositionCommit' | 'PairedTyping';
 export type ParagraphKey =
   'Enter' | 'ShiftEnter' | 'Backspace' | 'Delete' | 'Tab' | 'ShiftTab' | 'Transpose';
 export type BlockCommand =

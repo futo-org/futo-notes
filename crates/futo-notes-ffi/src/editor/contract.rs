@@ -145,6 +145,9 @@ pub enum EditorInputAction {
     Typing,
     Isolated,
     CompositionCommit,
+    /// Typing with the paired-typing conveniences (a typed backtick pairs,
+    /// steps over, or makes a code block); other text is `Typing`.
+    PairedTyping,
 }
 impl From<EditorInputAction> for editor::InputAction {
     fn from(value: EditorInputAction) -> Self {
@@ -152,6 +155,7 @@ impl From<EditorInputAction> for editor::InputAction {
             EditorInputAction::Typing => Self::Typing,
             EditorInputAction::Isolated => Self::Isolated,
             EditorInputAction::CompositionCommit => Self::CompositionCommit,
+            EditorInputAction::PairedTyping => Self::PairedTyping,
         }
     }
 }

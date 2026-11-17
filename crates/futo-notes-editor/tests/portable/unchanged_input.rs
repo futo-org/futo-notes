@@ -149,3 +149,24 @@ fn a_key_that_only_moves_the_selection_sends_nothing() {
     assert_eq!(session.status().local, Revision(0));
     assert_eq!(session.status().outstanding, 0);
 }
+
+#[test]
+fn a_paired_backtick_at_a_code_span_end_sends_nothing_and_the_next_text_lands_outside() {
+    use futo_notes_editor::InputAction;
+    let mut session = open_selected("foo ", at(4, 4));
+    let paired = session
+        .replace_action(Revision(0), at(4, 4), "`", InputAction::PairedTyping)
+        .unwrap();
+    assert!(paired.is_some());
+    assert_eq!(session.draft_text(), "foo ``");
+    assert_eq!(session.selection(), at(5, 5));
+    session.replace(Revision(1), at(5, 5), "bar").unwrap();
+    let stepped = session
+        .replace_action(Revision(2), at(7, 7), "`", InputAction::PairedTyping)
+        .unwrap();
+    assert!(stepped.is_none());
+    assert_eq!(session.status().local, Revision(2));
+    assert_eq!(session.selection(), at(7, 7));
+    session.replace(Revision(2), at(7, 7), " baz").unwrap();
+    assert_eq!(session.draft_text(), "foo `bar` baz");
+}

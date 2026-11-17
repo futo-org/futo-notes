@@ -369,6 +369,9 @@ impl WasmSession {
     pub fn selection(&self) -> Result<String, JsValue> {
         json(&self.0.selection())
     }
+    pub fn affinity(&self) -> Result<String, JsValue> {
+        json(&self.0.affinity())
+    }
     pub fn status(&self) -> Result<String, JsValue> {
         json(&self.0.status())
     }
