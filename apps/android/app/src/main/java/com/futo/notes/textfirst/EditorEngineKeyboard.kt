@@ -20,12 +20,29 @@ internal fun EditorEngine.replace(start: Int, end: Int, value: String, action: E
 
 internal fun EditorEngine.imeCommit(value: String) = input {
     val o = mirror.overlay
+    val typedAfter = pairKeyAfterCorrection(value)
     when {
+        // A keyboard's correction can carry the pair key the user typed after the word ("world*"): the word commits,
+        // then that key is typed as a key, so it still steps out of or into a pair (pairing verifier, FUTO Keyboard).
+        o != null && typedAfter != null -> {
+            commitComposition(value.dropLast(typedAfter.length))
+            replace(mirror.selStart, mirror.selEnd, typedAfter, EditorInputAction.PAIRED_TYPING)
+        }
         o != null -> commitComposition(value)
         value == "\n" -> key(EditorParagraphKey.ENTER)
         else -> replace(mirror.selStart, mirror.selEnd, value, typedAction(value))
     }
 }
+
+/** The pair key a composition's commit ends with, after at least one other character; null otherwise. */
+private fun pairKeyAfterCorrection(value: String): String? {
+    if (value.codePointCount(0, value.length) < 2) return null
+    val last = value.substring(value.offsetByCodePoints(value.length, -1))
+    return last.takeIf { it in PAIR_KEYS }
+}
+
+/** The characters paired typing reads (paired-typing.md); any other character types as typing. */
+private val PAIR_KEYS = setOf("`", "*", "~", "[", "]")
 
 /**
  * The one place a phone decides how text it was handed was typed: one character with no composition open is a plain

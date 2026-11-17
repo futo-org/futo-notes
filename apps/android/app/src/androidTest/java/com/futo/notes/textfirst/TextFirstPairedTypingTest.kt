@@ -62,6 +62,31 @@ class TextFirstPairedTypingTest {
         assertEquals("x ", c.sourceText())
     }
 
+    /**
+     * Pairing verifier, FUTO Keyboard: autocorrect commits the corrected word and the closing `*` together
+     * ("wrold" composed, then "world*" committed). The `*` is still the key the user typed: it steps out of the bold.
+     */
+    @Test fun anAutocorrectThatEndsInAPairCharacterStillStepsOut() = textFirstSession("x ") { c ->
+        caretAtEnd(c)
+        type(c, "*", "*")
+        textFirstIme(c) { setComposingText("wrold", 1) }
+        textFirstIme(c) { commitText("world*", 1) }
+        c.sourceText()
+        type(c, " y")
+        assertEquals("x **world** y", c.sourceText())
+    }
+
+    /** Pairing verifier: after Backspace takes the caret back out of italic text, the next letter is plain. */
+    @org.junit.Ignore("blocked: engine. After Backspace deletes through italic text the next letters are italic (`en*d*`), with plain typing too, while the caret state reports no format")
+    @Test fun backspacingOutOfItalicLeavesTheNextLetterPlain() = textFirstSession("end") { c ->
+        caretAtEnd(c)
+        type(c, " ", "a", "*", "2", "*", "3")
+        repeat(5) { textFirstIme(c) { deleteSurroundingText(1, 0) } }
+        assertEquals("en", c.sourceText())
+        type(c, "d")
+        assertEquals("end", c.sourceText())
+    }
+
     @Test fun aLongerCommitIsTypedAsGiven() = textFirstSession("x ") { c ->
         caretAtEnd(c)
         type(c, "``")
