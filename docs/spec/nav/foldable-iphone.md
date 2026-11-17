@@ -34,6 +34,11 @@ no foldable layout, not a gap.
 - Picking a note in the list opens it in the editor pane and highlights its row; the
   highlight follows a rename. Opening another note saves and closes the one showing.
 
+> **Gap (iOS):** when two screens on the editor stack were opened under the same id (a
+> note renamed away, then a wikilink to a new note that took its old name), a fold reopens
+> both under the name the newer one has, so Back after the fold shows that note instead
+> of the renamed one. Both notes are saved and listed; only the Back target is wrong.
+
 > **Gap (iOS):** the debug puppet listener's `OpenNote` and `OpenFolder` verbs assume the
 > phone stack's one-screen-at-a-time shape, so in the pages shell `OpenNote` refuses while
 > an editor is showing beside the list. A person's taps work.
