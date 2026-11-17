@@ -53,7 +53,10 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     var belowLabelBox: RectF? = null
         private set
 
-    fun clearTargets() = targets.clear()
+    fun clearTargets() {
+        targets.clear()
+        belowLabelBox = null
+    }
 
     /** The topmost part drawn at ([x], [y]) in layout coordinates. */
     fun targetAt(x: Float, y: Float): CodeBlockTarget? = targets.lastOrNull { it.area.contains(x, y) }

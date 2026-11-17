@@ -239,12 +239,11 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
 
     private fun keepInView(state: Editing) {
         val area = fieldArea(state) ?: return
-        val frame = Rect().also(note::getWindowVisibleDisplayFrame)
-        val onScreen = IntArray(2).also(note::getLocationOnScreen)
-        // Leaving the field puts the caret on the block's first line and brings the editor toolbar back over
+        // The keyboard resizes the note (the screen's imePadding); the reveal waits for it to settle, so it is one step.
+        // Leaving the field puts the caret on the block's first line and may bring the editor toolbar back over
         // the keyboard: keep that line in view too, with the toolbar's room, so leaving never scrolls the note.
         val toolbarRoom = note.style.codeHeaderHeight * 2
-        val visibleBottom = minOf((note.height - note.totalPaddingBottom).toFloat(), (frame.bottom - onScreen[1]).toFloat()) - toolbarRoom
+        val visibleBottom = note.height - note.totalPaddingBottom - toolbarRoom
         val layout = note.layout ?: return
         val firstLineBottom = layout.getLineBottom(layout.getLineForOffset(state.codeStart)).toFloat()
         val top = note.totalPaddingTop - note.scrollY + area.top

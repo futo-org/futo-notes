@@ -76,6 +76,9 @@ internal class TextFirstController(
         view.clipboard.onCopyRefused = { onClipboardRefused() }
         MainThreadWatchdog.start()
         view.setOnFocusChangeListener { _, hasFocus ->
+            // A code block's header field is part of the note: the editor toolbar keeps the state it had
+            // when the field opened, as !300's did (verifier run 3, B), and the selection stays.
+            if (!hasFocus && view.codeChrome.openField != null) return@setOnFocusChangeListener
             focused = hasFocus
             // The cell field takes focus with its content selected in the note.
             if (!hasFocus && cellView == null) view.endSelectionOnBlur()

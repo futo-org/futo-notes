@@ -43,6 +43,7 @@ internal class TextFirstEditText(
     private val linkTouch = ExternalLinkTouch(this, { onOpenUrl?.invoke(it) ?: false }, ::nativeTouch)
     private val lineTouch = LineSelectTouch(this)
     private val codeTouch = CodeBlockTouch(this)
+    private val lineBelowHandle = CodeLineBelowHandle(this)
     /** A code block selected as one object: its card shows the selection, so the text highlight is hidden. */
     internal var selectedCodeBlock: Pair<Int, Int>? = null
         set(value) {
@@ -231,6 +232,7 @@ internal class TextFirstEditText(
         if (timings != null) timings.drawStart = android.os.SystemClock.elapsedRealtimeNanos()
         // Under the caret, which the TextView draws before the layout's own drawing.
         drawCodeBlocks(canvas)
+        lineBelowHandle.afterDraw()
         drawCodeSelection(canvas)
         drawListSelection(canvas)
         drawFindMarks(canvas)
@@ -304,7 +306,7 @@ internal class TextFirstEditText(
             MotionEvent.ACTION_MOVE -> if (checkboxDown >= 0) return true
             MotionEvent.ACTION_CANCEL -> if (checkboxDown >= 0) { checkboxDown = -1; return true }
         }
-        return super.onTouchEvent(event).also { wikilinkTouch.settleCaret(); imageTouch.settleSelection(); codeTouch.settleTap(event) }
+        return super.onTouchEvent(event).also { wikilinkTouch.settleCaret(); imageTouch.settleSelection(); codeTouch.settleTap(event); lineBelowHandle.onTouch(event) }
     }
 
     private fun nativeTouch(event: MotionEvent) { super.onTouchEvent(event) }

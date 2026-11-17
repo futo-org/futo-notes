@@ -193,13 +193,14 @@ class TextFirstCodeHeaderFieldTest {
     }
 
     /**
-     * Verifier run 2: while its header field is open the block stays the one being edited, as on !300: its
-     * "name" ghost and "add a line above" stay, and the editor toolbar steps aside for the field's keyboard.
+     * Verifier runs 2 and 3: while its header field is open the block stays the one being edited, as on !300:
+     * its "name" ghost and "add a line above" stay, and the editor toolbar keeps the state it had.
      */
     @Test fun aBlockStaysActiveWhileItsHeaderFieldIsOpen() = textFirstSession("```js\nconst a = 1\n```\n\nafter") { c ->
         val view = c.view
         view.codeChrome.labels = CodeBlockLabels("add a line above", "add a line below", "name", "language")
         view.isFocusableInTouchMode = true
+        view.requestFocus()
         val codeStart = view.editableText.indexOf("const a")
         withTimeout(5_000) { while (view.codeChrome.areaOf(codeStart, CodeBlockAction.LANGUAGE_LABEL) == null) delay(20) }
         val area = view.codeChrome.areaOf(codeStart, CodeBlockAction.LANGUAGE_LABEL)!!
@@ -208,7 +209,7 @@ class TextFirstCodeHeaderFieldTest {
         withTimeout(5_000) { while (!field.isFocused) delay(20) }
         delay(300)
         assert(view.codeChrome.areaOf(codeStart, CodeBlockAction.OPEN_LINE_ABOVE) != null) { "\"add a line above\" went while the field is open" }
-        assertEquals("the toolbar stays while the field is open", false, c.focused)
+        assertEquals("the editor toolbar went when the field opened", true, c.focused)
         field.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!
             .sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ENTER))
         assertEquals(true, c.focused)

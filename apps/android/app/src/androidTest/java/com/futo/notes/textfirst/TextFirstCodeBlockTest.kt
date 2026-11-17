@@ -1,5 +1,8 @@
 package com.futo.notes.textfirst
 
+import android.os.SystemClock
+import android.view.InputDevice
+import android.view.MotionEvent
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
@@ -129,5 +132,46 @@ class TextFirstCodeBlockTest {
         delay(300)
         assertEquals("a block still shows \"add a line above\" with the caret outside it", null, view.codeChrome.areaOf(0, CodeBlockAction.OPEN_LINE_ABOVE))
         assertEquals(null, view.codeChrome.areaOf(lower, CodeBlockAction.OPEN_LINE_ABOVE))
+    }
+
+    /**
+     * Verifier run 3, G: a tap on a block's last line put the caret's handle over "add a line below", and
+     * the handle's window took the next tap there. Real input, so the handle's window is in the way as on a phone.
+     */
+    @Test fun aTapOnAddALineBelowOverTheCaretsHandleOpensTheLine() = textFirstSession("```js\nconst a = 1\n```\n```rust\nlet b = 2;\n```\n\nend") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        fun injectTap(x: Float, y: Float) {
+            val down = SystemClock.uptimeMillis()
+            for ((action, time) in listOf(MotionEvent.ACTION_DOWN to down, MotionEvent.ACTION_UP to down + 60L)) {
+                val event = MotionEvent.obtain(down, time, action, x, y, 0)
+                event.source = InputDevice.SOURCE_TOUCHSCREEN
+                try { instrumentation.sendPointerSync(event) } finally { event.recycle() }
+            }
+        }
+        // Injected through the window manager, off the main thread that handles it, so the handle's window is hit as on a phone.
+        suspend fun screenTap(x: Float, y: Float) {
+            val onScreen = IntArray(2).also(view::getLocationOnScreen)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { injectTap(onScreen[0] + x, onScreen[1] + y) }
+        }
+        val l = view.layout
+        val lastLine = l.getLineForOffset(view.editableText.indexOf("const a"))
+        val caretX = view.totalPaddingLeft + l.getLineRight(lastLine) - 4f
+        screenTap(caretX, view.totalPaddingTop - view.scrollY + (l.getLineTop(lastLine) + l.getLineBottom(lastLine)) / 2f)
+        suspend fun awaitThat(what: String, done: () -> Boolean) {
+            val until = SystemClock.uptimeMillis() + 5_000
+            while (!done()) { if (SystemClock.uptimeMillis() > until) throw AssertionError(what); delay(20) }
+        }
+        awaitThat("the tap put no caret at the end of the line (at ${view.selectionEnd})") { view.selectionEnd == view.editableText.indexOf("const a") + "const a = 1".length }
+        awaitThat("no \"add a line below\"") { view.codeChrome.belowLabelBox != null }
+        delay(500)
+        // The strip under the label, down to the next card: where the handle hangs (verifier run 3, G: y 790).
+        val press = view.codeChrome.areaOf(0, CodeBlockAction.OPEN_LINE_BELOW)!!
+        val label = view.codeChrome.belowLabelBox!!
+        screenTap(view.totalPaddingLeft + view.layout.getPrimaryHorizontal(view.selectionEnd), view.totalPaddingTop - view.scrollY + (label.bottom + press.bottom) / 2f)
+        delay(1_000)
+        assertEquals("```js\nconst a = 1\n```\n\n```rust\nlet b = 2;\n```\n\nend", c.sourceText())
     }
 }
