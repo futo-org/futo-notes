@@ -77,6 +77,8 @@ struct DuoPagesView: View {
     @State private var folderAction: FolderAction?
     /// The note the visible editor reports (it follows renames).
     @State private var visibleNoteId: String?
+    /// Notes the list is deleting while their editor closes (closeEditor).
+    @State private var deleting: DeletingNotes?
     /// The whole window, keyboard or not (see body).
     @State private var windowSize = CGSize.zero
 
@@ -313,40 +315,60 @@ struct DuoPagesView: View {
         navigation.path = PagesPath.chain(new) + noteRoutes
     }
 
-    /// A note already on the editor pane's stack is popped back to, never rebuilt: its
-    /// screen keeps its place, and a screen moved to another place would not save first.
-    /// Any other note replaces the stack, and each screen it removes leaves (saves).
+    /// A note already on the editor pane's stack (by the id it has now) is popped back to,
+    /// never rebuilt: its screen keeps its place, and a screen moved to another place would
+    /// not save first. Any other note replaces the stack, and each screen it removes leaves
+    /// (saves). Notes the list is deleting do not open.
     private func open(_ route: Route) {
-        guard let id = PagesPath.noteId(route) else { return }
+        guard let id = PagesPath.noteId(route), deleting?.covers(id) != true else { return }
         let routes = noteRoutes
-        if let index = routes.firstIndex(where: { PagesPath.noteId($0) == id }) {
+        var current = routes.compactMap(PagesPath.noteId)
+        if let visibleNoteId, !current.isEmpty { current[current.count - 1] = visibleNoteId }
+        if let index = current.firstIndex(of: id) {
             if index < routes.count - 1 { editorRoutes.wrappedValue = Array(routes[...index]) }
             return
         }
-        guard id != openNoteId else { return }
         visibleNoteId = nil
-        editorRoutes.wrappedValue = [route]
+        if routes.contains(where: { PagesPath.noteId($0) == id }) {
+            // A screen opened under this id holds another note now (renamed away, and a new
+            // note took the name): empty the pane first, or the same route keeps that screen.
+            editorRoutes.wrappedValue = []
+            Task { @MainActor in editorRoutes.wrappedValue = [route] }
+        } else {
+            editorRoutes.wrappedValue = [route]
+        }
     }
 
-    /// Before the list deletes notes (or a folder of them) that the editor pane shows, or
-    /// that a closed editor is still saving, the pane closes them and waits for each save
-    /// and detach, as Back would. False when one is still saving after a few seconds: the
-    /// delete waits for the user to retry, so it can never drop a draft.
+    /// Before the list deletes notes (or every note under a folder), the editor pane closes
+    /// any of them it shows and waits for each save and detach, as Back would; a closed
+    /// editor still saving one of them is waited for too. False when a save has not landed
+    /// after a few seconds: the delete waits for the user to retry, so it never drops a
+    /// draft. Nothing reopens those notes meanwhile.
     private func closeEditor(showing ids: Set<String>, under folder: String?) async -> Bool {
-        func affected(_ id: String) -> Bool {
-            ids.contains(id) || folder.map { id.hasPrefix($0 + "/") } ?? false
+        let target = DeletingNotes(ids: ids, folder: folder)
+        deleting = target
+        defer { deleting = nil }
+        var shown = noteRoutes.compactMap(PagesPath.noteId)
+        if let visibleNoteId { shown.append(visibleNoteId) }
+        // A move from the list beside it can leave the editor's id behind: an id the vault
+        // no longer has could be any note, so that editor closes too.
+        let top = visibleNoteId ?? shown.last
+        let stale = top.map { id in !store.notes.contains { $0.id == id } } ?? false
+        let closing = stale || shown.contains(where: target.covers)
+        if closing {
+            editorRoutes.wrappedValue = []
+            // Its leave registers as the screen goes.
+            try? await Task.sleep(for: .milliseconds(100))
         }
-        var showing = Set(noteRoutes.compactMap(PagesPath.noteId))
-        if let visibleNoteId { showing.insert(visibleNoteId) }
-        if showing.contains(where: affected) { editorRoutes.wrappedValue = [] }
         for _ in 0..<50 {
-            let saving = TextFirstLeaves.leavingIds.contains(where: affected)
-            if saving || showing.contains(where: affected) {
-                try? await Task.sleep(for: .milliseconds(100))
-                showing = []
-            } else {
-                return true
-            }
+            // A closing editor's leave names its note only once it settles, so wait for every
+            // leave; otherwise only for those of these notes.
+            let saving =
+                closing
+                ? TextFirstLeaves.unsettled > 0
+                : TextFirstLeaves.leavingIds.contains(where: target.covers)
+            if !saving { return true }
+            try? await Task.sleep(for: .milliseconds(100))
         }
         return false
     }
@@ -418,5 +440,15 @@ extension View {
             .opacity(rect.isEmpty ? 0 : 1)
             .allowsHitTesting(!rect.isEmpty)
             .accessibilityHidden(rect.isEmpty)
+    }
+}
+
+/// The notes a list delete removes: some ids, or every note under a folder.
+struct DeletingNotes: Equatable {
+    let ids: Set<String>
+    let folder: String?
+
+    func covers(_ id: String) -> Bool {
+        ids.contains(id) || folder.map { id.hasPrefix($0 + "/") } ?? false
     }
 }

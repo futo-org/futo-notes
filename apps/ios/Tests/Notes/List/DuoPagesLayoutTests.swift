@@ -66,6 +66,18 @@ struct DuoPagesLayoutTests {
         #expect(tabletop.folders.isEmpty)
     }
 
+    @Test("a list delete covers its notes, or every note under its folder, and no sibling")
+    func deleteScope() {
+        let notes = DeletingNotes(ids: ["Travel/Lisbon"], folder: nil)
+        #expect(notes.covers("Travel/Lisbon"))
+        #expect(!notes.covers("Travel/Kyoto"))
+        let folder = DeletingNotes(ids: [], folder: "Travel")
+        #expect(folder.covers("Travel/Lisbon"))
+        #expect(folder.covers("Travel/2026/Lisbon"))
+        #expect(!folder.covers("Travel notes"))
+        #expect(!folder.covers("Travelogue/Lisbon"))
+    }
+
     @Test("the phone's path reads as the list's folder and the editor's notes")
     func pathSplits() {
         let path: [Route] = [.folder("Travel"), .folder("Travel/Lisbon"), .note("a"), .note("b")]
