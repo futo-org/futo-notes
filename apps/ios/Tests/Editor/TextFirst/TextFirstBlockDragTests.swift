@@ -159,5 +159,19 @@
             ].map { drag.follow($0) }
             #expect(ticks == [false, true, false, true, false, true])
         }
+
+        @Test func aMoveLeavesTheViewWithTheEnginesExactUtf16() throws {
+            // Line 0 is precomposed `é`, line 1 decomposed `e` and U+0301: Swift calls the two
+            // strings equal, but they are one UTF-16 unit apart. Moving line 0 below line 1
+            // swaps them; a view that took them for unchanged would no longer match the engine.
+            let h = TextFirstHarness("\u{e9}\ne\u{301}\nz", focused: false)
+            let slots = try #require(try h.controller.blockSlots(atLineOffset: 0))
+            #expect(slots == [5, 6])
+            #expect(try h.controller.moveBlock(atLineOffset: 0, toSlot: 5))
+            let shown = Array(h.controller.storage.string.utf16)
+            #expect(shown == Array("e\u{301}\n\u{e9}\nz".utf16))
+            #expect(shown == Array(try h.controller.session.displayText().utf16))
+            #expect(h.controller.divergences.isEmpty, "\(h.controller.divergences)")
+        }
     }
 #endif
