@@ -51,4 +51,21 @@ class TextFirstTapRowTest {
         }
         assertEquals(misses.joinToString("\n"), 0, misses.size)
     }
+
+    /** Mason, 2026-11-17 (P329): the caret in code is as tall as the caret in body text. */
+    @Test fun theCaretInCodeIsAsTallAsInBodyText() = textFirstSession(note) { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        suspend fun caretHeightAt(offset: Int): Int {
+            view.setSelection(offset)
+            view.invalidate()
+            delay(300)
+            return (view.textCursorDrawable as android.graphics.drawable.DrawableWrapper).drawable!!.bounds.height()
+        }
+        val body = caretHeightAt(view.editableText.indexOf("paragraph"))
+        val code = caretHeightAt(view.editableText.indexOf("a = 1"))
+        assertEquals("caret in code vs body", body.toFloat(), code.toFloat(), 1f)
+    }
 }
