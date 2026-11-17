@@ -47,3 +47,19 @@ fn native_block_move_lifts_a_list_item_with_its_children_and_undo_restores_it() 
     session.checkpoint().unwrap();
     assert_eq!(store.read("list".into()).unwrap(), note);
 }
+
+#[test]
+fn native_block_move_offers_no_slot_the_blocks_own_bottom_edge_cannot_be_told_from() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("ends".into(), "".into(), "a\nb\n".into())
+        .unwrap();
+    let session = store.open_editor("ends".into()).unwrap();
+    // `b` ends where the empty last line starts: byte 4 is its own edge.
+    assert_eq!(session.block_slots(0, at(2)).unwrap(), vec![at(0)]);
+    assert!(session.move_block(0, at(2), at(4)).unwrap().is_none());
+    assert_eq!(session.source_text().unwrap(), "a\nb\n");
+    assert!(matches!(session.undo(0), Ok(None)));
+}

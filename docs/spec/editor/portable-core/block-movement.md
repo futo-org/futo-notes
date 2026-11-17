@@ -22,7 +22,7 @@ which lines move together. → crates/futo-notes-editor/src/engine/commands/move
 - Nothing lands above or inside front matter. → crates/futo-notes-editor/src/engine/commands/moves.rs `inside_unit`
 - Nothing lands inside a code block, after code nothing closes, inside a table or inside a run of quote lines. → crates/futo-notes-editor/src/engine/commands/moves.rs `inside_unit`
 - Strictly between two lines of a list (consecutive list items and the lines under them, with no blank line between) only an unquoted list item or a single unquoted plain line lands; a quote lands beside a list, never inside it. → crates/futo-notes-editor/src/engine/commands/moves.rs `block_slots`
-- Boundaries at the same display position are one slot, the first of them: after a note's final line ending, the empty last line has no width, so the slot at the display's end is the boundary above it. → crates/futo-notes-editor/src/engine/commands/moves.rs `block_slots`
+- Boundaries at the same display position are one slot, the first of them: after a note's final line ending, the empty last line has no width, so the slot at the display's end is the boundary above it. A boundary at the display position of the block's own top or bottom edge is no slot: the block above that empty last line cannot land at the display's end, and a move there is refused. → crates/futo-notes-editor/src/engine/commands/moves.rs `block_slots`
 
 ## The move
 

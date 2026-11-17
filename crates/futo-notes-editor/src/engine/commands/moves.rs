@@ -122,13 +122,15 @@ impl Engine {
     /// unless the block is an unquoted list item or one plain line, those
     /// strictly between two lines of a list (its items and the lines under
     /// them). Of boundaries a renderer cannot tell apart (the same display
-    /// offset: the empty last line after a final line ending), the first.
+    /// offset: the empty last line after a final line ending), the first, and
+    /// none that it cannot tell from the block's own edges.
     pub(crate) fn block_slots(&self, block: Range<usize>) -> Vec<usize> {
         let count = self.line_count();
         let first = &self.line(block.start).line;
         let joins_lists = first.quote == 0
             && (matches!(first.kind, Kind::List { .. })
                 || (block.len() == 1 && matches!(first.kind, Kind::Plain { .. })));
+        let edges = [self.boundary(block.start), self.boundary(block.end)];
         let mut slots = Vec::new();
         // Lines before `list_end` belong to a list; `listed` is the line above.
         let mut list_end = 0;
@@ -146,6 +148,7 @@ impl Engine {
             if (block.start..=block.end).contains(&at)
                 || self.inside_unit(at)
                 || (in_list && !joins_lists)
+                || edges.contains(&self.boundary(at))
                 || slots
                     .last()
                     .is_some_and(|&last| self.boundary(last) == self.boundary(at))

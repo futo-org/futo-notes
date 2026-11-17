@@ -102,6 +102,28 @@ fn every_block_kind_lifts_its_lines_and_lands_only_on_its_slots() {
 }
 
 #[test]
+fn a_boundary_a_renderer_cannot_tell_from_the_blocks_own_edge_is_no_slot() {
+    // The empty last line after a final line ending has no width, so the
+    // boundary above it and the one at the note's end sit where the line
+    // above ends. For that line, they are its own bottom edge. (note, the
+    // display offsets the last line's block may land on, its own edges.)
+    for (note, slots, edges) in [("a\nb\n", vec![0], (2, 4)), ("a\n", vec![], (0, 2))] {
+        let mut session = EditorSession::open(note);
+        let revision = session.revision();
+        let at = DisplayOffset(edges.0);
+        let want: Vec<_> = slots.into_iter().map(DisplayOffset).collect();
+        assert_eq!(session.block_slots(revision, at).unwrap(), want, "{note:?}");
+        for edge in [edges.0, edges.1] {
+            let moved = session.move_block(revision, at, DisplayOffset(edge), &mut ok);
+            assert_eq!(moved.unwrap(), None, "{note:?} to {edge}");
+            assert_eq!(session.source_text(), note);
+            assert_eq!(session.revision(), revision);
+            assert!(!session.toolbar_state().can_undo, "{note:?}");
+        }
+    }
+}
+
+#[test]
 fn a_move_changes_only_where_the_block_is_and_one_undo_restores_it() {
     // (note, a line of the block, the boundary it lands on, the note after).
     for (before, from, to, after) in [
