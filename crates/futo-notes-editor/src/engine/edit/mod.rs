@@ -7,6 +7,7 @@ mod plan;
 mod runs;
 mod spans;
 
+use super::code_block::is_opening_fence_end;
 use super::command::{Command, Edit};
 use super::history::{Group, Point, Record};
 use super::read::{self, Shown};
@@ -219,13 +220,7 @@ impl Engine {
         // point instead of a pin.
         let (index, before) = read::line_at(&self.store, at);
         let entry = self.store.get(index);
-        let fence_end = matches!(
-            entry.line.kind,
-            crate::lines::Kind::Fence {
-                role: crate::lines::FenceRole::Open,
-                ..
-            }
-        ) && at - before.source == entry.body_len();
+        let fence_end = is_opening_fence_end(entry, at - before.source);
         let stands = fence_end || entry.allowed(at - before.source);
         self.pin = (fence_end || (lo != hi && lo <= at && at <= hi && stands)).then_some(at);
     }

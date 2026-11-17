@@ -162,3 +162,53 @@ fn native_selected_code_block_shows_on_each_change() {
     let undone = session.undo(1).unwrap().unwrap();
     assert_eq!(undone.selected_block, Some(at(2, 3)));
 }
+
+/// A header field writes the opening fence's info string as one Undo step;
+/// a value that would not read back is refused. Typing a fence reports the
+/// language caret, which the user's own placement of the caret ends.
+#[test]
+fn native_code_block_header_and_language_caret() {
+    use futo_notes_ffi::{EditorAffinity, EditorCodeBlockHeader, EditorSessionError};
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("header".into(), "".into(), "```js hl:1\nx\n```\n".into())
+        .unwrap();
+    let session = store.open_editor("header".into()).unwrap();
+    let at = |start, end| EditorByteRange { start, end };
+    let header = |language: &str, name: &str| EditorCodeBlockHeader {
+        at: 0,
+        language: language.into(),
+        name: name.into(),
+    };
+    let written = session.set_code_block_header(0, header("go", "main.go"));
+    let written = written.unwrap().unwrap();
+    assert_eq!(written.selection, at(0, 0));
+    assert!(!written.writes_language);
+    let source = "```go name:main.go hl:1\nx\n```\n";
+    assert_eq!(session.source_text().unwrap(), source);
+    assert!(session
+        .set_code_block_header(1, header("go", "main.go"))
+        .unwrap()
+        .is_none());
+    let refused = session.set_code_block_header(1, header("c sharp", ""));
+    assert!(matches!(refused, Err(EditorSessionError::InvalidText)));
+    session.undo(1).unwrap().unwrap();
+    assert_eq!(session.source_text().unwrap(), "```js hl:1\nx\n```\n");
+
+    store
+        .create_note("fence".into(), "".into(), "a".into())
+        .unwrap();
+    let typing = store.open_editor("fence".into()).unwrap();
+    typing
+        .select_with_affinity(0, at(1, 1), EditorAffinity::Backward)
+        .unwrap();
+    let range = futo_notes_ffi::EditorUtf16Range { start: 1, end: 1 };
+    let typed = typing.replace_utf16(0, range, "\n```".encode_utf16().collect());
+    assert!(typed.unwrap().writes_language);
+    let echoed = typing.select_with_affinity(1, at(2, 2), EditorAffinity::Backward);
+    assert!(echoed.unwrap().writes_language);
+    let placed = typing.place_selection(1, at(2, 2), EditorAffinity::Backward);
+    assert!(!placed.unwrap().writes_language);
+}

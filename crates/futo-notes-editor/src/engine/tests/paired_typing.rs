@@ -8,8 +8,10 @@
 //! paragraph key, `Code` (the toolbar's Code toggle), `Undo` or `Redo`.
 //! After each step the source and the selection must be as marked, with a
 //! caret where it maps in the source (`caret_source`), so the two caret
-//! stops at a hidden marker differ; `display` and `affinity`, when given,
-//! must match too. A paired step adds at most one Undo step, and none when it
+//! stops at a hidden marker differ; `display`, `affinity` and `language`
+//! (whether the caret writes a code block's language), when given, must
+//! match too. `Select` sends the selection again as a host's echo, `Place`
+//! as the user's own. A paired step adds at most one Undo step, and none when it
 //! changes nothing.
 use super::super::Engine;
 use super::{ok, select_source_range, unmark_selection};
@@ -34,6 +36,8 @@ struct Step {
     display: Option<String>,
     #[serde(default)]
     affinity: Option<Affinity>,
+    #[serde(default)]
+    language: Option<bool>,
     #[serde(default)]
     error: Option<String>,
 }
@@ -67,6 +71,10 @@ fn run_step(engine: &mut Engine, action: &str) -> Result<(), EditorError> {
         engine.key(revision, selection, key, &mut ok)?;
     } else if action == "Code" {
         engine.toggle_format_view(revision, InlineFormat::Code, &mut ok)?;
+    } else if action == "Select" {
+        engine.select_with_affinity(revision, selection, engine.affinity())?;
+    } else if action == "Place" {
+        engine.place_selection(revision, selection, engine.affinity())?;
     } else if action == "Undo" {
         engine.undo(revision, &mut ok)?;
     } else if action == "Redo" {
@@ -114,12 +122,14 @@ fn paired_typing_cases() {
                 ));
                 break;
             }
+            let language = engine.writes_language();
             if step.display.as_ref().is_some_and(|want| *want != display)
                 || step.affinity.is_some_and(|want| want != affinity)
+                || step.language.is_some_and(|want| want != language)
             {
                 failures.push(format!(
-                    "{context}: got {state}, want display {:?} affinity {:?}",
-                    step.display, step.affinity
+                    "{context}: got {state} language {language}, want display {:?} affinity {:?} language {:?}",
+                    step.display, step.affinity, step.language
                 ));
                 break;
             }

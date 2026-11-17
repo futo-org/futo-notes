@@ -206,6 +206,35 @@ impl StoreEditorSession<'_> {
         })
     }
 
+    /// A code block's language and `name:` from its header fields, as one
+    /// edit; refused (`InvalidText`, nothing changed) when they would not
+    /// read back.
+    pub fn set_code_block_header(
+        &mut self,
+        expected: Revision,
+        header: &futo_notes_editor::CodeBlockHeader,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.live(|state| {
+            state.edit(|engine, accept| engine.set_code_block_header(expected, header, accept))
+        })
+    }
+
+    /// The user placed this selection: the same range also ends a selected
+    /// block and a language caret.
+    pub fn place_selection(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        affinity: Affinity,
+    ) -> Result<SelectionChange, EditorStoreError> {
+        self.live(|state| {
+            state
+                .engine
+                .place_selection(expected, range, affinity)
+                .map_err(EditorStoreError::Editor)
+        })
+    }
+
     pub fn toggle_format(
         &mut self,
         expected: Revision,

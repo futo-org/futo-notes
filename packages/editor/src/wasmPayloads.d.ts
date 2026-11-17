@@ -174,6 +174,16 @@ export interface CodeBlockDescription {
   line_count: number;
 }
 
+/**
+ * `set_code_block_header`'s JSON argument: the block whose code shows at display byte `at`, and
+ * the language and `name:` to write; an empty string clears one.
+ */
+export interface CodeBlockHeader {
+  at: number;
+  language: string;
+  name: string;
+}
+
 export interface LinkDescription {
   range: DisplayRange;
   destination: string;
@@ -239,17 +249,21 @@ export interface ViewChange {
   selection: DisplayRange;
   /** The code block selected as one object (its whole range, which `selection` then equals). */
   selected_block: DisplayRange | null;
+  /** The caret is at a code block's hidden opening fence end: letters write its language. */
+  writes_language: boolean;
   work: EditWork;
   affinity: Affinity;
   projection: ProjectionSlice;
 }
 
-/** `select_with_affinity`, `select_code_block`. */
+/** `select_with_affinity`, `place_selection`, `select_code_block`. */
 export interface SelectionChange {
   revision: number;
   selection: DisplayRange;
   /** As on `ViewChange`. */
   selected_block: DisplayRange | null;
+  /** As on `ViewChange`. */
+  writes_language: boolean;
   affinity: Affinity;
 }
 

@@ -2,6 +2,7 @@
 //! worker a request to mirror it; acknowledgements arrive later and never gate
 //! the page. No callback here performs I/O.
 mod clipboard;
+mod code_blocks;
 mod composition;
 mod find;
 mod images;
@@ -241,12 +242,14 @@ impl PortableSession {
             .select_with_affinity(expected, range, affinity)?)
     }
 
-    pub fn select_code_block(
+    /// The user placed this selection; see `EditorSession::place_selection`.
+    pub fn place_selection(
         &mut self,
         expected: Revision,
-        at: DisplayOffset,
+        range: DisplayRange,
+        affinity: crate::Affinity,
     ) -> Result<crate::SelectionChange, PortableError> {
-        Ok(self.engine.select_code_block(expected, at)?)
+        Ok(self.engine.place_selection(expected, range, affinity)?)
     }
 
     pub fn active_formats(&self) -> Result<Vec<crate::InlineFormat>, PortableError> {
@@ -269,11 +272,6 @@ impl PortableSession {
     }
     pub fn selection(&self) -> DisplayRange {
         self.engine.selection()
-    }
-    /// The code block selected as one object: a key that only selects one
-    /// returns no change, so a view reads it here, with `selection`.
-    pub fn selected_block(&self) -> Option<DisplayRange> {
-        self.engine.selected_block()
     }
     /// The caret's side. An input that only moves the caret returns no change,
     /// so a view reads the side here, with `selection`.

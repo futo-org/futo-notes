@@ -16,22 +16,26 @@
    {
     "do": "pair:`",
     "after": "```|\n```",
-    "display": ""
+    "display": "",
+    "language": true
    },
    {
     "do": "type:j",
     "after": "```j|\n```",
-    "display": ""
+    "display": "",
+    "language": true
    },
    {
     "do": "type:s",
     "after": "```js|\n```",
-    "display": ""
+    "display": "",
+    "language": true
    },
    {
     "do": "Enter",
     "after": "```js\n|\n```",
-    "display": ""
+    "display": "",
+    "language": false
    },
    {
     "do": "type:x",
@@ -225,19 +229,23 @@
   "steps": [
    {
     "do": "pair:`",
-    "after": "```|\n```"
+    "after": "```|\n```",
+    "language": true
    },
    {
     "do": "Undo",
-    "after": "``|"
+    "after": "``|",
+    "language": false
    },
    {
     "do": "Redo",
-    "after": "```|\n```"
+    "after": "```|\n```",
+    "language": true
    },
    {
     "do": "type:p",
-    "after": "```p|\n```"
+    "after": "```p|\n```",
+    "language": true
    }
   ]
  },
@@ -524,7 +532,8 @@
   "steps": [
    {
     "do": "type:```",
-    "after": "```|"
+    "after": "```|",
+    "language": true
    },
    {
     "do": "pair:`",
@@ -558,6 +567,68 @@
    {
     "do": "Undo",
     "after": "a|"
+   }
+  ]
+ },
+ {
+  "name": "language: an echo keeps the language caret; placing it ends it, so letters write code",
+  "before": "a\n|",
+  "steps": [
+   {
+    "do": "type:```",
+    "after": "a\n```|",
+    "language": true
+   },
+   {
+    "do": "Select",
+    "after": "a\n```|",
+    "language": true
+   },
+   {
+    "do": "Place",
+    "after": "a\n```|",
+    "language": false
+   },
+   {
+    "do": "type:x",
+    "after": "a\n```\nx|",
+    "language": false
+   }
+  ]
+ },
+ {
+  "name": "language: placing the caret above a block's code puts it on the first code line",
+  "before": "|\nx",
+  "steps": [
+   {
+    "do": "type:```",
+    "after": "```|\nx",
+    "language": true
+   },
+   {
+    "do": "Place",
+    "after": "```\n|x",
+    "language": false
+   },
+   {
+    "do": "type:y",
+    "after": "```\ny|x",
+    "language": false
+   },
+   {
+    "do": "Undo",
+    "after": "```\n|x",
+    "language": false
+   },
+   {
+    "do": "Undo",
+    "after": "|\nx",
+    "language": false
+   },
+   {
+    "do": "Redo",
+    "after": "```|\nx",
+    "language": true
    }
   ]
  }

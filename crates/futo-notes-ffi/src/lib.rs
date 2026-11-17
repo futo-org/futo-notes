@@ -2,13 +2,14 @@ mod editor;
 pub use editor::editor_find_scan;
 pub use editor::{
     EditorAffinity, EditorBlockCommand, EditorBlockDescription, EditorByteRange,
-    EditorCodeBlockDescription, EditorCodeLineDescription, EditorCodeLineMark, EditorComposition,
-    EditorCorrespondence, EditorCorrespondenceKind, EditorDisplayByteOffset, EditorFindReport,
-    EditorFindScanRequest, EditorFindScanResult, EditorInlineFormat, EditorInputAction,
-    EditorLinkDescription, EditorListDescription, EditorNoteRead, EditorParagraphKey,
-    EditorProjection, EditorQuickOpen, EditorSaveStatus, EditorSemanticRun, EditorSessionError,
-    EditorSourceByteOffset, EditorSourceByteRange, EditorToolbarList, EditorToolbarSnapshot,
-    EditorUtf16Range, EditorUtf16Replacement, EditorViewChange, NativeEditorSession,
+    EditorCodeBlockDescription, EditorCodeBlockHeader, EditorCodeLineDescription,
+    EditorCodeLineMark, EditorComposition, EditorCorrespondence, EditorCorrespondenceKind,
+    EditorDisplayByteOffset, EditorFindReport, EditorFindScanRequest, EditorFindScanResult,
+    EditorInlineFormat, EditorInputAction, EditorLinkDescription, EditorListDescription,
+    EditorNoteRead, EditorParagraphKey, EditorProjection, EditorQuickOpen, EditorSaveStatus,
+    EditorSemanticRun, EditorSessionError, EditorSourceByteOffset, EditorSourceByteRange,
+    EditorToolbarList, EditorToolbarSnapshot, EditorUtf16Range, EditorUtf16Replacement,
+    EditorViewChange, NativeEditorSession,
 };
 pub use editor::{
     EditorDisplayMirror, EditorFindLanding, EditorFindSnapshot, EditorFindStep, EditorListMarker,

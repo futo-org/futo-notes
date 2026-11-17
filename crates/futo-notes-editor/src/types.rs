@@ -83,6 +83,10 @@ pub struct ViewChange {
     /// whole display range, which `selection` then equals.
     #[serde(default)]
     pub selected_block: Option<DisplayRange>,
+    /// The caret stands at a code block's hidden opening fence end, where
+    /// letters write the block's language (shown in its header), not code.
+    #[serde(default)]
+    pub writes_language: bool,
     pub work: EditWork,
     pub affinity: Affinity,
     /// Semantic replacement for the reparsed paragraph window, including
@@ -104,6 +108,9 @@ pub struct SelectionChange {
     /// As `ViewChange::selected_block`.
     #[serde(default)]
     pub selected_block: Option<DisplayRange>,
+    /// As `ViewChange::writes_language`.
+    #[serde(default)]
+    pub writes_language: bool,
     pub affinity: Affinity,
 }
 
@@ -277,6 +284,15 @@ pub struct CodeLineDescription {
 pub enum CodeLineMark {
     Highlight,
     Lowlight,
+}
+
+/// What `set_code_block_header` writes: the language and `name:` of the code
+/// block whose code shows at `at`. An empty one is cleared.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeBlockHeader {
+    pub at: DisplayOffset,
+    pub language: String,
+    pub name: String,
 }
 
 /// A fenced code block, whole even where a projection holds only part of it.

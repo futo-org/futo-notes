@@ -71,6 +71,9 @@ impl Engine {
         self.select_with_affinity(expected, range, affinity)
     }
 
+    /// A host's selection. The same range again (a host's echo of the
+    /// engine's own selection) keeps a selected block, and with the same
+    /// affinity keeps the caret where it maps (a language caret included).
     pub fn select_with_affinity(
         &mut self,
         expected: Revision,
@@ -93,11 +96,32 @@ impl Engine {
         Ok(self.selection_change())
     }
 
+    /// The user placed this selection: as `select_with_affinity`, but the
+    /// same range also ends a selected block and a language caret, leaving
+    /// an ordinary selection (on a block, a caret on its first code line).
+    pub fn place_selection(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        affinity: Affinity,
+    ) -> Result<SelectionChange, EditorError> {
+        self.check_revision(expected)?;
+        self.check_display_range(range)?;
+        if self.composition.is_none() {
+            self.block_selected = false;
+            self.pin = None;
+            self.typing = None;
+            self.formats = None;
+        }
+        self.select_with_affinity(expected, range, affinity)
+    }
+
     pub(crate) fn selection_change(&self) -> SelectionChange {
         SelectionChange {
             revision: self.revision,
             selection: self.selection,
             selected_block: self.selected_block(),
+            writes_language: self.writes_language(),
             affinity: self.affinity,
         }
     }
