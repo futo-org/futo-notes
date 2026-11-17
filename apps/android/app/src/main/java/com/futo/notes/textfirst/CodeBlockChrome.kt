@@ -49,6 +49,10 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     /** The code start of the block whose copy glyph shows a checkmark, -1 for none. */
     var copiedBlock = -1
 
+    /** The line box "add a line below" was last drawn in, in layout coordinates. */
+    var belowLabelBox: RectF? = null
+        private set
+
     fun clearTargets() = targets.clear()
 
     /** The topmost part drawn at ([x], [y]) in layout coordinates. */
@@ -132,12 +136,17 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     /** Where [action]'s part of the block at [codeStart] was last drawn, in layout coordinates. */
     fun areaOf(codeStart: Int, action: CodeBlockAction): RectF? = targets.lastOrNull { it.codeStart == codeStart && it.action == action }?.area
 
-    /** "Add a line below", centred in the skirt band [top] to [bottom]. */
-    fun drawLineBelow(canvas: Canvas, codeStart: Int, width: Float, top: Float, bottom: Float) {
+    /**
+     * "Add a line below", a skirt-tall line box from [labelTop], centred across the card; a press from
+     * its top down to [pressBottom] opens the line (!300's page, job13/report3: the box sits 0.2 skirt
+     * above the skirt, and the strip under it reaches the next card).
+     */
+    fun drawLineBelow(canvas: Canvas, codeStart: Int, width: Float, labelTop: Float, pressBottom: Float) {
         val label = edgeLabel(labels.addLineBelow, width - look.codeCorner * 2)
-        if (label.isNotEmpty()) drawEdgeLabel(canvas, label, width / 2f, top, minOf(bottom, top + look.codeSkirt * 1.6f))
-        // The band above the label keeps its meaning, the end of the code (cb 841-844).
-        targets.add(CodeBlockTarget(RectF(0f, top + look.codeSkirt / 2f, width, bottom), CodeBlockAction.OPEN_LINE_BELOW, codeStart))
+        val box = RectF(0f, labelTop, width, labelTop + look.codeSkirt)
+        belowLabelBox = box
+        if (label.isNotEmpty()) drawEdgeLabel(canvas, label, width / 2f, box.top, box.bottom)
+        targets.add(CodeBlockTarget(RectF(0f, labelTop, width, maxOf(pressBottom, box.bottom)), CodeBlockAction.OPEN_LINE_BELOW, codeStart))
     }
 
     /**

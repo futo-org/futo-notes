@@ -79,8 +79,8 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
     // between two blocks it sits in the skirt and its press reaches down across the gap (cb 841-844).
     when {
         !active -> Unit
-        endsNote -> codeChrome.drawLineBelow(canvas, headStart, width, cardBottom, cardBottom + look.codeSkirt * 1.6f)
-        tail.touchesBlockBelow(e) -> codeChrome.drawLineBelow(canvas, headStart, width, cardBottom - look.codeSkirt, cardBottom + look.codeBlockGap)
+        endsNote -> codeChrome.drawLineBelow(canvas, headStart, width, cardBottom + look.codeSkirt * 0.3f, cardBottom + look.codeSkirt * 1.6f)
+        tail.touchesBlockBelow(e) -> codeChrome.drawLineBelow(canvas, headStart, width, cardBottom - look.codeSkirt * 1.2f, cardBottom + look.codeBlockGap)
     }
     if (endsNote) codeChrome.addSpaceBelow(headStart, width, cardBottom)
 }

@@ -266,4 +266,28 @@ class TextFirstCodeBlockTest {
         val now = view.codeChrome.areaOf(codeStart, CodeBlockAction.LANGUAGE_LABEL)!!
         assertEquals("the field left its block", view.top + view.totalPaddingTop - view.scrollY + now.top, field.top.toFloat(), 1f)
     }
+
+    /**
+     * Mason's report: "add a line below" rendered strangely. !300's page (job13/report3): between two
+     * touching blocks the label's line box starts 2 px (0.2 skirt) above the upper card's skirt and
+     * is one skirt tall, inside the card; a press from there down to the lower card opens the line.
+     */
+    @Test fun addALineBelowSitsInTheSkirtWhereThreeHundredPutIt() = textFirstSession("```js\nconst a = 1\n```\n```rust\nlet b = 2;\n```\n\nend") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        textFirstIme(c) { setSelection(3, 3) }
+        c.sourceText()
+        val lower = view.editableText.indexOf("let b")
+        withTimeout(5_000) { while (view.codeChrome.areaOf(0, CodeBlockAction.OPEN_LINE_BELOW) == null || view.codeChrome.areaOf(lower, CodeBlockAction.SELECT_BLOCK) == null) delay(20) }
+        val press = view.codeChrome.areaOf(0, CodeBlockAction.OPEN_LINE_BELOW)!!
+        val label = view.codeChrome.belowLabelBox!!
+        val nextCard = view.codeChrome.areaOf(lower, CodeBlockAction.SELECT_BLOCK)!!.top
+        val look = view.style
+        val skirtTop = nextCard - look.codeBlockGap - look.codeSkirt
+        assertEquals(skirtTop - look.codeSkirt * 0.2f, label.top, 1f)
+        assertEquals(look.codeSkirt, label.height(), 1f)
+        assertEquals(label.top, press.top, 1f)
+        assertEquals(nextCard, press.bottom, 1f)
+    }
 }
