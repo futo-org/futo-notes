@@ -60,6 +60,7 @@ internal class FastSession private constructor(session: NativeEditorSession) : A
             EditorParagraphKey.TAB -> 4
             EditorParagraphKey.SHIFT_TAB -> 5
             EditorParagraphKey.BACKSPACE_JOINING_HEADING -> 6
+            EditorParagraphKey.PAIRED_BACKSPACE -> 7
         }))
 
     private fun liveHandle(): Long {
