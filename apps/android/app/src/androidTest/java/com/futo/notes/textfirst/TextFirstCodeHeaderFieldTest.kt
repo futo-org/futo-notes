@@ -269,4 +269,39 @@ class TextFirstCodeHeaderFieldTest {
         delay(300)
         assertEquals("typing moved the note", scrolled, view.scrollY)
     }
+
+    /**
+     * Verifier run 4 (report 1): a field low on the screen that the rising keyboard covers moved the note twice,
+     * once before the keyboard was up and once after it resized the note. It moves once, as on !300.
+     */
+    @Test fun aCoveredFieldIsRevealedInOneMovement() = textFirstSession("line\n".repeat(30) + "```py\nb = 2\n```\n" + "end\n".repeat(60)) { c ->
+        val view = c.view
+        // The app's window neither pans nor resizes for the keyboard; its screen pads the note (imePadding), modelled below.
+        (view.context as android.app.Activity).window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        view.isFocusableInTouchMode = true
+        val codeStart = view.editableText.indexOf("b = 2")
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        val header = view.layout.getLineTop(view.layout.getLineForOffset(codeStart)) - view.style.codeHeaderHeight
+        // The header just above the note's bottom edge, inside the room kept for the editor toolbar.
+        view.scrollTo(0, (header + view.style.codeHeaderHeight * 2.5f - (view.height - view.totalPaddingTop - view.totalPaddingBottom)).toInt())
+        withTimeout(5_000) { while (view.codeChrome.areaOf(codeStart, CodeBlockAction.LANGUAGE_LABEL) == null) delay(20) }
+        val area = view.codeChrome.areaOf(codeStart, CodeBlockAction.LANGUAGE_LABEL)!!
+        val positions = mutableListOf(view.scrollY)
+        val record = android.view.ViewTreeObserver.OnScrollChangedListener { if (positions.last() != view.scrollY) positions += view.scrollY }
+        view.viewTreeObserver.addOnScrollChangedListener(record)
+        holdNoteAt(view, view.totalPaddingLeft + area.centerX(), view.totalPaddingTop - view.scrollY + area.centerY())
+        openField(view)
+        fun keyboard() = androidx.core.view.ViewCompat.getRootWindowInsets(view)?.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())?.bottom ?: 0
+        withTimeout(5_000) { while (keyboard() == 0) delay(20) }
+        delay(300)
+        // The screen's imePadding resizes the note to the keyboard's top, as the app does.
+        val inWindow = IntArray(2).also(view::getLocationInWindow)
+        val params = view.layoutParams
+        params.height = view.rootView.height - keyboard() - inWindow[1]
+        view.layoutParams = params
+        withTimeout(5_000) { while (view.height != params.height) delay(20) }
+        delay(1_000)
+        view.viewTreeObserver.removeOnScrollChangedListener(record)
+        assertEquals("the note moved more than once: $positions", 2, positions.size)
+    }
 }

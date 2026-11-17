@@ -25,6 +25,8 @@ import android.view.inputmethod.InputConnectionWrapper
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import kotlin.math.roundToInt
 
 /**
@@ -42,8 +44,9 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
 
     private var editing: Editing? = null
     private var field: EditText? = null
-    /** The note's height when the field last settled: the keyboard resizes the note over many frames. */
+    /** The note's height and the keyboard's when the field last settled: both move over many frames. */
     private var settledHeight = -1
+    private var settledKeyboard = -1
     private val settle = Runnable { editing?.let { state -> keepInView(state) } }
     /** The open field's left edge, in layout coordinates. */
     private var fieldLeft = 0f
@@ -86,6 +89,7 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
     private fun forget() {
         note.removeCallbacks(settle)
         settledHeight = -1
+        settledKeyboard = -1
         field = null
         editing = null
         note.codeChrome.openField = null
@@ -201,8 +205,10 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
     private fun place() {
         val state = editing ?: return
         val open = field ?: return
-        if (note.height != settledHeight) {
+        val keyboard = ViewCompat.getRootWindowInsets(note)?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+        if (note.height != settledHeight || keyboard != settledKeyboard) {
             settledHeight = note.height
+            settledKeyboard = keyboard
             note.removeCallbacks(settle)
             note.postDelayed(settle, SETTLE_MILLISECONDS)
         }
@@ -239,11 +245,16 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
 
     private fun keepInView(state: Editing) {
         val area = fieldArea(state) ?: return
-        // The keyboard resizes the note (the screen's imePadding); the reveal waits for it to settle, so it is one step.
-        // Leaving the field puts the caret on the block's first line and may bring the editor toolbar back over
-        // the keyboard: keep that line in view too, with the toolbar's room, so leaving never scrolls the note.
-        val toolbarRoom = note.style.codeHeaderHeight * 2
-        val visibleBottom = note.height - note.totalPaddingBottom - toolbarRoom
+        // The keyboard resizes the note (the screen's imePadding) a few frames after it reports its height: measure
+        // against the keyboard's own top, so the first reveal lands where the note will end and the resize moves nothing
+        // (verifier run 4). Leaving the field puts the caret on the block's first line and may bring the editor toolbar
+        // back over the keyboard: keep that line in view too, with the toolbar's room, so leaving never scrolls the note.
+        val keyboard = ViewCompat.getRootWindowInsets(note)?.takeIf { it.isVisible(WindowInsetsCompat.Type.ime()) }
+            ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom
+        val inWindow = IntArray(2).also(note::getLocationInWindow)
+        val keyboardTop = keyboard?.let { note.rootView.height - it - inWindow[1] } ?: note.height
+        val toolbarRoom = if (keyboard != null) note.style.codeHeaderHeight * 2 else 0f
+        val visibleBottom = minOf(note.height, keyboardTop) - note.totalPaddingBottom - toolbarRoom
         val layout = note.layout ?: return
         val firstLineBottom = layout.getLineBottom(layout.getLineForOffset(state.codeStart)).toFloat()
         val top = note.totalPaddingTop - note.scrollY + area.top
