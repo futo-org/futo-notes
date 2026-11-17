@@ -255,7 +255,7 @@ internal class TextFirstEditText(
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (h > oldh) clampScrollToNote()
-        if (h < oldh && caretWasInView(oldh)) { reveal.again(); bringPointIntoView(selectionEnd) }
+        if (h < oldh && isFocused && caretWasInView(oldh)) { reveal.again(); bringPointIntoView(selectionEnd) }
         if (w != oldw) refreshWidthDependentSpans()
     }
 

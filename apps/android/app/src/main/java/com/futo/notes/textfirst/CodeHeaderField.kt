@@ -1,11 +1,17 @@
 package com.futo.notes.textfirst
 
+import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.text.Editable
 import android.text.InputFilter
 import android.text.InputType
 import android.text.Selection
+import android.text.Spanned
+import android.text.TextPaint
 import android.text.TextWatcher
+import android.text.style.LineHeightSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
@@ -33,6 +39,9 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
 
     private var editing: Editing? = null
     private var field: EditText? = null
+    /** The note's height when the field last settled: the keyboard resizes the note over many frames. */
+    private var settledHeight = -1
+    private val settle = Runnable { editing?.let { state -> keepInView(state) } }
     /** The open field's left edge, in layout coordinates. */
     private var fieldLeft = 0f
     private val follow = ViewTreeObserver.OnPreDrawListener { place(); true }
@@ -71,6 +80,8 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
     }
 
     private fun forget() {
+        note.removeCallbacks(settle)
+        settledHeight = -1
         field = null
         editing = null
         note.codeChrome.openField = null
@@ -96,23 +107,31 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
                 }
             }
         }
-        field.typeface = look.mono
+        // The drawn label's face, so the text does not change shape when the field opens or closes.
+        field.typeface = if (state.kind == Kind.NAME) look.mono else look.regular
         field.setTextSize(TypedValue.COMPLEX_UNIT_PX, look.codeHeaderTextSize)
         field.setTextColor(look.textColor)
         field.highlightColor = look.selectionColor
-        field.background = GradientDrawable().apply {
+        val inset = (look.codeHeaderHeight * 0.12f).roundToInt()
+        field.background = InsetDrawable(GradientDrawable().apply {
             cornerRadius = look.codeRadius
             setColor((look.textColor and 0x00ffffff) or 0x14000000)
-        }
+        }, 0, inset, 0, inset)
+        // The field spans the header row and puts its one line's baseline on the drawn label's (CodeBlockChrome.headerBaseline),
+        // so the text does not move when it opens, as it is typed, or when it closes; its highlight, the line's box, is then centred too.
+        field.includeFontPadding = false
         val pad = look.codeChipPad.roundToInt()
-        field.setPadding(pad, 0, pad, 0)
-        field.gravity = Gravity.CENTER_VERTICAL
+        val line = CentredLine(field.paint)
+        val baseline = note.codeChrome.headerBaseline(0f, field.typeface).roundToInt()
+        field.setPadding(pad, baseline + line.ascent, pad, 0)
+        field.gravity = Gravity.TOP or Gravity.START
         field.isSingleLine = true
         field.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         // !300's fields name their Enter key (enterkeyhint), which Gboard shows as the Go arrow (job12/ref-fields-light.png).
         field.imeOptions = EditorInfo.IME_ACTION_GO or EditorInfo.IME_FLAG_NO_EXTRACT_UI
         if (state.kind == Kind.LANGUAGE) field.filters = arrayOf(languageFilter)
         field.setText(if (state.kind == Kind.NAME) state.name else state.language)
+        field.text.setSpan(line, 0, field.text.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
         field.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) = Unit
@@ -173,8 +192,12 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         val open = field ?: return
         val action = if (state.kind == Kind.NAME) CodeBlockAction.NAME_FIELD else CodeBlockAction.LANGUAGE_LABEL
         val area = note.codeChrome.areaOf(state.codeStart, action) ?: return
+        if (note.height != settledHeight) {
+            settledHeight = note.height
+            note.removeCallbacks(settle)
+            note.postDelayed(settle, SETTLE_MILLISECONDS)
+        }
         val look = note.style
-        val inset = look.codeHeaderHeight * 0.12f
         val textWidth = open.paint.measureText(open.text.toString()) + look.codeChipPad * 2 + look.dp(2f)
         val width = maxOf(textWidth, look.codeChipPad * 4).coerceAtMost(note.width * 0.6f)
         // The language field takes the chip's place, its glyph included, anchored to the card's right corner (cb 300-302).
@@ -183,16 +206,43 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         fieldLeft = left
         // The note's parent lays out only the note (TextFirstTableCellHost), so the field is placed here.
         val x = (note.left + note.totalPaddingLeft - note.scrollX + left).roundToInt()
-        val y = (note.top + note.totalPaddingTop - note.scrollY + area.top + inset).roundToInt()
+        val y = (note.top + note.totalPaddingTop - note.scrollY + area.top).roundToInt()
         val w = width.roundToInt()
-        val h = (area.height() - inset * 2).roundToInt()
+        val h = area.height().roundToInt()
         if (open.measuredWidth != w || open.measuredHeight != h || open.isLayoutRequested) {
             open.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY))
         }
         if (open.left != x || open.top != y || open.width != w || open.height != h || open.isLayoutRequested) open.layout(x, y, x + w, y + h)
     }
 
+    /**
+     * A field the keyboard or the note's edge covers is scrolled just into view; a field already in
+     * view is never moved (Mason, 2026-11-17: the note slid away under an open field). It runs once the
+     * keyboard has finished resizing the note: measured mid-animation, it overshoots and settles back.
+     */
+    private fun keepInView(state: Editing) {
+        val action = if (state.kind == Kind.NAME) CodeBlockAction.NAME_FIELD else CodeBlockAction.LANGUAGE_LABEL
+        val area = note.codeChrome.areaOf(state.codeStart, action) ?: return
+        val frame = Rect().also(note::getWindowVisibleDisplayFrame)
+        val onScreen = IntArray(2).also(note::getLocationOnScreen)
+        // The note runs on under the keyboard (the screen pads its own column, not the note), and the
+        // keyboard toolbar sits on the keyboard: keep the field clear of both, with room for the toolbar.
+        val keyboardTop = frame.bottom - onScreen[1] - note.style.codeHeaderHeight * 2
+        val visibleBottom = minOf((note.height - note.totalPaddingBottom).toFloat(), keyboardTop)
+        val top = note.totalPaddingTop - note.scrollY + area.top
+        val bottom = note.totalPaddingTop - note.scrollY + area.bottom
+        val shift = when {
+            bottom > visibleBottom -> bottom - visibleBottom
+            top < note.totalPaddingTop -> top - note.totalPaddingTop
+            else -> return
+        }
+        note.scrollTo(note.scrollX, (note.scrollY + shift).roundToInt().coerceAtLeast(0))
+    }
+
     private companion object {
+        /** How long the note's height must hold still before an open field is brought into view. */
+        const val SETTLE_MILLISECONDS = 120L
+
         /** A language is one token: a space becomes a hyphen, and a leading one is dropped (!300 cb 371-373). */
         val languageFilter = InputFilter { source, start, end, _, dstart, _ ->
             val typed = source.subSequence(start, end).toString()
@@ -202,3 +252,30 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         }
     }
 }
+
+/**
+ * The field's one line, as tall as the font's but centred on what the eye sees, from the capitals'
+ * top to the descenders' bottom, so the selection highlight sits around the text instead of
+ * reaching mostly above it (Mason, 2026-11-17: "magnetized to the top").
+ */
+private class CentredLine(paint: TextPaint) : LineHeightSpan {
+    val ascent: Int
+    private val descent: Int
+
+    init {
+        val metrics = paint.fontMetricsInt
+        val capital = Rect().also { paint.getTextBounds("H", 0, 1, it) }
+        val height = metrics.descent - metrics.ascent
+        val centre = (capital.top + metrics.descent) / 2f
+        ascent = (centre - height / 2f).roundToInt()
+        descent = ascent + height
+    }
+
+    override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
+        fm.ascent = ascent
+        fm.top = ascent
+        fm.descent = descent
+        fm.bottom = descent
+    }
+}
+

@@ -3,6 +3,7 @@ package com.futo.notes.textfirst
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.text.TextPaint
 import android.text.TextUtils
 
@@ -31,6 +32,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     private val edgePaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private val glyphPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val glyphBox = RectF()
+    private val baselinePaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private val targets = ArrayList<CodeBlockTarget>()
 
     var labels = CodeBlockLabels("", "", "", "")
@@ -72,8 +74,8 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         languagePaint.color = look.mutedColor
         val bottom = top + look.codeHeaderHeight
         targets.add(CodeBlockTarget(RectF(left, top, right, bottom), CodeBlockAction.SELECT_BLOCK, codeStart, block))
-        val metrics = languagePaint.fontMetrics
-        val baseline = top + (look.codeHeaderHeight - metrics.ascent - metrics.descent) / 2f
+        val baseline = headerBaseline(top, look.regular)
+        val nameBaseline = headerBaseline(top, look.mono)
         // !300's glyph box: 12 px against its 18 px body.
         val glyph = look.codeHeaderTextSize * 16f / 18f
         val glyphRight = right - look.codeCorner
@@ -98,11 +100,11 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         // The ghost "name" tells a reader with no hover that the header is editable (cb 671-677).
         if (block.name.isNullOrEmpty() && header.revealFields && openField != (codeStart to CodeHeaderField.Kind.NAME)) {
             namePaint.alpha = GHOST_ALPHA
-            canvas.drawText(labels.namePlaceholder, nameLeft, baseline, namePaint)
+            canvas.drawText(labels.namePlaceholder, nameLeft, nameBaseline, namePaint)
         }
         block.name?.takeIf { it.isNotEmpty() }?.let { name ->
             val shown = TextUtils.ellipsize(name, namePaint, nameRight - nameLeft, TextUtils.TruncateAt.END)
-            if (openField != (codeStart to CodeHeaderField.Kind.NAME)) canvas.drawText(shown, 0, shown.length, nameLeft, baseline, namePaint)
+            if (openField != (codeStart to CodeHeaderField.Kind.NAME)) canvas.drawText(shown, 0, shown.length, nameLeft, nameBaseline, namePaint)
             nameEnd += namePaint.measureText(shown, 0, shown.length)
         }
         val nameBoxEnd = maxOf(nameEnd, nameLeft + namePaint.measureText(labels.namePlaceholder)).coerceAtMost(nameRight)
@@ -116,6 +118,15 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         val center = ((nameBoxEnd + nameRight) / 2f).coerceIn(nameBoxEnd + labelWidth / 2f, nameRight - labelWidth / 2f)
         drawEdgeLabel(canvas, label, center, top, bottom)
         targets.add(CodeBlockTarget(RectF(center - labelWidth / 2f, top, center + labelWidth / 2f, bottom), CodeBlockAction.OPEN_LINE_ABOVE, codeStart))
+    }
+
+    /**
+     * The baseline that centres a header text in [face] on a header whose top is [top]: the drawn
+     * label and its open field both sit on it.
+     */
+    fun headerBaseline(top: Float, face: Typeface): Float {
+        val metrics = baselinePaint.apply { typeface = face; textSize = look.codeHeaderTextSize }.fontMetrics
+        return top + (look.codeHeaderHeight - metrics.ascent - metrics.descent) / 2f
     }
 
     /** Where [action]'s part of the block at [codeStart] was last drawn, in layout coordinates. */

@@ -30,7 +30,7 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
                 val target = pressed ?: return false
                 pressed = null
                 val held = event.eventTime - event.downTime >= ViewConfiguration.getLongPressTimeout()
-                if (targetAt(event) === target) act(target, held, event.x - view.totalPaddingLeft + view.scrollX)
+                if (isSamePart(target, targetAt(event))) act(target, held, event.x - view.totalPaddingLeft + view.scrollX)
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
@@ -75,6 +75,18 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
             CodeBlockAction.OPEN_LINE_ABOVE -> { view.showKeyboard(); engine.openCodeBlockLine(target.codeStart, EditorBlockCommand.OpenLineBeforeCodeBlock) }
             CodeBlockAction.OPEN_LINE_BELOW -> { view.showKeyboard(); engine.openCodeBlockLine(target.codeStart, EditorBlockCommand.OpenLineAfterCodeBlock) }
         }
+    }
+
+    /**
+     * Whether a lift at [lifted] ends the press that began on [pressed]. Not by identity: every frame
+     * draws the chrome's targets anew, and a hold outlasts frames (the caret blinks). The language and
+     * the copy glyph are one chip, so a finger drifting between them still holds the chip.
+     */
+    private fun isSamePart(pressed: CodeBlockTarget, lifted: CodeBlockTarget?): Boolean {
+        if (lifted == null || lifted.codeStart != pressed.codeStart) return false
+        if (lifted.action == pressed.action) return true
+        val chip = setOf(CodeBlockAction.LANGUAGE_LABEL, CodeBlockAction.COPY_CODE)
+        return pressed.action in chip && lifted.action in chip
     }
 
     /** The caret or the selection is in the target's block. */
