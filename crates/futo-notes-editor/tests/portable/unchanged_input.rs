@@ -2,8 +2,8 @@
 //! the same input that changed text would leave it, and the session still takes input.
 use super::{at, utf16};
 use futo_notes_editor::{
-    Affinity, DisplayRange, DisplayReplacement, DisplayUtf16Replacement, ParagraphKey,
-    PortableSession, Revision, SessionToken,
+    Affinity, DisplayOffset, DisplayRange, DisplayReplacement, DisplayUtf16Replacement,
+    ParagraphKey, PortableSession, Revision, SessionToken,
 };
 
 fn open_selected(source: &str, selection: DisplayRange) -> PortableSession {
@@ -169,4 +169,35 @@ fn a_paired_backtick_at_a_code_span_end_sends_nothing_and_the_next_text_lands_ou
     assert_eq!(session.selection(), at(7, 7));
     session.replace(Revision(2), at(7, 7), " baz").unwrap();
     assert_eq!(session.draft_text(), "foo `bar` baz");
+}
+
+#[test]
+fn pasting_the_selected_text_again_sends_nothing_and_collapses_to_its_end() {
+    let mut session = open_selected("one foo two", at(4, 7));
+    let applied = session
+        .paste_markdown(Revision(0), at(4, 7), "foo")
+        .unwrap();
+    assert!(applied.is_none());
+    assert_unchanged(&mut session, "one foo two", at(7, 7));
+}
+
+#[test]
+fn pasting_a_selected_block_over_itself_ends_it_and_a_second_paste_adds_a_copy() {
+    let source = "a\n```js\nx\n```\nb";
+    let mut session = PortableSession::open(SessionToken(1), source, Revision(0));
+    session
+        .select_code_block(Revision(0), DisplayOffset(2))
+        .unwrap();
+    let block = session.selection();
+    let copied = session.copy_markdown(Revision(0), block).unwrap();
+    let applied = session.paste_markdown(Revision(0), block, &copied).unwrap();
+    assert!(applied.is_none());
+    assert_eq!(session.selected_block(), None);
+    assert_eq!(session.selection(), at(4, 4));
+    let caret = session.selection();
+    session.paste_markdown(Revision(0), caret, &copied).unwrap();
+    assert_eq!(session.draft_text(), "a\n```js\nx\n```\n```js\nx\n```\nb");
+    assert_eq!(session.status().outstanding, 1);
+    session.undo(Revision(1)).unwrap();
+    assert_eq!(session.draft_text(), source);
 }

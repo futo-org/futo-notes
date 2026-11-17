@@ -18,6 +18,8 @@
 //! - Text after the caret joins the last pasted line, unless that line is a
 //!   block or leaves a fence open: then it keeps a line of its own with the
 //!   caret line's markers, and a fence the paste opened is closed before it.
+//! - A paste that ends with a closed code block leaves the caret on the line
+//!   after it, opening an empty one where no ordinary line follows.
 //! - Marks the caret is inside close at the first pasted line break and open
 //!   again on the line the text after the caret is on.
 //! - One pasted line holding a link never lands inside another link's
@@ -29,12 +31,21 @@
 use super::super::super::command::{Command, Edit};
 use super::super::super::Engine;
 use super::super::blocks::Joined;
-use super::super::fences::Touch;
+use super::super::fences::{leading, line_after_closing, Touch};
 use super::super::lists::parts;
 use super::super::marks::split;
 use crate::lines::block::OpenFence;
-use crate::lines::{block, line_spans, Carry, Kind, Line, SpanKind};
+use crate::lines::{block, line_spans, Carry, FenceRole, Kind, Line, SpanKind};
 use crate::{DisplayRange, EditorError, InputAction};
+
+/// Where the caret lands after a shaped paste.
+enum Landing {
+    /// At this offset of the written text.
+    At(usize),
+    /// On the line after the written text: the paste ended with a closed
+    /// code block and nothing else is on its line.
+    BelowBlock,
+}
 
 /// `text` with one trailing line ending dropped (unless that is all it
 /// is) and every `\n` or `\r\n` spelled `newline`.
@@ -175,8 +186,11 @@ impl Engine {
         let joined = if empty { None } else { self.joined(range) };
         let command = joined.and_then(|joined| {
             if shaped {
-                let (out, caret) = shape(&joined, &pasted, &first, &newline);
-                Some(self.written(&joined, &out, caret))
+                let (out, landing) = shape(&joined, &pasted, &first, &newline);
+                Some(match landing {
+                    Landing::At(caret) => self.written(&joined, &out, caret),
+                    Landing::BelowBlock => self.below_pasted_block(&joined, out, &newline),
+                })
             } else if has_link(&first, pasted[0]) {
                 let (at, closes, opens) = link_split(&joined)?;
                 let body = &joined.text;
@@ -201,6 +215,33 @@ impl Engine {
             joined.first.saturating_sub(1)..joined.last + 1,
             command.selection,
         )
+    }
+
+    /// The joined line rewritten as `out`, which ends with a closed code
+    /// block, the caret at the start of the line after it. Where that line
+    /// opens another block, or there is none, an empty line is opened after
+    /// the block as `OpenLineAfterCodeBlock` opens one, and the caret is on it.
+    fn below_pasted_block(&self, joined: &Joined, mut out: String, newline: &str) -> Command {
+        let next = joined.last + 1;
+        let ordinary = next < self.line_count()
+            && !matches!(
+                self.line(next).line.kind,
+                Kind::Fence {
+                    role: FenceRole::Open,
+                    ..
+                }
+            );
+        let own = self.line(joined.last).ending();
+        if ordinary {
+            let caret = out.len() + own.len();
+            return self.written(joined, &out, caret);
+        }
+        let ending = if own.is_empty() { newline } else { own };
+        let closing = out.rsplit(newline).next().unwrap_or_default();
+        let opened = line_after_closing(ending, closing);
+        out.push_str(&opened);
+        let caret = out.len();
+        self.written(joined, &out, caret)
     }
 
     /// The text replacing the selection, exactly as given, as typing it
@@ -270,8 +311,9 @@ impl Engine {
 }
 
 /// The joined line with `pasted` (its lines, the first read alone as
-/// `first`) written at its caret, and the caret after the last pasted line.
-fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (String, usize) {
+/// `first`) written at its caret, and where the caret lands: after the last
+/// pasted line, or on the line after it when that line closes a code block.
+fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (String, Landing) {
     let body = joined.text.as_str();
     let line = &joined.line;
     let part = parts(body, line);
@@ -356,6 +398,11 @@ fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (Stri
         caret_line.1 += opens.len();
         lines[last].push_str(tail);
     }
+    let ends_block = closes_block(&joined.carry, &lines[..=last]);
+    if ends_block && alone {
+        let column = open_line_before_tail(&mut lines, last).unwrap_or(head.len() + opens.len());
+        caret_line = (last + 1, column);
+    }
     let mut out = String::new();
     let mut caret = 0;
     for (index, text) in lines.iter().enumerate() {
@@ -367,7 +414,41 @@ fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (Stri
         }
         out.push_str(text);
     }
-    (out, caret)
+    if ends_block && !alone {
+        return (out, Landing::BelowBlock);
+    }
+    (out, Landing::At(caret))
+}
+
+/// The tail line after closing fence `lines[closing]`, when it opens a block
+/// of its own, gets an empty line before it at the fence's indent: the
+/// caret's column on that line. `None` for any other tail, where the caret
+/// goes to the tail's own text start, after its markers.
+fn open_line_before_tail(lines: &mut Vec<String>, closing: usize) -> Option<usize> {
+    let tail = lines.len() - 1;
+    if !matches!(read_alone(&lines[tail]).kind, Kind::Fence { .. }) {
+        return None;
+    }
+    let indent = leading(&lines[closing]).to_owned();
+    let column = indent.len();
+    lines.insert(tail, indent);
+    Some(column)
+}
+
+/// Whether the last of `lines` (read after `carry`) closes a code block.
+fn closes_block(carry: &Carry, lines: &[String]) -> bool {
+    let mut carry = carry.clone();
+    let mut last = None;
+    for text in lines {
+        last = Some(block::read_line(&mut carry, text, 0).kind);
+    }
+    matches!(
+        last,
+        Some(Kind::Fence {
+            role: FenceRole::Close,
+            ..
+        })
+    )
 }
 
 /// The fence `lines` (read after `carry`) leave open that was not open

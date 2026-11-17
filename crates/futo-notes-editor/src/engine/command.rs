@@ -9,16 +9,20 @@
 //! block (a fence or front matter opened or closed, a table header gained or
 //! lost), the command is cancelled: no edit, no history entry. Typing never
 //! goes through the guard.
-use super::edit::{Batch, Change};
+mod kept_line;
+
+use super::edit::{Batch, Change, Marked};
 use super::history::Group;
 use super::line::Entry;
 use super::{read, store, Engine};
-use crate::lines::{block, Carry, FenceRole, FrontMatterRole, Kind, Line, TableRole};
+use crate::lines::{block, Carry, FenceRole, FrontMatterRole, Kind, TableRole};
 use crate::{
     Affinity, DisplayOffset, DisplayRange, EditorError, InlineFormat, InputAction, Revision,
     SourceEdit,
 };
 use std::ops::Range;
+
+pub(crate) use kept_line::kept_line;
 
 /// One text edit, in source offsets of the text before the command.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -296,7 +300,8 @@ impl Engine {
     /// Run the command `build` makes from the engine's state, as one action
     /// behind the guard. Pending marked text commits first, in the same
     /// acceptance and as its own undo step, and `build` reads the note with
-    /// it in place. `None` when nothing changed or the guard cancelled.
+    /// it in place. `None` when nothing changed or the guard cancelled; a
+    /// typed command that changed nothing still leaves its selection.
     pub(crate) fn run(
         &mut self,
         expected: Revision,
@@ -309,14 +314,7 @@ impl Engine {
         let mut batch = Batch::default();
         let mut committed = None;
         if let Some(marked) = &marked {
-            self.adopt_marked_caret(marked.range);
-            let commit = self.plan_input(
-                self.outside_crlf(marked.range),
-                &marked.text,
-                InputAction::CompositionCommit,
-            );
-            self.raw(&mut batch, commit.range.clone(), &commit.inserted);
-            self.caret_at(commit.caret);
+            self.commit_marked(&mut batch, marked);
             committed = Some((batch.records.len(), self.point()));
         }
         let restore = |engine: &mut Self, batch: Batch| {
@@ -343,15 +341,7 @@ impl Engine {
                     }
                     self.composition = None;
                     batch = Batch::default();
-                    let marked = marked.as_ref().expect("marked text");
-                    self.adopt_marked_caret(marked.range);
-                    let commit = self.plan_input(
-                        self.outside_crlf(marked.range),
-                        &marked.text,
-                        InputAction::CompositionCommit,
-                    );
-                    self.raw(&mut batch, commit.range.clone(), &commit.inserted);
-                    self.caret_at(commit.caret);
+                    self.commit_marked(&mut batch, marked.as_ref().expect("marked text"));
                 }
                 Err(error) => {
                     restore(self, batch);
@@ -368,9 +358,14 @@ impl Engine {
             }
         };
         let Some((edit, shown, mut records)) = accepted else {
-            // Marked text that committed unchanged still leaves the caret at
-            // its end; otherwise nothing moved.
-            if committed.is_none() || applied {
+            // Typing's commands land even when they wrote the bytes already
+            // there, as typing them over a selection does. Marked text that
+            // committed unchanged still leaves the caret at its end.
+            let typed = command.as_ref().filter(|command| applied && command.typed);
+            if let (Some(command), None) = (typed, &committed) {
+                self.restore(&opening);
+                self.land(command.selection.clone(), command.affinity);
+            } else if committed.is_none() || applied {
                 self.restore(&opening);
             }
             return Ok(None);
@@ -406,6 +401,19 @@ impl Engine {
             });
         }
         Ok(Some(self.change(edit, shown)))
+    }
+
+    /// Marked text written into `batch` as committing it writes it, the
+    /// caret at its end.
+    fn commit_marked(&mut self, batch: &mut Batch, marked: &Marked) {
+        self.adopt_marked_caret(marked.range);
+        let commit = self.plan_input(
+            self.outside_crlf(marked.range),
+            &marked.text,
+            InputAction::CompositionCommit,
+        );
+        self.raw(batch, commit.range.clone(), &commit.inserted);
+        self.caret_at(commit.caret);
     }
 
     /// Apply `command`'s edits to `batch`, then the guard. `false` when the
@@ -492,42 +500,4 @@ impl Engine {
         }
         first..last.max(first) + 1
     }
-}
-
-/// `prefix` then `text`, with a `\` written into `text` when without it the
-/// line would not read as `keeps` wants, after `carry`. Removing the bullet
-/// from `- # todo` keeps a plain line by writing `\# todo`. Nothing is
-/// escaped when the line already reads as wanted, or when no `\` helps.
-pub(crate) fn kept_line(
-    carry: &Carry,
-    prefix: &str,
-    text: &str,
-    keeps: impl Fn(&Line) -> bool,
-) -> String {
-    let read = |line: &str| {
-        let mut carry = carry.clone();
-        carry.first = false;
-        block::read_line(&mut carry, line, 0)
-    };
-    let plain = format!("{prefix}{text}");
-    if keeps(&read(&plain)) {
-        return plain;
-    }
-    let lead = text.len() - text.trim_start_matches([' ', '\t']).len();
-    let rest = &text[lead..];
-    let at = match rest.bytes().next() {
-        Some(b) if b.is_ascii_punctuation() => Some(lead),
-        Some(b) if b.is_ascii_digit() => {
-            let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
-            matches!(rest.as_bytes().get(digits), Some(b'.' | b')')).then_some(lead + digits)
-        }
-        _ => None,
-    };
-    if let Some(at) = at {
-        let escaped = format!("{prefix}{}\\{}", &text[..at], &text[at..]);
-        if keeps(&read(&escaped)) {
-            return escaped;
-        }
-    }
-    plain
 }

@@ -60,7 +60,7 @@ impl Engine {
     fn line_after(&self, closing: usize) -> Command {
         let entry = self.line(closing);
         let at = self.line_start(closing) + entry.body_len();
-        let text = format!("{}{}", self.new_ending(closing), leading(entry.body()));
+        let text = line_after_closing(&self.new_ending(closing), entry.body());
         let caret = at + text.len();
         Command::new(
             vec![Edit::insert(at, text)],
@@ -68,4 +68,10 @@ impl Engine {
             caret..caret,
         )
     }
+}
+
+/// What opens an empty line after a closing fence line `closing` (its text
+/// without an ending): `ending`, then the closing fence's indent.
+pub(in super::super) fn line_after_closing(ending: &str, closing: &str) -> String {
+    format!("{ending}{}", leading(closing))
 }

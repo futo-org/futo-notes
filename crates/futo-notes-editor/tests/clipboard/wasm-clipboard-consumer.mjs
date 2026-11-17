@@ -224,6 +224,45 @@ try {
     assert.equal(reopenedLink.links[0].destination, 'https://x.test');
     await stop();
   }
+  {
+    // A paste that writes the selected text again ends the selection and sends nothing.
+    await start('one foo two');
+    session.select_with_affinity(0n, 4, 7, JSON.stringify('Forward'));
+    assert.equal(JSON.parse(session.paste_markdown(0n, 4, 7, 'foo')), null);
+    assert.equal(session.draft_text(), 'one foo two');
+    assert.deepEqual(JSON.parse(session.selection()), { start: 7, end: 7 });
+    assert.equal(JSON.parse(session.undo(0n)), null);
+    await stop();
+  }
+  {
+    // A selected block pasted over itself is deselected, the caret on the line below.
+    const block = '```js\nx\n```';
+    await start(`a\n${block}\nb`);
+    const selected = JSON.parse(session.select_code_block(0n, 2));
+    const copied = session.copy_markdown(0n, selected.selection.start, selected.selection.end);
+    assert.equal(copied, block);
+    const range = [selected.selection.start, selected.selection.end];
+    assert.equal(JSON.parse(session.paste_markdown(0n, ...range, copied)), null);
+    assert.equal(JSON.parse(session.selected_block()), null);
+    assert.deepEqual(JSON.parse(session.selection()), { start: 4, end: 4 });
+    await stop();
+    // Above another block, the paste opens a line between them, one Undo step.
+    const blockExchange = await start(`p\n\n${block}\nb`);
+    const acceptBlock = async (applied) => {
+      const { change, request } = JSON.parse(applied);
+      session.acknowledge(JSON.stringify(await blockExchange(JSON.stringify(request))));
+      return change;
+    };
+    session.select_with_affinity(0n, 2, 2, JSON.stringify('Backward'));
+    const pasted = await acceptBlock(session.paste_markdown(0n, 2, 2, block));
+    assert.equal(session.draft_text(), `p\n${block}\n\n${block}\nb`);
+    assert.deepEqual(pasted.selection, { start: 4, end: 4 });
+    await acceptBlock(session.undo(1n));
+    assert.equal(session.draft_text(), `p\n\n${block}\nb`);
+    await acceptBlock(session.redo(2n));
+    assert.equal(session.draft_text(), `p\n${block}\n\n${block}\nb`);
+    await stop();
+  }
   console.log(
     'Compiled WASM clipboard: copy, one-action cut, Markdown paste, literal code fences, named-link meaning/carets/history and real store saving passed.',
   );

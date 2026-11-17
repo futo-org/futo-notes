@@ -119,6 +119,10 @@ pub enum EditorParagraphKey {
     Tab,
     ShiftTab,
     BackspaceJoiningHeading,
+    /// The Backspace of a host that pairs typing: an empty backtick pair
+    /// around the caret goes whole, a heading with text never becomes text;
+    /// anywhere else it is `Backspace`.
+    PairedBackspace,
 }
 impl From<EditorParagraphKey> for editor::ParagraphKey {
     fn from(value: EditorParagraphKey) -> Self {
@@ -130,6 +134,7 @@ impl From<EditorParagraphKey> for editor::ParagraphKey {
             EditorParagraphKey::Tab => Self::Tab,
             EditorParagraphKey::ShiftTab => Self::ShiftTab,
             EditorParagraphKey::BackspaceJoiningHeading => Self::BackspaceJoiningHeading,
+            EditorParagraphKey::PairedBackspace => Self::PairedBackspace,
         }
     }
 }

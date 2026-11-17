@@ -162,6 +162,7 @@ impl Engine {
             }
             ParagraphKey::Backspace
             | ParagraphKey::BackspaceJoiningHeading
+            | ParagraphKey::PairedBackspace
             | ParagraphKey::Delete
                 if range.start == range.end =>
             {

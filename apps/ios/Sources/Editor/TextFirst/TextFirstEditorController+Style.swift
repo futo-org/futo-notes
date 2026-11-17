@@ -76,24 +76,20 @@ extension TextFirstEditorController {
     /// Code language is user-authored metadata from the engine's projection. Keep its
     /// drawing on the first code row, without interpreting the fence in the native shell.
     func styleCodeLanguages(_ projection: EditorProjection) {
-        let hiddenStarts = Set(
-            projection.correspondence.lazy.filter {
-                $0.kind == .hidden
-            }.map { $0.display.start })
-        for line in projection.blocks where line.code {
-            guard let start = try? mirror.byteToUtf16(byte: line.range.start) else { continue }
+        for line in projection.blocks {
+            guard let code = line.code,
+                let start = try? mirror.byteToUtf16(byte: line.range.start)
+            else { continue }
             let at = Int(start)
             let block =
                 at < storage.length
                 ? storage.attribute(.tfBlock, at: at, effectiveRange: nil)
                     as? TextFirstBlockAttribute
                 : trailingBlock
-            let previous =
-                at > 0
-                ? storage.attribute(.tfBlock, at: at - 1, effectiveRange: nil)
-                    as? TextFirstBlockAttribute : nil
-            let startsBlock = hiddenStarts.contains(line.range.start)
-            block?.codeLanguage = previous?.code != true || startsBlock ? line.language : nil
+            let codeBlock = projection.codeBlocks.first {
+                $0.range.start <= line.range.start && line.range.start <= $0.range.end
+            }
+            block?.codeLanguage = code.first ? codeBlock?.language : nil
         }
     }
 

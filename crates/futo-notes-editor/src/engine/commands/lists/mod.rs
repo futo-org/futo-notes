@@ -54,9 +54,9 @@ impl Engine {
         }
         match key {
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => self.list_enter(range),
-            ParagraphKey::Backspace | ParagraphKey::BackspaceJoiningHeading => {
-                self.list_backspace(range)
-            }
+            ParagraphKey::Backspace
+            | ParagraphKey::BackspaceJoiningHeading
+            | ParagraphKey::PairedBackspace => self.list_backspace(range),
             ParagraphKey::Tab | ParagraphKey::ShiftTab => {
                 let touches_list = self
                     .lines_of(range)

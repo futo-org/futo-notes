@@ -36,6 +36,11 @@ pub enum ParagraphKey {
     ShiftTab,
     /// Ctrl+T on Apple (AppKit's `transpose:`).
     Transpose,
+    /// The Backspace of a host that pairs typing (desktop): with the caret
+    /// between the two backticks of an empty pair, both go; at a heading's
+    /// text start it joins the line above and never makes a heading with
+    /// text into text; anywhere else it is `Backspace`.
+    PairedBackspace,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

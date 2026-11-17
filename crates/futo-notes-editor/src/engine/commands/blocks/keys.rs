@@ -4,7 +4,7 @@ use super::super::super::command::{Command, Edit};
 use super::super::super::Engine;
 use super::{as_heading, right_side, split, unquote, unquoted};
 use crate::lines::{FenceRole, Kind, Line};
-use crate::DisplayRange;
+use crate::{DisplayRange, ParagraphKey};
 
 /// A heading, or a quoted line that is plain or empty (a quoted list item
 /// is the list family's).
@@ -86,16 +86,23 @@ impl Engine {
 
     /// Backspace from a caret at a heading's or quoted line's text start.
     ///
-    /// A heading becomes text. With `joining` (iOS sends it for every
-    /// caret Backspace) a heading instead joins the line above, as
+    /// Under `Backspace` a heading becomes text. The joining Backspace (iOS
+    /// sends it for every caret Backspace) instead joins the line above, as
     /// Backspace joins any line: an empty line above goes, text above takes
     /// the heading's text, and code above (behind its closing fence) takes
-    /// it as code. A first line, or one under a divider, table or front
-    /// matter, still becomes text.
+    /// it as code; a first line, or one under a divider, table or front
+    /// matter, still becomes text. Paired Backspace (desktop) joins as the
+    /// joining one does but never makes a heading with text into text:
+    /// under a divider the divider goes, and elsewhere nothing changes. An
+    /// empty heading becomes text.
     ///
     /// A quoted line under a quoted line of the same depth joins it (an
     /// empty one above goes instead); otherwise it leaves one quote level.
-    pub(super) fn block_backspace(&self, range: DisplayRange, joining: bool) -> Option<Command> {
+    pub(super) fn block_backspace(
+        &self,
+        range: DisplayRange,
+        key: ParagraphKey,
+    ) -> Option<Command> {
         if range.start != range.end {
             return None;
         }
@@ -109,10 +116,16 @@ impl Engine {
         }
         let above = (index > 0).then(|| &self.line(index - 1).line);
         if let Kind::Heading { .. } = line.kind {
-            if joining {
-                if let Some(command) = self.join_heading(index) {
-                    return Some(command);
-                }
+            let has_text = !entry.body()[line.content.start..]
+                .trim_matches([' ', '\t'])
+                .is_empty();
+            let keeps_heading = key == ParagraphKey::PairedBackspace && has_text;
+            let joins = key == ParagraphKey::BackspaceJoiningHeading || keeps_heading;
+            if let Some(command) = self.join_heading(index).filter(|_| joins) {
+                return Some(command);
+            }
+            if keeps_heading {
+                return Some(self.heading_kept(index, at));
             }
             return self.retext(range, vec![(index, as_heading(entry, 0)?)]);
         }
@@ -124,6 +137,17 @@ impl Engine {
             Some(Kind::Plain { .. } | Kind::List { .. }) => Some(self.join_above(index)),
             _ => self.retext(range, vec![(index, unquoted(entry))]),
         }
+    }
+
+    /// A heading that joins nothing keeps its block: a divider above it
+    /// goes; on the first line, or under a table or front matter, nothing
+    /// changes.
+    fn heading_kept(&self, index: usize, at: usize) -> Command {
+        let under_divider = index > 0 && self.line(index - 1).line.kind == Kind::Divider;
+        if under_divider {
+            return self.drop_above(index, at);
+        }
+        Command::new(Vec::new(), index..index + 1, at..at)
     }
 
     /// Remove the line above `index`; the caret stays at `at`.

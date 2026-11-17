@@ -53,8 +53,9 @@ impl Engine {
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => {
                 self.block_enter(range).or_else(|| self.plain_enter(range))
             }
-            ParagraphKey::Backspace => self.block_backspace(range, false),
-            ParagraphKey::BackspaceJoiningHeading => self.block_backspace(range, true),
+            ParagraphKey::Backspace
+            | ParagraphKey::BackspaceJoiningHeading
+            | ParagraphKey::PairedBackspace => self.block_backspace(range, key),
             ParagraphKey::Delete
             | ParagraphKey::Tab
             | ParagraphKey::ShiftTab

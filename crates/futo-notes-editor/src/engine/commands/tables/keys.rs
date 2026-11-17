@@ -33,7 +33,9 @@ impl Engine {
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => TableKey::Enter,
             ParagraphKey::Tab => TableKey::Tab,
             ParagraphKey::ShiftTab => TableKey::ShiftTab,
-            ParagraphKey::Backspace | ParagraphKey::BackspaceJoiningHeading => {
+            ParagraphKey::Backspace
+            | ParagraphKey::BackspaceJoiningHeading
+            | ParagraphKey::PairedBackspace => {
                 return Ok(self.kept_structure(range, CaretDirection::Backward));
             }
             ParagraphKey::Delete => {

@@ -5,10 +5,11 @@
 //! Each case marks the selection in its source with `|` (a caret) or `[`
 //! and `]` (`marks` names other characters when the note needs these), runs
 //! `copy`, `cut`, `paste` (of `text`) or a plain line's `Enter` or
-//! `ShiftEnter` there, and states the source and
-//! selection after it, and what `copy` and `cut` copied. Every case that
-//! changes the note also checks the view change a renderer applies, undoes
-//! to the exact bytes and selection, and redoes to the result.
+//! `ShiftEnter` there, and states the source and selection after it (a
+//! paste's caret at the marked source offset), and what `copy` and `cut`
+//! copied. Every case that changes the note also checks the view change a
+//! renderer applies, undoes to the exact bytes and selection, and redoes to
+//! the result.
 use super::super::Engine;
 use super::{ok, range};
 use crate::{Affinity, DisplayRange, ParagraphKey, SourceEdit};
@@ -107,7 +108,9 @@ fn run(engine: &mut Engine, case: &Case, view: &mut String) -> String {
         other => panic!("unknown command {other:?}"),
     };
     if let Some(change) = change {
-        assert_eq!(records, 1, "{}: one acceptance", case.name);
+        // A paste that writes the bytes already there moves only the caret.
+        let accepted = usize::from(change.revision != change.previous_revision);
+        assert_eq!(records, accepted, "{}: acceptances", case.name);
         view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
     } else {
         assert_eq!(records, 0, "{}: no acceptance", case.name);
@@ -151,9 +154,17 @@ fn clipboard_cases() {
         let got = engine.source_text();
         let got_selection = engine.selection();
         let fresh = Engine::open(&got);
-        if got != want || got_selection != display_selection(&fresh, &want_selection) {
+        // A paste's caret is also checked in source: the end of a pasted
+        // block and the start of the line after it show at one offset.
+        let got_caret = engine.source_selection(got_selection);
+        let caret_differs =
+            case.command == "paste" && want_selection.is_empty() && got_caret != want_selection;
+        if got != want
+            || got_selection != display_selection(&fresh, &want_selection)
+            || caret_differs
+        {
             failures.push(format!(
-                "{}: got {got:?} selection {got_selection:?}, want {want:?} selection {:?}",
+                "{}: got {got:?} selection {got_selection:?} caret {got_caret:?}, want {want:?} selection {:?}",
                 case.name,
                 display_selection(&fresh, &want_selection)
             ));

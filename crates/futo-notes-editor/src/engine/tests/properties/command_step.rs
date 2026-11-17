@@ -67,10 +67,11 @@ pub(super) fn command_step(
             ParagraphKey::ShiftEnter,
             ParagraphKey::Backspace,
             ParagraphKey::BackspaceJoiningHeading,
+            ParagraphKey::PairedBackspace,
             ParagraphKey::Delete,
             ParagraphKey::Tab,
             ParagraphKey::ShiftTab,
-        ][random.below(7)];
+        ][random.below(8)];
         (
             engine.key(revision, range, key, &mut ok).unwrap(),
             format!("key {key:?} at {range:?}"),

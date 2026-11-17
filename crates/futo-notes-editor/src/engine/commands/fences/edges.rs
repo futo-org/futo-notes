@@ -16,9 +16,9 @@ impl Engine {
             return None;
         }
         match key {
-            ParagraphKey::Backspace | ParagraphKey::BackspaceJoiningHeading => {
-                self.backspace_at_block(range)
-            }
+            ParagraphKey::Backspace
+            | ParagraphKey::BackspaceJoiningHeading
+            | ParagraphKey::PairedBackspace => self.backspace_at_block(range),
             ParagraphKey::Delete => self.delete_at_block(range),
             _ => None,
         }

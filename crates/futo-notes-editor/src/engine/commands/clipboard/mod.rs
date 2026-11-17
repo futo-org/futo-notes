@@ -80,7 +80,9 @@ impl Engine {
         Ok((copied, Some(change)))
     }
 
-    /// Paste `text` over the selection as one undo step (`paste.rs`).
+    /// Paste `text` over the selection as one undo step (`paste.rs`). A
+    /// paste that writes the bytes already there changes no source but still
+    /// moves the caret to where it ends: a view change at the same revision.
     pub(crate) fn paste_markdown(
         &mut self,
         expected: Revision,
@@ -88,7 +90,12 @@ impl Engine {
         text: &str,
         accept: Accept,
     ) -> Result<Option<ViewChange>, EditorError> {
+        let before = (self.selection, self.block_selected);
         let change = self.run(expected, |engine| engine.paste_command(range, text), accept)?;
-        Ok(change.map(|change| self.view(change)))
+        if let Some(change) = change {
+            return Ok(Some(self.view(change)));
+        }
+        let moved = (self.selection, self.block_selected) != before;
+        Ok(moved.then(|| self.unchanged()))
     }
 }

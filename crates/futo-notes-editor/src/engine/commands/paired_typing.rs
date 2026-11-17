@@ -9,7 +9,9 @@
 //! - over a selection, inline code on one line, a code block across lines;
 //! - in code, front matter or after an escaping `\`, the backtick as typed.
 //!
-//! Anything a rule cannot do is typed as plain typing types it.
+//! Anything a rule cannot do is typed as plain typing types it. Paired
+//! Backspace (`ParagraphKey::PairedBackspace`) removes an empty pair the
+//! caret is between, by the same reading of the text around it.
 use super::super::command::{Command, Edit};
 use super::super::edit::Change;
 use super::super::{read, Engine};
@@ -199,6 +201,45 @@ impl Engine {
             return CaretPairing::Typed;
         }
         CaretPairing::Pair
+    }
+
+    /// The display range of the empty backtick pair a collapsed caret is
+    /// between: one backtick before it and one after, neither beside a
+    /// further backtick, outside code, front matter and inline code, and
+    /// not after an escaping `\`. `None` anywhere else, and while text is
+    /// marked.
+    pub(crate) fn empty_pair(&self, range: DisplayRange) -> Option<DisplayRange> {
+        self.check_display_range(range).ok()?;
+        if range.start != range.end || self.composition.is_some() {
+            return None;
+        }
+        let at = self.input_at(self.outside_crlf(range));
+        let (index, before) = read::line_at(&self.store, at);
+        let entry = self.store.get(index);
+        if matches!(entry.line.kind, Kind::Fence { .. } | Kind::FrontMatter(_)) {
+            return None;
+        }
+        let local = at - before.source;
+        let body = entry.body();
+        let is_backtick = |offset: usize| body.as_bytes().get(offset) == Some(&b'`');
+        let pair = local >= 1
+            && is_backtick(local - 1)
+            && is_backtick(local)
+            && !(local >= 2 && is_backtick(local - 2))
+            && !is_backtick(local + 1);
+        if !pair || is_escaped_at(body, local - 1) {
+            return None;
+        }
+        let in_code = entry.spans.iter().any(|span| {
+            span.kind == SpanKind::Code && span.open.start <= local && local - 1 < span.close.end
+        });
+        if in_code {
+            return None;
+        }
+        Some(DisplayRange {
+            start: DisplayOffset(self.display_of(at - 1)),
+            end: DisplayOffset(self.display_of(at + 1)),
+        })
     }
 
     fn selection_pairing(&self, range: DisplayRange) -> SelectionPairing {
