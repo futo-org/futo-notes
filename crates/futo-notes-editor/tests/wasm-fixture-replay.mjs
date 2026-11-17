@@ -38,8 +38,9 @@ const KEYS = new Set([
 ]);
 
 /// Every case of `file` (relative to `fixtures/engine/`): block commands,
-/// paragraph keys, typing and a text service's replacement. A command the
-/// replayer cannot run fails here rather than being left out.
+/// paragraph keys, typing, a text service's replacement, paste, cut and
+/// selecting a code block. A command the replayer cannot run fails here
+/// rather than being left out.
 export function fixtureCases(file) {
   const cases = JSON.parse(readFileSync(new URL(`fixtures/engine/${file}`, import.meta.url)));
   for (const item of cases) assert.ok(command(item.command), `${file}: ${item.name}: command`);
@@ -52,6 +53,10 @@ function command(text) {
   if (typed) return { type: typed[1] };
   const service = /^os:([\s\S]*)$/.exec(text);
   if (service) return { service: service[1] };
+  const pasted = /^paste:([\s\S]*)$/.exec(text);
+  if (pasted) return { paste: pasted[1] };
+  if (text === 'Cut') return { cut: true };
+  if (text === 'SelectBlock') return { selectBlock: true };
   const heading = /^(Toggle)?Heading\((\d)\)$/.exec(text);
   if (heading) return { block: { [heading[1] ? 'ToggleHeading' : 'Heading']: Number(heading[2]) } };
   if (BLOCK.has(text)) return { block: text };
@@ -125,6 +130,30 @@ function toDisplay(slice, at) {
 const units = (text, bytes) => Buffer.from(text).subarray(0, bytes).toString().length;
 const utf16 = (text) => Uint16Array.from({ length: text.length }, (_, i) => text.charCodeAt(i));
 
+/// Run `run` over the selection (`a`…`b` in UTF-16 units, `bytes` in display
+/// bytes); the edit it applied as JSON, or null when it changed no source.
+function applied(page, revision, run, { a, b, bytes }) {
+  if (run.type !== undefined) return page.replace_utf16(revision, a, b, utf16(run.type));
+  if (run.service !== undefined) {
+    return page.replace_utf16_action(revision, a, b, utf16(run.service), '"Isolated"');
+  }
+  if (run.paste !== undefined) {
+    return page.paste_markdown(revision, bytes.start, bytes.end, run.paste);
+  }
+  if (run.cut) {
+    const [, cut] = JSON.parse(page.cut_markdown(revision, bytes.start, bytes.end));
+    return cut === null ? null : JSON.stringify(cut);
+  }
+  if (run.selectBlock) {
+    page.select_code_block(revision, bytes.start);
+    return null;
+  }
+  if (run.block !== undefined) {
+    return page.block_command_utf16(revision, a, b, JSON.stringify(run.block));
+  }
+  return page.paragraph_key_utf16(revision, a, b, JSON.stringify(run.key));
+}
+
 /// Replay `cases`, each marked with `marks` (caret, selection start, end)
 /// unless the case names its own.
 export async function replay(WasmSession, workerPath, cases, marks) {
@@ -155,29 +184,25 @@ export async function replay(WasmSession, workerPath, cases, marks) {
         end.at,
         JSON.stringify(before.from === before.to ? start.affinity : 'Forward'),
       );
-      let [a, b] = [units(slice.text, start.at), units(slice.text, end.at)];
-      if (item.block) {
-        const { selection } = JSON.parse(page.select_code_block(revision, start.at));
-        [a, b] = [units(slice.text, selection.start), units(slice.text, selection.end)];
-      }
+      // The selection in display bytes, and in UTF-16 units as `a`…`b`.
+      let bytes = { start: start.at, end: end.at };
+      if (item.block) bytes = JSON.parse(page.select_code_block(revision, start.at)).selection;
+      let [a, b] = [units(slice.text, bytes.start), units(slice.text, bytes.end)];
       if (item.typed !== undefined) {
         const setup = await send(page.replace_utf16(revision, a, b, utf16(item.typed)));
         assert.ok(setup, `${item.name}: typed setup`);
         const shown = displayText(page, revision);
-        [a, b] = [units(shown.text, setup.selection.start), units(shown.text, setup.selection.end)];
+        bytes = setup.selection;
+        [a, b] = [units(shown.text, bytes.start), units(shown.text, bytes.end)];
       }
       const opening = page.draft_text();
       const run = command(item.command);
-      const changed = await send(
-        run.type !== undefined
-          ? page.replace_utf16(revision, a, b, utf16(run.type))
-          : run.service !== undefined
-            ? page.replace_utf16_action(revision, a, b, utf16(run.service), '"Isolated"')
-            : run.block !== undefined
-              ? page.block_command_utf16(revision, a, b, JSON.stringify(run.block))
-              : page.paragraph_key_utf16(revision, a, b, JSON.stringify(run.key)),
-      );
+      const changed = await send(applied(page, revision, run, { a, b, bytes }));
       assert.equal(page.draft_text(), after.text, `${item.name}: saved bytes`);
+      if (item.selected !== undefined) {
+        const selected = JSON.parse(page.selected_block()) !== null;
+        assert.equal(selected, item.selected, `${item.name}: selected block`);
+      }
       if (!changed) continue;
       await send(page.undo(revision));
       assert.equal(page.draft_text(), opening, `${item.name}: undo`);
