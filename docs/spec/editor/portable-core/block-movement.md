@@ -2,7 +2,7 @@
 
 A block is moved to a boundary between lines as one edit (#311). The engine decides which lines
 move together, where they may land and the move; a renderer names only the line under the finger
-and the boundary it is dropped on. Every line stays its own block in the projection: this is only
+and the boundary it is dropped on ([the mobile gesture](../mobile/block-drag.md)). Every line stays its own block in the projection: this is only
 which lines move together. → crates/futo-notes-editor/src/engine/commands/moves.rs
 
 ## What lifts
