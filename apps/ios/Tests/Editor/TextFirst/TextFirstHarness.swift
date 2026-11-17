@@ -15,9 +15,10 @@
         let window: UIWindow
         var tv: TextFirstTextView { controller.textView }
 
+        /// `focused`: the body takes the keyboard once open, as after a tap on it.
         init(
             _ source: String, id: String = "note", imageProtocols: [AnyClass]? = nil,
-            files: [String: Data] = [:]
+            files: [String: Data] = [:], focused: Bool = true
         ) {
             root = FileManager.default.temporaryDirectory.appendingPathComponent(
                 "text-first-\(UUID().uuidString)")
@@ -40,7 +41,7 @@
             window.addSubview(tv)
             window.isHidden = false
             tv.layoutIfNeeded()
-            _ = tv.becomeFirstResponder()
+            if focused { _ = tv.becomeFirstResponder() }
         }
 
         /// Rows are compared without a single final line ending (a final blank line is kept).

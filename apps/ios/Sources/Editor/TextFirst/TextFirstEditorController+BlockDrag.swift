@@ -1,33 +1,18 @@
 import UIKit
 
-// Long-press block drag (#441: an experiment awaiting the maintainer's verdict; #311 holds the
-// design). A press that holds still lifts the block the engine says the line under it lifts: a
-// snapshot card of the block follows the finger, the source dims in place, a drop line marks the
-// engine's slot nearest the finger, and releasing moves the block there as one Undo step
-// (+BlockMove). The view decides only which line is under the finger and which slot is nearest.
+// Long-press block drag (#441; #311 holds the design). With the keyboard down, a press that
+// holds still lifts the block the engine says the line under it lifts: a snapshot card of the
+// block follows the finger, the source dims in place, a drop line marks the engine's slot
+// nearest the finger, and releasing moves the block there as one Undo step (+BlockMove). While
+// the note is being edited every long-press is the platform's, as in the web editor. The view
+// decides only which line is under the finger and which slot is nearest.
 
-/// When a press lifts a block: the experiment's knobs, and only here.
+/// How a press lifts a block: the old web editor's hold and tolerance.
 enum TextFirstLiftPolicy {
-    /// How long a press holds before it lifts (the old web editor's value).
+    /// How long a press holds before it lifts.
     static let holdDuration: TimeInterval = 0.34
     /// How far, in points, the finger may wander while it holds.
     static let movementTolerance: CGFloat = 10
-    /// The first fallback should losing the loupe hurt (#311): lift only while the keyboard is
-    /// down, leaving the platform's long-press to an editing note.
-    static let onlyWhileKeyboardDown = false
-
-    /// How near, in points, a press must be to a selection's handle to be the handle's.
-    static let handleReach: CGFloat = 22
-
-    /// Whether a press may lift anything, before the line under it is asked. An editor still
-    /// opening, and one with a table cell open, keep the platform's long-press everywhere, and a
-    /// press on a selection's handle stays the handle's; the title is another view and never
-    /// sees this gesture.
-    static func mayLift(
-        editorReady: Bool, cellOpen: Bool, keyboardUp: Bool, onSelectionHandle: Bool
-    ) -> Bool {
-        editorReady && !cellOpen && !onSelectionHandle && !(onlyWhileKeyboardDown && keyboardUp)
-    }
 }
 
 /// Where a lifted block may land on screen: each of the engine's slots on screen with the y of
@@ -135,22 +120,40 @@ extension TextFirstEditorController {
         lift.delegate = self
         textView.addGestureRecognizer(lift)
         liftRecognizer = lift
-        // UIKit's text drag (a long-press on selected text) holds every other recognizer on the
-        // note until the finger moves, which would keep the lift from firing while the finger
-        // holds still; a long-press is the block's now.
-        textView.textDragInteraction?.isEnabled = false
+        stockTextDrag = textView.textDragInteraction?.isEnabled ?? false
+        armLift()
+    }
+
+    /// Whether a press may lift anything, before the line under it is asked: not while the
+    /// note is being edited, nor while the editor is still opening or has closed.
+    var mayLift: Bool { !closed && !engineBusy && !editing }
+
+    /// The note is being edited: a field of the screen takes the keyboard, the on-screen one or
+    /// a hardware one alike. That is the body, an open table cell, or any other text input in
+    /// the editor's window (the title, Find).
+    private var editing: Bool {
+        if textView.isFirstResponder || cellEditor != nil { return true }
+        func focused(_ view: UIView) -> Bool {
+            (view.isFirstResponder && view is UITextInput) || view.subviews.contains(where: focused)
+        }
+        return textView.window.map(focused) ?? false
+    }
+
+    /// Settle, as a touch comes down on the note and before any recognizer sees it, whether this
+    /// press is one that may lift (`liftArmed`, as `mayLift` says). Only then does
+    /// the lift take the long-press: UIKit's long-presses wait for it to fail, and UIKit's text
+    /// drag (which holds every other recognizer on the note until the finger moves) is off.
+    /// Otherwise the press is the platform's alone, its text drag as UIKit set it.
+    func armLift() {
+        liftArmed = mayLift
+        textView.textDragInteraction?.isEnabled = !liftArmed && stockTextDrag
     }
 
     /// What a long-press at `p` (text view coordinates) lifts; nil when the press keeps the
     /// platform's long-press: a blank line, an empty note, front matter, code nothing closes, or
-    /// anything `TextFirstLiftPolicy` rules out.
+    /// anything `mayLift` rules out.
     func liftPlan(at p: CGPoint) -> TextFirstLift? {
-        guard
-            TextFirstLiftPolicy.mayLift(
-                editorReady: !closed && !engineBusy, cellOpen: cellEditor != nil,
-                keyboardUp: textView.isFirstResponder, onSelectionHandle: onSelectionHandle(p)),
-            let line = lineOffset(at: p)
-        else { return nil }
+        guard mayLift, let line = lineOffset(at: p) else { return nil }
         let block: NSRange
         let slots: [Int]
         do {
@@ -178,18 +181,6 @@ extension TextFirstEditorController {
             lineOffset: line, block: block,
             frame: CGRect(x: 0, y: top, width: textView.bounds.width, height: bottom - top),
             targets: targets, revision: rev)
-    }
-
-    /// Whether `p` is on a handle of the selection the view shows (its start or end caret,
-    /// within `TextFirstLiftPolicy.handleReach`).
-    private func onSelectionHandle(_ p: CGPoint) -> Bool {
-        guard textView.isFirstResponder, let range = textView.selectedTextRange, !range.isEmpty
-        else { return false }
-        return [range.start, range.end].contains { end in
-            textView.caretRect(for: end).insetBy(
-                dx: -TextFirstLiftPolicy.handleReach, dy: -TextFirstLiftPolicy.handleReach
-            ).contains(p)
-        }
     }
 
     /// The UTF-16 offset of the line at `p`'s height, anywhere across the page (its margins
@@ -236,9 +227,6 @@ extension TextFirstEditorController {
     /// The lift decides at its 340 ms whether this press is a block's: it plans the whole drag
     /// then, so a press that cannot show one leaves the platform its long-press.
     func liftShouldBegin(at p: CGPoint) -> Bool {
-        guard liftPlan(at: p) != nil else { return false }
-        // A composition is settled at the lift; the plan is then made on the settled text.
-        finishComposition()
         pendingLift = liftPlan(at: p)
         return pendingLift != nil
     }

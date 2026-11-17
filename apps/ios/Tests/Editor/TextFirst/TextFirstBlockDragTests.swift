@@ -7,7 +7,8 @@
 
     /// The long-press block drag's two decisions on a laid-out note: which block a press at a
     /// point lifts (or that it keeps the platform's long-press), and which slot a finger at a
-    /// point drops it on. The drag itself is `TextFirstBlockDragUITests`.
+    /// point drops it on. The drag itself is `TextFirstBlockDragUITests`. Nothing lifts while
+    /// the note is being edited, so the notes open with the keyboard down.
     @Suite @MainActor
     struct TextFirstBlockDragTests {
         /// The display's line starts (UTF-16), one per line, the empty last line included.
@@ -62,6 +63,10 @@
                 "# Head\n\n| x | y |\n|---|---|\n| 1 | 2 |\n![](pic.png) see\n[link](https://x.y) on\nend\n",
                 files: ["pic.png": TextFirstHarness.png(900, 900)])
             #expect(await h.until { h.lineHeights(at: lineStarts(h)[5]).contains { $0 > 100 } })
+            // While the note is being edited (the keyboard up, or a hardware keyboard typing
+            // into it) nothing lifts: the long-press is the platform's.
+            #expect(lifted(h, at: point(h, line: 0)) == nil)
+            h.tv.resignFirstResponder()
             #expect(lifted(h, at: point(h, line: 0)) == [0])
             // The page margin left of the text is the line's too.
             #expect(lifted(h, at: point(h, line: 0, x: 4)) == [0])
@@ -79,11 +84,17 @@
             h.controller.openCellEditor(cell)
             #expect(lifted(h, at: point(h, line: 0)) == nil)
             h.controller.cellEditor?.finish()
+            // Closing it hands the keyboard back to the body.
+            #expect(lifted(h, at: point(h, line: 0)) == nil)
+            h.tv.resignFirstResponder()
             #expect(lifted(h, at: point(h, line: 0)) == [0])
-            // A selection's handles stay the platform's: a press on one adjusts the selection.
-            h.select(lineStarts(h)[7], lineStarts(h)[7] + 3)
-            let end = h.tv.caretRect(for: h.tv.selectedTextRange!.end)
-            #expect(lifted(h, at: CGPoint(x: end.midX + 4, y: end.midY)) == nil)
+            // Any other text input in the window holding focus is editing too (a stand-in for the
+            // title and Find fields).
+            let field = UITextField(frame: CGRect(x: 0, y: 0, width: 100, height: 30))
+            h.window.addSubview(field)
+            _ = field.becomeFirstResponder()
+            #expect(lifted(h, at: point(h, line: 0)) == nil)
+            field.resignFirstResponder()
             #expect(lifted(h, at: point(h, line: 7, x: 300)) == [7])
             // An empty note has nothing to lift.
             let empty = TextFirstHarness("")
@@ -93,7 +104,7 @@
         @Test func aBlockRunningOffScreenLiftsWhatShows() throws {
             // A code block taller than the screen, scrolled so its top is gone.
             let code = (1...80).map { "code \($0)" }.joined(separator: "\n")
-            let h = TextFirstHarness("intro\n```\n\(code)\n```\nafter")
+            let h = TextFirstHarness("intro\n```\n\(code)\n```\nafter", focused: false)
             h.tv.layoutIfNeeded()
             h.tv.contentOffset.y = 600
             h.tv.layoutIfNeeded()
@@ -109,7 +120,7 @@
         @Test func aDropLandsOnTheSlotNearestTheFingerAndNeverBesideItself() throws {
             // Lines: 0 one, 1 two, 2 a, 3 b, 4 three. Line 2 lifts its item with `b`; the list
             // takes nothing between its lines, and its own edges are no slot.
-            let h = TextFirstHarness("one\ntwo\n- a\n  - b\nthree")
+            let h = TextFirstHarness("one\ntwo\n- a\n  - b\nthree", focused: false)
             let starts = lineStarts(h)
             let targets = try #require(h.controller.liftPlan(at: point(h, line: 2))).targets
             func drop(_ line: Int, _ fraction: CGFloat) -> Int? {

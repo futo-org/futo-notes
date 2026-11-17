@@ -81,17 +81,18 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         return g is TextFirstTouchTracker || other is TextFirstTouchTracker
     }
 
-    /// UIKit's long-presses on the note (the loupe, long-press selection) wait for the lift to
-    /// fail: they act only where a press lifts nothing.
+    /// While a press may lift, UIKit's long-presses on the note (the loupe, long-press
+    /// selection) wait for the lift to fail: they act only where a press lifts nothing.
     func gestureRecognizer(
         _ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer
     ) -> Bool {
-        g === liftRecognizer && other !== g && other is UILongPressGestureRecognizer
-            && other.view === textView
+        g === liftRecognizer && liftArmed && other !== g
+            && other is UILongPressGestureRecognizer && other.view === textView
     }
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        if g === liftRecognizer { return true }
+        // A press that may not lift is never the lift's: the platform has it from touch-down.
+        if g === liftRecognizer { return liftArmed }
         selectionBeforeTouch = textView.selectedRange
         let p = touch.location(in: textView)
         touchHitCheckbox = checkboxFragment(at: p) != nil
@@ -145,8 +146,8 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
 
     /// A plain tap on an image, anywhere on it, is a collapsed caret right after it (the
     /// caret is drawn at its trailing edge): typing goes after the image and Backspace removes
-    /// it whole. A drag selection or select-all still selects it as one object (a long-press
-    /// lifts its line, +BlockDrag).
+    /// it whole. A drag selection or select-all still selects it as one object (with the
+    /// keyboard down a long-press lifts its line, +BlockDrag).
     private func placeCaretAfterImage(_ range: NSRange) {
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {

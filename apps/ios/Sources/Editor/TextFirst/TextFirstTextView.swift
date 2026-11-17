@@ -142,6 +142,15 @@ final class TextFirstTextView: UITextView {
         super.setMarkedText(markedText, selectedRange: selectedRange)
     }
 
+    /// A first touch on the view hit-tests it before any recognizer sees it: whether it may
+    /// lift a block is settled here (+BlockDrag `armLift`), and held until every finger lifts.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        if event?.type == .touches, !fingerIsDown, self.point(inside: point, with: event) {
+            controller?.armLift()
+        }
+        return super.hitTest(point, with: event)
+    }
+
     @discardableResult override func becomeFirstResponder() -> Bool {
         if controller?.suppressFocus == true { return false }
         return super.becomeFirstResponder()

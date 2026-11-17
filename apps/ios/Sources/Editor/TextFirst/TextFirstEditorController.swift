@@ -131,9 +131,12 @@ final class TextFirstEditorController: NSObject {
     /// Our own tap recogniser, the only one allowed to act on a checkbox touch.
     var checkboxTap: UITapGestureRecognizer?
     var selectionBeforeTouch = NSRange(location: 0, length: 0)
-    /// The long-press that lifts a block, the lift it planned as it began, and the drag it is
-    /// running (+BlockDrag).
+    /// The long-press that lifts a block, whether the touch under way may lift, the lift it
+    /// planned as it began and the drag it is running (+BlockDrag).
     var liftRecognizer: UILongPressGestureRecognizer?
+    var liftArmed = false
+    /// Whether UIKit's text drag was on before the lift first turned it off.
+    var stockTextDrag = false
     var pendingLift: TextFirstLift?
     var blockDrag: TextFirstBlockDrag?
 
