@@ -360,6 +360,7 @@ internal class EditorEngine(
         rev = change.revision
         mirror.selStart = mirror.toUtf16(change.selection.start.toInt())
         mirror.selEnd = mirror.toUtf16(change.selection.end.toInt())
+        mirror.selectedBlock = change.selectedBlock?.let(mirror::toUtf16Range)
     }
 
     /** Apply one accepted engine change to its authoritative mirror and bounded view projection. */
@@ -390,6 +391,7 @@ internal class EditorEngine(
             complete = session != null && !streaming && !renderWork.stylesPending,
             sourceChanged = sourceChanged, preserveScroll = preserveScroll,
             marked = marked,
+            selectedBlock = mirror.selectedBlock,
         )
         publishSelection()
         publishCell()

@@ -253,7 +253,7 @@ internal open class EngineInputConnection(
             return true
         }
         if (start == end) {
-            val selected = if (cell) null else view.selectedObject
+            val selected = if (cell) null else view.selectedObject ?: engine.mirror.selectedBlock
             if (selected != null && selected.first == engine.selStart && selected.second == engine.selEnd && from == selected.second) return true
             if (batch > 0 && engine.mirror.overlay == null && engine.selStart != engine.selEnd &&
                 (from == engine.selStart || from == engine.selEnd)) {

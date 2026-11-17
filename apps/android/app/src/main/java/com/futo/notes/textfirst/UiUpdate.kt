@@ -76,6 +76,8 @@ internal class UiUpdate(
      * [composingStart, composingEnd); null when this update leaves them as they are.
      */
     val marked: List<SpanSpec.Inline>? = null,
+    /** The code block selected as one object; the selection equals it. */
+    val selectedBlock: Pair<Int, Int>? = null,
 )
 
 /**

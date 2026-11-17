@@ -82,6 +82,7 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
             }
         }
         val length = (e.length - 1).coerceAtLeast(0)
+        selectedCodeBlock = update.selectedBlock
         Selection.setSelection(e,
             (if (keepDirection) nativeStart else update.selStart).coerceIn(0, length),
             (if (keepDirection) nativeEnd else update.selEnd).coerceIn(0, length))

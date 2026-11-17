@@ -43,6 +43,15 @@ internal class TextFirstEditText(
     @Volatile override var selectedObject: Pair<Int, Int>? = null
     private val linkTouch = ExternalLinkTouch(this, { onOpenUrl?.invoke(it) ?: false }, ::nativeTouch)
     private val lineTouch = LineSelectTouch(this)
+    private val codeTouch = CodeBlockTouch(this)
+    /** A code block selected as one object: its card shows the selection, so the text highlight is hidden. */
+    internal var selectedCodeBlock: Pair<Int, Int>? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            highlightColor = if (value == null) style.selectionColor else 0
+            invalidate()
+        }
     /** The first draw after a keyed update, with where that key's time went. */
     var onFrameDrawn: ((KeyTimings) -> Unit)? = null
     /** Optional benchmark observer for every apply, including progressive append work. */
@@ -256,6 +265,7 @@ internal class TextFirstEditText(
         super.onSelectionChanged(selStart, selEnd)
         renderedSelection = (selStart.toLong() shl 32) or (selEnd.toLong() and 0xffffffffL)
         selectedObject = selectedObject?.takeIf { it.first == selStart && it.second == selEnd }
+        selectedCodeBlock = selectedCodeBlock?.takeIf { it.first == selStart && it.second == selEnd }
         if (applying) return
         val e = editableText ?: return
         // The end sentinel is not a caret position (an empty Editable has none yet).
@@ -278,6 +288,7 @@ internal class TextFirstEditText(
         imageTouch.onTouch(event)
         // After the links, so a third quick tap on a link still opens it.
         if (lineTouch.onTouch(event)) return true
+        if (codeTouch.onTouch(event)) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 checkboxDown = checkboxAt(this, style, event.x, event.y)

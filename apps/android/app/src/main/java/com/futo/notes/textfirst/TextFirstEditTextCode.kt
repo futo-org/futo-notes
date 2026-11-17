@@ -70,7 +70,24 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
     codeCardPaint.color = look.codeWellBorderColor
     card.inset(stroke / 2, stroke / 2)
     canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
+    if (isCardSelected(e.getSpanStart(head))) drawSelectedCard(canvas, card)
     if (head.line.first) codeHeader.draw(canvas, head.line.block, width, cardTop)
+}
+
+private fun TextFirstEditText.isCardSelected(codeStart: Int): Boolean =
+    selectedCodeBlock?.let { codeStart >= it.first && codeStart <= it.second } ?: false
+
+private fun TextFirstEditText.drawSelectedCard(canvas: Canvas, card: RectF) {
+    val look = style
+    codeCardPaint.style = Paint.Style.FILL
+    codeCardPaint.color = look.selectionColor
+    canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
+    val ring = look.dp(1.5f)
+    codeCardPaint.style = Paint.Style.STROKE
+    codeCardPaint.strokeWidth = ring
+    codeCardPaint.color = look.linkColor
+    card.inset(ring / 2, ring / 2)
+    canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
 }
 
 /**
