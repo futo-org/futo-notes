@@ -40,7 +40,8 @@ internal fun codeRangesNear(e: Spanned, from: Int, to: Int): List<CodeRange> {
     return ranges
 }
 
-private fun codeLineEnd(e: Spanned, span: TfCodeBlock): Int {
+/** Where a code line's text ends: its span's end without its line break or the note's end sentinel. */
+internal fun codeLineEnd(e: Spanned, span: TfCodeBlock): Int {
     var end = minOf(e.getSpanEnd(span), e.length - TextFirstEditText.END_SENTINEL.length)
     if (end > e.getSpanStart(span) && e[end - 1] == '\n') end--
     return end

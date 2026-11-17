@@ -77,10 +77,12 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
     val endsNote = tailEnd >= e.length - TextFirstEditText.END_SENTINEL.length
     // Under a block that ends the note the label sits under the card, its space already the target (cb 791-797);
     // between two blocks it sits in the skirt and its press reaches down across the gap (cb 841-844).
+    // With neither block active the gap between them is still page: a press there opens a line (cb 841-844).
     when {
-        !active -> Unit
-        endsNote -> codeChrome.drawLineBelow(canvas, headStart, width, cardBottom + look.codeSkirt * 0.3f, cardBottom + look.codeSkirt * 1.6f)
-        tail.touchesBlockBelow(e) -> codeChrome.drawLineBelow(canvas, headStart, width, cardBottom - look.codeSkirt * 1.2f, cardBottom + look.codeBlockGap)
+        active && endsNote -> codeChrome.drawLineBelow(canvas, headStart, width, cardBottom + look.codeSkirt * 0.3f, cardBottom + look.codeSkirt * 1.6f)
+        !tail.touchesBlockBelow(e) -> Unit
+        active -> codeChrome.drawLineBelow(canvas, headStart, width, cardBottom - look.codeSkirt * 1.2f, cardBottom + look.codeBlockGap)
+        else -> codeChrome.addGapBelow(headStart, width, cardBottom, cardBottom + look.codeBlockGap)
     }
     if (endsNote) codeChrome.addSpaceBelow(headStart, width, cardBottom)
 }
@@ -89,7 +91,8 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
 private fun TextFirstEditText.isCardActive(e: android.text.Editable, head: TfCodeBlock, tail: TfCodeBlock): Boolean {
     if (!isFocused) return false
     val start = if (head.line.first) e.getSpanStart(head) else head.line.block.start
-    val end = if (tail.line.last) e.getSpanEnd(tail) else tail.line.block.end
+    // The block's last line break is not in it: a caret on the line opened under it is outside.
+    val end = if (tail.line.last) codeLineEnd(e, tail) else tail.line.block.end
     return selectionStart >= start && selectionEnd <= end
 }
 

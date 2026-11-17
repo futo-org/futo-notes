@@ -6,7 +6,7 @@ package com.futo.notes.textfirst
  * load and the note is laid out again on every open.
  */
 internal class ScrollAnchor(val offset: Int, val intoLine: Int) {
-    val atTop get() = offset == 0 && intoLine == 0
+    val atTop get() = offset == 0 && intoLine <= 0
 }
 
 /**

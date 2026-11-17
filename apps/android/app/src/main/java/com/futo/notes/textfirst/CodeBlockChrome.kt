@@ -72,10 +72,10 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         val top = header.top
         namePaint.typeface = look.mono
         namePaint.textSize = look.codeHeaderTextSize
-        namePaint.color = look.mutedColor
+        namePaint.color = look.codeChromeInk
         languagePaint.typeface = look.regular
         languagePaint.textSize = look.codeHeaderTextSize
-        languagePaint.color = look.mutedColor
+        languagePaint.color = look.codeChromeInk
         val bottom = top + look.codeHeaderHeight
         targets.add(CodeBlockTarget(RectF(left, top, right, bottom), CodeBlockAction.SELECT_BLOCK, codeStart, block))
         val baseline = headerBaseline(top, look.regular)
@@ -157,6 +157,11 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         targets.add(CodeBlockTarget(RectF(0f, -Float.MAX_VALUE, width, bottom), CodeBlockAction.NOTHING, codeStart))
     }
 
+    /** The gap between this block and the one touching it below, [top] to [bottom]: a press there opens a line between them. */
+    fun addGapBelow(codeStart: Int, width: Float, top: Float, bottom: Float) {
+        targets.add(CodeBlockTarget(RectF(0f, top, width, bottom), CodeBlockAction.OPEN_LINE_BELOW, codeStart))
+    }
+
     /** The empty space under a block that ends the note, from [top] down: a press there opens a line below it. */
     fun addSpaceBelow(codeStart: Int, width: Float, top: Float) {
         targets.add(CodeBlockTarget(RectF(0f, top, width, Float.MAX_VALUE), CodeBlockAction.OPEN_LINE_BELOW, codeStart))
@@ -165,7 +170,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     private fun edgeLabel(text: String, room: Float): String {
         edgePaint.typeface = look.regular
         edgePaint.textSize = look.codeEdgeLabelSize
-        edgePaint.color = look.mutedColor
+        edgePaint.color = look.codeChromeInk
         return TextUtils.ellipsize(text, edgePaint, room, TextUtils.TruncateAt.END).toString()
     }
 
@@ -177,7 +182,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
 
     /** The copy glyph's confirmation, [size] square at ([left], [top]). */
     private fun drawCheckmark(canvas: Canvas, left: Float, top: Float, size: Float) {
-        glyphPaint.color = look.mutedColor
+        glyphPaint.color = look.codeChromeInk
         glyphPaint.strokeWidth = size / 9f
         glyphPaint.strokeCap = Paint.Cap.ROUND
         canvas.drawLine(left + size * 0.12f, top + size * 0.55f, left + size * 0.4f, top + size * 0.82f, glyphPaint)
@@ -186,7 +191,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
 
     /** Two overlapping rounded squares, the usual copy mark, [size] square at ([left], [top]). */
     private fun drawCopyGlyph(canvas: Canvas, left: Float, top: Float, size: Float) {
-        glyphPaint.color = look.mutedColor
+        glyphPaint.color = look.codeChromeInk
         glyphPaint.strokeWidth = size / 11f
         val square = size * 0.6f
         val corner = size * 0.12f

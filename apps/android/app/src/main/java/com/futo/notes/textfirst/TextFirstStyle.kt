@@ -69,6 +69,8 @@ internal class TextFirstStyle(
     val codeWellColor get() = if (darkTheme) 0x0AFFFFFF else 0x0E000000
     val codeWellBorderColor get() = if (darkTheme) 0x0FFFFFFF else 0x0F000000
     val codeRuleColor get() = (textColor and 0x00ffffff) or 0x17000000
+    /** !300's muted ink for a block's header, edge labels and copy glyph, read from its page: #737373, #A3A3A3 in dark. */
+    val codeChromeInk get() = if (darkTheme) 0xFFA3A3A3.toInt() else 0xFF737373.toInt()
     /** !300's gutter ink: #737373, #A3A3A3 in dark, at 55%. */
     val codeNumberColor get() = if (darkTheme) 0x8CA3A3A3.toInt() else 0x8C737373.toInt()
     /** A number on a line the selection is on (!300 cb 267-276). */

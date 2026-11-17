@@ -62,9 +62,10 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         note.viewTreeObserver.addOnPreDrawListener(follow)
         place()
         field.requestFocus()
+        // Placed and laid out above, so the caret goes straight to the tap: never a frame at the start (verifier run 1, item 7).
         when {
             selectAll -> field.selectAll()
-            tapX != null -> field.post { field.setSelection(field.getOffsetForPosition(tapX - fieldLeft, field.height / 2f).coerceIn(0, field.length())) }
+            tapX != null -> field.setSelection(field.getOffsetForPosition(tapX - fieldLeft, field.height / 2f).coerceIn(0, field.length()))
             else -> field.setSelection(field.length())
         }
         field.post { note.context.getSystemService(InputMethodManager::class.java).showSoftInput(field, 0) }
@@ -110,7 +111,8 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         // The drawn label's face, so the text does not change shape when the field opens or closes.
         field.typeface = if (state.kind == Kind.NAME) look.mono else look.regular
         field.setTextSize(TypedValue.COMPLEX_UNIT_PX, look.codeHeaderTextSize)
-        field.setTextColor(look.textColor)
+        // !300's fields keep the header's grey ink while they are edited.
+        field.setTextColor(look.codeChromeInk)
         field.highlightColor = look.selectionColor
         val inset = (look.codeHeaderHeight * 0.12f).roundToInt()
         field.background = InsetDrawable(GradientDrawable().apply {
@@ -138,6 +140,8 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
             override fun afterTextChanged(s: Editable) { write(state, s.toString()) }
         })
         field.setOnEditorActionListener { _, _, _ -> leaveToCode(state); true }
+        // The field's focus is the note's to whoever listens for it: the editor toolbar stays while it is open.
+        field.setOnFocusChangeListener { _, _ -> note.onFocusChangeListener?.onFocusChange(note, note.hasFocus()) }
         return field
     }
 

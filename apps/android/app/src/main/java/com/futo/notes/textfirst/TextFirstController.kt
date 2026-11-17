@@ -76,9 +76,12 @@ internal class TextFirstController(
         view.clipboard.onCopyRefused = { onClipboardRefused() }
         MainThreadWatchdog.start()
         view.setOnFocusChangeListener { _, hasFocus ->
-            focused = hasFocus
+            // A code block's header field is part of the note: the toolbar stays, as !300's did, so the
+            // note does not resize when the field opens or closes (job13 verifier run 1, items 9 and 15).
+            val headerField = view.codeChrome.openField != null
+            focused = hasFocus || headerField
             // The cell field takes focus with its content selected in the note.
-            if (!hasFocus && cellView == null) view.endSelectionOnBlur()
+            if (!hasFocus && cellView == null && !headerField) view.endSelectionOnBlur()
         }
         view.setOnScrollChangeListener { _, _, _, _, _ -> engine?.screenStart = view.scrollAnchor()?.offset ?: 0 }
         view.onFrameDrawn = { timings ->
