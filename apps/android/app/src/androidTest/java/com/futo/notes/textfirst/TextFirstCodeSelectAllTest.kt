@@ -36,4 +36,21 @@ class TextFirstCodeSelectAllTest {
         }
         assertEquals("the last code line carries a band the first does not", besideLine(view.editableText.indexOf("const a")), besideLine(view.editableText.indexOf("const b")))
     }
+
+    /** Area 6 verifier (P155): Quote, Heading, a list or the code toggle over a selection that takes a block does nothing. */
+    @Test fun blockCommandsLeaveASelectionThatTakesABlockAlone() = textFirstSession("intro line\n\n```js\nconst a = 1\n```\n\nouter line") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        val before = c.sourceText()
+        view.engine!!.selectAll()
+        withTimeout(5_000) { while (view.selectionEnd - view.selectionStart < view.editableText.indexOf("outer")) delay(20) }
+        delay(300)
+        for (command in listOf(uniffi.futo_notes_ffi.EditorBlockCommand.Quote, uniffi.futo_notes_ffi.EditorBlockCommand.BulletList, uniffi.futo_notes_ffi.EditorBlockCommand.WrapCodeBlock)) {
+            c.block(command)
+            delay(300)
+            assertEquals("$command changed the note", before, c.sourceText())
+        }
+    }
 }

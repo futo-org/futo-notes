@@ -224,7 +224,16 @@ internal class TextFirstController(
 
     fun format(format: EditorInlineFormat) { engine?.toggleFormat(format) }
     fun toolbarFormat(format: EditorInlineFormat) { engine?.toggleToolbarFormat(format) }
-    fun block(command: EditorBlockCommand) { engine?.blockCommand(command) }
+    fun block(command: EditorBlockCommand) {
+        // A selection that takes a code block is the block's: line formats leave it alone, as !300's did (cb 217-220, P155).
+        // Indent and Outdent still act; Tab on a selected block indents its code (Mason, 2026-11-17).
+        val indents = command is EditorBlockCommand.Indent || command is EditorBlockCommand.Outdent
+        if (!indents && selectionTakesACodeBlock()) return
+        engine?.blockCommand(command)
+    }
+
+    private fun selectionTakesACodeBlock(): Boolean =
+        view.selectedCodeBlock != null || view.codeSelection?.let { it.home == null && it.start < it.end } == true
     fun paste(text: String) { engine?.paste(text) }
     fun finishCellEditing() { engine?.finishCellEditing() }
     /** The shared display-selection entry point for grid taps and Find. */
