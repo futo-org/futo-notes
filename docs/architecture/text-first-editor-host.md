@@ -42,7 +42,8 @@ Three layers, same semantics:
 Public surface (portable/WASM names; FFI mirrors the input `_utf16` calls with typed errors): input
 `replace`, `replace_utf16`, `replace_many_utf16`, `replace_os_utf16`, `compose_utf16`,
 `commit_composition_utf16`, `cancel_composition`, `undo`, `redo`; structure
-`block_command_utf16`, `paragraph_key_utf16`; tables `inspect_table`, `table_command`,
+`block_command_utf16`, `paragraph_key_utf16`; block movement `block_at`, `block_slots`,
+`move_block` (native and engine only; desktop keeps Milkdown's drag); tables `inspect_table`, `table_command`,
 `table_key` (`inspect_table_utf16` and `table_command_utf16` for UTF-16 ranges); view `project`,
 `select_with_affinity`, `toggle_format`, `active_formats`; clipboard `copy_markdown`,
 `cut_markdown`, `paste_markdown`; `inspect_link`, `set_link`, `edit_link`; `update_note_ids` (native
@@ -181,8 +182,8 @@ the current test results for each renderer.
 
 ## 7. Deferred (open issues, not accepted capabilities)
 
-- **#303 rich HTML paste** and **#311 rendered block movement** (maintainer, 2026-10-30);
-  issues stay open. Plain/Markdown paste (#302) and single-cell table paste are accepted.
+- **#303 rich HTML paste** (maintainer, 2026-10-30); the issue stays open. Block movement
+  (#311) is in the engine; the mobile drag gestures are its follow-ups. Plain/Markdown paste (#302) and single-cell table paste are accepted.
 - Table alignment commands, row/column reordering, multi-cell/grid paste; tables inside
   containers. Existing alignment and untouched table bytes stay exact.
 - **#294** device dictation, correction and crash work: parked; physical IME unproven.

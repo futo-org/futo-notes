@@ -23,7 +23,7 @@
             let server = PuppetServer(
                 navigation: AppNavigation(), store: NotesStore(notesRoot: root),
                 sync: SyncManager(), port: 1)
-            for verb in ["Type", "Press", "MoveBlock", "Code", "FocusEditor"] {
+            for verb in ["Type", "Press", "Code", "FocusEditor"] {
                 let reply = await server.perform(.verb(verb), body: Data("{}".utf8))
                 #expect(reply.status == 501)
                 let body = try object(reply)
@@ -40,6 +40,7 @@
             let names = adapter.actions(h.controller).compactMap { $0["name"] as? String }
             #expect(!names.contains("Type") && !names.contains("Press"))
             #expect(names.contains("ToggleTask") && names.contains("OpenLink"))
+            #expect(names.contains("MoveBlock"))
         }
 
         @Test func aReceiptSaysTheVersionsTheSelectionAndWhetherTheNoteChanged() async throws {
@@ -186,6 +187,28 @@
             #expect(await adapter.perform("ToggleTask", arguments: ["line": 1]).status == 409)
             h.controller.undo()
             #expect(h.source == "intro\n- [x] alpha\n- [x] beta")
+        }
+
+        @Test func moveBlockDropsALinesBlockBeforeOrAfterAnotherLine() async throws {
+            // Display lines: 1 intro, 2 a, 3 b, 4 end. Line 2 lifts its item with `b`.
+            let h = TextFirstHarness("intro\n- a\n  - b\nend")
+            let unmount = mount(h)
+            defer { unmount() }
+            let adapter = attached(h)
+            let moved = await adapter.perform("MoveBlock", arguments: ["line": 2, "after": 4])
+            #expect(moved.status == 200)
+            #expect(h.source == "intro\nend\n- a\n  - b")
+            #expect(
+                await adapter.perform("MoveBlock", arguments: ["line": 3, "before": 1]).status
+                    == 200)
+            #expect(h.source == "- a\n  - b\nintro\nend")
+            // Its own edge is no slot; a direction is required.
+            #expect(
+                await adapter.perform("MoveBlock", arguments: ["line": 3, "before": 3]).status
+                    == 409)
+            #expect(await adapter.perform("MoveBlock", arguments: ["line": 3]).status == 400)
+            h.controller.undo()
+            #expect(h.source == "intro\nend\n- a\n  - b")
         }
 
         @Test func openLinkAndAcceptSuggestionAreTheTapsPaths() async throws {

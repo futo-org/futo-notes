@@ -47,6 +47,7 @@
                     "ToggleTask", [], ["find", "line", "docVersion"], ["line", "docVersion"],
                     convenience: true),
                 entry("OpenLink", ["find"], convenience: true),
+                entry("MoveBlock", ["line"], ["before", "after"], ["line", "before", "after"]),
             ]
             if c.completionModel.completion?.candidates.isEmpty == false {
                 all.append(
@@ -222,6 +223,8 @@
                 return try toggleTask(args, document, c)
             case "OpenLink":
                 return try openLink(args, document, c)
+            case "MoveBlock":
+                return try moveBlock(args, document, c)
             case "AcceptSuggestion":
                 return try acceptSuggestion(args, c)
             default:

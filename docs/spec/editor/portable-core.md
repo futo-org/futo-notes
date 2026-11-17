@@ -9,9 +9,10 @@ The shared engine implements the Linedown contract. Mobile release and debug app
 continues using Milkdown. See the [client adoption guide](../../architecture/editor-engine-adoption.md)
 for native binding changes and each client's current integration status.
 
-The maintainer's 2026-10-30 scope decision defers rich HTML paste (#303) and rendered
-block movement (#311) from this milestone; both remain open future work, not accepted
-capabilities. Plain-text/Markdown clipboard support and ordinary single-cell table paste remain
+The maintainer's 2026-10-30 scope decision defers rich HTML paste (#303) from this
+milestone; it remains open future work, not an accepted capability. Block movement (#311)
+is no longer deferred: the engine moves a block, and its drag gestures follow on each
+client. Plain-text/Markdown clipboard support and ordinary single-cell table paste remain
 required. Tables, shared find, wikilink completion, 20,000-line performance
 targets remain in scope. The [remaining-work spec](portable-core/remaining-work.md) records
 the deferred capabilities and current work bounds.
@@ -20,6 +21,7 @@ the deferred capabilities and current work bounds.
 - [Exact source, interpretation and input](portable-core/interpretation-and-input.md)
 - [Inline formatting](portable-core/inline-formatting.md)
 - [Heading, quote and divider block commands](portable-core/block-commands.md)
+- [Block movement](portable-core/block-movement.md)
 - [Find in note](portable-core/find.md)
 - [Link editing and source ownership](portable-core/links.md)
 - [Wikilink roles and note ids](portable-core/wikilinks.md)
