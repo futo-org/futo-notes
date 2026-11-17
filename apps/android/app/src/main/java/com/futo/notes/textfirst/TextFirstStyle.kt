@@ -61,13 +61,16 @@ internal class TextFirstStyle(
     val codeRadius = codeMetric(6f)
     val codeBlockGap = codeMetric(4f)
     val codeEdgeLabelSize = codeMetric(10f)
-    val codeTextSize = textSizePx * 0.85f
+    val codeTextSize = textSizePx * 0.88f
+    /** How far a code card stands past the text column on each side. */
+    val codeCardOutset get() = dp(6f)
     private val darkTheme get() = androidx.core.graphics.ColorUtils.calculateLuminance(textColor) > 0.5
     // !300's --code-well-*, --code-mark-* and its gutter rule (ink at 9%), light and dark.
     val codeWellColor get() = if (darkTheme) 0x0AFFFFFF else 0x0E000000
     val codeWellBorderColor get() = if (darkTheme) 0x0FFFFFFF else 0x0F000000
     val codeRuleColor get() = (textColor and 0x00ffffff) or 0x17000000
-    val codeNumberColor get() = (mutedColor and 0x00ffffff) or 0x8C000000.toInt()
+    /** !300's gutter ink: #737373, #A3A3A3 in dark, at 55%. */
+    val codeNumberColor get() = if (darkTheme) 0x8CA3A3A3.toInt() else 0x8C737373.toInt()
     /** A number on a line the selection is on (!300 cb 267-276). */
     val codeNumberActiveColor get() = (textColor and 0x00ffffff) or 0xB3000000.toInt()
     val selectionColor get() = (linkColor and 0x00ffffff) or 0x40000000

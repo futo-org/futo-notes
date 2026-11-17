@@ -10,7 +10,7 @@ import android.text.TextUtils
 internal enum class CodeBlockAction { SELECT_BLOCK, NAME_FIELD, LANGUAGE_LABEL, COPY_CODE, OPEN_LINE_ABOVE, OPEN_LINE_BELOW, NOTHING }
 
 /** One block's header as drawn: [revealFields] while the caret is in the block, so its empty fields show their placeholders. */
-internal class CodeHeaderState(val block: CodeBlockFacts, val codeStart: Int, val width: Float, val top: Float, val lineAbove: Boolean, val revealFields: Boolean)
+internal class CodeHeaderState(val block: CodeBlockFacts, val codeStart: Int, val left: Float, val right: Float, val top: Float, val lineAbove: Boolean, val revealFields: Boolean)
 
 /** One pressable part of a drawn block, in layout coordinates; [codeStart] is where the block's code starts. */
 internal class CodeBlockTarget(val area: RectF, val action: CodeBlockAction, val codeStart: Int, val block: CodeBlockFacts? = null)
@@ -61,7 +61,8 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     fun drawHeader(canvas: Canvas, header: CodeHeaderState) {
         val block = header.block
         val codeStart = header.codeStart
-        val width = header.width
+        val left = header.left
+        val right = header.right
         val top = header.top
         namePaint.typeface = look.mono
         namePaint.textSize = look.codeHeaderTextSize
@@ -70,11 +71,12 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         languagePaint.textSize = look.codeHeaderTextSize
         languagePaint.color = look.mutedColor
         val bottom = top + look.codeHeaderHeight
-        targets.add(CodeBlockTarget(RectF(0f, top, width, bottom), CodeBlockAction.SELECT_BLOCK, codeStart, block))
+        targets.add(CodeBlockTarget(RectF(left, top, right, bottom), CodeBlockAction.SELECT_BLOCK, codeStart, block))
         val metrics = languagePaint.fontMetrics
         val baseline = top + (look.codeHeaderHeight - metrics.ascent - metrics.descent) / 2f
-        val glyph = look.codeHeaderTextSize
-        val glyphRight = width - look.codeCorner
+        // !300's glyph box: 12 px against its 18 px body.
+        val glyph = look.codeHeaderTextSize * 16f / 18f
+        val glyphRight = right - look.codeCorner
         val glyphLeft = glyphRight - glyph
         val glyphTop = top + (look.codeHeaderHeight - glyph) / 2f
         val editingLanguage = openField == (codeStart to CodeHeaderField.Kind.LANGUAGE)
@@ -82,7 +84,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         else if (!editingLanguage) drawCopyGlyph(canvas, glyphLeft, glyphTop, glyph)
         val room = glyphLeft - look.codeChipPad - look.codeCorner
         val language = block.language?.takeIf { it.isNotEmpty() }
-        val languageText = language ?: labels.languagePlaceholder
+        val languageText = language?.let(::codeLanguageLabel) ?: labels.languagePlaceholder
         val shownLanguage = TextUtils.ellipsize(languageText, languagePaint, room / 2f, TextUtils.TruncateAt.END)
         val languageRight = glyphLeft - look.codeChipPad
         val languageLeft = languageRight - languagePaint.measureText(shownLanguage, 0, shownLanguage.length)
@@ -91,21 +93,22 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
             canvas.drawText(shownLanguage, 0, shownLanguage.length, languageLeft, baseline, languagePaint)
         }
         val nameRight = languageLeft - look.codeChipPad
-        var nameEnd = look.codeCorner
+        val nameLeft = left + look.codeCorner
+        var nameEnd = nameLeft
         // The ghost "name" tells a reader with no hover that the header is editable (cb 671-677).
         if (block.name.isNullOrEmpty() && header.revealFields && openField != (codeStart to CodeHeaderField.Kind.NAME)) {
             namePaint.alpha = GHOST_ALPHA
-            canvas.drawText(labels.namePlaceholder, look.codeCorner, baseline, namePaint)
+            canvas.drawText(labels.namePlaceholder, nameLeft, baseline, namePaint)
         }
         block.name?.takeIf { it.isNotEmpty() }?.let { name ->
-            val shown = TextUtils.ellipsize(name, namePaint, nameRight - look.codeCorner, TextUtils.TruncateAt.END)
-            if (openField != (codeStart to CodeHeaderField.Kind.NAME)) canvas.drawText(shown, 0, shown.length, look.codeCorner, baseline, namePaint)
+            val shown = TextUtils.ellipsize(name, namePaint, nameRight - nameLeft, TextUtils.TruncateAt.END)
+            if (openField != (codeStart to CodeHeaderField.Kind.NAME)) canvas.drawText(shown, 0, shown.length, nameLeft, baseline, namePaint)
             nameEnd += namePaint.measureText(shown, 0, shown.length)
         }
-        val nameBoxEnd = maxOf(nameEnd, look.codeCorner + namePaint.measureText(labels.namePlaceholder)).coerceAtMost(nameRight)
-        targets.add(CodeBlockTarget(RectF(0f, top, nameBoxEnd + look.codeChipPad, bottom), CodeBlockAction.NAME_FIELD, codeStart, block))
+        val nameBoxEnd = maxOf(nameEnd, nameLeft + namePaint.measureText(labels.namePlaceholder)).coerceAtMost(nameRight)
+        targets.add(CodeBlockTarget(RectF(left, top, nameBoxEnd + look.codeChipPad, bottom), CodeBlockAction.NAME_FIELD, codeStart, block))
         targets.add(CodeBlockTarget(RectF(languageLeft - look.codeChipPad, top, languageRight, bottom), CodeBlockAction.LANGUAGE_LABEL, codeStart, block))
-        targets.add(CodeBlockTarget(RectF(languageRight, top, width, bottom), CodeBlockAction.COPY_CODE, codeStart, block))
+        targets.add(CodeBlockTarget(RectF(languageRight, top, right, bottom), CodeBlockAction.COPY_CODE, codeStart, block))
         if (!header.lineAbove) return
         val label = edgeLabel(labels.addLineAbove, nameRight - nameBoxEnd - look.codeChipPad * 2)
         if (label.isEmpty()) return
@@ -165,7 +168,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     private fun drawCopyGlyph(canvas: Canvas, left: Float, top: Float, size: Float) {
         glyphPaint.color = look.mutedColor
         glyphPaint.strokeWidth = size / 11f
-        val square = size * 0.68f
+        val square = size * 0.6f
         val corner = size * 0.12f
         glyphBox.set(left, top, left + square, top + square)
         canvas.drawRoundRect(glyphBox, corner, corner, glyphPaint)

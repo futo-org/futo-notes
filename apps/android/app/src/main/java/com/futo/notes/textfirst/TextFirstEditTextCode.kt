@@ -51,7 +51,9 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
     val tailEnd = e.getSpanEnd(tail)
     val tailBottom = l.getLineBottom(l.getLineForOffset(maxOf(e.getSpanStart(tail), tailEnd - 1))).toFloat()
     val cardBottom = if (tail.line.last) tailBottom - tail.bottomExtra(e) + look.codeSkirt else tailBottom + overhang
-    val card = RectF(0f, cardTop, width, cardBottom)
+    // The card stands a little past the text column, as !300's did, so code that wraps does not touch its border.
+    val outset = look.codeCardOutset
+    val card = RectF(-outset, cardTop, width + outset, cardBottom)
     codeCardPaint.style = Paint.Style.FILL
     codeCardPaint.color = look.codeWellColor
     canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
@@ -70,7 +72,7 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
     canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
     val active = isCardActive(e, head, tail)
     if (head.line.first && headStart == 0) codeChrome.addSpaceAbove(headStart, width, cardTop)
-    if (head.line.first) codeChrome.drawHeader(canvas, CodeHeaderState(head.line.block, headStart, width, cardTop, active && opensLineAbove(e, head), active && selectionStart == selectionEnd && selectedCodeBlock == null))
+    if (head.line.first) codeChrome.drawHeader(canvas, CodeHeaderState(head.line.block, headStart, -outset, width + outset, cardTop, active && opensLineAbove(e, head), active && selectionStart == selectionEnd && selectedCodeBlock == null))
     if (!tail.line.last) return
     val endsNote = tailEnd >= e.length - TextFirstEditText.END_SENTINEL.length
     // Under a block that ends the note the label sits under the card, its space already the target (cb 791-797);
