@@ -336,7 +336,7 @@ internal class TextFirstEditText(
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val engine = engine ?: return super.onKeyDown(keyCode, event)
-        if (selectedBlockKey(keyCode, event)) return true
+        if (selectedBlockKey(keyCode, event) || codeLineKey(keyCode, event)) return true
         if (event.isCtrlPressed) {
             when (keyCode) {
                 KeyEvent.KEYCODE_Z -> { if (event.isShiftPressed) engine.redo() else engine.undo(); return true }

@@ -3,6 +3,7 @@ package com.futo.notes.textfirst
 import android.text.Selection
 import android.view.KeyEvent
 import uniffi.futo_notes_ffi.EditorBlockCommand
+import uniffi.futo_notes_ffi.EditorParagraphKey
 
 /**
  * Keys on a block selected as one object name a destination instead of stepping through it
@@ -34,3 +35,31 @@ internal fun TextFirstEditText.selectedBlockKey(keyCode: Int, event: KeyEvent): 
     }
     return true
 }
+
+/**
+ * Mod-Enter on a code line opens a blank line below it and Mod-Shift-Enter one above it, the caret
+ * on it (!300 cb 859-860, ed 841-842): the caret goes to the line's end (or start) and the engine's
+ * Enter, which in code carries the line's leading spaces, makes the line. Returns whether it acted.
+ */
+internal fun TextFirstEditText.codeLineKey(keyCode: Int, event: KeyEvent): Boolean {
+    if (keyCode != KeyEvent.KEYCODE_ENTER && keyCode != KeyEvent.KEYCODE_NUMPAD_ENTER || !event.isCtrlPressed) return false
+    if (selectionStart != selectionEnd || selectedCodeBlock != null) return false
+    val engine = engine ?: return false
+    val e = editableText ?: return false
+    val caret = selectionStart
+    if (e.getSpans(caret, caret, TfCodeBlock::class.java).isEmpty()) return false
+    var lineStart = caret
+    while (lineStart > 0 && e[lineStart - 1] != '\n') lineStart--
+    var lineEnd = caret
+    while (lineEnd < e.length && e[lineEnd] != '\n') lineEnd++
+    if (event.isShiftPressed) {
+        Selection.setSelection(e, lineStart)
+        engine.handler.post { engine.key(EditorParagraphKey.ENTER) }
+        engine.hostSelect(lineStart, lineStart)
+    } else {
+        Selection.setSelection(e, lineEnd)
+        engine.handler.post { engine.key(EditorParagraphKey.ENTER) }
+    }
+    return true
+}
+
