@@ -86,5 +86,8 @@ internal fun TextFirstEditText.endSelectionOnBlur() {
     val end = selectionEnd
     if (end < 0) return
     reveal.hold(end)
-    if (selectionStart != end) Selection.setSelection(editableText, end)
+    if (selectionStart == end) return
+    // The editor ends it, not the user, so the engine keeps its own affinity at the end (a bold word stays bold there).
+    movingSelectionItself = true
+    try { Selection.setSelection(editableText, end) } finally { movingSelectionItself = false }
 }

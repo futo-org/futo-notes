@@ -59,6 +59,8 @@ internal class TextFirstEditText(
     internal var onApplyMeasured: ((KeyTimings, UiUpdate) -> Unit)? = null
 
     internal var applying = false
+    /** True while the view moves its own selection (endSelectionOnBlur): not a placement by the user. */
+    internal var movingSelectionItself = false
     internal var appliedSeq = 0
     internal var pendingTimings: KeyTimings? = null
     private var checkboxDown = -1
@@ -278,7 +280,7 @@ internal class TextFirstEditText(
             applying = true
             try { Selection.setSelection(e, a, b) } finally { applying = false }
         }
-        engine?.viewSelection(appliedSeq, painted?.start ?: a, painted?.end ?: b)
+        engine?.viewSelection(appliedSeq, painted?.start ?: a, painted?.end ?: b, placed = !movingSelectionItself)
     }
 
     @SuppressLint("ClickableViewAccessibility")

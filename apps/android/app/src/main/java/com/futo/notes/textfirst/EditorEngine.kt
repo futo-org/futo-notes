@@ -98,15 +98,16 @@ internal class EditorEngine(
      * still on their way to the view (a long command ran first), so it is
      * carried through their edits and echoed back, never dropped.
      */
-    fun viewSelection(viewSeq: Int, start: Int, end: Int) = handler.post {
+    /** [placed]: the user put it there; false when the view moved it itself (it ends the selection on blur). */
+    fun viewSelection(viewSeq: Int, start: Int, end: Int, placed: Boolean = true) = handler.post {
         if (closed || selectWhileOpening(viewSeq, start, end)) return@post
-        selectFromView(viewSeq, start, end)
+        selectFromView(viewSeq, start, end, placed = placed)
     }
 
-    internal fun selectFromView(viewSeq: Int, start: Int, end: Int, force: Boolean = false) {
+    internal fun selectFromView(viewSeq: Int, start: Int, end: Int, force: Boolean = false, placed: Boolean = true) {
         val (a, b) = viewEdits.map(viewSeq, start, end) ?: return
         if (!force && a == mirror.selStart && b == mirror.selEnd && mirror.selectedBlock == null) return
-        guarded { select(a, b, fromView = true, echo = force || viewSeq != seq, placed = !force) }
+        guarded { select(a, b, fromView = true, echo = force || viewSeq != seq, placed = placed && !force) }
     }
 
     fun toggleFormat(format: EditorInlineFormat) = toolbarCommands.post {
