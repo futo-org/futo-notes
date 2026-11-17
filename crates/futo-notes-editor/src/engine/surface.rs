@@ -147,7 +147,8 @@ impl Engine {
 
     /// A paragraph key: the command a family claims it for on the lines it
     /// is pointed at, else typing (Enter writes the line's own line break;
-    /// Backspace and Delete remove the range or one grapheme).
+    /// Backspace and Delete remove the range or one grapheme). Paired
+    /// Backspace removes an empty backtick pair around the caret first.
     pub(crate) fn key(
         &mut self,
         expected: Revision,
@@ -156,6 +157,20 @@ impl Engine {
         accept: Accept,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
+        let pair = (key == ParagraphKey::PairedBackspace)
+            .then(|| self.empty_pair(range))
+            .flatten();
+        if let Some(pair) = pair {
+            if range != self.selection {
+                self.select_with_affinity(expected, range, self.affinity)?;
+            }
+            let change = self.run(
+                expected,
+                |engine| engine.typed_key(pair, ParagraphKey::Backspace),
+                accept,
+            )?;
+            return Ok(change.map(|change| self.view(change)));
+        }
         if self.composition.is_some() {
             let change = self.run(
                 expected,
@@ -195,6 +210,7 @@ impl Engine {
             }
             ParagraphKey::Backspace
             | ParagraphKey::BackspaceJoiningHeading
+            | ParagraphKey::PairedBackspace
             | ParagraphKey::Delete => {
                 if range != self.selection {
                     self.select_with_affinity(expected, range, self.affinity)?;

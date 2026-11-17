@@ -42,6 +42,7 @@ impl Engine {
                 .map(|touch| self.code_indent(range, touch, key == ParagraphKey::ShiftTab, true))),
             ParagraphKey::Backspace
             | ParagraphKey::BackspaceJoiningHeading
+            | ParagraphKey::PairedBackspace
             | ParagraphKey::Delete
             | ParagraphKey::Transpose => Ok(None),
         }

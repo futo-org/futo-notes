@@ -124,6 +124,7 @@ fn paragraph_key(value: jint) -> Result<EditorParagraphKey, EditorSessionError> 
         4 => Ok(EditorParagraphKey::Tab),
         5 => Ok(EditorParagraphKey::ShiftTab),
         6 => Ok(EditorParagraphKey::BackspaceJoiningHeading),
+        7 => Ok(EditorParagraphKey::PairedBackspace),
         _ => Err(EditorSessionError::InvalidRange),
     }
 }
@@ -153,7 +154,11 @@ mod tests {
             paragraph_key(6).unwrap(),
             EditorParagraphKey::BackspaceJoiningHeading
         );
-        assert!(paragraph_key(7).is_err());
+        assert_eq!(
+            paragraph_key(7).unwrap(),
+            EditorParagraphKey::PairedBackspace
+        );
+        assert!(paragraph_key(8).is_err());
         assert!(input_range(-1, 0).is_err());
         assert!(input_range(0, -1).is_err());
         assert_eq!(input_range(0, i32::MAX).unwrap().end, i32::MAX as u64);

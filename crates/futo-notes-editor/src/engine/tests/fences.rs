@@ -12,7 +12,8 @@
 //! copying the selection before it gives, and `error` the refusal it gives.
 //! `header:language|name` sets the header of the block at display offset
 //! `at` (the selection's start by default); `Select` sends the selection
-//! again as a host's echo, `Place` as the user's own. Every case that
+//! again as a host's echo, `Place` as the user's own. A paste's caret must
+//! also be at the marked source offset. Every case that
 //! changes the note also undoes to the exact bytes, selection, selected
 //! block and language caret, and redoes to the result.
 use super::super::Engine;
@@ -169,9 +170,18 @@ fn fence_cases() {
                 engine.selected_block()
             ));
         }
-        if got != want || got_selection != display_selection(&fresh, &want_selection) {
+        // A paste's caret is also checked in source: the end of a pasted
+        // block and the start of the line after it show at one offset.
+        let got_caret = engine.source_selection(got_selection);
+        let caret_differs = case.command.starts_with("paste:")
+            && want_selection.is_empty()
+            && got_caret != want_selection;
+        if got != want
+            || got_selection != display_selection(&fresh, &want_selection)
+            || caret_differs
+        {
             failures.push(format!(
-                "{}: got {got:?} selection {got_selection:?}, want {want:?} selection {:?}",
+                "{}: got {got:?} selection {got_selection:?} caret {got_caret:?}, want {want:?} selection {:?}",
                 case.name,
                 display_selection(&fresh, &want_selection)
             ));

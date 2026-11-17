@@ -64,6 +64,7 @@ impl Engine {
             }
             ParagraphKey::Backspace
             | ParagraphKey::BackspaceJoiningHeading
+            | ParagraphKey::PairedBackspace
             | ParagraphKey::Delete => {
                 let range = if range.start != range.end {
                     range

@@ -54,6 +54,7 @@ impl Engine {
         match key {
             ParagraphKey::Backspace
             | ParagraphKey::BackspaceJoiningHeading
+            | ParagraphKey::PairedBackspace
             | ParagraphKey::Delete => Some(self.removed(range)),
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => {
                 let block = self.block_at(range.start.0)?;

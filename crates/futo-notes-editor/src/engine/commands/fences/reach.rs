@@ -27,8 +27,11 @@ impl Engine {
     /// make it differ from the range's own: the selected block whole; a
     /// block the range reaches into or out of, whole; a range that only
     /// meets a block's outer edge stops there. A range from inside a block's
-    /// code to the start of the line after it stays in the code, and one
-    /// that starts at the end of a block's code starts after its line break.
+    /// code to the start of the line after it holds the break that stands
+    /// for the hidden closing fence, so it takes the block whole; past a
+    /// block that ends the note, where no line follows, it stays in the
+    /// code. One that starts at the end of a block's code starts after its
+    /// line break.
     pub(crate) fn block_reach(&self, range: DisplayRange) -> Option<Range<usize>> {
         if self.block_selected && range == self.selection {
             return self
@@ -62,7 +65,11 @@ impl Engine {
         }
         if let Some(block) = &inside {
             let below = self.store.before(block.last + 1).display;
-            if shows_code(block) && block.description.range.end.0 < end && end <= below {
+            let ends_note = block
+                .closer
+                .is_none_or(|closer| closer + 1 >= self.line_count());
+            if shows_code(block) && block.description.range.end.0 < end && end <= below && ends_note
+            {
                 to = self.line_start(block.last) + self.line(block.last).body_len();
                 changed = true;
             } else if block.description.range.end.0 < end {

@@ -28,6 +28,32 @@ fn native_clipboard_copies_cuts_and_pastes_exact_markdown() {
 }
 
 #[test]
+fn native_paste_of_a_selected_block_over_itself_moves_the_caret_below_at_the_same_revision() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    let original = "a\n```js\nx\n```\nb";
+    store
+        .create_note("same".into(), "".into(), original.into())
+        .unwrap();
+    let session = store.open_editor("same".into()).unwrap();
+    let at = |start, end| EditorByteRange { start, end };
+    let selected = session.select_code_block(0, 2).unwrap();
+    let copied = session
+        .copy_markdown(0, selected.selection.clone())
+        .unwrap();
+    let change = session
+        .paste_markdown(0, selected.selection, copied)
+        .unwrap()
+        .unwrap();
+    assert_eq!(change.revision, 0);
+    assert_eq!(change.selection, at(4, 4));
+    assert_eq!(change.selected_block, None);
+    assert_eq!(session.source_text().unwrap(), original);
+    assert!(session.undo(0).unwrap().is_none());
+}
+
+#[test]
 fn native_block_paste_in_an_empty_fence_stays_literal() {
     let tree = TempTree::new();
     std::fs::create_dir_all(tree.path("vault")).unwrap();

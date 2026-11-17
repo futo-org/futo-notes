@@ -22,6 +22,8 @@ use crate::lines::{block, FenceRole, Kind};
 use crate::{BlockCommand, DisplayRange, EditorError};
 use std::ops::Range;
 
+pub(super) use open_line::line_after_closing;
+
 /// A fence's lines: its opening line, and the line after its code (the
 /// closing line, or the note's line count when nothing closes it).
 #[derive(Clone, Copy, Debug)]
@@ -81,7 +83,7 @@ fn fence_role(kind: &Kind) -> Option<FenceRole> {
 }
 
 /// Leading spaces and tabs.
-fn leading(text: &str) -> &str {
+pub(super) fn leading(text: &str) -> &str {
     &text[..text.len() - text.trim_start_matches([' ', '\t']).len()]
 }
 

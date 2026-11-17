@@ -208,3 +208,29 @@ fn native_paired_typing_pairs_a_backtick_and_steps_out_of_code_with_no_history()
     assert_eq!((stepped.selection.start, stepped.selection.end), (5, 5));
     assert_eq!(stepped.affinity, EditorAffinity::Forward);
 }
+
+#[test]
+fn native_paired_backspace_removes_an_empty_backtick_pair_and_is_backspace_elsewhere() {
+    use futo_notes_ffi::EditorParagraphKey;
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("pair".into(), "".into(), "a ``".into())
+        .unwrap();
+    let session = store.open_editor("pair".into()).unwrap();
+    let caret = |at| EditorUtf16Range { start: at, end: at };
+    session
+        .paragraph_key_utf16(0, caret(3), EditorParagraphKey::PairedBackspace)
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text().unwrap(), "a ");
+    session
+        .paragraph_key_utf16(1, caret(2), EditorParagraphKey::PairedBackspace)
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text().unwrap(), "a");
+    session.undo(2).unwrap().unwrap();
+    session.undo(3).unwrap().unwrap();
+    assert_eq!(session.source_text().unwrap(), "a ``");
+}

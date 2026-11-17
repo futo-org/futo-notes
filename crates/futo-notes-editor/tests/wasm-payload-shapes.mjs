@@ -222,6 +222,13 @@ shape('SelectionChange', fenced.place_selection(1n, 0, 0, '"Forward"'));
 const compose = new WasmSession(7n, 'abc', 0n);
 shape('Composition', compose.compose_utf16(0n, 1, 1, Uint16Array.of(0x65e5)));
 shape('Composition | null', compose.composition());
+const paired = new WasmSession(9n, 'a ``', 0n);
+const pairedKey = JSON.stringify(shape('ParagraphKey', JSON.stringify('PairedBackspace')));
+shape('Applied', paired.paragraph_key_utf16(0n, 3, 3, pairedKey));
+assert.equal(paired.draft_text(), 'a ');
+shape('Applied', paired.paragraph_key_utf16(1n, 2, 2, pairedKey));
+assert.equal(paired.draft_text(), 'a');
+paired.free();
 session.free();
 
 console.log('Compiled WASM payload shapes match packages/editor/src/wasmPayloads.d.ts.');

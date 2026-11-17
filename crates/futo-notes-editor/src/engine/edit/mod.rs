@@ -359,8 +359,7 @@ impl Engine {
             _ if !ordered => return Err(EditorError::InvalidRange),
             _ => {}
         }
-        let mut landing = None;
-        let change = self.run(
+        self.run(
             expected,
             |engine| {
                 let mut plans = Vec::new();
@@ -378,7 +377,6 @@ impl Engine {
                     .map(|plan| plan.inserted.len() as isize - plan.range.len() as isize)
                     .sum();
                 let caret = (last.caret as isize + growth) as usize;
-                landing = Some(caret);
                 let lines =
                     engine.line_of(plans[0].range.start)..engine.line_of(last.range.end) + 1;
                 let edits = plans
@@ -392,13 +390,7 @@ impl Engine {
                 Ok(Some(command))
             },
             accept,
-        )?;
-        // `run` puts the selection back when nothing changed; unchanged input
-        // still finishes after its last run.
-        if let (None, Some(caret)) = (&change, landing) {
-            self.caret_at(caret);
-        }
-        Ok(change)
+        )
     }
 
     /// Backspace or Delete: remove the selection, or one visible grapheme.

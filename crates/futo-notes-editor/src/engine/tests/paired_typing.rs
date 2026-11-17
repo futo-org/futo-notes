@@ -5,7 +5,8 @@
 //! and `]` (`marks` names other characters when the note needs these) and
 //! runs its steps in order: `pair:` text typed under
 //! `InputAction::PairedTyping`, `type:` text typed as plain typing, a
-//! paragraph key, `Code` (the toolbar's Code toggle), `Undo` or `Redo`.
+//! paragraph key (`PairedBackspace` among them), `Code` (the toolbar's Code
+//! toggle), `Undo` or `Redo`.
 //! After each step the source and the selection must be as marked, with a
 //! caret where it maps in the source (`caret_source`), so the two caret
 //! stops at a hidden marker differ; `display`, `affinity` and `language`
@@ -55,6 +56,7 @@ fn run_step(engine: &mut Engine, action: &str) -> Result<(), EditorError> {
         "Enter" => Some(ParagraphKey::Enter),
         "Backspace" => Some(ParagraphKey::Backspace),
         "Delete" => Some(ParagraphKey::Delete),
+        "PairedBackspace" => Some(ParagraphKey::PairedBackspace),
         _ => None,
     };
     if let Some(text) = action.strip_prefix("pair:") {
@@ -136,9 +138,8 @@ fn paired_typing_cases() {
             assert_eq!(display, Engine::open(&got).display_text(), "{context}");
             // A literal backtick may join the typing group before it.
             let undo_steps = engine.history.undo.len().saturating_sub(groups);
-            if step.action.starts_with("pair:")
-                && (undo_steps > 1 || (got == before && undo_steps != 0))
-            {
+            let paired = step.action.starts_with("pair:") || step.action == "PairedBackspace";
+            if paired && (undo_steps > 1 || (got == before && undo_steps != 0)) {
                 failures.push(format!("{context}: {undo_steps} new Undo steps"));
             }
         }
