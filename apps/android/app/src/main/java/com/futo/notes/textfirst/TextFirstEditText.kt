@@ -15,7 +15,6 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import androidx.appcompat.widget.AppCompatEditText
-import uniffi.futo_notes_ffi.EditorParagraphKey
 
 /**
  * The platform text view. It holds display text only and never edits it on
@@ -337,14 +336,7 @@ internal class TextFirstEditText(
                 KeyEvent.KEYCODE_V -> { onTextContextMenuItem(android.R.id.paste); return true }
             }
         }
-        val paragraphKey = when (keyCode) {
-            KeyEvent.KEYCODE_DEL -> EditorParagraphKey.BACKSPACE
-            KeyEvent.KEYCODE_FORWARD_DEL -> EditorParagraphKey.DELETE
-            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
-                if (event.isShiftPressed) EditorParagraphKey.SHIFT_ENTER else EditorParagraphKey.ENTER
-            KeyEvent.KEYCODE_TAB -> if (event.isShiftPressed) EditorParagraphKey.SHIFT_TAB else EditorParagraphKey.TAB
-            else -> null
-        }
+        val paragraphKey = paragraphKeyFor(keyCode, event)
         if (paragraphKey != null) {
             engine.handler.post { engine.key(paragraphKey) }
             return true
