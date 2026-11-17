@@ -315,6 +315,37 @@ impl NativeEditorSession {
         })
     }
 
+    /// Write a code block's language and `name:` from its header fields, as
+    /// one Undo step that keeps the selection. `None` when the block already
+    /// has them; `InvalidText` (nothing changed) when they would not read back.
+    pub fn set_code_block_header(
+        &self,
+        expected: u64,
+        header: EditorCodeBlockHeader,
+    ) -> Result<Option<EditorViewChange>, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            Ok(session
+                .set_code_block_header(Revision(expected), &header.try_into()?)?
+                .map(Into::into))
+        })
+    }
+
+    /// The user placed this selection (a press, a drag): unlike a host's echo
+    /// through `select_with_affinity`, the same range ends a selected block
+    /// and a language caret.
+    pub fn place_selection(
+        &self,
+        expected: u64,
+        range: EditorByteRange,
+        affinity: EditorAffinity,
+    ) -> Result<EditorSelectionChange, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            Ok(session
+                .place_selection(Revision(expected), range.try_into()?, affinity.into())?
+                .into())
+        })
+    }
+
     pub fn toggle_format(
         &self,
         expected: u64,

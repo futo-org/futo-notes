@@ -40,6 +40,7 @@ impl Engine {
             inserted: change.inserted,
             selection: change.selection,
             selected_block: self.selected_block(),
+            writes_language: self.writes_language(),
             affinity: change.affinity,
             projection,
         }
@@ -68,6 +69,7 @@ impl Engine {
             inserted: String::new(),
             selection: self.selection,
             selected_block: self.selected_block(),
+            writes_language: self.writes_language(),
             work: EditWork::default(),
             affinity: self.affinity,
             projection: self.projection(self.revision, caret),

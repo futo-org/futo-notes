@@ -13,8 +13,8 @@ pub use types::{BlockCommand, Composition, MarkedRun, ParagraphKey, ToolbarList,
 use crate::engine::Engine;
 use crate::history::{HistoryClock, MonotonicClock};
 use crate::{
-    Affinity, CaretDirection, DisplayOffset, DisplayRange, DisplayReplacement, EditorError,
-    InlineFormat, InputAction, ProjectionSlice, Revision, SelectionChange, SourceEdit,
+    Affinity, CaretDirection, CodeBlockHeader, DisplayOffset, DisplayRange, DisplayReplacement,
+    EditorError, InlineFormat, InputAction, ProjectionSlice, Revision, SelectionChange, SourceEdit,
     SourceOffset, ViewChange,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -107,6 +107,12 @@ impl EditorSession {
         self.engine.selected_block()
     }
 
+    /// Whether the caret writes its code block's language, as changes report
+    /// it (`writes_language`).
+    pub fn writes_language(&self) -> bool {
+        self.engine.writes_language()
+    }
+
     /// The word a double click at `offset` selects (`engine/words.rs`).
     pub fn word_at(
         &self,
@@ -174,6 +180,30 @@ impl EditorSession {
         at: DisplayOffset,
     ) -> Result<SelectionChange, EditorError> {
         self.run(|e| e.select_code_block(expected, at))
+    }
+
+    /// Write a code block's language and `name:` from its header fields, as
+    /// one Undo step that keeps the selection. `None` when it already has
+    /// them; `InvalidText` (nothing changed) when they would not read back.
+    pub fn set_code_block_header(
+        &mut self,
+        expected: Revision,
+        header: &CodeBlockHeader,
+        accept: Accept,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.run(|e| e.set_code_block_header(expected, header, accept))
+    }
+
+    /// The user placed this selection (a press, a drag): unlike a host's
+    /// echo through `select_with_affinity`, the same range ends a selected
+    /// block and a language caret.
+    pub fn place_selection(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        affinity: Affinity,
+    ) -> Result<SelectionChange, EditorError> {
+        self.run(|e| e.place_selection(expected, range, affinity))
     }
 
     /// Move one extended grapheme in the requested direction, collapsing a

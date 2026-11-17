@@ -147,6 +147,7 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
         revision: 5,
         selection: { start: 3, end: 3 },
         selected_block: null,
+        writes_language: false,
         affinity,
       });
     }

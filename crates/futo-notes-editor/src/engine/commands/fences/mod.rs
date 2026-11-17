@@ -1,6 +1,7 @@
 //! Fenced code: the code block commands, the keys inside a fence
 //! (`keys.rs`), a block as one object (`reach.rs`, `selected.rs`,
-//! `edges.rs`) and lines opened beside one (`open_line.rs`).
+//! `edges.rs`), lines opened beside one (`open_line.rs`) and its header
+//! (`header.rs`).
 //!
 //! Code text is the line's text, whitespace and all: nothing inside a fence
 //! is Markdown. Putting lines in a fence keeps their text exactly; taking
@@ -8,6 +9,7 @@
 //! leading `\` where the text would read as another block), so the shown
 //! text does not move.
 mod edges;
+mod header;
 mod keys;
 mod open_line;
 mod reach;

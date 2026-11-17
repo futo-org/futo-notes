@@ -118,6 +118,16 @@ impl Engine {
         self.block_selected.then_some(self.selection)
     }
 
+    /// Whether the caret writes its code block's language: it is pinned at
+    /// the opening fence's hidden end, as typing the fence leaves it, so the
+    /// next letters land in the info string and Enter starts the code.
+    pub fn writes_language(&self) -> bool {
+        self.pin.is_some_and(|at| {
+            let (index, before) = read::line_at(&self.store, at);
+            code_block::is_opening_fence_end(self.store.get(index), at - before.source)
+        })
+    }
+
     /// Explicit whole-text query; never called by the input path.
     pub fn source_text(&self) -> String {
         self.store

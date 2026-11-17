@@ -7,13 +7,20 @@
 //! text service's replacement of the selection), and states the source and selection after it. When
 //! `typed` is set, that text is typed at the selection first (setup, not
 //! checked); `block` selects the block at the selection as one object first.
-//! `selected` states whether a block is selected as one object after it, and
-//! `copied` what copying the selection before it gives. Every case that
-//! changes the note also undoes to the exact bytes, selection and selected
-//! block, and redoes to the result.
+//! `selected` states whether a block is selected as one object after it,
+//! `language` whether the caret writes a block's language, `copied` what
+//! copying the selection before it gives, and `error` the refusal it gives.
+//! `header:language|name` sets the header of the block at display offset
+//! `at` (the selection's start by default); `Select` sends the selection
+//! again as a host's echo, `Place` as the user's own. Every case that
+//! changes the note also undoes to the exact bytes, selection, selected
+//! block and language caret, and redoes to the result.
 use super::super::Engine;
 use super::{ok, range};
-use crate::{Affinity, BlockCommand, DisplayRange, InputAction, ParagraphKey};
+use crate::{
+    Affinity, BlockCommand, CodeBlockHeader, DisplayOffset, DisplayRange, EditorError, InputAction,
+    ParagraphKey,
+};
 
 #[derive(serde::Deserialize)]
 struct Case {
@@ -31,6 +38,12 @@ struct Case {
     selected: bool,
     #[serde(default)]
     copied: Option<String>,
+    #[serde(default)]
+    language: bool,
+    #[serde(default)]
+    at: Option<usize>,
+    #[serde(default)]
+    error: Option<String>,
 }
 
 fn display_selection(engine: &Engine, selection: &std::ops::Range<usize>) -> DisplayRange {
@@ -40,7 +53,7 @@ fn display_selection(engine: &Engine, selection: &std::ops::Range<usize>) -> Dis
     )
 }
 
-fn run(engine: &mut Engine, command: &str) {
+fn run(engine: &mut Engine, command: &str, at: Option<usize>) -> Result<(), EditorError> {
     let selection = engine.selection();
     let revision = engine.revision();
     let block = |name: &str| match name {
@@ -61,7 +74,19 @@ fn run(engine: &mut Engine, command: &str) {
         "Delete" => Some(ParagraphKey::Delete),
         _ => None,
     };
-    if let Some(text) = command.strip_prefix("type:") {
+    if let Some(fields) = command.strip_prefix("header:") {
+        let (language, name) = fields.split_once('|').expect("header:language|name");
+        let header = CodeBlockHeader {
+            at: at.map_or(selection.start, DisplayOffset),
+            language: language.to_owned(),
+            name: name.to_owned(),
+        };
+        engine.set_code_block_header(revision, &header, &mut ok)?;
+    } else if command == "Select" {
+        engine.select_with_affinity(revision, selection, engine.affinity())?;
+    } else if command == "Place" {
+        engine.place_selection(revision, selection, engine.affinity())?;
+    } else if let Some(text) = command.strip_prefix("type:") {
         engine
             .replace(revision, selection, text, InputAction::Typing, &mut ok)
             .unwrap();
@@ -84,6 +109,7 @@ fn run(engine: &mut Engine, command: &str) {
     } else {
         panic!("unknown command {command:?}");
     }
+    Ok(())
 }
 
 #[test]
@@ -123,15 +149,22 @@ fn fence_cases() {
         let opening = engine.source_text();
         let opening_selection = engine.selection();
         let opening_block = engine.selected_block();
+        let opening_language = engine.writes_language();
         let groups = engine.history.undo.len();
-        run(&mut engine, &case.command);
+        let error = run(&mut engine, &case.command, case.at)
+            .err()
+            .map(|error| format!("{error:?}"));
+        if error != case.error {
+            failures.push(format!("{}: error {error:?}", case.name));
+        }
         let got = engine.source_text();
         let got_selection = engine.selection();
         let got_block = engine.selected_block();
+        let got_language = engine.writes_language();
         let fresh = Engine::open(&got);
-        if engine.selected_block().is_some() != case.selected {
+        if engine.selected_block().is_some() != case.selected || got_language != case.language {
             failures.push(format!(
-                "{}: selected block {:?}",
+                "{}: selected block {:?}, language {got_language}",
                 case.name,
                 engine.selected_block()
             ));
@@ -155,6 +188,7 @@ fn fence_cases() {
         if engine.source_text() != opening
             || engine.selection() != opening_selection
             || engine.selected_block() != opening_block
+            || engine.writes_language() != opening_language
         {
             failures.push(format!(
                 "{}: undo gave {:?} {:?}",
@@ -168,6 +202,7 @@ fn fence_cases() {
         if engine.source_text() != want
             || engine.selection() != got_selection
             || engine.selected_block() != got_block
+            || engine.writes_language() != got_language
         {
             failures.push(format!(
                 "{}: redo gave {:?} {:?}",
@@ -204,6 +239,25 @@ fn a_selected_block_ends_with_another_selection_and_composes_whole() {
     assert!(engine
         .select_code_block(engine.revision(), crate::DisplayOffset(0))
         .is_err());
+}
+
+#[test]
+fn a_header_change_reports_its_block_with_the_new_header() {
+    let mut engine = Engine::open("a\n```js hl:1\nx\n```\nb");
+    let header = CodeBlockHeader {
+        at: DisplayOffset(2),
+        language: "go".into(),
+        name: "main.go".into(),
+    };
+    let change = engine
+        .set_code_block_header(engine.revision(), &header, &mut ok)
+        .unwrap()
+        .unwrap();
+    let block = &change.projection.code_blocks[0];
+    assert_eq!(block.range, range(2, 3));
+    assert_eq!(block.language.as_deref(), Some("go"));
+    assert_eq!(block.name.as_deref(), Some("main.go"));
+    assert_eq!(change.selection, range(0, 0));
 }
 
 #[test]

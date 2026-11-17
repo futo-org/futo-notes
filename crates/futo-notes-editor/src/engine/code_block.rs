@@ -46,6 +46,12 @@ pub(super) fn is_opening_fence(entry: &Entry) -> bool {
     )
 }
 
+/// Whether line-relative offset `column` of line `entry` is its opening
+/// fence's hidden end, where a caret writes the block's language.
+pub(super) fn is_opening_fence_end(entry: &Entry, column: usize) -> bool {
+    is_opening_fence(entry) && column == entry.body_len()
+}
+
 fn line_count(lines: usize) -> u32 {
     u32::try_from(lines).unwrap_or(u32::MAX)
 }

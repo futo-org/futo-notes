@@ -29,12 +29,11 @@ impl FenceInfo {
     }
 }
 
-/// Read the text after an opening fence's backticks or tildes. A key opens an
-/// option only at the start or after whitespace, so a value may hold spaces
-/// (`name:api handlers.go`) and `notes.hl:3.go` stays one value. A repeated
-/// key keeps its last value.
-pub(crate) fn read_fence_info(info: &str) -> FenceInfo {
-    let mut keys: Vec<(usize, &str)> = Vec::new();
+/// Where each key of `info` starts, in order. A key opens an option only at
+/// the start or after whitespace, so a value may hold spaces
+/// (`name:api handlers.go`) and `notes.hl:3.go` stays one value.
+fn fence_info_keys(info: &str) -> Vec<(usize, &'static str)> {
+    let mut keys = Vec::new();
     let mut at_boundary = true;
     for (at, character) in info.char_indices() {
         if at_boundary {
@@ -42,11 +41,18 @@ pub(crate) fn read_fence_info(info: &str) -> FenceInfo {
                 .iter()
                 .find(|key| info[at..].starts_with(*key))
             {
-                keys.push((at, key));
+                keys.push((at, *key));
             }
         }
         at_boundary = character.is_whitespace();
     }
+    keys
+}
+
+/// Read the text after an opening fence's backticks or tildes. A repeated
+/// key keeps its last value.
+pub(crate) fn read_fence_info(info: &str) -> FenceInfo {
+    let keys = fence_info_keys(info);
     let language_end = keys.first().map_or(info.len(), |(at, _)| *at);
     let mut read = FenceInfo {
         language: info[..language_end]
@@ -65,6 +71,69 @@ pub(crate) fn read_fence_info(info: &str) -> FenceInfo {
         }
     }
     read
+}
+
+/// `info` with its language and its `name:` replaced, `None` removing one;
+/// every other piece stays as written. A name not there yet goes after the
+/// language, before the other keys; a repeated `name:` becomes one, where
+/// its last spelling was. The caller checks that the result reads back.
+pub(crate) fn write_fence_info(info: &str, language: Option<&str>, name: Option<&str>) -> String {
+    let keys = fence_info_keys(info);
+    let options_start = keys.first().map_or(info.len(), |(at, _)| *at);
+    let mut written = written_language(&info[..options_start], language);
+    let options: Vec<&str> = keys
+        .iter()
+        .enumerate()
+        .map(|(index, (at, _))| {
+            let end = keys.get(index + 1).map_or(info.len(), |(next, _)| *next);
+            &info[*at..end]
+        })
+        .collect();
+    let last_name = options
+        .iter()
+        .rposition(|option| option.starts_with("name:"));
+    let mut rest = String::new();
+    if let (None, Some(name)) = (last_name, name) {
+        rest.push_str("name:");
+        rest.push_str(name);
+        if !options.is_empty() {
+            rest.push(' ');
+        }
+    }
+    for (index, option) in options.iter().enumerate() {
+        if !option.starts_with("name:") {
+            rest.push_str(option);
+            continue;
+        }
+        if let (true, Some(name)) = (Some(index) == last_name, name) {
+            rest.push_str("name:");
+            rest.push_str(name);
+            rest.push_str(&option[option.trim_end().len()..]);
+        }
+    }
+    if !rest.is_empty() && !written.is_empty() && !written.ends_with(char::is_whitespace) {
+        written.push(' ');
+    }
+    written.push_str(&rest);
+    if !info.ends_with(char::is_whitespace) {
+        written.truncate(written.trim_end().len());
+    }
+    written
+}
+
+/// The text before an info string's first key with its first word replaced
+/// by `language`, or removed with the whitespace after it.
+fn written_language(head: &str, language: Option<&str>) -> String {
+    let Some(start) = head.find(|character: char| !character.is_whitespace()) else {
+        return format!("{head}{}", language.unwrap_or(""));
+    };
+    let end = head[start..]
+        .find(char::is_whitespace)
+        .map_or(head.len(), |length| start + length);
+    match language {
+        Some(language) => format!("{}{language}{}", &head[..start], &head[end..]),
+        None => format!("{}{}", &head[..start], head[end..].trim_start()),
+    }
 }
 
 /// `3`, `2-4`, `9-7` (reversed reads as `7-9`), separated by commas. An item
@@ -166,6 +235,38 @@ mod tests {
             read_line_list("2-99999999999999999999999").first(),
             Some(&(2..=u64::MAX))
         );
+    }
+
+    #[test]
+    fn writing_keeps_every_other_piece() {
+        let cases = [
+            ("go hl:2 ll:4", Some("rust"), None, "rust hl:2 ll:4"),
+            ("go hl:2", Some("go"), Some("a b.go"), "go name:a b.go hl:2"),
+            ("hl:2", Some("go"), None, "go hl:2"),
+            (
+                "go  name:x  hl:2",
+                Some("go"),
+                Some("y"),
+                "go  name:y  hl:2",
+            ),
+            ("go name:x hl:2", Some("go"), None, "go hl:2"),
+            ("go hl:2 name:x", None, Some("x"), "hl:2 name:x"),
+            ("go name:x", Some("go"), None, "go"),
+            ("", None, Some("x"), "name:x"),
+            ("", Some("go"), Some("x"), "go name:x"),
+            (" go", None, None, ""),
+            ("python extra", Some("go"), None, "go extra"),
+            (
+                "go name:a name:b hl:1",
+                Some("go"),
+                Some("c"),
+                "go name:c hl:1",
+            ),
+            ("go ", Some("go"), Some("x"), "go name:x"),
+        ];
+        for (info, language, name, want) in cases {
+            assert_eq!(write_fence_info(info, language, name), want, "{info:?}");
+        }
     }
 
     #[test]

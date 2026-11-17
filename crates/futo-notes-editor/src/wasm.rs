@@ -1,6 +1,7 @@
 //! JSON wire facade. Edits return `{change, request}` (or null); the request goes to the native host, which owns persistence.
 use wasm_bindgen::prelude::*;
 mod clipboard;
+mod code_blocks;
 mod tables;
 mod words;
 
@@ -141,12 +142,27 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
-    /// `select_code_block`: the block whose code shows at display byte `at`.
-    pub fn select_code_block(&mut self, revision: u64, at: usize) -> Result<String, JsValue> {
+    /// The user placed this selection: as `select_with_affinity`, but the
+    /// same range ends a selected block and a language caret.
+    pub fn place_selection(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        affinity: &str,
+    ) -> Result<String, JsValue> {
+        let affinity = serde_json::from_str(affinity).map_err(error)?;
         json(
             &self
                 .0
-                .select_code_block(Revision(revision), DisplayOffset(at))
+                .place_selection(
+                    Revision(revision),
+                    DisplayRange {
+                        start: DisplayOffset(start),
+                        end: DisplayOffset(end),
+                    },
+                    affinity,
+                )
                 .map_err(error)?,
         )
     }
@@ -377,9 +393,6 @@ impl WasmSession {
     /// The selection in display bytes.
     pub fn selection(&self) -> Result<String, JsValue> {
         json(&self.0.selection())
-    }
-    pub fn selected_block(&self) -> Result<String, JsValue> {
-        json(&self.0.selected_block())
     }
     pub fn affinity(&self) -> Result<String, JsValue> {
         json(&self.0.affinity())
