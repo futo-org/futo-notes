@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.util.Log
 import com.futo.notes.storage.GateAccess
 import com.futo.notes.storage.StorageMigrationGate
+import uniffi.futo_notes_ffi.EditorAffinity
 import uniffi.futo_notes_ffi.EditorBlockCommand
 import uniffi.futo_notes_ffi.EditorByteRange
 import uniffi.futo_notes_ffi.EditorInlineFormat
@@ -104,8 +105,8 @@ internal class EditorEngine(
 
     internal fun selectFromView(viewSeq: Int, start: Int, end: Int, force: Boolean = false) {
         val (a, b) = viewEdits.map(viewSeq, start, end) ?: return
-        if (!force && a == mirror.selStart && b == mirror.selEnd) return
-        guarded { select(a, b, fromView = true, echo = force || viewSeq != seq) }
+        if (!force && a == mirror.selStart && b == mirror.selEnd && mirror.selectedBlock == null) return
+        guarded { select(a, b, fromView = true, echo = force || viewSeq != seq, placed = !force) }
     }
 
     fun toggleFormat(format: EditorInlineFormat) = toolbarCommands.post {
@@ -314,7 +315,8 @@ internal class EditorEngine(
     }
 
     /** [echo]: updates still in flight to the view would overwrite this view selection. */
-    internal fun select(start: Int, end: Int, fromView: Boolean, finishTail: Boolean = true, echo: Boolean = false) {
+    /** [placed]: the user put it there (a press, a drag), so the same range still ends a selected block. */
+    internal fun select(start: Int, end: Int, fromView: Boolean, finishTail: Boolean = true, echo: Boolean = false, placed: Boolean = false) {
         val s = session ?: return
         var a = minOf(start, end).coerceIn(0, mirror.text.length)
         var b = maxOf(start, end).coerceIn(0, mirror.text.length)
@@ -332,9 +334,10 @@ internal class EditorEngine(
             ui.post { sink.onImeReset() }
         }
         if (finishTail && b > tailStart() && streaming) finishStreaming()
-        val change = s.selectUtf16(rev, EditorUtf16Range(a.toULong(), b.toULong()))
+        val selectedBefore = mirror.selectedBlock
+        val change = if (placed) s.placeSelection(rev, mirror.byteRange(a, b), EditorAffinity.FORWARD) else s.selectUtf16(rev, EditorUtf16Range(a.toULong(), b.toULong()))
         applySelectionChange(change)
-        if (settle || echo || !fromView || mirror.selStart != a || mirror.selEnd != b) postUpdate(emptyList(), emptyList()) else publishSelection()
+        if (settle || echo || !fromView || mirror.selStart != a || mirror.selEnd != b || mirror.selectedBlock != selectedBefore) postUpdate(emptyList(), emptyList()) else publishSelection()
         scheduleCaretState()
     }
 

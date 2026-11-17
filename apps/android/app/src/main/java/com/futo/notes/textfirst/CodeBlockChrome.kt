@@ -7,7 +7,7 @@ import android.text.TextPaint
 import android.text.TextUtils
 
 /** What a press on a drawn part of a code block does. */
-internal enum class CodeBlockAction { SELECT_BLOCK, OPEN_LINE_ABOVE, OPEN_LINE_BELOW, COPY_CODE }
+internal enum class CodeBlockAction { SELECT_BLOCK, OPEN_LINE_ABOVE, OPEN_LINE_BELOW, COPY_CODE, NOTHING }
 
 /** One pressable part of a drawn block, in layout coordinates; [codeStart] is where the block's code starts. */
 internal class CodeBlockTarget(val area: RectF, val action: CodeBlockAction, val codeStart: Int, val block: CodeBlockFacts? = null)
@@ -84,6 +84,14 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         val label = edgeLabel(labels.addLineBelow, width - look.codeCorner * 2)
         if (label.isNotEmpty()) drawEdgeLabel(canvas, label, width / 2f, top, bottom)
         targets.add(CodeBlockTarget(RectF(0f, top, width, bottom), CodeBlockAction.OPEN_LINE_BELOW, codeStart))
+    }
+
+    /**
+     * The strip above a block that opens the note answers nothing (!300 cb 335-345): the only thing
+     * above the block is its hidden opening fence, and "add a line above" is the way up there.
+     */
+    fun addSpaceAbove(codeStart: Int, width: Float, bottom: Float) {
+        targets.add(CodeBlockTarget(RectF(0f, -Float.MAX_VALUE, width, bottom), CodeBlockAction.NOTHING, codeStart))
     }
 
     /** The empty space under a block that ends the note, from [top] down: a press there opens a line below it. */

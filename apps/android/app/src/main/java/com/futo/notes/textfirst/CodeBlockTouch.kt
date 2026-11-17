@@ -1,6 +1,7 @@
 package com.futo.notes.textfirst
 
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import uniffi.futo_notes_ffi.EditorBlockCommand
 
 /**
@@ -29,10 +30,22 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
         return pressed != null
     }
 
+    /**
+     * A tap in an empty block selected as one object leaves the view's caret where it was, so the
+     * view reports no selection: tell the engine the user placed it there, or the next letter
+     * would replace the block (!300 cb 172-185).
+     */
+    fun settleTap(event: MotionEvent) {
+        if (event.actionMasked != MotionEvent.ACTION_UP || view.selectedCodeBlock == null) return
+        if (event.eventTime - event.downTime >= ViewConfiguration.getLongPressTimeout()) return
+        view.engine?.viewSelection(view.appliedSeq, view.selectionStart, view.selectionEnd)
+    }
+
     private fun act(target: CodeBlockTarget) {
         val engine = view.engine ?: return
-        if (target.action != CodeBlockAction.COPY_CODE) view.showKeyboard()
+        if (target.action != CodeBlockAction.COPY_CODE && target.action != CodeBlockAction.NOTHING) view.showKeyboard()
         when (target.action) {
+            CodeBlockAction.NOTHING -> Unit
             CodeBlockAction.COPY_CODE -> copy(target)
             CodeBlockAction.SELECT_BLOCK -> engine.selectCodeBlock(target.codeStart)
             CodeBlockAction.OPEN_LINE_ABOVE -> engine.openCodeBlockLine(target.codeStart, EditorBlockCommand.OpenLineBeforeCodeBlock)

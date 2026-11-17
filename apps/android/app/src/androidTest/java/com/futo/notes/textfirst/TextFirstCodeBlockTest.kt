@@ -75,4 +75,30 @@ class TextFirstCodeBlockTest {
             while (androidx.core.view.ViewCompat.getRootWindowInsets(view)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) != true) delay(50)
         }
     }
+
+    @Test fun aPressAboveABlockThatOpensTheNoteDoesNothing() = textFirstSession(raw) { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.hideKeyboard()
+        withTimeout(5_000) { while (view.layout == null || view.editableText.getSpans(0, 1, TfCodeBlock::class.java).isEmpty()) delay(20) }
+        withTimeout(5_000) { while (view.codeChrome.targetAt(view.width / 2f, -1f) == null) delay(20) }
+        tap(view, view.width / 2f, view.totalPaddingTop - 2f)
+        c.sourceText()
+        assertEquals(false, view.isFocused)
+    }
+
+    @Test fun aTapInsideAnEmptySelectedBlockLetsTheNextLetterTypeIntoIt() = textFirstSession("intro\n\n```js\n\n```\n\nafter") { c ->
+        val view = c.view
+        val code = view.editableText.indexOf("\n\n") + 2
+        withTimeout(5_000) { while (view.layout == null || view.editableText.getSpans(code, code + 1, TfCodeBlock::class.java).isEmpty()) delay(20) }
+        val line = view.layout.getLineForOffset(code)
+        tap(view, view.width / 2f, view.totalPaddingTop + view.layout.getLineTop(line) + view.style.codeHeaderHeight / 2f)
+        awaitSelectedBlock(view)
+        // Past the double-tap window, so this reads as a second, separate tap.
+        delay(500)
+        tap(view, view.width / 2f, view.totalPaddingTop + view.layout.getLineBaseline(line).toFloat())
+        withTimeout(5_000) { while (view.selectedCodeBlock != null) delay(20) }
+        textFirstIme(c) { commitText("x", 1) }
+        assertEquals("intro\n\n```js\nx\n```\n\nafter", c.sourceText())
+    }
 }

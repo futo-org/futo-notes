@@ -74,6 +74,7 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
     val headStart = e.getSpanStart(head)
     if (isCardSelected(headStart)) drawSelectedCard(canvas, card)
     val active = isCardActive(e, head, tail)
+    if (head.line.first && headStart == 0) codeChrome.addSpaceAbove(headStart, width, cardTop)
     if (head.line.first) codeChrome.drawHeader(canvas, head.line.block, headStart, width, cardTop, active && opensLineAbove(e, head))
     if (!tail.line.last) return
     val endsNote = tailEnd >= e.length - TextFirstEditText.END_SENTINEL.length
