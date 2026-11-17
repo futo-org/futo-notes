@@ -190,4 +190,19 @@ class TextFirstCodeBlockTest {
         val shownGlyphs = (area.right - view.style.codeNameEndPad - (area.left + view.style.codeCorner)) / glyph
         assertEquals("a-much-longer-file-…".length.toFloat(), shownGlyphs, 0.05f)
     }
+
+    /** Area 6 verifier (P151): typing over a selected block replaces it with prose, so the keyboard is offered capitals as in prose. */
+    @Test fun aSelectedBlockGivesTheKeyboardProseCapitals() = textFirstSession(raw) { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        view.setSelection(view.editableText.indexOf("a = 1"))
+        delay(300)
+        fun inputType() = android.view.inputmethod.EditorInfo().also { view.onCreateInputConnection(it) }.inputType
+        assertEquals("code lost its code input", 0, inputType() and android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
+        tapHeader(view)
+        awaitSelectedBlock(view)
+        delay(300)
+        assertEquals(android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, inputType() and android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
+    }
 }

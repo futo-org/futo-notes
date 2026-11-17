@@ -49,6 +49,7 @@ internal class TextFirstEditText(
         set(value) {
             if (field == value) return
             field = value
+            refreshCodeInput()
             // A selected empty block is a collapsed range, but it is the object: no caret or handle in it, as on !300.
             isCursorVisible = value == null || value.first != value.second
             refreshCodeHighlight()
@@ -80,6 +81,7 @@ internal class TextFirstEditText(
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */
     internal var composing: Any? = null
     private var codeInput = false
+    private var codeCaret = false
     /** The view cut itself to a prefix for a new width; engine updates wait for the engine's reset (TextFirstEditTextWidth.kt). */
     internal var awaitingRelayout = false
     internal val renderHold = RenderHold(this)
@@ -173,6 +175,13 @@ internal class TextFirstEditText(
     }
 
     internal fun setCodeInput(code: Boolean) {
+        codeCaret = code
+        refreshCodeInput()
+    }
+
+    /** Code input while the caret is in code; a block selected as one object is replaced by prose, so not then (P151). */
+    private fun refreshCodeInput() {
+        val code = codeCaret && selectedCodeBlock == null
         if (codeInput == code) return
         codeInput = code
         if (isFocused) restartKeyboard()
