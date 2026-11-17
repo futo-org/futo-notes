@@ -38,8 +38,9 @@ const KEYS = new Set([
 ]);
 
 /// Every case of `file` (relative to `fixtures/engine/`): block commands,
-/// paragraph keys, typing, a text service's replacement, paste, cut and
-/// selecting a code block. A command the replayer cannot run fails here
+/// paragraph keys, typing, a text service's replacement, paste, cut,
+/// selecting a code block, setting its header, and a selection sent again as
+/// a host's echo or as the user's own. A command the replayer cannot run fails here
 /// rather than being left out.
 export function fixtureCases(file) {
   const cases = JSON.parse(readFileSync(new URL(`fixtures/engine/${file}`, import.meta.url)));
@@ -57,6 +58,10 @@ function command(text) {
   if (pasted) return { paste: pasted[1] };
   if (text === 'Cut') return { cut: true };
   if (text === 'SelectBlock') return { selectBlock: true };
+  if (text === 'Select') return { echo: true };
+  if (text === 'Place') return { place: true };
+  const header = /^header:([\s\S]*?)\|([\s\S]*)$/.exec(text);
+  if (header) return { header: { language: header[1], name: header[2] } };
   const heading = /^(Toggle)?Heading\((\d)\)$/.exec(text);
   if (heading) return { block: { [heading[1] ? 'ToggleHeading' : 'Heading']: Number(heading[2]) } };
   if (BLOCK.has(text)) return { block: text };
@@ -130,9 +135,34 @@ function toDisplay(slice, at) {
 const units = (text, bytes) => Buffer.from(text).subarray(0, bytes).toString().length;
 const utf16 = (text) => Uint16Array.from({ length: text.length }, (_, i) => text.charCodeAt(i));
 
+/// Set the header of the block at display byte `at`; the edit as JSON, or
+/// null where the engine refused it with `error` or it changed no source.
+function headerSet(page, revision, header, { at, error }) {
+  try {
+    const set = page.set_code_block_header(revision, JSON.stringify({ at, ...header }));
+    assert.equal(error, undefined, `header set, wanted ${error}`);
+    return set;
+  } catch (refusal) {
+    if (refusal instanceof assert.AssertionError) throw refusal;
+    assert.ok(error && String(refusal).includes(error), `header refusal: ${refusal}`);
+    return null;
+  }
+}
+
 /// Run `run` over the selection (`a`…`b` in UTF-16 units, `bytes` in display
 /// bytes); the edit it applied as JSON, or null when it changed no source.
-function applied(page, revision, run, { a, b, bytes }) {
+function applied(page, revision, run, { a, b, bytes, at, error }) {
+  if (run.header) {
+    return headerSet(page, revision, run.header, { at: at ?? bytes.start, error });
+  }
+  if (run.echo) {
+    page.select_with_affinity(revision, bytes.start, bytes.end, page.affinity());
+    return null;
+  }
+  if (run.place) {
+    page.place_selection(revision, bytes.start, bytes.end, page.affinity());
+    return null;
+  }
   if (run.type !== undefined) return page.replace_utf16(revision, a, b, utf16(run.type));
   if (run.service !== undefined) {
     return page.replace_utf16_action(revision, a, b, utf16(run.service), '"Isolated"');
@@ -197,11 +227,16 @@ export async function replay(WasmSession, workerPath, cases, marks) {
       }
       const opening = page.draft_text();
       const run = command(item.command);
-      const changed = await send(applied(page, revision, run, { a, b, bytes }));
+      const changed = await send(
+        applied(page, revision, run, { a, b, bytes, at: item.at, error: item.error }),
+      );
       assert.equal(page.draft_text(), after.text, `${item.name}: saved bytes`);
       if (item.selected !== undefined) {
         const selected = JSON.parse(page.selected_block()) !== null;
         assert.equal(selected, item.selected, `${item.name}: selected block`);
+      }
+      if (item.language !== undefined || run.header || run.echo || run.place) {
+        assert.equal(page.writes_language(), item.language ?? false, `${item.name}: language`);
       }
       if (!changed) continue;
       await send(page.undo(revision));
