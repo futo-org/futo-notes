@@ -58,8 +58,11 @@ internal fun TextFirstEditText.drawCodeMarkMenu(canvas: Canvas) {
     }
     val save = canvas.save()
     canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
-    val first = e.getSpans(lineStart, lineStart, TfCodeBlock::class.java).any { e.getSpanStart(it) == lineStart && it.line.first }
-    val textTop = l.getLineTop(l.getLineForOffset(lineStart)) + if (first) style.codeHeaderHeight else 0f
-    codeChrome.drawMarkMenu(canvas, lineStart, textTop)
+    val span = e.getSpans(lineStart, lineStart, TfCodeBlock::class.java).first { e.getSpanStart(it) == lineStart }
+    val line = l.getLineForOffset(lineStart)
+    val textTop = l.getLineTop(line) + if (span.line.first) style.codeHeaderHeight else 0f
+    val left = l.getPrimaryHorizontal(lineStart) - style.codeChipPad
+    val visibleTop = (scrollY - totalPaddingTop).toFloat()
+    codeChrome.drawMarkMenu(canvas, MarkMenuPlace(lineStart, left, textTop, l.getLineBottom(line).toFloat(), visibleTop, span.line.mark))
     canvas.restoreToCount(save)
 }

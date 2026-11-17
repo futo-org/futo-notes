@@ -109,7 +109,8 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         field.gravity = Gravity.CENTER_VERTICAL
         field.isSingleLine = true
         field.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        field.imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI
+        // !300's fields name their Enter key (enterkeyhint), which Gboard shows as the Go arrow (job12/ref-fields-light.png).
+        field.imeOptions = EditorInfo.IME_ACTION_GO or EditorInfo.IME_FLAG_NO_EXTRACT_UI
         if (state.kind == Kind.LANGUAGE) field.filters = arrayOf(languageFilter)
         field.setText(if (state.kind == Kind.NAME) state.name else state.language)
         field.addTextChangedListener(object : TextWatcher {
