@@ -22,7 +22,6 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
             MotionEvent.ACTION_DOWN -> {
                 headerField.close()
                 pressed = targetAt(event)
-                if (pressed?.action != CodeBlockAction.MARK_MENU) closeMarkMenu()
                 downX = event.x
                 downY = event.y
             }
@@ -71,20 +70,11 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
         if (action != null) return headerField.open(target, action, selectAll = held, tapX = x.takeIf { !held })
         when (target.action) {
             CodeBlockAction.NOTHING -> Unit
-            // The menu's buttons wait for the engine's mark toggle; a press on the menu keeps it open.
-            CodeBlockAction.MARK_MENU -> Unit
-            CodeBlockAction.LINE_NUMBER -> { view.codeChrome.markMenuLine = target.codeStart; view.invalidate() }
             CodeBlockAction.COPY_CODE, CodeBlockAction.LANGUAGE_LABEL -> copy(target)
             CodeBlockAction.SELECT_BLOCK, CodeBlockAction.NAME_FIELD -> { view.showKeyboard(); engine.selectCodeBlock(target.codeStart) }
             CodeBlockAction.OPEN_LINE_ABOVE -> { view.showKeyboard(); engine.openCodeBlockLine(target.codeStart, EditorBlockCommand.OpenLineBeforeCodeBlock) }
             CodeBlockAction.OPEN_LINE_BELOW -> { view.showKeyboard(); engine.openCodeBlockLine(target.codeStart, EditorBlockCommand.OpenLineAfterCodeBlock) }
         }
-    }
-
-    private fun closeMarkMenu() {
-        if (view.codeChrome.markMenuLine < 0) return
-        view.codeChrome.markMenuLine = -1
-        view.invalidate()
     }
 
     /** The caret or the selection is in the target's block. */

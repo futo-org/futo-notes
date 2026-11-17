@@ -5,13 +5,9 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.text.TextPaint
 import android.text.TextUtils
-import uniffi.futo_notes_ffi.EditorCodeLineMark
 
 /** What a press on a drawn part of a code block does. */
-internal enum class CodeBlockAction { SELECT_BLOCK, NAME_FIELD, LANGUAGE_LABEL, COPY_CODE, OPEN_LINE_ABOVE, OPEN_LINE_BELOW, LINE_NUMBER, MARK_MENU, NOTHING }
-
-/** Where a line's mark menu goes, in layout coordinates: [visibleTop] is the screen's top edge. */
-internal class MarkMenuPlace(val lineStart: Int, val left: Float, val textTop: Float, val lineBottom: Float, val visibleTop: Float, val mark: EditorCodeLineMark?)
+internal enum class CodeBlockAction { SELECT_BLOCK, NAME_FIELD, LANGUAGE_LABEL, COPY_CODE, OPEN_LINE_ABOVE, OPEN_LINE_BELOW, NOTHING }
 
 /** One block's header as drawn: [revealFields] while the caret is in the block, so its empty fields show their placeholders. */
 internal class CodeHeaderState(val block: CodeBlockFacts, val codeStart: Int, val width: Float, val top: Float, val lineAbove: Boolean, val revealFields: Boolean)
@@ -47,10 +43,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     var lastNear = false
     /** The block and field a CodeHeaderField has open; that field's text is the field's to show. */
     var openField: Pair<Int, CodeHeaderField.Kind>? = null
-    /** The display start of the code line whose mark menu is open, -1 for none. */
-    var markMenuLine = -1
     private val numbers = TextPaint(Paint.ANTI_ALIAS_FLAG)
-    private val menuPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     /** The code start of the block whose copy glyph shows a checkmark, -1 for none. */
     var copiedBlock = -1
 
@@ -183,61 +176,6 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     fun numberPaint(look: TextFirstStyle): TextPaint = numbers.apply {
         typeface = look.mono
         textSize = look.codeTextSize
-    }
-
-    /** A line number's press area, up to the gutter rule; [lineStart] is its line's display start. */
-    fun addNumber(area: RectF, lineStart: Int) {
-        targets.add(CodeBlockTarget(area, CodeBlockAction.LINE_NUMBER, lineStart))
-    }
-
-    /**
-     * The mark menu, as !300 placed it (job12/ref-menu*.png): a small card at the line's text
-     * column, above the line and reaching a little into it, flipped below the line when the
-     * screen's top would cut it. A button is shown on, in its mark's band colour, when the line has
-     * that mark. A press on the card is the menu's own (it stays open).
-     */
-    fun drawMarkMenu(canvas: Canvas, place: MarkMenuPlace) {
-        val button = look.codeHeaderHeight
-        val pad = look.codeChipPad / 2f
-        val height = button + pad * 2
-        val overlap = look.codeChipPad / 2f
-        val above = place.textTop + overlap - height
-        val top = if (above < place.visibleTop) place.lineBottom - overlap else above
-        val box = RectF(place.left, top, place.left + button * 2 + pad * 3, top + height)
-        menuPaint.style = Paint.Style.FILL
-        menuPaint.color = look.surfaceColor
-        menuPaint.setShadowLayer(look.dp(4f), 0f, look.dp(1f), 0x33000000)
-        canvas.drawRoundRect(box, look.codeRadius * 1.5f, look.codeRadius * 1.5f, menuPaint)
-        menuPaint.clearShadowLayer()
-        menuPaint.style = Paint.Style.STROKE
-        menuPaint.color = look.codeWellBorderColor
-        menuPaint.strokeWidth = look.dp(1f)
-        canvas.drawRoundRect(box, look.codeRadius * 1.5f, look.codeRadius * 1.5f, menuPaint)
-        for ((index, mark) in listOf(EditorCodeLineMark.HIGHLIGHT, EditorCodeLineMark.LOWLIGHT).withIndex()) {
-            val left = box.left + pad + index * (button + pad)
-            val area = RectF(left, box.top + pad, left + button, box.top + pad + button)
-            if (place.mark == mark) {
-                menuPaint.style = Paint.Style.FILL
-                menuPaint.color = if (mark == EditorCodeLineMark.HIGHLIGHT) look.codeHighlightColor else look.codeLowlightColor
-                canvas.drawRoundRect(area, look.codeRadius, look.codeRadius, menuPaint)
-            }
-            drawMarkIcon(canvas, area, mark == EditorCodeLineMark.HIGHLIGHT)
-        }
-        targets.add(CodeBlockTarget(box, CodeBlockAction.MARK_MENU, place.lineStart))
-    }
-
-    private fun drawMarkIcon(canvas: Canvas, area: RectF, up: Boolean) {
-        val size = look.codeHeaderTextSize
-        val icon = RectF(area.centerX() - size * 0.6f, area.centerY() - size * 0.4f, area.centerX() + size * 0.6f, area.centerY() + size * 0.4f)
-        menuPaint.style = Paint.Style.STROKE
-        menuPaint.color = look.textColor
-        menuPaint.strokeWidth = size / 9f
-        menuPaint.strokeCap = Paint.Cap.ROUND
-        canvas.drawRoundRect(icon, size * 0.15f, size * 0.15f, menuPaint)
-        val tip = if (up) icon.centerY() - size * 0.12f else icon.centerY() + size * 0.12f
-        val tail = if (up) icon.centerY() + size * 0.1f else icon.centerY() - size * 0.1f
-        canvas.drawLine(icon.centerX() - size * 0.22f, tail, icon.centerX(), tip, menuPaint)
-        canvas.drawLine(icon.centerX(), tip, icon.centerX() + size * 0.22f, tail, menuPaint)
     }
 
     private companion object {

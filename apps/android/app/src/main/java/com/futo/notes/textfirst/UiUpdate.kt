@@ -1,6 +1,5 @@
 package com.futo.notes.textfirst
 
-import uniffi.futo_notes_ffi.EditorCodeLineMark
 import uniffi.futo_notes_ffi.EditorInlineFormat
 
 // The engine → view data: display edits, span descriptions and the toolbar's
@@ -13,7 +12,7 @@ internal class TextEdit(val start: Int, val end: Int, val text: String)
 internal data class CodeBlockFacts(val start: Int, val end: Int, val language: String?, val name: String?, val lineCount: Int)
 
 /** One shown code line: its 1-based [number] in its block, its mark, whether it is the block's first and last, and its [block]. */
-internal data class CodeLineFacts(val number: Int, val mark: EditorCodeLineMark?, val first: Boolean, val last: Boolean, val block: CodeBlockFacts)
+internal data class CodeLineFacts(val number: Int, val first: Boolean, val last: Boolean, val block: CodeBlockFacts)
 
 /** Span descriptions for one restyled window; the view turns them into [TfSpan]s. */
 internal sealed class SpanSpec(val start: Int, val end: Int) {

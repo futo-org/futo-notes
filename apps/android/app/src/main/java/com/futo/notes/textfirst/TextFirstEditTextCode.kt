@@ -4,11 +4,10 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
-import uniffi.futo_notes_ffi.EditorCodeLineMark
 
 /**
  * Each visible fenced block's card: its fill and hairline border, rounded at its first and last
- * code line, the `hl:`/`ll:` bands across the card's width, and its header. The view paints them
+ * code line, its line numbers (CodeGutter) and its header. The view paints them
  * ahead of the TextView's own drawing, because the TextView draws the caret before the layout's
  * line backgrounds: a LineBackgroundSpan would cover the caret.
  */
@@ -57,19 +56,10 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
     codeCardPaint.color = look.codeWellColor
     canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
     val headStart = e.getSpanStart(head)
-    // A block taken whole is painted as the card, beneath the marks and the hairline (!300 cb 349-351, 394-396).
+    // A block taken whole is painted as the card, beneath the hairline (!300 cb 349-351).
     if (isCardSelected(headStart) || isCodeBlockTakenWhole(headStart)) {
         codeCardPaint.color = look.selectionColor
         canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
-    }
-    for (span in lines) {
-        val mark = span.line.mark ?: continue
-        val start = e.getSpanStart(span)
-        val end = e.getSpanEnd(span)
-        val bandTop = l.getLineTop(l.getLineForOffset(start)) + if (span.line.first) look.codeHeaderHeight else 0f
-        val bandBottom = l.getLineBottom(l.getLineForOffset(maxOf(start, end - 1))) - if (span.line.last) span.bottomExtra(e) else 0f
-        codeCardPaint.color = if (mark == EditorCodeLineMark.HIGHLIGHT) look.codeHighlightColor else look.codeLowlightColor
-        canvas.drawRect(0f, bandTop, width, bandBottom, codeCardPaint)
     }
     drawCodeNumbers(canvas, l, e, lines)
     val stroke = look.dp(1f)

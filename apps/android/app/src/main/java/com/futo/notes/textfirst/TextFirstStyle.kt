@@ -67,8 +67,6 @@ internal class TextFirstStyle(
     val codeWellColor get() = if (darkTheme) 0x0AFFFFFF else 0x0E000000
     val codeWellBorderColor get() = if (darkTheme) 0x0FFFFFFF else 0x0F000000
     val codeRuleColor get() = (textColor and 0x00ffffff) or 0x17000000
-    val codeHighlightColor get() = if (darkTheme) 0x244ADE80 else 0x2116A34A
-    val codeLowlightColor get() = if (darkTheme) 0x21F87171 else 0x1ADC2626
     val codeNumberColor get() = (mutedColor and 0x00ffffff) or 0x8C000000.toInt()
     /** A number on a line the selection is on (!300 cb 267-276). */
     val codeNumberActiveColor get() = (textColor and 0x00ffffff) or 0xB3000000.toInt()

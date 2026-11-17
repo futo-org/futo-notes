@@ -11,9 +11,9 @@ import android.text.style.MetricAffectingSpan
 
 /**
  * One code line: its monospace face, the gutter it is inset by, the header above a block's first
- * line and the skirt under its last. The number and the gutter rule are drawn in the leading
- * margin, so they are never text; a right-to-left line draws them on its right, beside where its text
- * starts, as list markers do. The card, its border, the marks and the header are not a
+ * line and the skirt under its last. The gutter rule is drawn in the leading margin and the number
+ * with the card (CodeGutter), so neither is text; a right-to-left line draws them on its right,
+ * beside where its text starts, as list markers do. The card, its border and the header are not a
  * LineBackgroundSpan: the TextView draws the caret before the layout's line backgrounds, so the
  * view paints them first instead (`drawCodeBlocks`).
  */

@@ -44,7 +44,7 @@ private fun EditorStyleSpan.toSpanSpec(display: CharSequence, blocks: List<CodeB
 private fun EditorStyleSpan.Code.toCodeSpec(blocks: List<CodeBlockFacts>): SpanSpec? {
     val at = start.toInt()
     val block = blocks.firstOrNull { at >= it.start && at <= it.end } ?: return null
-    return SpanSpec.Code(at, end.toInt(), CodeLineFacts(lineNumber.toInt(), mark, first, last, block))
+    return SpanSpec.Code(at, end.toInt(), CodeLineFacts(lineNumber.toInt(), first, last, block))
 }
 
 private fun EditorStyleSpan.ListRow.toListSpec(): SpanSpec {
