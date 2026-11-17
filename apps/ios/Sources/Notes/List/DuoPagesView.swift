@@ -76,7 +76,9 @@ struct DuoPagesView: View {
     @State private var searchHits: [NoteItem] = []
     @State private var folderAction: FolderAction?
     /// The note the visible editor reports (it follows renames).
-    @State private var visibleNoteId: String?
+    /// Each editor screen's note as it is now, by the id the screen opened it with (renames
+    /// and moves under the editor). Pruned to the screens on the stack.
+    @State private var currentIds: [String: String] = [:]
     /// Notes the list is deleting while their editor closes (closeEditor).
     @State private var deleting: DeletingNotes?
     /// The whole window, keyboard or not (see body).
@@ -90,10 +92,12 @@ struct DuoPagesView: View {
     private var folder: String { PagesPath.folder(of: navigation.path) }
     private var noteRoutes: [Route] { PagesPath.notes(of: navigation.path) }
 
-    private var openNoteId: String? {
-        guard let top = PagesPath.noteId(noteRoutes.last) else { return nil }
-        return visibleNoteId ?? top
+    /// The note the top editor screen shows now.
+    private var visibleNoteId: String? {
+        PagesPath.noteId(noteRoutes.last).map { currentIds[$0] ?? $0 }
     }
+
+    private var openNoteId: String? { visibleNoteId }
 
     private var isSearching: Bool {
         !navigation.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -121,12 +125,13 @@ struct DuoPagesView: View {
         }
         .background(HingeReader(isFlat: $hingeIsFlat))
         .background(Theme.background.ignoresSafeArea())
-        .environment(\.reportVisibleNote) { visibleNoteId = $0 }
+        .environment(\.reportVisibleNote) { currentIds[$0] = $1 }
         .environment(\.compactNoteRows, true)
         .environment(\.dropRepeatedPreviewTitle, true)
         .appSheets()
         .onChange(of: noteRoutes) { _, routes in
-            if routes.isEmpty { visibleNoteId = nil }
+            let open = Set(routes.compactMap(PagesPath.noteId))
+            currentIds = currentIds.filter { open.contains($0.key) }
         }
         // A folder that disappears under the list (deleted here, or by a peer) falls back
         // to its nearest surviving ancestor.
@@ -322,13 +327,11 @@ struct DuoPagesView: View {
     private func open(_ route: Route) {
         guard let id = PagesPath.noteId(route), deleting?.covers(id) != true else { return }
         let routes = noteRoutes
-        var current = routes.compactMap(PagesPath.noteId)
-        if let visibleNoteId, !current.isEmpty { current[current.count - 1] = visibleNoteId }
+        let current = routes.compactMap(PagesPath.noteId).map { currentIds[$0] ?? $0 }
         if let index = current.firstIndex(of: id) {
             if index < routes.count - 1 { editorRoutes.wrappedValue = Array(routes[...index]) }
             return
         }
-        visibleNoteId = nil
         if routes.contains(where: { PagesPath.noteId($0) == id }) {
             // A screen opened under this id holds another note now (renamed away, and a new
             // note took the name): empty the pane first, or the same route keeps that screen.
@@ -348,11 +351,11 @@ struct DuoPagesView: View {
         let target = DeletingNotes(ids: ids, folder: folder)
         deleting = target
         defer { deleting = nil }
-        var shown = noteRoutes.compactMap(PagesPath.noteId)
-        if let visibleNoteId { shown.append(visibleNoteId) }
+        let opened = noteRoutes.compactMap(PagesPath.noteId)
+        let shown = opened + opened.compactMap { currentIds[$0] }
         // A move from the list beside it can leave the editor's id behind: an id the vault
         // no longer has could be any note, so that editor closes too.
-        let top = visibleNoteId ?? shown.last
+        let top = visibleNoteId
         let stale = top.map { id in !store.notes.contains { $0.id == id } } ?? false
         let closing = stale || shown.contains(where: target.covers)
         if closing {

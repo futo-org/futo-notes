@@ -195,7 +195,7 @@ struct TextFirstNoteScreen: View {
                 PuppetVerbs.shared.openNote = noteId
             #endif
             if ownerToken == 0 { ownerToken = store.claimDraftOwnership() }
-            reportVisibleNote?(noteId)
+            reportVisibleNote?(originalId, noteId)
         }
         #if FUTO_DEBUG_BUILD
             .onChange(of: noteId) { _, id in PuppetVerbs.shared.openNote = id }
@@ -352,7 +352,7 @@ struct TextFirstNoteScreen: View {
         guard id != noteId else { return }
         titleField = TextFirstTitle.fieldText(titleField, from: noteId, to: id)
         noteId = id
-        reportVisibleNote?(id)
+        reportVisibleNote?(originalId, id)
     }
 
     private func leave() {

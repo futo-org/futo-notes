@@ -78,7 +78,7 @@ extension EnvironmentValues {
     @Entry var dropRepeatedPreviewTitle = false
     /// Set by the pages shell; the visible note screen calls it with its note's id, which
     /// follows renames, so the list highlights the right row.
-    @Entry var reportVisibleNote: ((String) -> Void)?
+    @Entry var reportVisibleNote: ((_ opened: String, _ current: String) -> Void)?
     /// Set while the root shell swaps shells (a fold): a note screen leaving then is
     /// handing its note over, not abandoning it, so an untouched new note is kept.
     @Entry var shellHandoff = ShellHandoff.idle
