@@ -131,6 +131,9 @@ final class TextFirstEditorController: NSObject {
     /// Our own tap recogniser, the only one allowed to act on a checkbox touch.
     var checkboxTap: UITapGestureRecognizer?
     var selectionBeforeTouch = NSRange(location: 0, length: 0)
+    /// The long-press that lifts a block, and the drag it is running (+BlockDrag).
+    var liftRecognizer: UILongPressGestureRecognizer?
+    var blockDrag: TextFirstBlockDrag?
 
     let io = DispatchQueue(label: "futo.textfirst.io", qos: .userInitiated)
     var saveTimer: Timer?

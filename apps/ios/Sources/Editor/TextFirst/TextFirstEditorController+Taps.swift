@@ -69,13 +69,29 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
             if !down { self?.renderHoldChanged() }
         }
         textView.addGestureRecognizer(tracker)
+        installBlockDrag()
     }
 
+    /// Our recognizers share every touch, except the block lift: once it lifts, the touch is
+    /// the drag's alone (the touch tracker aside, which never recognizes).
     func gestureRecognizer(
         _ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
-    ) -> Bool { true }
+    ) -> Bool {
+        guard g === liftRecognizer || other === liftRecognizer else { return true }
+        return g is TextFirstTouchTracker || other is TextFirstTouchTracker
+    }
+
+    /// UIKit's long-presses on the note (the loupe, long-press selection) wait for the lift to
+    /// fail: they act only where a press lifts nothing.
+    func gestureRecognizer(
+        _ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer
+    ) -> Bool {
+        g === liftRecognizer && other !== g && other is UILongPressGestureRecognizer
+            && other.view === textView
+    }
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if g === liftRecognizer { return true }
         selectionBeforeTouch = textView.selectedRange
         let p = touch.location(in: textView)
         touchHitCheckbox = checkboxFragment(at: p) != nil
@@ -129,7 +145,8 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
 
     /// A plain tap on an image, anywhere on it, is a collapsed caret right after it (the
     /// caret is drawn at its trailing edge): typing goes after the image and Backspace removes
-    /// it whole. A long-press, a drag or select-all still select it as one object.
+    /// it whole. A drag selection or select-all still selects it as one object (a long-press
+    /// lifts its line, +BlockDrag).
     private func placeCaretAfterImage(_ range: NSRange) {
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
@@ -144,6 +161,9 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
     /// A horizontal drag that starts on a table scrolls all its columns together; any other
     /// drag is the text view's own.
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        if g === liftRecognizer {
+            return liftableBlock(at: g.location(in: textView)) != nil
+        }
         guard g === tablePan, let pan = g as? UIPanGestureRecognizer else { return true }
         let v = pan.velocity(in: textView)
         return abs(v.x) > abs(v.y) && tableRowHit(at: pan.location(in: textView)) != nil
