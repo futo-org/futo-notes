@@ -49,6 +49,8 @@ internal class TextFirstEditText(
         set(value) {
             if (field == value) return
             field = value
+            // A selected empty block is a collapsed range, but it is the object: no caret or handle in it, as on !300.
+            isCursorVisible = value == null || value.first != value.second
             refreshCodeHighlight()
             invalidate()
         }
@@ -341,18 +343,7 @@ internal class TextFirstEditText(
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val engine = engine ?: return super.onKeyDown(keyCode, event)
         if (selectedBlockKey(keyCode, event) || codeLineKey(keyCode, event)) return true
-        if (event.isCtrlPressed) {
-            when (keyCode) {
-                KeyEvent.KEYCODE_Z -> { if (event.isShiftPressed) engine.redo() else engine.undo(); return true }
-                KeyEvent.KEYCODE_Y -> { engine.redo(); return true }
-                KeyEvent.KEYCODE_B -> { engine.toggleFormat(uniffi.futo_notes_ffi.EditorInlineFormat.BOLD); return true }
-                KeyEvent.KEYCODE_I -> { engine.toggleFormat(uniffi.futo_notes_ffi.EditorInlineFormat.ITALIC); return true }
-                KeyEvent.KEYCODE_A -> { engine.selectAll(); return true }
-                KeyEvent.KEYCODE_C -> { onTextContextMenuItem(android.R.id.copy); return true }
-                KeyEvent.KEYCODE_X -> { onTextContextMenuItem(android.R.id.cut); return true }
-                KeyEvent.KEYCODE_V -> { onTextContextMenuItem(android.R.id.paste); return true }
-            }
-        }
+        if (shortcutKey(engine, keyCode, event)) return true
         val paragraphKey = paragraphKeyFor(keyCode, event)
         if (paragraphKey != null) {
             engine.handler.post { engine.key(paragraphKey) }

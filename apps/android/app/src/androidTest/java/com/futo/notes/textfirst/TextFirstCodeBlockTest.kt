@@ -88,10 +88,13 @@ class TextFirstCodeBlockTest {
         val line = view.layout.getLineForOffset(code)
         tapNoteAt(view, view.width / 2f, view.totalPaddingTop + view.layout.getLineTop(line) + view.style.codeHeaderHeight / 2f)
         awaitSelectedBlock(view)
+        // Area 3 verifier, 3.2: the selected empty block is the object, so no caret blinks in it.
+        assertEquals("a caret shows in the selected empty block", false, view.isCursorVisible)
         // Past the double-tap window, so this reads as a second, separate tap.
         delay(500)
         tapNoteAt(view, view.width / 2f, view.totalPaddingTop + view.layout.getLineBaseline(line).toFloat())
         withTimeout(5_000) { while (view.selectedCodeBlock != null) delay(20) }
+        assertEquals(true, view.isCursorVisible)
         textFirstIme(c) { commitText("x", 1) }
         assertEquals("intro\n\n```js\nx\n```\n\nafter", c.sourceText())
     }
