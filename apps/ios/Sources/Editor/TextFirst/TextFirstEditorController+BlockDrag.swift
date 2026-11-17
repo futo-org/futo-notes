@@ -63,6 +63,8 @@ final class TextFirstBlockDrag {
         dim.backgroundColor = background.withAlphaComponent(0.65)
         card = UIView(frame: frame)
         card.backgroundColor = background
+        // Translucent, so the lines around the drop line still read through it.
+        card.alpha = 0.85
         card.layer.cornerRadius = 8
         card.layer.shadowColor = UIColor.black.cgColor
         card.layer.shadowOpacity = 0.25
@@ -77,7 +79,8 @@ final class TextFirstBlockDrag {
         dropLine.backgroundColor = accent
         dropLine.layer.cornerRadius = 1.5
         dropLine.isHidden = true
-        for view in [dim, dropLine, card] {
+        // The drop line is drawn over the card, which is under the finger.
+        for view in [dim, card, dropLine] {
             view.isUserInteractionEnabled = false
             host.addSubview(view)
         }
@@ -118,6 +121,10 @@ extension TextFirstEditorController {
         lift.delegate = self
         textView.addGestureRecognizer(lift)
         liftRecognizer = lift
+        // UIKit's text drag (a long-press on selected text) holds every other recognizer on the
+        // note until the finger moves, which would keep the lift from firing while the finger
+        // holds still; a long-press is the block's now.
+        textView.textDragInteraction?.isEnabled = false
     }
 
     /// The UTF-16 display range of the block a long-press at `p` (text view coordinates) lifts;
@@ -228,6 +235,8 @@ extension TextFirstEditorController {
             other.isEnabled = false
             other.isEnabled = true
         }
+        // An edit menu left from an earlier press points at a selection the drag is not about.
+        for case let menu as UIEditMenuInteraction in textView.interactions { menu.dismissMenu() }
         blockDrag = TextFirstBlockDrag(
             line: line, block: block, targets: targets, start: p, frame: frame,
             snapshot: snapshot, in: textView, background: UIColor(Theme.background),
