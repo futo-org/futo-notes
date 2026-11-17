@@ -328,7 +328,9 @@ struct DuoPagesView: View {
         guard let id = PagesPath.noteId(route), deleting?.covers(id) != true else { return }
         let routes = noteRoutes
         let current = routes.compactMap(PagesPath.noteId).map { currentIds[$0] ?? $0 }
-        if let index = current.firstIndex(of: id) {
+        // From the top down: the nearest screen showing the note wins (a stack can hold
+        // two screens opened under one id, and then only the top one's id is current).
+        if let index = current.lastIndex(of: id) {
             if index < routes.count - 1 { editorRoutes.wrappedValue = Array(routes[...index]) }
             return
         }
