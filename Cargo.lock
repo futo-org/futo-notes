@@ -2254,7 +2254,7 @@ version = "0.1.0"
 name = "futo-puppet"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "serde_json",
  "tungstenite 0.30.0",
  "windows-sys 0.61.2",
