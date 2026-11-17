@@ -7,7 +7,7 @@ import android.text.TextPaint
 import android.text.TextUtils
 
 /** What a press on a drawn part of a code block does. */
-internal enum class CodeBlockAction { SELECT_BLOCK, NAME_FIELD, LANGUAGE_LABEL, COPY_CODE, OPEN_LINE_ABOVE, OPEN_LINE_BELOW, NOTHING }
+internal enum class CodeBlockAction { SELECT_BLOCK, NAME_FIELD, LANGUAGE_LABEL, COPY_CODE, OPEN_LINE_ABOVE, OPEN_LINE_BELOW, LINE_NUMBER, MARK_MENU, NOTHING }
 
 /** One block's header as drawn: [active] when the caret or the selection is in the block. */
 internal class CodeHeaderState(val block: CodeBlockFacts, val codeStart: Int, val width: Float, val top: Float, val lineAbove: Boolean, val active: Boolean)
@@ -39,8 +39,14 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     /** The view's last reported selection ends, to tell which end a handle moved. */
     var lastStart = -1
     var lastEnd = -1
+    /** Whether the last selection was near a block, so its line numbers need repainting when it leaves. */
+    var lastNear = false
     /** The block and field a CodeHeaderField has open; that field's text is the field's to show. */
     var openField: Pair<Int, CodeHeaderField.Kind>? = null
+    /** The display start of the code line whose mark menu is open, -1 for none. */
+    var markMenuLine = -1
+    private val numbers = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private val menuPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     /** The code start of the block whose copy glyph shows a checkmark, -1 for none. */
     var copiedBlock = -1
 
@@ -162,6 +168,54 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         canvas.drawRoundRect(glyphBox, corner, corner, glyphPaint)
         glyphBox.set(left + size - square, top + size - square, left + size, top + size)
         canvas.drawRoundRect(glyphBox, corner, corner, glyphPaint)
+    }
+
+    fun numberPaint(look: TextFirstStyle): TextPaint = numbers.apply {
+        typeface = look.mono
+        textSize = look.codeTextSize
+    }
+
+    /** A line number's press area, up to the gutter rule; [lineStart] is its line's display start. */
+    fun addNumber(area: RectF, lineStart: Int) {
+        targets.add(CodeBlockTarget(area, CodeBlockAction.LINE_NUMBER, lineStart))
+    }
+
+    /**
+     * The mark menu, a small card above the line whose text starts at [textTop]: Highlight and
+     * Lowlight, a box with a chevron up and down. A press on it is the menu's own (it stays open).
+     */
+    fun drawMarkMenu(canvas: Canvas, lineStart: Int, textTop: Float) {
+        val button = look.codeHeaderHeight
+        val pad = look.codeChipPad / 2f
+        val box = RectF(look.codeCorner, textTop - button - pad * 3, look.codeCorner + button * 2 + pad * 3, textTop - pad)
+        menuPaint.style = Paint.Style.FILL
+        menuPaint.color = look.surfaceColor
+        menuPaint.setShadowLayer(look.dp(4f), 0f, look.dp(1f), 0x33000000)
+        canvas.drawRoundRect(box, look.codeRadius * 1.5f, look.codeRadius * 1.5f, menuPaint)
+        menuPaint.clearShadowLayer()
+        menuPaint.style = Paint.Style.STROKE
+        menuPaint.color = look.codeWellBorderColor
+        menuPaint.strokeWidth = look.dp(1f)
+        canvas.drawRoundRect(box, look.codeRadius * 1.5f, look.codeRadius * 1.5f, menuPaint)
+        for ((index, up) in listOf(true, false).withIndex()) {
+            val left = box.left + pad + index * (button + pad)
+            drawMarkIcon(canvas, RectF(left, box.top + pad, left + button, box.top + pad + button), up)
+        }
+        targets.add(CodeBlockTarget(box, CodeBlockAction.MARK_MENU, lineStart))
+    }
+
+    private fun drawMarkIcon(canvas: Canvas, area: RectF, up: Boolean) {
+        val size = look.codeHeaderTextSize
+        val icon = RectF(area.centerX() - size * 0.6f, area.centerY() - size * 0.4f, area.centerX() + size * 0.6f, area.centerY() + size * 0.4f)
+        menuPaint.style = Paint.Style.STROKE
+        menuPaint.color = look.textColor
+        menuPaint.strokeWidth = size / 9f
+        menuPaint.strokeCap = Paint.Cap.ROUND
+        canvas.drawRoundRect(icon, size * 0.15f, size * 0.15f, menuPaint)
+        val tip = if (up) icon.centerY() - size * 0.12f else icon.centerY() + size * 0.12f
+        val tail = if (up) icon.centerY() + size * 0.1f else icon.centerY() - size * 0.1f
+        canvas.drawLine(icon.centerX() - size * 0.22f, tail, icon.centerX(), tip, menuPaint)
+        canvas.drawLine(icon.centerX(), tip, icon.centerX() + size * 0.22f, tail, menuPaint)
     }
 
     private companion object {

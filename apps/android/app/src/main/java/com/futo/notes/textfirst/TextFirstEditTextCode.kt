@@ -71,6 +71,7 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
         codeCardPaint.color = if (mark == EditorCodeLineMark.HIGHLIGHT) look.codeHighlightColor else look.codeLowlightColor
         canvas.drawRect(0f, bandTop, width, bandBottom, codeCardPaint)
     }
+    drawCodeNumbers(canvas, l, e, lines)
     val stroke = look.dp(1f)
     codeCardPaint.style = Paint.Style.STROKE
     codeCardPaint.strokeWidth = stroke

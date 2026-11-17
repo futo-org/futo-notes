@@ -70,6 +70,8 @@ internal class TextFirstStyle(
     val codeHighlightColor get() = if (darkTheme) 0x244ADE80 else 0x2116A34A
     val codeLowlightColor get() = if (darkTheme) 0x21F87171 else 0x1ADC2626
     val codeNumberColor get() = (mutedColor and 0x00ffffff) or 0x8C000000.toInt()
+    /** A number on a line the selection is on (!300 cb 267-276). */
+    val codeNumberActiveColor get() = (textColor and 0x00ffffff) or 0xB3000000.toInt()
     val selectionColor get() = (linkColor and 0x00ffffff) or 0x40000000
     /** The body's border over the header's fill would vanish (the same colour in dark): a step of the text colour over it. */
     val tableHeaderBorderColor get() = androidx.core.graphics.ColorUtils.compositeColors((textColor and 0x00ffffff) or 0x26000000, codeBackground)

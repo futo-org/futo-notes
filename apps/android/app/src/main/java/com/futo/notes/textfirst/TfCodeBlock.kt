@@ -48,10 +48,6 @@ internal class TfCodeBlock(private val look: TextFirstStyle, val line: CodeLineF
         rulePaint.color = look.codeRuleColor
         val ruleLeft = if (dir < 0) x - ruleX - look.dp(1f) else x + ruleX
         c.drawRect(ruleLeft, ruleTop, ruleLeft + look.dp(1f), ruleBottom, rulePaint)
-        if (!first || start != spanStart) return
-        numberPaint.color = look.codeNumberColor
-        numberPaint.textAlign = if (dir < 0) Paint.Align.LEFT else Paint.Align.RIGHT
-        c.drawText(line.number.toString(), x + numberEnd * dir, baseline.toFloat(), numberPaint)
     }
 
     override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {

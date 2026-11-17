@@ -73,6 +73,10 @@ internal fun TextFirstEditText.paintCodeSelection(start: Int, end: Int): CodeSel
     chrome.lastStart = start
     chrome.lastEnd = end
     val painted = codeSelectionFor(anchor, head)
+    // The line numbers brighten with the selection, and they are drawn with the card, not the text.
+    val near = codeRangesNear(editableText ?: return null, minOf(start, end), maxOf(start, end)).isNotEmpty()
+    if (near || chrome.lastNear) invalidate()
+    chrome.lastNear = near
     if (painted == null && codeChrome.selection == null) return null
     codeChrome.selection = painted
     refreshCodeHighlight()
