@@ -1,5 +1,6 @@
-// The dependency vulnerability scan run by hand (`node scripts/audit.mjs`) and by CI's
-// test:audit (docs/architecture-gates.md). Every step runs even after an earlier one fails.
+// The dependency vulnerability scan (Rust, npm, Android) run by hand (`node scripts/audit.mjs`)
+// and by CI's test:audit (docs/architecture-gates.md). Every step runs even after an earlier one
+// fails.
 //
 // Staleness means "listed but not reported", so anything that makes a tool report less than
 // reality condemns live acknowledgments. Hence: every result is validated as a report before
@@ -375,6 +376,30 @@ const npmRows = (() => {
     );
 })();
 
+// Android: Trivy over the release lockfile (apps/android/AGENTS.md). Everything in it ships,
+// so every finding gates. A scan that found no lockfile would read as clean, hence the check.
+const ANDROID_APP = path.join(ROOT, 'apps/android/app');
+const gradleResult = (json) => (json?.Results ?? []).find((result) => result?.Type === 'gradle');
+function trivyReport(json) {
+  const gradle = gradleResult(json);
+  if (!gradle) return 'no gradle.lockfile in the scan — was it moved or deleted?';
+  if (!gradle.Packages?.length) return 'the gradle.lockfile result lists no packages';
+  return null;
+}
+const androidRows = (() => {
+  if (run('trivy', ['--version', '--quiet']) !== 0) return fail('trivy did not run.');
+  const args = ['fs', '--quiet', '--scanners', 'vuln', '--list-all-pkgs', '--format', 'json'];
+  const json = runJson('trivy', [...args, ANDROID_APP], ROOT, trivyReport);
+  if (!json) return null;
+  const rows = (gradleResult(json).Vulnerabilities ?? []).map((v) => ({
+    severity: String(v.Severity).toLowerCase(),
+    id: v.VulnerabilityID,
+    what: `${v.PkgName} ${v.InstalledVersion} (fixed in ${v.FixedVersion || 'nothing yet'})`,
+  }));
+  if (rows.length) status = 1;
+  return rows;
+})();
+
 function table(label, rows, columns) {
   if (!rows) {
     console.log(`\n${label} — NOT summarized; see the failure above.`);
@@ -396,6 +421,7 @@ function table(label, rows, columns) {
 
 table('Rust — cargo audit', cargoRows, ['state', 'id', 'what']);
 table('npm — pnpm audit', npmRows, ['state', 'severity', 'id', 'what']);
+table('Android — trivy', androidRows, ['severity', 'id', 'what']);
 
 const tally = (rows, test) => rows.filter(test).length;
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -422,6 +448,9 @@ const npm = npmRows
       `${listed('pnpm-workspace.yaml')} acknowledged`,
     ].join(', ')
   : 'not summarized';
-console.log(`\nRust: ${rust}  ·  npm: ${npm}`);
+const android = androidRows
+  ? plural(androidRows.length, 'vulnerability', 'vulnerabilities')
+  : 'not summarized';
+console.log(`\nRust: ${rust}  ·  npm: ${npm}  ·  Android: ${android}`);
 
 process.exit(status);
