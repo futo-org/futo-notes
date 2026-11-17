@@ -52,15 +52,20 @@ final class TextFirstBlockDragUITests: XCTestCase {
 
         // Keyboard up: a hold is the platform's. Its loupe carries the caret to where the
         // finger lets go, at a line's start, and nothing lifts: typing lands there and no line
-        // moves (a lift would have carried the line, or left the caret after `Z`).
+        // moves (a lift would have carried the line, or left the caret after `Z`). The note
+        // before the keystroke already satisfies "no line moved", so the `Y` itself must show
+        // up in the saved file, once and at a line's start.
         line(0).press(
             forDuration: 0.8, thenDragTo: line(2, x: 2), withVelocity: .slow,
             thenHoldForDuration: 0.3)
         editor.typeText("Y")
         XCTAssertTrue(
             saved { text in
-                text.replacingOccurrences(of: "Y", with: "") == "bravo\nZ\ndelta\nalpha"
-                    && !text.contains("ZY")
+                let at = text.firstIndex(of: "Y")
+                return text.filter { $0 == "Y" }.count == 1
+                    && text.replacingOccurrences(of: "Y", with: "") == "bravo\nZ\ndelta\nalpha"
+                    && at.map { $0 == text.startIndex || text[text.index(before: $0)] == "\n" }
+                        == true
             }, "a long-press while editing places the caret and moves no line")
     }
 }
