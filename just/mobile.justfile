@@ -94,7 +94,7 @@ android-lock: _preflight-android android-env-check
   #!/usr/bin/env bash
   set -euo pipefail
   cd apps/android
-  ./gradlew :app:dependencies --write-locks --quiet > /dev/null
+  ./gradlew :app:lockShippedDependencies --write-locks --quiet
   git -C ../.. status --short -- apps/android/app/gradle.lockfile
 
 [private]
