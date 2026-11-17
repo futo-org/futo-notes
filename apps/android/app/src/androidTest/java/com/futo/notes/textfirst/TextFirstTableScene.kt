@@ -86,9 +86,20 @@ internal class TableCellScene(
         }
         return result
     }
-    fun assertCaretVisible() = ui {
+    /** The note's text, read on the UI thread: the editable is mutated there, so the test thread must not read it. */
+    fun noteText(): String {
+        var text = ""
+        ui { text = view.text.toString() }
+        return text
+    }
+    /**
+     * [endsAfterText] holds only right after typing. The system keyboard is a second, asynchronous writer: after an
+     * Undo or Redo it can reconvert a word it still thinks the caret is in, and that moves the caret to the end of the
+     * reconverted word (the spec's unchanged-reconversion rule), so a later caret position is not the test's to pin.
+     */
+    fun assertCaretVisible(endsAfterText: Boolean = true) = ui {
         val field = checkNotNull(fieldInWindow())
-        assertEquals("typing ends after the inserted text", field.length(), field.selectionEnd)
+        if (endsAfterText) assertEquals("typing ends after the inserted text", field.length(), field.selectionEnd)
         assertEquals(field.selectionStart, field.selectionEnd)
         val layout = field.layout
         val line = layout.getLineForOffset(field.selectionEnd)
