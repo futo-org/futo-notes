@@ -9,6 +9,7 @@ struct TextFirstNoteScreen: View {
     @EnvironmentObject var store: NotesStore
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.localization) private var localization
+    @Environment(\.reportVisibleNote) private var reportVisibleNote
 
     @State private var noteId: String
     @State var titleField: String
@@ -193,6 +194,7 @@ struct TextFirstNoteScreen: View {
                 PuppetVerbs.shared.openNote = noteId
             #endif
             if ownerToken == 0 { ownerToken = store.claimDraftOwnership() }
+            reportVisibleNote?(noteId)
         }
         #if FUTO_DEBUG_BUILD
             .onChange(of: noteId) { _, id in PuppetVerbs.shared.openNote = id }
@@ -349,6 +351,7 @@ struct TextFirstNoteScreen: View {
         guard id != noteId else { return }
         titleField = TextFirstTitle.fieldText(titleField, from: noteId, to: id)
         noteId = id
+        reportVisibleNote?(id)
     }
 
     private func leave() {

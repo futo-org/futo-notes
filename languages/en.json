@@ -250,7 +250,9 @@
           "emptyActionHint": "Tap + to add a note."
         },
         "ios": {
-          "emptyActionHint": "Tap the compose button to add a note."
+          "emptyActionHint": "Tap the compose button to add a note.",
+          "noNoteSelected": "No note selected",
+          "noNoteSelectedHint": "Pick a note from the list, or start a new one."
         },
         "desktopEmptyHint": "No notes yet. Tap + to create one."
       },

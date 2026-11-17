@@ -10,6 +10,10 @@ struct FolderContentsView: View {
     /// The folder this view shows ("" = root).
     let folder: String
     @Binding var navPath: [Route]
+    /// Set when this list is a pane of the Duo's pages shell: rows open notes in the
+    /// editor pane and pick folders in place instead of pushing.
+    var pane: PaneHost? = nil
+    @Environment(\.isDuoOuter) var isDuoOuter
 
     @State var showingNewFolder = false
     @State private var newFolderName = ""
@@ -169,18 +173,23 @@ struct FolderContentsView: View {
             // them. New Note is one tap — quick capture never sits behind a
             // menu. iOS groups adjacent trailing items into one control
             // cluster, so this reads as native rather than as two loose icons.
-            ToolbarItem(id: "create-folder", placement: .topBarTrailing) {
-                Button {
-                    openNewFolderDialog()
-                } label: {
-                    Image(systemName: "folder.badge.plus")
+            // In the pages shell, New folder sits in the folder column or the pane's footer.
+            if pane == nil {
+                ToolbarItem(id: "create-folder", placement: .topBarTrailing) {
+                    Button {
+                        openNewFolderDialog()
+                    } label: {
+                        Image(systemName: "folder.badge.plus")
+                    }
+                    .tint(Theme.primary)
+                    // Explicit AX so VoiceOver/AXe can read + activate it. [nav.md]
+                    .accessibilityLabel(localization.localizedText("folders.newFolder"))
+                    .accessibilityIdentifier("nav-create-folder")
                 }
-                .tint(Theme.primary)
-                // Explicit AX so VoiceOver/AXe can read + activate it. [nav.md]
-                .accessibilityLabel(localization.localizedText("folders.newFolder"))
-                .accessibilityIdentifier("nav-create-folder")
             }
-            ToolbarItem(id: "create", placement: .topBarTrailing) {
+            // The closed Duo's rail puts the bar's buttons on the far edge, so New note
+            // moves to the bottom bar, within thumb reach.
+            ToolbarItem(id: "create", placement: isDuoOuter ? .bottomBar : .topBarTrailing) {
                 Button {
                     // Quick capture: create + open straight into the body,
                     // no blocking title prompt (desktop parity). [list.md]
@@ -195,7 +204,9 @@ struct FolderContentsView: View {
             }
             // The root gets its sort item from NoteListView's own toolbar, which
             // also hosts the bottom-bar search field; only pushed folders add it here.
-            if !folder.isEmpty {
+            if pane != nil {
+                ToolbarItem(id: "sort", placement: .topBarTrailing) { NoteSortMenu() }
+            } else if !folder.isEmpty {
                 if #available(iOS 26, *) {
                     ToolbarItem(id: "sort", placement: .bottomBar) { NoteSortMenu() }
                 } else {
@@ -315,6 +326,21 @@ struct FolderContentsView: View {
                 )
                 .presentationBackground(.clear)
             }
+        }
+        .onChange(of: pane?.folderAction.wrappedValue, initial: true) { _, action in
+            guard let action else { return }
+            pane?.folderAction.wrappedValue = nil
+            perform(action)
+        }
+    }
+
+    /// A folder action the pages shell's folder column asked for; the dialogs live here.
+    private func perform(_ action: FolderAction) {
+        switch action {
+        case .create: openNewFolderDialog()
+        case .rename(let path): setFolderRenameTarget(path)
+        case .move(let path): folderMoveTarget = path
+        case .delete(let path): setFolderDeleteTarget(path)
         }
     }
 
