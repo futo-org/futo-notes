@@ -225,18 +225,11 @@ internal class TextFirstController(
     fun format(format: EditorInlineFormat) { engine?.toggleFormat(format) }
     fun toolbarFormat(format: EditorInlineFormat) { engine?.toggleToolbarFormat(format) }
     fun block(command: EditorBlockCommand) {
-        // A selection that takes a code block is the block's: line formats leave it alone, as !300's did (cb 217-220, P155).
-        // Indent and Outdent still act; Tab on a selected block indents its code (Mason, 2026-11-17). The code-block
-        // command still wraps a range that takes a block (it merges them), but never unwraps a block selected as one object.
-        val indents = command is EditorBlockCommand.Indent || command is EditorBlockCommand.Outdent
-        val wraps = command is EditorBlockCommand.WrapCodeBlock
-        if (wraps && view.selectedCodeBlock != null) return
-        if (!indents && !wraps && selectionTakesACodeBlock()) return
+        // The code-block command would unwrap a block selected as one object, which !300 never did; whether it may is
+        // Mason's to decide (P155). Line formats over a block change only the text lines around it, as on desktop.
+        if (command is EditorBlockCommand.WrapCodeBlock && view.selectedCodeBlock != null) return
         engine?.blockCommand(command)
     }
-
-    private fun selectionTakesACodeBlock(): Boolean =
-        view.selectedCodeBlock != null || view.codeSelection?.let { it.home == null && it.start < it.end } == true
     fun paste(text: String) { engine?.paste(text) }
     fun finishCellEditing() { engine?.finishCellEditing() }
     /** The shared display-selection entry point for grid taps and Find. */

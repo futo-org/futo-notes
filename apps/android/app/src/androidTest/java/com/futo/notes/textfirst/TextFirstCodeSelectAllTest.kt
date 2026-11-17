@@ -37,7 +37,10 @@ class TextFirstCodeSelectAllTest {
         assertEquals("the last code line carries a band the first does not", besideLine(view.editableText.indexOf("const a")), besideLine(view.editableText.indexOf("const b")))
     }
 
-    /** Area 6 verifier (P155): Quote, Heading, a list or the code toggle over a selection that takes a block does nothing. */
+    /**
+     * P155, as on desktop (Mason): a line format over a selection running through a block changes only the text lines,
+     * and the block's bytes stay as they are; the code toggle never unwraps a block selected as one object.
+     */
     @Test fun blockCommandsLeaveASelectionThatTakesABlockAlone() = textFirstSession("intro line\n\n```js\nconst a = 1\n```\n\nouter line") { c ->
         val view = c.view
         view.isFocusableInTouchMode = true
@@ -47,11 +50,11 @@ class TextFirstCodeSelectAllTest {
         view.engine!!.selectAll()
         withTimeout(5_000) { while (view.selectionEnd - view.selectionStart < view.editableText.indexOf("outer")) delay(20) }
         delay(300)
-        for (command in listOf(uniffi.futo_notes_ffi.EditorBlockCommand.Quote, uniffi.futo_notes_ffi.EditorBlockCommand.BulletList)) {
-            c.block(command)
-            delay(300)
-            assertEquals("$command changed the note", before, c.sourceText())
-        }
+        c.block(uniffi.futo_notes_ffi.EditorBlockCommand.Quote)
+        delay(300)
+        assertEquals("> intro line\n> \n```js\nconst a = 1\n```\n> \n> outer line", c.sourceText())
+        c.undo()
+        assertEquals(before, c.sourceText())
         // The code toggle on a block selected as one object leaves it a block.
         val start = view.editableText.indexOf("const a")
         val header = view.codeChrome.areaOf(start, CodeBlockAction.SELECT_BLOCK)!!
