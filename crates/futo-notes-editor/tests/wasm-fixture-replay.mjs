@@ -38,7 +38,8 @@ const KEYS = new Set([
 ]);
 
 /// Every case of `file` (relative to `fixtures/engine/`): block commands,
-/// paragraph keys, typing, a text service's replacement, paste, cut,
+/// paragraph keys, typing, a text service's replacement, a composition's
+/// commit, paste, cut,
 /// selecting a code block, setting its header, and a selection sent again as
 /// a host's echo or as the user's own. A command the replayer cannot run fails here
 /// rather than being left out.
@@ -54,6 +55,8 @@ function command(text) {
   if (typed) return { type: typed[1] };
   const service = /^os:([\s\S]*)$/.exec(text);
   if (service) return { service: service[1] };
+  const committed = /^commit:([\s\S]*)$/.exec(text);
+  if (committed) return { commit: committed[1] };
   const pasted = /^paste:([\s\S]*)$/.exec(text);
   if (pasted) return { paste: pasted[1] };
   if (text === 'Cut') return { cut: true };
@@ -166,6 +169,9 @@ function applied(page, revision, run, { a, b, bytes, at, error }) {
   if (run.type !== undefined) return page.replace_utf16(revision, a, b, utf16(run.type));
   if (run.service !== undefined) {
     return page.replace_utf16_action(revision, a, b, utf16(run.service), '"Isolated"');
+  }
+  if (run.commit !== undefined) {
+    return page.replace_utf16_action(revision, a, b, utf16(run.commit), '"CompositionCommit"');
   }
   if (run.paste !== undefined) {
     return page.paste_markdown(revision, bytes.start, bytes.end, run.paste);
