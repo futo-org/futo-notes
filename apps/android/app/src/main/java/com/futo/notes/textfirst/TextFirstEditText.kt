@@ -210,6 +210,8 @@ internal class TextFirstEditText(
     override fun getExtendedPaddingBottom(): Int = if (drawing) 0 else super.getExtendedPaddingBottom()
 
     internal val reveal = CaretReveal()
+    internal val codeCardPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    internal val codeHeader by lazy { CodeBlockHeader(style) }
 
     override fun bringPointIntoView(offset: Int): Boolean = revealCaret(offset) { super.bringPointIntoView(offset) }
 
@@ -221,7 +223,7 @@ internal class TextFirstEditText(
         val timings = pendingTimings
         if (timings != null) timings.drawStart = android.os.SystemClock.elapsedRealtimeNanos()
         // Under the caret, which the TextView draws before the layout's own drawing.
-        drawCodeBackgrounds(canvas)
+        drawCodeBlocks(canvas)
         drawListSelection(canvas)
         drawFindMarks(canvas)
         val e = editableText as? ChunkedEditable

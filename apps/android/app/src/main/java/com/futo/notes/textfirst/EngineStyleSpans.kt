@@ -9,8 +9,10 @@ import uniffi.futo_notes_ffi.EditorStyleSpan
  * an old span is then replaced rather than kept beside the new one.
  */
 internal fun List<EditorStyleSpan>.toStyleWindow(start: Int, end: Int, display: CharSequence): StyleWindow {
-    val languages = filterIsInstance<EditorStyleSpan.CodeBlock>().associate { it.start to it.language }
-    val (grid, text) = mapNotNull { it.toSpanSpec(display, languages) }
+    val blocks = filterIsInstance<EditorStyleSpan.CodeBlock>().map {
+        CodeBlockFacts(it.start.toInt(), it.end.toInt(), it.language, it.name, it.lineCount.toInt())
+    }
+    val (grid, text) = mapNotNull { it.toSpanSpec(display, blocks) }
         .partition { it is SpanSpec.TableRow || it is SpanSpec.TableDelimiter }
     // Grid rows are disjoint lines in document order, so the row a span could sit in is the last one starting at or before it.
     val rows = grid.sortedBy { it.start }
@@ -21,13 +23,12 @@ internal fun List<EditorStyleSpan>.toStyleWindow(start: Int, end: Int, display: 
     return StyleWindow(minOf(start, specs.minOfOrNull { it.start } ?: start), maxOf(end, specs.maxOfOrNull { it.end } ?: end), specs)
 }
 
-/** A block's first code line starts where the block does, so [languages] is keyed by block start. */
-private fun EditorStyleSpan.toSpanSpec(display: CharSequence, languages: Map<ULong, String?>): SpanSpec? = when (this) {
+private fun EditorStyleSpan.toSpanSpec(display: CharSequence, blocks: List<CodeBlockFacts>): SpanSpec? = when (this) {
     is EditorStyleSpan.Inline -> SpanSpec.Inline(start.toInt(), end.toInt(), bold, italic, strike, code)
     is EditorStyleSpan.Heading -> SpanSpec.Heading(start.toInt(), end.toInt(), level.toInt())
     is EditorStyleSpan.Quote -> SpanSpec.Quote(start.toInt(), end.toInt(), depth.toInt())
     is EditorStyleSpan.ListRow -> toListSpec()
-    is EditorStyleSpan.Code -> SpanSpec.Code(start.toInt(), end.toInt(), if (first) languages[start] else null)
+    is EditorStyleSpan.Code -> toCodeSpec(blocks)
     is EditorStyleSpan.CodeBlock -> null
     is EditorStyleSpan.Metadata -> SpanSpec.Metadata(start.toInt(), end.toInt())
     is EditorStyleSpan.Link -> SpanSpec.Link(start.toInt(), end.toInt(), destination)
@@ -37,6 +38,13 @@ private fun EditorStyleSpan.toSpanSpec(display: CharSequence, languages: Map<ULo
     is EditorStyleSpan.Image -> SpanSpec.Image(start.toInt(), end.toInt(), destination, alt, vault, remote)
     is EditorStyleSpan.TableRow -> toTableSpec(display)
     is EditorStyleSpan.TableDelimiter -> SpanSpec.TableDelimiter(start.toInt(), end.toInt())
+}
+
+/** The engine lists every block a code line it plans is in; a line it plans in no listed block draws nothing. */
+private fun EditorStyleSpan.Code.toCodeSpec(blocks: List<CodeBlockFacts>): SpanSpec? {
+    val at = start.toInt()
+    val block = blocks.firstOrNull { at >= it.start && at <= it.end } ?: return null
+    return SpanSpec.Code(at, end.toInt(), CodeLineFacts(lineNumber.toInt(), mark, first, last, block))
 }
 
 private fun EditorStyleSpan.ListRow.toListSpec(): SpanSpec {

@@ -51,9 +51,25 @@ internal class TextFirstStyle(
     val listIndent = textSizePx * 1.4f
     val quoteIndent = dp(3f) + textSizePx * 0.9f
     val codePadding = dp(12f)
-    // iOS's 16-point header and 11-point label against its 17-point body, scaled with the body text.
-    val codeLabelHeader = textSizePx * 16f / 17f
-    val codeLabelSize = textSizePx * 11f / 17f
+    // !300's code block, sized in px against its 16 px body, so it scales with the body text.
+    private fun codeMetric(px: Float): Float = textSizePx * px / 16f
+    val codeHeaderHeight = codeMetric(27f)
+    val codeHeaderTextSize = codeMetric(12f)
+    val codeCorner = codeMetric(10f)
+    val codeChipPad = codeMetric(7f)
+    val codeSkirt = codeMetric(10f)
+    val codeRadius = codeMetric(6f)
+    val codeBlockGap = codeMetric(4f)
+    val codeEdgeLabelSize = codeMetric(10f)
+    val codeTextSize = textSizePx * 0.85f
+    private val darkTheme get() = androidx.core.graphics.ColorUtils.calculateLuminance(textColor) > 0.5
+    // !300's --code-well-*, --code-mark-* and its gutter rule (ink at 9%), light and dark.
+    val codeWellColor get() = if (darkTheme) 0x0AFFFFFF else 0x0E000000
+    val codeWellBorderColor get() = if (darkTheme) 0x0FFFFFFF else 0x0F000000
+    val codeRuleColor get() = (textColor and 0x00ffffff) or 0x17000000
+    val codeHighlightColor get() = if (darkTheme) 0x244ADE80 else 0x2116A34A
+    val codeLowlightColor get() = if (darkTheme) 0x21F87171 else 0x1ADC2626
+    val codeNumberColor get() = (mutedColor and 0x00ffffff) or 0x8C000000.toInt()
     val selectionColor get() = (linkColor and 0x00ffffff) or 0x40000000
     /** The body's border over the header's fill would vanish (the same colour in dark): a step of the text colour over it. */
     val tableHeaderBorderColor get() = androidx.core.graphics.ColorUtils.compositeColors((textColor and 0x00ffffff) or 0x26000000, codeBackground)

@@ -3,36 +3,67 @@ package com.futo.notes.textfirst
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
+import uniffi.futo_notes_ffi.EditorCodeLineMark
 
 /**
- * Each visible code line's background, full width, and a block's language label. The view paints them, ahead of
- * the TextView's own drawing, because the TextView draws the caret before the
- * layout's line backgrounds: a LineBackgroundSpan would cover the caret.
+ * Each visible fenced block's card: its fill and hairline border, rounded at its first and last
+ * code line, the `hl:`/`ll:` bands across the card's width, and its header. The view paints them
+ * ahead of the TextView's own drawing, because the TextView draws the caret before the layout's
+ * line backgrounds: a LineBackgroundSpan would cover the caret.
  */
-internal fun TextFirstEditText.drawCodeBackgrounds(canvas: Canvas) {
+internal fun TextFirstEditText.drawCodeBlocks(canvas: Canvas) {
     val l = layout ?: return
     val e = editableText ?: return
     val top = scrollY - totalPaddingTop
     val firstLine = l.getLineForVertical(maxOf(0, top))
     val lastLine = l.getLineForVertical(maxOf(0, top + height))
-    val blocks = e.getSpans(l.getLineStart(firstLine), l.getLineEnd(lastLine), TfCodeBlock::class.java)
-    if (blocks.isEmpty()) return
-    val paint = Paint().apply { color = this@drawCodeBackgrounds.style.surfaceColor }
+    val lines = e.getSpans(l.getLineStart(firstLine), l.getLineEnd(lastLine), TfCodeBlock::class.java)
+    if (lines.isEmpty()) return
+    lines.sortBy { e.getSpanStart(it) }
     val save = canvas.save()
     canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
-    for (block in blocks) {
-        val s = e.getSpanStart(block)
-        val en = e.getSpanEnd(block)
-        // The lines the span overlaps, as Layout.drawBackground counts them.
-        val from = maxOf(firstLine, l.getLineForOffset(s))
-        val to = minOf(lastLine, l.getLineForOffset(if (en > s) en - 1 else s))
-        for (line in from..to) {
-            canvas.drawRect(0f, l.getLineTop(line).toFloat(), l.width.toFloat(), l.getLineBottom(line).toFloat(), paint)
-        }
-        val labelLine = l.getLineForOffset(s)
-        if (labelLine in from..to) block.drawLabel(canvas, l.width, l.getLineTop(labelLine))
+    var from = 0
+    while (from < lines.size) {
+        var to = from
+        while (to + 1 < lines.size && lines[to + 1].line.block == lines[from].line.block) to++
+        drawCodeCard(canvas, l, e, lines.copyOfRange(from, to + 1))
+        from = to + 1
     }
     canvas.restoreToCount(save)
+}
+
+/** One block's visible [lines], in order. A side the viewport cuts off is drawn past the edge, square. */
+private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layout, e: android.text.Editable, lines: Array<TfCodeBlock>) {
+    val look = style
+    val width = l.width.toFloat()
+    val head = lines.first()
+    val tail = lines.last()
+    val overhang = look.codeRadius * 2
+    val cardTop = l.getLineTop(l.getLineForOffset(e.getSpanStart(head))) - if (head.line.first) 0f else overhang
+    val tailEnd = e.getSpanEnd(tail)
+    val tailBottom = l.getLineBottom(l.getLineForOffset(maxOf(e.getSpanStart(tail), tailEnd - 1))).toFloat()
+    val cardBottom = if (tail.line.last) tailBottom - tail.bottomExtra(e) + look.codeSkirt else tailBottom + overhang
+    val card = RectF(0f, cardTop, width, cardBottom)
+    codeCardPaint.style = Paint.Style.FILL
+    codeCardPaint.color = look.codeWellColor
+    canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
+    for (span in lines) {
+        val mark = span.line.mark ?: continue
+        val start = e.getSpanStart(span)
+        val end = e.getSpanEnd(span)
+        val bandTop = l.getLineTop(l.getLineForOffset(start)) + if (span.line.first) look.codeHeaderHeight else 0f
+        val bandBottom = l.getLineBottom(l.getLineForOffset(maxOf(start, end - 1))) - if (span.line.last) span.bottomExtra(e) else 0f
+        codeCardPaint.color = if (mark == EditorCodeLineMark.HIGHLIGHT) look.codeHighlightColor else look.codeLowlightColor
+        canvas.drawRect(0f, bandTop, width, bandBottom, codeCardPaint)
+    }
+    val stroke = look.dp(1f)
+    codeCardPaint.style = Paint.Style.STROKE
+    codeCardPaint.strokeWidth = stroke
+    codeCardPaint.color = look.codeWellBorderColor
+    card.inset(stroke / 2, stroke / 2)
+    canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
+    if (head.line.first) codeHeader.draw(canvas, head.line.block, width, cardTop)
 }
 
 /**

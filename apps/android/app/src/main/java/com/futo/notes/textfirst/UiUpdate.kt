@@ -1,5 +1,6 @@
 package com.futo.notes.textfirst
 
+import uniffi.futo_notes_ffi.EditorCodeLineMark
 import uniffi.futo_notes_ffi.EditorInlineFormat
 
 // The engine → view data: display edits, span descriptions and the toolbar's
@@ -7,6 +8,12 @@ import uniffi.futo_notes_ffi.EditorInlineFormat
 
 /** One display edit for the view, in UTF-16 units of the text it applies to. */
 internal class TextEdit(val start: Int, val end: Int, val text: String)
+
+/** What the engine reports about a whole fenced block, even where a window holds only part of it. */
+internal data class CodeBlockFacts(val start: Int, val end: Int, val language: String?, val name: String?, val lineCount: Int)
+
+/** One shown code line: its 1-based [number] in its block, its mark, whether it is the block's first and last, and its [block]. */
+internal data class CodeLineFacts(val number: Int, val mark: EditorCodeLineMark?, val first: Boolean, val last: Boolean, val block: CodeBlockFacts)
 
 /** Span descriptions for one restyled window; the view turns them into [TfSpan]s. */
 internal sealed class SpanSpec(val start: Int, val end: Int) {
@@ -17,8 +24,7 @@ internal sealed class SpanSpec(val start: Int, val end: Int) {
     class ListRow(start: Int, end: Int, val depth: Int, val marker: ListMarker, val label: String, val checked: Boolean, val first: Boolean) : SpanSpec(start, end)
     /** An indented plain line under a list: it takes the list's display level and draws no marker. */
     class Indent(start: Int, end: Int, val depth: Int) : SpanSpec(start, end)
-    /** [language] is set on a fenced block's first code line only: the label drawn above it. */
-    class Code(start: Int, end: Int, val language: String? = null) : SpanSpec(start, end)
+    class Code(start: Int, end: Int, val line: CodeLineFacts) : SpanSpec(start, end)
     class Metadata(start: Int, end: Int) : SpanSpec(start, end)
     class Link(start: Int, end: Int, val destination: String) : SpanSpec(start, end)
     class Wikilink(start: Int, end: Int, val label: String, val noteId: String?) : SpanSpec(start, end)

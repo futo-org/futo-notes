@@ -5,49 +5,74 @@ import android.graphics.Paint
 import android.text.Layout
 import android.text.Spanned
 import android.text.TextPaint
-import android.text.TextUtils
 import android.text.style.LeadingMarginSpan
 import android.text.style.LineHeightSpan
 import android.text.style.MetricAffectingSpan
 
 /**
- * A code line's monospace face and inset, and on a block's first line its language label's
- * header. Its background is not a LineBackgroundSpan: the TextView draws the caret before the
- * layout's line backgrounds, so an opaque one would cover the caret on a code line. The view
- * paints the background and the label first instead (`drawCodeBackgrounds`).
+ * One code line: its monospace face, the gutter it is inset by, the header above a block's first
+ * line and the skirt under its last. The number and the gutter rule are drawn in the leading
+ * margin, so they are never text. The card, its border, the marks and the header are not a
+ * LineBackgroundSpan: the TextView draws the caret before the layout's line backgrounds, so the
+ * view paints them first instead (`drawCodeBlocks`).
  */
-internal class TfCodeBlock(private val look: TextFirstStyle, val language: String?) :
+internal class TfCodeBlock(private val look: TextFirstStyle, val line: CodeLineFacts) :
     MetricAffectingSpan(), LeadingMarginSpan, LineHeightSpan, TfSpan {
-    private val labelPaint = language?.let { TextPaint(Paint.ANTI_ALIAS_FLAG).apply { typeface = look.mono; textSize = look.codeLabelSize } }
+    private val numberPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = look.mono
+        textSize = look.codeTextSize
+        textAlign = Paint.Align.RIGHT
+    }
+    private val rulePaint = Paint()
+    /** Where the numbers end: two digits wide at least, one more per digit the block's count needs. */
+    val numberEnd = look.codeCorner + maxOf(2, line.block.lineCount.toString().length) * numberPaint.measureText("0")
+    val ruleX = numberEnd + look.codeChipPad
+    private val codeInset = ruleX + look.dp(1f) + look.codeChipPad
 
-    override fun slice(head: Boolean): TfSpan = if (head) this else TfCodeBlock(look, null)
+    override fun slice(head: Boolean): TfSpan = if (head) this else TfCodeBlock(look, line)
 
     override fun updateMeasureState(paint: TextPaint) {
         paint.typeface = look.mono
-        paint.textSize = look.textSizePx * 0.85f
+        paint.textSize = look.codeTextSize
     }
 
     override fun updateDrawState(paint: TextPaint) = updateMeasureState(paint)
 
-    override fun getLeadingMargin(first: Boolean) = look.codePadding.toInt()
-    override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) = Unit
+    override fun getLeadingMargin(first: Boolean): Int = codeInset.toInt()
 
-    override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
-        if (labelPaint == null || start != (text as Spanned).getSpanStart(this)) return
-        val header = look.codeLabelHeader.toInt()
-        fm.ascent -= header
-        fm.top -= header
+    override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) {
+        val spanned = text as? Spanned ?: return
+        val spanStart = spanned.getSpanStart(this)
+        val ruleTop = if (start == spanStart && line.first) top + look.codeHeaderHeight else top.toFloat()
+        val ruleBottom = if (end >= spanned.getSpanEnd(this) && line.last) bottom - bottomExtra(spanned) else bottom.toFloat()
+        rulePaint.color = look.codeRuleColor
+        c.drawRect(x + ruleX, ruleTop, x + ruleX + look.dp(1f), ruleBottom, rulePaint)
+        if (!first || start != spanStart) return
+        numberPaint.color = look.codeNumberColor
+        c.drawText(line.number.toString(), x + numberEnd, baseline.toFloat(), numberPaint)
     }
 
-    /** The label at the top right of the header whose line starts at [top], within half of [width]. */
-    fun drawLabel(canvas: Canvas, width: Int, top: Int) {
-        val paint = labelPaint ?: return
-        val label = checkNotNull(language)
-        paint.color = look.mutedColor
-        val shown = TextUtils.ellipsize(label, paint, width / 2f - look.codePadding, TextUtils.TruncateAt.END)
-        val metrics = paint.fontMetrics
-        val baseline = top + (look.codeLabelHeader - metrics.descent - metrics.ascent) / 2f
-        val right = width - look.codePadding
-        canvas.drawText(shown, 0, shown.length, right - paint.measureText(shown, 0, shown.length), baseline, paint)
+    override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
+        val spanned = text as Spanned
+        if (line.first && start == spanned.getSpanStart(this)) {
+            val header = look.codeHeaderHeight.toInt()
+            fm.ascent -= header
+            fm.top -= header
+        }
+        if (line.last && end >= spanned.getSpanEnd(this)) {
+            val skirt = bottomExtra(spanned).toInt()
+            fm.descent += skirt
+            fm.bottom += skirt
+        }
+    }
+
+    /** The skirt under the block's last line, and the gap that keeps a block directly under it apart. */
+    fun bottomExtra(text: Spanned): Float = look.codeSkirt + if (touchesBlockBelow(text)) look.codeBlockGap else 0f
+
+    private fun touchesBlockBelow(text: Spanned): Boolean {
+        val end = text.getSpanEnd(this)
+        val next = if (end > 0 && text[end - 1] == '\n') end else end + 1
+        if (next >= text.length) return false
+        return text.getSpans(next, next + 1, TfCodeBlock::class.java).any { it.line.first && text.getSpanStart(it) == next }
     }
 }

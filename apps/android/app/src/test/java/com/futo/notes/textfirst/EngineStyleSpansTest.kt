@@ -1,8 +1,10 @@
 package com.futo.notes.textfirst
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import uniffi.futo_notes_ffi.EditorCodeLineMark
 import uniffi.futo_notes_ffi.EditorListMarker
 import uniffi.futo_notes_ffi.EditorStyleCell
 import uniffi.futo_notes_ffi.EditorStyleSpan
@@ -32,19 +34,24 @@ class EngineStyleSpansTest {
         assertEquals(6, specs.size)
     }
 
-    // "```js\nx\ny\n```\n```py\nw\n```\n```\nv\n```" shows as "x\ny\nw\nv".
-    @Test fun aCodeLanguageLabelsOnlyTheFirstCodeLineOfEachBlock() {
+    // "```js name:a.js hl:2\nx\ny\n```\n```\nw\n```" shows as "x\ny\nw".
+    @Test fun aCodeLineCarriesItsNumberMarkEdgesAndTheWholeBlocksFacts() {
         val spans = listOf(
-            EditorStyleSpan.CodeBlock(0uL, 3uL, "js", null, 2u),
-            EditorStyleSpan.CodeBlock(4uL, 5uL, "py", null, 1u),
-            EditorStyleSpan.CodeBlock(6uL, 7uL, null, null, 1u),
+            EditorStyleSpan.CodeBlock(0uL, 3uL, "js", "a.js", 2u),
+            EditorStyleSpan.CodeBlock(4uL, 5uL, null, null, 1u),
             code(0, 2, 1u, first = true, last = false),
-            code(2, 4, 2u, first = false, last = true),
-            code(4, 6, 1u, first = true, last = true),
-            code(6, 7, 1u, first = true, last = true),
+            code(2, 4, 2u, first = false, last = true, EditorCodeLineMark.HIGHLIGHT),
+            code(4, 5, 1u, first = true, last = true),
         )
-        val specs = spans.toStyleWindow(0, 7, "x\ny\nw\nv").specs
-        assertEquals(listOf("js", null, "py", null), specs.map { (it as SpanSpec.Code).language })
+        val lines = spans.toStyleWindow(0, 5, "x\ny\nw").specs.map { (it as SpanSpec.Code).line }
+        val js = CodeBlockFacts(0, 3, "js", "a.js", 2)
+        val plain = CodeBlockFacts(4, 5, null, null, 1)
+        assertEquals(listOf(
+            CodeLineFacts(1, null, first = true, last = false, js),
+            CodeLineFacts(2, EditorCodeLineMark.HIGHLIGHT, first = false, last = true, js),
+            CodeLineFacts(1, null, first = true, last = true, plain),
+        ), lines)
+        assertNotEquals("a renumbered line is not the span already drawn", lines[1], lines[1].copy(number = 3))
     }
 
     @Test fun aTableRowReadsItsCellsFromTheDisplayAndHidesTheSpansInsideIt() {
@@ -65,8 +72,8 @@ class EngineStyleSpansTest {
         assertEquals(2, row.tableStart)
     }
 
-    private fun code(start: Int, end: Int, lineNumber: UInt, first: Boolean, last: Boolean) =
-        EditorStyleSpan.Code(start.toULong(), end.toULong(), lineNumber, null, first, last)
+    private fun code(start: Int, end: Int, lineNumber: UInt, first: Boolean, last: Boolean, mark: EditorCodeLineMark? = null) =
+        EditorStyleSpan.Code(start.toULong(), end.toULong(), lineNumber, mark, first, last)
 
     private fun listRow(start: Int, end: Int, level: Int, marker: EditorListMarker, text: String, checked: Boolean = false) =
         EditorStyleSpan.ListRow(start.toULong(), end.toULong(), 0uL, level.toULong(), marker, text, checked, true)

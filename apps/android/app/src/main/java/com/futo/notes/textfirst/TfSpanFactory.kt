@@ -9,7 +9,7 @@ internal class TfSpanFactory(private val style: TextFirstStyle, private val mark
         is SpanSpec.Quote -> TfQuote(style, spec.depth)
         is SpanSpec.ListRow -> TfList(style, spec.depth, spec.marker, spec.label, spec.checked, spec.first)
         is SpanSpec.Indent -> TfIndent(style, spec.depth)
-        is SpanSpec.Code -> TfCodeBlock(style, spec.language)
+        is SpanSpec.Code -> TfCodeBlock(style, spec.line)
         is SpanSpec.Metadata -> TfMetadata(style)
         is SpanSpec.Link -> TfLink(style, spec.destination)
         is SpanSpec.Wikilink -> TfWikilink(style, spec.label, spec.noteId) { wikilinkWidth(it) }
@@ -26,7 +26,7 @@ internal class TfSpanFactory(private val style: TextFirstStyle, private val mark
         is SpanSpec.Quote -> span is TfQuote && span.depth == spec.depth
         is SpanSpec.ListRow -> span is TfList && span.sameAs(TfList(style, spec.depth, spec.marker, spec.label, spec.checked, spec.first))
         is SpanSpec.Indent -> span is TfIndent && span.depth == spec.depth
-        is SpanSpec.Code -> span is TfCodeBlock && span.language == spec.language
+        is SpanSpec.Code -> span is TfCodeBlock && span.line == spec.line
         is SpanSpec.Metadata -> span is TfMetadata
         is SpanSpec.Link -> span is TfLink && span.destination == spec.destination
         is SpanSpec.Wikilink -> span is TfWikilink && span.label == spec.label && span.noteId == spec.noteId
