@@ -44,7 +44,7 @@
             guard try c.moveBlock(atLineOffset: line.range.location, toSlot: slot) else {
                 throw PuppetVerbRefusal(
                     409,
-                    "the editor refused to move line \(number)'s block \(side) line \(target.number): a line would read as another kind of block"
+                    "the editor refused to move line \(number)'s block \(side) line \(target.number): a line would read as another kind of block, or the editor was busy"
                 )
             }
             return ["moved": ["line": number, side: target.number]]

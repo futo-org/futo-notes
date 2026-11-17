@@ -1,13 +1,6 @@
 //! Thin byte-coordinate projection of block movement. Which lines lift,
 //! where they land and the move itself stay in the canonical editor.
 use super::*;
-use futo_notes_editor as editor;
-
-fn offset(value: EditorDisplayByteOffset) -> Result<editor::DisplayOffset, EditorSessionError> {
-    Ok(editor::DisplayOffset(
-        usize::try_from(value.offset).map_err(|_| EditorSessionError::InvalidRange)?,
-    ))
-}
 
 #[uniffi::export]
 impl NativeEditorSession {
@@ -20,7 +13,7 @@ impl NativeEditorSession {
     ) -> Result<Option<EditorByteRange>, EditorSessionError> {
         self.with_revision(expected, |session| {
             Ok(session
-                .block_at(Revision(expected), offset(at)?)?
+                .block_at(Revision(expected), at.try_into()?)?
                 .map(Into::into))
         })
     }
@@ -34,7 +27,7 @@ impl NativeEditorSession {
     ) -> Result<Vec<EditorDisplayByteOffset>, EditorSessionError> {
         self.with_revision(expected, |session| {
             Ok(session
-                .block_slots(Revision(expected), offset(at)?)?
+                .block_slots(Revision(expected), at.try_into()?)?
                 .into_iter()
                 .map(|slot| EditorDisplayByteOffset {
                     offset: slot.0 as u64,
@@ -54,7 +47,7 @@ impl NativeEditorSession {
     ) -> Result<Option<EditorViewChange>, EditorSessionError> {
         self.with_revision(expected, |session| {
             Ok(session
-                .move_block(Revision(expected), offset(at)?, offset(to)?)?
+                .move_block(Revision(expected), at.try_into()?, to.try_into()?)?
                 .map(Into::into))
         })
     }

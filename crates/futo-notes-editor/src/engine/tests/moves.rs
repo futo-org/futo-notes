@@ -16,6 +16,9 @@ fn lines(session: &EditorSession, range: Range<usize>) -> crate::DisplayRange {
     crate::DisplayRange { start, end }
 }
 
+/// A line, the lines it lifts, and the boundaries they may land on.
+type Lifts = (usize, Option<Range<usize>>, &'static [usize]);
+
 const NOTE: &str = "---\ntags: a\n---\n# Title\nplain\n- a\n  - b\n  note\n- c\n\n> q\n> - r\n```\ncode\n```\n| h |\n|---|\n| x |\n---\nlast";
 
 #[test]
@@ -27,7 +30,7 @@ fn every_block_kind_lifts_its_lines_and_lands_only_on_its_slots() {
     // matter's `---`, fences) show nothing of their own: a renderer reaches a
     // hidden opening line at the line it shows before, and a closing line
     // not at all.
-    let cases: [(usize, Option<Range<usize>>, &[usize]); 18] = [
+    let cases: [Lifts; 18] = [
         (0, None, &[]),
         (1, None, &[]),
         (3, Some(3..4), &[5, 9, 10, 12, 15, 18, 19, 20]),
@@ -62,13 +65,36 @@ fn every_block_kind_lifts_its_lines_and_lands_only_on_its_slots() {
             "line {index}"
         );
     }
-    // An unclosed fence is code to the note's end: it lifts nothing, and
-    // nothing lands after it.
+    // An unclosed fence is code to the note's end: it lifts nothing, nor
+    // does an item whose lines run into it, and nothing lands after it.
     let session = EditorSession::open("a\n```\ncode");
     assert_eq!(
         session.block_at(Revision(0), line(&session, 2)).unwrap(),
         None
     );
+    let session = EditorSession::open("b\n- a\n  ```\n  code");
+    assert_eq!(
+        session.block_at(Revision(0), line(&session, 1)).unwrap(),
+        None
+    );
+    // A quote is no list item or plain line, even when it is one line or
+    // starts with an item: it lands beside a list, never inside one.
+    for note in ["- a\n- b\n\n> q", "- a\n- b\n\n> - q"] {
+        let session = EditorSession::open(note);
+        assert_eq!(
+            session.block_slots(Revision(0), line(&session, 3)).unwrap(),
+            vec![line(&session, 0), line(&session, 2)],
+            "{note:?}"
+        );
+    }
+    // After a note's last line ending, the empty last line has no width:
+    // the boundary above it is the one slot at the display's end.
+    let session = EditorSession::open("a\nb\n");
+    assert_eq!(
+        session.block_slots(Revision(0), line(&session, 0)).unwrap(),
+        vec![line(&session, 2)]
+    );
+    let session = EditorSession::open("a\n```\ncode");
     assert_eq!(
         session.block_slots(Revision(0), line(&session, 0)).unwrap(),
         vec![]
@@ -136,8 +162,8 @@ fn a_refused_move_changes_nothing() {
         ("a\nb", 0, 1, false),
         // A plain `|---|` under a pipe line makes it a table header.
         ("| a |\n\n|---|", 2, 1, true),
-        // A list ending in an unclosed fence swallows the line it passes.
-        ("b\n- a\n  ```\n  code", 1, 0, true),
+        // A `---` reaching line 1 opens front matter with a later `---`.
+        ("a\n---\nb\n---\nc", 0, 4, true),
     ] {
         let mut session = EditorSession::open(before);
         let revision = session.revision();

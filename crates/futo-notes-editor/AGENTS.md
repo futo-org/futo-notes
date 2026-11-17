@@ -27,7 +27,7 @@ UTF-16 offset without walking the note. Every change is text edits plus one
 host acceptance; undo replays reverse edits with selection, affinity and
 carried formats. Commands (`src/engine/commands/<family>/`) all take the lines
 they are pointed at and the selection and return edits plus a selection, behind
-one guard (`src/engine/command.rs`) that cancels a command when a line it did
+one guard (`src/engine/command/mod.rs`) that cancels a command when a line it did
 not name would read as another kind of block. Their literal cases are
 `tests/fixtures/engine/`. `src/engine/tests/properties/` holds the five
 properties (unchanged bytes on open, exact typing, exact undo, incremental

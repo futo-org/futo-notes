@@ -119,14 +119,7 @@ impl NativeEditorSession {
         self.with_revision(expected, |session| {
             Ok(EditorSourceByteOffset {
                 offset: session
-                    .source_at(
-                        Revision(expected),
-                        futo_notes_editor::DisplayOffset(
-                            usize::try_from(offset.offset)
-                                .map_err(|_| EditorSessionError::InvalidRange)?,
-                        ),
-                        affinity.into(),
-                    )?
+                    .source_at(Revision(expected), offset.try_into()?, affinity.into())?
                     .0 as u64,
             })
         })

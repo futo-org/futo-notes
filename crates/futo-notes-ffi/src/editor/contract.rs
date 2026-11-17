@@ -490,6 +490,15 @@ impl From<editor::ProjectionSlice> for EditorProjection {
 pub struct EditorDisplayByteOffset {
     pub offset: u64,
 }
+
+impl TryFrom<EditorDisplayByteOffset> for editor::DisplayOffset {
+    type Error = EditorSessionError;
+    fn try_from(value: EditorDisplayByteOffset) -> Result<Self, Self::Error> {
+        Ok(Self(
+            usize::try_from(value.offset).map_err(|_| EditorSessionError::InvalidRange)?,
+        ))
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
 pub struct EditorSourceByteOffset {
     pub offset: u64,

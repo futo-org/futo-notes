@@ -2,8 +2,7 @@ import UIKit
 
 // Block movement (#311): the engine says which lines a line lifts, where they may land, and
 // moves them as one Undo step. The view only names display positions, as UTF-16 offsets here
-// and display bytes to the engine. Puppet's `MoveBlock` drives this; the long-press drag (#441)
-// is to call the same two methods.
+// and display bytes to the engine. Puppet's `MoveBlock` drives this.
 
 extension TextFirstEditorController {
     /// Where the block the line at UTF-16 `offset` lifts may land, as UTF-16 offsets of the line
@@ -17,8 +16,8 @@ extension TextFirstEditorController {
     }
 
     /// Move the block the line at UTF-16 `offset` lifts to its slot at UTF-16 `slot`. False
-    /// when the engine refuses (no block, not a slot, or a move that would change what another
-    /// line reads as); the note is then unchanged.
+    /// when the editor is closed or busy, or the engine refuses (no block, not a slot, or a
+    /// move that would change what a line reads as); the note is then unchanged.
     func moveBlock(atLineOffset offset: Int, toSlot slot: Int) throws -> Bool {
         guard !closed, !engineBusy else { return false }
         finishComposition()

@@ -27,9 +27,24 @@ fn quoted(line: &Line) -> bool {
 impl Engine {
     /// The lines that lift with line `index`: a list item with the lines
     /// under it, a whole run of quote lines, a whole closed code block or
-    /// table, else the line alone. A blank line, front matter and a code
-    /// block nothing closes (code to the note's end) lift nothing.
+    /// table, else the line alone. A blank line, front matter, and a code
+    /// block nothing closes (code to the note's end), alone or under an item,
+    /// lift nothing: wherever it went, the lines after it would turn to code.
     pub(crate) fn block_lines(&self, index: usize) -> Option<Range<usize>> {
+        let lines = self.lifted_lines(index)?;
+        let last = &self.line(lines.end - 1).line.kind;
+        let unclosed = lines.end == self.line_count()
+            && matches!(
+                last,
+                Kind::Fence {
+                    role: FenceRole::Open | FenceRole::Code,
+                    ..
+                }
+            );
+        (!unclosed).then_some(lines)
+    }
+
+    fn lifted_lines(&self, index: usize) -> Option<Range<usize>> {
         let line = &self.line(index).line;
         match line.kind {
             Kind::FrontMatter(_) => None,
@@ -48,7 +63,7 @@ impl Engine {
             Kind::Blank => None,
             Kind::Fence { .. } => {
                 let fence = self.fence_around(index)?;
-                fence.closed.then(|| fence.open..fence.end + 1)
+                Some(fence.open..fence.last() + 1)
             }
             Kind::Table { .. } => {
                 let table = self.table_at(index)?;
@@ -96,16 +111,24 @@ impl Engine {
         ) || (quoted(above) && quoted(below))
     }
 
+    /// The display offset of boundary `at`: the start of the line below it.
+    fn boundary(&self, at: usize) -> DisplayOffset {
+        DisplayOffset(self.store.before(at).display)
+    }
+
     /// The boundaries `block` may land on, in order: every boundary between
     /// lines except the block's own edges and those inside it, those inside
     /// front matter (or above it), a code block, a table or a quote run, and,
-    /// unless the block is a list item or one plain line, those strictly
-    /// between two lines of a list (its items and the lines under them).
+    /// unless the block is an unquoted list item or one plain line, those
+    /// strictly between two lines of a list (its items and the lines under
+    /// them). Of boundaries a renderer cannot tell apart (the same display
+    /// offset: the empty last line after a final line ending), the first.
     pub(crate) fn block_slots(&self, block: Range<usize>) -> Vec<usize> {
         let count = self.line_count();
-        let first = &self.line(block.start).line.kind;
-        let joins_lists = matches!(first, Kind::List { .. })
-            || (block.len() == 1 && matches!(first, Kind::Plain { .. }));
+        let first = &self.line(block.start).line;
+        let joins_lists = first.quote == 0
+            && (matches!(first.kind, Kind::List { .. })
+                || (block.len() == 1 && matches!(first.kind, Kind::Plain { .. })));
         let mut slots = Vec::new();
         // Lines before `list_end` belong to a list; `listed` is the line above.
         let mut list_end = 0;
@@ -123,6 +146,9 @@ impl Engine {
             if (block.start..=block.end).contains(&at)
                 || self.inside_unit(at)
                 || (in_list && !joins_lists)
+                || slots
+                    .last()
+                    .is_some_and(|&last| self.boundary(last) == self.boundary(at))
             {
                 continue;
             }
@@ -217,8 +243,8 @@ impl Engine {
     ) -> Result<Option<DisplayRange>, EditorError> {
         let index = self.line_shown_at(expected, at)?;
         Ok(self.block_lines(index).map(|lines| DisplayRange {
-            start: DisplayOffset(self.store.before(lines.start).display),
-            end: DisplayOffset(self.store.before(lines.end).display),
+            start: self.boundary(lines.start),
+            end: self.boundary(lines.end),
         }))
     }
 
@@ -234,7 +260,7 @@ impl Engine {
         Ok(self.block_lines(index).map_or_else(Vec::new, |lines| {
             self.block_slots(lines)
                 .into_iter()
-                .map(|slot| DisplayOffset(self.store.before(slot).display))
+                .map(|slot| self.boundary(slot))
                 .collect()
         }))
     }
@@ -261,7 +287,7 @@ impl Engine {
         let Some(slot) = self
             .block_slots(block.clone())
             .into_iter()
-            .find(|&slot| self.store.before(slot).display == to.0)
+            .find(|&slot| self.boundary(slot) == to)
         else {
             return Ok(None);
         };
