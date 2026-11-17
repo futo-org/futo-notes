@@ -292,6 +292,13 @@ fn a_lit_toolbar_button_takes_its_format_off_and_an_unlit_one_never_does() {
                     engine
                         .block(engine.revision(), selection, command, &mut ok)
                         .unwrap();
+                    if command == BlockCommand::ToggleHeading(1) {
+                        let changed = engine.source_text() != *note;
+                        assert_eq!(
+                            changed, toolbar.heading_allowed,
+                            "{note:?} {start}..{end}: heading allowed"
+                        );
+                    }
                     let after = counts(&engine.source_text());
                     let measure =
                         |c: &(usize, [usize; 7])| if level == 0 { c.0 } else { c.1[level] };

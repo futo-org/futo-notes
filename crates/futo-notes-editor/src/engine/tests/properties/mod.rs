@@ -21,7 +21,9 @@
 //!    a surrogate pair and never clamp.
 //!
 //! Besides, a host that applies each change's projection holds what a fresh
-//! projection reports (`block_mirror.rs`; on fence-dense notes, `fences.rs`).
+//! projection reports (`block_mirror.rs`; on fence-dense notes, `fences.rs`),
+//! and a paste, Enter, Shift+Enter or the divider removes no byte outside
+//! its reach (`command_step.rs`).
 //!
 //! `TYPING_CASES` and `TYPING_SEED` set the number of notes and the seed.
 mod block_mirror;

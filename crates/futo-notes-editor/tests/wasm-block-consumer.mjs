@@ -11,6 +11,7 @@ export async function runBlockRegressions() {
     'blocks.json',
     'fences.json',
     'code-block-object.json',
+    'hidden-line-edges.json',
     'clipboard/plain-enter.json',
   ]) {
     await replay(WasmSession, process.argv[3], fixtureCases(file), ['|', '[', ']']);

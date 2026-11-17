@@ -164,46 +164,79 @@ impl Engine {
     ) -> Result<Option<Command>, EditorError> {
         self.check_display_range(range)?;
         let bodies = self.bodies(range);
-        let mark = bit(format);
         let Some(style) = selected_style(&bodies) else {
             return Ok(None);
         };
-        let add = style & mark == 0;
-        let spares_code = mark & CODE_TAKES_NONE != 0;
+        let turn = FormatTurn {
+            format,
+            on: style & bit(format) == 0,
+        };
+        let edited = self.respelled_lines(&bodies, &[turn], work)?;
+        if edited.is_empty() {
+            return Ok(None);
+        }
+        Ok(self.rewrite_to(keep, edited, want))
+    }
+
+    /// `turns` applied in order over display `range`, as the toggles turn
+    /// each, as one command; the selection stays. `None` when nothing
+    /// changes.
+    pub(crate) fn formats_turned(
+        &self,
+        range: DisplayRange,
+        turns: &[FormatTurn],
+    ) -> Result<Option<Command>, EditorError> {
+        let edited = self.respelled_lines(&self.bodies(range), turns, &mut 0)?;
+        if edited.is_empty() {
+            return Ok(None);
+        }
+        Ok(self.rewrite(range, edited))
+    }
+
+    /// The lines of `bodies` with `turns` applied in order to their selected
+    /// visible characters, inline code aside for Bold, Italic and Strike;
+    /// only lines whose text changes. `UnrepresentableFormat` when some
+    /// line cannot be spelled that way and none changes.
+    fn respelled_lines(
+        &self,
+        bodies: &[Body],
+        turns: &[FormatTurn],
+        work: &mut usize,
+    ) -> Result<Edited, EditorError> {
         let mut edited = BTreeMap::new();
         let mut refused = false;
-        for body in &bodies {
+        for body in bodies {
             if !body.selected.iter().any(|&selected| selected) {
                 continue;
             }
-            let want: Vec<bool> = body
-                .glyphs
-                .iter()
-                .zip(&body.selected)
-                .map(|(glyph, &selected)| {
-                    if selected && !(spares_code && glyph.style & CODE != 0) {
-                        add
-                    } else {
-                        glyph.style & mark != 0
-                    }
-                })
-                .collect();
             let first = body.selected.iter().position(|&selected| selected);
             let last = body.selected.iter().rposition(|&selected| selected);
             let touched = match (first, last) {
                 (Some(first), Some(last)) => first..last + 1,
                 _ => 0..0,
             };
-            let draft = Draft::of(body.entry);
-            let start = if add && format == InlineFormat::Code {
-                without_code_formats(draft, body.entry, &body.selected, &touched, work)
-            } else {
-                Some((draft, body.entry.clone()))
-            };
-            let respelled = start.and_then(|(draft, read)| {
-                format::respell(&draft, &read, &want, touched, format, false, work)
-            });
-            match respelled {
+            let mut current = Some((Draft::of(body.entry), body.entry.clone()));
+            for turn in turns {
+                current = current.and_then(|(draft, read)| {
+                    let start = if turn.on && turn.format == InlineFormat::Code {
+                        without_code_formats(draft, &read, &body.selected, &touched, work)
+                    } else {
+                        Some((draft, read))
+                    };
+                    let (draft, read) = start?;
+                    let want = turned(&glyphs(&read), &body.selected, *turn);
+                    format::respell(
+                        &draft,
+                        &read,
+                        &want,
+                        touched.clone(),
+                        turn.format,
+                        false,
+                        work,
+                    )
+                });
+            }
+            match current {
                 Some((draft, read)) if draft.text != body.entry.text => {
                     edited.insert(body.index, (draft, read));
                 }
@@ -211,26 +244,10 @@ impl Engine {
                 None => refused = true,
             }
         }
-        if edited.is_empty() {
-            return if refused {
-                Err(EditorError::UnrepresentableFormat)
-            } else {
-                Ok(None)
-            };
+        if edited.is_empty() && refused {
+            return Err(EditorError::UnrepresentableFormat);
         }
-        Ok(self.rewrite_to(keep, edited, want))
-    }
-
-    /// Code turned on over display `range`, as the toggle turns it on;
-    /// `None` when every selected character is code already.
-    pub(crate) fn inline_code_on(
-        &self,
-        range: DisplayRange,
-    ) -> Result<Option<Command>, EditorError> {
-        if self.range_formats(range).contains(&InlineFormat::Code) {
-            return Ok(None);
-        }
-        self.format_command(range, range, None, InlineFormat::Code, &mut 0)
+        Ok(edited)
     }
 
     /// The formats the selection has, which a toggle turns off
@@ -241,7 +258,7 @@ impl Engine {
 
     /// The formats display `range` has, as a toggle over it reads them
     /// (`selected_style`).
-    fn range_formats(&self, range: DisplayRange) -> Vec<InlineFormat> {
+    pub(crate) fn range_formats(&self, range: DisplayRange) -> Vec<InlineFormat> {
         selected_style(&self.bodies(range)).map_or_else(Vec::new, formats_of)
     }
 
@@ -366,6 +383,32 @@ fn carried_with(
 
 /// The formats a toggle never turns on for inline code's characters.
 const CODE_TAKES_NONE: u16 = BOLD | ITALIC | STRIKE;
+
+/// One format a command turns on or off over the selected characters.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FormatTurn {
+    pub format: InlineFormat,
+    pub on: bool,
+}
+
+/// Which of `glyphs` carry `turn.format` once it is turned: the selected
+/// ones as it says (inline code aside for Bold, Italic and Strike), the
+/// rest as they are.
+fn turned(glyphs: &[Glyph], selected: &[bool], turn: FormatTurn) -> Vec<bool> {
+    let mark = bit(turn.format);
+    let spares_code = mark & CODE_TAKES_NONE != 0;
+    glyphs
+        .iter()
+        .zip(selected)
+        .map(|(glyph, &selected)| {
+            if selected && !(spares_code && glyph.style & CODE != 0) {
+                turn.on
+            } else {
+                glyph.style & mark != 0
+            }
+        })
+        .collect()
+}
 
 /// `entry`'s line with Bold, Italic and Strike taken off the `selected`
 /// glyphs, before Code goes on over them. `None` when the line cannot read

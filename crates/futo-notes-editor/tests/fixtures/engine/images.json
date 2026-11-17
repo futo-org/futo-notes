@@ -52,5 +52,12 @@
   {"name": "Backspace over a selection that ends in an image deletes the whole image", "before": "a«b ![](p.p»ng)", "command": "Backspace", "after": "a‸"},
   {"name": "Enter on a selected last image adds a line below", "before": "x\n\n«![](a.png)»", "command": "Enter", "after": "x\n\n![](a.png)\n‸"},
   {"name": "Enter on a selected first image adds a line below it", "before": "«![](a.png)»\n\ny", "command": "Enter", "after": "![](a.png)\n‸\n\ny"},
-  {"name": "Enter on a selection wider than the image replaces it", "before": "«![](a.png) »x", "command": "Enter", "after": "\n‸x"}
+  {"name": "Enter on a selection wider than the image replaces it", "before": "«![](a.png) »x", "command": "Enter", "after": "\n‸x"},
+  {"name": "a selection ending inside an image takes it whole: Enter on a list item (it kept t](p.png))", "before": "- a«b![al»t](p.png) z", "command": "Enter", "after": "- a\n- ‸ z"},
+  {"name": "a selection ending inside an image takes it whole: Enter on a heading", "before": "# a«b![al»t](p.png) z", "command": "Enter", "after": "# a\n ‸z"},
+  {"name": "a selection starting inside an image takes it whole: Enter", "before": "ab![al«t](p.png) z»", "command": "Enter", "after": "ab\n‸"},
+  {"name": "a selection ending inside an image takes it whole: the divider", "before": "a«b![al»t](p.png) z", "command": "Divider", "after": "a\n---\n ‸z"},
+  {"name": "a selection ending inside an image takes it whole: paste", "before": "a«b![al»t](p.png) z", "command": "paste", "reference": "q", "after": "aq‸ z"},
+  {"name": "a selection ending inside an image takes it whole: Backspace", "before": "a«b![al»t](p.png) z", "command": "Backspace", "after": "a‸ z"},
+  {"name": "a selection ending inside an image takes it whole: Cut copies what it removes", "before": "a«b![al»t](p.png) z", "command": "cut", "alt": "b![alt](p.png)", "after": "a‸ z"}
 ]

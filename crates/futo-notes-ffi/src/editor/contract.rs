@@ -119,9 +119,9 @@ pub enum EditorParagraphKey {
     Tab,
     ShiftTab,
     BackspaceJoiningHeading,
-    /// The Backspace of a host that pairs typing: an empty backtick pair
-    /// around the caret goes whole, a heading with text never becomes text;
-    /// anywhere else it is `Backspace`.
+    /// The desktop's Backspace: a heading with text never becomes text;
+    /// anywhere else it is `Backspace`, which like every Backspace removes
+    /// one level of an empty pair around the caret first.
     PairedBackspace,
 }
 impl From<EditorParagraphKey> for editor::ParagraphKey {
@@ -184,8 +184,9 @@ pub enum EditorInputAction {
     Typing,
     Isolated,
     CompositionCommit,
-    /// Typing with the paired-typing conveniences (a typed backtick pairs,
-    /// steps over, or makes a code block); other text is `Typing`.
+    /// Typing with the paired-typing conveniences (a typed backtick, `*`,
+    /// `~`, `[` or `]` pairs, steps over, or formats a selection); other
+    /// text is `Typing`.
     PairedTyping,
 }
 impl From<EditorInputAction> for editor::InputAction {

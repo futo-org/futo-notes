@@ -147,8 +147,8 @@ impl Engine {
 
     /// A paragraph key: the command a family claims it for on the lines it
     /// is pointed at, else typing (Enter writes the line's own line break;
-    /// Backspace and Delete remove the range or one grapheme). Paired
-    /// Backspace removes an empty backtick pair around the caret first.
+    /// Backspace and Delete remove the range or one grapheme). Every
+    /// Backspace removes one level of an empty pair around the caret first.
     pub(crate) fn key(
         &mut self,
         expected: Revision,
@@ -157,9 +157,13 @@ impl Engine {
         accept: Accept,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
-        let pair = (key == ParagraphKey::PairedBackspace)
-            .then(|| self.empty_pair(range))
-            .flatten();
+        let backspace = matches!(
+            key,
+            ParagraphKey::Backspace
+                | ParagraphKey::BackspaceJoiningHeading
+                | ParagraphKey::PairedBackspace
+        );
+        let pair = backspace.then(|| self.empty_pair(range)).flatten();
         if let Some(pair) = pair {
             if range != self.selection {
                 self.select_with_affinity(expected, range, self.affinity)?;
@@ -296,6 +300,7 @@ impl Engine {
         ToolbarState {
             formats: self.toolbar_formats(),
             heading: self.toolbar_heading(),
+            heading_allowed: self.toolbar_heading_allowed(),
             quote: self.toolbar_quote(),
             list: match line.kind {
                 Kind::List { task: Some(_), .. } => Some(ToolbarList::Task),

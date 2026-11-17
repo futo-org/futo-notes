@@ -182,8 +182,14 @@ pub(super) fn type_step(
             want.insert_str(place, &written);
             want
         };
-        let lands = |place: usize| before.source.is_char_boundary(place) && typed_at(place) == now;
-        let plain = lands(at) || (bounds.0..=bounds.1).any(lands);
+        // The source offsets that show at the caret's display point: typing
+        // may land at any of them (after a link's hidden destination, say).
+        let places = || {
+            std::iter::once(at)
+                .chain(bounds.0..=bounds.1)
+                .filter(|&place| before.source.is_char_boundary(place))
+        };
+        let plain = places().any(|place| typed_at(place) == now);
         match &carried {
             // (a) Exactly the typed bytes, at the caret's display point.
             None => assert!(
@@ -197,8 +203,14 @@ pub(super) fn type_step(
                 want.insert_str(stop.start.0, text);
                 let context = format!("typing {text:?} under {formats:?} at {at}");
                 assert_eq!(engine.display_text(), want, "{context}");
-                let (written, typed) = unmarked_difference(&now, &typed_at(at));
-                assert_eq!(written, typed, "{context}: {now:?}");
+                let marks_only = places().any(|place| {
+                    let (written, typed) = unmarked_difference(&now, &typed_at(place));
+                    written == typed
+                });
+                assert!(
+                    marks_only,
+                    "{context}: {now:?} writes more than marks besides the typed text"
+                );
                 super::inline::typed_formats(
                     engine,
                     stop.start.0,

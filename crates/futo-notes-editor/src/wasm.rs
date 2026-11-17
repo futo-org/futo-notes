@@ -2,6 +2,7 @@
 use wasm_bindgen::prelude::*;
 mod clipboard;
 mod code_blocks;
+mod links;
 mod tables;
 mod words;
 
@@ -166,95 +167,6 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
-    pub fn inspect_link(&self, revision: u64, start: usize, end: usize) -> Result<String, JsValue> {
-        json(
-            &self
-                .0
-                .inspect_link(
-                    Revision(revision),
-                    DisplayRange {
-                        start: DisplayOffset(start),
-                        end: DisplayOffset(end),
-                    },
-                )
-                .map_err(error)?,
-        )
-    }
-    pub fn set_link(
-        &mut self,
-        revision: u64,
-        start: usize,
-        end: usize,
-        destination: &str,
-    ) -> Result<String, JsValue> {
-        json(
-            &self
-                .0
-                .set_link(
-                    Revision(revision),
-                    DisplayRange {
-                        start: DisplayOffset(start),
-                        end: DisplayOffset(end),
-                    },
-                    destination,
-                )
-                .map_err(error)?,
-        )
-    }
-    pub fn edit_link(
-        &mut self,
-        revision: u64,
-        start: usize,
-        end: usize,
-        label: &str,
-        destination: &str,
-    ) -> Result<String, JsValue> {
-        json(
-            &self
-                .0
-                .edit_link(
-                    Revision(revision),
-                    DisplayRange {
-                        start: DisplayOffset(start),
-                        end: DisplayOffset(end),
-                    },
-                    label,
-                    destination,
-                )
-                .map_err(error)?,
-        )
-    }
-    pub fn wikilink_completion(&self, revision: u64) -> Result<String, JsValue> {
-        json(
-            &self
-                .0
-                .wikilink_completion(Revision(revision))
-                .map_err(error)?,
-        )
-    }
-    pub fn accept_wikilink_completion(
-        &mut self,
-        revision: u64,
-        start: usize,
-        end: usize,
-        query: &str,
-        note_id: &str,
-    ) -> Result<String, JsValue> {
-        json(
-            &self
-                .0
-                .accept_wikilink_completion(
-                    Revision(revision),
-                    DisplayRange {
-                        start: DisplayOffset(start),
-                        end: DisplayOffset(end),
-                    },
-                    query,
-                    note_id,
-                )
-                .map_err(error)?,
-        )
-    }
     /// An opaque claim number for one asynchronous image insertion.
     pub fn image_claim(&self) -> u64 {
         self.0.image_claim().0
@@ -373,6 +285,9 @@ impl WasmSession {
     }
     pub fn active_formats(&self) -> Result<String, JsValue> {
         json(&self.0.active_formats().map_err(error)?)
+    }
+    pub fn toolbar_state(&self) -> Result<String, JsValue> {
+        json(&self.0.toolbar_state())
     }
     pub fn toggle_format(&mut self, revision: u64, format: &str) -> Result<String, JsValue> {
         let format = serde_json::from_str(format).map_err(error)?;

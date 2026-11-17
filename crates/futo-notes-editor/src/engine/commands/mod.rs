@@ -24,13 +24,15 @@ type KeyFamily = fn(&Engine, DisplayRange, ParagraphKey) -> Result<Option<Comman
 
 impl Engine {
     /// The command a paragraph key runs on the lines it is pointed at, when
-    /// a family claims the key there.
+    /// a family claims the key there; a range end inside an image stands at
+    /// its edge (`outside_images`), as for every plan.
     pub(crate) fn key_command(
         &self,
         range: DisplayRange,
         key: ParagraphKey,
     ) -> Result<Option<Command>, EditorError> {
         self.check_display_range(range)?;
+        let range = self.outside_images(range);
         let families: [KeyFamily; 5] = [
             Self::image_key,
             Self::table_key,

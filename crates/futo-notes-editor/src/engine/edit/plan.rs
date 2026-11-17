@@ -107,8 +107,25 @@ impl Engine {
     /// that reach out of it, and drops the syntax of spans left empty; the
     /// text lands where the selection starts, inside spans that start there.
     /// A code block it reaches into or out of goes whole (`block_reach`).
+    /// Every plan, so every input, key and command, first takes `range`'s
+    /// ends out of images (`plan_writing`).
     pub(crate) fn plan(&self, range: DisplayRange, text: &str) -> Plan {
-        let plan = self.replacement(range, text);
+        self.plan_writing(range, text, !text.is_empty())
+    }
+
+    /// Display `range` removed for a command that then writes its own text
+    /// at the caret (the paragraph keys, the divider, a shaped paste): as a
+    /// deletion, except that it never takes the line break above an opening
+    /// fence (`kept_break`), so the fence's line stays out of what the
+    /// command rewrites.
+    pub(crate) fn plan_cleared(&self, range: DisplayRange) -> Plan {
+        self.plan_writing(range, "", true)
+    }
+
+    /// An image is one atom: an end of `range` inside one moves to its edge
+    /// (`outside_images`), so no plan keeps part of an image's spelling.
+    fn plan_writing(&self, range: DisplayRange, text: &str, writes: bool) -> Plan {
+        let plan = self.replacement(self.outside_images(range), text, writes);
         // A deletion keeps a span's format when it leaves a space at its
         // edge (inline family, `commands/inline/typing.rs`).
         match self.kept_formats(&plan.range, &plan.inserted) {
@@ -166,7 +183,7 @@ impl Engine {
         }
     }
 
-    fn replacement(&self, range: DisplayRange, text: &str) -> Plan {
+    fn replacement(&self, range: DisplayRange, text: &str, writes: bool) -> Plan {
         let (s, e) = (range.start.0, range.end.0);
         // A code block the range takes whole (`commands/fences/reach.rs`).
         let reach = self.block_reach(range);
@@ -184,10 +201,7 @@ impl Engine {
         let (_, hi_e) = self.source_span(e);
         let metadata_start = self.metadata_end().is_some() && s == 0;
         let (from, to) = match &reach {
-            Some(reach) => (
-                reach.start,
-                self.kept_break(reach.start, reach.end, !text.is_empty()),
-            ),
+            Some(reach) => (reach.start, self.kept_break(reach.start, reach.end, writes)),
             None if metadata_start => (0, self.source_bounds(e).0),
             None => (self.source_bounds(s).1, self.source_bounds(e).0),
         };

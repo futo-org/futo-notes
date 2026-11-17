@@ -11,7 +11,7 @@ pub enum InputAction {
     Isolated,
     CompositionCommit,
     /// Typing with the paired-typing conveniences, which a host opts into
-    /// for a plain typed key (`engine/commands/paired_typing.rs`); other
+    /// for a plain typed key (`engine/commands/paired_typing/`); other
     /// text is `Typing`.
     PairedTyping,
 }

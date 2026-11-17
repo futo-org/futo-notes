@@ -317,29 +317,38 @@ fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (Stri
     let body = joined.text.as_str();
     let line = &joined.line;
     let part = parts(body, line);
-    let head = &body[..part.content.min(body.len())];
+    // A divider's or fence's text is no marker: all of it follows the caret
+    // on a line of its own.
+    let own_line = matches!(line.kind, Kind::Divider | Kind::Fence { .. });
+    let content = if own_line {
+        0
+    } else {
+        part.content.min(body.len())
+    };
+    let head = &body[..content];
     let quote = spaced(&body[..part.quote]);
     let indent = match line.kind {
         Kind::List { .. } | Kind::Plain { .. } => &body[part.quote..part.space],
         _ => "",
     };
-    let caret = joined.caret.clamp(part.content.min(body.len()), body.len());
+    let caret = joined.caret.clamp(content, body.len());
     let first_block = is_block(first);
     let lead_indent = if matches!(first.kind, Kind::List { .. }) {
         indent
     } else {
         ""
     };
-    let in_place = first_block
-        && body[part.content..caret]
-            .trim_matches([' ', '\t'])
-            .is_empty();
+    let in_place = first_block && body[content..caret].trim_matches([' ', '\t']).is_empty();
     let rest_prefix = if in_place && first.quote > 0 {
         String::new()
     } else {
         format!("{quote}{lead_indent}")
     };
-    let (at, closes, opens) = split(body, line, &joined.spans, caret);
+    let (at, closes, opens) = if own_line {
+        (caret, String::new(), String::new())
+    } else {
+        split(body, line, &joined.spans, caret)
+    };
     let tail = &body[at..];
 
     // Each new line without its ending; the first holds the text before the
@@ -376,7 +385,8 @@ fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (Stri
     let last = lines.len() - 1;
     let open = open_fence(&joined.carry, &lines);
     let last_block = is_block(&read_alone(pasted[pasted.len() - 1]));
-    let alone = (last_block || open.is_some()) && !tail.trim_matches([' ', '\t']).is_empty();
+    let alone =
+        (last_block || open.is_some() || own_line) && !tail.trim_matches([' ', '\t']).is_empty();
     let mut caret_line = (last, lines[last].len());
     if let Some((fence, indent)) = open {
         let run = (fence.ch as char).to_string().repeat(fence.len);
@@ -385,18 +395,8 @@ fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (Stri
     if alone {
         lines.push(format!("{head}{opens}{tail}"));
     } else if !tail.is_empty() || !opens.is_empty() {
-        // The marks open again where the last pasted line's text starts.
-        let text = &lines[last];
-        let from = text.len() - pasted[pasted.len() - 1].len();
-        let start = from + read_alone(&text[from..]).content.start;
-        let start = if start > text.len() {
-            text.len()
-        } else {
-            start
-        };
-        lines[last].insert_str(start, &opens);
+        joined_tail(&mut lines[last], pasted[pasted.len() - 1], &opens, tail);
         caret_line.1 += opens.len();
-        lines[last].push_str(tail);
     }
     let ends_block = closes_block(&joined.carry, &lines[..=last]);
     if ends_block && alone {
@@ -418,6 +418,15 @@ fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (Stri
         return (out, Landing::BelowBlock);
     }
     (out, Landing::At(caret))
+}
+
+/// `tail` joined to the last pasted line, the caret's marks opening again
+/// where its pasted `text` starts.
+fn joined_tail(written: &mut String, text: &str, opens: &str, tail: &str) {
+    let from = written.len() - text.len();
+    let start = from + read_alone(&written[from..]).content.start;
+    written.insert_str(start.min(written.len()), opens);
+    written.push_str(tail);
 }
 
 /// The tail line after closing fence `lines[closing]`, when it opens a block

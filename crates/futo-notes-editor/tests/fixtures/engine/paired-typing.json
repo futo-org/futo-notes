@@ -100,7 +100,7 @@
   ]
  },
  {
-  "name": "(c) Backspace after a pair removes the backtick before the caret",
+  "name": "(c) Backspace in a fresh pair removes both, as paired Backspace does (every host pairs)",
   "before": "|",
   "steps": [
    {
@@ -110,8 +110,8 @@
    },
    {
     "do": "Backspace",
-    "after": "|`",
-    "display": "`"
+    "after": "|",
+    "display": ""
    }
   ]
  },

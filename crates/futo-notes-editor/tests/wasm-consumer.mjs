@@ -214,6 +214,12 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     assert.equal(page.draft_text(), '__~~😀z日 b~~__\r\n');
     assert.equal(text, '😀z日 b\r\n');
     assert.deepEqual(new Set(JSON.parse(page.active_formats())), new Set(['Bold', 'Strike']));
+    // The toolbar reads the engine's state for the selection, the same formats included.
+    const toolbar = JSON.parse(page.toolbar_state());
+    assert.deepEqual(new Set(toolbar.formats), new Set(['Bold', 'Strike']));
+    assert.equal(toolbar.heading, 0);
+    assert.equal(toolbar.heading_allowed, true);
+    assert.equal(toolbar.quote, false);
     // Paragraph keys use the supplied UTF-16 range despite a distant stored
     // caret, and cross the same store acknowledgement boundary as text input.
     page.select_with_affinity(16n, 0, 0, '"Forward"');
