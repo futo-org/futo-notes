@@ -82,9 +82,12 @@ class TextFirstCodeBlockTest {
         view.hideKeyboard()
         withTimeout(5_000) { while (view.layout == null || view.editableText.getSpans(0, 1, TfCodeBlock::class.java).isEmpty()) delay(20) }
         withTimeout(5_000) { while (view.codeChrome.targetAt(view.width / 2f, -1f) == null) delay(20) }
+        val focused = view.isFocused
+        val selection = view.selectionStart to view.selectionEnd
         tap(view, view.width / 2f, view.totalPaddingTop - 2f)
         c.sourceText()
-        assertEquals(false, view.isFocused)
+        assertEquals(focused, view.isFocused)
+        assertEquals(selection, view.selectionStart to view.selectionEnd)
     }
 
     @Test fun aTapInsideAnEmptySelectedBlockLetsTheNextLetterTypeIntoIt() = textFirstSession("intro\n\n```js\n\n```\n\nafter") { c ->
@@ -100,5 +103,32 @@ class TextFirstCodeBlockTest {
         withTimeout(5_000) { while (view.selectedCodeBlock != null) delay(20) }
         textFirstIme(c) { commitText("x", 1) }
         assertEquals("intro\n\n```js\nx\n```\n\nafter", c.sourceText())
+    }
+
+    /** A hold on the language opens its field with the text selected; typing writes the fence, Enter goes to the code. */
+    @Test fun aHoldOnTheLanguageEditsItAndEnterReturnsToTheCode() = textFirstSession(raw) { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        withTimeout(5_000) { while (view.layout == null || view.editableText.getSpans(0, 1, TfCodeBlock::class.java).isEmpty()) delay(20) }
+        withTimeout(5_000) { while (view.codeChrome.areaOf(0, CodeBlockAction.LANGUAGE_LABEL) == null) delay(20) }
+        val area = view.codeChrome.areaOf(0, CodeBlockAction.LANGUAGE_LABEL)!!
+        val x = view.totalPaddingLeft + area.centerX()
+        val y = view.totalPaddingTop + area.centerY()
+        val down = SystemClock.uptimeMillis()
+        for ((action, time) in listOf(MotionEvent.ACTION_DOWN to down, MotionEvent.ACTION_UP to down + 700L)) {
+            val event = MotionEvent.obtain(down, time, action, x, y, 0)
+            event.source = InputDevice.SOURCE_TOUCHSCREEN
+            try { view.dispatchTouchEvent(event) } finally { event.recycle() }
+        }
+        val host = view.parent as android.view.ViewGroup
+        val field = (0 until host.childCount).map(host::getChildAt).filterIsInstance<android.widget.EditText>().first { it !== view }
+        assertEquals("js", field.text.toString().substring(field.selectionStart, field.selectionEnd))
+        val input = field.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!
+        input.commitText("kotlin", 1)
+        assertEquals("```kotlin\nconst a = 1\nconst b = 2\n```\n\nafter", c.sourceText())
+        input.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ENTER))
+        c.sourceText()
+        assertEquals(0 to 0, view.selectionStart to view.selectionEnd)
+        assertEquals(false, field.isAttachedToWindow)
     }
 }

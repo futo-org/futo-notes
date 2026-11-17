@@ -7,13 +7,16 @@ import android.text.TextPaint
 import android.text.TextUtils
 
 /** What a press on a drawn part of a code block does. */
-internal enum class CodeBlockAction { SELECT_BLOCK, OPEN_LINE_ABOVE, OPEN_LINE_BELOW, COPY_CODE, NOTHING }
+internal enum class CodeBlockAction { SELECT_BLOCK, NAME_FIELD, LANGUAGE_LABEL, COPY_CODE, OPEN_LINE_ABOVE, OPEN_LINE_BELOW, NOTHING }
+
+/** One block's header as drawn: [active] when the caret or the selection is in the block. */
+internal class CodeHeaderState(val block: CodeBlockFacts, val codeStart: Int, val width: Float, val top: Float, val lineAbove: Boolean, val active: Boolean)
 
 /** One pressable part of a drawn block, in layout coordinates; [codeStart] is where the block's code starts. */
 internal class CodeBlockTarget(val area: RectF, val action: CodeBlockAction, val codeStart: Int, val block: CodeBlockFacts? = null)
 
 /** The catalog's words for a block's "add a line" affordances. */
-internal data class CodeBlockLabels(val addLineAbove: String, val addLineBelow: String)
+internal data class CodeBlockLabels(val addLineAbove: String, val addLineBelow: String, val namePlaceholder: String, val languagePlaceholder: String)
 
 /**
  * What a block draws around its code: the header row (the `name:` at the left in monospace, the
@@ -30,12 +33,14 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     private val glyphBox = RectF()
     private val targets = ArrayList<CodeBlockTarget>()
 
-    var labels = CodeBlockLabels("", "")
+    var labels = CodeBlockLabels("", "", "", "")
     /** The selection a block owns the paint of (CodeSelectionPaint). */
     var selection: CodeSelectionPaint? = null
     /** The view's last reported selection ends, to tell which end a handle moved. */
     var lastStart = -1
     var lastEnd = -1
+    /** The block and field a CodeHeaderField has open; that field's text is the field's to show. */
+    var openField: Pair<Int, CodeHeaderField.Kind>? = null
     /** The code start of the block whose copy glyph shows a checkmark, -1 for none. */
     var copiedBlock = -1
 
@@ -44,7 +49,17 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     /** The topmost part drawn at ([x], [y]) in layout coordinates. */
     fun targetAt(x: Float, y: Float): CodeBlockTarget? = targets.lastOrNull { it.area.contains(x, y) }
 
-    fun drawHeader(canvas: Canvas, block: CodeBlockFacts, codeStart: Int, width: Float, top: Float, lineAbove: Boolean) {
+    /**
+     * The name at the left, the chip (language, or the ghost "language" while the block is active,
+     * and the copy glyph) at the right. The chip's box is the same whether or not the ghost is inked
+     * (!300 cb 630-637), and an empty name keeps a box too, so a press never lands on a target
+     * that grows under it.
+     */
+    fun drawHeader(canvas: Canvas, header: CodeHeaderState) {
+        val block = header.block
+        val codeStart = header.codeStart
+        val width = header.width
+        val top = header.top
         namePaint.typeface = look.mono
         namePaint.textSize = look.codeHeaderTextSize
         namePaint.color = look.mutedColor
@@ -52,37 +67,48 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         languagePaint.textSize = look.codeHeaderTextSize
         languagePaint.color = look.mutedColor
         val bottom = top + look.codeHeaderHeight
-        targets.add(CodeBlockTarget(RectF(0f, top, width, bottom), CodeBlockAction.SELECT_BLOCK, codeStart))
+        targets.add(CodeBlockTarget(RectF(0f, top, width, bottom), CodeBlockAction.SELECT_BLOCK, codeStart, block))
         val metrics = languagePaint.fontMetrics
         val baseline = top + (look.codeHeaderHeight - metrics.ascent - metrics.descent) / 2f
         val glyph = look.codeHeaderTextSize
         val glyphRight = width - look.codeCorner
         val glyphLeft = glyphRight - glyph
         val glyphTop = top + (look.codeHeaderHeight - glyph) / 2f
-        if (copiedBlock == codeStart) drawCheckmark(canvas, glyphLeft, glyphTop, glyph) else drawCopyGlyph(canvas, glyphLeft, glyphTop, glyph)
+        val editingLanguage = openField == (codeStart to CodeHeaderField.Kind.LANGUAGE)
+        if (copiedBlock == codeStart) drawCheckmark(canvas, glyphLeft, glyphTop, glyph)
+        else if (!editingLanguage) drawCopyGlyph(canvas, glyphLeft, glyphTop, glyph)
         val room = glyphLeft - look.codeChipPad - look.codeCorner
-        var languageLeft = glyphLeft - look.codeChipPad
-        block.language?.takeIf { it.isNotEmpty() }?.let { language ->
-            val shown = TextUtils.ellipsize(language, languagePaint, room / 2f, TextUtils.TruncateAt.END)
-            languageLeft -= languagePaint.measureText(shown, 0, shown.length)
-            canvas.drawText(shown, 0, shown.length, languageLeft, baseline, languagePaint)
-            languageLeft -= look.codeChipPad
+        val language = block.language?.takeIf { it.isNotEmpty() }
+        val languageText = language ?: labels.languagePlaceholder
+        val shownLanguage = TextUtils.ellipsize(languageText, languagePaint, room / 2f, TextUtils.TruncateAt.END)
+        val languageRight = glyphLeft - look.codeChipPad
+        val languageLeft = languageRight - languagePaint.measureText(shownLanguage, 0, shownLanguage.length)
+        if ((language != null || header.active) && !editingLanguage) {
+            if (language == null) languagePaint.alpha = GHOST_ALPHA
+            canvas.drawText(shownLanguage, 0, shownLanguage.length, languageLeft, baseline, languagePaint)
         }
+        val nameRight = languageLeft - look.codeChipPad
         var nameEnd = look.codeCorner
         block.name?.takeIf { it.isNotEmpty() }?.let { name ->
-            val shown = TextUtils.ellipsize(name, namePaint, languageLeft - look.codeCorner, TextUtils.TruncateAt.END)
-            canvas.drawText(shown, 0, shown.length, look.codeCorner, baseline, namePaint)
+            val shown = TextUtils.ellipsize(name, namePaint, nameRight - look.codeCorner, TextUtils.TruncateAt.END)
+            if (openField != (codeStart to CodeHeaderField.Kind.NAME)) canvas.drawText(shown, 0, shown.length, look.codeCorner, baseline, namePaint)
             nameEnd += namePaint.measureText(shown, 0, shown.length)
         }
-        targets.add(CodeBlockTarget(RectF(languageLeft, top, width, bottom), CodeBlockAction.COPY_CODE, codeStart, block))
-        if (!lineAbove) return
-        val label = edgeLabel(labels.addLineAbove, languageLeft - nameEnd - look.codeChipPad * 2)
+        val nameBoxEnd = maxOf(nameEnd, look.codeCorner + namePaint.measureText(labels.namePlaceholder)).coerceAtMost(nameRight)
+        targets.add(CodeBlockTarget(RectF(0f, top, nameBoxEnd + look.codeChipPad, bottom), CodeBlockAction.NAME_FIELD, codeStart, block))
+        targets.add(CodeBlockTarget(RectF(languageLeft - look.codeChipPad, top, languageRight, bottom), CodeBlockAction.LANGUAGE_LABEL, codeStart, block))
+        targets.add(CodeBlockTarget(RectF(languageRight, top, width, bottom), CodeBlockAction.COPY_CODE, codeStart, block))
+        if (!header.lineAbove) return
+        val label = edgeLabel(labels.addLineAbove, nameRight - nameBoxEnd - look.codeChipPad * 2)
         if (label.isEmpty()) return
         val labelWidth = edgePaint.measureText(label) + look.codeChipPad * 2
-        val center = ((nameEnd + languageLeft) / 2f).coerceIn(nameEnd + labelWidth / 2f, languageLeft - labelWidth / 2f)
+        val center = ((nameBoxEnd + nameRight) / 2f).coerceIn(nameBoxEnd + labelWidth / 2f, nameRight - labelWidth / 2f)
         drawEdgeLabel(canvas, label, center, top, bottom)
         targets.add(CodeBlockTarget(RectF(center - labelWidth / 2f, top, center + labelWidth / 2f, bottom), CodeBlockAction.OPEN_LINE_ABOVE, codeStart))
     }
+
+    /** Where [action]'s part of the block at [codeStart] was last drawn, in layout coordinates. */
+    fun areaOf(codeStart: Int, action: CodeBlockAction): RectF? = targets.lastOrNull { it.codeStart == codeStart && it.action == action }?.area
 
     /** "Add a line below", centred in the skirt band [top] to [bottom]. */
     fun drawLineBelow(canvas: Canvas, codeStart: Int, width: Float, top: Float, bottom: Float) {
@@ -136,5 +162,10 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         canvas.drawRoundRect(glyphBox, corner, corner, glyphPaint)
         glyphBox.set(left + size - square, top + size - square, left + size, top + size)
         canvas.drawRoundRect(glyphBox, corner, corner, glyphPaint)
+    }
+
+    private companion object {
+        /** The ghost "language" is inked lighter than a language the block has. */
+        const val GHOST_ALPHA = 0x80
     }
 }

@@ -79,7 +79,7 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
     canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
     val active = isCardActive(e, head, tail)
     if (head.line.first && headStart == 0) codeChrome.addSpaceAbove(headStart, width, cardTop)
-    if (head.line.first) codeChrome.drawHeader(canvas, head.line.block, headStart, width, cardTop, active && opensLineAbove(e, head))
+    if (head.line.first) codeChrome.drawHeader(canvas, CodeHeaderState(head.line.block, headStart, width, cardTop, active && opensLineAbove(e, head), active))
     if (!tail.line.last) return
     val endsNote = tailEnd >= e.length - TextFirstEditText.END_SENTINEL.length
     if (active && (endsNote || tail.touchesBlockBelow(e))) codeChrome.drawLineBelow(canvas, headStart, width, cardBottom - look.codeSkirt, cardBottom)

@@ -162,6 +162,8 @@ internal fun TextFirstEditorScreen(
     controller.view.codeChrome.labels = CodeBlockLabels(
         localization.localizedText("editor.codeBlock.addLineAbove"),
         localization.localizedText("editor.codeBlock.addLineBelow"),
+        localization.localizedText("editor.codeBlock.namePlaceholder"),
+        localization.localizedText("editor.codeBlock.languagePlaceholder"),
     )
     controller.view.clipboard.onCodeCopied = { showToast(context, localization.localizedText("editor.codeBlock.copied")) }
 
