@@ -13,7 +13,6 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
-import android.view.inputmethod.InputMethodManager
 import androidx.appcompat.widget.AppCompatEditText
 
 /**
@@ -386,20 +385,6 @@ internal class TextFirstEditText(
                 KeyEvent.ACTION_UP -> super.onKeyUp(event.keyCode, event)
             }
         }
-    }
-
-    fun showKeyboard() {
-        requestFocus()
-        context.getSystemService(InputMethodManager::class.java).showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
-    }
-
-    fun hideKeyboard() {
-        context.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(windowToken, 0)
-        clearFocus()
-    }
-
-    fun restartKeyboard() {
-        context.getSystemService(InputMethodManager::class.java).restartInput(this)
     }
 
     companion object {
