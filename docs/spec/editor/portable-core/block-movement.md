@@ -30,7 +30,7 @@ which lines move together. → crates/futo-notes-editor/src/engine/commands/move
 - Blank lines are never added, removed or lifted. → crates/futo-notes-editor/src/engine/tests/moves.rs
 - A block arriving in a list keeps its bytes as written: no indent, marker, checkbox or number is rewritten. → crates/futo-notes-editor/src/engine/tests/moves.rs
 - A move is one host acceptance and one Undo step that restores the exact bytes and selection. → crates/futo-notes-editor/src/engine/tests/moves.rs
-- A caret or selection in the moved block moves with its text; one elsewhere stays with its line. → crates/futo-notes-editor/src/engine/commands/moves.rs `move_command`
+- A caret or selection in the moved block moves with its text; one elsewhere stays with its line. A selection that starts in the block and ends at its end takes the whole block with it, line ending included (moved to the note's end, the ending stays behind with the line that was last); a caret at the block's end stays with the line below. → crates/futo-notes-editor/src/engine/commands/moves.rs `move_command`
 - Reading and display after a move equal a fresh open of the same bytes. → crates/futo-notes-editor/src/engine/tests/moves.rs
 - A move is cancelled, with no edit and no Undo step, when any line (the moved ones, the ones it passes, or a neighbor) would read as another kind of block afterwards: a plain `|---|` dropped under a pipe line, a `---` reaching line 1 with a later `---`. → crates/futo-notes-editor/src/engine/command/mod.rs `Command::same_kind`, crates/futo-notes-editor/src/engine/tests/moves.rs
 - A line that lifts nothing, or a boundary that is not one of the block's slots, is refused with nothing changed. → crates/futo-notes-editor/src/engine/commands/moves.rs `move_block`

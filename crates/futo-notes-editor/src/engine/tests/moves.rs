@@ -174,6 +174,48 @@ fn the_caret_moves_with_the_block_it_is_in_and_stays_with_any_other_line() {
 }
 
 #[test]
+fn a_selection_covering_the_block_moves_whole_with_it() {
+    // (note, the selection, a line of the block, the boundary it lands on,
+    // the note after, the selection after). Each branch of the move is one:
+    // a line passed, to the note's end, from the note's end.
+    for (before, selected, from, to, after, landed) in [
+        // The line ending is part of the selection, so it travels too.
+        ("a\nb\nc", (0, 2), 0, 2, "b\na\nc", (2, 4)),
+        ("a\nb\nc", (2, 4), 1, 0, "b\na\nc", (0, 2)),
+        ("a\nb\nc", (1, 2), 0, 2, "b\na\nc", (3, 4)),
+        // To the end its ending stays behind, on the line that was last.
+        ("a\nb\nc", (0, 2), 0, 3, "b\nc\na", (4, 5)),
+        ("a\r\nb\r\nc", (0, 3), 0, 3, "b\r\nc\r\na", (6, 7)),
+        // The last line has no ending to carry.
+        ("a\nb\nc", (4, 5), 2, 0, "c\na\nb", (0, 1)),
+        ("a\nb\nc", (4, 5), 2, 1, "a\nc\nb", (2, 3)),
+        // Only a selection from inside the block: a caret at its end, or a
+        // selection reaching it from above, stays with the line below.
+        ("a\nb\nc", (2, 2), 0, 2, "b\na\nc", (0, 0)),
+        ("a\nb\nc", (0, 4), 1, 3, "a\nc\nb", (0, 2)),
+    ] {
+        let mut session = EditorSession::open(before);
+        let revision = session.revision();
+        session
+            .select(revision, range(selected.0, selected.1))
+            .unwrap();
+        session
+            .move_block(revision, line(&session, from), line(&session, to), &mut ok)
+            .unwrap()
+            .unwrap_or_else(|| panic!("{before:?} line {from} to {to} was refused"));
+        assert_eq!(session.source_text(), after, "{before:?}");
+        assert_eq!(session.selection(), range(landed.0, landed.1), "{before:?}");
+        session.undo(session.revision(), &mut ok).unwrap().unwrap();
+        assert_eq!(session.source_text(), before, "undo {before:?}");
+        assert_eq!(
+            session.selection(),
+            range(selected.0, selected.1),
+            "undo {before:?}"
+        );
+    }
+}
+
+#[test]
 fn a_refused_move_changes_nothing() {
     // (note, a line, a boundary, whether the boundary is one of its slots):
     // moves that are no move, and moves the guard cancels because a line

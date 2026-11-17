@@ -170,7 +170,7 @@ impl Engine {
         let (from, to) = (self.line_start(s), self.line_start(e));
         let text = self.source_slice(from..to);
         let len = self.source_len();
-        let (edits, block_start) = if e == count {
+        let (edits, block_start, shown) = if e == count {
             // The last line moves up: it takes the ending of the line above
             // it, which becomes the last line.
             let above = self.line(s - 1);
@@ -181,7 +181,7 @@ impl Engine {
                 Edit::insert(at, format!("{text}{ending}")),
                 Edit::new(removed, ""),
             ];
-            (edits, at)
+            (edits, at, text.len())
         } else if slot == count {
             // To the end: the line that was last takes the block's ending.
             let ending = self.line(e - 1).ending();
@@ -190,13 +190,14 @@ impl Engine {
                 Edit::insert(len, format!("{ending}{body}")),
                 Edit::new(from..to, ""),
             ];
-            (edits, len - text.len() + ending.len())
+            (edits, len - text.len() + ending.len(), body.len())
         } else {
             let at = self.line_start(slot);
             let start = if slot < s { at } else { at - text.len() };
             (
                 vec![Edit::insert(at, text.clone()), Edit::new(from..to, "")],
                 start,
+                text.len(),
             )
         };
         let lines = s.min(slot)..e.max(slot);
@@ -211,15 +212,20 @@ impl Engine {
         let mut command = Command::new(edits, lines, 0..0);
         // A caret at the slot's line start stays on that line, below the
         // block; at the note's end it stays on the line the block now follows.
+        // A selection that starts in the block and ends at its end takes the
+        // whole block, line ending and all, with it. `shown` is what is left
+        // of the block's text where it lands: moved to the end, it leaves its
+        // ending behind.
         let after = slot < count;
+        let selected = self.source_selection(self.selection);
+        let whole = selected.start >= from && selected.start < to && selected.end == to;
         let carried = |at: usize| {
-            if at >= from && (at < to || (e == count && at == to)) {
-                block_start + (at - from)
+            if at >= from && (at < to || (at == to && (e == count || whole))) {
+                block_start + (at - from).min(shown)
             } else {
                 command.map(at, after)
             }
         };
-        let selected = self.source_selection(self.selection);
         let (start, end) = (carried(selected.start), carried(selected.end));
         command.selection = if start <= end {
             start..end
