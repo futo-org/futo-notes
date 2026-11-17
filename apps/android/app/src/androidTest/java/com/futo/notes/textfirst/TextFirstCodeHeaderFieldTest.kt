@@ -131,7 +131,10 @@ class TextFirstCodeHeaderFieldTest {
         assertEquals("js", field.text.toString())
     }
 
-    /** Mason's report: a field opened where the keyboard then covered it. It is brought into view, and only then. */
+    /**
+     * Mason's report and verifier run 2 (D2): a field the rising keyboard covered was left under it, and
+     * the note jumped when it closed. It is brought into view, even once its header is no longer drawn.
+     */
     @Test fun aFieldTheKeyboardCoversIsBroughtIntoView() = textFirstSession("line\n".repeat(30) + "```py\nb = 2\n```\n" + "end\n".repeat(60)) { c ->
         val view = c.view
         view.isFocusableInTouchMode = true
@@ -141,18 +144,16 @@ class TextFirstCodeHeaderFieldTest {
         holdNoteAt(view, view.totalPaddingLeft + area.centerX(), view.totalPaddingTop - view.scrollY + area.centerY())
         val field = openField(view)
         withTimeout(5_000) { while (field.height <= 1) delay(20) }
-        val before = view.scrollY
-        // The keyboard rises and the window shrinks to above the block's header.
+        // The keyboard rises and the window shrinks to well above the block, so its header is no longer drawn.
         val params = view.layoutParams
-        params.height = (view.totalPaddingTop - view.scrollY + area.top).toInt()
+        params.height = (view.totalPaddingTop - view.scrollY + area.top - view.lineHeight * 3).toInt()
         view.layoutParams = params
         withTimeout(5_000) { while (view.height != params.height) delay(20) }
-        withTimeout(5_000) { while (field.bottom > view.bottom) delay(20) }
-        assert(view.scrollY > before) { "the note did not scroll" }
+        delay(1_000)
+        val codeLineTop = view.totalPaddingTop - view.scrollY + view.layout.getLineTop(view.layout.getLineForOffset(codeStart))
+        assert(codeLineTop <= view.height) { "the block (code line at $codeLineTop) stayed under the keyboard (note height ${view.height})" }
         assert(field.top >= view.top) { "the field went above the note" }
-        // Typing writes the fence; the note stays where it is and the field on its block. The real
-        // keyboard may rise meanwhile and bring the field above it once: measure after it settles.
-        delay(1_500)
+        // Typing writes the fence; the note stays where it is and the field on its block.
         val scrolled = view.scrollY
         val input = field.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!
         for (letter in "rb") {
@@ -163,6 +164,10 @@ class TextFirstCodeHeaderFieldTest {
         }
         val now = view.codeChrome.areaOf(codeStart, CodeBlockAction.LANGUAGE_LABEL)!!
         assertEquals("the field left its block", view.top + view.totalPaddingTop - view.scrollY + now.top, field.top.toFloat(), 1f)
+        input.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ENTER))
+        c.sourceText()
+        delay(500)
+        assertEquals("leaving the field moved the note", scrolled, view.scrollY)
     }
 
     /** Verifier run 1, item 3: typing in the name field of the note's first block scrolled the note 52 px. */
@@ -187,22 +192,29 @@ class TextFirstCodeHeaderFieldTest {
         assertEquals("leaving the field moved the note", scrolled, view.scrollY)
     }
 
-    /** Verifier run 1, items 9 and 15: the editor keeps its toolbar while a header field is open, so the note never resizes on leave. */
-    @Test fun theEditorStaysFocusedWhileAHeaderFieldIsOpen() = textFirstSession("```js name:server.go\nconst a = 1\n```\n\nafter") { c ->
+    /**
+     * Verifier run 2: while its header field is open the block stays the one being edited, as on !300: its
+     * "name" ghost and "add a line above" stay, and the editor toolbar steps aside for the field's keyboard.
+     */
+    @Test fun aBlockStaysActiveWhileItsHeaderFieldIsOpen() = textFirstSession("```js\nconst a = 1\n```\n\nafter") { c ->
         val view = c.view
+        view.codeChrome.labels = CodeBlockLabels("add a line above", "add a line below", "name", "language")
         view.isFocusableInTouchMode = true
-        withTimeout(5_000) { while (view.codeChrome.areaOf(0, CodeBlockAction.NAME_FIELD) == null) delay(20) }
-        val area = view.codeChrome.areaOf(0, CodeBlockAction.NAME_FIELD)!!
+        val codeStart = view.editableText.indexOf("const a")
+        withTimeout(5_000) { while (view.codeChrome.areaOf(codeStart, CodeBlockAction.LANGUAGE_LABEL) == null) delay(20) }
+        val area = view.codeChrome.areaOf(codeStart, CodeBlockAction.LANGUAGE_LABEL)!!
         holdNoteAt(view, view.totalPaddingLeft + area.centerX(), view.totalPaddingTop + area.centerY())
         val field = openField(view)
         withTimeout(5_000) { while (!field.isFocused) delay(20) }
-        assertEquals("the toolbar hides while the field is open", true, c.focused)
+        delay(300)
+        assert(view.codeChrome.areaOf(codeStart, CodeBlockAction.OPEN_LINE_ABOVE) != null) { "\"add a line above\" went while the field is open" }
+        assertEquals("the toolbar stays while the field is open", false, c.focused)
         field.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!
             .sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ENTER))
         assertEquals(true, c.focused)
     }
 
-    /** Verifier run 1, items 7 and 20: a tap into an active block's name puts the caret at the tap at once, and the field keeps the header's grey ink. */
+    /** Verifier run 1, item 7, and run 2: a tap into an active block's name puts the caret at the tap at once, and the field is inked as text. */
     @Test fun aTapIntoTheNameFieldPutsTheCaretThereAtOnceInTheHeadersInk() = textFirstSession("```js name:server.go\nconst a = 1\n```\n\nafter") { c ->
         val view = c.view
         view.isFocusableInTouchMode = true
@@ -215,7 +227,7 @@ class TextFirstCodeHeaderFieldTest {
         tapNoteAt(view, view.totalPaddingLeft + nameEnd - 2f, view.totalPaddingTop + area.centerY())
         val field = openField(view)
         assertEquals("the caret starts away from the tap", "server.go".length, field.selectionStart)
-        assertEquals(view.style.codeChromeInk, field.currentTextColor)
+        assertEquals(view.style.textColor, field.currentTextColor)
     }
 
     /** Verifier run 1, item 13: with the caret in the block, a tap on the language label opens its field with the word selected. */
@@ -230,5 +242,30 @@ class TextFirstCodeHeaderFieldTest {
         tapNoteAt(view, view.totalPaddingLeft + area.centerX(), view.totalPaddingTop + area.centerY())
         val field = openField(view)
         assertEquals(0 to "js".length, field.selectionStart to field.selectionEnd)
+    }
+
+    /** Verifier run 2 (D2): revealing a covered field in the note's last block stays within the note, so typing does not move it back. */
+    @Test fun aCoveredFieldInTheLastBlockIsRevealedWithinTheNote() = textFirstSession("line\n".repeat(40) + "```yaml\nlast: block\n```") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        val codeStart = view.editableText.indexOf("last: block")
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        view.scrollTo(0, view.maxScrollY())
+        withTimeout(5_000) { while (view.codeChrome.areaOf(codeStart, CodeBlockAction.LANGUAGE_LABEL) == null) delay(20) }
+        val area = view.codeChrome.areaOf(codeStart, CodeBlockAction.LANGUAGE_LABEL)!!
+        holdNoteAt(view, view.totalPaddingLeft + area.centerX(), view.totalPaddingTop - view.scrollY + area.centerY())
+        val field = openField(view)
+        withTimeout(5_000) { while (field.height <= 1) delay(20) }
+        val params = view.layoutParams
+        params.height = (view.totalPaddingTop - view.scrollY + area.top - view.lineHeight).toInt()
+        view.layoutParams = params
+        withTimeout(5_000) { while (view.height != params.height) delay(20) }
+        delay(1_000)
+        assert(view.scrollY <= view.maxScrollY()) { "the note scrolled to ${view.scrollY}, past its end ${view.maxScrollY()}" }
+        val scrolled = view.scrollY
+        field.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!.commitText("x", 1)
+        c.sourceText()
+        delay(300)
+        assertEquals("typing moved the note", scrolled, view.scrollY)
     }
 }

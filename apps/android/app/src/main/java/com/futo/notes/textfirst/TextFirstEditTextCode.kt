@@ -70,9 +70,12 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
     codeCardPaint.color = look.codeWellBorderColor
     card.inset(stroke / 2, stroke / 2)
     canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
-    val active = isCardActive(e, head, tail)
+    // A block whose header field is open is still the one being edited, as on !300 (job13 run 2, item 2).
+    val editingHeader = codeChrome.openField?.first == (if (head.line.first) headStart else head.line.block.start)
+    val active = editingHeader || isCardActive(e, head, tail)
+    val revealFields = editingHeader || (active && selectionStart == selectionEnd && selectedCodeBlock == null)
     if (head.line.first && headStart == 0) codeChrome.addSpaceAbove(headStart, width, cardTop)
-    if (head.line.first) codeChrome.drawHeader(canvas, CodeHeaderState(head.line.block, headStart, -outset, width + outset, cardTop, active && opensLineAbove(e, head), active && selectionStart == selectionEnd && selectedCodeBlock == null))
+    if (head.line.first) codeChrome.drawHeader(canvas, CodeHeaderState(head.line.block, headStart, -outset, width + outset, cardTop, active && opensLineAbove(e, head), revealFields))
     if (!tail.line.last) return
     val endsNote = tailEnd >= e.length - TextFirstEditText.END_SENTINEL.length
     // Under a block that ends the note the label sits under the card, its space already the target (cb 791-797);
