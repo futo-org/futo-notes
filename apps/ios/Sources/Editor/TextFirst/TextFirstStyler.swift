@@ -52,7 +52,7 @@ enum TextFirstStyler {
                     b.list = (Int(indent), Int(level), marker, text, checked)
                     b.showsMarker = first
                 }
-            case .code(let start, let end):
+            case .code(let start, let end, _, _, _, _):
                 here(start, end)?.code = true
             case .heading(let start, let end, let level):
                 here(start, end)?.heading = Int(level)
@@ -128,10 +128,12 @@ enum TextFirstStyler {
             if marker == .task && checked {
                 storage.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: r)
             }
-        case .code(let start, let end):
+        case .code(let start, let end, _, _, _, _):
             guard let r = range(start, end, length) else { return }
             block(storage, r).code = true
             storage.addAttribute(.font, value: mono, range: r)
+        case .codeBlock:
+            break
         case .divider(let start, let end):
             guard let r = range(start, end, length) else { return }
             block(storage, r).divider = true
