@@ -226,9 +226,12 @@ internal class TextFirstController(
     fun toolbarFormat(format: EditorInlineFormat) { engine?.toggleToolbarFormat(format) }
     fun block(command: EditorBlockCommand) {
         // A selection that takes a code block is the block's: line formats leave it alone, as !300's did (cb 217-220, P155).
-        // Indent and Outdent still act; Tab on a selected block indents its code (Mason, 2026-11-17).
+        // Indent and Outdent still act; Tab on a selected block indents its code (Mason, 2026-11-17). The code-block
+        // command still wraps a range that takes a block (it merges them), but never unwraps a block selected as one object.
         val indents = command is EditorBlockCommand.Indent || command is EditorBlockCommand.Outdent
-        if (!indents && selectionTakesACodeBlock()) return
+        val wraps = command is EditorBlockCommand.WrapCodeBlock
+        if (wraps && view.selectedCodeBlock != null) return
+        if (!indents && !wraps && selectionTakesACodeBlock()) return
         engine?.blockCommand(command)
     }
 

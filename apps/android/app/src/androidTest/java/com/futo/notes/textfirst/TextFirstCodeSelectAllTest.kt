@@ -47,10 +47,18 @@ class TextFirstCodeSelectAllTest {
         view.engine!!.selectAll()
         withTimeout(5_000) { while (view.selectionEnd - view.selectionStart < view.editableText.indexOf("outer")) delay(20) }
         delay(300)
-        for (command in listOf(uniffi.futo_notes_ffi.EditorBlockCommand.Quote, uniffi.futo_notes_ffi.EditorBlockCommand.BulletList, uniffi.futo_notes_ffi.EditorBlockCommand.WrapCodeBlock)) {
+        for (command in listOf(uniffi.futo_notes_ffi.EditorBlockCommand.Quote, uniffi.futo_notes_ffi.EditorBlockCommand.BulletList)) {
             c.block(command)
             delay(300)
             assertEquals("$command changed the note", before, c.sourceText())
         }
+        // The code toggle on a block selected as one object leaves it a block.
+        val start = view.editableText.indexOf("const a")
+        val header = view.codeChrome.areaOf(start, CodeBlockAction.SELECT_BLOCK)!!
+        tapNoteAt(view, view.totalPaddingLeft + header.centerX(), view.totalPaddingTop - view.scrollY + header.centerY())
+        withTimeout(5_000) { while (view.selectedCodeBlock == null) delay(20) }
+        c.block(uniffi.futo_notes_ffi.EditorBlockCommand.WrapCodeBlock)
+        delay(300)
+        assertEquals("the code toggle unwrapped the selected block", before, c.sourceText())
     }
 }
