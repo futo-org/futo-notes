@@ -159,11 +159,9 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
     }
 
     /// A horizontal drag that starts on a table scrolls all its columns together; any other
-    /// drag is the text view's own.
+    /// drag is the text view's own. The block lift begins only where it can lift (+BlockDrag).
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
-        if g === liftRecognizer {
-            return liftableBlock(at: g.location(in: textView)) != nil
-        }
+        if g === liftRecognizer { return liftShouldBegin(at: g.location(in: textView)) }
         guard g === tablePan, let pan = g as? UIPanGestureRecognizer else { return true }
         let v = pan.velocity(in: textView)
         return abs(v.x) > abs(v.y) && tableRowHit(at: pan.location(in: textView)) != nil

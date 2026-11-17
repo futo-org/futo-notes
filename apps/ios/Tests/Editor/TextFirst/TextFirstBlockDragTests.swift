@@ -48,37 +48,62 @@
 
         /// The display lines the press at `p` lifts, or nil when it keeps the platform's.
         private func lifted(_ h: TextFirstHarness, at p: CGPoint) -> [Int]? {
-            guard let block = h.controller.liftableBlock(at: p) else { return nil }
+            guard let block = h.controller.liftPlan(at: p)?.block else { return nil }
             return lineStarts(h).enumerated().filter {
                 $0.element >= block.location && $0.element < NSMaxRange(block)
             }.map(\.offset)
         }
 
         @Test func aLongPressLiftsTheBlockUnderTheFingerAndBlankLinesKeepThePlatforms() async {
-            // Lines: 0 Head, 1 blank, 2 a, 3 b, 4-6 table, 7 image, 8 quote, 9 end, 10 empty.
+            // Lines: 0 Head, 1 blank, 2-4 table, 5 image, 6 link, 7 end, 8 the empty last line.
+            // Which lines a line lifts is the engine's (engine/tests/moves.rs); this is which
+            // line a point is.
             let h = TextFirstHarness(
-                "# Head\n\n- a\n  - b\n| x | y |\n|---|---|\n| 1 | 2 |\n![](pic.png) see\n> q\nend\n",
+                "# Head\n\n| x | y |\n|---|---|\n| 1 | 2 |\n![](pic.png) see\n[link](https://x.y) on\nend\n",
                 files: ["pic.png": TextFirstHarness.png(900, 900)])
-            #expect(await h.until { h.lineHeights(at: lineStarts(h)[7]).contains { $0 > 100 } })
+            #expect(await h.until { h.lineHeights(at: lineStarts(h)[5]).contains { $0 > 100 } })
             #expect(lifted(h, at: point(h, line: 0)) == [0])
             // The page margin left of the text is the line's too.
             #expect(lifted(h, at: point(h, line: 0, x: 4)) == [0])
             #expect(lifted(h, at: point(h, line: 1)) == nil)
-            #expect(lifted(h, at: point(h, line: 2)) == [2, 3])
-            #expect(lifted(h, at: point(h, line: 3)) == [3])
-            // The table's grid lifts the whole table; the image its line.
-            #expect(lifted(h, at: point(h, line: 6, x: 40)) == [4, 5, 6])
-            #expect(lifted(h, at: point(h, line: 7, x: 70)) == [7])
-            #expect(lifted(h, at: point(h, line: 9)) == [9])
+            // The table's grid lifts the whole table; an image or a link the block holding it.
+            #expect(lifted(h, at: point(h, line: 4, x: 40)) == [2, 3, 4])
+            #expect(lifted(h, at: point(h, line: 5, x: 70)) == [5])
+            #expect(lifted(h, at: point(h, line: 6, x: 30)) == [6])
             // The note's empty last line lifts nothing (TextKit lays it out in the last
             // paragraph's fragment, under `end`).
+            #expect(lifted(h, at: point(h, line: 7)) == [7])
             #expect(lifted(h, at: trailingLine(h)) == nil)
             // While a cell is open the whole note keeps the platform's long-press.
-            let cell = h.controller.tableCellHit(at: point(h, line: 6, x: 40))!
+            let cell = h.controller.tableCellHit(at: point(h, line: 4, x: 40))!
             h.controller.openCellEditor(cell)
             #expect(lifted(h, at: point(h, line: 0)) == nil)
             h.controller.cellEditor?.finish()
             #expect(lifted(h, at: point(h, line: 0)) == [0])
+            // A selection's handles stay the platform's: a press on one adjusts the selection.
+            h.select(lineStarts(h)[7], lineStarts(h)[7] + 3)
+            let end = h.tv.caretRect(for: h.tv.selectedTextRange!.end)
+            #expect(lifted(h, at: CGPoint(x: end.midX + 4, y: end.midY)) == nil)
+            #expect(lifted(h, at: point(h, line: 7, x: 300)) == [7])
+            // An empty note has nothing to lift.
+            let empty = TextFirstHarness("")
+            #expect(empty.controller.liftPlan(at: CGPoint(x: 60, y: 14)) == nil)
+        }
+
+        @Test func aBlockRunningOffScreenLiftsWhatShows() throws {
+            // A code block taller than the screen, scrolled so its top is gone.
+            let code = (1...80).map { "code \($0)" }.joined(separator: "\n")
+            let h = TextFirstHarness("intro\n```\n\(code)\n```\nafter")
+            h.tv.layoutIfNeeded()
+            h.tv.contentOffset.y = 600
+            h.tv.layoutIfNeeded()
+            let p = CGPoint(x: 60, y: h.tv.bounds.midY)
+            let lift = try #require(h.controller.liftPlan(at: p))
+            // Every line between `intro` and `after` (the last line).
+            #expect(lifted(h, at: p) == Array(1..<(lineStarts(h).count - 1)))
+            // The card is the block's part on screen; its top edge is the screen's.
+            #expect(lift.frame.minY == h.tv.bounds.minY)
+            #expect(lift.frame.maxY <= h.tv.bounds.maxY)
         }
 
         @Test func aDropLandsOnTheSlotNearestTheFingerAndNeverBesideItself() throws {
@@ -86,8 +111,7 @@
             // takes nothing between its lines, and its own edges are no slot.
             let h = TextFirstHarness("one\ntwo\n- a\n  - b\nthree")
             let starts = lineStarts(h)
-            let block = try #require(h.controller.liftableBlock(at: point(h, line: 2)))
-            let targets = try #require(h.controller.dropTargets(line: starts[2], block: block))
+            let targets = try #require(h.controller.liftPlan(at: point(h, line: 2))).targets
             func drop(_ line: Int, _ fraction: CGFloat) -> Int? {
                 targets.slot(nearest: point(h, line: line, fraction: fraction).y)?.offset
             }
@@ -100,11 +124,6 @@
             #expect(drop(3, 0.5) == nil)
             #expect(drop(4, 0.3) == nil)
             #expect(drop(4, 0.8) == end)
-        }
-
-        @Test func anEmptyNoteKeepsThePlatformsLongPress() {
-            let h = TextFirstHarness("")
-            #expect(h.controller.liftableBlock(at: CGPoint(x: 60, y: 14)) == nil)
         }
     }
 #endif

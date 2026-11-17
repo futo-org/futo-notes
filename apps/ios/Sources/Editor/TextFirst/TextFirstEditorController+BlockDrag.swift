@@ -16,52 +16,64 @@ enum TextFirstLiftPolicy {
     /// down, leaving the platform's long-press to an editing note.
     static let onlyWhileKeyboardDown = false
 
+    /// How near, in points, a press must be to a selection's handle to be the handle's.
+    static let handleReach: CGFloat = 22
+
     /// Whether a press may lift anything, before the line under it is asked. An editor still
-    /// opening, and one with a table cell open, keep the platform's long-press everywhere; the
-    /// title is another view and never sees this gesture.
-    static func mayLift(editorReady: Bool, cellOpen: Bool, keyboardUp: Bool) -> Bool {
-        editorReady && !cellOpen && !(onlyWhileKeyboardDown && keyboardUp)
+    /// opening, and one with a table cell open, keep the platform's long-press everywhere, and a
+    /// press on a selection's handle stays the handle's; the title is another view and never
+    /// sees this gesture.
+    static func mayLift(
+        editorReady: Bool, cellOpen: Bool, keyboardUp: Bool, onSelectionHandle: Bool
+    ) -> Bool {
+        editorReady && !cellOpen && !onSelectionHandle && !(onlyWhileKeyboardDown && keyboardUp)
     }
 }
 
 /// Where a lifted block may land on screen: each of the engine's slots on screen with the y of
-/// its boundary, and the y of the block's own two edges, where a drop would change nothing.
+/// its boundary, and the y of the block's own top and bottom edges (where they show), where a
+/// drop would change nothing.
 struct TextFirstDropTargets {
     let slots: [(offset: Int, y: CGFloat)]
-    let ownEdges: [CGFloat]
+    let ownTop: CGFloat
+    let ownBottom: CGFloat
 
     /// The slot nearest `y`; nil when one of the block's own edges is nearer (no drop line, and
     /// a release there returns the card).
     func slot(nearest y: CGFloat) -> (offset: Int, y: CGFloat)? {
         guard let best = slots.min(by: { abs($0.y - y) < abs($1.y - y) }) else { return nil }
-        let own = ownEdges.map { abs($0 - y) }.min() ?? .infinity
-        return abs(best.y - y) < own ? best : nil
+        return abs(best.y - y) < min(abs(ownTop - y), abs(ownBottom - y)) ? best : nil
     }
+}
+
+/// What a press at a point lifts: the line pressed (its UTF-16 offset), the block it lifts, the
+/// card's frame (the block's part on screen) and where it may land, at the engine's revision.
+struct TextFirstLift {
+    let lineOffset: Int
+    let block: NSRange
+    let frame: CGRect
+    let targets: TextFirstDropTargets
+    let revision: UInt64
 }
 
 /// One drag in progress: what was lifted and the views drawn for it.
 @MainActor
 final class TextFirstBlockDrag {
-    /// The UTF-16 offset of the line pressed, and the block it lifts.
-    let line: Int
-    let block: NSRange
-    let targets: TextFirstDropTargets
+    let lift: TextFirstLift
+    /// Where the finger lifted the card, and the card's centre then.
     let start: CGPoint
+    let liftedCenter: CGPoint
     let card: UIView
-    let dim: UIView
+    let dimmedSource: UIView
     let dropLine: UIView
-    let home: CGPoint
     private(set) var slot: Int?
 
-    init(
-        line: Int, block: NSRange, targets: TextFirstDropTargets, start: CGPoint, frame: CGRect,
-        snapshot: UIView, in host: UIView, background: UIColor, accent: UIColor,
-        dropLineX: ClosedRange<CGFloat>
-    ) {
-        (self.line, self.block, self.targets, self.start) = (line, block, targets, start)
-        dim = UIView(frame: frame)
-        dim.backgroundColor = background.withAlphaComponent(0.65)
-        card = UIView(frame: frame)
+    init(_ lift: TextFirstLift, at start: CGPoint, snapshot: UIView, on textView: UITextView) {
+        (self.lift, self.start) = (lift, start)
+        let background = UIColor(Theme.background)
+        dimmedSource = UIView(frame: lift.frame)
+        dimmedSource.backgroundColor = background.withAlphaComponent(0.65)
+        card = UIView(frame: lift.frame)
         // As the old web editor's: only the card's background is see-through, so the lines
         // around the drop line show through while the lifted text stays fully opaque.
         card.backgroundColor = background.withAlphaComponent(0.8)
@@ -70,27 +82,29 @@ final class TextFirstBlockDrag {
         card.layer.shadowOpacity = 0.25
         card.layer.shadowRadius = 12
         card.layer.shadowOffset = CGSize(width: 0, height: 4)
-        snapshot.frame = CGRect(origin: .zero, size: frame.size)
+        snapshot.frame = CGRect(origin: .zero, size: lift.frame.size)
         card.addSubview(snapshot)
+        let inset = textView.textContainerInset
         dropLine = UIView(
             frame: CGRect(
-                x: dropLineX.lowerBound, y: 0,
-                width: dropLineX.upperBound - dropLineX.lowerBound, height: 3))
-        dropLine.backgroundColor = accent
+                x: inset.left - 6, y: 0,
+                width: textView.bounds.width - inset.left - inset.right + 12,
+                height: 3))
+        dropLine.backgroundColor = textView.tintColor
         dropLine.layer.cornerRadius = 1.5
         dropLine.isHidden = true
         // The drop line is drawn over the card (which is under the finger), so it never fades.
-        for view in [dim, card, dropLine] {
+        for view in [dimmedSource, card, dropLine] {
             view.isUserInteractionEnabled = false
-            host.addSubview(view)
+            textView.addSubview(view)
         }
-        home = card.center
+        liftedCenter = card.center
     }
 
     /// The finger moved to `p`: the card follows it and the drop line moves to the nearest slot.
     func follow(_ p: CGPoint) {
-        card.center = CGPoint(x: home.x + p.x - start.x, y: home.y + p.y - start.y)
-        let nearest = targets.slot(nearest: p.y)
+        card.center = CGPoint(x: liftedCenter.x + p.x - start.x, y: liftedCenter.y + p.y - start.y)
+        let nearest = lift.targets.slot(nearest: p.y)
         slot = nearest?.offset
         dropLine.isHidden = nearest == nil
         if let nearest { dropLine.center.y = nearest.y }
@@ -101,14 +115,14 @@ final class TextFirstBlockDrag {
         dropLine.removeFromSuperview()
         guard returning else {
             card.removeFromSuperview()
-            dim.removeFromSuperview()
+            dimmedSource.removeFromSuperview()
             return
         }
         UIView.animate(
-            withDuration: 0.2, animations: { [card, home] in card.center = home },
-            completion: { [card, dim] _ in
+            withDuration: 0.2, animations: { [card, liftedCenter] in card.center = liftedCenter },
+            completion: { [card, dimmedSource] _ in
                 card.removeFromSuperview()
-                dim.removeFromSuperview()
+                dimmedSource.removeFromSuperview()
             })
     }
 }
@@ -127,24 +141,54 @@ extension TextFirstEditorController {
         textView.textDragInteraction?.isEnabled = false
     }
 
-    /// The UTF-16 display range of the block a long-press at `p` (text view coordinates) lifts;
-    /// nil when the press keeps the platform's long-press: a blank line, an empty note, front
-    /// matter, code nothing closes, or anything `TextFirstLiftPolicy` rules out.
-    func liftableBlock(at p: CGPoint) -> NSRange? {
+    /// What a long-press at `p` (text view coordinates) lifts; nil when the press keeps the
+    /// platform's long-press: a blank line, an empty note, front matter, code nothing closes, or
+    /// anything `TextFirstLiftPolicy` rules out.
+    func liftPlan(at p: CGPoint) -> TextFirstLift? {
         guard
             TextFirstLiftPolicy.mayLift(
                 editorReady: !closed && !engineBusy, cellOpen: cellEditor != nil,
-                keyboardUp: textView.isFirstResponder),
-            let offset = lineOffset(at: p)
+                keyboardUp: textView.isFirstResponder, onSelectionHandle: onSelectionHandle(p)),
+            let line = lineOffset(at: p)
         else { return nil }
+        let block: NSRange
+        let slots: [Int]
         do {
-            let at = EditorDisplayByteOffset(offset: try mirror.utf16ToByte(unit: UInt64(offset)))
-            guard let block = try session.blockAt(expected: rev, at: at) else { return nil }
-            let start = Int(try mirror.byteToUtf16(byte: block.start))
-            let end = Int(try mirror.byteToUtf16(byte: block.end))
-            return NSRange(location: start, length: end - start)
+            guard let found = try blockRange(atLineOffset: line),
+                let landing = try blockSlots(atLineOffset: line)
+            else { return nil }
+            (block, slots) = (found, landing)
         } catch {
+            print("text-first: block lookup failed: \(error)")
             return nil
+        }
+        // What shows: the text view's bounds less what the keyboard covers.
+        let insets = textView.adjustedContentInset
+        let shown = textView.bounds.inset(
+            by: UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0))
+        let top = max(boundaryY(block.location) ?? -.infinity, shown.minY)
+        let bottom = min(boundaryY(NSMaxRange(block)) ?? .infinity, shown.maxY)
+        guard bottom > top else { return nil }
+        let targets = TextFirstDropTargets(
+            slots: slots.compactMap { slot in
+                boundaryY(slot).flatMap { shown.minY...shown.maxY ~= $0 ? (slot, $0) : nil }
+            },
+            ownTop: top, ownBottom: bottom)
+        return TextFirstLift(
+            lineOffset: line, block: block,
+            frame: CGRect(x: 0, y: top, width: textView.bounds.width, height: bottom - top),
+            targets: targets, revision: rev)
+    }
+
+    /// Whether `p` is on a handle of the selection the view shows (its start or end caret,
+    /// within `TextFirstLiftPolicy.handleReach`).
+    private func onSelectionHandle(_ p: CGPoint) -> Bool {
+        guard textView.isFirstResponder, let range = textView.selectedTextRange, !range.isEmpty
+        else { return false }
+        return [range.start, range.end].contains { end in
+            textView.caretRect(for: end).insetBy(
+                dx: -TextFirstLiftPolicy.handleReach, dy: -TextFirstLiftPolicy.handleReach
+            ).contains(p)
         }
     }
 
@@ -165,19 +209,19 @@ extension TextFirstEditorController {
     }
 
     /// The y (text view coordinates) of the boundary at UTF-16 `offset`: the top of the line
-    /// that starts there, or the bottom of the last line for the display's end. Nil off screen,
-    /// where asking would lay out text the viewport does not show.
+    /// that starts there, or the bottom of the last line for the display's end. Nil outside the
+    /// laid-out viewport, where asking would lay out text that is not shown.
     private func boundaryY(_ offset: Int) -> CGFloat? {
         guard let manager = textView.textLayoutManager,
             let content = manager.textContentManager,
             let viewport = manager.textViewportLayoutController.viewportRange
         else { return nil }
         let begin = manager.documentRange.location
-        let shown =
+        let laidOut =
             manager.offset(
                 from: begin, to: viewport.location)...manager.offset(
                 from: begin, to: viewport.endLocation)
-        guard shown.contains(offset) else { return nil }
+        guard laidOut.contains(offset) else { return nil }
         let atEnd = offset >= storage.length
         guard storage.length > 0,
             let location = content.location(begin, offsetBy: atEnd ? storage.length - 1 : offset),
@@ -189,14 +233,14 @@ extension TextFirstEditorController {
         return top + (text?.typographicBounds.maxY ?? f.layoutFragmentFrame.height)
     }
 
-    /// Where the block the line at UTF-16 `line` lifts (`block`) may land on screen.
-    func dropTargets(line: Int, block: NSRange) -> TextFirstDropTargets? {
-        guard let top = boundaryY(block.location), let bottom = boundaryY(NSMaxRange(block)),
-            let slots = try? blockSlots(atLineOffset: line)
-        else { return nil }
-        return TextFirstDropTargets(
-            slots: slots.compactMap { slot in boundaryY(slot).map { (slot, $0) } },
-            ownEdges: [top, bottom])
+    /// The lift decides at its 340 ms whether this press is a block's: it plans the whole drag
+    /// then, so a press that cannot show one leaves the platform its long-press.
+    func liftShouldBegin(at p: CGPoint) -> Bool {
+        guard liftPlan(at: p) != nil else { return false }
+        // A composition is settled at the lift; the plan is then made on the settled text.
+        finishComposition()
+        pendingLift = liftPlan(at: p)
+        return pendingLift != nil
     }
 
     @objc func handleLift(_ g: UILongPressGestureRecognizer) {
@@ -214,17 +258,11 @@ extension TextFirstEditorController {
     }
 
     private func beginBlockDrag(at p: CGPoint) {
-        // A composition is settled at the lift, so the offsets below are the engine's.
-        finishComposition()
-        guard let block = liftableBlock(at: p), let line = lineOffset(at: p),
-            let targets = dropTargets(line: line, block: block),
-            let top = targets.ownEdges.first, let bottom = targets.ownEdges.last
-        else { return }
-        let frame = CGRect(x: 0, y: top, width: textView.bounds.width, height: bottom - top)
-        guard
-            let snapshot = textView.resizableSnapshotView(
-                from: frame, afterScreenUpdates: false, withCapInsets: .zero)
-        else { return }
+        guard let lift = pendingLift else { return }
+        pendingLift = nil
+        let snapshot =
+            textView.resizableSnapshotView(
+                from: lift.frame, afterScreenUpdates: false, withCapInsets: .zero) ?? UIView()
         // The lift takes the touch: scrolling stops for the drag and every other recognizer on
         // the note (UIKit's selection, loupe and caret taps, the checkbox tap) stands down.
         textView.panGestureRecognizer.isEnabled = false
@@ -237,23 +275,21 @@ extension TextFirstEditorController {
         }
         // An edit menu left from an earlier press points at a selection the drag is not about.
         for case let menu as UIEditMenuInteraction in textView.interactions { menu.dismissMenu() }
-        blockDrag = TextFirstBlockDrag(
-            line: line, block: block, targets: targets, start: p, frame: frame,
-            snapshot: snapshot, in: textView, background: UIColor(Theme.background),
-            accent: textView.tintColor,
-            dropLineX: (inset.left - 6)...(textView.bounds.width - inset.right + 6))
+        blockDrag = TextFirstBlockDrag(lift, at: p, snapshot: snapshot, on: textView)
     }
 
     /// The finger lifted (`dropping`) or the touch was cancelled: move the block to the slot
-    /// shown, or return the card when there is none or the engine refuses.
+    /// shown, or return the card when there is none, the note changed since the lift (the
+    /// offsets would name other text) or the engine refuses.
     private func endBlockDrag(dropping: Bool) {
         textView.panGestureRecognizer.isEnabled = true
+        pendingLift = nil
         guard let drag = blockDrag else { return }
         blockDrag = nil
         var moved = false
-        if dropping, let slot = drag.slot {
+        if dropping, let slot = drag.slot, drag.lift.revision == rev {
             do {
-                moved = try moveBlock(atLineOffset: drag.line, toSlot: slot)
+                moved = try moveBlock(atLineOffset: drag.lift.lineOffset, toSlot: slot)
             } catch {
                 recover(error, context: "move block")
             }
