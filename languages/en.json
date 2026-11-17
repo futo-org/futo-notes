@@ -607,6 +607,10 @@
       "android": {
         "clipboardTooLarge": "Too much text to copy. Select less and try again."
       },
+      "codeBlock": {
+        "addLineAbove": "add a line above",
+        "addLineBelow": "add a line below"
+      },
       "table": {
         "editCell": "Edit cell"
       }

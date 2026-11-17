@@ -13,6 +13,7 @@ import uniffi.futo_notes_ffi.EditorCodeLineMark
  * line backgrounds: a LineBackgroundSpan would cover the caret.
  */
 internal fun TextFirstEditText.drawCodeBlocks(canvas: Canvas) {
+    codeChrome.clearTargets()
     val l = layout ?: return
     val e = editableText ?: return
     val top = scrollY - totalPaddingTop
@@ -70,8 +71,29 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
     codeCardPaint.color = look.codeWellBorderColor
     card.inset(stroke / 2, stroke / 2)
     canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
-    if (isCardSelected(e.getSpanStart(head))) drawSelectedCard(canvas, card)
-    if (head.line.first) codeHeader.draw(canvas, head.line.block, width, cardTop)
+    val headStart = e.getSpanStart(head)
+    if (isCardSelected(headStart)) drawSelectedCard(canvas, card)
+    val active = isCardActive(e, head, tail)
+    if (head.line.first) codeChrome.drawHeader(canvas, head.line.block, headStart, width, cardTop, active && opensLineAbove(e, head))
+    if (!tail.line.last) return
+    val endsNote = tailEnd >= e.length - TextFirstEditText.END_SENTINEL.length
+    if (active && (endsNote || tail.touchesBlockBelow(e))) codeChrome.drawLineBelow(canvas, headStart, width, cardBottom - look.codeSkirt, cardBottom)
+    if (endsNote) codeChrome.addSpaceBelow(headStart, width, cardBottom)
+}
+
+/** The block holds the caret or the selection: on touch, only its "add a line" affordances show. */
+private fun TextFirstEditText.isCardActive(e: android.text.Editable, head: TfCodeBlock, tail: TfCodeBlock): Boolean {
+    if (!isFocused) return false
+    val start = if (head.line.first) e.getSpanStart(head) else head.line.block.start
+    val end = if (tail.line.last) e.getSpanEnd(tail) else tail.line.block.end
+    return selectionStart >= start && selectionEnd <= end
+}
+
+/** No ordinary line reaches the block from above: it starts the note, or another block ends right above it. */
+private fun opensLineAbove(e: android.text.Editable, head: TfCodeBlock): Boolean {
+    val start = e.getSpanStart(head)
+    if (start == 0) return true
+    return e.getSpans(start - 1, start, TfCodeBlock::class.java).any { it !== head && it.line.last }
 }
 
 private fun TextFirstEditText.isCardSelected(codeStart: Int): Boolean =

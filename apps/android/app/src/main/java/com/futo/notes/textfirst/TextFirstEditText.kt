@@ -219,7 +219,7 @@ internal class TextFirstEditText(
 
     internal val reveal = CaretReveal()
     internal val codeCardPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-    internal val codeHeader by lazy { CodeBlockHeader(style) }
+    internal val codeChrome by lazy { CodeBlockChrome(style) }
 
     override fun bringPointIntoView(offset: Int): Boolean = revealCaret(offset) { super.bringPointIntoView(offset) }
 

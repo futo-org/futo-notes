@@ -602,6 +602,10 @@
       "android": {
         "clipboardTooLarge": "文本过多，无法复制。请少选一些内容后重试。"
       },
+      "codeBlock": {
+        "addLineAbove": "在上方添加一行",
+        "addLineBelow": "在下方添加一行"
+      },
       "table": {
         "editCell": "编辑单元格"
       }

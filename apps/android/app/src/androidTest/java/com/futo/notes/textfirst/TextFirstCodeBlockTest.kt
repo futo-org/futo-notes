@@ -15,8 +15,10 @@ class TextFirstCodeBlockTest {
 
     private suspend fun tapHeader(view: TextFirstEditText) {
         withTimeout(5_000) { while (view.layout == null || view.editableText.getSpans(0, 1, TfCodeBlock::class.java).isEmpty()) delay(20) }
-        val x = view.width / 2f
-        val y = view.totalPaddingTop + view.layout.getLineTop(0) + view.style.codeHeaderHeight / 2f
+        tap(view, view.width / 2f, view.totalPaddingTop + view.layout.getLineTop(0) + view.style.codeHeaderHeight / 2f)
+    }
+
+    private fun tap(view: TextFirstEditText, x: Float, y: Float) {
         val down = SystemClock.uptimeMillis()
         for ((action, time) in listOf(MotionEvent.ACTION_DOWN to down, MotionEvent.ACTION_UP to down + 40L)) {
             val event = MotionEvent.obtain(down, time, action, x, y, 0)
@@ -57,5 +59,20 @@ class TextFirstCodeBlockTest {
         assertEquals(raw, c.sourceText())
         awaitSelectedBlock(view)
         assertEquals(0 to code.length, view.selectionStart to view.selectionEnd)
+    }
+
+    @Test fun aTapUnderABlockThatEndsTheNoteOpensALineAndRaisesTheKeyboard() = textFirstSession("```js\nconst a = 1\n```") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.hideKeyboard()
+        withTimeout(5_000) { while (view.layout == null || view.editableText.getSpans(0, 1, TfCodeBlock::class.java).isEmpty()) delay(20) }
+        val below = view.totalPaddingTop + view.layout.height + view.style.dp(40f)
+        withTimeout(5_000) { while (view.codeChrome.targetAt(view.width / 2f, below - view.totalPaddingTop) == null) delay(20) }
+        tap(view, view.width / 2f, below)
+        assertEquals("```js\nconst a = 1\n```\n", c.sourceText())
+        assertEquals(view.length() - TextFirstEditText.END_SENTINEL.length, view.selectionStart)
+        withTimeout(5_000) {
+            while (androidx.core.view.ViewCompat.getRootWindowInsets(view)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) != true) delay(50)
+        }
     }
 }

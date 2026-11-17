@@ -159,6 +159,10 @@ internal fun TextFirstEditorScreen(
     }
     controller.onFailure = { saveFailed = true }
     controller.onClipboardRefused = { showToast(context, localization.localizedText("editor.android.clipboardTooLarge"), long = true) }
+    controller.view.codeChrome.labels = CodeBlockLabels(
+        localization.localizedText("editor.codeBlock.addLineAbove"),
+        localization.localizedText("editor.codeBlock.addLineBelow"),
+    )
 
     // Open after any leave of this same note has released its attachment.
     LaunchedEffect(initialNoteId) {

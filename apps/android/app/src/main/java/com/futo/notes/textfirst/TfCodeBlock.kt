@@ -75,7 +75,7 @@ internal class TfCodeBlock(private val look: TextFirstStyle, val line: CodeLineF
     /** The skirt under the block's last line, and the gap that keeps a block directly under it apart. */
     fun bottomExtra(text: Spanned): Float = look.codeSkirt + if (touchesBlockBelow(text)) look.codeBlockGap else 0f
 
-    private fun touchesBlockBelow(text: Spanned): Boolean {
+    fun touchesBlockBelow(text: Spanned): Boolean {
         val end = text.getSpanEnd(this)
         val next = if (end > 0 && text[end - 1] == '\n') end else end + 1
         if (next >= text.length) return false

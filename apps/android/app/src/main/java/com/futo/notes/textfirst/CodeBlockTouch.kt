@@ -1,42 +1,46 @@
 package com.futo.notes.textfirst
 
 import android.view.MotionEvent
+import uniffi.futo_notes_ffi.EditorBlockCommand
 
-/** A press on a code block's header selects the block as one object; a press in its code places the caret natively. */
+/**
+ * A press on a drawn part of a code block (CodeBlockChrome): its header selects the block as one
+ * object, "add a line" opens a line beside it, as does the empty space under a block that ends
+ * the note. A press in the code places the caret natively.
+ */
 internal class CodeBlockTouch(private val view: TextFirstEditText) {
-    private var pressedBlock = -1
+    private var pressed: CodeBlockTarget? = null
 
     fun onTouch(event: MotionEvent): Boolean {
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> pressedBlock = headerAt(event.x, event.y)
+            MotionEvent.ACTION_DOWN -> pressed = targetAt(event)
             MotionEvent.ACTION_UP -> {
-                val pressed = pressedBlock.takeIf { it >= 0 } ?: return false
-                pressedBlock = -1
-                if (headerAt(event.x, event.y) != pressed) return true
-                view.showKeyboard()
-                view.engine?.selectCodeBlock(pressed)
+                val target = pressed ?: return false
+                pressed = null
+                if (targetAt(event) === target) act(target)
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
-                val pressed = pressedBlock
-                pressedBlock = -1
-                return pressed >= 0
+                val target = pressed
+                pressed = null
+                return target != null
             }
         }
-        return pressedBlock >= 0
+        return pressed != null
     }
 
-    /** The start of the code under the header at ([x], [y]), or -1 off every header. */
-    private fun headerAt(x: Float, y: Float): Int {
-        val layout = view.layout ?: return -1
-        val text = view.editableText ?: return -1
-        val localY = y - view.totalPaddingTop + view.scrollY
-        if (localY < 0 || localY >= layout.height || x < view.totalPaddingLeft) return -1
-        val line = layout.getLineForVertical(localY.toInt())
-        val start = layout.getLineStart(line)
-        val code = text.getSpans(start, start, TfCodeBlock::class.java)
-            .firstOrNull { it.line.first && text.getSpanStart(it) == start } ?: return -1
-        if (localY >= layout.getLineTop(line) + view.style.codeHeaderHeight) return -1
-        return text.getSpanStart(code)
+    private fun act(target: CodeBlockTarget) {
+        view.showKeyboard()
+        val engine = view.engine ?: return
+        when (target.action) {
+            CodeBlockAction.SELECT_BLOCK -> engine.selectCodeBlock(target.codeStart)
+            CodeBlockAction.OPEN_LINE_ABOVE -> engine.openCodeBlockLine(target.codeStart, EditorBlockCommand.OpenLineBeforeCodeBlock)
+            CodeBlockAction.OPEN_LINE_BELOW -> engine.openCodeBlockLine(target.codeStart, EditorBlockCommand.OpenLineAfterCodeBlock)
+        }
+    }
+
+    private fun targetAt(event: MotionEvent): CodeBlockTarget? {
+        if (event.x < view.totalPaddingLeft) return null
+        return view.codeChrome.targetAt(event.x - view.totalPaddingLeft + view.scrollX, event.y - view.totalPaddingTop + view.scrollY)
     }
 }
