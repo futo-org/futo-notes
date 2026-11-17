@@ -59,8 +59,10 @@ The authoritative definitions are `crates/futo-notes-editor/src/types.rs`,
   and `hl:`/`ll:` `mark`. The projection's `code_blocks` (style plan: one `CodeBlock` span per
   window) give each block whole: range, optional `language` (case kept), `name` and
   `line_count`. They describe rendering, never a request to rewrite the fence. A change's
-  projection holds only the lines it read again, so after a line is added or removed in a block,
-  restyle the block's range to redraw numbers below it.
+  projection holds the lines it read again, the code line after them when its `first` changed,
+  and each block those lines are in; applied, it leaves stale only the numbers and marks of code
+  lines it did not describe (a line added or removed above them in their block, or the block
+  split or joined), so restyle the block's range from its entry to redraw them.
 - Display changes and projection changes must both be applied even when the visible replacement
   is empty. Respect revisions, selection affinity and the UTF-8/UTF-16 boundaries in the
   [handoff](text-first-editor-host.md); do not recreate Markdown interpretation in a shell.

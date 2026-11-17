@@ -3,7 +3,9 @@
 //! there, undo and redo restore exact bytes at the selections they promise,
 //! and the reading equals a fresh read.
 use super::super::super::Engine;
-use super::super::properties::{apply_view, cases, check_fresh, note, step, Model, Random, View};
+use super::super::properties::{
+    apply_view, cases, check_fresh, note, step, BlockMirror, Model, Random, View,
+};
 use super::{ok, redo, undo};
 use crate::{Affinity, EditorError};
 use futo_notes_merge::{three_way_merge, MergeResult};
@@ -299,10 +301,12 @@ fn random_outside_changes_keep_every_contribution_and_exact_undo() {
             }
         };
         let mut view = View::new(engine.display_text());
+        let mut mirror = BlockMirror::open(engine);
         if let Some(change) = engine.adopt(plan, &mut ok).unwrap() {
             apply_view(&mut view, &change);
         }
         assert_eq!(view.text, engine.display_text(), "view {context}");
+        mirror.check(engine, &mut view, &context);
         let check = |engine: &Engine, want: &Seen, what: String| {
             check_seen(engine, want, &outside, after, original.len(), &what);
         };

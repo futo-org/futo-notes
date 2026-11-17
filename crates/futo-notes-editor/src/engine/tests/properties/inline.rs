@@ -52,10 +52,7 @@ pub(super) fn inline_step(
     engine.formats = None;
     match result {
         Ok(Some(change)) => {
-            view.text
-                .replace_range(change.range.start.0..change.range.end.0, &change.inserted);
-            view.restyled
-                .push(change.projection.range.start.0..change.projection.range.end.0);
+            apply_view_change(view, &change);
             assert_eq!(change.revision, engine.revision(), "{name}");
             if pick < 4 {
                 assert_eq!(engine.display_text(), shown, "{name} changed the display");

@@ -438,3 +438,51 @@ fn an_info_string_edit_redraws_the_marks_of_its_whole_block() {
         )
     );
 }
+
+#[test]
+fn a_line_left_after_a_split_block_is_described_as_its_new_first_line() {
+    let mut engine = Engine::open("a\n```\nx\ny\nz\n```\nb");
+    let y = engine.display_text().find('y').unwrap();
+    select(&mut engine, y, y, Affinity::Forward);
+    let change = engine
+        .block(
+            engine.revision(),
+            range(y, y),
+            crate::BlockCommand::CodeBlock,
+            &mut ok,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(engine.source_text(), "a\n```\nx\n```\ny\n```\nz\n```\nb");
+    let z = engine.display_text().find('z').unwrap();
+    assert_eq!(change.projection.range, range(2, z + 1));
+    assert_eq!(
+        code_facts(&change.projection),
+        (
+            vec!["1<>".into(), "1<>".into()],
+            vec!["2..3  x1".into(), "6..7  x1".into()]
+        )
+    );
+}
+
+#[test]
+fn a_block_whose_opening_line_turns_to_code_describes_the_line_after_it() {
+    // Inside the pasted `py` fence "```q" does not close it, so the second
+    // block's opening line reads as code and `fz` is no longer a first line,
+    // though its reading and its carry (inside a `py` fence) are unchanged.
+    let mut engine = Engine::open("a\n```\nkq\n```\n```py\nfz\n```");
+    let change = engine
+        .paste_markdown(engine.revision(), range(0, 3), "```py\nz\n```", &mut ok)
+        .unwrap()
+        .unwrap();
+    assert_eq!(engine.source_text(), "```py\nz\n```q\n```py\nfz\n```");
+    let fz = engine.display_text().find("fz").unwrap();
+    assert_eq!(change.projection.range, range(0, fz + 2));
+    assert_eq!(
+        code_facts(&change.projection),
+        (
+            vec!["1<".into(), "2".into(), "3".into(), "4>".into()],
+            vec![format!("0..{} py x4", fz + 2)]
+        )
+    );
+}

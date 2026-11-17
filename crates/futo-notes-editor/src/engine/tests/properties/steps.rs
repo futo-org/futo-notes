@@ -47,30 +47,6 @@ impl Model {
     }
 }
 
-/// A renderer's copy of the display, and the windows it restyled.
-#[derive(Default)]
-pub(in crate::engine::tests) struct View {
-    pub text: String,
-    /// The display range of each change's lines since the last check.
-    pub restyled: Vec<std::ops::Range<usize>>,
-}
-
-impl View {
-    pub fn new(text: String) -> Self {
-        Self {
-            text,
-            restyled: Vec::new(),
-        }
-    }
-}
-
-/// Apply a view change to a copy of the display, as a renderer would.
-pub(in crate::engine::tests) fn apply_view(view: &mut View, change: &crate::engine::edit::Change) {
-    view.text
-        .replace_range(change.range.start.0..change.range.end.0, &change.inserted);
-    view.restyled.push(change.lines.clone());
-}
-
 /// One random step. Returns a description for failure messages.
 pub(in crate::engine::tests) fn step(
     engine: &mut Engine,
@@ -553,10 +529,7 @@ pub(super) fn command_step(
             assert_eq!(engine.history.undo.len(), groups, "{name} moved only");
         }
         Some(change) => {
-            view.text
-                .replace_range(change.range.start.0..change.range.end.0, &change.inserted);
-            view.restyled
-                .push(change.projection.range.start.0..change.projection.range.end.0);
+            apply_view_change(view, &change);
             assert_eq!(change.revision, engine.revision(), "{name}");
             model.edited(engine, before, groups);
         }

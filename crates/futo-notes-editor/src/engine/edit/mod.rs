@@ -26,7 +26,7 @@ pub(crate) struct Change {
     pub inserted: String,
     pub selection: DisplayRange,
     pub affinity: Affinity,
-    /// The display of every line the change showed again, after it.
+    /// The display of every line the change showed again (`Shown::lines`), after it.
     pub lines: Range<usize>,
     pub work: EditWork,
 }

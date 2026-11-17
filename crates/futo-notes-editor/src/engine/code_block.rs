@@ -31,6 +31,18 @@ pub(super) fn is_code_line(entry: &Entry) -> bool {
     }
 }
 
+/// Whether line `entry` opens a block: the line below it, when code, is its
+/// block's first.
+pub(super) fn is_opening_fence(entry: &Entry) -> bool {
+    matches!(
+        entry.line.kind,
+        Kind::Fence {
+            role: FenceRole::Open,
+            ..
+        }
+    )
+}
+
 fn line_count(lines: usize) -> u32 {
     u32::try_from(lines).unwrap_or(u32::MAX)
 }
@@ -38,13 +50,7 @@ fn line_count(lines: usize) -> u32 {
 impl CodeBlock {
     /// The block of line `index`, which shows as code (`is_code_line`).
     pub fn holding(store: &Store, index: usize) -> Self {
-        let empty = matches!(
-            store.get(index).line.kind,
-            Kind::Fence {
-                role: FenceRole::Open,
-                ..
-            }
-        );
+        let empty = is_opening_fence(store.get(index));
         let (opener, first, last) = if empty {
             (index, index, index)
         } else {

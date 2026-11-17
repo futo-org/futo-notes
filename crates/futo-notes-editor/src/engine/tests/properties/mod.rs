@@ -20,12 +20,18 @@
 //!    every position not inside a hidden range; UTF-16 conversions never split
 //!    a surrogate pair and never clamp.
 //!
+//! Besides, a host that applies each change's projection holds what a fresh
+//! projection reports (`block_mirror.rs`; on fence-dense notes, `fences.rs`).
+//!
 //! `TYPING_CASES` and `TYPING_SEED` set the number of notes and the seed.
+mod block_mirror;
 mod checks;
+mod fences;
 mod generate;
 mod inline;
 mod real;
 mod steps;
+mod view;
 
 use super::super::line::Role;
 use super::super::{read, Engine};
@@ -38,10 +44,13 @@ use checks::*;
 use generate::*;
 use inline::inline_step;
 use steps::*;
+use view::apply_view_change;
 
+pub(super) use block_mirror::BlockMirror;
 pub(super) use checks::check_fresh;
 pub(super) use generate::{cases, note, Random};
-pub(super) use steps::{apply_view, step, Model, View};
+pub(super) use steps::{step, Model};
+pub(super) use view::{apply_view, View};
 
 #[test]
 fn the_five_properties_hold_over_random_edits() {
@@ -55,6 +64,7 @@ fn the_five_properties_hold_over_random_edits() {
         check_positions(&engine, &format!("case {case} opened {original:?}"));
         let mut model = Model::default();
         let mut view = View::new(engine.display_text());
+        let mut mirror = BlockMirror::open(&engine);
         let mut steps = Vec::new();
         for _ in 0..24 {
             let before = lines_of(&engine);
@@ -66,6 +76,7 @@ fn the_five_properties_hold_over_random_edits() {
             );
             assert_eq!(view.text, engine.display_text(), "view change {context}");
             check_restyled(&before, &engine, &mut view, &context);
+            mirror.check(&engine, &mut view, &context);
             check_fresh(&engine, &context);
             check_positions(&engine, &context);
             assert!(engine.composition().is_none());
