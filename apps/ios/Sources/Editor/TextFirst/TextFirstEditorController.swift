@@ -132,13 +132,14 @@ final class TextFirstEditorController: NSObject {
     var checkboxTap: UITapGestureRecognizer?
     var selectionBeforeTouch = NSRange(location: 0, length: 0)
     /// The long-press that lifts a block, whether the touch under way may lift, the lift it
-    /// planned as it began and the drag it is running (+BlockDrag).
+    /// planned as it began, the drag it is running and its haptics (+BlockDrag).
     var liftRecognizer: UILongPressGestureRecognizer?
     var liftArmed = false
     /// Whether UIKit's text drag was on before the lift first turned it off.
     var stockTextDrag = false
     var pendingLift: TextFirstLift?
     var blockDrag: TextFirstBlockDrag?
+    let dragHaptics = TextFirstDragHaptics()
 
     let io = DispatchQueue(label: "futo.textfirst.io", qos: .userInitiated)
     var saveTimer: Timer?

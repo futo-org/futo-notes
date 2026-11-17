@@ -5,10 +5,11 @@
 
     @testable import FutoNotesNative
 
-    /// The long-press block drag's two decisions on a laid-out note: which block a press at a
-    /// point lifts (or that it keeps the platform's long-press), and which slot a finger at a
-    /// point drops it on. The drag itself is `TextFirstBlockDragUITests`. Nothing lifts while
-    /// the note is being edited, so the notes open with the keyboard down.
+    /// The long-press block drag's decisions on a laid-out note: which block a press at a point
+    /// lifts (or that it keeps the platform's long-press), which slot a finger at a point drops
+    /// it on, and when the drop line reaches a new slot. The drag itself is
+    /// `TextFirstBlockDragUITests`. Nothing lifts while the note is being edited, so the notes
+    /// open with the keyboard down.
     @Suite @MainActor
     struct TextFirstBlockDragTests {
         /// The display's line starts (UTF-16), one per line, the empty last line included.
@@ -135,6 +136,24 @@
             #expect(drop(3, 0.5) == nil)
             #expect(drop(4, 0.3) == nil)
             #expect(drop(4, 0.8) == end)
+        }
+
+        @Test func theDropLineTicksOnceForEachNewSlotItReaches() throws {
+            // `one` lifts alone; its slots are above `three`, above `four` and the note's end.
+            let h = TextFirstHarness("one\ntwo\nthree\nfour", focused: false)
+            let start = point(h, line: 0)
+            let lift = try #require(h.controller.liftPlan(at: start))
+            let drag = TextFirstBlockDrag(lift, at: start, snapshot: UIView(), on: h.tv)
+            defer { drag.finish(returning: false) }
+            let ticks = [
+                point(h, line: 0),  // over itself: no drop line
+                point(h, line: 1, fraction: 0.8),  // above `three`
+                point(h, line: 1, fraction: 0.9),  // still there
+                point(h, line: 2, fraction: 0.8),  // above `four`
+                point(h, line: 0),  // back over itself
+                point(h, line: 2, fraction: 0.8),  // above `four` again
+            ].map { drag.follow($0) }
+            #expect(ticks == [false, true, false, true, false, true])
         }
     }
 #endif

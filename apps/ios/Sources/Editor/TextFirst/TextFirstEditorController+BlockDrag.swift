@@ -15,6 +15,29 @@ enum TextFirstLiftPolicy {
     static let movementTolerance: CGFloat = 10
 }
 
+/// The drag's feel, as the web editor's iOS host gave it: an impact at the lift, a selection
+/// tick each time the drop line reaches a new slot, and a lighter impact when the block lands.
+/// A card that returns lands nothing and is silent.
+@MainActor
+final class TextFirstDragHaptics {
+    private let lift = UIImpactFeedbackGenerator(style: .medium)
+    private let tick = UISelectionFeedbackGenerator()
+    private let drop = UIImpactFeedbackGenerator(style: .light)
+
+    /// A press that may lift has begun: have the lift's impact ready when the hold ends.
+    func prepareLift() { lift.prepare() }
+    func lifted() {
+        lift.impactOccurred()
+        tick.prepare()
+        drop.prepare()
+    }
+    func reachedSlot() {
+        tick.selectionChanged()
+        tick.prepare()
+    }
+    func landed() { drop.impactOccurred() }
+}
+
 /// Where a lifted block may land on screen: each of the engine's slots on screen with the y of
 /// its boundary, and the y of the block's own top and bottom edges (where they show), where a
 /// drop would change nothing.
@@ -87,12 +110,15 @@ final class TextFirstBlockDrag {
     }
 
     /// The finger moved to `p`: the card follows it and the drop line moves to the nearest slot.
-    func follow(_ p: CGPoint) {
+    /// True when the drop line reached a slot it was not on (after showing none, any slot).
+    @discardableResult func follow(_ p: CGPoint) -> Bool {
         card.center = CGPoint(x: liftedCenter.x + p.x - start.x, y: liftedCenter.y + p.y - start.y)
         let nearest = lift.targets.slot(nearest: p.y)
+        let previous = slot
         slot = nearest?.offset
         dropLine.isHidden = nearest == nil
         if let nearest { dropLine.center.y = nearest.y }
+        return slot != nil && slot != previous
     }
 
     /// Take everything down; a card that did not land first slides back to where it was lifted.
@@ -147,6 +173,7 @@ extension TextFirstEditorController {
     func armLift() {
         liftArmed = mayLift
         textView.textDragInteraction?.isEnabled = !liftArmed && stockTextDrag
+        if liftArmed { dragHaptics.prepareLift() }
     }
 
     /// What a long-press at `p` (text view coordinates) lifts; nil when the press keeps the
@@ -237,7 +264,7 @@ extension TextFirstEditorController {
         case .began:
             beginBlockDrag(at: p)
         case .changed:
-            blockDrag?.follow(p)
+            followBlockDrag(to: p)
         case .ended:
             endBlockDrag(dropping: true)
         default:
@@ -264,6 +291,11 @@ extension TextFirstEditorController {
         // An edit menu left from an earlier press points at a selection the drag is not about.
         for case let menu as UIEditMenuInteraction in textView.interactions { menu.dismissMenu() }
         blockDrag = TextFirstBlockDrag(lift, at: p, snapshot: snapshot, on: textView)
+        dragHaptics.lifted()
+    }
+
+    private func followBlockDrag(to p: CGPoint) {
+        if blockDrag?.follow(p) == true { dragHaptics.reachedSlot() }
     }
 
     /// The finger lifted (`dropping`) or the touch was cancelled: move the block to the slot
@@ -282,6 +314,7 @@ extension TextFirstEditorController {
                 recover(error, context: "move block")
             }
         }
+        if moved { dragHaptics.landed() }
         drag.finish(returning: !moved)
     }
 }
