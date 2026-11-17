@@ -53,6 +53,8 @@ internal fun TextFirstEditText.codeSelectionFor(anchor: Int, head: Int): CodeSel
     val blocks = codeRangesNear(e, minOf(anchor, head), maxOf(anchor, head))
     if (blocks.isEmpty()) return null
     val (start, end) = resolveCodeSelection(anchor, head, blocks)
+    // A block selected as one object is painted as its card alone.
+    if (selectedCodeBlock == (start to end)) return null
     val home = blocks.firstOrNull { it.start < it.end && anchor >= it.start && anchor <= it.end }
     if (home == null && blocks.none { start <= it.start && end >= it.end }) return null
     return CodeSelectionPaint(start, end, home)
