@@ -24,6 +24,7 @@ mod images;
 #[cfg(any(target_os = "android", test))]
 mod jni_keys;
 mod links;
+mod moves;
 mod tags;
 mod toolbar;
 pub use contract::*;
