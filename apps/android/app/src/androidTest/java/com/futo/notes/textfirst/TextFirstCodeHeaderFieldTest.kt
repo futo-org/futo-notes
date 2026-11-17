@@ -162,6 +162,6 @@ class TextFirstCodeHeaderFieldTest {
         val field = openHeaderField(view)
         withTimeout(5_000) { while (field.width <= 1) delay(20) }
         val look = view.style
-        assertEquals(field.paint.measureText("x") + look.codeChipPad * 2 + look.dp(2f), field.width.toFloat(), 1f)
+        assertEquals(field.paint.measureText("x") + look.codeChipPad * 2 + look.dp(1f), field.width.toFloat(), 1f)
     }
 }

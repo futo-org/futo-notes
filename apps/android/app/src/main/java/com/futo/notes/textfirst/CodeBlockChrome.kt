@@ -6,6 +6,7 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.TextPaint
 import android.text.TextUtils
+import kotlin.math.floor
 
 /** What a press on a drawn part of a code block does. */
 internal enum class CodeBlockAction { SELECT_BLOCK, NAME_FIELD, LANGUAGE_LABEL, COPY_CODE, OPEN_LINE_ABOVE, OPEN_LINE_BELOW, NOTHING }
@@ -112,7 +113,9 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
             canvas.drawText(labels.namePlaceholder, nameLeft, nameBaseline, namePaint)
         }
         block.name?.takeIf { it.isNotEmpty() }?.let { name ->
-            val shown = TextUtils.ellipsize(name, namePaint, minOf(nameRight - nameLeft, nameRoom(left, right)), TextUtils.TruncateAt.END)
+            val chars = nameChars(left, right)
+            val capped = if (name.length > chars) name.take(chars - 1) + "\u2026" else name
+            val shown = TextUtils.ellipsize(capped, namePaint, nameRight - nameLeft, TextUtils.TruncateAt.END)
             if (openField != (codeStart to CodeHeaderField.Kind.NAME)) canvas.drawText(shown, 0, shown.length, nameLeft, nameBaseline, namePaint)
             nameEnd += namePaint.measureText(shown, 0, shown.length)
         }
@@ -130,10 +133,15 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         targets.add(CodeBlockTarget(RectF(center - labelWidth / 2f, top, center + labelWidth / 2f, bottom), CodeBlockAction.OPEN_LINE_ABOVE, codeStart))
     }
 
-    /** The widest a name is shown in a header from [left] to [right]: !300's field is at most 30 characters or 45% of the header. */
-    fun nameRoom(left: Float, right: Float): Float {
-        val fieldPadding = look.codeCorner + look.codeNameEndPad
-        return minOf(namePaint.measureText("0") * 30f + fieldPadding, (right - left) * 0.45f) - fieldPadding
+    /**
+     * The most characters a name shows in a header from [left] to [right], its ellipsis among them: !300's field is at
+     * most 30 characters or 45% of the header. The 45% is counted in !300's glyphs (the system monospace, 0.6 em), so a
+     * long name is cut at the same character as !300's though ours are a little wider (verifier runs 4-6: the hyphen).
+     */
+    fun nameChars(left: Float, right: Float): Int {
+        val referenceGlyph = look.codeHeaderTextSize * 0.6f
+        val fits = ((right - left) * 0.45f - look.codeChipPad - look.codeNameEndPad) / referenceGlyph
+        return minOf(30, floor(fits).toInt())
     }
 
     /**

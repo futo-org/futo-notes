@@ -209,18 +209,22 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         val state = editing ?: return
         val open = field ?: return
         val keyboard = ViewCompat.getRootWindowInsets(note)?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
-        if (note.height != settledHeight || keyboard != settledKeyboard) {
+        // The insets give the keyboard's final height at once, so a keyboard change reveals at once, while it rises, as
+        // !300 does (verifier run 6); the note's own resize follows over many frames and settles first.
+        val keyboardMoved = settledKeyboard != -1 && keyboard != settledKeyboard
+        if (keyboardMoved || note.height != settledHeight || settledKeyboard == -1) {
             settledHeight = note.height
             settledKeyboard = keyboard
             note.removeCallbacks(settle)
-            note.postDelayed(settle, SETTLE_MILLISECONDS)
+            if (keyboardMoved) note.post(settle) else note.postDelayed(settle, SETTLE_MILLISECONDS)
         }
         val area = fieldArea(state) ?: return
         val look = note.style
         // Its text, or the placeholder while empty, and a constant collar: no minimum, no pocket of space (cb 66-73).
         val shown = open.text.ifEmpty { open.hint ?: "" }.toString()
-        val textWidth = open.paint.measureText(shown) + look.codeChipPad * 2 + look.dp(2f)
-        val widest = if (state.kind == Kind.NAME) note.codeChrome.nameRoom(-look.codeCardOutset, note.width + look.codeCardOutset) + look.codeChipPad * 2 else note.width * 0.6f
+        // The collar, and the caret's own width so the text never scrolls under it (verifier run 6: 90 vs 80 px for one letter).
+        val textWidth = open.paint.measureText(shown) + look.codeChipPad * 2 + look.dp(1f)
+        val widest = if (state.kind == Kind.NAME) note.codeChrome.nameChars(-look.codeCardOutset, note.width + look.codeCardOutset) * open.paint.measureText("0") + look.codeChipPad * 2 else note.width * 0.6f
         val width = textWidth.coerceAtMost(widest)
         // The language field takes the chip's place, its glyph included, anchored to the card's right corner (cb 300-302).
         val chipRight = (note.codeChrome.areaOf(state.codeStart, CodeBlockAction.COPY_CODE)?.right ?: area.right) - look.codeCorner + look.codeChipPad

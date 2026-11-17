@@ -174,4 +174,17 @@ class TextFirstCodeBlockTest {
         delay(1_000)
         assertEquals("```js\nconst a = 1\n```\n\n```rust\nlet b = 2;\n```\n\nend", c.sourceText())
     }
+
+    /**
+     * Verifier runs 4-6: at S23 size !300 shows `a-much-longer-file-…`, 20 glyphs; ours, a little wider and counted in
+     * pixels, cut the hyphen. The name's drawn box is that many of our glyphs and the name field's end pad.
+     */
+    @Test fun aLongNameIsCutAtTheReferencesCharacter() = textFirstSession("```js name:a-much-longer-file-name.js\nthird\n```\n\nend") { c ->
+        val view = c.view
+        withTimeout(5_000) { while (view.codeChrome.areaOf(0, CodeBlockAction.NAME_FIELD) == null) delay(20) }
+        val area = view.codeChrome.areaOf(0, CodeBlockAction.NAME_FIELD)!!
+        val glyph = android.text.TextPaint().apply { typeface = view.style.mono; textSize = view.style.codeHeaderTextSize }.measureText("0")
+        val shownGlyphs = (area.right - view.style.codeNameEndPad - (area.left + view.style.codeCorner)) / glyph
+        assertEquals("a-much-longer-file-…".length.toFloat(), shownGlyphs, 0.05f)
+    }
 }

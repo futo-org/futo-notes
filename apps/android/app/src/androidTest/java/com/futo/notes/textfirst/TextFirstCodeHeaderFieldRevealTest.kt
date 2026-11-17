@@ -143,13 +143,18 @@ class TextFirstCodeHeaderFieldRevealTest {
         openHeaderField(view)
         fun keyboard() = androidx.core.view.ViewCompat.getRootWindowInsets(view)?.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())?.bottom ?: 0
         withTimeout(5_000) { while (keyboard() == 0) delay(20) }
-        delay(300)
-        // The screen's imePadding resizes the note to the keyboard's top, as the app does.
+        // The screen's imePadding resizes the note to the keyboard's top over the keyboard's animation, as the app does.
         val inWindow = IntArray(2).also(view::getLocationInWindow)
         val params = view.layoutParams
-        params.height = view.rootView.height - keyboard() - inWindow[1]
-        view.layoutParams = params
-        withTimeout(5_000) { while (view.height != params.height) delay(20) }
+        val from = view.height
+        val to = view.rootView.height - keyboard() - inWindow[1]
+        for (step in 1..16) {
+            params.height = from + (to - from) * step / 16
+            view.layoutParams = params
+            delay(16)
+        }
+        assertEquals("the field was not revealed while the keyboard rose: $positions", 2, positions.size)
+        withTimeout(5_000) { while (view.height != to) delay(20) }
         delay(1_000)
         assertEquals("the note moved more than once: $positions", 2, positions.size)
         // Leaving puts the caret in the code, and the editor toolbar comes back over the keyboard (about 45 dp).

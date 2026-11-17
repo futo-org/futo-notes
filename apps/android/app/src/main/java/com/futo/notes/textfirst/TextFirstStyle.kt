@@ -51,8 +51,8 @@ internal class TextFirstStyle(
     val listIndent = textSizePx * 1.4f
     val quoteIndent = dp(3f) + textSizePx * 0.9f
     val codePadding = dp(12f)
-    // !300's code block, sized in px against its 16 px body, so it scales with the body text.
-    private fun codeMetric(px: Float): Float = textSizePx * px / 16f
+    /** !300's chrome size [px], in CSS px: exact at the default body (17 sp), and scaling with the body's font size. */
+    private fun codeMetric(px: Float): Float = textSizePx * px / 17f
     val codeHeaderHeight = codeMetric(27f)
     val codeHeaderTextSize = codeMetric(12f)
     val codeCorner = codeMetric(10f)
