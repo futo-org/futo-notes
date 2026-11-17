@@ -44,7 +44,7 @@ internal class TfCodeBlock(private val look: TextFirstStyle, val line: CodeLineF
         val spanned = text as? Spanned ?: return
         val spanStart = spanned.getSpanStart(this)
         val ruleTop = if (start == spanStart && line.first) top + look.codeHeaderHeight else top.toFloat()
-        val ruleBottom = if (end >= spanned.getSpanEnd(this) && line.last) bottom - bottomExtra(spanned) else bottom.toFloat()
+        val ruleBottom = if (line.last && reachesSpanEnd(spanned, end)) bottom - bottomExtra(spanned) else bottom.toFloat()
         rulePaint.color = look.codeRuleColor
         c.drawRect(x + ruleX, ruleTop, x + ruleX + look.dp(1f), ruleBottom, rulePaint)
         if (!first || start != spanStart) return
@@ -59,11 +59,17 @@ internal class TfCodeBlock(private val look: TextFirstStyle, val line: CodeLineF
             fm.ascent -= header
             fm.top -= header
         }
-        if (line.last && end >= spanned.getSpanEnd(this)) {
+        if (line.last && reachesSpanEnd(spanned, end)) {
             val skirt = bottomExtra(spanned).toInt()
             fm.descent += skirt
             fm.bottom += skirt
         }
+    }
+
+    /** Whether a visual line ending at [end] is the span's last; a leading margin's line end leaves out its line break. */
+    private fun reachesSpanEnd(text: Spanned, end: Int): Boolean {
+        val spanEnd = text.getSpanEnd(this)
+        return end >= spanEnd || (end == spanEnd - 1 && text[end] == '\n')
     }
 
     /** The skirt under the block's last line, and the gap that keeps a block directly under it apart. */
