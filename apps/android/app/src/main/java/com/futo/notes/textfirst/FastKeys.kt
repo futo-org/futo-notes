@@ -48,6 +48,7 @@ internal class FastSession private constructor(session: NativeEditorSession) : A
             EditorInputAction.TYPING -> 0
             EditorInputAction.ISOLATED -> 1
             EditorInputAction.COMPOSITION_COMMIT -> 2
+            EditorInputAction.PAIRED_TYPING -> 3
         })))
 
     fun paragraphKey(rev: ULong, start: Int, end: Int, key: EditorParagraphKey): EditorViewChange? =

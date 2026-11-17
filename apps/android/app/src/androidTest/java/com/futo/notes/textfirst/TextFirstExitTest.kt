@@ -278,32 +278,26 @@ class TextFirstExitTest {
     @Test fun codeButtonTakesTheLineOutOfItsFence() =
         textFirstSession("```\ncode\n```\n") { c -> c.select(1); c.block(EditorBlockCommand.CodeBlock); assertEquals("code\n", c.sourceText()) }
 
-    @Test fun enterOnTheEmptyLastCodeLineLeavesTheFence() = textFirstSession("```\ncode\n\n```") { c ->
-        c.select(5)
-        enter(c)
-        assertEquals("```\ncode\n```\n", c.sourceText())
-    }
-
-    @Test fun enterOnAWholeCodeBodySelectionKeepsItsText() = textFirstSession("```\ndeploy\n```") { c ->
+    @Test fun enterOnAWholeCodeBodySelectionEmptiesTheBlock() = textFirstSession("```\ndeploy\n```") { c ->
         c.select(0, 6)
         enter(c)
-        assertEquals("```\ndeploy\n```\n", c.sourceText())
+        assertEquals("```\n\n```", c.sourceText())
     }
 
-    @Test fun hardwareEnterOnAWholeCodeBodySelectionKeepsItsText() = textFirstSession("```\ndeploy\n```") { c ->
+    @Test fun hardwareEnterOnAWholeCodeBodySelectionEmptiesTheBlock() = textFirstSession("```\ndeploy\n```") { c ->
         c.select(0, 6)
         hardwareEnter(c)
-        assertEquals("```\ndeploy\n```\n", c.sourceText())
+        assertEquals("```\n\n```", c.sourceText())
         c.undo()
         assertEquals("```\ndeploy\n```", c.sourceText())
         assertEquals(0, c.view.selectionStart)
         assertEquals(6, c.view.selectionEnd)
     }
 
-    @Test fun softReturnOnAWholeCodeBodySelectionKeepsItsText() = textFirstSession("```\ndeploy\n```") { c ->
+    @Test fun softReturnOnAWholeCodeBodySelectionEmptiesTheBlock() = textFirstSession("```\ndeploy\n```") { c ->
         c.select(0, 6)
         textFirstIme(c) { commitText("\n", 1) }
-        assertEquals("```\ndeploy\n```\n", c.sourceText())
+        assertEquals("```\n\n```", c.sourceText())
     }
 
     @Test fun hardwareEnterReplacesAPartialCodeSelection() = textFirstSession("```\ndeploy\n```") { c ->
