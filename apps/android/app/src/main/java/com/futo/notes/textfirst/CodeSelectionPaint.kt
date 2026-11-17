@@ -47,16 +47,20 @@ internal fun codeLineEnd(e: Spanned, span: TfCodeBlock): Int {
     return end
 }
 
-/** What [anchor] to [head] paints, or null when no block is near it (the TextView paints it). */
-internal fun TextFirstEditText.codeSelectionFor(anchor: Int, head: Int): CodeSelectionPaint? {
+/**
+ * What [anchor] to [head] paints, or null when no block is near it (the TextView paints it). A [settled]
+ * selection came from the engine, already resolved (Select All, an undo): it is painted as it is, not as a drag.
+ */
+internal fun TextFirstEditText.codeSelectionFor(anchor: Int, head: Int, settled: Boolean = false): CodeSelectionPaint? {
     val e = editableText ?: return null
     if (anchor < 0 || head < 0) return null
     val blocks = codeRangesNear(e, minOf(anchor, head), maxOf(anchor, head))
     if (blocks.isEmpty()) return null
-    val (start, end) = resolveCodeSelection(anchor, head, blocks)
+    val (start, end) = if (settled) minOf(anchor, head) to maxOf(anchor, head) else resolveCodeSelection(anchor, head, blocks)
     // A block selected as one object is painted as its card alone.
     if (selectedCodeBlock == (start to end)) return null
-    val home = blocks.firstOrNull { it.start < it.end && anchor >= it.start && anchor <= it.end }
+    val home = if (settled) blocks.firstOrNull { it.start < it.end && start >= it.start && end <= it.end }
+        else blocks.firstOrNull { it.start < it.end && anchor >= it.start && anchor <= it.end }
     if (home == null && blocks.none { start <= it.start && end >= it.end }) return null
     return CodeSelectionPaint(start, end, home)
 }
@@ -64,7 +68,7 @@ internal fun TextFirstEditText.codeSelectionFor(anchor: Int, head: Int): CodeSel
 internal val TextFirstEditText.codeSelection: CodeSelectionPaint? get() = codeChrome.selection
 
 /** Repaint for the view's new selection, [start] to [end] as it reports them; returns what is painted, null when the TextView paints it. */
-internal fun TextFirstEditText.paintCodeSelection(start: Int, end: Int): CodeSelectionPaint? {
+internal fun TextFirstEditText.paintCodeSelection(start: Int, end: Int, settled: Boolean = false): CodeSelectionPaint? {
     // The TextView reports a selection from its own constructor, before this view's fields exist.
     if (layout == null) return null
     val chrome = codeChrome
@@ -73,7 +77,7 @@ internal fun TextFirstEditText.paintCodeSelection(start: Int, end: Int): CodeSel
     val head = if (anchor == end && start != end) start else end
     chrome.lastStart = start
     chrome.lastEnd = end
-    val painted = codeSelectionFor(anchor, head)
+    val painted = codeSelectionFor(anchor, head, settled)
     // The line numbers brighten with the selection, and they are drawn with the card, not the text.
     val near = codeRangesNear(editableText ?: return null, minOf(start, end), maxOf(start, end)).isNotEmpty()
     if (near || chrome.lastNear) invalidate()
@@ -109,7 +113,8 @@ internal fun TextFirstEditText.drawCodeSelection(canvas: Canvas) {
     val whole = if (painted.home == null) codeRangesNear(e, painted.start, painted.end).filter { painted.start <= it.start && painted.end >= it.end } else emptyList()
     for (block in whole) {
         drawSelectionRows(canvas, l, e, from, block.start, paint)
-        from = block.end
+        // The card paints the block, its last line to the edge too: go on from the line after it.
+        from = if (block.end < e.length && e[block.end] == '\n') block.end + 1 else block.end
     }
     drawSelectionRows(canvas, l, e, from, painted.end, paint)
     canvas.restoreToCount(save)

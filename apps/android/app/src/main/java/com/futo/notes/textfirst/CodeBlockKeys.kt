@@ -26,8 +26,9 @@ internal fun TextFirstEditText.selectedBlockKey(keyCode: Int, event: KeyEvent): 
         enter && event.isCtrlPressed -> engine.openCodeBlockLine(start,
             if (event.isShiftPressed) EditorBlockCommand.OpenLineBeforeCodeBlock else EditorBlockCommand.OpenLineAfterCodeBlock)
         event.isShiftPressed || event.isCtrlPressed || event.isAltPressed -> return false
-        up -> if (start > 0) Selection.setSelection(editableText, start - 1)
-        down -> if (end < textEnd) Selection.setSelection(editableText, end + 1)
+        // An empty block at the note's edge has no line to stop on: the selection stays (cb 868-869, P144).
+        up -> if (start > 0 && !isEmptyBlockAtEdge(start - 1)) Selection.setSelection(editableText, start - 1)
+        down -> if (end < textEnd) { if (!isEmptyBlockAtEdge(end + 1)) Selection.setSelection(editableText, end + 1) }
             else engine.openCodeBlockLine(start, EditorBlockCommand.OpenLineAfterCodeBlock)
         keyCode == KeyEvent.KEYCODE_DPAD_LEFT -> Selection.setSelection(editableText, start)
         keyCode == KeyEvent.KEYCODE_DPAD_RIGHT -> Selection.setSelection(editableText, end)
@@ -63,3 +64,11 @@ internal fun TextFirstEditText.codeLineKey(keyCode: Int, event: KeyEvent): Boole
     return true
 }
 
+/** Whether [offset] is the line of an empty code block that opens or ends the note. */
+private fun TextFirstEditText.isEmptyBlockAtEdge(offset: Int): Boolean {
+    val e = editableText ?: return false
+    return e.getSpans(offset, offset, TfCodeBlock::class.java).any { span ->
+        span.line.block.start == span.line.block.end && e.getSpanStart(span) == offset &&
+            (offset == 0 || e.getSpanEnd(span) >= length() - TextFirstEditText.END_SENTINEL.length)
+    }
+}

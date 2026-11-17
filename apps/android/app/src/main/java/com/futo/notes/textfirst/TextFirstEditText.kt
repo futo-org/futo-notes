@@ -272,7 +272,7 @@ internal class TextFirstEditText(
         renderedSelection = (selStart.toLong() shl 32) or (selEnd.toLong() and 0xffffffffL)
         selectedObject = selectedObject?.takeIf { it.first == selStart && it.second == selEnd }
         selectedCodeBlock = selectedCodeBlock?.takeIf { it.first == selStart && it.second == selEnd }
-        val painted = paintCodeSelection(selStart, selEnd)
+        val painted = paintCodeSelection(selStart, selEnd, settled = applying)
         if (applying) return
         val e = editableText ?: return
         // The end sentinel is not a caret position (an empty Editable has none yet).
