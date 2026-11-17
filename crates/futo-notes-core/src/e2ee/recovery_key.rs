@@ -1,11 +1,9 @@
 use std::fmt;
 
-use aes_gcm::aead::OsRng;
 use hkdf::Hkdf;
-use rand::RngCore;
 use sha2::Sha256;
 
-use super::cipher::KEY_BYTES;
+use super::cipher::{os_random_bytes, KEY_BYTES};
 use super::E2eeError;
 
 /// 128 bits of entropy (ADR 0003). No slow KDF is needed at that size, so the
@@ -35,9 +33,7 @@ pub struct RecoveryKey([u8; RECOVERY_KEY_BYTES]);
 
 impl RecoveryKey {
     pub fn generate() -> Self {
-        let mut bytes = [0u8; RECOVERY_KEY_BYTES];
-        OsRng.fill_bytes(&mut bytes);
-        Self(bytes)
+        Self(os_random_bytes())
     }
 
     pub fn from_bytes(bytes: [u8; RECOVERY_KEY_BYTES]) -> Self {

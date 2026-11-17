@@ -1,6 +1,7 @@
-use aes_gcm::aead::{Aead, KeyInit, OsRng};
+use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
-use rand::RngCore;
+use rand::rngs::SysRng;
+use rand::TryRng;
 
 use super::E2eeError;
 
@@ -8,10 +9,18 @@ pub const IV_BYTES: usize = 12;
 pub const KEY_BYTES: usize = 32;
 pub const TAG_BYTES: usize = 16;
 
-pub fn generate_iv() -> [u8; IV_BYTES] {
-    let mut out = [0u8; IV_BYTES];
-    OsRng.fill_bytes(&mut out);
+/// Bytes straight from the operating system's CSPRNG, the one source for
+/// every key, salt and IV this module family generates.
+pub(super) fn os_random_bytes<const N: usize>() -> [u8; N] {
+    let mut out = [0u8; N];
+    SysRng
+        .try_fill_bytes(&mut out)
+        .expect("the operating system's random number generator failed");
     out
+}
+
+pub fn generate_iv() -> [u8; IV_BYTES] {
+    os_random_bytes()
 }
 
 pub fn aes_gcm_encrypt(key: &[u8; KEY_BYTES], plaintext: &[u8]) -> Result<Vec<u8>, E2eeError> {
@@ -24,9 +33,9 @@ fn aes_gcm_encrypt_with_iv(
     iv: &[u8; IV_BYTES],
     plaintext: &[u8],
 ) -> Result<Vec<u8>, E2eeError> {
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let cipher = Aes256Gcm::new(&Key::<Aes256Gcm>::from(*key));
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(iv), plaintext)
+        .encrypt(&Nonce::from(*iv), plaintext)
         .map_err(|_| E2eeError::Encrypt)?;
     let mut encrypted = Vec::with_capacity(IV_BYTES + ciphertext.len());
     encrypted.extend_from_slice(iv);
@@ -39,9 +48,10 @@ pub fn aes_gcm_decrypt(key: &[u8; KEY_BYTES], data: &[u8]) -> Result<Vec<u8>, E2
         return Err(E2eeError::CipherTooShort);
     }
     let (iv, ciphertext) = data.split_at(IV_BYTES);
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let nonce = Nonce::try_from(iv).expect("split_at yields exactly IV_BYTES");
+    let cipher = Aes256Gcm::new(&Key::<Aes256Gcm>::from(*key));
     cipher
-        .decrypt(Nonce::from_slice(iv), ciphertext)
+        .decrypt(&nonce, ciphertext)
         .map_err(|_| E2eeError::Decrypt)
 }
 

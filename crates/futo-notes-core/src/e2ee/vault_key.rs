@@ -1,8 +1,6 @@
-use aes_gcm::aead::OsRng;
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
-use super::cipher::{aes_gcm_decrypt, aes_gcm_encrypt, KEY_BYTES};
+use super::cipher::{aes_gcm_decrypt, aes_gcm_encrypt, os_random_bytes, KEY_BYTES};
 use super::password_key::{
     derive_argon2id_key, derive_password_key, generate_salt, ARGON2ID_LANES, ARGON2ID_MEMORY_KIB,
     ARGON2ID_PASSES, PBKDF2_ITERATIONS,
@@ -84,9 +82,7 @@ impl RecoveryKdf {
 }
 
 pub fn generate_vault_key() -> [u8; KEY_BYTES] {
-    let mut out = [0u8; KEY_BYTES];
-    OsRng.fill_bytes(&mut out);
-    out
+    os_random_bytes()
 }
 
 pub fn wrap_vault_key(password: &str) -> Result<([u8; KEY_BYTES], KeyMaterial), E2eeError> {

@@ -40,7 +40,7 @@ libc = "0.2"
 # as hex. Already a workspace dependency (futo-notes-core).
 hex = "0.4"
 # The random part of an image's name. Already a workspace dependency (futo-notes-core).
-rand = "0.8"
+rand = "0.10"
 # What this computer calls itself, for the pairing confirmation sheet on the
 # device that scans this one's QR code. Already in the tree (x11rb pulls it on
 # Linux); a direct edge just makes it available on every desktop OS.

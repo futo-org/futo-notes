@@ -1,10 +1,10 @@
-use aes_gcm::aead::OsRng;
 use hkdf::Hkdf;
-use rand::RngCore;
 use sha2::Sha256;
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use super::cipher::{aes_gcm_decrypt, aes_gcm_encrypt, IV_BYTES, KEY_BYTES, TAG_BYTES};
+use super::cipher::{
+    aes_gcm_decrypt, aes_gcm_encrypt, os_random_bytes, IV_BYTES, KEY_BYTES, TAG_BYTES,
+};
 use super::E2eeError;
 
 pub const PAIRING_KEY_BYTES: usize = 32;
@@ -24,9 +24,7 @@ pub struct PairingKeyPair {
 
 impl PairingKeyPair {
     pub fn generate() -> Self {
-        let mut secret = [0u8; PAIRING_KEY_BYTES];
-        OsRng.fill_bytes(&mut secret);
-        Self::from_secret(secret)
+        Self::from_secret(os_random_bytes())
     }
 
     pub fn from_secret(secret: [u8; PAIRING_KEY_BYTES]) -> Self {
