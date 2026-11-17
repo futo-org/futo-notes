@@ -116,6 +116,11 @@ assert.ok(slice.atoms.some((a) => a.image) && slice.code_blocks.some((b) => b.la
 assert.ok(slice.blocks.some((b) => b.code?.line_number === 1 && b.code.mark === 'Highlight'));
 shape('NoteIdChange', session.update_note_ids('["Road","Other"]'));
 shape('NoteIdChange', session.update_note_ids('[]'));
+const rust = slice.code_blocks.find((b) => b.language === 'rust');
+const selectedBlock = JSON.parse(session.select_code_block(0n, rust.range.start));
+assert.deepEqual(selectedBlock.selected_block, rust.range);
+shape('SelectionChange', JSON.stringify(selectedBlock));
+assert.deepEqual(shape('DisplayRange | null', session.selected_block()), rust.range);
 shape('SelectionChange', session.select_with_affinity(0n, 3, 3, '"Forward"'));
 shape(
   'LinkDescription | null',

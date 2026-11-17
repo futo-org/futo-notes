@@ -141,6 +141,15 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
+    /// `select_code_block`: the block whose code shows at display byte `at`.
+    pub fn select_code_block(&mut self, revision: u64, at: usize) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .select_code_block(Revision(revision), DisplayOffset(at))
+                .map_err(error)?,
+        )
+    }
     pub fn inspect_link(&self, revision: u64, start: usize, end: usize) -> Result<String, JsValue> {
         json(
             &self
@@ -368,6 +377,9 @@ impl WasmSession {
     /// The selection in display bytes.
     pub fn selection(&self) -> Result<String, JsValue> {
         json(&self.0.selection())
+    }
+    pub fn selected_block(&self) -> Result<String, JsValue> {
+        json(&self.0.selected_block())
     }
     pub fn affinity(&self) -> Result<String, JsValue> {
         json(&self.0.affinity())

@@ -55,6 +55,12 @@ pub enum BlockCommand {
     CodeBlock,
     /// Text-first toolbar: one fence around all selected physical lines.
     WrapCodeBlock,
+    /// An empty line before the code block the range starts in, the caret on
+    /// it: where no line borders the block (it starts the note).
+    OpenLineBeforeCodeBlock,
+    /// An empty line after the code block the range starts in, closing it
+    /// first when nothing closes it.
+    OpenLineAfterCodeBlock,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -80,6 +80,9 @@ impl Engine {
         self.check_revision(expected)?;
         self.check_display_range(range)?;
         let range = self.outside_metadata(self.outside_crlf(range));
+        if self.composition.is_none() && self.selection != range {
+            self.block_selected = false;
+        }
         if self.composition.is_none() && (self.selection != range || self.affinity != affinity) {
             self.typing = None;
             self.formats = None;
@@ -87,11 +90,16 @@ impl Engine {
             self.selection = range;
             self.affinity = affinity;
         }
-        Ok(SelectionChange {
+        Ok(self.selection_change())
+    }
+
+    pub(crate) fn selection_change(&self) -> SelectionChange {
+        SelectionChange {
             revision: self.revision,
             selection: self.selection,
+            selected_block: self.selected_block(),
             affinity: self.affinity,
-        })
+        }
     }
 
     /// Move one extended grapheme, collapsing a selection to its edge first.

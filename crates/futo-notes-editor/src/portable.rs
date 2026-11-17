@@ -14,7 +14,8 @@ use serde::{Deserialize, Serialize};
 pub use tables::PortableTableStep;
 
 use crate::{
-    DisplayRange, DisplayUtf16Range, EditorError, EditorSession, Revision, SourceEdit, ViewChange,
+    DisplayOffset, DisplayRange, DisplayUtf16Range, EditorError, EditorSession, Revision,
+    SourceEdit, ViewChange,
 };
 
 /// Host-issued incarnation, unique across note switches and page reloads.
@@ -240,6 +241,14 @@ impl PortableSession {
             .select_with_affinity(expected, range, affinity)?)
     }
 
+    pub fn select_code_block(
+        &mut self,
+        expected: Revision,
+        at: DisplayOffset,
+    ) -> Result<crate::SelectionChange, PortableError> {
+        Ok(self.engine.select_code_block(expected, at)?)
+    }
+
     pub fn active_formats(&self) -> Result<Vec<crate::InlineFormat>, PortableError> {
         Ok(self.engine.active_formats())
     }
@@ -260,6 +269,11 @@ impl PortableSession {
     }
     pub fn selection(&self) -> DisplayRange {
         self.engine.selection()
+    }
+    /// The code block selected as one object: a key that only selects one
+    /// returns no change, so a view reads it here, with `selection`.
+    pub fn selected_block(&self) -> Option<DisplayRange> {
+        self.engine.selected_block()
     }
     /// The caret's side. An input that only moves the caret returns no change,
     /// so a view reads the side here, with `selection`.

@@ -1,13 +1,17 @@
-//! Fenced code: the code block commands, and the keys inside a fence
-//! (`keys.rs`).
+//! Fenced code: the code block commands, the keys inside a fence
+//! (`keys.rs`), a block as one object (`reach.rs`, `selected.rs`,
+//! `edges.rs`) and lines opened beside one (`open_line.rs`).
 //!
 //! Code text is the line's text, whitespace and all: nothing inside a fence
 //! is Markdown. Putting lines in a fence keeps their text exactly; taking
 //! lines out of a fence keeps each one a plain line (`kept_line` writes a
 //! leading `\` where the text would read as another block), so the shown
 //! text does not move.
-mod cut;
+mod edges;
 mod keys;
+mod open_line;
+mod reach;
+mod selected;
 
 use super::super::command::{kept_line, Command, Edit};
 use super::super::line::Role;

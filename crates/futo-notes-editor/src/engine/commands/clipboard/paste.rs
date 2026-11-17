@@ -153,7 +153,9 @@ impl Engine {
             Err(EditorError::InvalidRange) => return Err(EditorError::UnrepresentableFormat),
             Err(error) => return Err(error),
         }
-        if let Some(touch) = self.touch(range) {
+        // A block selected as one object is replaced whole, as prose.
+        let whole_block = self.block_selected && range == self.selection;
+        if let Some(touch) = self.touch(range).filter(|_| !whole_block) {
             let mut command = self.code_paste(range, touch, &text, &newline);
             command.typed = true;
             return Ok(Some(command));

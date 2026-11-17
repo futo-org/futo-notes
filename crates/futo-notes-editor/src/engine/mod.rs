@@ -49,6 +49,9 @@ pub(crate) struct Engine {
     /// The collapsed caret's exact source offset after an edit, kept while
     /// the selection stays where the edit left it.
     pin: Option<usize>,
+    /// Whether the selection is the code block it covers, selected as one
+    /// object (`commands/fences/selected.rs`).
+    block_selected: bool,
     history: History,
     clock: Arc<dyn HistoryClock>,
     typing: Option<TypingRun>,
@@ -82,6 +85,7 @@ impl Engine {
             affinity: Affinity::Forward,
             formats: None,
             pin: None,
+            block_selected: false,
             history: History::default(),
             clock,
             typing: None,
@@ -107,6 +111,11 @@ impl Engine {
 
     pub fn affinity(&self) -> Affinity {
         self.affinity
+    }
+
+    /// The code block selected as one object: the selection's range.
+    pub fn selected_block(&self) -> Option<DisplayRange> {
+        self.block_selected.then_some(self.selection)
     }
 
     /// Explicit whole-text query; never called by the input path.

@@ -121,6 +121,8 @@ impl Engine {
             BlockCommand::CodeBlock | BlockCommand::WrapCodeBlock => {
                 self.fence_command(range, command)
             }
+            BlockCommand::OpenLineBeforeCodeBlock => Ok(self.open_line_beside_block(range, false)),
+            BlockCommand::OpenLineAfterCodeBlock => Ok(self.open_line_beside_block(range, true)),
         }
     }
 }

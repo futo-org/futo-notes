@@ -99,10 +99,10 @@ fn native_named_link_paste_maps_visible_caret_and_survives_history_and_reopen() 
     );
 }
 
-/// Pasting over a selection from a block's code past it writes what typing
-/// writes: the frame stays and the pasted line is code (fenced-code.md).
+/// Pasting over a selection from a block's code past it takes the block
+/// whole, as typing does (fenced-code.md): the paste lands as prose.
 #[test]
-fn native_block_paste_from_code_over_prose_keeps_the_frame() {
+fn native_block_paste_from_code_over_prose_takes_the_block_whole() {
     let tree = TempTree::new();
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
@@ -119,18 +119,46 @@ fn native_block_paste_from_code_over_prose_keeps_the_frame() {
         .paste_markdown(0, at(0, 8), "# h".into())
         .unwrap()
         .unwrap();
-    assert_eq!(change.selection, at(3, 3));
-    assert_eq!(session.source_text().unwrap(), "```\n# h\n```");
-    assert_eq!(session.display_text().unwrap(), "# h");
+    assert_eq!(change.selection, at(1, 1));
+    assert_eq!(session.source_text().unwrap(), "# h");
+    assert_eq!(session.display_text().unwrap(), "h");
     let toolbar = session.toolbar_state().unwrap();
-    assert!(toolbar.code);
-    assert_eq!(toolbar.heading, None);
+    assert!(!toolbar.code);
+    assert_eq!(toolbar.heading, Some(1));
     assert_eq!(session.undo(1).unwrap().unwrap().selection, at(0, 8));
     assert_eq!(session.source_text().unwrap(), original);
-    assert_eq!(session.redo(2).unwrap().unwrap().selection, at(3, 3));
+    assert_eq!(session.redo(2).unwrap().unwrap().selection, at(1, 1));
     session.checkpoint().unwrap();
     drop(session);
     let reopened = store.open_editor("selected-code".into()).unwrap();
-    assert_eq!(reopened.source_text().unwrap(), "```\n# h\n```");
-    assert_eq!(reopened.display_text().unwrap(), "# h");
+    assert_eq!(reopened.source_text().unwrap(), "# h");
+    assert_eq!(reopened.display_text().unwrap(), "h");
+}
+
+/// A block selected as one object reports itself on the selection change
+/// and on every change after it, and Cut takes it with its fences.
+#[test]
+fn native_selected_code_block_shows_on_each_change() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("block".into(), "".into(), "a\n```js\nx\n```\nb".into())
+        .unwrap();
+    let session = store.open_editor("block".into()).unwrap();
+    let at = |start, end| EditorByteRange { start, end };
+    let selected = session.select_code_block(0, 2).unwrap();
+    assert_eq!(selected.selected_block, Some(at(2, 3)));
+    assert_eq!(selected.selection, at(2, 3));
+    let echoed = session
+        .select_with_affinity(0, at(2, 3), futo_notes_ffi::EditorAffinity::Backward)
+        .unwrap();
+    assert_eq!(echoed.selected_block, Some(at(2, 3)));
+    let cut = session.cut_markdown(0, at(2, 3)).unwrap();
+    assert_eq!(cut.markdown, "```js\nx\n```");
+    let change = cut.change.unwrap();
+    assert_eq!(change.selected_block, None);
+    assert_eq!(session.source_text().unwrap(), "a\n\nb");
+    let undone = session.undo(1).unwrap().unwrap();
+    assert_eq!(undone.selected_block, Some(at(2, 3)));
 }

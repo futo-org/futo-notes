@@ -1,7 +1,9 @@
-//! A selection that crosses a code block's boundary, into or out of it, is
-//! replaced or deleted by every input kind (interpretation-and-input.md), or
-//! refused when that would change a line outside it. Accepted, the display is
-//! the old one with the range replaced and every other line keeps its block.
+//! A selection that crosses a code block's boundary, into or out of it, takes
+//! the block whole and is replaced or deleted by every input kind
+//! (fenced-code.md, interpretation-and-input.md), or refused when that would
+//! change a line outside it. Accepted, the display is the old one with the
+//! range, widened over the blocks it takes, replaced and every other line
+//! keeps its block.
 use futo_notes_editor::*;
 
 #[path = "cross_block_selection/check.rs"]
@@ -22,50 +24,44 @@ fn every_input_replaces_a_selection_from_a_paragraph_into_a_code_block() {
         replaced(NOTE, 71, 176, input);
     }
     let source = replaced(NOTE, 71, 176, Input::Type("d"));
-    assert!(source.contains("[[Other dx = 1\n\n| A | B |"), "{source:?}");
+    assert!(source.contains("[[Other d\n\n| A | B |"), "{source:?}");
 }
 
 #[test]
-fn text_after_a_selection_joins_the_line_it_began_on_and_code_keeps_its_lines() {
+fn a_selection_crossing_a_block_takes_it_whole() {
     // (source, display range, source after typing `d`)
     for (note, a, b, expected) in [
-        // Into code: the lines left in the block stay code, opened again.
+        // Into code: the whole block goes, its code after the range too.
         (
             "para\n\n```\nlet x = 1\ny = 2\nz = 3\n```\n\ntail\n",
             4,
             17,
-            "parad = 2\n```\nz = 3\n```\n\ntail\n",
+            "parad\n\ntail\n",
         ),
-        // Into code, one line left: it is text, and the frame goes.
         (
             "para one\n\n```\nlet x = 1\ny = 2\n```\n\ntail\n",
             4,
             21,
-            "parad = 2\n\ntail\n",
+            "parad\n\ntail\n",
         ),
-        // Out of code: the lines left outside it close the block again.
+        // Out of code: the code before the range goes with the block.
         (
             "```\nlet x = 1\ny = 2\n```\n\ntail\nmore\n",
             4,
             20,
-            "```\nlet dl\n```\nmore\n",
+            "dl\nmore\n",
         ),
-        // At the note's end too: the closing line stays after the joined line.
-        (
-            "```\nlet x = 1\ny = 2\n```\n\ntail",
-            4,
-            20,
-            "```\nlet dl\n```",
-        ),
-        // From one code block into another: each keeps its frame.
+        ("```\nlet x = 1\ny = 2\n```\n\ntail", 4, 20, "dl"),
+        // From one code block into another: both go.
         (
             "```\nlet x = 1\ny = 2\n```\n\n```\nz = 3\nw = 4\n```\n",
             4,
             22,
-            "```\nlet d\n```\n```\nw = 4\n```\n",
+            "d\n",
         ),
-        // From the end of a code line, over the frame's ending.
-        ("```\ncode\n```\ntail", 4, 5, "```\ncodedtail\n```"),
+        // From the end of a block's code, over its line break: the range
+        // starts after the break, on the line after the block.
+        ("```\ncode\n```\ntail", 4, 5, "```\ncode\n```\ndtail"),
     ] {
         assert_eq!(
             replaced(note, a, b, Input::Type("d")),
@@ -79,33 +75,33 @@ fn text_after_a_selection_joins_the_line_it_began_on_and_code_keeps_its_lines() 
 fn a_crlf_code_block_keeps_its_line_endings() {
     let note = "para\r\n\r\n```\r\nlet x\r\ny = 2\r\nz = 3\r\n```\r\n\r\ntail\r\n";
     let source = replaced(note, 2, 16, Input::Type("d"));
-    assert_eq!(source, "pad = 2\r\n```\r\nz = 3\r\n```\r\n\r\ntail\r\n");
+    assert_eq!(source, "pad\r\n\r\ntail\r\n");
     let note = "```\r\nlet x\r\ny = 2\r\n```\r\n\r\ntail\r\nmore\r\n";
     let source = replaced(note, 2, 16, Input::Type("d"));
-    assert_eq!(source, "```\r\nledtail\r\n```\r\nmore\r\n");
+    assert_eq!(source, "dtail\r\nmore\r\n");
     // A range starting between a CR and its LF widens over the whole break
     // (interpretation-and-input.md), and Undo selects the widened range.
     let note = "para\r\n\r\n```\r\na\r\nb\r\nc\r\n```\r\n";
     let mut s = EditorSession::open(note);
     apply(&mut s, range(5, 12), Input::Type("d")).unwrap();
-    assert_eq!(s.source_text(), "parad\r\n```\r\nc\r\n```\r\n");
+    assert_eq!(s.source_text(), "parad\r\n");
     s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
     assert_eq!(s.source_text(), note);
     assert_eq!(s.selection(), range(4, 12));
 }
 
 #[test]
-fn backspace_at_a_code_blocks_first_line_below_a_blank_line_acts_as_for_a_quote_or_list() {
-    // The deletion is the blank line's break; the block's first line joins the line
-    // that was blank, as a quote's or a list item's does, and its later lines stay.
-    // A frame that goes leaves the note's final line ending where it was.
+fn deleting_the_blank_line_above_a_block_keeps_the_block() {
+    // The deletion is the blank line's break, which removes the blank line;
+    // a block's first line never joins the line above (fenced-code.md),
+    // where a quote's does.
     for (note, at, expected) in [
-        ("para\n\n```\ncode\n```\n", 6, "para\ncode\n"),
-        ("para\n\n```\ncode\n```", 6, "para\ncode"),
+        ("para\n\n```\ncode\n```\n", 6, "para\n```\ncode\n```\n"),
+        ("para\n\n```\ncode\n```", 6, "para\n```\ncode\n```"),
         (
             "para\n\n```\ncode\nmore\n```\n",
             6,
-            "para\ncode\n```\nmore\n```\n",
+            "para\n```\ncode\nmore\n```\n",
         ),
         (
             "para\n\n> quote a\n> quote b\n",
@@ -135,51 +131,52 @@ fn the_mr_634_review_repros_land_and_keep_every_other_line() {
             4,
             6,
             Input::Enter,
-            "- a\n- b\n\n\n```\nd\n```\n",
+            "- a\n- b\n\n\n",
         ),
         (
             "```\nlet x = 1\ny = 2\n```\n\ntail\n",
             4,
             20,
             Input::Type("d"),
-            "```\nlet dl\n```\n",
+            "dl\n",
         ),
         (
             "```\ncode\n```\ntail\n",
             4,
             5,
             Input::Type("d"),
-            "```\ncodedtail\n```\n",
+            "```\ncode\n```\ndtail\n",
         ),
         (
             "para\n\n```\nab\n```\nnext line\n",
             2,
             7,
             Input::Type("d"),
-            "padb\nnext line\n",
+            "pad\nnext line\n",
         ),
         (
             "para\n\n```\nab\n```\n=\n",
             2,
             7,
             Input::Type("d"),
-            "padb\n=\n",
+            "pad\n=\n",
         ),
         (
             "para\n\n```\ncode\n```\ntail\n",
             5,
             6,
             Input::Backspace,
-            "para\ncode\ntail\n",
+            "para\n```\ncode\n```\ntail\n",
         ),
         // M2: the line after the block stays where it is. A code line shows
-        // its indent, so `[4,8)` ends after `c` of `c1` (fences.json "#348 3").
+        // its indent, so `[4,8)` ends after `c` of `c1` (fences.json "#348 3"),
+        // and the block goes whole.
         (
             "- item\n  ```\n  c1\n  c2\n  ```\nplain text here\n",
             4,
             8,
             Input::Paste("pp"),
-            "- itempp1\n  ```\n  c2\n  ```\nplain text here\n",
+            "- itempp\nplain text here\n",
         ),
     ] {
         assert_eq!(
@@ -191,29 +188,28 @@ fn the_mr_634_review_repros_land_and_keep_every_other_line() {
 }
 
 #[test]
-fn a_paste_from_code_out_of_it_lands_as_code_and_the_block_closes_again() {
-    // H4: the closer comes back after the text the paste joined, Markdown or not.
+fn a_paste_from_code_out_of_it_takes_the_block_whole() {
+    // H4: the block goes with the range; a paste of block text lands on a
+    // line of its own (clipboard.md), so only plain text is checked exactly.
     let note = "```\ncode one\ncode two\n```\n\ntail text\n\n# Later heading\n\n- later item\n";
-    for paste in [
-        "plain",
-        "**b**",
-        "x\ny",
-        "# h",
-        "- l1\n- l2",
-        "> q",
-        "1. one",
-    ] {
-        let source = checked(note, 3, 19, Input::Paste(paste)).unwrap();
+    let rest = "tail text\n\n# Later heading\n\n- later item\n";
+    assert_eq!(
+        checked(note, 3, 19, Input::Paste("plain")).as_deref(),
+        Some(format!("plain{rest}").as_str())
+    );
+    for paste in ["**b**", "x\ny", "# h", "- l1\n- l2", "> q", "1. one"] {
+        let mut s = EditorSession::open(note);
+        apply(&mut s, range(3, 19), Input::Paste(paste)).unwrap();
+        let source = s.source_text();
         assert!(
-            source.ends_with("tail text\n```\n\n# Later heading\n\n- later item\n"),
+            !source.contains("```") && source.ends_with(rest),
             "{paste:?}: {source:?}"
         );
     }
-    // Codex P1: a block paste keeps its line on the code line, closed.
-    assert_eq!(
-        checked("```\nabc\n```\ndef", 1, 5, Input::Paste("- x")).as_deref(),
-        Some("```\na- xef\n```")
-    );
+    // Codex P1: a block paste from code past the block lands as prose.
+    let mut s = EditorSession::open("```\nabc\n```\ndef");
+    apply(&mut s, range(1, 5), Input::Paste("- x")).unwrap();
+    assert_eq!(s.source_text(), "- x\nef");
     // After `>` backticks are quote text, not a fence: the pasted line after
     // the first takes the quote's marker (clipboard.md).
     let note = "> ```\n> code one\n> code two\n> ```\n\ntail text\n";
@@ -227,17 +223,18 @@ fn a_paste_from_code_out_of_it_lands_as_code_and_the_block_closes_again() {
 /// as the one input they are (re-check R1, R2).
 #[test]
 fn a_text_service_replacement_is_checked_as_one_input() {
-    // R1: a run ending at a code line's end took that line's break. Planned
-    // as one run, the code block closes again after the joined text.
+    // R1: a run from prose into a block's code takes the block whole.
     let note = "Some text\n\n```\nlet value = 1\nreturn value\n```\n";
     let source = checked(note, 5, 24, Input::Os("e"));
-    assert_eq!(source.as_deref(), Some("Some e\n```\nreturn value\n```\n"));
+    assert_eq!(source.as_deref(), Some("Some e\n"));
     let note = "para\n\n```\ndeep\nx\n```\n";
     assert_eq!(
         checked(note, 4, 10, Input::Os("d")).as_deref(),
-        Some("parad\n```\nx\n```\n")
+        Some("parad\n")
     );
-    // R2: two explicit runs whose result drops a line break are refused.
+    // R2: two explicit runs, one ending where a block's code starts and one
+    // inside it, each replace their own text: the line break above the
+    // block stays, so the block does too.
     let note = "3) three\n4) four\n\n```\nlet x = 1\ny = 2\nz = 3\n```";
     let mut s = EditorSession::open(note);
     let run = |a, b, text: &str| DisplayReplacement {
@@ -245,17 +242,15 @@ fn a_text_service_replacement_is_checked_as_one_input() {
         inserted: text.into(),
     };
     let runs = [run(4, 12, "d"), run(12, 21, "e")];
-    assert!(s
-        .replace_many(s.revision(), &runs, &mut |_| Ok(()))
-        .is_err());
-    assert_eq!(s.source_text(), note);
+    assert!(s.replace_many(s.revision(), &runs, &mut |_| Ok(())).is_ok());
+    assert_eq!(s.source_text(), "3) thred\n```\ne\ny = 2\nz = 3\n```");
     // W1, in Linedown (a fence after a task marker is task text): a run that
     // reaches from prose into code leaves the kept text before it, and its
-    // hidden `_` delimiters, as they were.
+    // hidden `_` delimiters, as they were, and takes the block whole.
     let note = "a _fox_ b\nx\n```\ncode one\n```\n";
     assert_eq!(
         checked(note, 2, 16, Input::Os("fox b\nczo")).as_deref(),
-        Some("a _fox_ b\nczone\n")
+        Some("a _fox_ b\nczo\n")
     );
 }
 
@@ -428,20 +423,16 @@ fn a_dictated_phrase_over_mixed_formatting_lands() {
     }
 }
 
-/// A kept bold word or link label after a fence joins the code line as
-/// typing joins it, its marks gone (nothing refuses a text service's input).
+/// A range from the end of a block's code starts after its line break
+/// (fenced-code.md), so a text service's run that keeps the bold word or
+/// link label after a fence changes nothing: no line joins the code.
 #[test]
-fn a_kept_word_after_a_fence_joins_the_code_line_as_typing_does() {
+fn a_kept_word_after_a_fence_stays_after_the_block() {
     for note in [
         "```\ncode\n```\n**Heading** one",
         "```\ncode\n```\n[Heading](u) one",
     ] {
-        let joined = replace_os_over(note, "\nHeading", "Heading");
-        assert_eq!(
-            joined.as_deref(),
-            Ok("```\ncodeHeading one\n```"),
-            "{note:?}"
-        );
-        assert!(checked(note, 4, 12, Input::Os("Heading")).is_some());
+        let kept = replace_os_over(note, "\nHeading", "Heading");
+        assert_eq!(kept.as_deref(), Ok(note), "{note:?}");
     }
 }

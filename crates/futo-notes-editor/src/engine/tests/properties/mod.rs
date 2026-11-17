@@ -26,6 +26,7 @@
 //! `TYPING_CASES` and `TYPING_SEED` set the number of notes and the seed.
 mod block_mirror;
 mod checks;
+mod command_step;
 mod fences;
 mod generate;
 mod inline;
@@ -42,6 +43,7 @@ use crate::{
     SourceEdit, SourceOffset, SourceRange,
 };
 use checks::*;
+use command_step::command_step;
 use generate::*;
 use inline::inline_step;
 use steps::*;

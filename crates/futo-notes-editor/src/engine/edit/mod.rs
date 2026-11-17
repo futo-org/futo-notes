@@ -4,6 +4,7 @@
 mod bulk;
 mod compose;
 mod plan;
+mod runs;
 mod spans;
 
 use super::command::{Command, Edit};
@@ -179,6 +180,7 @@ impl Engine {
             affinity: self.affinity,
             formats: self.formats.clone(),
             pin: self.pin,
+            block_selected: self.block_selected,
         }
     }
 
@@ -187,10 +189,12 @@ impl Engine {
         self.affinity = point.affinity;
         self.formats = point.formats.clone();
         self.pin = point.pin;
+        self.block_selected = point.block_selected;
     }
 
     /// Put the collapsed caret at source offset `at`, pinned there.
     pub(crate) fn caret_at(&mut self, at: usize) {
+        self.block_selected = false;
         let display = DisplayOffset(self.display_of(at));
         self.selection = DisplayRange {
             start: display,

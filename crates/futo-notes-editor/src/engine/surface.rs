@@ -39,6 +39,7 @@ impl Engine {
             work,
             inserted: change.inserted,
             selection: change.selection,
+            selected_block: self.selected_block(),
             affinity: change.affinity,
             projection,
         }
@@ -66,6 +67,7 @@ impl Engine {
             range: caret,
             inserted: String::new(),
             selection: self.selection,
+            selected_block: self.selected_block(),
             work: EditWork::default(),
             affinity: self.affinity,
             projection: self.projection(self.revision, caret),
@@ -168,9 +170,16 @@ impl Engine {
             // A command with no edits moves the selection (a table key); one
             // that leaves it where it is changes nothing.
             if command.edits.is_empty() {
-                if self.display_range(command.selection.clone()) == self.selection {
+                if command.selects_block {
+                    self.select_block_at(command.selection.start);
+                    return Ok(Some(self.unchanged()));
+                }
+                if self.display_range(command.selection.clone()) == self.selection
+                    && !self.block_selected
+                {
                     return Ok(None);
                 }
+                self.block_selected = false;
                 return self.moved_view(expected, command.selection).map(Some);
             }
             let change = self.run(expected, |_| Ok(Some(command)), accept)?;

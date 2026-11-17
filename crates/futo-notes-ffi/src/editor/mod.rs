@@ -300,6 +300,21 @@ impl NativeEditorSession {
         })
     }
 
+    /// Select, as one object, the code block whose code shows at display
+    /// byte `at` (a tap on its header).
+    pub fn select_code_block(
+        &self,
+        expected: u64,
+        at: u64,
+    ) -> Result<EditorSelectionChange, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            let at = usize::try_from(at).map_err(|_| EditorSessionError::InvalidRange)?;
+            Ok(session
+                .select_code_block(Revision(expected), futo_notes_editor::DisplayOffset(at))?
+                .into())
+        })
+    }
+
     pub fn toggle_format(
         &self,
         expected: u64,

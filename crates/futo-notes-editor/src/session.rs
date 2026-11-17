@@ -102,6 +102,11 @@ impl EditorSession {
         self.engine.selection()
     }
 
+    /// The code block selected as one object, as changes report it.
+    pub fn selected_block(&self) -> Option<DisplayRange> {
+        self.engine.selected_block()
+    }
+
     /// The word a double click at `offset` selects (`engine/words.rs`).
     pub fn word_at(
         &self,
@@ -158,6 +163,17 @@ impl EditorSession {
         affinity: Affinity,
     ) -> Result<SelectionChange, EditorError> {
         self.run(|e| e.select_with_affinity(expected, range, affinity))
+    }
+
+    /// Select, as one object, the code block whose code shows at display
+    /// offset `at` (a host's tap on the block's header). The state shows on
+    /// every change as `selected_block` until another selection or an edit.
+    pub fn select_code_block(
+        &mut self,
+        expected: Revision,
+        at: DisplayOffset,
+    ) -> Result<SelectionChange, EditorError> {
+        self.run(|e| e.select_code_block(expected, at))
     }
 
     /// Move one extended grapheme in the requested direction, collapsing a

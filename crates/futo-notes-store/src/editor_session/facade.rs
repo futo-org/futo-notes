@@ -193,6 +193,19 @@ impl StoreEditorSession<'_> {
         })
     }
 
+    pub fn select_code_block(
+        &mut self,
+        expected: Revision,
+        at: futo_notes_editor::DisplayOffset,
+    ) -> Result<SelectionChange, EditorStoreError> {
+        self.live(|state| {
+            state
+                .engine
+                .select_code_block(expected, at)
+                .map_err(EditorStoreError::Editor)
+        })
+    }
+
     pub fn toggle_format(
         &mut self,
         expected: Revision,

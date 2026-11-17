@@ -45,6 +45,9 @@ impl From<editor::DisplayUtf16Range> for EditorUtf16Range {
 pub struct EditorSelectionChange {
     pub revision: u64,
     pub selection: EditorByteRange,
+    /// The code block selected as one object (its display range, which
+    /// `selection` then equals), when the selection is one.
+    pub selected_block: Option<EditorByteRange>,
     pub affinity: EditorAffinity,
 }
 
@@ -53,6 +56,7 @@ impl From<editor::SelectionChange> for EditorSelectionChange {
         Self {
             revision: value.revision.0,
             selection: value.selection.into(),
+            selected_block: value.selected_block.map(Into::into),
             affinity: value.affinity.into(),
         }
     }
@@ -118,6 +122,8 @@ pub enum EditorBlockCommand {
     CodeBlock,
     WrapCodeBlock,
     ToggleHeading { level: u8 },
+    OpenLineBeforeCodeBlock,
+    OpenLineAfterCodeBlock,
 }
 impl From<EditorBlockCommand> for editor::BlockCommand {
     fn from(value: EditorBlockCommand) -> Self {
@@ -134,6 +140,8 @@ impl From<EditorBlockCommand> for editor::BlockCommand {
             EditorBlockCommand::CodeBlock => Self::CodeBlock,
             EditorBlockCommand::WrapCodeBlock => Self::WrapCodeBlock,
             EditorBlockCommand::ToggleHeading { level } => Self::ToggleHeading(level),
+            EditorBlockCommand::OpenLineBeforeCodeBlock => Self::OpenLineBeforeCodeBlock,
+            EditorBlockCommand::OpenLineAfterCodeBlock => Self::OpenLineAfterCodeBlock,
         }
     }
 }
@@ -183,6 +191,8 @@ pub struct EditorViewChange {
     pub inserted: String,
     /// Selection in the resulting display's UTF-8 bytes.
     pub selection: EditorByteRange,
+    /// The code block selected as one object, as on `EditorSelectionChange`.
+    pub selected_block: Option<EditorByteRange>,
     pub materialized_source_bytes: u64,
     pub inserted_bytes: u64,
     pub parsed_source_bytes: u64,
@@ -200,6 +210,7 @@ impl From<editor::ViewChange> for EditorViewChange {
             range: value.range.into(),
             inserted: value.inserted,
             selection: value.selection.into(),
+            selected_block: value.selected_block.map(Into::into),
             materialized_source_bytes: value.work.materialized_source_bytes as u64,
             inserted_bytes: value.work.inserted_bytes as u64,
             parsed_source_bytes: value.work.parsed_source_bytes as u64,

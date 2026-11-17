@@ -35,7 +35,9 @@ export type BlockCommand =
   | 'BulletList'
   | 'OrderedList'
   | 'TaskList'
-  | 'CodeBlock';
+  | 'CodeBlock'
+  | 'OpenLineBeforeCodeBlock'
+  | 'OpenLineAfterCodeBlock';
 export type TableKey = 'Tab' | 'ShiftTab' | 'Enter' | 'ModEnter' | 'ShiftEnter';
 export type TableCommand =
   | 'InsertRowAbove'
@@ -235,15 +237,19 @@ export interface ViewChange {
   range: DisplayRange;
   inserted: string;
   selection: DisplayRange;
+  /** The code block selected as one object (its whole range, which `selection` then equals). */
+  selected_block: DisplayRange | null;
   work: EditWork;
   affinity: Affinity;
   projection: ProjectionSlice;
 }
 
-/** `select_with_affinity`. */
+/** `select_with_affinity`, `select_code_block`. */
 export interface SelectionChange {
   revision: number;
   selection: DisplayRange;
+  /** As on `ViewChange`. */
+  selected_block: DisplayRange | null;
   affinity: Affinity;
 }
 

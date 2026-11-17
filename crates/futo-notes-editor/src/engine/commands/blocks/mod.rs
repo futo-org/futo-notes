@@ -196,8 +196,7 @@ impl Engine {
         let (first, last) = (self.line_of(plan.range.start), self.line_of(plan.range.end));
         let start = self.line_start(first);
         let end = self.line_start(last) + self.line(last).body_len();
-        // A fence line the selection cuts is kept on a line of its own
-        // (`Engine::plan`), so the lines do not join into one.
+        // Only a replacement within the touched lines joins them into one.
         if plan.range.end > end || plan.inserted.contains('\n') {
             return None;
         }

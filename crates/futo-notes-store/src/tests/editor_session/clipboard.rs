@@ -59,10 +59,10 @@ fn block_paste_in_empty_code_is_literal_through_checkpoint() {
     assert_eq!(reopened.display_text(), "# h\n");
 }
 
-/// Pasting over a selection from a block's code past it writes what typing
-/// writes: the frame stays and the pasted line is code (fenced-code.md).
+/// Pasting over a selection from a block's code past it takes the block
+/// whole, as typing does (fenced-code.md), as one saved action.
 #[test]
-fn block_paste_from_code_over_prose_keeps_the_frame_as_one_saved_action() {
+fn block_paste_from_code_over_prose_takes_the_block_as_one_saved_action() {
     let root = TestRoot::new();
     let store = store(&root);
     let original = "```\n\n```\n\nplain\n";
@@ -79,9 +79,9 @@ fn block_paste_from_code_over_prose_keeps_the_frame_as_one_saved_action() {
         .paste_markdown(Revision(0), range(0, 8), "# h")
         .unwrap()
         .unwrap();
-    assert_eq!(change.selection, range(3, 3));
-    assert_eq!(session.source_text(), "```\n# h\n```");
-    assert_eq!(session.display_text(), "# h");
+    assert_eq!(change.selection, range(1, 1));
+    assert_eq!(session.source_text(), "# h");
+    assert_eq!(session.display_text(), "h");
     assert_eq!(
         session.undo(Revision(1)).unwrap().unwrap().selection,
         range(0, 8)
@@ -89,11 +89,11 @@ fn block_paste_from_code_over_prose_keeps_the_frame_as_one_saved_action() {
     assert_eq!(session.source_text(), original);
     assert_eq!(
         session.redo(Revision(2)).unwrap().unwrap().selection,
-        range(3, 3)
+        range(1, 1)
     );
     session.checkpoint().unwrap();
     drop(session);
     let reopened = store.open_editor("selected-code").unwrap();
-    assert_eq!(reopened.source_text(), "```\n# h\n```");
-    assert_eq!(reopened.display_text(), "# h");
+    assert_eq!(reopened.source_text(), "# h");
+    assert_eq!(reopened.display_text(), "h");
 }

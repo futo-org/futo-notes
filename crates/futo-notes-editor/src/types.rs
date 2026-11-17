@@ -79,6 +79,10 @@ pub struct ViewChange {
     pub range: DisplayRange,
     pub inserted: String,
     pub selection: DisplayRange,
+    /// The code block selected as one object, when the selection is one: its
+    /// whole display range, which `selection` then equals.
+    #[serde(default)]
+    pub selected_block: Option<DisplayRange>,
     pub work: EditWork,
     pub affinity: Affinity,
     /// Semantic replacement for the reparsed paragraph window, including
@@ -97,6 +101,9 @@ pub enum CaretDirection {
 pub struct SelectionChange {
     pub revision: Revision,
     pub selection: DisplayRange,
+    /// As `ViewChange::selected_block`.
+    #[serde(default)]
+    pub selected_block: Option<DisplayRange>,
     pub affinity: Affinity,
 }
 

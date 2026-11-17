@@ -8,9 +8,10 @@ pub(super) fn ok(_: &SourceEdit) -> Result<(), String> {
 /// What the history should hold, kept beside the engine.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct State {
-    source: String,
+    pub(super) source: String,
     selection: DisplayRange,
     affinity: Affinity,
+    selected_block: Option<DisplayRange>,
 }
 
 pub(super) fn state(engine: &Engine) -> State {
@@ -18,6 +19,7 @@ pub(super) fn state(engine: &Engine) -> State {
         source: engine.source_text(),
         selection: engine.selection(),
         affinity: engine.affinity(),
+        selected_block: engine.selected_block(),
     }
 }
 
@@ -135,26 +137,8 @@ pub(super) fn type_step(
         };
         start..engine.source_span(stop.end.0).1
     };
-    // ... except that a fence frame line it cuts goes after the line the
-    // text joins (`kept_frame`), at most through the line after that one.
-    let reach = {
-        let lines = engine.line_of(spanned.start)..engine.line_of(spanned.end) + 1;
-        let cuts_frame = lines.into_iter().any(|index| {
-            matches!(
-                engine.line(index).line.kind,
-                Kind::Fence {
-                    role: FenceRole::Open | FenceRole::Close,
-                    ..
-                }
-            )
-        });
-        let next = (engine.line_of(spanned.end) + 1).min(engine.line_count() - 1);
-        if cuts_frame {
-            engine.line_start(next) + engine.line(next).text.len()
-        } else {
-            spanned.end
-        }
-    };
+    let reach = whole_blocks(engine, &spanned);
+    let block_selected = engine.selected_block().is_some();
     let change = engine
         .replace(revision, selection, text, InputAction::Typing, &mut ok)
         .unwrap_or_else(|error| {
@@ -165,15 +149,24 @@ pub(super) fn type_step(
             )
         });
     let Some(change) = change else {
-        assert!(!collapsed, "typing {text:?} at a caret changed nothing");
+        // Over a selected block, the typed text may be the block's own.
+        assert!(
+            !collapsed || block_selected,
+            "typing {text:?} at a caret changed nothing"
+        );
         return format!("type {text:?} over {selection:?}, no change");
     };
     apply_view(view, &change);
+    if block_selected {
+        typed_over_selected_block(&change.edit, text);
+        model.edited(engine, before, groups);
+        return format!("type {text:?} over the selected block {selection:?}");
+    }
     if !collapsed {
         let edited = change.edit.range.start.0..change.edit.range.end.0;
         assert!(
-            spanned.start <= edited.start && edited.end <= reach,
-            "replacing {selection:?} edited {edited:?}, outside {spanned:?} (reach {reach})"
+            reach.start <= edited.start && edited.end <= reach.end,
+            "replacing {selection:?} edited {edited:?}, outside {spanned:?} (reach {reach:?})"
         );
     }
     if collapsed {
@@ -393,6 +386,7 @@ pub(super) fn compose_then_type_step(
         },
         selection: group.after.selection,
         affinity: group.after.affinity,
+        selected_block: group.after.block_selected.then_some(group.after.selection),
     };
     model.edited_twice(engine, before, middle);
     format!("compose then type at {selection:?}")
@@ -432,121 +426,52 @@ pub(super) fn source_step(
     format!("edit source {a}..{b} to {text:?}")
 }
 
+/// `spanned` widened over a code block it reaches into or out of, which
+/// goes whole, from its opening line through its closing line.
+fn whole_blocks(engine: &Engine, spanned: &std::ops::Range<usize>) -> std::ops::Range<usize> {
+    let first = engine.line_of(spanned.start);
+    let last = engine.line_of(spanned.end);
+    let start = fence_lines(engine, first).map_or(spanned.start, |(open, _)| {
+        engine.line_start(open).min(spanned.start)
+    });
+    let end = fence_lines(engine, last).map_or(spanned.end, |(_, close)| {
+        (engine.line_start(close) + engine.line(close).text.len()).max(spanned.end)
+    });
+    start..end
+}
+
+/// Typing over a block selected as one object replaces it, fences and all.
+fn typed_over_selected_block(edit: &SourceEdit, text: &str) {
+    let removed = edit.removed.trim_start_matches([' ', '\t']);
+    assert!(
+        edit.inserted == text && (removed.starts_with("```") || removed.starts_with("~~~")),
+        "typing {text:?} over a selected block wrote {:?} over {:?}",
+        edit.inserted,
+        edit.removed
+    );
+}
+
+/// The opening and closing (or last) line of the fence holding line `index`,
+/// found by walking: an oracle independent of `CodeBlock`.
+fn fence_lines(engine: &Engine, index: usize) -> Option<(usize, usize)> {
+    let role = |index: usize| match engine.line(index).line.kind {
+        Kind::Fence { role, .. } => Some(role),
+        _ => None,
+    };
+    role(index)?;
+    let mut open = index;
+    while role(open) != Some(FenceRole::Open) {
+        open -= 1;
+    }
+    let mut close = open + 1;
+    while close < engine.line_count() && role(close) == Some(FenceRole::Code) {
+        close += 1;
+    }
+    Some((open, close.min(engine.line_count() - 1)))
+}
+
 /// The ending typing on an empty line at line `index` of `source` writes.
 pub(super) fn engine_ending(source: &str, index: usize) -> String {
     let engine = Engine::open(source);
     engine.empty_line_ending(index)
-}
-
-/// Pasted texts: lines, blocks, fences, table syntax and line endings.
-const PASTED: &[&str] = &[
-    "x",
-    "a b\n",
-    "x\ny",
-    "\t\r\n",
-    "- a\n  - b",
-    "# h\n>\nz",
-    "> q\n> r",
-    "```\ncode",
-    "~~~\nx\n~~~",
-    "|---|---|",
-    "| a | b |\r\n| c |",
-    "1. one\r\n2) two",
-    "**b** [l](u)\n*i",
-    "---",
-];
-
-/// Paste a random text, or cut, at `range`.
-fn clipboard(
-    engine: &mut Engine,
-    range: DisplayRange,
-    random: &mut Random,
-) -> (Option<crate::ViewChange>, String) {
-    let revision = engine.revision();
-    if random.below(4) == 0 {
-        let (_, change) = engine.cut_markdown(revision, range, &mut ok).unwrap();
-        return (change, format!("cut {range:?}"));
-    }
-    let text = random.pick(PASTED);
-    let change = match engine.paste_markdown(revision, range, text, &mut ok) {
-        // A paste across table cells is refused and changes nothing.
-        Err(crate::EditorError::UnrepresentableFormat) => None,
-        change => change.unwrap(),
-    };
-    (change, format!("paste {text:?} at {range:?}"))
-}
-
-/// A paragraph key or toolbar block command at the selection, through the
-/// command families and the guard. Properties 3 and 4 hold for commands as
-/// for typing; a cancelled command changes nothing.
-pub(super) fn command_step(
-    engine: &mut Engine,
-    model: &mut Model,
-    view: &mut View,
-    random: &mut Random,
-) -> String {
-    use crate::{BlockCommand, ParagraphKey};
-    let revision = engine.revision();
-    let before = state(engine);
-    let groups = engine.history.undo.len();
-    let range = engine.selection();
-    let (change, name) = if random.below(4) == 0 {
-        clipboard(engine, range, random)
-    } else if random.below(2) == 0 {
-        let key = [
-            ParagraphKey::Enter,
-            ParagraphKey::ShiftEnter,
-            ParagraphKey::Backspace,
-            ParagraphKey::BackspaceJoiningHeading,
-            ParagraphKey::Delete,
-            ParagraphKey::Tab,
-            ParagraphKey::ShiftTab,
-        ][random.below(7)];
-        (
-            engine.key(revision, range, key, &mut ok).unwrap(),
-            format!("key {key:?} at {range:?}"),
-        )
-    } else {
-        let level = random.below(7) as u8;
-        let command = [
-            BlockCommand::Heading(level),
-            BlockCommand::ToggleHeading(level.max(1)),
-            BlockCommand::Quote,
-            BlockCommand::Indent,
-            BlockCommand::Outdent,
-            BlockCommand::Divider,
-            BlockCommand::ToggleTask,
-            BlockCommand::BulletList,
-            BlockCommand::OrderedList,
-            BlockCommand::TaskList,
-            BlockCommand::CodeBlock,
-            BlockCommand::WrapCodeBlock,
-        ][random.below(12)];
-        (
-            engine.block(revision, range, command, &mut ok).unwrap(),
-            format!("command {command:?} at {range:?}"),
-        )
-    };
-    match change {
-        // A table key that only moves the selection.
-        Some(change) if change.revision == revision => {
-            assert!(change.inserted.is_empty(), "{name} moved only");
-            assert_eq!(engine.source_text(), before.source, "{name} moved only");
-            assert_eq!(engine.history.undo.len(), groups, "{name} moved only");
-        }
-        Some(change) => {
-            apply_view_change(view, &change);
-            assert_eq!(change.revision, engine.revision(), "{name}");
-            model.edited(engine, before, groups);
-        }
-        None => {
-            assert_eq!(engine.revision(), revision, "{name} changed nothing");
-            assert_eq!(
-                engine.source_text(),
-                before.source,
-                "{name} changed nothing"
-            );
-        }
-    }
-    name
 }

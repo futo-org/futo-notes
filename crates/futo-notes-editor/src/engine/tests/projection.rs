@@ -467,14 +467,19 @@ fn a_line_left_after_a_split_block_is_described_as_its_new_first_line() {
 
 #[test]
 fn a_block_whose_opening_line_turns_to_code_describes_the_line_after_it() {
-    // Inside the pasted `py` fence "```q" does not close it, so the second
+    // Inside the written `py` fence "```q" does not close it, so the second
     // block's opening line reads as code and `fz` is no longer a first line,
     // though its reading and its carry (inside a `py` fence) are unchanged.
     let mut engine = Engine::open("a\n```\nkq\n```\n```py\nfz\n```");
+    let written = crate::SourceRange {
+        start: crate::SourceOffset(0),
+        end: crate::SourceOffset(13),
+    };
     let change = engine
-        .paste_markdown(engine.revision(), range(0, 3), "```py\nz\n```", &mut ok)
+        .edit_source(engine.revision(), written, "```py\nz\n```q\n", &mut ok)
         .unwrap()
         .unwrap();
+    let change = engine.view(change);
     assert_eq!(engine.source_text(), "```py\nz\n```q\n```py\nfz\n```");
     let fz = engine.display_text().find("fz").unwrap();
     assert_eq!(change.projection.range, range(0, fz + 2));

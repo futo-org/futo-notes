@@ -8,9 +8,12 @@ use crate::{CodeBlockDescription, CodeLineDescription, DisplayOffset, DisplayRan
 use std::sync::Arc;
 
 pub(super) struct CodeBlock {
+    /// Its opening line, and its closing line when something closes it.
+    pub opener: usize,
+    pub closer: Option<usize>,
     /// The first and last lines shown as its code.
-    first: usize,
-    last: usize,
+    pub first: usize,
+    pub last: usize,
     info: Arc<FenceInfo>,
     pub description: CodeBlockDescription,
 }
@@ -51,8 +54,10 @@ impl CodeBlock {
     /// The block of line `index`, which shows as code (`is_code_line`).
     pub fn holding(store: &Store, index: usize) -> Self {
         let empty = is_opening_fence(store.get(index));
-        let (opener, first, last) = if empty {
-            (index, index, index)
+        let (opener, first, last, closer) = if empty {
+            // An empty block's line is the note's last, or a closing line follows it.
+            let closer = (index + 1 < store.len()).then_some(index + 1);
+            (index, index, index, closer)
         } else {
             // The fence lines before a code line end with its opening line.
             let opened = store.before(index).frames;
@@ -61,7 +66,7 @@ impl CodeBlock {
                 .expect("a code line's opening fence");
             let closer = store.line_past(store::frames, opened).map(|(at, _)| at);
             let last = closer.map_or(store.len() - 1, |closer| closer - 1);
-            (opener, opener + 1, last)
+            (opener, opener + 1, last, closer)
         };
         let info = match &store.get(opener).line.kind {
             Kind::Fence {
@@ -80,6 +85,8 @@ impl CodeBlock {
             line_count: line_count(last - first + 1),
         };
         Self {
+            opener,
+            closer,
             first,
             last,
             info,
