@@ -146,6 +146,7 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
       assert.deepEqual(JSON.parse(page.select_with_affinity(5n, 3, 3, JSON.stringify(affinity))), {
         revision: 5,
         selection: { start: 3, end: 3 },
+        selected_block: null,
         affinity,
       });
     }
