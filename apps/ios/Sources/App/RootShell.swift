@@ -6,9 +6,6 @@ import SwiftUI
 struct RootShell: View {
     @State private var window = RootShell.initialWindowSize
     @EnvironmentObject private var navigation: AppNavigation
-    /// Open notes renamed or moved under their editor, so a fold reopens them by their
-    /// current id (the path keeps the id each was opened with).
-    @State private var identities = NoteIdentities()
     @State private var handoff = ShellHandoff()
 
     var body: some View {
@@ -58,7 +55,6 @@ struct RootShell: View {
             case .pages: DuoPagesView()
             }
         }
-        .environment(\.reportNoteIdentity) { identities.record($0, as: $1) }
         .environment(\.shellHandoff, handoff)
         .environment(\.isDuoOuter, duoOuter)
         .environment(\.compactNoteRows, duoOuter)
@@ -103,22 +99,28 @@ struct RootShell: View {
         }
         let path = navigation.path
         let interim = PagesPath.chain(PagesPath.folder(of: path))
-        // By its current id if it was renamed or moved under its editor; a just-created
-        // note stays new, so the new shell's screen still discards it if left untouched.
-        let reopened = path.map { route in
-            switch route {
-            case .note(let id): Route.note(identities.current(id))
-            case .newNote(let id): Route.newNote(identities.current(id))
-            case .folder: route
-            }
-        }
         handoff.active = true
         navigation.path = interim
         window = size
         Task { @MainActor in
+            // The leaving editors save first (and commit a title typed just before the
+            // fold), so each note reopens by the id it ended with.
+            try? await Task.sleep(for: .milliseconds(100))
+            let opened = path.compactMap(PagesPath.noteId)
+            let places = await TextFirstLeaves.whereNow(opened: opened, within: .seconds(2))
             handoff.active = false
             // Only while nothing else navigated in between (a note created meanwhile wins).
-            if navigation.path == interim { navigation.path = reopened }
+            guard navigation.path == interim else { return }
+            navigation.path = path.map { route in
+                switch route {
+                case .note(let id): .note(places[id] ?? id)
+                // An untouched new note stays new, so the new shell still discards it if
+                // left untouched; a renamed one is an ordinary note now.
+                case .newNote(let id):
+                    places[id].map { $0 == id ? .newNote(id) : .note($0) } ?? .newNote(id)
+                case .folder: route
+                }
+            }
         }
     }
 
@@ -129,15 +131,4 @@ struct RootShell: View {
             .compactMap { ($0 as? UIWindowScene)?.keyWindow?.bounds.size }
             .first ?? .zero
     }
-}
-
-/// Where each note opened under an id has gone since (a rename or move under its editor).
-final class NoteIdentities {
-    private var moved: [String: String] = [:]
-
-    func record(_ opened: String, as current: String) {
-        moved[opened] = opened == current ? nil : current
-    }
-
-    func current(_ opened: String) -> String { moved[opened] ?? opened }
 }

@@ -10,7 +10,6 @@ struct TextFirstNoteScreen: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.localization) private var localization
     @Environment(\.reportVisibleNote) private var reportVisibleNote
-    @Environment(\.reportNoteIdentity) private var reportNoteIdentity
     @Environment(\.shellHandoff) private var shellHandoff
 
     @State private var noteId: String
@@ -354,7 +353,6 @@ struct TextFirstNoteScreen: View {
         titleField = TextFirstTitle.fieldText(titleField, from: noteId, to: id)
         noteId = id
         reportVisibleNote?(id)
-        reportNoteIdentity?(originalId, id)
     }
 
     private func leave() {

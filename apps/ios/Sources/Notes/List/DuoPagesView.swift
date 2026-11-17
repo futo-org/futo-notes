@@ -328,20 +328,25 @@ struct DuoPagesView: View {
         editorRoutes.wrappedValue = [route]
     }
 
-    /// Before the list deletes notes (or a folder of them) that the editor pane shows, the
-    /// pane closes them and waits for each to save and detach, as Back would. False when a
-    /// leave is still saving after a few seconds: the delete waits for the user to retry.
+    /// Before the list deletes notes (or a folder of them) that the editor pane shows, or
+    /// that a closed editor is still saving, the pane closes them and waits for each save
+    /// and detach, as Back would. False when one is still saving after a few seconds: the
+    /// delete waits for the user to retry, so it can never drop a draft.
     private func closeEditor(showing ids: Set<String>, under folder: String?) async -> Bool {
-        var showing = Set(noteRoutes.compactMap(PagesPath.noteId))
-        if let visibleNoteId { showing.insert(visibleNoteId) }
-        let affected = showing.filter { id in
+        func affected(_ id: String) -> Bool {
             ids.contains(id) || folder.map { id.hasPrefix($0 + "/") } ?? false
         }
-        guard !affected.isEmpty else { return true }
-        editorRoutes.wrappedValue = []
+        var showing = Set(noteRoutes.compactMap(PagesPath.noteId))
+        if let visibleNoteId { showing.insert(visibleNoteId) }
+        if showing.contains(where: affected) { editorRoutes.wrappedValue = [] }
         for _ in 0..<50 {
-            try? await Task.sleep(for: .milliseconds(100))
-            if !affected.contains(where: TextFirstLeaves.isLeaving) { return true }
+            let saving = TextFirstLeaves.leavingIds.contains(where: affected)
+            if saving || showing.contains(where: affected) {
+                try? await Task.sleep(for: .milliseconds(100))
+                showing = []
+            } else {
+                return true
+            }
         }
         return false
     }
