@@ -12,7 +12,8 @@ import android.text.style.MetricAffectingSpan
 /**
  * One code line: its monospace face, the gutter it is inset by, the header above a block's first
  * line and the skirt under its last. The number and the gutter rule are drawn in the leading
- * margin, so they are never text. The card, its border, the marks and the header are not a
+ * margin, so they are never text; a right-to-left line draws them on its right, beside where its text
+ * starts, as list markers do. The card, its border, the marks and the header are not a
  * LineBackgroundSpan: the TextView draws the caret before the layout's line backgrounds, so the
  * view paints them first instead (`drawCodeBlocks`).
  */
@@ -21,7 +22,6 @@ internal class TfCodeBlock(private val look: TextFirstStyle, val line: CodeLineF
     private val numberPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = look.mono
         textSize = look.codeTextSize
-        textAlign = Paint.Align.RIGHT
     }
     private val rulePaint = Paint()
     /** Where the numbers end: two digits wide at least, one more per digit the block's count needs. */
@@ -46,10 +46,12 @@ internal class TfCodeBlock(private val look: TextFirstStyle, val line: CodeLineF
         val ruleTop = if (start == spanStart && line.first) top + look.codeHeaderHeight else top.toFloat()
         val ruleBottom = if (line.last && reachesSpanEnd(spanned, end)) bottom - bottomExtra(spanned) else bottom.toFloat()
         rulePaint.color = look.codeRuleColor
-        c.drawRect(x + ruleX, ruleTop, x + ruleX + look.dp(1f), ruleBottom, rulePaint)
+        val ruleLeft = if (dir < 0) x - ruleX - look.dp(1f) else x + ruleX
+        c.drawRect(ruleLeft, ruleTop, ruleLeft + look.dp(1f), ruleBottom, rulePaint)
         if (!first || start != spanStart) return
         numberPaint.color = look.codeNumberColor
-        c.drawText(line.number.toString(), x + numberEnd, baseline.toFloat(), numberPaint)
+        numberPaint.textAlign = if (dir < 0) Paint.Align.LEFT else Paint.Align.RIGHT
+        c.drawText(line.number.toString(), x + numberEnd * dir, baseline.toFloat(), numberPaint)
     }
 
     override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
