@@ -21,7 +21,7 @@
 //!    a surrogate pair and never clamp.
 //!
 //! `TYPING_CASES` and `TYPING_SEED` set the number of notes and the seed.
-mod checks;
+pub(super) mod checks;
 mod generate;
 mod inline;
 mod real;

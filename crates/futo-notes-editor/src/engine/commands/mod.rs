@@ -10,6 +10,7 @@ mod images;
 mod inline;
 mod lists;
 mod marks;
+mod moves;
 mod tables;
 mod wikilinks;
 

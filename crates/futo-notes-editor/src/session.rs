@@ -315,6 +315,42 @@ impl EditorSession {
         self.run(|e| e.block(expected, range, command, accept))
     }
 
+    /// The display extent of the block the line at `at` lifts for a move:
+    /// `None` for a blank line, front matter or code nothing closes.
+    pub fn block_at(
+        &self,
+        expected: Revision,
+        at: DisplayOffset,
+    ) -> Result<Option<DisplayRange>, EditorError> {
+        self.engine.block_at(expected, at)
+    }
+
+    /// Where that block may land: each slot is the display offset of the
+    /// line start below it, or the display's end. Empty when nothing lifts.
+    pub fn block_slots(
+        &self,
+        expected: Revision,
+        at: DisplayOffset,
+    ) -> Result<Vec<DisplayOffset>, EditorError> {
+        self.engine.block_slots_at(expected, at)
+    }
+
+    /// Move that block to its slot `to` as one accepted edit and one Undo
+    /// step. `None` is a refusal that changed nothing: no block, not a slot,
+    /// or a move that would change what another line reads as.
+    pub fn move_block(
+        &mut self,
+        expected: Revision,
+        at: DisplayOffset,
+        to: DisplayOffset,
+        accept: Accept,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.run(|e| {
+            let change = e.move_block(expected, at, to, accept)?;
+            Ok(change.map(|change| e.view(change)))
+        })
+    }
+
     /// Selection-wide formats and common blocks, plus command eligibility.
     pub fn toolbar_state(&self) -> ToolbarState {
         self.engine.toolbar()

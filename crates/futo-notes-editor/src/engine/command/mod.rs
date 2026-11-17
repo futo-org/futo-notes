@@ -7,7 +7,8 @@
 //! the lines around them are read forward until the reader's carry settles.
 //! If a line the command did not name now reads as a different kind of
 //! block (a fence or front matter opened or closed, a table header gained or
-//! lost), the command is cancelled: no edit, no history entry. Typing never
+//! lost), the command is cancelled: no edit, no history entry. A command can
+//! also hold named lines to their kind (`Command::same_kind`). Typing never
 //! goes through the guard.
 mod kept_line;
 
@@ -62,6 +63,10 @@ pub(crate) struct Command {
     /// A deletion's formats the caret keeps where it no longer reads them
     /// (`Engine::carry_deleted`).
     pub carry: Option<Vec<InlineFormat>>,
+    /// Named lines that must still read as the same kind of block after the
+    /// edits, as (index before, index after): a block move's lines change
+    /// place, never kind.
+    pub same_kind: Vec<(usize, usize)>,
 }
 
 impl Command {
@@ -75,6 +80,7 @@ impl Command {
             affinity: None,
             typed: false,
             carry: None,
+            same_kind: Vec::new(),
         }
     }
 
@@ -429,8 +435,17 @@ impl Engine {
         } else {
             Some(self.before_command(command, &edits)?)
         };
+        let same_kind: Vec<_> = command
+            .same_kind
+            .iter()
+            .map(|&(old, new)| (class(&self.store.get(old).line.kind), new))
+            .collect();
         self.raw_edits(batch, &edits);
-        Ok(before.is_none_or(|before| self.guard_holds(&before)))
+        let count = self.store.len();
+        let kinds_kept = same_kind
+            .iter()
+            .all(|&(was, new)| new < count && class(&self.store.get(new).line.kind) == was);
+        Ok(kinds_kept && before.is_none_or(|before| self.guard_holds(&before)))
     }
 
     /// Put the selection at source `range` of the current text.

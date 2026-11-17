@@ -20,6 +20,12 @@ use crate::{BlockCommand, DisplayRange, EditorError, ParagraphKey};
 use std::ops::Range;
 
 impl Engine {
+    /// The end (exclusive) of item `root` and the lines under it, as Indent
+    /// moves them.
+    pub(super) fn list_subtree_end(&self, root: usize) -> usize {
+        draft::Draft::new(self).under(root)
+    }
+
     /// Indent, outdent and the list toolbar commands.
     pub(super) fn list_command(
         &self,
