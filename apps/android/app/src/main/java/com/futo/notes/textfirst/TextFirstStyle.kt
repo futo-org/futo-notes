@@ -57,6 +57,7 @@ internal class TextFirstStyle(
     val codeHeaderTextSize = codeMetric(12f)
     val codeCorner = codeMetric(10f)
     val codeChipPad = codeMetric(7f)
+    val codeNameEndPad = codeMetric(4f)
     val codeSkirt = codeMetric(10f)
     val codeRadius = codeMetric(6f)
     val codeBlockGap = codeMetric(4f)

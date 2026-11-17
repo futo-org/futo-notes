@@ -108,8 +108,8 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
                 }
             }
         }
-        // The drawn label's face, so the text does not change shape when the field opens or closes.
-        field.typeface = if (state.kind == Kind.NAME) look.mono else look.regular
+        // Both of !300's fields are mono: the language shows its fence word, not its label, while edited.
+        field.typeface = look.mono
         field.setTextSize(TypedValue.COMPLEX_UNIT_PX, look.codeHeaderTextSize)
         // !300's fields keep the header's grey ink while they are edited.
         field.setTextColor(look.codeChromeInk)
@@ -203,7 +203,8 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         }
         val look = note.style
         val textWidth = open.paint.measureText(open.text.toString()) + look.codeChipPad * 2 + look.dp(2f)
-        val width = maxOf(textWidth, look.codeChipPad * 4).coerceAtMost(note.width * 0.6f)
+        val widest = if (state.kind == Kind.NAME) note.codeChrome.nameRoom(-look.codeCardOutset, note.width + look.codeCardOutset) + look.codeChipPad * 2 else note.width * 0.6f
+        val width = maxOf(textWidth, look.codeChipPad * 4).coerceAtMost(widest)
         // The language field takes the chip's place, its glyph included, anchored to the card's right corner (cb 300-302).
         val chipRight = (note.codeChrome.areaOf(state.codeStart, CodeBlockAction.COPY_CODE)?.right ?: area.right) - look.codeCorner + look.codeChipPad
         val left = if (state.kind == Kind.NAME) area.left + look.codeCorner - look.codeChipPad else chipRight - width

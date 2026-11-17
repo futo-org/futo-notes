@@ -73,12 +73,14 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         namePaint.typeface = look.mono
         namePaint.textSize = look.codeHeaderTextSize
         namePaint.color = look.codeChromeInk
-        languagePaint.typeface = look.regular
+        val language = block.language?.takeIf { it.isNotEmpty() }
+        // !300 draws a language as a Barlow 500 label and its ghost as the mono field's placeholder.
+        languagePaint.typeface = if (language != null) look.medium else look.mono
         languagePaint.textSize = look.codeHeaderTextSize
         languagePaint.color = look.codeChromeInk
         val bottom = top + look.codeHeaderHeight
         targets.add(CodeBlockTarget(RectF(left, top, right, bottom), CodeBlockAction.SELECT_BLOCK, codeStart, block))
-        val baseline = headerBaseline(top, look.regular)
+        val baseline = headerBaseline(top, languagePaint.typeface)
         val nameBaseline = headerBaseline(top, look.mono)
         // !300's glyph box: 12 px against its 18 px body.
         val glyph = look.codeHeaderTextSize * 16f / 18f
@@ -89,7 +91,6 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         if (copiedBlock == codeStart) drawCheckmark(canvas, glyphLeft, glyphTop, glyph)
         else if (!editingLanguage) drawCopyGlyph(canvas, glyphLeft, glyphTop, glyph)
         val room = glyphLeft - look.codeChipPad - look.codeCorner
-        val language = block.language?.takeIf { it.isNotEmpty() }
         val languageText = language?.let(::codeLanguageLabel) ?: labels.languagePlaceholder
         val shownLanguage = TextUtils.ellipsize(languageText, languagePaint, room / 2f, TextUtils.TruncateAt.END)
         val languageRight = glyphLeft - look.codeChipPad
@@ -107,21 +108,28 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
             canvas.drawText(labels.namePlaceholder, nameLeft, nameBaseline, namePaint)
         }
         block.name?.takeIf { it.isNotEmpty() }?.let { name ->
-            val shown = TextUtils.ellipsize(name, namePaint, nameRight - nameLeft, TextUtils.TruncateAt.END)
+            val shown = TextUtils.ellipsize(name, namePaint, minOf(nameRight - nameLeft, nameRoom(left, right)), TextUtils.TruncateAt.END)
             if (openField != (codeStart to CodeHeaderField.Kind.NAME)) canvas.drawText(shown, 0, shown.length, nameLeft, nameBaseline, namePaint)
             nameEnd += namePaint.measureText(shown, 0, shown.length)
         }
-        val nameBoxEnd = maxOf(nameEnd, nameLeft + namePaint.measureText(labels.namePlaceholder)).coerceAtMost(nameRight)
-        targets.add(CodeBlockTarget(RectF(left, top, nameBoxEnd + look.codeChipPad, bottom), CodeBlockAction.NAME_FIELD, codeStart, block))
+        val nameBoxEnd = (maxOf(nameEnd, nameLeft + namePaint.measureText(labels.namePlaceholder)) + look.codeNameEndPad).coerceAtMost(nameRight)
+        targets.add(CodeBlockTarget(RectF(left, top, nameBoxEnd, bottom), CodeBlockAction.NAME_FIELD, codeStart, block))
         targets.add(CodeBlockTarget(RectF(languageLeft - look.codeChipPad, top, languageRight, bottom), CodeBlockAction.LANGUAGE_LABEL, codeStart, block))
         targets.add(CodeBlockTarget(RectF(languageRight, top, right, bottom), CodeBlockAction.COPY_CODE, codeStart, block))
         if (!header.lineAbove) return
         val label = edgeLabel(labels.addLineAbove, nameRight - nameBoxEnd - look.codeChipPad * 2)
         if (label.isEmpty()) return
         val labelWidth = edgePaint.measureText(label) + look.codeChipPad * 2
+        // Centred in !300's header space: from the name field's padded end to the language chip.
         val center = ((nameBoxEnd + nameRight) / 2f).coerceIn(nameBoxEnd + labelWidth / 2f, nameRight - labelWidth / 2f)
         drawEdgeLabel(canvas, label, center, top, bottom)
         targets.add(CodeBlockTarget(RectF(center - labelWidth / 2f, top, center + labelWidth / 2f, bottom), CodeBlockAction.OPEN_LINE_ABOVE, codeStart))
+    }
+
+    /** The widest a name is shown in a header from [left] to [right]: !300's field is at most 30 characters or 45% of the header. */
+    fun nameRoom(left: Float, right: Float): Float {
+        val fieldPadding = look.codeCorner + look.codeNameEndPad
+        return minOf(namePaint.measureText("0") * 30f + fieldPadding, (right - left) * 0.45f) - fieldPadding
     }
 
     /**
@@ -183,6 +191,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     /** The copy glyph's confirmation, [size] square at ([left], [top]). */
     private fun drawCheckmark(canvas: Canvas, left: Float, top: Float, size: Float) {
         glyphPaint.color = look.codeChromeInk
+        glyphPaint.alpha = GLYPH_ALPHA
         glyphPaint.strokeWidth = size / 9f
         glyphPaint.strokeCap = Paint.Cap.ROUND
         canvas.drawLine(left + size * 0.12f, top + size * 0.55f, left + size * 0.4f, top + size * 0.82f, glyphPaint)
@@ -192,6 +201,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     /** Two overlapping rounded squares, the usual copy mark, [size] square at ([left], [top]). */
     private fun drawCopyGlyph(canvas: Canvas, left: Float, top: Float, size: Float) {
         glyphPaint.color = look.codeChromeInk
+        glyphPaint.alpha = GLYPH_ALPHA
         glyphPaint.strokeWidth = size / 11f
         val square = size * 0.6f
         val corner = size * 0.12f
@@ -207,7 +217,9 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     }
 
     private companion object {
-        /** The ghost "language" is inked lighter than a language the block has. */
-        const val GHOST_ALPHA = 0x80
+        /** !300's placeholders are inked at 0.7 of the header's ink. */
+        const val GHOST_ALPHA = 0xB3
+        /** !300's copy glyph is inked at 0.7. */
+        const val GLYPH_ALPHA = 0xB3
     }
 }
