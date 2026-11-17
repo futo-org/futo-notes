@@ -38,7 +38,7 @@ internal fun TextFirstEditText.drawCodeBlocks(canvas: Canvas) {
  * Whether [next] is the code line after [line] in the same block. Not by comparing block facts: a
  * line restyled alone (typing in it) carries the block's new range while its neighbours keep the old.
  */
-private fun continuesCard(e: android.text.Editable, line: TfCodeBlock, next: TfCodeBlock): Boolean =
+internal fun continuesCard(e: android.text.Spanned, line: TfCodeBlock, next: TfCodeBlock): Boolean =
     !line.line.last && !next.line.first && e.getSpanStart(next) <= e.getSpanEnd(line)
 
 /** One block's visible [lines], in order. A side the viewport cuts off is drawn past the edge, square. */
@@ -56,6 +56,12 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
     codeCardPaint.style = Paint.Style.FILL
     codeCardPaint.color = look.codeWellColor
     canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
+    val headStart = e.getSpanStart(head)
+    // A block taken whole is painted as the card, beneath the marks and the hairline (!300 cb 349-351, 394-396).
+    if (isCardSelected(headStart) || isCodeBlockTakenWhole(headStart)) {
+        codeCardPaint.color = look.selectionColor
+        canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
+    }
     for (span in lines) {
         val mark = span.line.mark ?: continue
         val start = e.getSpanStart(span)
@@ -71,8 +77,6 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
     codeCardPaint.color = look.codeWellBorderColor
     card.inset(stroke / 2, stroke / 2)
     canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
-    val headStart = e.getSpanStart(head)
-    if (isCardSelected(headStart)) drawSelectedCard(canvas, card)
     val active = isCardActive(e, head, tail)
     if (head.line.first && headStart == 0) codeChrome.addSpaceAbove(headStart, width, cardTop)
     if (head.line.first) codeChrome.drawHeader(canvas, head.line.block, headStart, width, cardTop, active && opensLineAbove(e, head))
@@ -100,18 +104,6 @@ private fun opensLineAbove(e: android.text.Editable, head: TfCodeBlock): Boolean
 private fun TextFirstEditText.isCardSelected(codeStart: Int): Boolean =
     selectedCodeBlock?.let { codeStart >= it.first && codeStart <= it.second } ?: false
 
-private fun TextFirstEditText.drawSelectedCard(canvas: Canvas, card: RectF) {
-    val look = style
-    codeCardPaint.style = Paint.Style.FILL
-    codeCardPaint.color = look.selectionColor
-    canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
-    val ring = look.dp(1.5f)
-    codeCardPaint.style = Paint.Style.STROKE
-    codeCardPaint.strokeWidth = ring
-    codeCardPaint.color = look.linkColor
-    card.inset(ring / 2, ring / 2)
-    canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
-}
 
 /**
  * The text scrolled under the top padding. The TextView clips a scrolled view to

@@ -49,7 +49,7 @@ internal class TextFirstEditText(
         set(value) {
             if (field == value) return
             field = value
-            highlightColor = if (value == null) style.selectionColor else 0
+            refreshCodeHighlight()
             invalidate()
         }
     /** The first draw after a keyed update, with where that key's time went. */
@@ -232,6 +232,7 @@ internal class TextFirstEditText(
         if (timings != null) timings.drawStart = android.os.SystemClock.elapsedRealtimeNanos()
         // Under the caret, which the TextView draws before the layout's own drawing.
         drawCodeBlocks(canvas)
+        drawCodeSelection(canvas)
         drawListSelection(canvas)
         drawFindMarks(canvas)
         val e = editableText as? ChunkedEditable
@@ -266,6 +267,7 @@ internal class TextFirstEditText(
         renderedSelection = (selStart.toLong() shl 32) or (selEnd.toLong() and 0xffffffffL)
         selectedObject = selectedObject?.takeIf { it.first == selStart && it.second == selEnd }
         selectedCodeBlock = selectedCodeBlock?.takeIf { it.first == selStart && it.second == selEnd }
+        val painted = paintCodeSelection(selStart, selEnd)
         if (applying) return
         val e = editableText ?: return
         // The end sentinel is not a caret position (an empty Editable has none yet).
@@ -275,7 +277,7 @@ internal class TextFirstEditText(
             applying = true
             try { Selection.setSelection(e, a, b) } finally { applying = false }
         }
-        engine?.viewSelection(appliedSeq, a, b)
+        engine?.viewSelection(appliedSeq, painted?.start ?: a, painted?.end ?: b)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -335,6 +337,7 @@ internal class TextFirstEditText(
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val engine = engine ?: return super.onKeyDown(keyCode, event)
+        if (selectedBlockKey(keyCode, event)) return true
         if (event.isCtrlPressed) {
             when (keyCode) {
                 KeyEvent.KEYCODE_Z -> { if (event.isShiftPressed) engine.redo() else engine.undo(); return true }

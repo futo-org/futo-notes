@@ -31,6 +31,11 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     private val targets = ArrayList<CodeBlockTarget>()
 
     var labels = CodeBlockLabels("", "")
+    /** The selection a block owns the paint of (CodeSelectionPaint). */
+    var selection: CodeSelectionPaint? = null
+    /** The view's last reported selection ends, to tell which end a handle moved. */
+    var lastStart = -1
+    var lastEnd = -1
     /** The code start of the block whose copy glyph shows a checkmark, -1 for none. */
     var copiedBlock = -1
 
