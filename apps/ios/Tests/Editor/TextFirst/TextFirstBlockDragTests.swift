@@ -57,11 +57,11 @@
         }
 
         @Test func aLongPressLiftsTheBlockUnderTheFingerAndBlankLinesKeepThePlatforms() async {
-            // Lines: 0 Head, 1 blank, 2-4 table, 5 image, 6 link, 7 end, 8 the empty last line.
-            // Which lines a line lifts is the engine's (engine/tests/moves.rs); this is which
-            // line a point is.
+            // Lines: 0 Head, 1 blank, 2-4 table, 5 text and a photo, 6 link, 7 end, 8 the empty
+            // last line. Which lines a line lifts is the engine's (engine/tests/moves.rs); this
+            // is which line a point is.
             let h = TextFirstHarness(
-                "# Head\n\n| x | y |\n|---|---|\n| 1 | 2 |\n![](pic.png) see\n[link](https://x.y) on\nend\n",
+                "# Head\n\n| x | y |\n|---|---|\n| 1 | 2 |\nsee ![](pic.png)\n[link](https://x.y) on\nend\n",
                 files: ["pic.png": TextFirstHarness.png(900, 900)])
             #expect(await h.until { h.lineHeights(at: lineStarts(h)[5]).contains { $0 > 100 } })
             // While the note is being edited (the keyboard up, or a hardware keyboard typing
@@ -73,8 +73,12 @@
             #expect(lifted(h, at: point(h, line: 0, x: 4)) == [0])
             #expect(lifted(h, at: point(h, line: 1)) == nil)
             // The table's grid lifts the whole table; an image or a link the block holding it.
+            // The photo is too wide to share a row with `see` and is drawn on its own, but it is
+            // on `see`'s line, and a press on it lifts that line.
             #expect(lifted(h, at: point(h, line: 4, x: 40)) == [2, 3, 4])
-            #expect(lifted(h, at: point(h, line: 5, x: 70)) == [5])
+            let photo = h.controller.imageHit(at: point(h, line: 5, x: 70, fraction: 0.7))
+            #expect(photo != nil)
+            #expect(lifted(h, at: point(h, line: 5, x: 70, fraction: 0.7)) == [5])
             #expect(lifted(h, at: point(h, line: 6, x: 30)) == [6])
             // The note's empty last line lifts nothing (TextKit lays it out in the last
             // paragraph's fragment, under `end`).
