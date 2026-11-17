@@ -143,10 +143,33 @@ export interface BlockDescription {
   quote_depth: number;
   divider: boolean;
   list: ListDescription | null;
-  code: boolean;
-  language: string | null;
+  /** A line of fenced code; its block is in `ProjectionSlice.code_blocks`. */
+  code: CodeLineDescription | null;
   /** Leading front matter: inert, verbatim. */
   metadata: boolean;
+}
+
+/** One shown line of a fenced code block (an empty block shows one). */
+export interface CodeLineDescription {
+  /** 1-based within its block. */
+  line_number: number;
+  first: boolean;
+  last: boolean;
+  mark: CodeLineMark | null;
+}
+
+/** A line mark from the opening fence's `hl:` and `ll:` options. */
+export type CodeLineMark = 'Highlight' | 'Lowlight';
+
+/**
+ * A fenced code block, whole even where the projection holds only part of it: `range` runs from
+ * its first code line's start to its last code line's end (that line's break excluded).
+ */
+export interface CodeBlockDescription {
+  range: DisplayRange;
+  language: string | null;
+  name: string | null;
+  line_count: number;
 }
 
 export interface LinkDescription {
@@ -193,6 +216,8 @@ export interface ProjectionSlice {
   atoms: AtomDescription[];
   /** Each `#tag`'s display range, `#` included: coloured, still plain text. */
   tags: DisplayRange[];
+  /** Each code block the slice's lines belong to, in order. */
+  code_blocks: CodeBlockDescription[];
 }
 
 export interface EditWork {

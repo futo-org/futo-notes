@@ -59,8 +59,7 @@ fn a_projection_describes_each_line_from_its_reading() {
                 b.range.start.0..b.range.end.0,
                 b.heading,
                 b.quote_depth,
-                b.code,
-                b.language.clone(),
+                b.code.as_ref().map(|code| code.line_number),
                 b.divider,
             )
         })
@@ -68,13 +67,15 @@ fn a_projection_describes_each_line_from_its_reading() {
     assert_eq!(
         blocks,
         [
-            (0..4, 1, 0, false, None, false),
-            (5..12, 0, 1, false, None, false),
-            (13..17, 0, 0, true, Some("rust".to_owned()), false),
-            (18..21, 0, 0, false, None, true),
-            (22..41, 0, 0, false, None, false),
+            (0..4, 1, 0, None, false),
+            (5..12, 0, 1, None, false),
+            (13..17, 0, 0, Some(1), false),
+            (18..21, 0, 0, None, true),
+            (22..41, 0, 0, None, false),
         ]
     );
+    assert_eq!(slice.code_blocks.len(), 1);
+    assert_eq!(slice.code_blocks[0].language.as_deref(), Some("rust"));
     assert_eq!(slice.runs.len(), 1);
     assert_eq!(slice.runs[0].range, range(11, 12));
     assert_eq!(slice.runs[0].formats, [crate::InlineFormat::Bold]);
@@ -119,8 +120,8 @@ fn an_empty_last_line_and_an_empty_code_block_keep_their_blocks() {
     assert_eq!(last.list.as_ref().unwrap().marker, "-");
     let slice = projected("```js\n```");
     assert_eq!(slice.blocks.len(), 1);
-    assert!(slice.blocks[0].code);
-    assert_eq!(slice.blocks[0].language.as_deref(), Some("js"));
+    assert!(slice.blocks[0].code.is_some());
+    assert_eq!(slice.code_blocks[0].language.as_deref(), Some("js"));
 }
 
 #[test]
@@ -141,7 +142,7 @@ fn a_change_projects_every_line_it_read_again() {
     let view = engine.view(change);
     assert_eq!(engine.display_text(), "b\nc");
     assert_eq!(view.projection.range, range(0, 3));
-    assert!(view.projection.blocks.iter().all(|b| b.code));
+    assert!(view.projection.blocks.iter().all(|b| b.code.is_some()));
 }
 
 #[test]
@@ -289,4 +290,151 @@ fn inline_code_reads_as_code_only_inside_any_marks() {
         select(&mut engine, code, code + 1, Affinity::Forward);
         assert_eq!(engine.active_formats(), [Code], "{source}: code selected");
     }
+}
+
+/// Each code line of `slice` as `number`, `<` first, `>` last and its mark;
+/// each code block as `start..end language name xcount`.
+fn code_facts(slice: &crate::ProjectionSlice) -> (Vec<String>, Vec<String>) {
+    let lines = slice
+        .blocks
+        .iter()
+        .filter_map(|block| block.code.as_ref())
+        .map(|code| {
+            let mark = match code.mark {
+                Some(crate::CodeLineMark::Highlight) => " hl",
+                Some(crate::CodeLineMark::Lowlight) => " ll",
+                None => "",
+            };
+            let first = if code.first { "<" } else { "" };
+            let last = if code.last { ">" } else { "" };
+            format!("{}{first}{last}{mark}", code.line_number)
+        })
+        .collect();
+    let blocks = slice
+        .code_blocks
+        .iter()
+        .map(|block| {
+            let words: Vec<&str> = [block.language.as_deref(), block.name.as_deref()]
+                .into_iter()
+                .flatten()
+                .collect();
+            let (start, end) = (block.range.start.0, block.range.end.0);
+            format!("{start}..{end} {} x{}", words.join(" "), block.line_count)
+        })
+        .collect();
+    (lines, blocks)
+}
+
+#[test]
+fn code_lines_know_their_block() {
+    let cases: &[(&str, &[&str], &[&str])] = &[
+        (
+            "```js\na\nb\n```\n```js\nc\n```",
+            &["1<", "2>", "1<>"],
+            &["0..3 js x2", "4..5 js x1"],
+        ),
+        (
+            "```\na\n```\n```\nb\n```",
+            &["1<>", "1<>"],
+            &["0..1  x1", "2..3  x1"],
+        ),
+        ("```js\n```", &["1<>"], &["0..0 js x1"]),
+        ("```\n\n\n```", &["1<", "2>"], &["0..1  x2"]),
+        (
+            "```\n```\n```\n```",
+            &["1<>", "1<>"],
+            &["0..0  x1", "1..1  x1"],
+        ),
+        ("```py\nx\ny", &["1<", "2>"], &["0..3 py x2"]),
+        ("```\nx\n", &["1<", "2>"], &["0..2  x2"]),
+        ("a\n```\nb\n```", &["1<>"], &["2..3  x1"]),
+        (
+            "- item\n  ```js\n  code\n  ```\n- next",
+            &["1<>"],
+            &["5..11 js x1"],
+        ),
+        (
+            "```go name:api handlers.go hl:1,3 ll:2-3\none\ntwo\nthree\nfour\n```",
+            &["1< hl", "2 ll", "3 hl", "4>"],
+            &["0..18 go api handlers.go x4"],
+        ),
+        ("```hl:2 ll:9\na\nb\n```", &["1<", "2> hl"], &["0..3  x2"]),
+        ("```hl:1\n```", &["1<> hl"], &["0..0  x1"]),
+    ];
+    for (source, lines, blocks) in cases {
+        let (got_lines, got_blocks) = code_facts(&projected(source));
+        assert_eq!(got_lines, *lines, "{source:?}");
+        assert_eq!(got_blocks, *blocks, "{source:?}");
+    }
+}
+
+#[test]
+fn a_window_into_a_long_block_reports_the_whole_block() {
+    let code: String = (1..=100).map(|i| format!("line {i}\n")).collect();
+    let source = format!("intro\n```rust\n{code}```\nafter");
+    let mut engine = Engine::open(&source);
+    let display = engine.display_text();
+    let at = display.find("line 50\n").unwrap();
+    let window = |engine: &Engine| {
+        let slice = engine
+            .project(engine.revision(), range(at, at + 10))
+            .unwrap();
+        code_facts(&slice)
+    };
+    let end = display.find("\nafter").unwrap();
+    let block = format!("6..{end} rust x100");
+    assert_eq!(
+        window(&engine),
+        (vec!["50".into(), "51".into()], vec![block])
+    );
+    // A line added above the window renumbers what it shows.
+    let line_two = display.find("line 2\n").unwrap();
+    select(&mut engine, line_two, line_two, Affinity::Forward);
+    let enter = engine.replace(
+        engine.revision(),
+        range(line_two, line_two),
+        "x\n",
+        InputAction::Typing,
+        &mut ok,
+    );
+    let change = engine.view(enter.unwrap().unwrap());
+    let block = format!("6..{} rust x101", end + 2);
+    assert_eq!(
+        code_facts(&change.projection).1,
+        std::slice::from_ref(&block)
+    );
+    assert_eq!(
+        window(&engine),
+        (vec!["50".into(), "51".into()], vec![block])
+    );
+    let slice = engine
+        .project(engine.revision(), range(at + 2, at + 2))
+        .unwrap();
+    assert_eq!(code_facts(&slice).0, ["51"]);
+}
+
+#[test]
+fn an_info_string_edit_redraws_the_marks_of_its_whole_block() {
+    let mut engine = Engine::open("```js hl:1\na\nb\nc\n```\nafter");
+    let digit = engine.source_text().find('1').unwrap();
+    let change = engine
+        .edit_source(
+            engine.revision(),
+            crate::SourceRange {
+                start: crate::SourceOffset(digit),
+                end: crate::SourceOffset(digit + 1),
+            },
+            "3",
+            &mut ok,
+        )
+        .unwrap()
+        .unwrap();
+    let change = engine.view(change);
+    assert_eq!(
+        code_facts(&change.projection),
+        (
+            vec!["1<".into(), "2".into(), "3> hl".into()],
+            vec!["0..5 js x3".into()]
+        )
+    );
 }

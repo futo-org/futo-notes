@@ -246,13 +246,44 @@ pub struct BlockDescription {
     pub quote_depth: usize,
     pub divider: bool,
     pub list: Option<ListDescription>,
-    pub code: bool,
-    /// First info-string word, preserving its case; rendering never rewrites source.
-    pub language: Option<String>,
+    /// A line of fenced code; its block is in `ProjectionSlice::code_blocks`.
+    pub code: Option<CodeLineDescription>,
     /// Leading front matter, shown verbatim as inert metadata (no Markdown,
     /// no caret, no edits except a selection covering all of it).
     #[serde(default)]
     pub metadata: bool,
+}
+
+/// One shown line of a fenced code block. An empty block shows one line, which
+/// is both its first and last.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeLineDescription {
+    /// 1-based within its block.
+    pub line_number: u32,
+    pub first: bool,
+    pub last: bool,
+    pub mark: Option<CodeLineMark>,
+}
+
+/// A line mark from the opening fence's `hl:` and `ll:` options.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CodeLineMark {
+    Highlight,
+    Lowlight,
+}
+
+/// A fenced code block, whole even where a projection holds only part of it.
+/// `range` runs from its first code line's start to its last code line's end
+/// (that line's break excluded). Rendering never rewrites the info string.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeBlockDescription {
+    pub range: DisplayRange,
+    /// The info string's first word, case kept.
+    pub language: Option<String>,
+    /// The `name:` option.
+    pub name: Option<String>,
+    /// Lines shown: an empty block shows one.
+    pub line_count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -272,6 +303,9 @@ pub struct ProjectionSlice {
     /// nothing else (it stays plain text).
     #[serde(default)]
     pub tags: Vec<DisplayRange>,
+    /// Each code block the slice's lines belong to, in order.
+    #[serde(default)]
+    pub code_blocks: Vec<CodeBlockDescription>,
 }
 
 /// What an atom is. Renderers draw it as one unit and keep the caret outside it.

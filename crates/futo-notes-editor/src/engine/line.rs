@@ -128,6 +128,13 @@ impl Entry {
             display: 0,
             source16: text.encode_utf16().count(),
             display16: 0,
+            frames: usize::from(matches!(
+                line.kind,
+                Kind::Fence {
+                    role: FenceRole::Open | FenceRole::Close,
+                    ..
+                }
+            )),
         };
         Self {
             text,

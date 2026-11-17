@@ -10,6 +10,7 @@
 //! build) calls this module until the surface moves onto it.
 #![allow(dead_code)]
 
+mod code_block;
 mod command;
 mod commands;
 mod edit;

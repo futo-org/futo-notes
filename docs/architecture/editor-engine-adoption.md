@@ -55,9 +55,12 @@ The authoritative definitions are `crates/futo-notes-editor/src/types.rs`,
   `checked` and `first`; `Plain` is a marker kind with no marker to draw. The `Tag` span
   marks the visible `#tag` as ordinary text to decorate. Exhaustive enum consumers must handle
   both additions. iOS draws list levels and marker text from these values.
-- A code block description carries optional `language`, the first info-string word in its
-  original case. It is a rendering description, not a request to rewrite the fence. A renderer
-  can draw a label from it; iOS draws it once per code block.
+- A code line's block description carries `code`: its 1-based `line_number`, `first`, `last`
+  and `hl:`/`ll:` `mark`. The projection's `code_blocks` (style plan: one `CodeBlock` span per
+  window) give each block whole: range, optional `language` (case kept), `name` and
+  `line_count`. They describe rendering, never a request to rewrite the fence. A change's
+  projection holds only the lines it read again, so after a line is added or removed in a block,
+  restyle the block's range to redraw numbers below it.
 - Display changes and projection changes must both be applied even when the visible replacement
   is empty. Respect revisions, selection affinity and the UTF-8/UTF-16 boundaries in the
   [handoff](text-first-editor-host.md); do not recreate Markdown interpretation in a shell.

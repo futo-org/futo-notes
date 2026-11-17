@@ -37,6 +37,7 @@ pub(in crate::engine::tests) fn check_fresh(engine: &Engine, context: &str) {
             display: sum.display + size.display,
             source16: sum.source16 + size.source16,
             display16: sum.display16 + size.display16,
+            frames: sum.frames + size.frames,
         };
     }
     // The reader's whole-note reading, line-relative.

@@ -6,4 +6,4 @@
 - An edit that can open or close front matter (on line 1, or on a `---` line below it) re-reads from line 1; any other edit re-reads only its lines and on until the carry settles. → crates/futo-notes-editor/src/engine/read.rs
 - There is no raw HTML, footnote or reference definition: `<div>`, `<!-- -->`, `[^1]` and `[id]: url` lines are plain text, shown and saved exactly as written, and Markdown on them reads as on any line. → docs/spec/editor/portable-core/linedown.md, crates/futo-notes-editor/tests/foreign.rs
 - Malformed text (unclosed fences, emphasis or links, a lone CR, NUL) opens with its exact source, a display and an editable caret; opening and saving without an edit changes no bytes. → crates/futo-notes-editor/src/engine/tests/properties/
-- Rust, WebAssembly and native FFI block descriptions all carry `metadata`, so hosts can render front matter as a panel. → crates/futo-notes-ffi/src/editor/contract.rs
+- Rust, WebAssembly and native FFI block descriptions all carry `metadata`, so hosts can render front matter as a panel. → crates/futo-notes-ffi/src/editor/projection.rs

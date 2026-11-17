@@ -1,3 +1,5 @@
+#[path = "host_style_plan/code_blocks.rs"]
+mod code_blocks;
 #[path = "host_style_plan/list_levels.rs"]
 mod list_levels;
 
@@ -376,7 +378,12 @@ fn with_range(spec: &StyleSpec, start: usize, end: usize, first: bool) -> StyleS
         | StyleSpec::Quote {
             start: s, end: e, ..
         }
-        | StyleSpec::Code { start: s, end: e }
+        | StyleSpec::Code {
+            start: s, end: e, ..
+        }
+        | StyleSpec::CodeBlock {
+            start: s, end: e, ..
+        }
         | StyleSpec::Metadata { start: s, end: e }
         | StyleSpec::Link {
             start: s, end: e, ..
@@ -416,7 +423,7 @@ fn restricted(whole: &[StyleSpec], lo: usize, hi: usize) -> Vec<String> {
         .iter()
         .filter_map(|spec| {
             let (s, e) = spec.range();
-            if s >= e {
+            if s >= e || matches!(spec, StyleSpec::CodeBlock { .. }) {
                 return None;
             }
             if matches!(
@@ -459,6 +466,7 @@ fn assert_windows_match_the_whole(source: &str) {
                     StyleSpec::Wikilink { .. }
                         | StyleSpec::Divider { .. }
                         | StyleSpec::Image { .. }
+                        | StyleSpec::CodeBlock { .. }
                 );
                 for p in [st, en] {
                     assert!(
@@ -473,9 +481,10 @@ fn assert_windows_match_the_whole(source: &str) {
                     );
                 }
             }
+            code_blocks::assert_blocks_stay_whole(&spans, &whole);
             let mut got: Vec<String> = spans
                 .iter()
-                .filter(|s| s.range().0 < s.range().1)
+                .filter(|s| s.range().0 < s.range().1 && !matches!(s, StyleSpec::CodeBlock { .. }))
                 .map(|s| format!("{s:?}"))
                 .collect();
             got.sort();
@@ -583,5 +592,12 @@ fn an_empty_last_row_is_a_zero_length_span_at_the_end_of_the_display() {
     )));
     let (display, spans) = plan("```\n");
     assert_eq!(display, "");
-    assert!(spans.contains(&StyleSpec::Code { start: 0, end: 0 }));
+    assert!(spans.contains(&StyleSpec::Code {
+        start: 0,
+        end: 0,
+        line_number: 1,
+        mark: None,
+        first: true,
+        last: true,
+    }));
 }

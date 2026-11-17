@@ -138,7 +138,7 @@ A line may start with any number of `>`, then at most one heading or list marker
 
 ### Code
 
-A code fence opens with three or more backticks or tildes. It closes with a line of the same character, at least as many of them. Text after the opening fence is the language name.
+A code fence opens with three or more backticks or tildes. It closes with a line of the same character, at least as many of them. Text after the opening fence is its info string: a language, then options.
 
 ````
 ```js
@@ -151,6 +151,15 @@ let x = 1
 - The opening fence may be indented, for example under a bullet.
 - A fence is not recognised after `>`.
 - A fence with no closing line runs to the end of the note.
+
+The info string, as in ` ```go name:api handlers.go hl:1,3-4 ll:2 `:
+
+- The language is the first word, case kept: ` ```python extra ` is `python`.
+- An option is `name:`, `hl:` or `ll:` and its value. A key counts only at the info string's start or after whitespace: ` ```hl:2 ` has no language, and `name:notes.hl:3.go` is one name.
+- A value runs to the next key, trimmed, so `name:` can hold spaces. A key written twice keeps its last value.
+- `hl:` (highlight) and `ll:` (lowlight) mark lines, counted from 1 at the block's first code line. Their value is items separated by commas: a number (`3`) or a range (`2-4`; `9-7` reads as `7-9`). An item that is neither, or reaches below line 1, is ignored.
+- A line in both lists is highlighted. Numbers past the block's last line mark nothing.
+- Any other text in the info string means nothing and stays in the file.
 
 Indented text is never code. Code is fences only.
 

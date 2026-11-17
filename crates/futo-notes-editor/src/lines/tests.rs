@@ -47,19 +47,15 @@ pub(super) fn describe(source: &str, line: &Line, spans: &[Span]) -> String {
             });
             content = false;
         }
-        Kind::Fence {
-            role,
-            indent,
-            language,
-        } => {
+        Kind::Fence { role, indent, info } => {
             let name = match role {
                 FenceRole::Open => "fence-open",
                 FenceRole::Code => "code",
                 FenceRole::Close => "fence-close",
             };
             out.push_str(&format!("{name}{}", at(indent)));
-            if let Some(language) = language {
-                out.push_str(&format!(" {}", &source[language.clone()]));
+            if let Some(language) = info.as_ref().and_then(|info| info.language.as_ref()) {
+                out.push_str(&format!(" {language}"));
             }
             content = *role == FenceRole::Code;
         }

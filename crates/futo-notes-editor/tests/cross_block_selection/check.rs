@@ -170,7 +170,7 @@ pub(crate) fn lines(source: &str) -> Vec<(String, Kind)> {
             .blocks
             .iter()
             .find(|block| block.range.start.0 <= start && start <= block.range.end.0);
-        let code = block.is_some_and(|block| block.code);
+        let code = block.is_some_and(|block| block.code.is_some());
         let list = block.and_then(|block| block.list.as_ref());
         let item = list.filter(|list| !list.marker.is_empty());
         if !text.trim().is_empty() {
@@ -356,7 +356,7 @@ fn formatted(source: &str) -> Vec<(char, u8)> {
                 .blocks
                 .iter()
                 .find(line)
-                .is_some_and(|block| block.code)
+                .is_some_and(|block| block.code.is_some())
             {
                 flags |= CODE_LINE;
             }

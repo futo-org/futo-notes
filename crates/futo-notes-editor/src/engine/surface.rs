@@ -287,6 +287,7 @@ fn count_projection(slice: &ProjectionSlice, work: &mut EditWork) {
     work.link_metadata_items += slice.runs.len()
         + slice.correspondence.len()
         + slice.blocks.len()
+        + slice.code_blocks.len()
         + slice.links.len()
         + slice.wikilinks.len()
         + slice.atoms.len();

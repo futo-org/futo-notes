@@ -14,9 +14,13 @@ mod find;
 mod host;
 mod host_open;
 pub use host::{
-    EditorDisplayMirror, EditorFindSnapshot, EditorListMarker, EditorMirrorEdit, EditorMirrorError,
-    EditorStyleSpan, EditorToolbarHighlights,
+    EditorDisplayMirror, EditorFindSnapshot, EditorMirrorEdit, EditorMirrorError,
+    EditorToolbarHighlights,
 };
+mod style_span;
+pub use style_span::{EditorListMarker, EditorStyleSpan};
+mod projection;
+pub use projection::*;
 mod host_find;
 pub use host_find::{EditorFindLanding, EditorFindStep};
 pub use host_open::{EditorPendingEdits, EditorQuickView};

@@ -1,6 +1,8 @@
 use futo_notes_editor as editor;
 use futo_notes_store as store;
 
+use super::projection::EditorProjection;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
 pub struct EditorByteRange {
     pub start: u64,
@@ -403,86 +405,6 @@ impl From<editor::QuickOpen> for EditorQuickOpen {
         Self {
             projection: value.projection.into(),
             tables: value.tables.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-#[derive(Debug, PartialEq, Eq, uniffi::Record)]
-pub struct EditorProjection {
-    pub revision: u64,
-    pub range: EditorByteRange,
-    pub text: String,
-    pub runs: Vec<EditorSemanticRun>,
-    pub correspondence: Vec<super::correspondence::EditorCorrespondence>,
-    pub blocks: Vec<EditorBlockDescription>,
-    pub links: Vec<EditorLinkDescription>,
-    pub wikilinks: Vec<EditorWikilinkDescription>,
-    pub atoms: Vec<super::images::EditorAtomDescription>,
-}
-#[derive(Debug, PartialEq, Eq, uniffi::Record)]
-pub struct EditorListDescription {
-    pub indent: u64,
-    pub level: u64,
-    pub marker: String,
-    pub ordered: bool,
-    pub checked: Option<bool>,
-    pub first: bool,
-}
-impl From<editor::ListDescription> for EditorListDescription {
-    fn from(value: editor::ListDescription) -> Self {
-        Self {
-            indent: value.indent as u64,
-            level: value.level as u64,
-            marker: value.marker,
-            ordered: value.ordered,
-            checked: value.checked,
-            first: value.first,
-        }
-    }
-}
-#[derive(Debug, PartialEq, Eq, uniffi::Record)]
-pub struct EditorBlockDescription {
-    pub range: EditorByteRange,
-    pub heading: u8,
-    pub quote_depth: u64,
-    pub divider: bool,
-    pub list: Option<EditorListDescription>,
-    pub code: bool,
-    pub language: Option<String>,
-    /// Leading front matter, shown verbatim; hosts may render it as a panel.
-    pub metadata: bool,
-}
-impl From<editor::ProjectionSlice> for EditorProjection {
-    fn from(value: editor::ProjectionSlice) -> Self {
-        Self {
-            revision: value.revision.0,
-            range: value.range.into(),
-            text: value.text,
-            links: value.links.into_iter().map(Into::into).collect(),
-            wikilinks: value.wikilinks.into_iter().map(Into::into).collect(),
-            atoms: value.atoms.into_iter().map(Into::into).collect(),
-            blocks: value
-                .blocks
-                .into_iter()
-                .map(|block| EditorBlockDescription {
-                    range: block.range.into(),
-                    heading: block.heading,
-                    quote_depth: block.quote_depth as u64,
-                    divider: block.divider,
-                    list: block.list.map(Into::into),
-                    code: block.code,
-                    language: block.language,
-                    metadata: block.metadata,
-                })
-                .collect(),
-            runs: value
-                .runs
-                .into_iter()
-                .map(|run| EditorSemanticRun {
-                    range: run.range.into(),
-                    formats: run.formats.into_iter().map(Into::into).collect(),
-                })
-                .collect(),
-            correspondence: value.correspondence.into_iter().map(Into::into).collect(),
         }
     }
 }

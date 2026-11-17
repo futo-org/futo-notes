@@ -1,4 +1,4 @@
-use crate::{InlineFormat, ProjectionSlice};
+use crate::{CodeLineMark, InlineFormat, ProjectionSlice};
 
 /// One cell of a table row: its content's range and column, with the column's alignment.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,9 +53,25 @@ pub enum StyleSpec {
         checked: bool,
         first: bool,
     },
+    /// One line of a fenced code block. `line_number` is 1-based within the block; `first` and
+    /// `last` are its first and last code lines (both on a one-line or empty block).
     Code {
         start: usize,
         end: usize,
+        line_number: u32,
+        mark: Option<CodeLineMark>,
+        first: bool,
+        last: bool,
+    },
+    /// A fenced code block the window touches, once per window, whole: `start` and `end` and
+    /// `line_count` stay the same however the window cuts it. `end` is its last code line's end,
+    /// that line's break excluded.
+    CodeBlock {
+        start: usize,
+        end: usize,
+        language: Option<String>,
+        name: Option<String>,
+        line_count: u32,
     },
     Metadata {
         start: usize,
@@ -116,7 +132,8 @@ impl StyleSpec {
             | Self::Heading { start, end, .. }
             | Self::Quote { start, end, .. }
             | Self::ListRow { start, end, .. }
-            | Self::Code { start, end }
+            | Self::Code { start, end, .. }
+            | Self::CodeBlock { start, end, .. }
             | Self::Metadata { start, end }
             | Self::Link { start, end, .. }
             | Self::Wikilink { start, end, .. }
@@ -134,7 +151,8 @@ impl StyleSpec {
             Self::Inline { start, end, .. }
             | Self::Heading { start, end, .. }
             | Self::Quote { start, end, .. }
-            | Self::Code { start, end }
+            | Self::Code { start, end, .. }
+            | Self::CodeBlock { start, end, .. }
             | Self::Metadata { start, end }
             | Self::Link { start, end, .. }
             | Self::Wikilink { start, end, .. }
@@ -231,36 +249,29 @@ pub fn plan_styles(
         }
     };
     let mut out = Vec::new();
-    let code_bodies: Vec<_> = {
-        let mut bodies: Vec<_> = slice
-            .blocks
-            .iter()
-            .filter(|b| b.code && b.range.start.0 < b.range.end.0)
-            .map(|b| (b.range.start.0, b.range.end.0))
-            .collect();
-        bodies.sort();
-        bodies
-    };
-    let mut previous = None;
+    for block in &slice.code_blocks {
+        out.push(StyleSpec::CodeBlock {
+            start: local.utf16(block.range.start.0, outside),
+            end: local.utf16(block.range.end.0, outside),
+            language: block.language.clone(),
+            name: block.name.clone(),
+            line_count: block.line_count,
+        });
+    }
     for block in &slice.blocks {
-        // Hidden fence rows can share the first/last body's display point.
-        if block.code && block.range.start == block.range.end {
-            let at = code_bodies.partition_point(|b| b.0 <= block.range.start.0);
-            if at > 0 && block.range.end.0 <= code_bodies[at - 1].1 {
-                continue;
-            }
-        }
-        // An empty fence arrives as several identical blocks; each would add its own margin.
-        if previous == Some(block) {
-            continue;
-        }
-        previous = Some(block);
         let s = local.utf16(block.range.start.0, outside);
         let e = with_break(local.utf16(block.range.end.0, outside)).min(text_end);
         if block.metadata {
             out.push(StyleSpec::Metadata { start: s, end: e });
-        } else if block.code {
-            out.push(StyleSpec::Code { start: s, end: e });
+        } else if let Some(code) = &block.code {
+            out.push(StyleSpec::Code {
+                start: s,
+                end: e,
+                line_number: code.line_number,
+                mark: code.mark,
+                first: code.first,
+                last: code.last,
+            });
         } else if block.heading > 0 {
             out.push(StyleSpec::Heading {
                 start: s,
@@ -354,11 +365,16 @@ pub fn plan_styles(
 /// Clip every span to the window (a block or run may overlap it, and arrive whole) and cut it at
 /// line ends so none crosses a line; a piece keeps its line's `\n`. A list row's marker stays on
 /// its first piece, and only when the clip left that piece's start alone: a row that began before
-/// the window is already drawn. Atoms stay whole, and only those overlapping the window stay.
+/// the window is already drawn. Atoms stay whole, and only those overlapping the window stay. A
+/// code block stays whole and always stays: the projection holds only those the window touches.
 fn split_at_lines(specs: Vec<StyleSpec>, units: &[u16], start_utf16: usize) -> Vec<StyleSpec> {
     let text_end = start_utf16 + units.len();
     let mut out = Vec::with_capacity(specs.len());
     for spec in specs {
+        if matches!(spec, StyleSpec::CodeBlock { .. }) {
+            out.push(spec);
+            continue;
+        }
         let (start, end) = spec.range();
         let atom = matches!(
             spec,

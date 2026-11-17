@@ -179,6 +179,14 @@ fn an_empty_code_block_at_the_cut_shows_as_in_the_whole_note() {
     assert_eq!(engine.display_slice(0..engine.display_of(shown)), "x\n\n");
 }
 
+#[test]
+fn a_code_block_the_head_did_not_close_is_left_for_the_whole_open() {
+    let note = "x\n```js\na\nb\nc\n```\nafter\n";
+    assert_eq!(checked(note, note.find("c\n").unwrap()), Some(2));
+    assert_eq!(checked(note, note.find("after").unwrap()), Some(14));
+    assert_eq!(checked("```\na\nb\nc\n", 8), None);
+}
+
 /// The head of a 20,000-line note reads about `QUICK_OPEN_BYTES`, however
 /// long the note.
 #[test]

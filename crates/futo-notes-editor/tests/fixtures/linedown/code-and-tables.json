@@ -41,6 +41,26 @@
    ]
   },
   {
+   "name": "options after the language are not part of it",
+   "rule": "Code",
+   "input": "```go name:api handlers.go hl:2\nx\n```",
+   "lines": [
+    "fence-open go",
+    "code : x",
+    "fence-close"
+   ]
+  },
+  {
+   "name": "an option before any language means no language",
+   "rule": "Code",
+   "input": "```hl:2 ll:1\nx\n```",
+   "lines": [
+    "fence-open",
+    "code : x",
+    "fence-close"
+   ]
+  },
+  {
    "name": "indented text is never code",
    "rule": "Code / Differences from CommonMark and GFM row 6",
    "input": "a\n\n    code",
