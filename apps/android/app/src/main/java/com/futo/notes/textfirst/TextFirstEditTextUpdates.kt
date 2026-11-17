@@ -86,6 +86,7 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
         Selection.setSelection(e,
             (if (keepDirection) nativeStart else update.selStart).coerceIn(0, length),
             (if (keepDirection) nativeEnd else update.selEnd).coerceIn(0, length))
+        if (update.writesLanguage) openLanguageFieldAt(update.selStart)
         appliedSeq = update.seq
         if (update.inputUptimeNanos != 0L && (update.reset == null || update.sourceChanged)) {
             pendingTimings = KeyTimings(

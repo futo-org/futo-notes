@@ -43,6 +43,22 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
     }
 
     /**
+     * Typing made a block whose opening fence takes the next letters as its language (the third backtick on a line,
+     * writes_language): its language field opens on that block, as !300 focused it. Once the block is drawn.
+     */
+    fun openLanguageAt(offset: Int) {
+        view.postOnAnimation {
+            view.post {
+                val e = view.editableText ?: return@post
+                val block = codeRangesNear(e, offset, offset).firstOrNull { offset in it.start..it.end } ?: return@post
+                val area = view.codeChrome.areaOf(block.start, CodeBlockAction.LANGUAGE_LABEL) ?: return@post
+                val target = view.codeChrome.targetAt(area.centerX(), area.centerY()) ?: return@post
+                headerField.open(target, CodeHeaderField.Kind.LANGUAGE, selectAll = false)
+            }
+        }
+    }
+
+    /**
      * A tap in an empty block selected as one object leaves the view's caret where it was, so the
      * view reports no selection: tell the engine the user placed it there, or the next letter
      * would replace the block (!300 cb 172-185).

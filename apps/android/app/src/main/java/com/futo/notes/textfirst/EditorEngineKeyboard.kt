@@ -23,9 +23,17 @@ internal fun EditorEngine.imeCommit(value: String) = input {
     when {
         o != null -> commitComposition(value)
         value == "\n" -> key(EditorParagraphKey.ENTER)
-        else -> replace(mirror.selStart, mirror.selEnd, value, EditorInputAction.TYPING)
+        else -> replace(mirror.selStart, mirror.selEnd, value, typedAction(value))
     }
 }
+
+/**
+ * The one place a phone decides how text it was handed was typed: one character with no composition open is a plain
+ * typed key, so it goes as paired typing (a backtick, `*`, `~`, `[`, `]` pair; the engine types anything else as
+ * typing). A longer commit is typed as given; compositions, paste and text-service replacements go their own ways.
+ */
+private fun typedAction(value: String): EditorInputAction =
+    if (value.codePointCount(0, value.length) == 1) EditorInputAction.PAIRED_TYPING else EditorInputAction.TYPING
 
 /** A keyboard correction addresses a range without changing its opening history selection. */
 internal fun EditorEngine.imeReplace(start: Int, end: Int, value: String) = input {

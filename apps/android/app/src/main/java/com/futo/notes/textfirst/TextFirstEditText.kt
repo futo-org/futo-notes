@@ -43,6 +43,7 @@ internal class TextFirstEditText(
     private val linkTouch = ExternalLinkTouch(this, { onOpenUrl?.invoke(it) ?: false }, ::nativeTouch)
     private val lineTouch = LineSelectTouch(this)
     private val codeTouch = CodeBlockTouch(this)
+    internal fun openLanguageFieldAt(offset: Int) = codeTouch.openLanguageAt(offset)
     private val lineBelowHandle = CodeLineBelowHandle(this)
     /** A code block selected as one object: its card shows the selection, so the text highlight is hidden. */
     internal var selectedCodeBlock: Pair<Int, Int>? = null

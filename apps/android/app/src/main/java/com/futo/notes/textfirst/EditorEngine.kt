@@ -53,6 +53,8 @@ internal class EditorEngine(
     internal var fast: FastSession? = null
     internal var dismissedCompletionStart: ULong? = null
     internal var rev: ULong = 0u
+    /** The last change made a block whose opening fence takes the next letters as its language (writes_language). */
+    internal var writesLanguage = false
     internal val mirror = DisplayMirror()
 
     /** The keyboard's view, read by the input connection on this thread. */
@@ -378,6 +380,7 @@ internal class EditorEngine(
             sourceChanged = sourceChanged, preserveScroll = preserveScroll,
             marked = marked,
             selectedBlock = mirror.selectedBlock,
+            writesLanguage = writesLanguage.also { writesLanguage = false },
         )
         publishSelection()
         publishCell()

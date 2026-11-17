@@ -24,6 +24,7 @@ internal fun EditorEngine.acceptViewChange(change: EditorViewChange) {
     mirror.selStart = mirror.toUtf16(change.selection.start.toInt())
     mirror.selEnd = mirror.toUtf16(change.selection.end.toInt())
     mirror.selectedBlock = change.selectedBlock?.let(mirror::toUtf16Range)
+    writesLanguage = change.writesLanguage
     verify()
     val needsReset = requiresPrefixReset(edits, shownBefore)
     if (needsReset) {

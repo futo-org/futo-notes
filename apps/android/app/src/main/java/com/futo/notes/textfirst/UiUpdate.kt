@@ -77,6 +77,8 @@ internal class UiUpdate(
     val marked: List<SpanSpec.Inline>? = null,
     /** The code block selected as one object; the selection equals it. */
     val selectedBlock: Pair<Int, Int>? = null,
+    /** A block was made whose opening fence takes the next letters as its language: its language field opens. */
+    val writesLanguage: Boolean = false,
 )
 
 /**
