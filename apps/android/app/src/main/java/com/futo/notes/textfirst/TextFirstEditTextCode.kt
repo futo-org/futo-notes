@@ -26,12 +26,19 @@ internal fun TextFirstEditText.drawCodeBlocks(canvas: Canvas) {
     var from = 0
     while (from < lines.size) {
         var to = from
-        while (to + 1 < lines.size && lines[to + 1].line.block == lines[from].line.block) to++
+        while (to + 1 < lines.size && continuesCard(e, lines[to], lines[to + 1])) to++
         drawCodeCard(canvas, l, e, lines.copyOfRange(from, to + 1))
         from = to + 1
     }
     canvas.restoreToCount(save)
 }
+
+/**
+ * Whether [next] is the code line after [line] in the same block. Not by comparing block facts: a
+ * line restyled alone (typing in it) carries the block's new range while its neighbours keep the old.
+ */
+private fun continuesCard(e: android.text.Editable, line: TfCodeBlock, next: TfCodeBlock): Boolean =
+    !line.line.last && !next.line.first && e.getSpanStart(next) <= e.getSpanEnd(line)
 
 /** One block's visible [lines], in order. A side the viewport cuts off is drawn past the edge, square. */
 private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layout, e: android.text.Editable, lines: Array<TfCodeBlock>) {
