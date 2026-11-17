@@ -1,10 +1,12 @@
-//! Fenced code: the literal cases in `tests/fixtures/engine/fences.json` and
-//! `code-block-object.json` (a block selected as one object, its edges).
+//! Fenced code: the literal cases in `tests/fixtures/engine/fences.json`,
+//! `code-block-object.json` (a block selected as one object, its edges) and
+//! `hidden-line-edges.json` (input over a selection ending at a hidden line).
 //!
 //! Each case marks the selection in its source with `|` (a caret) or `[`
 //! and `]` (`marks` names other characters when the note needs these), runs
 //! one command or key (`type:` text typed, `paste:` text pasted, `os:` a
-//! text service's replacement of the selection), and states the source and selection after it. When
+//! text service's replacement of the selection, `commit:` marked text
+//! composed over it and committed), and states the source and selection after it. When
 //! `typed` is set, that text is typed at the selection first (setup, not
 //! checked); `block` selects the block at the selection as one object first.
 //! `selected` states whether a block is selected as one object after it,
@@ -64,6 +66,7 @@ fn run(engine: &mut Engine, command: &str, at: Option<usize>) -> Result<(), Edit
         "OpenLineAfterCodeBlock" => Some(BlockCommand::OpenLineAfterCodeBlock),
         "Indent" => Some(BlockCommand::Indent),
         "Outdent" => Some(BlockCommand::Outdent),
+        "Divider" => Some(BlockCommand::Divider),
         _ => None,
     };
     let key = |name: &str| match name {
@@ -99,6 +102,9 @@ fn run(engine: &mut Engine, command: &str, at: Option<usize>) -> Result<(), Edit
         engine
             .replace(revision, selection, text, InputAction::Isolated, &mut ok)
             .unwrap();
+    } else if let Some(text) = command.strip_prefix("commit:") {
+        engine.compose(revision, selection, text)?;
+        engine.commit_composition(revision, None, &mut ok).unwrap();
     } else if command == "Cut" {
         engine.cut_markdown(revision, selection, &mut ok).unwrap();
     } else if command == "SelectBlock" {
@@ -117,11 +123,12 @@ fn run(engine: &mut Engine, command: &str, at: Option<usize>) -> Result<(), Edit
 fn fence_cases() {
     let mut cases: Vec<Case> =
         serde_json::from_str(include_str!("../../../tests/fixtures/engine/fences.json")).unwrap();
-    let objects: Vec<Case> = serde_json::from_str(include_str!(
-        "../../../tests/fixtures/engine/code-block-object.json"
-    ))
-    .unwrap();
-    cases.extend(objects);
+    for objects in [
+        include_str!("../../../tests/fixtures/engine/code-block-object.json"),
+        include_str!("../../../tests/fixtures/engine/hidden-line-edges.json"),
+    ] {
+        cases.extend(serde_json::from_str::<Vec<Case>>(objects).unwrap());
+    }
     assert!(cases.len() >= 120, "{} cases", cases.len());
     let mut failures = Vec::new();
     for case in &cases {

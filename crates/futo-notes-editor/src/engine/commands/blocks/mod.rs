@@ -69,6 +69,11 @@ impl Engine {
         self.common_heading(&self.targets(self.selection, false))
     }
 
+    /// Whether a heading command applies to any line the selection touches.
+    pub(crate) fn toolbar_heading_allowed(&self) -> bool {
+        !self.targets(self.selection, false).is_empty()
+    }
+
     /// The toolbar's quote for the selection: whether Quote takes a level off.
     pub(crate) fn toolbar_quote(&self) -> bool {
         self.all_quoted(&self.targets(self.selection, true))
@@ -193,7 +198,7 @@ impl Engine {
                 spans: entry.spans.clone(),
             });
         }
-        let plan = self.plan(range, "");
+        let plan = self.plan_cleared(range);
         let (first, last) = (self.line_of(plan.range.start), self.line_of(plan.range.end));
         let start = self.line_start(first);
         let end = self.line_start(last) + self.line(last).body_len();

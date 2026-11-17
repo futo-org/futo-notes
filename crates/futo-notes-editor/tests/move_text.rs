@@ -128,3 +128,13 @@ fn a_drop_beside_repeated_text_lands_where_dropped() {
     assert_eq!(moved(&mut session, &mut view, 3, 5, 2), " a");
     assert_eq!(session.source_text(), "b  aa");
 }
+
+#[test]
+fn a_heading_dropped_before_a_divider_keeps_the_divider() {
+    let mut session = EditorSession::open("# h\na\n***\nb");
+    let mut view = ReferenceView::new(&session.display_text());
+    session.select(session.revision(), range(0, 1)).unwrap();
+    // "h" (its heading copied whole) onto the divider's line.
+    assert_eq!(moved(&mut session, &mut view, 0, 1, 4), "h");
+    assert_eq!(session.source_text(), "# \na\n# h\n***\nb");
+}

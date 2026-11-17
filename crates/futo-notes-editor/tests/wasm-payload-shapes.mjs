@@ -159,6 +159,17 @@ shape('Applied[]', words.move_markdown(0n, 4, 7, 13));
 assert.equal(words.draft_text(), 'one  three**two**');
 assert.equal(typeof session.image_claim(), 'bigint');
 
+const toolbar = new WasmSession(10n, '## a\n> b\n\n| x |\n| --- |', 0n);
+toolbar.select_with_affinity(0n, 0, 1, '"Forward"');
+assert.equal(shape('ToolbarState', toolbar.toolbar_state()).heading, 2);
+toolbar.select_with_affinity(0n, 0, 3, '"Forward"');
+assert.equal(shape('ToolbarState', toolbar.toolbar_state()).heading, null);
+const cells = new WasmSession(11n, '| x |\n| --- |', 0n);
+cells.select_with_affinity(0n, 0, 1, '"Forward"');
+const tableToolbar = shape('ToolbarState', cells.toolbar_state());
+assert.equal(tableToolbar.heading_allowed, false);
+assert.equal(tableToolbar.heading, null);
+
 const completion = new WasmSession(2n, '[[Ro', 0n);
 completion.update_note_ids('["Road"]');
 completion.select_with_affinity(0n, 4, 4, '"Forward"');

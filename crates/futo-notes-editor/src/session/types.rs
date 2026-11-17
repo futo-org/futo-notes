@@ -68,17 +68,20 @@ pub enum BlockCommand {
     OpenLineAfterCodeBlock,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum ToolbarList {
     Bullet,
     Ordered,
     Task,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ToolbarState {
     pub formats: Vec<InlineFormat>,
     pub heading: Option<u8>,
+    /// Whether a heading command can change a touched line: false over
+    /// lines no heading applies to (table lines, code, dividers).
+    pub heading_allowed: bool,
     pub quote: bool,
     pub list: Option<ToolbarList>,
     pub code: bool,

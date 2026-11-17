@@ -374,6 +374,9 @@ impl WasmSession {
     pub fn active_formats(&self) -> Result<String, JsValue> {
         json(&self.0.active_formats().map_err(error)?)
     }
+    pub fn toolbar_state(&self) -> Result<String, JsValue> {
+        json(&self.0.toolbar_state())
+    }
     pub fn toggle_format(&mut self, revision: u64, format: &str) -> Result<String, JsValue> {
         let format = serde_json::from_str(format).map_err(error)?;
         json(

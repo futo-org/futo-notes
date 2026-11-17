@@ -296,6 +296,7 @@ impl Engine {
         ToolbarState {
             formats: self.toolbar_formats(),
             heading: self.toolbar_heading(),
+            heading_allowed: self.toolbar_heading_allowed(),
             quote: self.toolbar_quote(),
             list: match line.kind {
                 Kind::List { task: Some(_), .. } => Some(ToolbarList::Task),

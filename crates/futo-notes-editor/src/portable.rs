@@ -256,6 +256,10 @@ impl PortableSession {
         Ok(self.engine.active_formats())
     }
 
+    pub fn toolbar_state(&self) -> crate::ToolbarState {
+        self.engine.toolbar_state()
+    }
+
     pub fn toggle_format(
         &mut self,
         expected: Revision,

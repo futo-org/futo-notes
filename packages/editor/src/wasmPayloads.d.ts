@@ -304,6 +304,27 @@ export interface MarkedRun {
   formats: InlineFormat[];
 }
 
+export type ToolbarList = 'Bullet' | 'Ordered' | 'Task';
+
+/** `toolbar_state`: what the toolbar lights for the selection, by the engine's own rules. */
+export interface ToolbarState {
+  formats: InlineFormat[];
+  /** The heading level every touched line with text shares (0: text); null when they differ or none takes a heading. */
+  heading: number | null;
+  /** Whether a heading command can change any touched line (false over only table lines, code, front matter or dividers). */
+  heading_allowed: boolean;
+  /** Whether Quote takes a level off. */
+  quote: boolean;
+  list: ToolbarList | null;
+  code: boolean;
+  mixed: boolean;
+  inline_allowed: boolean;
+  can_indent: boolean;
+  can_outdent: boolean;
+  can_undo: boolean;
+  can_redo: boolean;
+}
+
 export interface WikilinkCandidate {
   note_id: string;
   label: string;
