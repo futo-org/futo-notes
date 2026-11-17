@@ -79,6 +79,12 @@ extension EnvironmentValues {
     /// Set by the pages shell; the visible note screen calls it with its note's id, which
     /// follows renames, so the list highlights the right row.
     @Entry var reportVisibleNote: ((String) -> Void)?
+    /// Set by the root shell; a note screen reports the id it was opened with and the id
+    /// its note has now, so a fold reopens a renamed or moved note.
+    @Entry var reportNoteIdentity: ((String, String) -> Void)?
+    /// Set while the root shell swaps shells (a fold): a note screen leaving then is
+    /// handing its note over, not abandoning it, so an untouched new note is kept.
+    @Entry var shellHandoff = ShellHandoff.idle
 }
 
 enum NotePreviewText {
@@ -92,4 +98,11 @@ enum NotePreviewText {
         let first = preview[..<newline].trimmingCharacters(in: .whitespaces)
         return first == title ? String(preview[preview.index(after: newline)...]) : preview
     }
+}
+
+/// Read when a note screen leaves, so it is a reference: the leaving screen sees the value
+/// the root set in the same update that removed it.
+final class ShellHandoff {
+    static let idle = ShellHandoff()
+    var active = false
 }

@@ -10,6 +10,8 @@ struct TextFirstNoteScreen: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.localization) private var localization
     @Environment(\.reportVisibleNote) private var reportVisibleNote
+    @Environment(\.reportNoteIdentity) private var reportNoteIdentity
+    @Environment(\.shellHandoff) private var shellHandoff
 
     @State private var noteId: String
     @State var titleField: String
@@ -352,6 +354,7 @@ struct TextFirstNoteScreen: View {
         titleField = TextFirstTitle.fieldText(titleField, from: noteId, to: id)
         noteId = id
         reportVisibleNote?(id)
+        reportNoteIdentity?(originalId, id)
     }
 
     private func leave() {
@@ -370,8 +373,10 @@ struct TextFirstNoteScreen: View {
         #if DEBUG
             PuppetNativeEditor.shared.clear(controller)
         #endif
+        // A fold hands the note to the other shell's screen, which reopens it as new.
         let untouched =
-            autoFocus && titleField == splitId(id: originalId).title && !controller.dirty
+            autoFocus && !shellHandoff.active && titleField == splitId(id: originalId).title
+            && !controller.dirty
         let token = ownerToken
         // A title typed within the rename's debounce commits with the leave.
         let pending = titleField != splitId(id: controller.noteId).title ? titleField : nil

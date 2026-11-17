@@ -290,7 +290,12 @@ struct FolderContentsView: View {
                 onDestructive: {
                     let note = deleteTarget
                     setDeleteTarget(nil)
-                    if let note { _ = await store.delete(note.id) }
+                    guard let note else { return }
+                    guard await pane?.closeEditor([note.id], nil) ?? true else {
+                        store.showTransient(LocalizedMessage("notes.delete.savePending"))
+                        return
+                    }
+                    _ = await store.delete(note.id)
                 }
             )
             .presentationBackground(.clear)
@@ -321,6 +326,10 @@ struct FolderContentsView: View {
                     },
                     onDeleteAll: {
                         setFolderDeleteTarget(nil)
+                        guard await pane?.closeEditor([], target) ?? true else {
+                            store.showTransient(LocalizedMessage("notes.delete.savePending"))
+                            return
+                        }
                         _ = await store.deleteFolderAndNotes(target)
                     }
                 )

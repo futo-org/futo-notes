@@ -11,6 +11,9 @@ struct PaneHost {
     let selectFolder: (String) -> Void
     /// Set by the folder column, performed and cleared by the list (FolderContentsView).
     let folderAction: Binding<FolderAction?>
+    /// Called before the list deletes these notes (or every note under a folder): closes
+    /// them in the editor pane first. False: one could not save yet, so do not delete.
+    let closeEditor: (Set<String>, String?) async -> Bool
 }
 
 /// A folder dialog the folder column asks the list beside it to open.
@@ -70,11 +73,12 @@ struct DuoPagesView: View {
     @Environment(\.displayScale) private var displayScale
 
     @State private var hingeIsFlat = HingeReader.initiallyFlat
-    @State private var search = ""
     @State private var searchHits: [NoteItem] = []
     @State private var folderAction: FolderAction?
     /// The note the visible editor reports (it follows renames).
     @State private var visibleNoteId: String?
+    /// The whole window, keyboard or not (see body).
+    @State private var windowSize = CGSize.zero
 
     /// The column the folder list takes on the book's left page.
     static let folderColumnWidth: CGFloat = 170
@@ -90,21 +94,28 @@ struct DuoPagesView: View {
     }
 
     private var isSearching: Bool {
-        !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !navigation.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
         GeometryReader { proxy in
-            let insets = proxy.safeAreaInsets
-            let window = CGSize(
-                width: proxy.size.width + insets.leading + insets.trailing,
-                height: proxy.size.height + insets.top + insets.bottom)
-            // The hinge runs through the window's middle; in this view's coordinates
-            // that is the middle less the leading (or top) inset.
-            let hinge = CGPoint(
-                x: window.width / 2 - insets.leading, y: window.height / 2 - insets.top)
+            // The hinge runs through the window's middle. The window is measured by a
+            // full-bleed background, never as this view plus its insets: the keyboard is
+            // one of those insets, and it must not read as a smaller window.
+            let origin = proxy.frame(in: .global).origin
+            let window = windowSize == .zero ? proxy.size : windowSize
+            let hinge = CGPoint(x: window.width / 2 - origin.x, y: window.height / 2 - origin.y)
             pages(
                 PagesMode(window: window, hingeIsFlat: hingeIsFlat), size: proxy.size, hinge: hinge)
+        }
+        .background {
+            Color.clear
+                .onGeometryChange(for: CGSize.self) {
+                    $0.size
+                } action: { size in
+                    windowSize = size
+                }
+                .ignoresSafeArea()
         }
         .background(HingeReader(isFlat: $hingeIsFlat))
         .background(Theme.background.ignoresSafeArea())
@@ -124,7 +135,7 @@ struct DuoPagesView: View {
         }
         .onChange(of: folderAction) { _, action in
             // The dialogs live in the folder list, which search replaces.
-            if action != nil { search = "" }
+            if action != nil { navigation.searchQuery = "" }
         }
         .transientMessageBanner(store)
     }
@@ -159,7 +170,7 @@ struct DuoPagesView: View {
     private func listPane(showsSubfolders: Bool, footer: Bool) -> some View {
         NavigationStack {
             VStack(spacing: 0) {
-                PaneSearchField(text: $search)
+                PaneSearchField(text: $navigation.searchQuery)
                 if isSearching {
                     searchResults
                 } else {
@@ -171,7 +182,8 @@ struct DuoPagesView: View {
                             showsSubfolders: showsSubfolders,
                             open: open,
                             selectFolder: { select(folder: $0) },
-                            folderAction: $folderAction)
+                            folderAction: $folderAction,
+                            closeEditor: { await closeEditor(showing: $0, under: $1) })
                     )
                     .id(folder)
                 }
@@ -179,7 +191,7 @@ struct DuoPagesView: View {
             .background(Theme.background)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarTitleMenu { folderMenu }
-            .task(id: search) { await runSearch() }
+            .task(id: navigation.searchQuery) { await runSearch() }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if footer {
@@ -241,14 +253,15 @@ struct DuoPagesView: View {
     }
 
     private func runSearch() async {
-        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = navigation.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
             searchHits = []
             return
         }
         let hits = await store.search(query, limit: 50)
         let byId = Dictionary(store.notes.map { ($0.id, $0) }) { first, _ in first }
-        guard query == search.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+        guard query == navigation.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        else { return }
         searchHits = hits.compactMap { byId[$0.noteId] }
     }
 
@@ -300,10 +313,37 @@ struct DuoPagesView: View {
         navigation.path = PagesPath.chain(new) + noteRoutes
     }
 
+    /// A note already on the editor pane's stack is popped back to, never rebuilt: its
+    /// screen keeps its place, and a screen moved to another place would not save first.
+    /// Any other note replaces the stack, and each screen it removes leaves (saves).
     private func open(_ route: Route) {
-        guard PagesPath.noteId(route) != openNoteId || noteRoutes.count > 1 else { return }
+        guard let id = PagesPath.noteId(route) else { return }
+        let routes = noteRoutes
+        if let index = routes.firstIndex(where: { PagesPath.noteId($0) == id }) {
+            if index < routes.count - 1 { editorRoutes.wrappedValue = Array(routes[...index]) }
+            return
+        }
+        guard id != openNoteId else { return }
         visibleNoteId = nil
         editorRoutes.wrappedValue = [route]
+    }
+
+    /// Before the list deletes notes (or a folder of them) that the editor pane shows, the
+    /// pane closes them and waits for each to save and detach, as Back would. False when a
+    /// leave is still saving after a few seconds: the delete waits for the user to retry.
+    private func closeEditor(showing ids: Set<String>, under folder: String?) async -> Bool {
+        var showing = Set(noteRoutes.compactMap(PagesPath.noteId))
+        if let visibleNoteId { showing.insert(visibleNoteId) }
+        let affected = showing.filter { id in
+            ids.contains(id) || folder.map { id.hasPrefix($0 + "/") } ?? false
+        }
+        guard !affected.isEmpty else { return true }
+        editorRoutes.wrappedValue = []
+        for _ in 0..<50 {
+            try? await Task.sleep(for: .milliseconds(100))
+            if !affected.contains(where: TextFirstLeaves.isLeaving) { return true }
+        }
+        return false
     }
 
     private func newNote() {
@@ -369,7 +409,6 @@ extension View {
     /// without removing it, so its identity and state survive a layout change.
     fileprivate func placed(in rect: CGRect) -> some View {
         frame(width: rect.width, height: rect.height)
-            .clipped()
             .offset(x: rect.minX, y: rect.minY)
             .opacity(rect.isEmpty ? 0 : 1)
             .allowsHitTesting(!rect.isEmpty)

@@ -83,6 +83,11 @@ enum TextFirstLeaves {
     /// Leaves still saving or still failing.
     static var unsettled: Int { entries.count }
 
+    /// Whether a leave of `id` is still saving or still failing.
+    static func isLeaving(_ id: String) -> Bool {
+        entries.contains { $0.controller.noteId == id }
+    }
+
     /// The pause after `failures` failed attempts: 2 s, 4 s, 8 s ... capped.
     static func delay(afterFailures failures: Int) -> UInt64 {
         let doublings = UInt64(min(max(failures - 1, 0), 20))
