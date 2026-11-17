@@ -11,6 +11,15 @@ use crate::{
 
 type Accept<'a> = &'a mut dyn FnMut(&SourceEdit) -> Result<(), String>;
 
+/// What a typed key can put in a note: not a control character other than tab and line
+/// feed (Ctrl+Option+letter and AppKit's quoted Ctrl+Q keys type them), nor one of Apple's
+/// function-key code points U+F700–U+F7FF (a quoted arrow or F key). A line break is
+/// typed as Enter; a paste or a text service's replacement may carry a note's own CRLF.
+fn typeable(character: char) -> bool {
+    matches!(character, '\t' | '\n')
+        || !(character.is_control() || ('\u{F700}'..='\u{F7FF}').contains(&character))
+}
+
 impl Engine {
     /// A change as a view applies it, with the projection of every line it
     /// showed again.
@@ -30,6 +39,7 @@ impl Engine {
             work,
             inserted: change.inserted,
             selection: change.selection,
+            selected_block: self.selected_block(),
             affinity: change.affinity,
             projection,
         }
@@ -57,6 +67,7 @@ impl Engine {
             range: caret,
             inserted: String::new(),
             selection: self.selection,
+            selected_block: self.selected_block(),
             work: EditWork::default(),
             affinity: self.affinity,
             projection: self.projection(self.revision, caret),
@@ -71,7 +82,16 @@ impl Engine {
         action: InputAction,
         accept: Accept,
     ) -> Result<ViewChange, EditorError> {
-        Ok(match self.replace(expected, range, text, action, accept)? {
+        let typed = matches!(action, InputAction::Typing | InputAction::PairedTyping);
+        if typed && !text.chars().all(typeable) {
+            return Err(EditorError::InvalidText);
+        }
+        let change = if action == InputAction::PairedTyping {
+            self.paired_input(expected, range, text, accept)?
+        } else {
+            self.replace(expected, range, text, action, accept)?
+        };
+        Ok(match change {
             Some(change) => self.view(change),
             None => self.unchanged(),
         })
@@ -150,9 +170,16 @@ impl Engine {
             // A command with no edits moves the selection (a table key); one
             // that leaves it where it is changes nothing.
             if command.edits.is_empty() {
-                if self.display_range(command.selection.clone()) == self.selection {
+                if command.selects_block {
+                    self.select_block_at(command.selection.start);
+                    return Ok(Some(self.unchanged()));
+                }
+                if self.display_range(command.selection.clone()) == self.selection
+                    && !self.block_selected
+                {
                     return Ok(None);
                 }
+                self.block_selected = false;
                 return self.moved_view(expected, command.selection).map(Some);
             }
             let change = self.run(expected, |_| Ok(Some(command)), accept)?;
@@ -178,6 +205,12 @@ impl Engine {
                 self.delete(expected, direction, accept)?
             }
             ParagraphKey::Tab | ParagraphKey::ShiftTab => None,
+            ParagraphKey::Transpose => {
+                if range != self.selection {
+                    self.select_with_affinity(expected, range, self.affinity)?;
+                }
+                self.run(expected, |engine| engine.typed_key(range, key), accept)?
+            }
         };
         Ok(change.map(|change| self.view(change)))
     }
@@ -269,6 +302,7 @@ fn count_projection(slice: &ProjectionSlice, work: &mut EditWork) {
     work.link_metadata_items += slice.runs.len()
         + slice.correspondence.len()
         + slice.blocks.len()
+        + slice.code_blocks.len()
         + slice.links.len()
         + slice.wikilinks.len()
         + slice.atoms.len();

@@ -58,6 +58,9 @@ pub(crate) struct Command {
     /// A deletion's formats the caret keeps where it no longer reads them
     /// (`Engine::carry_deleted`).
     pub carry: Option<Vec<InlineFormat>>,
+    /// The selection lands on the code block holding its start, selected as
+    /// one object.
+    pub selects_block: bool,
 }
 
 impl Command {
@@ -71,6 +74,7 @@ impl Command {
             affinity: None,
             typed: false,
             carry: None,
+            selects_block: false,
         }
     }
 
@@ -387,10 +391,12 @@ impl Engine {
             }
             records = rest;
         }
-        if applied {
-            let command = command.expect("an applied command");
-            self.land(command.selection, command.affinity);
+        if let (true, Some(command)) = (applied, command) {
+            self.land(command.selection.clone(), command.affinity);
             self.carry_deleted(command.carry);
+            if command.selects_block {
+                self.select_block_at(command.selection.start);
+            }
         }
         if !records.is_empty() {
             self.history.undo.push(Group {
@@ -441,6 +447,7 @@ impl Engine {
             return;
         }
         self.pin = None;
+        self.block_selected = false;
         let selection = DisplayRange {
             start: DisplayOffset(self.display_of(range.start)),
             end: DisplayOffset(self.display_of(range.end)),

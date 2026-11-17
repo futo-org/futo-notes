@@ -125,7 +125,10 @@ fn portable_pending_completion_after_remote_rename_saves_and_undoes_at_final_id(
         .into_portable_host(SessionToken(324))
         .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
-    let pending = page.replace(Revision(0), range(4, 4), " draft").unwrap();
+    let pending = page
+        .replace(Revision(0), range(4, 4), " draft")
+        .unwrap()
+        .unwrap();
     fs::rename(root.0.join("old.md"), root.0.join("final.md")).unwrap();
     let rename = NoteRename {
         from: "old".into(),

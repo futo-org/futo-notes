@@ -27,5 +27,12 @@
   {"name": "toolbar: a caret before a link stays out of it", "before": "a ‸[word](u)", "command": [["toolbar_bold"], ["type", "x"]], "after": "a **x‸[word](u)**"},
   {"name": "toolbar: redo keeps formats no place reads", "before": "a wo‸rd", "command": [["bold"], ["toolbar_strike"], ["undo"], ["redo"], ["type", "x"]], "after": "a ~~wo**x‸**rd~~"},
   {"name": "toolbar: a caret between adjacent links stays in its own", "before": "[ab‸](u)[cd](v)", "command": [["toolbar_bold"], ["type", "x"]], "after": "**[abx‸](u)[cd](v)**"},
-  {"name": "toolbar: carried formats keep a caret in its link", "before": "a [‸word](u)", "command": [["bold"], ["toolbar_strike"], ["type", "x"]], "after": "a ~~[**x‸**word](u)~~"}
+  {"name": "toolbar: carried formats keep a caret in its link", "before": "a [‸word](u)", "command": [["bold"], ["toolbar_strike"], ["type", "x"]], "after": "a ~~[**x‸**word](u)~~"},
+  {"name": "toolbar: a caret in an inline code word takes no bold", "before": "a `co‸de` b", "command": [["toolbar_bold"], ["toolbar_italic"], ["toolbar_strike"]], "after": "a `co‸de` b", "formats": ["Code"]},
+  {"name": "toolbar: a word partly code takes bold on its other letters", "before": "ab`c‸d` e", "command": [["toolbar_bold"]], "after": "**ab**`c‸d` e", "formats": ["Code"]},
+  {"name": "toolbar: a word partly code, caret outside the code", "before": "a‸b`cd` e", "command": [["toolbar_bold"], ["type", "x"]], "after": "**ax‸b**`cd` e", "formats": ["Bold"]},
+  {"name": "toolbar: code on a bold word makes it plain code", "before": "a **wo‸rd** b", "command": [["toolbar_code"], ["type", "x"]], "after": "a `wox‸rd` b", "formats": ["Code"]},
+  {"name": "toolbar: code inside bold marks reads as code only", "before": "**ab`c‸d`** e", "command": [["toolbar_italic"], ["type", "x"]], "after": "***ab*`cx‸d`** e", "formats": ["Code"]},
+  {"name": "toolbar: a caret at a code span's end inside bold stays in the code", "before": "**`ab‸`cd** e", "command": [["toolbar_italic"], ["type", "x"]], "after": "**`abx‸`*cd*** e", "formats": ["Code"]},
+  {"name": "toolbar: redo lands a caret at a code span's end inside bold in the code", "before": "**`ab‸`cd** e", "command": [["toolbar_italic"], ["undo"], ["redo"], ["type", "x"]], "after": "**`abx‸`*cd*** e", "formats": ["Code"]}
 ]

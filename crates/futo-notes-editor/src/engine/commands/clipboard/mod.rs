@@ -4,9 +4,11 @@
 //! boundary cuts closed or opened again (`copy.rs`). Cut is copy plus the
 //! deletion Backspace makes over the selection, as its own undo step, and
 //! carries the cut text's formats to the next typed character. Paste writes
-//! the pasted text as it is, behind the one guard (`paste.rs`).
+//! the pasted text as it is, behind the one guard (`paste.rs`). Drag-to-move
+//! is a cut and a paste joined into one undo step (`move_text.rs`).
 mod carried;
 mod copy;
+mod move_text;
 mod paste;
 
 use super::super::command::{Command, Edit};

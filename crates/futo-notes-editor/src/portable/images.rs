@@ -15,14 +15,8 @@ impl PortableSession {
         reference: &str,
         alt: &str,
     ) -> Result<Option<Applied>, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let change = self
-            .engine
-            .insert_image(expected, claim, reference, alt, &mut |edit| {
-                record = Some(edit.clone());
-                Ok(())
-            })?;
-        Ok(change.map(|change| self.issue(record.unwrap(), change)))
+        self.apply_input(|engine, accept| {
+            engine.insert_image(expected, claim, reference, alt, accept)
+        })
     }
 }

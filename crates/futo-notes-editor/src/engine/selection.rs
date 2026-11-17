@@ -2,6 +2,7 @@
 //! one extended grapheme.
 use super::line::Entry;
 use super::{store, Engine};
+use crate::backspace_length::backspace_length;
 use crate::{
     Affinity, CaretDirection, DisplayOffset, DisplayRange, EditorError, Revision, SelectionChange,
 };
@@ -79,6 +80,9 @@ impl Engine {
         self.check_revision(expected)?;
         self.check_display_range(range)?;
         let range = self.outside_metadata(self.outside_crlf(range));
+        if self.composition.is_none() && self.selection != range {
+            self.block_selected = false;
+        }
         if self.composition.is_none() && (self.selection != range || self.affinity != affinity) {
             self.typing = None;
             self.formats = None;
@@ -86,11 +90,16 @@ impl Engine {
             self.selection = range;
             self.affinity = affinity;
         }
-        Ok(SelectionChange {
+        Ok(self.selection_change())
+    }
+
+    pub(crate) fn selection_change(&self) -> SelectionChange {
+        SelectionChange {
             revision: self.revision,
             selection: self.selection,
+            selected_block: self.selected_block(),
             affinity: self.affinity,
-        })
+        }
     }
 
     /// Move one extended grapheme, collapsing a selection to its edge first.
@@ -137,6 +146,23 @@ impl Engine {
         match direction {
             CaretDirection::Backward => start,
             CaretDirection::Forward => end,
+        }
+    }
+
+    /// What Backspace or Delete at a collapsed caret at display offset `at`
+    /// removes: one extended grapheme forward, and backward what
+    /// `backspace_length` takes of the grapheme before it.
+    pub(crate) fn caret_deletion(&self, at: usize, direction: CaretDirection) -> DisplayRange {
+        let stop = self.grapheme_stop(at, direction);
+        if direction == CaretDirection::Forward {
+            return DisplayRange {
+                start: DisplayOffset(at),
+                end: DisplayOffset(stop),
+            };
+        }
+        DisplayRange {
+            start: DisplayOffset(at - backspace_length(&self.display_slice(stop..at))),
+            end: DisplayOffset(at),
         }
     }
 

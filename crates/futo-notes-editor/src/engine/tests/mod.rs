@@ -10,6 +10,7 @@ mod images;
 mod inline;
 mod input;
 mod lists;
+mod paired_typing;
 mod projection;
 mod properties;
 mod quick_open;
@@ -44,6 +45,39 @@ fn select(engine: &mut Engine, start: usize, end: usize, affinity: Affinity) {
     engine
         .select_with_affinity(engine.revision(), range(start, end), affinity)
         .unwrap();
+}
+
+/// The note without its marks, and the marked source range.
+fn unmark_selection(marked: &str, marks: &[char; 3]) -> (String, std::ops::Range<usize>) {
+    let mut text = String::new();
+    let (mut start, mut end) = (None, None);
+    for ch in marked.chars() {
+        if ch == marks[0] {
+            start = Some(text.len());
+            end = Some(text.len());
+        } else if ch == marks[1] {
+            start = Some(text.len());
+        } else if ch == marks[2] {
+            end = Some(text.len());
+        } else {
+            text.push(ch);
+        }
+    }
+    let start = start.expect("a selection mark");
+    (text, start..end.expect("a selection end"))
+}
+
+/// Select source `selection`, on the side of hidden text it names.
+fn select_source_range(engine: &mut Engine, selection: std::ops::Range<usize>) {
+    let display = |at: usize| engine.display_of(at);
+    let (start, end) = (display(selection.start), display(selection.end));
+    let (lo, _) = engine.source_bounds(start);
+    let affinity = if lo == selection.start {
+        Affinity::Backward
+    } else {
+        Affinity::Forward
+    };
+    select(engine, start, end, affinity);
 }
 
 #[test]
@@ -303,15 +337,15 @@ fn replacing_a_selection_writes_these_bytes() {
         ("> a\n> b", "a\nb", "X", "> X"),
         ("# Title", "Title", "X", "# X"),
         ("1. a\n2. b\n3. c", "a\nb\nc", "", "1. "),
-        // Hidden lines inside the selection go with it, except a fence
-        // frame line whose block goes on outside it: that stays, after the
-        // joined line, and goes when no code line is left (fences/cut.rs).
-        ("a\n```\ncode\n```\nb", "a\nco", "", "de\nb"),
-        ("a\n```\ncode\n```\nb", "de\nb", "", "a\n```\nco\n```"),
+        // Hidden lines inside the selection go with it, and a code block it
+        // reaches into or out of goes whole (fences/reach.rs).
+        ("a\n```\ncode\n```\nb", "a\nco", "", "\nb"),
+        ("a\n```\ncode\n```\nb", "de\nb", "", "a\n"),
         ("a\n---\nb", "\u{fffc}", "", "a\n\nb"),
         ("a\n---\nb", "a\n\u{fffc}", "X", "X\nb"),
-        // A selection starting on an empty code block's line keeps the block.
-        ("```\n```\nb", "\nb", "X", "```\nX\n```"),
+        // An empty code block has no inside: a selection from its line
+        // takes it whole.
+        ("```\n```\nb", "\nb", "X", "X"),
         // Tables: cells are text; pipes show and are selected like text.
         (
             "| a | b |\n|---|---|\n| c | d |",

@@ -15,13 +15,7 @@ impl PortableSession {
         expected: Revision,
         tag: &str,
     ) -> Result<Option<Applied>, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let change = self.engine.add_header_tag(expected, tag, &mut |edit| {
-            record = Some(edit.clone());
-            Ok(())
-        })?;
-        Ok(change.map(|change| self.issue(record.unwrap(), change)))
+        self.apply_input(|engine, accept| engine.add_header_tag(expected, tag, accept))
     }
 
     pub fn remove_header_tag(
@@ -29,12 +23,6 @@ impl PortableSession {
         expected: Revision,
         tag: &str,
     ) -> Result<Option<Applied>, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let change = self.engine.remove_header_tag(expected, tag, &mut |edit| {
-            record = Some(edit.clone());
-            Ok(())
-        })?;
-        Ok(change.map(|change| self.issue(record.unwrap(), change)))
+        self.apply_input(|engine, accept| engine.remove_header_tag(expected, tag, accept))
     }
 }

@@ -1,12 +1,16 @@
-//! Fenced code: the literal cases in `tests/fixtures/engine/fences.json`.
+//! Fenced code: the literal cases in `tests/fixtures/engine/fences.json` and
+//! `code-block-object.json` (a block selected as one object, its edges).
 //!
 //! Each case marks the selection in its source with `|` (a caret) or `[`
 //! and `]` (`marks` names other characters when the note needs these), runs
-//! one command or key (`type:` text typed, `os:` a text service's
-//! replacement of the selection), and states the source and selection after it. When
+//! one command or key (`type:` text typed, `paste:` text pasted, `os:` a
+//! text service's replacement of the selection), and states the source and selection after it. When
 //! `typed` is set, that text is typed at the selection first (setup, not
-//! checked). Every case that changes the note also undoes to the exact
-//! bytes and selection, and redoes to the result.
+//! checked); `block` selects the block at the selection as one object first.
+//! `selected` states whether a block is selected as one object after it, and
+//! `copied` what copying the selection before it gives. Every case that
+//! changes the note also undoes to the exact bytes, selection and selected
+//! block, and redoes to the result.
 use super::super::Engine;
 use super::{ok, range};
 use crate::{Affinity, BlockCommand, DisplayRange, InputAction, ParagraphKey};
@@ -21,39 +25,12 @@ struct Case {
     typed: Option<String>,
     #[serde(default)]
     marks: Option<String>,
-}
-
-/// The note without its marks, and the marked source range.
-fn unmark(marked: &str, marks: &[char; 3]) -> (String, std::ops::Range<usize>) {
-    let mut text = String::new();
-    let (mut start, mut end) = (None, None);
-    for ch in marked.chars() {
-        if ch == marks[0] {
-            start = Some(text.len());
-            end = Some(text.len());
-        } else if ch == marks[1] {
-            start = Some(text.len());
-        } else if ch == marks[2] {
-            end = Some(text.len());
-        } else {
-            text.push(ch);
-        }
-    }
-    let start = start.expect("a selection mark");
-    (text, start..end.expect("a selection end"))
-}
-
-/// Select source `selection`, on the side of hidden text it names.
-fn select_source(engine: &mut Engine, selection: std::ops::Range<usize>) {
-    let display = |at: usize| engine.display_of(at);
-    let (start, end) = (display(selection.start), display(selection.end));
-    let (lo, _) = engine.source_bounds(start);
-    let affinity = if lo == selection.start {
-        Affinity::Backward
-    } else {
-        Affinity::Forward
-    };
-    super::select(engine, start, end, affinity);
+    #[serde(default)]
+    block: bool,
+    #[serde(default)]
+    selected: bool,
+    #[serde(default)]
+    copied: Option<String>,
 }
 
 fn display_selection(engine: &Engine, selection: &std::ops::Range<usize>) -> DisplayRange {
@@ -69,6 +46,8 @@ fn run(engine: &mut Engine, command: &str) {
     let block = |name: &str| match name {
         "CodeBlock" => Some(BlockCommand::CodeBlock),
         "WrapCodeBlock" => Some(BlockCommand::WrapCodeBlock),
+        "OpenLineBeforeCodeBlock" => Some(BlockCommand::OpenLineBeforeCodeBlock),
+        "OpenLineAfterCodeBlock" => Some(BlockCommand::OpenLineAfterCodeBlock),
         "Indent" => Some(BlockCommand::Indent),
         "Outdent" => Some(BlockCommand::Outdent),
         _ => None,
@@ -86,10 +65,18 @@ fn run(engine: &mut Engine, command: &str) {
         engine
             .replace(revision, selection, text, InputAction::Typing, &mut ok)
             .unwrap();
+    } else if let Some(text) = command.strip_prefix("paste:") {
+        engine
+            .paste_markdown(revision, selection, text, &mut ok)
+            .unwrap();
     } else if let Some(text) = command.strip_prefix("os:") {
         engine
             .replace(revision, selection, text, InputAction::Isolated, &mut ok)
             .unwrap();
+    } else if command == "Cut" {
+        engine.cut_markdown(revision, selection, &mut ok).unwrap();
+    } else if command == "SelectBlock" {
+        engine.select_code_block(revision, selection.start).unwrap();
     } else if let Some(command) = block(command) {
         engine.block(revision, selection, command, &mut ok).unwrap();
     } else if let Some(key) = key(command) {
@@ -101,30 +88,54 @@ fn run(engine: &mut Engine, command: &str) {
 
 #[test]
 fn fence_cases() {
-    let cases: Vec<Case> =
+    let mut cases: Vec<Case> =
         serde_json::from_str(include_str!("../../../tests/fixtures/engine/fences.json")).unwrap();
-    assert!(cases.len() >= 60, "{} cases", cases.len());
+    let objects: Vec<Case> = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/engine/code-block-object.json"
+    ))
+    .unwrap();
+    cases.extend(objects);
+    assert!(cases.len() >= 120, "{} cases", cases.len());
     let mut failures = Vec::new();
     for case in &cases {
         let marks: Vec<char> = case.marks.as_deref().unwrap_or("|[]").chars().collect();
         let marks = [marks[0], marks[1], marks[2]];
-        let (source, selection) = unmark(&case.before, &marks);
-        let (want, want_selection) = unmark(&case.after, &marks);
+        let (source, selection) = super::unmark_selection(&case.before, &marks);
+        let (want, want_selection) = super::unmark_selection(&case.after, &marks);
         let mut engine = Engine::open(&source);
-        select_source(&mut engine, selection.clone());
+        super::select_source_range(&mut engine, selection.clone());
         if let Some(text) = &case.typed {
             let at = engine.selection();
             engine
                 .replace(engine.revision(), at, text, InputAction::Typing, &mut ok)
                 .unwrap();
         }
+        if case.block {
+            let at = engine.selection().start;
+            engine.select_code_block(engine.revision(), at).unwrap();
+        }
+        if let Some(want) = &case.copied {
+            let copied = engine.copy_markdown(engine.revision(), engine.selection());
+            if copied.as_ref() != Ok(want) {
+                failures.push(format!("{}: copied {copied:?}", case.name));
+            }
+        }
         let opening = engine.source_text();
         let opening_selection = engine.selection();
+        let opening_block = engine.selected_block();
         let groups = engine.history.undo.len();
         run(&mut engine, &case.command);
         let got = engine.source_text();
         let got_selection = engine.selection();
+        let got_block = engine.selected_block();
         let fresh = Engine::open(&got);
+        if engine.selected_block().is_some() != case.selected {
+            failures.push(format!(
+                "{}: selected block {:?}",
+                case.name,
+                engine.selected_block()
+            ));
+        }
         if got != want || got_selection != display_selection(&fresh, &want_selection) {
             failures.push(format!(
                 "{}: got {got:?} selection {got_selection:?}, want {want:?} selection {:?}",
@@ -141,7 +152,10 @@ fn fence_cases() {
             continue;
         }
         engine.undo(engine.revision(), &mut ok).unwrap().unwrap();
-        if engine.source_text() != opening || engine.selection() != opening_selection {
+        if engine.source_text() != opening
+            || engine.selection() != opening_selection
+            || engine.selected_block() != opening_block
+        {
             failures.push(format!(
                 "{}: undo gave {:?} {:?}",
                 case.name,
@@ -151,7 +165,10 @@ fn fence_cases() {
             continue;
         }
         engine.redo(engine.revision(), &mut ok).unwrap().unwrap();
-        if engine.source_text() != want || engine.selection() != got_selection {
+        if engine.source_text() != want
+            || engine.selection() != got_selection
+            || engine.selected_block() != got_block
+        {
             failures.push(format!(
                 "{}: redo gave {:?} {:?}",
                 case.name,
@@ -161,6 +178,32 @@ fn fence_cases() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn a_selected_block_ends_with_another_selection_and_composes_whole() {
+    let mut engine = Engine::open("a\n```\nx\n```\nb");
+    let selected = engine.select_code_block(engine.revision(), crate::DisplayOffset(2));
+    let block = Some(range(2, 3));
+    assert_eq!(selected.unwrap().selected_block, block);
+    let echo = engine.select_with_affinity(engine.revision(), range(2, 3), Affinity::Forward);
+    assert_eq!(echo.unwrap().selected_block, block);
+    let moved = engine.select(engine.revision(), range(2, 2)).unwrap();
+    assert_eq!(moved.selected_block, None);
+    engine
+        .select_code_block(engine.revision(), crate::DisplayOffset(3))
+        .unwrap();
+    engine
+        .compose(engine.revision(), range(2, 3), "か")
+        .unwrap();
+    let committed = engine
+        .commit_view(engine.revision(), None, &mut ok)
+        .unwrap();
+    assert_eq!(committed.unwrap().selected_block, None);
+    assert_eq!(engine.source_text(), "a\nか\nb");
+    assert!(engine
+        .select_code_block(engine.revision(), crate::DisplayOffset(0))
+        .is_err());
 }
 
 #[test]

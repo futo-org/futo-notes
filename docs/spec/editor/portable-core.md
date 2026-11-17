@@ -18,6 +18,7 @@ the deferred capabilities and current work bounds.
 
 - [Linedown: the dialect the engine reads and writes](portable-core/linedown.md)
 - [Exact source, interpretation and input](portable-core/interpretation-and-input.md)
+- [Composition and text-service replacements](portable-core/composition-and-replacements.md)
 - [Inline formatting](portable-core/inline-formatting.md)
 - [Heading, quote and divider block commands](portable-core/block-commands.md)
 - [Find in note](portable-core/find.md)
@@ -28,6 +29,7 @@ the deferred capabilities and current work bounds.
 - [List interpretation and editing](portable-core/lists.md)
 - [Typed list shortcuts](portable-core/list-shortcuts.md)
 - [Fenced code and key intent](portable-core/fenced-code.md)
+- [Paired typing](portable-core/paired-typing.md)
 - [Front matter, raw HTML and unfamiliar Markdown](portable-core/foreign-content.md)
 - [Saving and outside writers](portable-core/recovery.md)
 - [Portable and native transports](portable-core/transports.md)

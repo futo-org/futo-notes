@@ -22,8 +22,9 @@ export type SourceRange = Range;
 
 export type Affinity = 'Backward' | 'Forward';
 export type InlineFormat = 'Bold' | 'Italic' | 'Strike' | 'Code';
-export type InputAction = 'Typing' | 'Isolated' | 'CompositionCommit';
-export type ParagraphKey = 'Enter' | 'ShiftEnter' | 'Backspace' | 'Delete' | 'Tab' | 'ShiftTab';
+export type InputAction = 'Typing' | 'Isolated' | 'CompositionCommit' | 'PairedTyping';
+export type ParagraphKey =
+  'Enter' | 'ShiftEnter' | 'Backspace' | 'Delete' | 'Tab' | 'ShiftTab' | 'Transpose';
 export type BlockCommand =
   | { Heading: number }
   | 'Quote'
@@ -34,7 +35,9 @@ export type BlockCommand =
   | 'BulletList'
   | 'OrderedList'
   | 'TaskList'
-  | 'CodeBlock';
+  | 'CodeBlock'
+  | 'OpenLineBeforeCodeBlock'
+  | 'OpenLineAfterCodeBlock';
 export type TableKey = 'Tab' | 'ShiftTab' | 'Enter' | 'ModEnter' | 'ShiftEnter';
 export type TableCommand =
   | 'InsertRowAbove'
@@ -142,10 +145,33 @@ export interface BlockDescription {
   quote_depth: number;
   divider: boolean;
   list: ListDescription | null;
-  code: boolean;
-  language: string | null;
+  /** A line of fenced code; its block is in `ProjectionSlice.code_blocks`. */
+  code: CodeLineDescription | null;
   /** Leading front matter: inert, verbatim. */
   metadata: boolean;
+}
+
+/** One shown line of a fenced code block (an empty block shows one). */
+export interface CodeLineDescription {
+  /** 1-based within its block. */
+  line_number: number;
+  first: boolean;
+  last: boolean;
+  mark: CodeLineMark | null;
+}
+
+/** A line mark from the opening fence's `hl:` and `ll:` options. */
+export type CodeLineMark = 'Highlight' | 'Lowlight';
+
+/**
+ * A fenced code block, whole even where the projection holds only part of it: `range` runs from
+ * its first code line's start to its last code line's end (that line's break excluded).
+ */
+export interface CodeBlockDescription {
+  range: DisplayRange;
+  language: string | null;
+  name: string | null;
+  line_count: number;
 }
 
 export interface LinkDescription {
@@ -192,6 +218,8 @@ export interface ProjectionSlice {
   atoms: AtomDescription[];
   /** Each `#tag`'s display range, `#` included: coloured, still plain text. */
   tags: DisplayRange[];
+  /** Each code block the slice's lines belong to, in order. */
+  code_blocks: CodeBlockDescription[];
 }
 
 export interface EditWork {
@@ -209,15 +237,19 @@ export interface ViewChange {
   range: DisplayRange;
   inserted: string;
   selection: DisplayRange;
+  /** The code block selected as one object (its whole range, which `selection` then equals). */
+  selected_block: DisplayRange | null;
   work: EditWork;
   affinity: Affinity;
   projection: ProjectionSlice;
 }
 
-/** `select_with_affinity`. */
+/** `select_with_affinity`, `select_code_block`. */
 export interface SelectionChange {
   revision: number;
   selection: DisplayRange;
+  /** As on `ViewChange`. */
+  selected_block: DisplayRange | null;
   affinity: Affinity;
 }
 
@@ -337,8 +369,9 @@ export type TableOutcome = { selected: SelectionChange } | { edited: Applied };
 // `undo`, `redo`, `set_link`, `insert_image`, `add_header_tag`, `remove_header_tag`,
 // `paste_markdown`, `commit_composition_utf16`, `replace_os_utf16`, `apply_relink_offer`,
 // `table_command*`) apply the edit to the page's engine and return `Applied | null`
-// (`null` = nothing to do), except `replace*`/`accept_wikilink_completion`, which always
-// return `Applied`. Show `change` now and send `request` to the worker. `resume` returns a
+// (`null` = the source did not change: nothing to send, but the selection may have moved,
+// so read `selection`), except `accept_wikilink_completion`, which always returns
+// `Applied`. Show `change` now and send `request` to the worker. `resume` returns a
 // `HostRequest`. `acknowledge` returns `HostRequest[]`: empty, except the reply to `resume`,
 // which returns the outstanding requests (renumbered) the worker lacks. `compose_utf16` and
 // `composition` return `Composition` / `Composition | null`.

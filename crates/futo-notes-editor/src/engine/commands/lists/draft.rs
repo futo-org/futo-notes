@@ -181,6 +181,7 @@ impl<'a> Draft<'a> {
             affinity: None,
             typed: false,
             carry: None,
+            selects_block: false,
         })
     }
 }

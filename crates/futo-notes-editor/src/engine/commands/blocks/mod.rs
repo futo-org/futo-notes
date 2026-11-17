@@ -55,7 +55,10 @@ impl Engine {
             }
             ParagraphKey::Backspace => self.block_backspace(range, false),
             ParagraphKey::BackspaceJoiningHeading => self.block_backspace(range, true),
-            ParagraphKey::Delete | ParagraphKey::Tab | ParagraphKey::ShiftTab => None,
+            ParagraphKey::Delete
+            | ParagraphKey::Tab
+            | ParagraphKey::ShiftTab
+            | ParagraphKey::Transpose => None,
         })
     }
 
@@ -193,8 +196,7 @@ impl Engine {
         let (first, last) = (self.line_of(plan.range.start), self.line_of(plan.range.end));
         let start = self.line_start(first);
         let end = self.line_start(last) + self.line(last).body_len();
-        // A fence line the selection cuts is kept on a line of its own
-        // (`Engine::plan`), so the lines do not join into one.
+        // Only a replacement within the touched lines joins them into one.
         if plan.range.end > end || plan.inserted.contains('\n') {
             return None;
         }

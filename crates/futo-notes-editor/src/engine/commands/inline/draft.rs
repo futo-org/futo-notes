@@ -4,7 +4,7 @@
 //! intend; this is the one check, so no command reasons about delimiter
 //! rules itself.
 use super::super::super::line::{Entry, Neighbors, Role};
-use crate::lines::{table, Carry, Kind, Span, SpanKind, TableRole};
+use crate::lines::{reading_spans, table, Carry, Kind, Span, SpanKind, TableRole};
 use crate::InlineFormat;
 use std::ops::Range;
 
@@ -241,10 +241,7 @@ pub(super) fn glyphs(entry: &Entry) -> Vec<Glyph> {
         if hidden {
             continue;
         }
-        let style = entry
-            .spans
-            .iter()
-            .filter(|span| inside(span).contains(&src))
+        let style = reading_spans(&entry.spans, |span| inside(span).contains(&src))
             .fold(0, |style, span| style | span_bit(&span.kind));
         out.push(Glyph {
             src,

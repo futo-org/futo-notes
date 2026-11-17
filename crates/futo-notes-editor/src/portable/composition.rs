@@ -25,15 +25,7 @@ impl PortableSession {
         expected: Revision,
         text: Option<&[u16]>,
     ) -> Result<Option<Applied>, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let change = self
-            .engine
-            .commit_composition_utf16(expected, text, &mut |edit| {
-                record = Some(edit.clone());
-                Ok(())
-            })?;
-        Ok(change.map(|change| self.issue(record.unwrap(), change)))
+        self.apply_input(|engine, accept| engine.commit_composition_utf16(expected, text, accept))
     }
 
     pub fn replace_os_utf16(
@@ -43,14 +35,8 @@ impl PortableSession {
         text: &[u16],
         placeholders: &[DisplayUtf16Range],
     ) -> Result<Option<Applied>, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let change =
-            self.engine
-                .replace_os_utf16(expected, range, text, placeholders, &mut |edit| {
-                    record = Some(edit.clone());
-                    Ok(())
-                })?;
-        Ok(change.map(|change| self.issue(record.unwrap(), change)))
+        self.apply_input(|engine, accept| {
+            engine.replace_os_utf16(expected, range, text, placeholders, accept)
+        })
     }
 }

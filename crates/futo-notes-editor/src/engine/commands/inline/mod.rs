@@ -20,7 +20,9 @@ use super::super::command::{Command, Edit};
 use super::super::line::Entry;
 use super::super::{store, Engine};
 use crate::{DisplayRange, EditorError, InlineFormat, Revision, SourceEdit, ViewChange};
-use draft::{bit, formats_of, glyphs, inline_line, regions, Draft, Glyph};
+use draft::{
+    bit, formats_of, glyphs, inline_line, regions, Draft, Glyph, BOLD, CODE, ITALIC, STRIKE,
+};
 use std::collections::BTreeMap;
 use std::ops::Range;
 use word::Landing;
@@ -148,9 +150,10 @@ impl Engine {
         Some(Command::new(edits, first..last + 1, selection))
     }
 
-    /// Toggle `format` over display `range`: on every selected visible
-    /// character unless all of them already carry it, then off everywhere.
-    /// The selection afterwards is `keep`, a caret where it reads `want`.
+    /// Toggle `format` over display `range`: off everywhere when the
+    /// selection has it (`selected_style`), else on every selected visible
+    /// character, inline code aside for Bold, Italic and Strike. The
+    /// selection afterwards is `keep`, a caret where it reads `want`.
     fn format_command(
         &self,
         range: DisplayRange,
@@ -162,17 +165,11 @@ impl Engine {
         self.check_display_range(range)?;
         let bodies = self.bodies(range);
         let mark = bit(format);
-        let mut chosen = bodies.iter().flat_map(|body| {
-            body.glyphs
-                .iter()
-                .zip(&body.selected)
-                .filter(|(glyph, selected)| **selected && !glyph.space())
-                .map(|(glyph, _)| glyph.style & mark != 0)
-        });
-        let Some(first) = chosen.next() else {
+        let Some(style) = selected_style(&bodies) else {
             return Ok(None);
         };
-        let add = !(first && chosen.all(|has| has));
+        let add = style & mark == 0;
+        let spares_code = mark & CODE_TAKES_NONE != 0;
         let mut edited = BTreeMap::new();
         let mut refused = false;
         for body in &bodies {
@@ -184,7 +181,7 @@ impl Engine {
                 .iter()
                 .zip(&body.selected)
                 .map(|(glyph, &selected)| {
-                    if selected {
+                    if selected && !(spares_code && glyph.style & CODE != 0) {
                         add
                     } else {
                         glyph.style & mark != 0
@@ -198,7 +195,15 @@ impl Engine {
                 _ => 0..0,
             };
             let draft = Draft::of(body.entry);
-            match format::respell(&draft, body.entry, &want, touched, format, false, work) {
+            let start = if add && format == InlineFormat::Code {
+                without_code_formats(draft, body.entry, &body.selected, &touched, work)
+            } else {
+                Some((draft, body.entry.clone()))
+            };
+            let respelled = start.and_then(|(draft, read)| {
+                format::respell(&draft, &read, &want, touched, format, false, work)
+            });
+            match respelled {
                 Some((draft, read)) if draft.text != body.entry.text => {
                     edited.insert(body.index, (draft, read));
                 }
@@ -216,26 +221,32 @@ impl Engine {
         Ok(self.rewrite_to(keep, edited, want))
     }
 
-    /// The formats every selected visible character carries.
+    /// Code turned on over display `range`, as the toggle turns it on;
+    /// `None` when every selected character is code already.
+    pub(crate) fn inline_code_on(
+        &self,
+        range: DisplayRange,
+    ) -> Result<Option<Command>, EditorError> {
+        if self.range_formats(range).contains(&InlineFormat::Code) {
+            return Ok(None);
+        }
+        self.format_command(range, range, None, InlineFormat::Code, &mut 0)
+    }
+
+    /// The formats the selection has, which a toggle turns off
+    /// (`selected_style`).
     pub(crate) fn selection_formats(&self) -> Vec<InlineFormat> {
         self.range_formats(self.selection)
     }
 
-    /// The formats every visible character of display `range` carries.
+    /// The formats display `range` has, as a toggle over it reads them
+    /// (`selected_style`).
     fn range_formats(&self, range: DisplayRange) -> Vec<InlineFormat> {
-        let mut style: Option<u16> = None;
-        for body in self.bodies(range) {
-            for (glyph, selected) in body.glyphs.iter().zip(&body.selected) {
-                if *selected && !glyph.space() {
-                    style = Some(style.map_or(glyph.style, |style| style & glyph.style));
-                }
-            }
-        }
-        style.map_or_else(Vec::new, formats_of)
+        selected_style(&self.bodies(range)).map_or_else(Vec::new, formats_of)
     }
 
-    /// The formats the toolbar lights: the caret's, or those every selected
-    /// character carries.
+    /// The formats the toolbar lights: the caret's, or the selection's
+    /// (`selected_style`).
     pub(crate) fn toolbar_formats(&self) -> Vec<InlineFormat> {
         if self.selection.start == self.selection.end {
             self.active_formats()
@@ -323,20 +334,93 @@ impl Engine {
     /// Toggle `format` in the formats typing at the collapsed caret carries.
     fn toggle_carried(&mut self, format: InlineFormat) {
         if self.inline_allowed() {
-            let mut formats = self.active_formats();
-            match formats.iter().position(|have| *have == format) {
-                Some(at) => {
-                    formats.remove(at);
-                }
-                None => {
-                    formats.push(format);
-                    formats.sort();
-                }
+            let formats = self.active_formats();
+            let on = !formats.contains(&format);
+            let toggled = carried_with(formats.clone(), format, on);
+            if toggled != formats {
+                self.formats = Some(toggled);
+                self.typing = None;
             }
-            self.formats = Some(formats);
-            self.typing = None;
         }
     }
+}
+
+/// `formats` a caret carries, with `format` turned on or off. Bold, Italic
+/// and Strike do not turn on beside Code, and Code turned on drops them.
+fn carried_with(
+    mut formats: Vec<InlineFormat>,
+    format: InlineFormat,
+    on: bool,
+) -> Vec<InlineFormat> {
+    formats.retain(|have| *have != format);
+    if on && format == InlineFormat::Code {
+        return vec![InlineFormat::Code];
+    }
+    let refused = bit(format) & CODE_TAKES_NONE != 0 && formats.contains(&InlineFormat::Code);
+    if on && !refused {
+        formats.push(format);
+        formats.sort();
+    }
+    formats
+}
+
+/// The formats a toggle never turns on for inline code's characters.
+const CODE_TAKES_NONE: u16 = BOLD | ITALIC | STRIKE;
+
+/// `entry`'s line with Bold, Italic and Strike taken off the `selected`
+/// glyphs, before Code goes on over them. `None` when the line cannot read
+/// that way.
+fn without_code_formats(
+    draft: Draft,
+    entry: &Entry,
+    selected: &[bool],
+    touched: &Range<usize>,
+    work: &mut usize,
+) -> Option<(Draft, Entry)> {
+    let mut current = (draft, entry.clone());
+    for format in [
+        InlineFormat::Bold,
+        InlineFormat::Italic,
+        InlineFormat::Strike,
+    ] {
+        let mark = bit(format);
+        let want: Vec<bool> = glyphs(&current.1)
+            .iter()
+            .zip(selected)
+            .map(|(glyph, &selected)| !selected && glyph.style & mark != 0)
+            .collect();
+        current = format::respell(
+            &current.0,
+            &current.1,
+            &want,
+            touched.clone(),
+            format,
+            false,
+            work,
+        )?;
+    }
+    Some(current)
+}
+
+/// The format bits the selected visible characters have, as a toggle reads
+/// them: Code when every one is code; Bold, Italic and Strike when every one
+/// outside inline code has it (none when all are code). `None` when no
+/// visible character is selected.
+fn selected_style(bodies: &[Body]) -> Option<u16> {
+    let (mut every, mut outside_code, mut seen) = (u16::MAX, None, false);
+    for body in bodies {
+        for (glyph, &selected) in body.glyphs.iter().zip(&body.selected) {
+            if !selected || glyph.space() {
+                continue;
+            }
+            seen = true;
+            every &= glyph.style;
+            if glyph.style & CODE == 0 {
+                outside_code = Some(outside_code.unwrap_or(u16::MAX) & glyph.style);
+            }
+        }
+    }
+    seen.then_some((every & !CODE_TAKES_NONE) | (outside_code.unwrap_or(0) & CODE_TAKES_NONE))
 }
 
 /// Source `range` of a line's text as a range of its glyphs, trimmed of

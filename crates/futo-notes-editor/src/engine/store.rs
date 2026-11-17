@@ -20,6 +20,9 @@ pub(crate) struct Size {
     pub display: usize,
     pub source16: usize,
     pub display16: usize,
+    /// Opening and closing fence lines. They alternate, so a count of them
+    /// finds a code line's fence lines without walking its block.
+    pub frames: usize,
 }
 
 impl Size {
@@ -30,6 +33,7 @@ impl Size {
             display: self.display + other.display,
             source16: self.source16 + other.source16,
             display16: self.display16 + other.display16,
+            frames: self.frames + other.frames,
         }
     }
 
@@ -40,6 +44,7 @@ impl Size {
             display: self.display - other.display,
             source16: self.source16 - other.source16,
             display16: self.display16 - other.display16,
+            frames: self.frames - other.frames,
         }
     }
 }
@@ -58,6 +63,9 @@ pub(crate) fn source16(size: &Size) -> usize {
 }
 pub(crate) fn display16(size: &Size) -> usize {
     size.display16
+}
+pub(crate) fn frames(size: &Size) -> usize {
+    size.frames
 }
 fn lines(size: &Size) -> usize {
     size.lines

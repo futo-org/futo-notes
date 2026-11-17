@@ -50,6 +50,26 @@ pub(crate) struct Span {
     pub close: Range<usize>,
 }
 
+/// The spans one character reads with, among `spans` those `holds` says
+/// hold it: inline code reads as code only, so where a code span holds the
+/// character, the bold, italic and strike spans around it do not count.
+pub(crate) fn reading_spans(
+    spans: &[Span],
+    holds: impl Fn(&Span) -> bool,
+) -> impl Iterator<Item = &Span> {
+    let code = spans
+        .iter()
+        .any(|span| span.kind == SpanKind::Code && holds(span));
+    spans.iter().filter(move |span| {
+        holds(span)
+            && !(code
+                && matches!(
+                    span.kind,
+                    SpanKind::Bold | SpanKind::Italic | SpanKind::Strike
+                ))
+    })
+}
+
 /// The marks in `line[content]`, with offsets into `line`. The rest of the
 /// line is read only to decide whether a tag's `#` follows whitespace.
 pub(crate) fn read(line: &str, content: Range<usize>) -> Vec<Span> {

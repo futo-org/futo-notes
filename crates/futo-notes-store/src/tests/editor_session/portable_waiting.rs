@@ -21,7 +21,10 @@ fn withheld_resume_ack_preserves_marking_until_the_same_complete_update_is_retri
         .into_portable_host(SessionToken(133))
         .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
-    let input = page.replace(Revision(0), range(1, 1), "!").unwrap();
+    let input = page
+        .replace(Revision(0), range(1, 1), "!")
+        .unwrap()
+        .unwrap();
     let change = input.change;
     page.acknowledge(host.handle(input.request)).unwrap();
     let mut view = "a".to_owned();

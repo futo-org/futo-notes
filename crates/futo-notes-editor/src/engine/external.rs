@@ -256,6 +256,7 @@ impl Engine {
             affinity: mark.affinity,
             formats: mark.formats.clone(),
             pin,
+            block_selected: false,
         }
     }
 }

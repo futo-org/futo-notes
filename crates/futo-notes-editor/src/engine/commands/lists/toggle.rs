@@ -132,7 +132,9 @@ impl Engine {
     }
 
     /// The checkbox toggle on the task items the range touches: when any is
-    /// unchecked all are checked, else all are unchecked.
+    /// unchecked all are checked, else all are unchecked. The range only
+    /// names the tasks (a host points it at the clicked box's line); the
+    /// engine's own selection and affinity stay.
     pub(super) fn toggle_task(&self, range: DisplayRange) -> Result<Option<Command>, EditorError> {
         let tasks: Vec<(usize, bool)> = self
             .lines_of(range)
@@ -164,8 +166,11 @@ impl Engine {
             );
             draft.set_prefix(index, &prefix, content);
         }
-        let selected = self.source_selection(range);
+        let selected = self.source_selection(self.selection);
         let selection = draft.map(selected.start)..draft.map(selected.end);
-        Ok(draft.finish(None, selection))
+        Ok(draft.finish(None, selection).map(|mut command| {
+            command.affinity = Some(self.affinity);
+            command
+        }))
     }
 }

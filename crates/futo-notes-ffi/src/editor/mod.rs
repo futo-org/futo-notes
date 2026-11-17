@@ -14,9 +14,13 @@ mod find;
 mod host;
 mod host_open;
 pub use host::{
-    EditorDisplayMirror, EditorFindSnapshot, EditorListMarker, EditorMirrorEdit, EditorMirrorError,
-    EditorStyleSpan, EditorToolbarHighlights,
+    EditorDisplayMirror, EditorFindSnapshot, EditorMirrorEdit, EditorMirrorError,
+    EditorToolbarHighlights,
 };
+mod style_span;
+pub use style_span::{EditorListMarker, EditorStyleSpan};
+mod projection;
+pub use projection::*;
 mod host_find;
 pub use host_find::{EditorFindLanding, EditorFindStep};
 pub use host_open::{EditorPendingEdits, EditorQuickView};
@@ -292,6 +296,21 @@ impl NativeEditorSession {
         self.with_revision(expected, |session| {
             Ok(session
                 .select_with_affinity(Revision(expected), range.try_into()?, affinity.into())?
+                .into())
+        })
+    }
+
+    /// Select, as one object, the code block whose code shows at display
+    /// byte `at` (a tap on its header).
+    pub fn select_code_block(
+        &self,
+        expected: u64,
+        at: u64,
+    ) -> Result<EditorSelectionChange, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            let at = usize::try_from(at).map_err(|_| EditorSessionError::InvalidRange)?;
+            Ok(session
+                .select_code_block(Revision(expected), futo_notes_editor::DisplayOffset(at))?
                 .into())
         })
     }

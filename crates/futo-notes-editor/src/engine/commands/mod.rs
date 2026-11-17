@@ -10,12 +10,14 @@ mod images;
 mod inline;
 mod lists;
 mod marks;
+mod paired_typing;
 mod tables;
+mod transpose;
 mod wikilinks;
 
 use super::command::{Command, Edit};
 use super::Engine;
-use crate::{BlockCommand, CaretDirection, DisplayOffset, DisplayRange, EditorError, ParagraphKey};
+use crate::{BlockCommand, CaretDirection, DisplayRange, EditorError, ParagraphKey};
 
 /// A family's claim on a paragraph key: the command it runs, if it claims it.
 type KeyFamily = fn(&Engine, DisplayRange, ParagraphKey) -> Result<Option<Command>, EditorError>;
@@ -47,6 +49,8 @@ impl Engine {
     /// A key's plain text edit, as a command that always lands: Enter writes
     /// the line's own line break, Backspace and Delete remove the range or
     /// one visible grapheme. Used when a key arrives over marked text.
+    /// Transpose is the one exception: its swap goes behind the guard
+    /// (`transpose.rs`).
     pub(crate) fn typed_key(
         &self,
         range: DisplayRange,
@@ -69,11 +73,7 @@ impl Engine {
                     } else {
                         CaretDirection::Backward
                     };
-                    let stop = self.grapheme_stop(range.start.0, direction);
-                    DisplayRange {
-                        start: DisplayOffset(range.start.0.min(stop)),
-                        end: DisplayOffset(range.start.0.max(stop)),
-                    }
+                    self.caret_deletion(range.start.0, direction)
                 };
                 if range.start == range.end || self.touches_metadata(range) {
                     return Ok(None);
@@ -81,6 +81,7 @@ impl Engine {
                 (range, String::new())
             }
             ParagraphKey::Tab | ParagraphKey::ShiftTab => return Ok(None),
+            ParagraphKey::Transpose => return self.transpose_command(range),
         };
         let plan = self.plan(self.outside_crlf(range), &text);
         let first = self.line_of(plan.range.start);
@@ -120,6 +121,8 @@ impl Engine {
             BlockCommand::CodeBlock | BlockCommand::WrapCodeBlock => {
                 self.fence_command(range, command)
             }
+            BlockCommand::OpenLineBeforeCodeBlock => Ok(self.open_line_beside_block(range, false)),
+            BlockCommand::OpenLineAfterCodeBlock => Ok(self.open_line_beside_block(range, true)),
         }
     }
 }

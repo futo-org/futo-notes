@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 
 use futo_notes_editor::host::{plan_quick_open, PendingEdits};
 
-use super::host::{EditorMirrorError, EditorStyleSpan};
+use super::host::EditorMirrorError;
+use super::style_span::EditorStyleSpan;
 use super::EditorUtf16Range;
 
 fn index(value: u64) -> Result<usize, EditorMirrorError> {

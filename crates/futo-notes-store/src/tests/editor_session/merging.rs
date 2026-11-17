@@ -311,7 +311,10 @@ fn portable_clean_checkpoint_leaves_page_owned_source_and_history_unchanged() {
         .into_portable_host(SessionToken(325))
         .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
-    let edit = page.replace(Revision(0), range(0, 0), "local ").unwrap();
+    let edit = page
+        .replace(Revision(0), range(0, 0), "local ")
+        .unwrap()
+        .unwrap();
     page.acknowledge(host.handle(edit.request)).unwrap();
     host.checkpoint().unwrap();
     store
@@ -341,7 +344,10 @@ fn portable_merge_checkpoint_records_the_baseline_so_undo_saves_in_place() {
         .into_portable_host(SessionToken(574))
         .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
-    let edit = page.replace(Revision(0), range(7, 13), "LOCAL").unwrap();
+    let edit = page
+        .replace(Revision(0), range(7, 13), "LOCAL")
+        .unwrap()
+        .unwrap();
     page.acknowledge(host.handle(edit.request)).unwrap();
     store.write("plain", "REMOTE\n\nsecond\n", None).unwrap();
     let merged = host.checkpoint_merged().unwrap();
@@ -370,7 +376,10 @@ fn portable_merge_never_overwrites_the_peer_when_the_page_does_not_adopt() {
         .into_portable_host(SessionToken(575))
         .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
-    let edit = page.replace(Revision(0), range(7, 13), "LOCAL").unwrap();
+    let edit = page
+        .replace(Revision(0), range(7, 13), "LOCAL")
+        .unwrap()
+        .unwrap();
     page.acknowledge(host.handle(edit.request)).unwrap();
     store.write("plain", "REMOTE\n\nsecond\n", None).unwrap();
     let merged = host.checkpoint_merged().unwrap();
@@ -397,7 +406,10 @@ fn portable_undo_before_a_merge_is_adopted_is_not_reported_saved() {
         .into_portable_host(SessionToken(576))
         .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
-    let edit = page.replace(Revision(0), range(7, 13), "LOCAL").unwrap();
+    let edit = page
+        .replace(Revision(0), range(7, 13), "LOCAL")
+        .unwrap()
+        .unwrap();
     page.acknowledge(host.handle(edit.request)).unwrap();
     store.write("plain", "REMOTE\n\nsecond\n", None).unwrap();
     host.checkpoint_merged().unwrap();

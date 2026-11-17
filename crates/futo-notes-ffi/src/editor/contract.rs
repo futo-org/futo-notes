@@ -1,6 +1,8 @@
 use futo_notes_editor as editor;
 use futo_notes_store as store;
 
+use super::projection::EditorProjection;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
 pub struct EditorByteRange {
     pub start: u64,
@@ -43,6 +45,9 @@ impl From<editor::DisplayUtf16Range> for EditorUtf16Range {
 pub struct EditorSelectionChange {
     pub revision: u64,
     pub selection: EditorByteRange,
+    /// The code block selected as one object (its display range, which
+    /// `selection` then equals), when the selection is one.
+    pub selected_block: Option<EditorByteRange>,
     pub affinity: EditorAffinity,
 }
 
@@ -51,6 +56,7 @@ impl From<editor::SelectionChange> for EditorSelectionChange {
         Self {
             revision: value.revision.0,
             selection: value.selection.into(),
+            selected_block: value.selected_block.map(Into::into),
             affinity: value.affinity.into(),
         }
     }
@@ -116,6 +122,8 @@ pub enum EditorBlockCommand {
     CodeBlock,
     WrapCodeBlock,
     ToggleHeading { level: u8 },
+    OpenLineBeforeCodeBlock,
+    OpenLineAfterCodeBlock,
 }
 impl From<EditorBlockCommand> for editor::BlockCommand {
     fn from(value: EditorBlockCommand) -> Self {
@@ -132,6 +140,8 @@ impl From<EditorBlockCommand> for editor::BlockCommand {
             EditorBlockCommand::CodeBlock => Self::CodeBlock,
             EditorBlockCommand::WrapCodeBlock => Self::WrapCodeBlock,
             EditorBlockCommand::ToggleHeading { level } => Self::ToggleHeading(level),
+            EditorBlockCommand::OpenLineBeforeCodeBlock => Self::OpenLineBeforeCodeBlock,
+            EditorBlockCommand::OpenLineAfterCodeBlock => Self::OpenLineAfterCodeBlock,
         }
     }
 }
@@ -143,6 +153,9 @@ pub enum EditorInputAction {
     Typing,
     Isolated,
     CompositionCommit,
+    /// Typing with the paired-typing conveniences (a typed backtick pairs,
+    /// steps over, or makes a code block); other text is `Typing`.
+    PairedTyping,
 }
 impl From<EditorInputAction> for editor::InputAction {
     fn from(value: EditorInputAction) -> Self {
@@ -150,6 +163,7 @@ impl From<EditorInputAction> for editor::InputAction {
             EditorInputAction::Typing => Self::Typing,
             EditorInputAction::Isolated => Self::Isolated,
             EditorInputAction::CompositionCommit => Self::CompositionCommit,
+            EditorInputAction::PairedTyping => Self::PairedTyping,
         }
     }
 }
@@ -177,6 +191,8 @@ pub struct EditorViewChange {
     pub inserted: String,
     /// Selection in the resulting display's UTF-8 bytes.
     pub selection: EditorByteRange,
+    /// The code block selected as one object, as on `EditorSelectionChange`.
+    pub selected_block: Option<EditorByteRange>,
     pub materialized_source_bytes: u64,
     pub inserted_bytes: u64,
     pub parsed_source_bytes: u64,
@@ -194,6 +210,7 @@ impl From<editor::ViewChange> for EditorViewChange {
             range: value.range.into(),
             inserted: value.inserted,
             selection: value.selection.into(),
+            selected_block: value.selected_block.map(Into::into),
             materialized_source_bytes: value.work.materialized_source_bytes as u64,
             inserted_bytes: value.work.inserted_bytes as u64,
             parsed_source_bytes: value.work.parsed_source_bytes as u64,
@@ -233,7 +250,8 @@ pub enum EditorSessionError {
     StaleRevision { expected: u64, actual: u64 },
     #[error("invalid editor range")]
     InvalidRange,
-    #[error("invalid UTF-16 input")]
+    /// Malformed UTF-16, or typed text no key can mean (a control character).
+    #[error("invalid input text")]
     InvalidText,
     #[error("editor composition is active")]
     CompositionActive,
@@ -402,86 +420,6 @@ impl From<editor::QuickOpen> for EditorQuickOpen {
         Self {
             projection: value.projection.into(),
             tables: value.tables.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-#[derive(Debug, PartialEq, Eq, uniffi::Record)]
-pub struct EditorProjection {
-    pub revision: u64,
-    pub range: EditorByteRange,
-    pub text: String,
-    pub runs: Vec<EditorSemanticRun>,
-    pub correspondence: Vec<super::correspondence::EditorCorrespondence>,
-    pub blocks: Vec<EditorBlockDescription>,
-    pub links: Vec<EditorLinkDescription>,
-    pub wikilinks: Vec<EditorWikilinkDescription>,
-    pub atoms: Vec<super::images::EditorAtomDescription>,
-}
-#[derive(Debug, PartialEq, Eq, uniffi::Record)]
-pub struct EditorListDescription {
-    pub indent: u64,
-    pub level: u64,
-    pub marker: String,
-    pub ordered: bool,
-    pub checked: Option<bool>,
-    pub first: bool,
-}
-impl From<editor::ListDescription> for EditorListDescription {
-    fn from(value: editor::ListDescription) -> Self {
-        Self {
-            indent: value.indent as u64,
-            level: value.level as u64,
-            marker: value.marker,
-            ordered: value.ordered,
-            checked: value.checked,
-            first: value.first,
-        }
-    }
-}
-#[derive(Debug, PartialEq, Eq, uniffi::Record)]
-pub struct EditorBlockDescription {
-    pub range: EditorByteRange,
-    pub heading: u8,
-    pub quote_depth: u64,
-    pub divider: bool,
-    pub list: Option<EditorListDescription>,
-    pub code: bool,
-    pub language: Option<String>,
-    /// Leading front matter, shown verbatim; hosts may render it as a panel.
-    pub metadata: bool,
-}
-impl From<editor::ProjectionSlice> for EditorProjection {
-    fn from(value: editor::ProjectionSlice) -> Self {
-        Self {
-            revision: value.revision.0,
-            range: value.range.into(),
-            text: value.text,
-            links: value.links.into_iter().map(Into::into).collect(),
-            wikilinks: value.wikilinks.into_iter().map(Into::into).collect(),
-            atoms: value.atoms.into_iter().map(Into::into).collect(),
-            blocks: value
-                .blocks
-                .into_iter()
-                .map(|block| EditorBlockDescription {
-                    range: block.range.into(),
-                    heading: block.heading,
-                    quote_depth: block.quote_depth as u64,
-                    divider: block.divider,
-                    list: block.list.map(Into::into),
-                    code: block.code,
-                    language: block.language,
-                    metadata: block.metadata,
-                })
-                .collect(),
-            runs: value
-                .runs
-                .into_iter()
-                .map(|run| EditorSemanticRun {
-                    range: run.range.into(),
-                    formats: run.formats.into_iter().map(Into::into).collect(),
-                })
-                .collect(),
-            correspondence: value.correspondence.into_iter().map(Into::into).collect(),
         }
     }
 }

@@ -133,27 +133,27 @@ try {
     await stop();
   }
   for (const fixture of [
-    // A selection starting in a block's code keeps the frame: the paste is code.
+    // A selection from a block's code past the block takes it whole: the paste is prose.
     {
       source: '```\n\n```\n\nplain\n',
       end: 8,
       text: '# h',
-      expected: '```\n# h\n```',
-      shown: '# h',
+      expected: '# h',
+      shown: 'h',
     },
     {
       source: '```\r\n\r\n```\r\n\r\nplain\r\n',
       end: 11,
       text: '# h\nbody',
-      expected: '```\r\n# h\r\nbody\r\n```',
-      shown: '# h\r\nbody',
+      expected: '# h\r\nbody',
+      shown: 'h\r\nbody',
     },
     {
       source: '```\n' + 'x\n'.repeat(2000) + '```\n\nplain\n',
       end: 4007,
       text: '# h',
-      expected: '```\n# h\n```',
-      shown: '# h',
+      expected: '# h',
+      shown: 'h',
     },
   ]) {
     const selectedExchange = await start(fixture.source);

@@ -50,4 +50,21 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
+
+    /// Drag-to-move: display bytes `start..end` to display byte `to`, as a JSON list of
+    /// `Applied` (the cut, then the paste).
+    pub fn move_markdown(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        to: usize,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .move_markdown(Revision(revision), range(start, end), DisplayOffset(to))
+                .map_err(error)?,
+        )
+    }
 }

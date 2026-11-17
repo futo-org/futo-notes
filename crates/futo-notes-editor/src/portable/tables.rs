@@ -2,8 +2,6 @@
 use super::*;
 use crate::{DisplayUtf16Range, TableCommand, TableDescription, TableKey};
 
-type Accept<'a> = dyn FnMut(&SourceEdit) -> Result<(), String> + 'a;
-
 /// A table key either moves the selection (nothing to append) or applies one
 /// edit and issues its request.
 pub enum PortableTableStep {
@@ -42,7 +40,7 @@ impl PortableSession {
         range: DisplayRange,
         command: TableCommand,
     ) -> Result<Option<Applied>, PortableError> {
-        self.apply_table(|engine, accept| engine.table_command(expected, range, command, accept))
+        self.apply_input(|engine, accept| engine.table_command(expected, range, command, accept))
     }
 
     pub fn table_command_utf16(
@@ -51,7 +49,7 @@ impl PortableSession {
         range: DisplayUtf16Range,
         command: TableCommand,
     ) -> Result<Option<Applied>, PortableError> {
-        self.apply_table(|engine, accept| {
+        self.apply_input(|engine, accept| {
             engine.table_command_utf16(expected, range, command, accept)
         })
     }
@@ -68,34 +66,9 @@ impl PortableSession {
             Some(crate::TableOutcome::Selected(change)) => {
                 Some(PortableTableStep::Selected(change))
             }
-            Some(crate::TableOutcome::Edited(change)) => Some(PortableTableStep::Edited(Box::new(
-                self.issue(record.unwrap(), *change),
-            ))),
+            Some(crate::TableOutcome::Edited(change)) => self
+                .issue_accepted(record, Some(*change))
+                .map(|applied| PortableTableStep::Edited(Box::new(applied))),
         })
-    }
-
-    fn apply_table(
-        &mut self,
-        operation: impl FnOnce(
-            &mut EditorSession,
-            &mut Accept,
-        ) -> Result<Option<ViewChange>, EditorError>,
-    ) -> Result<Option<Applied>, PortableError> {
-        let (change, record) = self.record_edit(operation)?;
-        Ok(change.map(|change| self.issue(record.unwrap(), change)))
-    }
-
-    /// Run an engine operation, keeping the edit it handed the host.
-    fn record_edit<T>(
-        &mut self,
-        operation: impl FnOnce(&mut EditorSession, &mut Accept<'_>) -> Result<T, EditorError>,
-    ) -> Result<(T, Option<SourceEdit>), PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let result = operation(&mut self.engine, &mut |edit| {
-            record = Some(edit.clone());
-            Ok(())
-        })?;
-        Ok((result, record))
     }
 }

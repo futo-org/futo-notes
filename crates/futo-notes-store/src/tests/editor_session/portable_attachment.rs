@@ -23,7 +23,11 @@ fn native_relink_adoption_completes_before_a_portable_attachment() {
     page.acknowledge(resumed).unwrap();
     assert_eq!(page.draft_text(), "[[long name]]!");
     let revision = page.status().local;
-    let request = page.replace(revision, range(14, 14), "?").unwrap().request;
+    let request = page
+        .replace(revision, range(14, 14), "?")
+        .unwrap()
+        .unwrap()
+        .request;
     page.acknowledge(host.handle(request)).unwrap();
     assert_eq!(page.status().outstanding, 0);
     host.checkpoint().unwrap();
@@ -113,7 +117,10 @@ fn portable_attachment_cannot_open_before_a_prepared_native_relink_finishes() {
         page.acknowledge(ack).unwrap();
         assert_eq!(page.draft_text(), "[[long name]]");
         assert_eq!(host.snapshot().source, "[[long name]]");
-        let applied = page.replace(Revision(1), range(13, 13), "!").unwrap();
+        let applied = page
+            .replace(Revision(1), range(13, 13), "!")
+            .unwrap()
+            .unwrap();
         assert_eq!(applied.change.inserted, "!");
         page.acknowledge(host.handle(applied.request)).unwrap();
         let undo = page.undo(Revision(2)).unwrap().unwrap();

@@ -1,6 +1,7 @@
 //! What each line of a note is. One pass over lines with a small carry; a line
 //! never looks at a line after it, except that a delimiter row makes the line
 //! directly above it a table header.
+use super::fence_info::{read_fence_info, FenceInfo};
 use std::{ops::Range, sync::Arc};
 
 /// What the lines above hand to the next line.
@@ -34,8 +35,9 @@ impl Carry {
 pub(crate) struct OpenFence {
     pub ch: u8,
     pub len: usize,
-    /// The opening fence's language, which every line inside it carries.
-    pub language: Option<String>,
+    /// The opening fence's info. Every line inside shows by it (language,
+    /// name, line marks), so a change to it reads the whole block again.
+    pub info: Arc<FenceInfo>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,8 +89,8 @@ pub(crate) enum Kind {
         /// Columns of a fence line's own leading whitespace; code lines keep
         /// their whitespace as code and report 0.
         indent: usize,
-        /// The info string's first word on an opening fence.
-        language: Option<Range<usize>>,
+        /// The info string, on an opening fence only.
+        info: Option<Arc<FenceInfo>>,
     },
     Table {
         role: TableRole,
@@ -284,7 +286,7 @@ fn fenced(carry: &mut Carry, open: OpenFence, place: &Place, text: &str) -> Line
             FenceRole::Code
         },
         indent: if closes { width(&text[..indent]) } else { 0 },
-        language: None,
+        info: None,
     };
     if closes {
         place.syntax(kind)
@@ -382,19 +384,16 @@ fn fence_opener(
     ch: u8,
     run: usize,
 ) -> Line {
-    let info = own[run..].trim_start_matches([' ', '\t']);
-    let word = info.find([' ', '\t']).unwrap_or(info.len());
-    let info_start = place.start + place.len - info.len();
-    let language = (word > 0).then_some(info_start..info_start + word);
+    let info = Arc::new(read_fence_info(&own[run..]));
     carry.fence = Some(OpenFence {
         ch,
         len: run,
-        language: (word > 0).then(|| info[..word].to_owned()),
+        info: Arc::clone(&info),
     });
     place.syntax(Kind::Fence {
         role: FenceRole::Open,
         indent: width,
-        language,
+        info: Some(info),
     })
 }
 

@@ -4,6 +4,7 @@
 mod bulk;
 mod compose;
 mod plan;
+mod runs;
 mod spans;
 
 use super::command::{Command, Edit};
@@ -26,7 +27,7 @@ pub(crate) struct Change {
     pub inserted: String,
     pub selection: DisplayRange,
     pub affinity: Affinity,
-    /// The display of every line the change showed again, after it.
+    /// The display of every line the change showed again (`Shown::lines`), after it.
     pub lines: Range<usize>,
     pub work: EditWork,
 }
@@ -179,6 +180,7 @@ impl Engine {
             affinity: self.affinity,
             formats: self.formats.clone(),
             pin: self.pin,
+            block_selected: self.block_selected,
         }
     }
 
@@ -187,10 +189,12 @@ impl Engine {
         self.affinity = point.affinity;
         self.formats = point.formats.clone();
         self.pin = point.pin;
+        self.block_selected = point.block_selected;
     }
 
     /// Put the collapsed caret at source offset `at`, pinned there.
     pub(crate) fn caret_at(&mut self, at: usize) {
+        self.block_selected = false;
         let display = DisplayOffset(self.display_of(at));
         self.selection = DisplayRange {
             start: display,
@@ -294,8 +298,8 @@ impl Engine {
         batch.work.parsed_source_bytes += plan.parsed;
         self.raw(&mut batch, plan.range.clone(), &plan.inserted);
         let Some((edit, shown, records)) = self.accept(batch, accept)? else {
-            // An unchanged commit still finishes at the end of its text.
-            if action != InputAction::Typing && range.start != range.end {
+            // Unchanged input still finishes at the end of its text.
+            if range.start != range.end {
                 self.caret_at(plan.caret);
             }
             return Ok(None);
@@ -360,7 +364,8 @@ impl Engine {
             _ if !ordered => return Err(EditorError::InvalidRange),
             _ => {}
         }
-        self.run(
+        let mut landing = None;
+        let change = self.run(
             expected,
             |engine| {
                 let mut plans = Vec::new();
@@ -378,6 +383,7 @@ impl Engine {
                     .map(|plan| plan.inserted.len() as isize - plan.range.len() as isize)
                     .sum();
                 let caret = (last.caret as isize + growth) as usize;
+                landing = Some(caret);
                 let lines =
                     engine.line_of(plans[0].range.start)..engine.line_of(last.range.end) + 1;
                 let edits = plans
@@ -391,7 +397,13 @@ impl Engine {
                 Ok(Some(command))
             },
             accept,
-        )
+        )?;
+        // `run` puts the selection back when nothing changed; unchanged input
+        // still finishes after its last run.
+        if let (None, Some(caret)) = (&change, landing) {
+            self.caret_at(caret);
+        }
+        Ok(change)
     }
 
     /// Backspace or Delete: remove the selection, or one visible grapheme.
@@ -406,12 +418,7 @@ impl Engine {
         let range = if selection.start != selection.end {
             selection
         } else {
-            let at = selection.start.0;
-            let stop = self.grapheme_stop(at, direction);
-            DisplayRange {
-                start: DisplayOffset(at.min(stop)),
-                end: DisplayOffset(at.max(stop)),
-            }
+            self.caret_deletion(selection.start.0, direction)
         };
         if range.start == range.end || self.touches_metadata(range) {
             return Ok(None);

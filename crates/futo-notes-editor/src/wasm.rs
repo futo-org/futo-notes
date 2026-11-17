@@ -2,6 +2,7 @@
 use wasm_bindgen::prelude::*;
 mod clipboard;
 mod tables;
+mod words;
 
 use crate::{
     DisplayOffset, DisplayRange, DisplayUtf16Offset, DisplayUtf16Range, PortableSession, Revision,
@@ -137,6 +138,15 @@ impl WasmSession {
                     },
                     affinity,
                 )
+                .map_err(error)?,
+        )
+    }
+    /// `select_code_block`: the block whose code shows at display byte `at`.
+    pub fn select_code_block(&mut self, revision: u64, at: usize) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .select_code_block(Revision(revision), DisplayOffset(at))
                 .map_err(error)?,
         )
     }
@@ -360,6 +370,19 @@ impl WasmSession {
 
     pub fn draft_text(&self) -> String {
         self.0.draft_text()
+    }
+    pub fn display_len(&self) -> usize {
+        self.0.display_len()
+    }
+    /// The selection in display bytes.
+    pub fn selection(&self) -> Result<String, JsValue> {
+        json(&self.0.selection())
+    }
+    pub fn selected_block(&self) -> Result<String, JsValue> {
+        json(&self.0.selected_block())
+    }
+    pub fn affinity(&self) -> Result<String, JsValue> {
+        json(&self.0.affinity())
     }
     pub fn status(&self) -> Result<String, JsValue> {
         json(&self.0.status())
