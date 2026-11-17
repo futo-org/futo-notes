@@ -62,9 +62,9 @@ final class TextFirstBlockDrag {
         dim = UIView(frame: frame)
         dim.backgroundColor = background.withAlphaComponent(0.65)
         card = UIView(frame: frame)
-        card.backgroundColor = background
-        // Translucent, so the lines around the drop line still read through it.
-        card.alpha = 0.85
+        // As the old web editor's: only the card's background is see-through, so the lines
+        // around the drop line show through while the lifted text stays fully opaque.
+        card.backgroundColor = background.withAlphaComponent(0.8)
         card.layer.cornerRadius = 8
         card.layer.shadowColor = UIColor.black.cgColor
         card.layer.shadowOpacity = 0.25
@@ -79,7 +79,7 @@ final class TextFirstBlockDrag {
         dropLine.backgroundColor = accent
         dropLine.layer.cornerRadius = 1.5
         dropLine.isHidden = true
-        // The drop line is drawn over the card, which is under the finger.
+        // The drop line is drawn over the card (which is under the finger), so it never fades.
         for view in [dim, card, dropLine] {
             view.isUserInteractionEnabled = false
             host.addSubview(view)
