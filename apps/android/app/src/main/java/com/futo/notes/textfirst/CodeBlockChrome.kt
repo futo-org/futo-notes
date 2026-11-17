@@ -220,10 +220,10 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         textSize = look.codeTextSize
     }
 
-    private companion object {
+    companion object {
         /** !300's placeholders are inked at 0.7 of the header's ink. */
         const val GHOST_ALPHA = 0xB3
         /** !300's copy glyph is inked at 0.7. */
-        const val GLYPH_ALPHA = 0xB3
+        private const val GLYPH_ALPHA = 0xB3
     }
 }

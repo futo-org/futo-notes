@@ -145,6 +145,9 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         // !300's fields name their Enter key (enterkeyhint), which Gboard shows as the Go arrow (job12/ref-fields-light.png).
         field.imeOptions = EditorInfo.IME_ACTION_GO or EditorInfo.IME_FLAG_NO_EXTRACT_UI
         if (state.kind == Kind.LANGUAGE) field.filters = arrayOf(languageFilter)
+        val labels = note.codeChrome.labels
+        field.hint = if (state.kind == Kind.NAME) labels.namePlaceholder else labels.languagePlaceholder
+        field.setHintTextColor((look.codeChromeInk and 0x00ffffff) or (CodeBlockChrome.GHOST_ALPHA shl 24))
         field.setText(if (state.kind == Kind.NAME) state.name else state.language)
         field.text.setSpan(line, 0, field.text.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
         field.addTextChangedListener(object : TextWatcher {
@@ -214,9 +217,11 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         }
         val area = fieldArea(state) ?: return
         val look = note.style
-        val textWidth = open.paint.measureText(open.text.toString()) + look.codeChipPad * 2 + look.dp(2f)
+        // Its text, or the placeholder while empty, and a constant collar: no minimum, no pocket of space (cb 66-73).
+        val shown = open.text.ifEmpty { open.hint ?: "" }.toString()
+        val textWidth = open.paint.measureText(shown) + look.codeChipPad * 2 + look.dp(2f)
         val widest = if (state.kind == Kind.NAME) note.codeChrome.nameRoom(-look.codeCardOutset, note.width + look.codeCardOutset) + look.codeChipPad * 2 else note.width * 0.6f
-        val width = maxOf(textWidth, look.codeChipPad * 4).coerceAtMost(widest)
+        val width = textWidth.coerceAtMost(widest)
         // The language field takes the chip's place, its glyph included, anchored to the card's right corner (cb 300-302).
         val chipRight = (note.codeChrome.areaOf(state.codeStart, CodeBlockAction.COPY_CODE)?.right ?: area.right) - look.codeCorner + look.codeChipPad
         val left = if (state.kind == Kind.NAME) area.left + look.codeCorner - look.codeChipPad else chipRight - width

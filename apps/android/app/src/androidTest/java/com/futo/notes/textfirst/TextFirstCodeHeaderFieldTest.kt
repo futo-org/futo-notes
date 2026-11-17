@@ -151,4 +151,17 @@ class TextFirstCodeHeaderFieldTest {
         val field = openHeaderField(view)
         assertEquals(0 to "js".length, field.selectionStart to field.selectionEnd)
     }
+
+    /** Verifier run 5: a field is its text and a constant collar, with no minimum, as !300's spec says ("no pocket of space"). */
+    @Test fun aOneLetterLanguageFieldIsItsTextAndTheCollar() = textFirstSession("```x\nconst a = 1\n```\n\nafter") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        withTimeout(5_000) { while (view.codeChrome.areaOf(0, CodeBlockAction.LANGUAGE_LABEL) == null) delay(20) }
+        val area = view.codeChrome.areaOf(0, CodeBlockAction.LANGUAGE_LABEL)!!
+        holdNoteAt(view, view.totalPaddingLeft + area.centerX(), view.totalPaddingTop + area.centerY())
+        val field = openHeaderField(view)
+        withTimeout(5_000) { while (field.width <= 1) delay(20) }
+        val look = view.style
+        assertEquals(field.paint.measureText("x") + look.codeChipPad * 2 + look.dp(2f), field.width.toFloat(), 1f)
+    }
 }
