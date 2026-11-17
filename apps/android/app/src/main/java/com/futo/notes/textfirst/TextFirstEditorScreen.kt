@@ -163,6 +163,7 @@ internal fun TextFirstEditorScreen(
         localization.localizedText("editor.codeBlock.addLineAbove"),
         localization.localizedText("editor.codeBlock.addLineBelow"),
     )
+    controller.view.clipboard.onCodeCopied = { showToast(context, localization.localizedText("editor.codeBlock.copied")) }
 
     // Open after any leave of this same note has released its attachment.
     LaunchedEffect(initialNoteId) {

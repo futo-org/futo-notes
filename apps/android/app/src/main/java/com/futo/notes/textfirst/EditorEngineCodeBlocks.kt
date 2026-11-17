@@ -17,3 +17,11 @@ internal fun EditorEngine.openCodeBlockLine(offset: Int, side: EditorBlockComman
     val s = session ?: return@command
     s.blockCommandUtf16(rev, EditorUtf16Range(offset.toULong(), offset.toULong()), side)?.let(::accept)
 }
+
+/** The code of the block from [start] to [end], fences left out, for [deliver] on this thread. */
+internal fun EditorEngine.copyCodeBlock(start: Int, end: Int, deliver: (String) -> Boolean) = command {
+    if (mirror.overlay != null) commitComposition(null)
+    val s = session ?: return@command
+    val length = mirror.text.length
+    deliver(s.copyMarkdown(rev, mirror.byteRange(start.coerceIn(0, length), end.coerceIn(0, length))))
+}

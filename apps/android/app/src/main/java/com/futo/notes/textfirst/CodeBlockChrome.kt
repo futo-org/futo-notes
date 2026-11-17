@@ -7,10 +7,10 @@ import android.text.TextPaint
 import android.text.TextUtils
 
 /** What a press on a drawn part of a code block does. */
-internal enum class CodeBlockAction { SELECT_BLOCK, OPEN_LINE_ABOVE, OPEN_LINE_BELOW }
+internal enum class CodeBlockAction { SELECT_BLOCK, OPEN_LINE_ABOVE, OPEN_LINE_BELOW, COPY_CODE }
 
 /** One pressable part of a drawn block, in layout coordinates; [codeStart] is where the block's code starts. */
-internal class CodeBlockTarget(val area: RectF, val action: CodeBlockAction, val codeStart: Int)
+internal class CodeBlockTarget(val area: RectF, val action: CodeBlockAction, val codeStart: Int, val block: CodeBlockFacts? = null)
 
 /** The catalog's words for a block's "add a line" affordances. */
 internal data class CodeBlockLabels(val addLineAbove: String, val addLineBelow: String)
@@ -31,6 +31,8 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     private val targets = ArrayList<CodeBlockTarget>()
 
     var labels = CodeBlockLabels("", "")
+    /** The code start of the block whose copy glyph shows a checkmark, -1 for none. */
+    var copiedBlock = -1
 
     fun clearTargets() = targets.clear()
 
@@ -51,7 +53,8 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         val glyph = look.codeHeaderTextSize
         val glyphRight = width - look.codeCorner
         val glyphLeft = glyphRight - glyph
-        drawCopyGlyph(canvas, glyphLeft, top + (look.codeHeaderHeight - glyph) / 2f, glyph)
+        val glyphTop = top + (look.codeHeaderHeight - glyph) / 2f
+        if (copiedBlock == codeStart) drawCheckmark(canvas, glyphLeft, glyphTop, glyph) else drawCopyGlyph(canvas, glyphLeft, glyphTop, glyph)
         val room = glyphLeft - look.codeChipPad - look.codeCorner
         var languageLeft = glyphLeft - look.codeChipPad
         block.language?.takeIf { it.isNotEmpty() }?.let { language ->
@@ -66,6 +69,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
             canvas.drawText(shown, 0, shown.length, look.codeCorner, baseline, namePaint)
             nameEnd += namePaint.measureText(shown, 0, shown.length)
         }
+        targets.add(CodeBlockTarget(RectF(languageLeft, top, width, bottom), CodeBlockAction.COPY_CODE, codeStart, block))
         if (!lineAbove) return
         val label = edgeLabel(labels.addLineAbove, languageLeft - nameEnd - look.codeChipPad * 2)
         if (label.isEmpty()) return
@@ -98,6 +102,15 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         val metrics = edgePaint.fontMetrics
         val baseline = (top + bottom - metrics.ascent - metrics.descent) / 2f
         canvas.drawText(label, center - edgePaint.measureText(label) / 2f, baseline, edgePaint)
+    }
+
+    /** The copy glyph's confirmation, [size] square at ([left], [top]). */
+    private fun drawCheckmark(canvas: Canvas, left: Float, top: Float, size: Float) {
+        glyphPaint.color = look.mutedColor
+        glyphPaint.strokeWidth = size / 9f
+        glyphPaint.strokeCap = Paint.Cap.ROUND
+        canvas.drawLine(left + size * 0.12f, top + size * 0.55f, left + size * 0.4f, top + size * 0.82f, glyphPaint)
+        canvas.drawLine(left + size * 0.4f, top + size * 0.82f, left + size * 0.9f, top + size * 0.2f, glyphPaint)
     }
 
     /** Two overlapping rounded squares, the usual copy mark, [size] square at ([left], [top]). */

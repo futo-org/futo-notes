@@ -609,7 +609,8 @@
       },
       "codeBlock": {
         "addLineAbove": "add a line above",
-        "addLineBelow": "add a line below"
+        "addLineBelow": "add a line below",
+        "copied": "Copied to clipboard"
       },
       "table": {
         "editCell": "Edit cell"

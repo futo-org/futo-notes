@@ -30,13 +30,33 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
     }
 
     private fun act(target: CodeBlockTarget) {
-        view.showKeyboard()
         val engine = view.engine ?: return
+        if (target.action != CodeBlockAction.COPY_CODE) view.showKeyboard()
         when (target.action) {
+            CodeBlockAction.COPY_CODE -> copy(target)
             CodeBlockAction.SELECT_BLOCK -> engine.selectCodeBlock(target.codeStart)
             CodeBlockAction.OPEN_LINE_ABOVE -> engine.openCodeBlockLine(target.codeStart, EditorBlockCommand.OpenLineBeforeCodeBlock)
             CodeBlockAction.OPEN_LINE_BELOW -> engine.openCodeBlockLine(target.codeStart, EditorBlockCommand.OpenLineAfterCodeBlock)
         }
+    }
+
+    /** The checkmark stands for about a second, as in !300. */
+    private fun copy(target: CodeBlockTarget) {
+        val block = target.block ?: return
+        view.clipboard.copyCode(block.start, block.end)
+        view.codeChrome.copiedBlock = target.codeStart
+        view.invalidate()
+        view.removeCallbacks(clearCopied)
+        view.postDelayed(clearCopied, COPIED_MILLISECONDS)
+    }
+
+    private val clearCopied = Runnable {
+        view.codeChrome.copiedBlock = -1
+        view.invalidate()
+    }
+
+    private companion object {
+        const val COPIED_MILLISECONDS = 1_100L
     }
 
     private fun targetAt(event: MotionEvent): CodeBlockTarget? {

@@ -22,23 +22,15 @@ internal class TextFirstClipboard(
     var onImageContent: ((Uri, () -> Unit) -> Boolean)? = null
     /** The system clipboard refused a Copy or Cut; nothing was removed. UI thread. */
     var onCopyRefused: () -> Unit = {}
+    /** A block's copy glyph put its code on the clipboard. UI thread. */
+    var onCodeCopied: () -> Unit = {}
     private val main = Handler(Looper.getMainLooper())
 
     fun handle(id: Int): Boolean {
         val engine = engine() ?: return false
         val clipboard = context.getSystemService(ClipboardManager::class.java)
         when (id) {
-            android.R.id.copy, android.R.id.cut -> engine.copy(cut = id == android.R.id.cut) { markdown ->
-                // A clip over about 1 MB exceeds the binder transaction limit and throws.
-                try {
-                    clipboard.setPrimaryClip(ClipData.newPlainText(null, markdown))
-                    true
-                } catch (e: RuntimeException) {
-                    Log.w("TextFirstClipboard", "clipboard refused ${markdown.length} chars", e)
-                    main.post { onCopyRefused() }
-                    false
-                }
-            }
+            android.R.id.copy, android.R.id.cut -> engine.copy(cut = id == android.R.id.cut) { deliver(clipboard, it) }
             android.R.id.paste, android.R.id.pasteAsPlainText -> {
                 val clip = clipboard.primaryClip
                 val image = clipImageUri(clip, context.contentResolver)
@@ -52,6 +44,25 @@ internal class TextFirstClipboard(
             else -> return false
         }
         return true
+    }
+
+    /** A block's copy glyph: its code from [start] to [end], no fences, onto the clipboard. */
+    fun copyCode(start: Int, end: Int) {
+        val engine = engine() ?: return
+        val clipboard = context.getSystemService(ClipboardManager::class.java)
+        engine.copyCodeBlock(start, end) { code -> deliver(clipboard, code).also { if (it) main.post { onCodeCopied() } } }
+    }
+
+    private fun deliver(clipboard: ClipboardManager, text: String): Boolean {
+        // A clip over about 1 MB exceeds the binder transaction limit and throws.
+        try {
+            clipboard.setPrimaryClip(ClipData.newPlainText(null, text))
+            return true
+        } catch (e: RuntimeException) {
+            Log.w("TextFirstClipboard", "clipboard refused ${text.length} chars", e)
+            main.post { onCopyRefused() }
+            return false
+        }
     }
 
     /** Accept an image from the keyboard; [onUi] hops to the UI thread from the editor thread. */

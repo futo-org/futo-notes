@@ -604,7 +604,8 @@
       },
       "codeBlock": {
         "addLineAbove": "在上方添加一行",
-        "addLineBelow": "在下方添加一行"
+        "addLineBelow": "在下方添加一行",
+        "copied": "已复制到剪贴板"
       },
       "table": {
         "editCell": "编辑单元格"
