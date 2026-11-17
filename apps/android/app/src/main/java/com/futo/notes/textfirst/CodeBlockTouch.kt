@@ -67,7 +67,9 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
             target.action == CodeBlockAction.COPY_CODE && held -> CodeHeaderField.Kind.LANGUAGE
             else -> null
         }
-        if (action != null) return headerField.open(target, action, selectAll = held, tapX = x.takeIf { !held })
+        // A tap on the language takes the whole word, as !300's did; a tap on the name puts the caret at the tap.
+        val selectAll = held || action == CodeHeaderField.Kind.LANGUAGE
+        if (action != null) return headerField.open(target, action, selectAll, tapX = x.takeIf { !selectAll })
         when (target.action) {
             CodeBlockAction.NOTHING -> Unit
             CodeBlockAction.COPY_CODE, CodeBlockAction.LANGUAGE_LABEL -> copy(target)

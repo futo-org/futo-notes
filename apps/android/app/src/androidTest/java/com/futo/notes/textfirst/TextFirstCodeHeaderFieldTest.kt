@@ -217,4 +217,18 @@ class TextFirstCodeHeaderFieldTest {
         assertEquals("the caret starts away from the tap", "server.go".length, field.selectionStart)
         assertEquals(view.style.codeChromeInk, field.currentTextColor)
     }
+
+    /** Verifier run 1, item 13: with the caret in the block, a tap on the language label opens its field with the word selected. */
+    @Test fun aTapOnTheLanguageWithTheCaretInsideSelectsTheWord() = textFirstSession(raw) { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        view.setSelection(view.editableText.indexOf("a = 1"))
+        withTimeout(5_000) { while (view.codeChrome.areaOf(0, CodeBlockAction.LANGUAGE_LABEL) == null) delay(20) }
+        delay(300)
+        val area = view.codeChrome.areaOf(0, CodeBlockAction.LANGUAGE_LABEL)!!
+        tapNoteAt(view, view.totalPaddingLeft + area.centerX(), view.totalPaddingTop + area.centerY())
+        val field = openField(view)
+        assertEquals(0 to "js".length, field.selectionStart to field.selectionEnd)
+    }
 }
