@@ -1,13 +1,13 @@
 //! Image insertion and the keys around an image. The literal cases are
 //! `tests/fixtures/engine/images.json`: `before` and `after` are source with
 //! the selection marked by `‸` (a caret) or `«…»` (a range), since `|`, `[`
-//! and `]` are Markdown here.
+//! and `]` are Markdown here. `paste` pastes `reference`; `cut` copies `alt`.
 use super::super::Engine;
 use super::{ok, range};
 use crate::lines::Kind;
 use crate::{
-    AtomKind, DisplayRange, EditorError, EditorSession, ImageClaim, ParagraphKey, Revision,
-    ViewChange,
+    AtomKind, BlockCommand, DisplayRange, EditorError, EditorSession, ImageClaim, ParagraphKey,
+    Revision, ViewChange,
 };
 use serde::Deserialize;
 
@@ -53,6 +53,13 @@ fn run(engine: &mut Engine, case: &Case) -> Result<Option<ViewChange>, EditorErr
     let selection = engine.selection();
     let key = match case.command.as_str() {
         "insert" => return engine.insert_image(revision, &case.reference, &case.alt, &mut ok),
+        "Divider" => return engine.block(revision, selection, BlockCommand::Divider, &mut ok),
+        "paste" => return engine.paste_markdown(revision, selection, &case.reference, &mut ok),
+        "cut" => {
+            let (copied, change) = engine.cut_markdown(revision, selection, &mut ok)?;
+            assert_eq!(copied, case.alt, "{}: what Cut copies", case.name);
+            return Ok(change);
+        }
         "Backspace" => ParagraphKey::Backspace,
         "Delete" => ParagraphKey::Delete,
         "Enter" => ParagraphKey::Enter,

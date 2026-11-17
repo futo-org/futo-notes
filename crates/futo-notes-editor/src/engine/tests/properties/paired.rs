@@ -1,8 +1,11 @@
 //! A random step under `InputAction::PairedTyping`, so every property runs
-//! over its pairs, steps and code blocks.
+//! over its pairs, growths, steps and code blocks.
 use super::*;
 
-/// A backtick (sometimes other text) typed under paired typing. A step
+/// The characters paired typing acts on.
+const PAIRED: &[&str] = &["`", "*", "~", "[", "]"];
+
+/// A pair character (sometimes other text) typed under paired typing. A step
 /// that changes nothing leaves the source and revision as they were.
 pub(super) fn paired_step(
     engine: &mut Engine,
@@ -18,7 +21,7 @@ pub(super) fn paired_step(
     let text = if random.below(4) == 0 {
         random.pick(TYPED)
     } else {
-        "`"
+        random.pick(PAIRED)
     };
     let change = engine
         .paired_input(revision, selection, text, &mut ok)

@@ -107,6 +107,8 @@ impl Engine {
     /// that reach out of it, and drops the syntax of spans left empty; the
     /// text lands where the selection starts, inside spans that start there.
     /// A code block it reaches into or out of goes whole (`block_reach`).
+    /// Every plan, so every input, key and command, first takes `range`'s
+    /// ends out of images (`plan_writing`).
     pub(crate) fn plan(&self, range: DisplayRange, text: &str) -> Plan {
         self.plan_writing(range, text, !text.is_empty())
     }
@@ -120,8 +122,10 @@ impl Engine {
         self.plan_writing(range, "", true)
     }
 
+    /// An image is one atom: an end of `range` inside one moves to its edge
+    /// (`outside_images`), so no plan keeps part of an image's spelling.
     fn plan_writing(&self, range: DisplayRange, text: &str, writes: bool) -> Plan {
-        let plan = self.replacement(range, text, writes);
+        let plan = self.replacement(self.outside_images(range), text, writes);
         // A deletion keeps a span's format when it leaves a space at its
         // edge (inline family, `commands/inline/typing.rs`).
         match self.kept_formats(&plan.range, &plan.inserted) {

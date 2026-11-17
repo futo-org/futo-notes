@@ -34,6 +34,7 @@ export type ParagraphKey =
   | 'Transpose';
 export type BlockCommand =
   | { Heading: number }
+  | { ToggleHeading: number }
   | 'Quote'
   | 'Indent'
   | 'Outdent'

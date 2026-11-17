@@ -12,7 +12,7 @@ import { partialLink } from './partial-link-consumer.mjs';
 import process from 'node:process';
 import console from 'node:console';
 import { setTimeout, clearTimeout } from 'node:timers';
-const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
+const { WasmSession, external_link_url } = await import(pathToFileURL(process.argv[2]).href);
 
 const vault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-links-'));
 const timingVaults = [];
@@ -47,6 +47,15 @@ const stop = async () => {
 };
 try {
   const exchange = await start("see [teh __docs__](https://old.test 'Title')\r\n");
+  // The engine decides what a destination means; the page keeps no scheme list.
+  assert.equal(external_link_url('https://x.test/a'), 'https://x.test/a');
+  assert.equal(external_link_url('javascript:alert(1)'), undefined);
+  assert.equal(external_link_url('Plan'), undefined);
+  session.update_note_ids(JSON.stringify(['Projects/Roadmap', 'Projects/Plan']));
+  assert.equal(session.resolve_note_link('Projects/Roadmap', 'Plan'), 'Projects/Plan');
+  assert.equal(session.resolve_note_link('Projects/Roadmap', 'Missing'), undefined);
+  assert.equal(session.normalize_link_destination('Projects/Roadmap', 'logo.ai'), 'https://logo.ai');
+  assert.equal(session.normalize_link_destination('Projects/Roadmap', 'Plan'), 'Plan');
   let display = 'see teh docs\r\n';
   // Every edit returns `{change, request}`: the page shows the change at once
   // and the worker mirrors the request.

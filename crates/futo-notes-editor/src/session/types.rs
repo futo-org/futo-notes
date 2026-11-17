@@ -30,16 +30,17 @@ pub enum ParagraphKey {
     ShiftEnter,
     Backspace,
     /// Text-first heading-start deletion joins the preceding physical line.
+    /// Like every Backspace, it removes one level of an empty pair first.
     BackspaceJoiningHeading,
     Delete,
     Tab,
     ShiftTab,
     /// Ctrl+T on Apple (AppKit's `transpose:`).
     Transpose,
-    /// The Backspace of a host that pairs typing (desktop): with the caret
-    /// between the two backticks of an empty pair, both go; at a heading's
-    /// text start it joins the line above and never makes a heading with
-    /// text into text; anywhere else it is `Backspace`.
+    /// The desktop's Backspace: at a heading's text start it joins the line
+    /// above and never makes a heading with text into text; anywhere else it
+    /// is `Backspace` (which, like every Backspace, removes one level of an
+    /// empty pair first).
     PairedBackspace,
 }
 

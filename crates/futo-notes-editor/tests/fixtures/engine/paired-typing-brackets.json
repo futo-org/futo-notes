@@ -1,0 +1,276 @@
+[
+ {
+  "name": "(8) [ writes a pair; a [ inside an empty pair grows it; at two it is typed",
+  "before": "a ^",
+  "marks": "^{}",
+  "steps": [
+   {
+    "do": "pair:[",
+    "after": "a [^]"
+   },
+   {
+    "do": "pair:[",
+    "after": "a [[^]]"
+   },
+   {
+    "do": "pair:[",
+    "after": "a [[[^]]"
+   }
+  ]
+ },
+ {
+  "name": "(8) a ] steps over a shown ]; with none after it is typed",
+  "before": "a [x^]",
+  "marks": "^{}",
+  "steps": [
+   {
+    "do": "pair:]",
+    "after": "a [x]^"
+   },
+   {
+    "do": "pair:]",
+    "after": "a [x]]^"
+   }
+  ]
+ },
+ {
+  "name": "(8) ( never pairs",
+  "before": "a ^",
+  "marks": "^{}",
+  "steps": [
+   {
+    "do": "pair:(",
+    "after": "a (^"
+   }
+  ]
+ },
+ {
+  "name": "(8) Backspace goes down one level per press",
+  "before": "a [[^]]",
+  "marks": "^{}",
+  "steps": [
+   {
+    "do": "Backspace",
+    "after": "a [^]"
+   },
+   {
+    "do": "Backspace",
+    "after": "a ^"
+   },
+   {
+    "do": "Undo",
+    "after": "a [^]"
+   },
+   {
+    "do": "Undo",
+    "after": "a [[^]]"
+   }
+  ]
+ },
+ {
+  "name": "(8) a pair and a growth are one Undo step each",
+  "before": "a ^",
+  "marks": "^{}",
+  "steps": [
+   {
+    "do": "pair:[",
+    "after": "a [^]"
+   },
+   {
+    "do": "pair:[",
+    "after": "a [[^]]"
+   },
+   {
+    "do": "Undo",
+    "after": "a [^]"
+   },
+   {
+    "do": "Undo",
+    "after": "a ^"
+   },
+   {
+    "do": "Redo",
+    "after": "a [^]"
+   }
+  ]
+ },
+ {
+  "name": "(8) wikilink: [[, a query, the run is offered and accepting replaces the run and the ]]",
+  "before": "see ^",
+  "marks": "^{}",
+  "ids": [
+   "Projects/Roadmap"
+  ],
+  "steps": [
+   {
+    "do": "pair:[",
+    "after": "see [^]"
+   },
+   {
+    "do": "pair:[",
+    "after": "see [[^]]"
+   },
+   {
+    "do": "type:R",
+    "after": "see [[R^]]"
+   },
+   {
+    "do": "type:o",
+    "after": "see [[Ro^]]"
+   },
+   {
+    "do": "Complete:Projects/Roadmap",
+    "after": "see [[Projects/Roadmap]]^"
+   }
+  ]
+ },
+ {
+  "name": "(8) wikilink closed by hand: two ] step over",
+  "before": "see [[Ro^]] x",
+  "marks": "^{}",
+  "steps": [
+   {
+    "do": "pair:]",
+    "after": "see [[Ro]^] x"
+   },
+   {
+    "do": "pair:]",
+    "after": "see [[Ro]]^ x"
+   }
+  ]
+ },
+ {
+  "name": "(9) a task item typed: - [ ] then a space",
+  "before": "- ^",
+  "marks": "^{}",
+  "steps": [
+   {
+    "do": "pair:[",
+    "after": "- [^]"
+   },
+   {
+    "do": "type: ",
+    "after": "- [ ^]"
+   },
+   {
+    "do": "pair:]",
+    "after": "- [ ]^"
+   },
+   {
+    "do": "type: ",
+    "after": "- [ ] ^"
+   }
+  ]
+ },
+ {
+  "name": "(10) after an escaping backslash typed",
+  "before": "a \\^",
+  "marks": "^{}",
+  "steps": [
+   {
+    "do": "pair:[",
+    "after": "a \\[^"
+   }
+  ]
+ },
+ {
+  "name": "(10) in a code block typed",
+  "before": "```\na^\n```",
+  "marks": "^{}",
+  "steps": [
+   {
+    "do": "pair:[",
+    "after": "```\na[^\n```"
+   }
+  ]
+ },
+ {
+  "name": "(10) a ] before a link's hidden ](u) is typed",
+  "before": "[te^](u)",
+  "marks": "^{}",
+  "steps": [
+   {
+    "do": "pair:]",
+    "after": "[te]^](u)"
+   }
+  ]
+ },
+ {
+  "name": "(10) Backspace in a link's empty text is no pair (its brackets are hidden)",
+  "before": "[^](u)",
+  "marks": "^{}",
+  "steps": [
+   {
+    "do": "Backspace",
+    "after": "[](u)^"
+   }
+  ]
+ },
+ {
+  "name": "(10) an image is one piece: [ pairs before it and Backspace removes the pair",
+  "before": "![^](s)",
+  "marks": "^{}",
+  "steps": [
+   {
+    "do": "pair:[",
+    "after": "[^]![](s)"
+   },
+   {
+    "do": "Backspace",
+    "after": "^![](s)"
+   }
+  ]
+ },
+ {
+  "name": "(8) wikilink: the empty run in [[^]] is offered",
+  "before": "see [[^]]",
+  "marks": "^{}",
+  "ids": [
+   "Projects/Roadmap"
+  ],
+  "steps": [
+   {
+    "do": "Complete:Projects/Roadmap",
+    "after": "see [[Projects/Roadmap]]^"
+   }
+  ]
+ },
+ {
+  "name": "(10) a ] typed with Code carried at a link's text end lands in the code span after the link",
+  "before": "[t^](u)`]`",
+  "marks": "^{}",
+  "steps": [
+   {
+    "do": "Code",
+    "after": "[t^](u)`]`"
+   },
+   {
+    "do": "pair:]",
+    "after": "[t](u)`]^]`",
+    "display": "t]]"
+   }
+  ]
+ },
+ {
+  "name": "(10) over a selection [ is typed",
+  "before": "x {ab} y",
+  "marks": "^{}",
+  "steps": [
+   {
+    "do": "pair:[",
+    "after": "x [^ y"
+   }
+  ]
+ },
+ {
+  "name": "(10) in a heading, list item and quote",
+  "before": "# a ^\n- b\n> c",
+  "marks": "^{}",
+  "steps": [
+   {
+    "do": "pair:[",
+    "after": "# a [^]\n- b\n> c"
+   }
+  ]
+ }
+]
