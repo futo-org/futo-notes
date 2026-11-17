@@ -19,6 +19,10 @@ struct TextFirstNoteScreen: View {
     @State var ownerToken: UInt64 = 0
     @State var renameTask: Task<Void, Never>?
     @State var leaving = false
+    /// How deep in the navigation path this screen sat when it last appeared (it is the top
+    /// then). With its route alone a screen covered by a push of a note opened under the
+    /// same id would think it was still on top and never leave.
+    @State private var depth = 0
     /// Bumped whenever this screen leaves, so an open that was still waiting for a claim can
     /// tell the screen it started on is gone.
     @State private var openTicket = 0
@@ -185,6 +189,7 @@ struct TextFirstNoteScreen: View {
             .puppetVerbs { nativePuppetVerbs }
         #endif
         .onAppear {
+            depth = navPath.count
             // Back from a pushed note: the leave closed this editor, so attach it again.
             if leaving, controller == nil {
                 leaving = false
@@ -231,9 +236,10 @@ struct TextFirstNoteScreen: View {
         .onDisappear {
             // A full-screen camera covers this view without navigating away. Retiring the
             // session there invalidates its image claim and races the re-open on dismissal.
-            if navPath.last != .note(originalId) && navPath.last != .newNote(originalId) {
-                leave()
-            }
+            let stillTop =
+                navPath.count == depth
+                && (navPath.last == .note(originalId) || navPath.last == .newNote(originalId))
+            if !stillTop { leave() }
         }
     }
 
