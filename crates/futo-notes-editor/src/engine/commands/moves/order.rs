@@ -1,0 +1,108 @@
+//! The note's lines in the order a move leaves them, for the slot trial
+//! (`command/trial.rs`): the same bytes `move_command` and
+//! `image_move_command` write, without copying the block. The trial
+//! property (`tests/moves/trial.rs`) holds the two descriptions together.
+use super::super::super::command::trial::{Piece, Trial};
+use super::Lifted;
+use crate::engine::Engine;
+use crate::lines::block;
+use std::ops::Range;
+
+impl Engine {
+    /// The move of `lifted` to boundary `slot` as a trial; `None` when the
+    /// move has no command (an image that cannot leave its line).
+    pub(super) fn trial_of(&self, lifted: &Lifted, slot: usize) -> Option<Trial> {
+        match lifted {
+            Lifted::Lines(block) => Some(self.lines_trial(block.clone(), slot)),
+            Lifted::Image { line, span } => self.image_trial(*line, span.clone(), slot),
+        }
+    }
+
+    /// Lines `s..e` moved to `slot`. The last line has no ending: a block
+    /// leaving it gives the line above's ending to its own last line, and a
+    /// block moving to the end gives its last line's ending to the line that
+    /// was last.
+    fn lines_trial(&self, block: Range<usize>, slot: usize) -> Trial {
+        use Piece::{Line, Run};
+        let count = self.line_count();
+        let (s, e) = (block.start, block.end);
+        let text = |index: usize| self.line(index).text.clone();
+        let body = |index: usize| self.line(index).body().to_owned();
+        let pieces = if e == count {
+            let ending = self.line(s - 1).ending();
+            vec![
+                Run(0..slot),
+                Run(s..e - 1),
+                Line(Some(e - 1), text(e - 1) + ending),
+                Run(slot..s - 1),
+                Line(Some(s - 1), body(s - 1)),
+            ]
+        } else if slot == count {
+            let ending = self.line(e - 1).ending();
+            vec![
+                Run(0..s),
+                Run(e..count - 1),
+                Line(Some(count - 1), text(count - 1) + ending),
+                Run(s..e - 1),
+                Line(Some(e - 1), body(e - 1)),
+            ]
+        } else if slot < s {
+            vec![Run(0..slot), Run(s..e), Run(slot..s), Run(e..count)]
+        } else {
+            vec![Run(0..s), Run(e..slot), Run(s..e), Run(slot..count)]
+        };
+        Trial {
+            pieces,
+            window: s.min(slot)..e.max(slot),
+        }
+    }
+
+    /// The image at line-relative `span` of line `index` moved to `slot`:
+    /// its line without it, and a line of its own at the slot.
+    fn image_trial(&self, index: usize, span: Range<usize>, slot: usize) -> Option<Trial> {
+        use Piece::{Line, Run};
+        let count = self.line_count();
+        let entry = self.line(index);
+        let mut left = entry.text.clone();
+        left.replace_range(span.clone(), "");
+        let read = block::read_line(&mut entry.carry.clone(), &left, 0);
+        if (&read.kind, read.quote) != (&entry.line.kind, entry.line.quote) {
+            return None;
+        }
+        let image = entry.text[span].to_owned();
+        let ending = self.line_ending_near(index);
+        let pieces = if slot == count {
+            let mut pieces = vec![Run(0..index)];
+            if index + 1 == count {
+                pieces.push(Line(Some(index), left + &ending));
+            } else {
+                pieces.push(Line(Some(index), left));
+                pieces.push(Run(index + 1..count - 1));
+                let last = self.line(count - 1).text.clone();
+                pieces.push(Line(Some(count - 1), last + &ending));
+            }
+            pieces.push(Line(None, image));
+            pieces
+        } else if slot <= index {
+            vec![
+                Run(0..slot),
+                Line(None, image + &ending),
+                Run(slot..index),
+                Line(Some(index), left),
+                Run(index + 1..count),
+            ]
+        } else {
+            vec![
+                Run(0..index),
+                Line(Some(index), left),
+                Run(index + 1..slot),
+                Line(None, image + &ending),
+                Run(slot..count),
+            ]
+        };
+        Some(Trial {
+            pieces,
+            window: index.min(slot)..(index + 1).max(slot),
+        })
+    }
+}

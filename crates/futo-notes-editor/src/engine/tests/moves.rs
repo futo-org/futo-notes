@@ -9,6 +9,7 @@ mod corpus;
 mod images;
 mod selection;
 mod slots;
+mod trial;
 
 /// The display offset where source line `index` starts (the note's display
 /// end for the line count): what a renderer has under a finger.

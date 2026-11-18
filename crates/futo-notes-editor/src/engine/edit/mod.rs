@@ -42,7 +42,7 @@ pub(crate) struct Batch {
     display: Option<(usize, usize, usize)>,
     /// The display of the lines shown again, in the display now.
     lines: Option<Range<usize>>,
-    pub(crate) work: EditWork,
+    work: EditWork,
 }
 
 /// `lines` (display now) carried through a display edit of `range` that
@@ -109,28 +109,13 @@ impl Engine {
         });
     }
 
-    /// Undo a batch's edits without a trace; the work it took.
-    pub(crate) fn revert(&mut self, batch: Batch) -> EditWork {
+    /// Undo a batch's edits without a trace.
+    pub(crate) fn revert(&mut self, batch: Batch) {
         let mut scratch = Batch::default();
         for record in batch.records.iter().rev() {
             let range = record.start..record.start + record.inserted.len();
             self.raw(&mut scratch, range, &record.removed);
         }
-        scratch.work
-    }
-
-    /// A batch's footprint: where it starts, where it ended before, and the
-    /// text it removed and inserted there. `None` when it changed nothing.
-    pub(crate) fn batch_text(&self, batch: &Batch) -> Option<(usize, usize, String, String)> {
-        let (start, old_end, end) = batch.source?;
-        let inserted = self.source_slice(start..end);
-        let mut removed = inserted.clone();
-        for record in batch.records.iter().rev() {
-            let at = record.start - start;
-            removed.replace_range(at..at + record.inserted.len(), &record.removed);
-        }
-        debug_assert_eq!(removed.len(), old_end - start);
-        (removed != inserted).then_some((start, old_end, removed, inserted))
     }
 
     /// Accept a batch as one source record, or put the text back.
@@ -140,10 +125,20 @@ impl Engine {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<(SourceEdit, Shown, Vec<Record>)>, EditorError> {
         let work = batch.work;
-        let Some((start, old_end, removed, inserted)) = self.batch_text(&batch) else {
-            self.revert(batch);
+        let Some((start, old_end, end)) = batch.source else {
             return Ok(None);
         };
+        let inserted = self.source_slice(start..end);
+        let mut removed = inserted.clone();
+        for record in batch.records.iter().rev() {
+            let at = record.start - start;
+            removed.replace_range(at..at + record.inserted.len(), &record.removed);
+        }
+        debug_assert_eq!(removed.len(), old_end - start);
+        if removed == inserted {
+            self.revert(batch);
+            return Ok(None);
+        }
         let Some(revision) = self.revision.0.checked_add(1).map(Revision) else {
             self.revert(batch);
             return Err(EditorError::RevisionExhausted);

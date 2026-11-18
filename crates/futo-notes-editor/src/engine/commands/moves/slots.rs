@@ -7,6 +7,7 @@
 //! A renderer names a boundary by its display offset and whether it is the
 //! note's end (`BlockBoundary`): around a last line that shows no characters
 //! (an empty task) the boundary above it and the note's end share an offset.
+use super::super::super::command::trial::Dashes;
 use super::super::super::store;
 use super::held::Held;
 use super::{quoted, Lifted};
@@ -143,26 +144,24 @@ impl Engine {
         out
     }
 
-    /// The slots of `lifted` whose display offset is inside `within`.
+    /// The slots of `lifted` whose display offset is inside `within`, each
+    /// tried (`Engine::lands`).
     pub(super) fn slots_within(
-        &mut self,
+        &self,
         lifted: &Lifted,
         within: DisplayRange,
         work: &mut EditWork,
     ) -> Vec<BlockBoundary> {
         let from = self.first_boundary_from(within.start.0);
+        let mut dashes = Dashes::default();
         self.allowed(lifted, from, within.end.0, work)
             .into_iter()
-            .filter(|&(at, _)| self.lands(lifted, at, work))
+            .filter(|&(at, _)| {
+                self.trial_of(lifted, at)
+                    .is_some_and(|trial| self.lands(&trial, &mut dashes, work))
+            })
             .map(|(_, name)| name)
             .collect()
-    }
-
-    /// Whether the move of `lifted` to boundary `at` would be accepted:
-    /// the command a drop runs, tried behind the guard and put back.
-    fn lands(&mut self, lifted: &Lifted, at: usize, work: &mut EditWork) -> bool {
-        self.move_of(lifted, at)
-            .is_some_and(|command| self.would_run(&command, work))
     }
 
     /// The boundary `to` names, when the landing rules allow `lifted` there;

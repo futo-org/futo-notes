@@ -332,7 +332,7 @@ impl EditorSession {
     /// what is near the screen, and again as it scrolls; the work grows with
     /// the range, not the note. Empty when nothing lifts. Nothing changes.
     pub fn block_slots(
-        &mut self,
+        &self,
         expected: Revision,
         at: DisplayOffset,
         within: DisplayRange,

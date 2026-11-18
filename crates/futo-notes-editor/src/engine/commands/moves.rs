@@ -22,6 +22,7 @@ use crate::{
 use std::ops::Range;
 
 mod held;
+mod order;
 mod selection;
 mod slots;
 
@@ -305,7 +306,7 @@ impl Engine {
     /// `within`, each slot tried; none when it lifts nothing. Refused while
     /// text is marked, as a move is.
     pub(crate) fn block_slots_at(
-        &mut self,
+        &self,
         expected: Revision,
         at: DisplayOffset,
         within: DisplayRange,

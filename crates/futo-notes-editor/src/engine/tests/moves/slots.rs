@@ -6,6 +6,7 @@ use super::super::{ok, range};
 use super::corpus::fixture_notes;
 use super::{line, slot, slots, NOTE};
 use crate::{BlockBoundary, DisplayOffset, EditWork, EditorSession, LiftedBlock};
+use std::ops::Range;
 
 #[test]
 fn a_drop_the_guard_would_cancel_is_no_slot() {
@@ -127,7 +128,7 @@ fn a_renderer_asks_for_the_slots_inside_a_display_range() {
     // A range from inside the list on reads the list from where it starts.
     // The hidden opening fence shares its display offset with the code line
     // after it, so a range starting at that line holds boundary 12.
-    let mut session = EditorSession::open(NOTE);
+    let session = EditorSession::open(NOTE);
     let revision = session.revision();
     let r = |session: &EditorSession, from: usize, to: usize| crate::DisplayRange {
         start: line(session, from),
@@ -176,46 +177,90 @@ fn total(work: &EditWork) -> usize {
     work.materialized_source_bytes + work.parsed_source_bytes + work.link_metadata_items
 }
 
+/// A note of size `n`, the source line lifted and the source lines whose
+/// boundaries are asked for (the screen).
+type Shape = fn(usize) -> (String, usize, Range<usize>);
+
 #[test]
 fn the_work_to_find_the_slots_near_a_block_does_not_grow_with_the_note() {
-    // `head`, `copies` copies of `body`, then `tail`; the line `lifted` lines
-    // from the note's end lifted and the slots asked for the 30 lines above
-    // it and the lines below: what a lift asks for the screen.
-    fn work(head: &str, body: &str, tail: &str, lifted: usize, copies: usize) -> EditWork {
-        let note = format!("{head}{}{tail}", body.repeat(copies));
-        let mut session = EditorSession::open(&note);
-        let count = session.engine().line_count();
-        let at = line(&session, count - 1 - lifted);
-        let within = crate::DisplayRange {
-            start: line(&session, count - 31 - lifted),
-            end: line(&session, count),
-        };
-        let found = session.block_slots(session.revision(), at, within).unwrap();
-        assert!(found.slots.len() > 2, "{tail:?}: {:?}", found.slots);
-        found.work
+    const MIXED: &str =
+        "# h\npara\n- a\n  - b\n  note\n- c\n\n> q\n```\nx\n```\n| h |\n|---|\n| 1 |\n";
+    const TAIL: &str = "# h\npara\n- a\n  - b\n- c\n\n> q\nend";
+    // The last 31 lines of `note`, lifting the one `lifted` lines from the end.
+    fn near_end(note: String, lifted: usize) -> (String, usize, Range<usize>) {
+        let count = note.split('\n').count();
+        (note, count - 1 - lifted, count - 31 - lifted..count)
     }
-    let mixed = "# h\npara\n- a\n  - b\n  note\n- c\n\n> q\n```\nx\n```\n| h |\n|---|\n| 1 |\n";
-    // (head, body, tail, the lifted line counted from the end): mixed blocks
-    // with a heading, a paragraph, an item or a quote lifted; one item
-    // holding every line above a heading; a code block above a paragraph
-    // and a heading; a checklist.
-    let tail = "# h\npara\n- a\n  - b\n- c\n\n> q\nend";
-    for (head, body, tail, lifted) in [
-        ("", mixed, tail, 7),
-        ("", mixed, tail, 6),
-        ("", mixed, tail, 5),
-        ("", mixed, tail, 1),
-        ("- top\n", "  - [ ] t\n    note\n", "# h\npara\n# k\nend", 3),
-        ("```\n", "x\ny\n", "```\npara\n# h\nnext\nend", 3),
-        ("```\n", "x\ny\n", "```\npara\n# h\nnext\nend", 2),
-        ("", "- [ ] a\n- [x] b\n", "end", 1),
-    ] {
-        let short = work(head, body, tail, lifted, 500);
-        let long = work(head, body, tail, lifted, 10_000);
-        assert!(total(&short) > 0, "{body:?}");
-        assert_eq!(
-            short, long,
-            "{body:?} then {tail:?}, line {lifted} from the end"
-        );
+    let shapes: [(&str, Shape); 12] = [
+        // The note above grows.
+        ("a heading under mixed blocks", |n| {
+            near_end(MIXED.repeat(n) + TAIL, 7)
+        }),
+        ("a paragraph under mixed blocks", |n| {
+            near_end(MIXED.repeat(n) + TAIL, 6)
+        }),
+        ("an item under mixed blocks", |n| {
+            near_end(MIXED.repeat(n) + TAIL, 5)
+        }),
+        ("a quote under mixed blocks", |n| {
+            near_end(MIXED.repeat(n) + TAIL, 1)
+        }),
+        ("a heading under one item holding every line", |n| {
+            let note = format!(
+                "- top\n{}# h\npara\n# k\nend",
+                "  - [ ] t\n    note\n".repeat(n)
+            );
+            near_end(note, 3)
+        }),
+        ("a heading under a long code block", |n| {
+            near_end(
+                format!("```\n{}```\npara\n# h\nnext\nend", "x\ny\n".repeat(n)),
+                2,
+            )
+        }),
+        ("an item in a checklist", |n| {
+            near_end("- [ ] a\n- [x] b\n".repeat(n) + "end", 1)
+        }),
+        // Every trial moves a `---`, in a note with front matter.
+        ("a divider under front matter", |n| {
+            let note = format!(
+                "---\ntags: a\n---\n{}alpha\n---\nbravo\ncharlie\nend",
+                "body\n".repeat(n)
+            );
+            near_end(note, 3)
+        }),
+        // The note below grows.
+        ("a line under an unclosed `---` on line 1", |n| {
+            (format!("---\nalpha\nbeta\n{}", "t\n".repeat(n)), 1, 0..6)
+        }),
+        ("a heading above mixed blocks", |n| {
+            (TAIL.to_owned() + "\n" + &MIXED.repeat(n), 0, 0..31)
+        }),
+        // The lifted block grows.
+        ("a long quote", |n| {
+            let note = format!("{}{}after", "p\n".repeat(20), "> q\n".repeat(n));
+            (note, 20, 0..21)
+        }),
+        ("a long code block", |n| {
+            let note = format!("{}```\n{}```\nafter", "p\n".repeat(20), "x\n".repeat(n));
+            (note, 20, 0..21)
+        }),
+    ];
+    for (name, shape) in shapes {
+        let work = |n: usize| {
+            let (note, lifted, lines) = shape(n);
+            let session = EditorSession::open(&note);
+            let within = crate::DisplayRange {
+                start: line(&session, lines.start),
+                end: line(&session, lines.end),
+            };
+            let at = line(&session, lifted);
+            let found = session.block_slots(session.revision(), at, within).unwrap();
+            assert!(found.slots.len() > 2, "{name}: {:?}", found.slots);
+            found.work
+        };
+        let (short, long) = (work(500), work(10_000));
+        assert!(total(&short) > 0, "{name}");
+        assert_eq!(short, long, "{name}");
     }
 }

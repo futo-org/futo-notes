@@ -11,7 +11,7 @@
 //! also hold named lines to their kind (`Command::same_kind`). Typing never
 //! goes through the guard.
 mod kept_line;
-mod trial;
+pub(crate) mod trial;
 
 pub(crate) use kept_line::kept_line;
 
@@ -57,7 +57,7 @@ pub(crate) struct Command {
     pub lines: Vec<Range<usize>>,
     /// The selection after the edits, in source offsets of the new text.
     pub selection: Range<usize>,
-    /// The affinity of a collapsed caret; `None` keeps what landing there picks.
+    /// A collapsed caret's affinity; `None` keeps what landing there picks.
     pub affinity: Option<Affinity>,
     /// Typing: a key's plain text edit, which always lands (no guard).
     pub typed: bool,
