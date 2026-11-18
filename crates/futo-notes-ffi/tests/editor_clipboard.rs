@@ -222,6 +222,8 @@ fn native_code_block_header_and_language_caret() {
     assert!(matches!(refused, Err(EditorSessionError::InvalidText)));
     let language = futo_notes_ffi::editor_typed_code_block_language(" c sharp`".into());
     assert_eq!(language, "c-sharp");
+    let picked = futo_notes_ffi::editor_typed_code_block_language("Python ".into());
+    assert_eq!(picked, "Python ");
     let name = futo_notes_ffi::editor_typed_code_block_name("a`\tb ".into());
     assert_eq!(name, "a b ");
     session.undo(1).unwrap().unwrap();

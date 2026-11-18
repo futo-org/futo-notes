@@ -157,6 +157,15 @@ impl Engine {
         out_of_images(range, &self.atoms_in(range.start.0, range.end.0))
     }
 
+    /// Whether display `range` holds part of an image or a wikilink, or is a
+    /// caret strictly inside one.
+    pub(crate) fn touches_atom(&self, range: DisplayRange) -> bool {
+        let (start, end) = (range.start.0, range.end.0);
+        self.atoms_in(start, end)
+            .iter()
+            .any(|atom| atom.overlaps(start, end) || atom.holds(start))
+    }
+
     /// The images and wikilinks on the lines showing display offsets
     /// `start` and `end`.
     fn atoms_in(&self, start: usize, end: usize) -> Vec<Atom> {

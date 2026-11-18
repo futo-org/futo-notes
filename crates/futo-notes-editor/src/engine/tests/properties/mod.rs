@@ -23,8 +23,9 @@
 //!
 //! Besides, a host that applies each change's projection holds what a fresh
 //! projection reports (`block_mirror.rs`; on fence-dense notes, `fences.rs`),
-//! and a paste, Enter, Shift+Enter or the divider removes no byte outside
-//! its reach, besides what Enter rewrites in a list (`command_step.rs`).
+//! and a paste, Enter, Shift+Enter, the divider or the table removes no byte
+//! outside its reach, besides what Enter rewrites in a list
+//! (`command_step.rs`).
 //!
 //! `TYPING_CASES` and `TYPING_SEED` set the number of notes and the seed.
 mod block_mirror;
@@ -37,6 +38,7 @@ mod inline;
 mod paired;
 mod real;
 mod steps;
+mod toolbar_allowed;
 mod view;
 
 use super::super::line::Role;

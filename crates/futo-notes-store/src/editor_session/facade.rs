@@ -296,6 +296,15 @@ impl StoreEditorSession<'_> {
         self.live(|state| state.block_command_utf16(expected, range, command))
     }
 
+    pub fn block_command_removing_utf16(
+        &mut self,
+        expected: Revision,
+        removed: DisplayUtf16Range,
+        command: futo_notes_editor::BlockCommand,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.live(|state| state.block_command_removing_utf16(expected, removed, command))
+    }
+
     pub fn paragraph_key_utf16(
         &mut self,
         expected: Revision,

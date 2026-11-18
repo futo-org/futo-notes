@@ -18,7 +18,7 @@ mod selected;
 use super::super::command::{kept_line, Command, Edit};
 use super::super::line::Role;
 use super::super::Engine;
-use crate::lines::{block, FenceRole, Kind};
+use crate::lines::{block, FenceRole, Kind, TableRole};
 use crate::{BlockCommand, DisplayRange, EditorError};
 use std::ops::Range;
 
@@ -293,6 +293,39 @@ impl Engine {
         self.rewrite_lines(named, &pieces, selection)
     }
 
+    /// Whether the code block commands act on display `range`: they take
+    /// touched code out of its block, or put the lines in one (`wraps`).
+    pub(in crate::engine) fn code_block_acts(&self, range: DisplayRange) -> bool {
+        self.touch(range).is_some() || self.wraps(self.lines_of(range))
+    }
+
+    /// Whether `code_on` puts `lines` in a code block: none holds any of
+    /// one, front matter, or part of a table without all of it.
+    fn wraps(&self, lines: Range<usize>) -> bool {
+        !self.holds_code_block(lines.clone())
+            && !self.cuts_table(lines.clone())
+            && !lines
+                .into_iter()
+                .any(|index| matches!(self.line(index).line.kind, Kind::FrontMatter(_)))
+    }
+
+    /// Whether `lines` start below a table's header or end above its last
+    /// row.
+    fn cuts_table(&self, lines: Range<usize>) -> bool {
+        let continued = |index: usize| {
+            index < self.line_count()
+                && matches!(
+                    self.line(index).line.kind,
+                    Kind::Table {
+                        role: TableRole::Delimiter | TableRole::Row,
+                        ..
+                    }
+                )
+        };
+        let last = &self.line(lines.end - 1).line.kind;
+        continued(lines.start) || (matches!(last, Kind::Table { .. }) && continued(lines.end))
+    }
+
     /// Whether `lines` hold any line of a code block, fences included.
     pub(in crate::engine) fn holds_code_block(&self, lines: Range<usize>) -> bool {
         lines
@@ -303,18 +336,17 @@ impl Engine {
     /// Put lines `lines` in one code block of three backticks, their text
     /// exactly as it is. Lines that hold any of a code block, besides lines
     /// outside it, change nothing: a block is never put inside another, and
-    /// a line of three or more backticks alone is always a fence.
+    /// a line of three or more backticks alone is always a fence. Lines that
+    /// hold part of a table and not all of it change nothing either: the
+    /// rest of the table would no longer read as one.
     fn code_on(&self, lines: Range<usize>, selection: Range<usize>) -> Option<Command> {
-        if self.holds_code_block(lines.clone()) {
+        if !self.wraps(lines.clone()) {
             return None;
         }
         let (first, last) = (lines.start, lines.end - 1);
         let mut body = Vec::new();
         for index in lines {
             let entry = self.line(index);
-            if matches!(entry.line.kind, Kind::FrontMatter(_)) {
-                return None;
-            }
             body.push(Piece {
                 from: Some((index, None)),
                 text: entry.body().to_owned(),

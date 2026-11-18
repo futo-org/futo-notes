@@ -225,6 +225,17 @@ impl EditorSession {
         self.block_command(expected, range, command, accept)
     }
 
+    pub fn block_command_removing_utf16(
+        &mut self,
+        expected: Revision,
+        removed: crate::DisplayUtf16Range,
+        command: crate::BlockCommand,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let (removed, _) = self.decode_utf16_input(expected, removed, &[])?;
+        self.block_command_removing(expected, removed, command, accept)
+    }
+
     pub fn paragraph_key_utf16(
         &mut self,
         expected: Revision,

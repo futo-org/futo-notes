@@ -73,6 +73,12 @@ pub enum BlockCommand {
     /// A new code line above the code line the range starts on, the caret
     /// on it, at that line's indent.
     OpenCodeLineAbove,
+    /// An empty table at the caret: `rows` rows, the header row included,
+    /// of `columns` cells.
+    Table {
+        rows: u16,
+        columns: u16,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -82,17 +88,40 @@ pub enum ToolbarList {
     Task,
 }
 
+/// A command a toolbar offers (`ToolbarState::allowed`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ToolbarCommand {
+    /// The toolbar's format toggles (`toggle_toolbar_format`).
+    Bold,
+    Italic,
+    Strike,
+    Code,
+    /// `set_link` with a destination the selection's link does not have.
+    Link,
+    /// The heading toggle (`ToggleHeading`): it acts at every level or none.
+    Heading,
+    Quote,
+    BulletList,
+    OrderedList,
+    TaskList,
+    CodeBlock,
+    Divider,
+    Table,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ToolbarState {
     pub formats: Vec<InlineFormat>,
     pub heading: Option<u8>,
-    /// Whether a heading command can change a touched line: false over
-    /// lines no heading applies to (table lines, code, dividers).
+    /// Whether `allowed` holds `Heading`.
     pub heading_allowed: bool,
     pub quote: bool,
-    /// Whether Quote can change a touched line: false over lines it never
-    /// changes (table lines, code, dividers).
+    /// Whether `allowed` holds `Quote`.
     pub quote_allowed: bool,
+    /// The commands that would act at the selection now: change the note,
+    /// or (a format toggle at a caret) the formats typing there carries.
+    /// A command left out would change nothing.
+    pub allowed: Vec<ToolbarCommand>,
     pub list: Option<ToolbarList>,
     pub code: bool,
     pub mixed: bool,

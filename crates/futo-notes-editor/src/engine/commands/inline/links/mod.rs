@@ -6,7 +6,7 @@ use super::super::super::command::Command;
 use super::super::super::line::Entry;
 use super::super::super::{store, Engine};
 use super::draft::{glyph_range, glyphs, inside, matches, shape, Draft, Expect, LINK, URL};
-use super::Accept;
+use super::{Accept, Body};
 use crate::lines::{Span, SpanKind};
 use crate::{
     Affinity, DisplayOffset, DisplayRange, EditorError, LinkDescription, Revision, ViewChange,
@@ -156,6 +156,25 @@ impl Engine {
                 title,
             }
         }))
+    }
+
+    /// Whether `set_link_view` at the selection would act with a destination
+    /// its link there does not have; `bodies` are the selected lines.
+    pub(super) fn link_acts(&self, bodies: &[Body]) -> bool {
+        let current = self.link_at(self.selection).map(|found| found.span.kind);
+        if current.is_none() && self.selection.start != self.selection.end {
+            return self.links_any(bodies, "https://example.com");
+        }
+        let destination = match current {
+            Some(SpanKind::Link { destination, .. } | SpanKind::Url { destination })
+                if destination == "https://example.com" =>
+            {
+                "https://example.org"
+            }
+            _ => "https://example.com",
+        };
+        let built = self.link_command(self.selection, None, destination, &mut 0);
+        self.changes_source(built)
     }
 
     /// Set the destination of the link at `range`, or link the selected

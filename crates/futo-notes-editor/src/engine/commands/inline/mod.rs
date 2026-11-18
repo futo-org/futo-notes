@@ -7,13 +7,14 @@
 //! spelling on a line and keeps it only when the line then reads as
 //! intended (`draft.rs`); house spelling is `**`, `*`, `~~` and backticks.
 //! A collapsed toggle writes nothing: it sets the formats typing at that
-//! caret carries (`typing.rs`), until the caret moves; a deletion that
+//! caret carries (`toggle.rs`, `typing.rs`), until the caret moves; a deletion that
 //! empties a span sets the span's formats there. The mobile toolbar's
 //! toggle instead formats the word a caret is inside or at the start of
 //! (`word.rs`).
 mod draft;
 mod format;
 mod links;
+mod toggle;
 mod typing;
 mod word;
 
@@ -21,12 +22,13 @@ use super::super::command::{Command, Edit};
 use super::super::line::Entry;
 use super::super::table_block::table_role;
 use super::super::{store, Engine};
-use crate::{DisplayRange, EditorError, InlineFormat, Revision, SourceEdit, ViewChange};
+use crate::{DisplayRange, EditorError, InlineFormat, SourceEdit};
 use draft::{
     bit, formats_of, glyphs, inline_line, regions, Draft, Glyph, BOLD, CODE, ITALIC, STRIKE,
 };
 use std::collections::BTreeMap;
 use std::ops::Range;
+use toggle::carried_with;
 use word::Landing;
 
 type Accept<'a> = &'a mut dyn FnMut(&SourceEdit) -> Result<(), String>;
@@ -282,16 +284,6 @@ impl Engine {
         selected_style(&self.bodies(range)).map_or_else(Vec::new, formats_of)
     }
 
-    /// The formats the toolbar lights: the caret's, or the selection's
-    /// (`selected_style`).
-    pub(crate) fn toolbar_formats(&self) -> Vec<InlineFormat> {
-        if self.selection.start == self.selection.end {
-            self.active_formats()
-        } else {
-            self.selection_formats()
-        }
-    }
-
     /// The formats a deletion of display `range` (input of no text) leaves
     /// the caret: those of its first character, as Cut keeps. `None` for
     /// other input, and for spaces and tabs deleted at a caret carrying
@@ -330,85 +322,6 @@ impl Engine {
         }
         self.formats = (self.formats_at(self.caret_source()) != formats).then_some(formats);
     }
-
-    /// Whether inline commands apply: some line the selection or caret is
-    /// on holds inline text they format (not code, front matter, a divider,
-    /// a table's delimiter row, or a table line selected with other lines).
-    pub(crate) fn inline_allowed(&self) -> bool {
-        !self.formatted_lines(self.selection).is_empty()
-    }
-
-    /// The toolbar's format toggle. A collapsed caret changes the formats
-    /// typing there carries and writes nothing; a selection toggles the
-    /// format over its text as one action. Marked text commits first.
-    pub(crate) fn toggle_format_view(
-        &mut self,
-        expected: Revision,
-        format: InlineFormat,
-        accept: Accept,
-    ) -> Result<Option<ViewChange>, EditorError> {
-        self.check_revision(expected)?;
-        let mut work = 0;
-        // Marked text commits first; the caret then ends after it.
-        let committed = if self.composition.is_some() {
-            self.run(expected, |_| Ok(None), accept)?
-        } else {
-            None
-        };
-        let collapsed = self.selection.start == self.selection.end;
-        let change = if collapsed {
-            committed
-        } else {
-            self.run(
-                self.revision,
-                |engine| {
-                    let selection = engine.selection;
-                    engine.format_command(selection, selection, None, format, &mut work)
-                },
-                accept,
-            )?
-        };
-        if collapsed {
-            self.toggle_carried(format);
-        }
-        Ok(change.map(|change| {
-            let mut view = self.view(change);
-            view.work.parsed_source_bytes += work;
-            view
-        }))
-    }
-
-    /// Toggle `format` in the formats typing at the collapsed caret carries.
-    fn toggle_carried(&mut self, format: InlineFormat) {
-        if self.inline_allowed() {
-            let formats = self.active_formats();
-            let on = !formats.contains(&format);
-            let toggled = carried_with(formats.clone(), format, on);
-            if toggled != formats {
-                self.formats = Some(toggled);
-                self.typing = None;
-            }
-        }
-    }
-}
-
-/// `formats` a caret carries, with `format` turned on or off. Bold, Italic
-/// and Strike do not turn on beside Code, and Code turned on drops them.
-fn carried_with(
-    mut formats: Vec<InlineFormat>,
-    format: InlineFormat,
-    on: bool,
-) -> Vec<InlineFormat> {
-    formats.retain(|have| *have != format);
-    if on && format == InlineFormat::Code {
-        return vec![InlineFormat::Code];
-    }
-    let refused = bit(format) & CODE_TAKES_NONE != 0 && formats.contains(&InlineFormat::Code);
-    if on && !refused {
-        formats.push(format);
-        formats.sort();
-    }
-    formats
 }
 
 /// The formats a toggle never turns on for inline code's characters.
