@@ -101,6 +101,9 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     }
     // Like the note view, keep hardware Enter's selection out of Gboard's
     // collapse-and-delete fallback: the table key only navigates.
+    /** Ctrl+Enter: leave the table for the line after it (the controller owns both this field and the note). */
+    var onLeaveTable: () -> Unit = {}
+
     override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
             return when (event.action) {
@@ -119,14 +122,7 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         if (event.isCtrlPressed) {
             when (keyCode) {
                 KeyEvent.KEYCODE_Z -> { if (event.isShiftPressed) editor.redo() else editor.undo(); return true }
-                KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                    // The note takes focus (and keeps the keyboard) before this field is removed.
-                    val host = parent as? android.view.ViewGroup
-                    val note = host?.let { (0 until it.childCount).map(it::getChildAt).firstOrNull { child -> child is TextFirstEditText } }
-                    editor.leaveTableBelow()
-                    note?.requestFocus()
-                    return true
-                }
+                KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> { onLeaveTable(); return true }
                 KeyEvent.KEYCODE_Y -> { editor.redo(); return true }
                 KeyEvent.KEYCODE_A -> { onTextContextMenuItem(android.R.id.selectAll); return true }
                 KeyEvent.KEYCODE_C -> { onTextContextMenuItem(android.R.id.copy); return true }

@@ -162,6 +162,8 @@ internal class TextFirstController(
         val e = engine ?: return
         val field = cellView ?: TableCellEditText(context, e, style).also {
             it.clipboard.onCopyRefused = { onClipboardRefused() }
+            // Ctrl+Enter leaves the table for the line after it: the note takes focus (and the keyboard) first.
+            it.onLeaveTable = { view.requestFocus(); e.leaveTableBelow() }
             cellView = it
         }
         field.apply(update)
