@@ -58,4 +58,26 @@ class TextFirstTypedDelimiterRowTest {
         textFirstIme(c, cell = true) { commitText("x", 1) }
         assertEquals("intro\n\n| a | b |\n|---|---|\n| x |  |", c.sourceText()!!.trimEnd('\n'))
     }
+
+    /** Verifier: Enter finishes the row too; FUTO's Backspace in the opened cell, then its read of the text, crashed. */
+    @Test fun backspaceAfterEnterFinishedTheRowDoesNotCrash() = textFirstSession("intro\n\n") { c ->
+        val view = c.view
+        withContext(Dispatchers.Main) { view.isFocusableInTouchMode = true; view.requestFocus() }
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        c.select(view.editableText.length - 1)
+        c.sourceText()
+        for (key in "| a | b |") textFirstIme(c) { commitText(key.toString(), 1) }
+        textFirstIme(c) { commitText("\n", 1) }
+        for (key in "|---|---") textFirstIme(c) { commitText(key.toString(), 1) }
+        textFirstIme(c) { commitText("\n", 1) }
+        withTimeout(5_000) { while (c.cellView == null) delay(20) }
+        val cell = withContext(Dispatchers.Main) { c.cellView!!.onCreateInputConnection(android.view.inputmethod.EditorInfo())!! }
+        textFirstIme(c, connection = cell) {
+            sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DEL))
+            sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_DEL))
+        }
+        textFirstIme(c, connection = cell) { getTextBeforeCursor(1040, 0); getTextAfterCursor(1040, 0) }
+        assertTrue("the note is still open", c.sourceText()!!.startsWith("intro"))
+    }
 }
+

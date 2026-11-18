@@ -86,4 +86,24 @@ class TextFirstImageTintTest {
         }
         assertEquals("the move into the picture drew the selection without it", start to end, shownAfterMove)
     }
+
+    /** Verifier: the end handle dragged down through a picture the selection holds whole, from past its end. */
+    @Test fun anEndHandleMovedInsideAPictureTheSelectionHoldsKeepsIt() = textFirstSession("own line below\n\n![a picture](picture.png)\n\nmiddle text", ::picture) { c ->
+        val view = c.view
+        withContext(Dispatchers.Main) { view.isFocusableInTouchMode = true; view.requestFocus() }
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        val e = view.editableText
+        val image = e.getSpans(0, e.length, TfImage::class.java).single()
+        val start = e.indexOf("below")
+        val pastPicture = e.getSpanEnd(image) + 1
+        withContext(Dispatchers.Main) { android.text.Selection.setSelection(e, start, pastPicture) }
+        withTimeout(5_000) { while (view.selectionEnd != pastPicture) delay(20) }
+        delay(200)
+        val shownAfterMove = withContext(Dispatchers.Main) {
+            android.text.Selection.setSelection(e, start, e.getSpanEnd(image) - 3)
+            view.selectionStart to view.selectionEnd
+        }
+        assertEquals("the move into the picture drew the selection without it", start to pastPicture, shownAfterMove)
+    }
 }
+

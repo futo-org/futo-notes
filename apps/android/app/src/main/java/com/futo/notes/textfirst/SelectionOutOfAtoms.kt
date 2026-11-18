@@ -15,9 +15,10 @@ internal fun clampSelectionOutOfAtoms(e: Editable, start: Int, end: Int, shown: 
             val s = e.getSpanStart(atom)
             val en = e.getSpanEnd(atom)
             if (p !in (s + 1) until en) continue
-            // A handle dragged inside a picture the shown selection already takes whole sets that end inside it again
-            // on every move: the engine's answer for that picture stands, and the move is not drawn without the tint.
-            if (atom is TfImage) return if (other == shownOther && (shownEdge == s || shownEdge == en)) shownEdge else p
+            // A handle dragged inside a picture the shown selection already holds whole sets that end inside it on every
+            // move; the engine would grow the range back over the picture, so the shown end stays and no frame is drawn
+            // without the tint.
+            if (atom is TfImage) return if (other == shownOther && minOf(shownEdge, shownOther) <= s && maxOf(shownEdge, shownOther) >= en) shownEdge else p
             if (atom is TfTableDelimiter) continue
             return if (p - s <= en - p) s else en
         }
