@@ -184,7 +184,8 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         field.setPadding(pad, baseline + line.ascent, pad, 0)
         field.gravity = Gravity.TOP or Gravity.START
         field.isSingleLine = true
-        field.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        // Capitals and suggestions, as !300's fields had (Mason, 18B); each keystroke, a composition's included, writes the fence.
+        field.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
         // !300's fields name their Enter key (enterkeyhint), which Gboard shows as the Go arrow.
         field.imeOptions = EditorInfo.IME_ACTION_GO or EditorInfo.IME_FLAG_NO_EXTRACT_UI
         if (state.kind == Kind.LANGUAGE) field.filters = arrayOf(languageFilter)
