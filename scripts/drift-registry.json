@@ -32,7 +32,6 @@
     "scripts/drift-registry/markdown-house-normalizations.json",
     "scripts/drift-registry/tauri-cli-pin.json",
     "scripts/drift-registry/puppet-control-verb-label.json",
-    "scripts/drift-registry/qa-claim-owner-lookup.json",
-    "scripts/drift-registry/editor-pair-characters.json"
+    "scripts/drift-registry/qa-claim-owner-lookup.json"
   ]
 }

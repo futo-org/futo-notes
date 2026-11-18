@@ -7,6 +7,7 @@ import uniffi.futo_notes_ffi.EditorParagraphKey
 import uniffi.futo_notes_ffi.EditorStyleSpan
 import uniffi.futo_notes_ffi.EditorUtf16Range
 import uniffi.futo_notes_ffi.EditorUtf16Replacement
+import uniffi.futo_notes_ffi.editorIsPairedTypingKey
 
 // Keyboard input for [EditorEngine]: called on the editor thread by the input
 // connection. Marked text is an engine-owned overlay (interpretation spec,
@@ -39,11 +40,8 @@ internal fun EditorEngine.imeCommit(value: String) = input {
 private fun pairKeyAfterCorrection(value: String): String? {
     if (value.codePointCount(0, value.length) < 2) return null
     val last = value.substring(value.offsetByCodePoints(value.length, -1))
-    return last.takeIf { it in PAIR_KEYS }
+    return last.takeIf { editorIsPairedTypingKey(it) }
 }
-
-/** The characters paired typing reads (paired-typing.md); any other character types as typing. */
-private val PAIR_KEYS = setOf("`", "*", "~", "[", "]")
 
 /**
  * The one place a phone decides how text it was handed was typed: one character with no composition open is a plain
