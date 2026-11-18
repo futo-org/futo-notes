@@ -4,7 +4,7 @@
 //! line ending stay as they were.
 use super::super::super::command::{Command, Edit};
 use super::super::super::Engine;
-use super::{Cell, Row, Table};
+use super::{Cell, Row, Table, DELIMITER_CELL, EMPTY_CELL};
 use crate::{DisplayRange, EditorError, Revision, SourceEdit, TableCommand, ViewChange};
 use std::ops::Range;
 
@@ -161,7 +161,7 @@ fn insert_column(table: &Table, column: usize) -> Vec<(Range<usize>, Edit)> {
     let mut edits = Vec::new();
     for (at, line) in table.lines.iter().enumerate() {
         let count = line.cells.len();
-        let cell = if at == 1 { " --- " } else { "  " };
+        let cell = if at == 1 { DELIMITER_CELL } else { EMPTY_CELL };
         let edit = if column < count {
             Edit::insert(line.cells[column].start, format!("{cell}|"))
         } else if column == count && count == table.width {

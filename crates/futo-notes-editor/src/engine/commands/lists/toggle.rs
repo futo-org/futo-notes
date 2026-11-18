@@ -45,19 +45,12 @@ impl Engine {
         range: DisplayRange,
         target: Target,
     ) -> Result<Option<Command>, EditorError> {
-        let lines = self.lines_of(range);
-        let blank_caret =
-            range.start == range.end && matches!(self.line(lines.start).line.kind, Kind::Blank);
-        let chosen: Vec<usize> = lines
-            .filter(|&index| match self.line(index).line.kind {
-                Kind::Plain { .. } | Kind::Heading { .. } | Kind::List { .. } => true,
-                Kind::Blank => blank_caret,
-                _ => false,
-            })
-            .collect();
+        let chosen = self.list_targets(range);
         if chosen.is_empty() {
             return Ok(None);
         }
+        let blank_caret =
+            range.start == range.end && matches!(self.line(chosen[0]).line.kind, Kind::Blank);
         let mut draft = Draft::new(self);
         let lift = !blank_caret
             && chosen
@@ -75,6 +68,21 @@ impl Engine {
         let selected = self.source_selection(range);
         let selection = draft.map(selected.start)..draft.map(selected.end);
         Ok(draft.finish(None, selection))
+    }
+
+    /// The lines a list button changes: every plain line, heading and item
+    /// the range touches, and a blank line under a caret.
+    pub(in crate::engine) fn list_targets(&self, range: DisplayRange) -> Vec<usize> {
+        let lines = self.lines_of(range);
+        let blank_caret =
+            range.start == range.end && matches!(self.line(lines.start).line.kind, Kind::Blank);
+        lines
+            .filter(|&index| match self.line(index).line.kind {
+                Kind::Plain { .. } | Kind::Heading { .. } | Kind::List { .. } => true,
+                Kind::Blank => blank_caret,
+                _ => false,
+            })
+            .collect()
     }
 
     fn make_items(&self, draft: &mut Draft, chosen: &[usize], target: Target) {

@@ -44,6 +44,22 @@ impl Edges {
             _ => self.before,
         }
     }
+
+    /// Where a caret placed at `at` goes: away from the side a caret `from`
+    /// came from (from below, the header's end; from above, the line after
+    /// the row), else the nearer edge.
+    fn away_from(&self, from: DisplayRange, at: usize) -> usize {
+        if from.start != from.end {
+            return self.nearer(at);
+        }
+        if from.start.0 <= self.before {
+            return self.after.unwrap_or(self.before);
+        }
+        if self.after.is_some_and(|after| from.start.0 >= after) {
+            return self.before;
+        }
+        self.nearer(at)
+    }
 }
 
 fn caret(at: usize) -> DisplayRange {
@@ -70,14 +86,17 @@ impl Engine {
     }
 
     /// `range` off delimiter rows, as the user places it: a caret on one goes
-    /// to its nearer edge (after, on a tie); a range's end on one moves off
-    /// it toward the range's inside, so a range never takes part of the row,
-    /// and one left with nothing between its ends is a caret where its start
-    /// goes.
+    /// to the edge away from where the caret came from (a keyboard's cursor
+    /// swipe up from the row below goes on to the header), or its nearer
+    /// edge (after, on a tie) when the selection was on the row or a range;
+    /// a range's end on one moves off it toward the range's inside, so a
+    /// range never takes part of the row, and one left with nothing between
+    /// its ends is a caret where its start goes.
     pub(crate) fn off_delimiter_rows(&self, range: DisplayRange) -> DisplayRange {
         let start = self.delimiter_row_edges(range.start.0);
         if range.start == range.end {
-            return start.map_or(range, |edges| caret(edges.nearer(range.start.0)));
+            let from = self.selection;
+            return start.map_or(range, |edges| caret(edges.away_from(from, range.start.0)));
         }
         let from = start.map_or(range.start.0, |edges| edges.after.unwrap_or(edges.before));
         let to = self

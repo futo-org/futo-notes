@@ -350,6 +350,15 @@ fn typed_text_refuses_control_characters_and_function_key_code_points() {
         .replace_utf16_action(Revision(0), utf16(0, 4), &echo, isolated, &mut accepted)
         .unwrap();
     assert_eq!(session.source_text(), "xb\r\n");
+    // A NUL is a control character: typed after a flag it is refused, and a
+    // paste lands it.
+    let mut nul = EditorSession::open("a😀\u{0}z\r\n");
+    let flag_nul: Vec<u16> = "🇯🇵\u{0}".encode_utf16().collect();
+    let typed = nul.replace_utf16(Revision(0), utf16(1, 3), &flag_nul, &mut unexpected);
+    assert_eq!(typed, Err(EditorError::InvalidText));
+    nul.replace_utf16_action(Revision(0), utf16(1, 3), &flag_nul, isolated, &mut accepted)
+        .unwrap();
+    assert_eq!(nul.source_text(), "a🇯🇵\u{0}\u{0}z\r\n");
 }
 
 fn press(session: &mut EditorSession, caret: usize, key: ParagraphKey) {

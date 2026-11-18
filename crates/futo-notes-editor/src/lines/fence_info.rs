@@ -123,10 +123,13 @@ pub(crate) fn write_fence_info(info: &str, language: Option<&str>, name: Option<
 
 /// What a code block's language field keeps of `typed`: the name field's
 /// text (`typed_code_block_name`) as one word, its leading whitespace gone
-/// and any other whitespace written `-`.
+/// and whitespace with text after it written `-`. Whitespace at its end
+/// stays as one space, so typing `c`, space, `s` reads `c-s`; the header
+/// write drops it.
 pub fn typed_code_block_language(typed: &str) -> String {
-    typed_code_block_name(typed)
-        .trim_start()
+    let name = typed_code_block_name(typed);
+    let word = name.trim();
+    let mut kept: String = word
         .chars()
         .map(|character| {
             if character.is_whitespace() {
@@ -135,7 +138,11 @@ pub fn typed_code_block_language(typed: &str) -> String {
                 character
             }
         })
-        .collect()
+        .collect();
+    if !word.is_empty() && name.ends_with(char::is_whitespace) {
+        kept.push(' ');
+    }
+    kept
 }
 
 /// What a code block's name field keeps of `typed`: a backtick goes, as on

@@ -5,8 +5,8 @@ use super::edit::Change;
 use super::Engine;
 use crate::{
     CaretDirection, DisplayOffset, DisplayRange, DisplayUtf16Range, EditWork, EditorError,
-    InputAction, ParagraphKey, ProjectionSlice, Revision, SourceEdit, ToolbarList, ToolbarState,
-    ViewChange,
+    InputAction, ParagraphKey, ProjectionSlice, Revision, SourceEdit, ToolbarCommand, ToolbarList,
+    ToolbarState, ViewChange,
 };
 
 type Accept<'a> = &'a mut dyn FnMut(&SourceEdit) -> Result<(), String>;
@@ -261,6 +261,24 @@ impl Engine {
         Ok(change.map(|change| self.view(change)))
     }
 
+    /// `block` at the caret left once `removed` is removed, both as one
+    /// action (`run_removing`).
+    pub(crate) fn block_removing(
+        &mut self,
+        expected: Revision,
+        removed: DisplayRange,
+        command: crate::BlockCommand,
+        accept: Accept,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let change = self.run_removing(
+            expected,
+            Some(removed),
+            |engine| engine.block_command(engine.selection, command),
+            accept,
+        )?;
+        Ok(change.map(|change| self.view(change)))
+    }
+
     /// The display range of UTF-16 `range`; while text is marked, of the
     /// display with the marked text in place.
     pub(crate) fn input_from_utf16(
@@ -305,12 +323,14 @@ impl Engine {
         let (can_indent, can_outdent) = self
             .code_indent_state()
             .unwrap_or_else(|| self.list_indents());
+        let facts = self.toolbar_facts();
         ToolbarState {
-            formats: self.toolbar_formats(),
-            heading: self.toolbar_heading(),
-            heading_allowed: self.toolbar_heading_allowed(),
-            quote: self.toolbar_quote(),
-            quote_allowed: self.toolbar_quote_allowed(),
+            formats: facts.formats,
+            heading: facts.heading,
+            heading_allowed: facts.allowed.contains(&ToolbarCommand::Heading),
+            quote: facts.quote,
+            quote_allowed: facts.allowed.contains(&ToolbarCommand::Quote),
+            allowed: facts.allowed,
             list: match line.kind {
                 Kind::List { task: Some(_), .. } => Some(ToolbarList::Task),
                 Kind::List { ordered: true, .. } => Some(ToolbarList::Ordered),

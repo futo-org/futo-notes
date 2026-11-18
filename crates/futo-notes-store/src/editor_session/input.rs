@@ -43,6 +43,17 @@ impl Attachment {
         self.edit(|engine, accept| engine.block_command_utf16(expected, range, command, accept))
     }
 
+    pub fn block_command_removing_utf16(
+        &mut self,
+        expected: Revision,
+        removed: DisplayUtf16Range,
+        command: futo_notes_editor::BlockCommand,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.edit(|engine, accept| {
+            engine.block_command_removing_utf16(expected, removed, command, accept)
+        })
+    }
+
     pub fn paragraph_key_utf16(
         &mut self,
         expected: Revision,

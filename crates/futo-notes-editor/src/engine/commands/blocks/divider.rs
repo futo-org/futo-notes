@@ -2,7 +2,7 @@
 use super::super::super::command::Command;
 use super::super::super::line::Role;
 use super::super::super::Engine;
-use super::{right_side, spaced, split};
+use super::{right_side, spaced, split, Joined};
 use crate::lines::{FrontMatterRole, Kind};
 use crate::DisplayRange;
 
@@ -16,24 +16,13 @@ impl Engine {
     /// between the quoted lines. Nothing is written in code, front matter
     /// or a table.
     pub(super) fn divider(&self, range: DisplayRange) -> Option<Command> {
-        let joined = self.joined(range)?;
-        // The empty line front matter closed on the note's last line shows
-        // for the body: the divider goes after the closing line.
-        let after_front_matter = joined.first == joined.last
-            && joined.line.kind == Kind::FrontMatter(FrontMatterRole::Close)
-            && self.line(joined.first).view.role == Role::Empty;
-        let blocked = |kind: &Kind| {
-            matches!(
-                kind,
-                Kind::Fence { .. } | Kind::FrontMatter(_) | Kind::Table { .. }
-            )
-        };
-        if !after_front_matter
-            && ((joined.first..=joined.last).any(|index| blocked(&self.line(index).line.kind))
-                || blocked(&joined.line.kind))
-        {
-            return None;
-        }
+        let (joined, after_front_matter) = self.placed(range)?;
+        let (out, caret) = self.divider_text(&joined, after_front_matter);
+        Some(self.rejoin(&joined, &out, caret))
+    }
+
+    /// The text Divider writes over the joined lines, and the caret in it.
+    fn divider_text(&self, joined: &Joined, after_front_matter: bool) -> (String, usize) {
         let text = joined.text.as_str();
         let line = &joined.line;
         let ending = self.empty_line_ending(joined.first);
@@ -68,7 +57,45 @@ impl Engine {
         out.push_str(&ending);
         let caret = out.len() + caret;
         out.push_str(&right);
-        Some(self.rejoin(&joined, &out, caret))
+        (out, caret)
+    }
+
+    /// Whether Divider and Table act on display `range`. Table writes its
+    /// rows wherever it is `placed`; Divider there writes its text over the
+    /// joined lines, which over a selection can be the bytes it removes.
+    pub(in crate::engine) fn divider_and_table_act(&self, range: DisplayRange) -> (bool, bool) {
+        let Some((joined, after_front_matter)) = self.placed(range) else {
+            return (false, false);
+        };
+        let (out, _) = self.divider_text(&joined, after_front_matter);
+        let start = self.line_start(joined.first);
+        let end = self.line_start(joined.last) + self.line(joined.last).body_len();
+        let divider = out.len() != end - start || out != self.source_slice(start..end);
+        (divider, true)
+    }
+
+    /// The line a divider or table goes on (`joined`), unless it is in code,
+    /// front matter or a table; and whether it is the empty line front matter
+    /// closed on the note's last line shows for the body, which the block
+    /// goes after.
+    pub(super) fn placed(&self, range: DisplayRange) -> Option<(Joined, bool)> {
+        let joined = self.joined(range)?;
+        let after_front_matter = joined.first == joined.last
+            && joined.line.kind == Kind::FrontMatter(FrontMatterRole::Close)
+            && self.line(joined.first).view.role == Role::Empty;
+        let blocked = |kind: &Kind| {
+            matches!(
+                kind,
+                Kind::Fence { .. } | Kind::FrontMatter(_) | Kind::Table { .. }
+            )
+        };
+        if !after_front_matter
+            && ((joined.first..=joined.last).any(|index| blocked(&self.line(index).line.kind))
+                || blocked(&joined.line.kind))
+        {
+            return None;
+        }
+        Some((joined, after_front_matter))
     }
 
     /// `---`, unless a `---` there would make line 1 open front matter (a

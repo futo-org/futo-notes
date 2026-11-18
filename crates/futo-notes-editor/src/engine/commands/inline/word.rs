@@ -14,7 +14,7 @@ impl Engine {
     /// range: a Unicode word (letters, digits, `can't`, `snake_case`) of one
     /// line's inline text, or of one table cell's. `None` at a word's end,
     /// between spaces or punctuation, and on lines without inline text.
-    fn caret_word(&self) -> Option<DisplayRange> {
+    pub(super) fn caret_word(&self) -> Option<DisplayRange> {
         let at = self.selection.start.0;
         if at != self.selection.end.0 {
             return None;

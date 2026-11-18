@@ -3,23 +3,20 @@
 //! edits the lines it names and nothing else (renumbering a numbered list is
 //! the one exception, and names the lines it bumps).
 //!
-//! `run` applies a command as one action behind one guard: after the edits,
-//! the lines around them are read forward until the reader's carry settles.
+//! `run` (`command/run.rs`) applies a command as one action behind one
+//! guard: after the edits, the lines around them are read forward until the
+//! reader's carry settles.
 //! If a line the command did not name now reads as a different kind of
 //! block (a fence or front matter opened or closed, a table header gained or
 //! lost), the command is cancelled: no edit, no history entry. Typing never
 //! goes through the guard.
 mod kept_line;
+mod run;
 
-use super::edit::{Batch, Change, Marked};
-use super::history::Group;
 use super::line::Entry;
 use super::{read, store, Engine};
 use crate::lines::{block, Carry, FenceRole, FrontMatterRole, Kind, TableRole};
-use crate::{
-    Affinity, DisplayOffset, DisplayRange, EditorError, InlineFormat, InputAction, Revision,
-    SourceEdit,
-};
+use crate::{Affinity, DisplayOffset, DisplayRange, EditorError, InlineFormat};
 use std::ops::Range;
 
 pub(crate) use kept_line::kept_line;
@@ -295,152 +292,6 @@ impl Engine {
             index += 1;
         }
         true
-    }
-
-    /// Run the command `build` makes from the engine's state, as one action
-    /// behind the guard. Pending marked text commits first, in the same
-    /// acceptance and as its own undo step, and `build` reads the note with
-    /// it in place. `None` when nothing changed or the guard cancelled; a
-    /// typed command that changed nothing still leaves its selection.
-    pub(crate) fn run(
-        &mut self,
-        expected: Revision,
-        build: impl FnOnce(&Engine) -> Result<Option<Command>, EditorError>,
-        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
-    ) -> Result<Option<Change>, EditorError> {
-        self.check_revision(expected)?;
-        let opening = self.point();
-        let marked = self.composition.take();
-        let mut batch = Batch::default();
-        let mut committed = None;
-        if let Some(marked) = &marked {
-            self.commit_marked(&mut batch, marked);
-            committed = Some((batch.records.len(), self.point()));
-        }
-        let restore = |engine: &mut Self, batch: Batch| {
-            engine.revert(batch);
-            engine.restore(&opening);
-            engine.composition = marked.clone();
-        };
-        let command = match build(self) {
-            Ok(command) => command,
-            Err(error) => {
-                restore(self, batch);
-                return Err(error);
-            }
-        };
-        let mut applied = false;
-        if let Some(command) = &command {
-            match self.apply(&mut batch, command) {
-                Ok(true) => applied = true,
-                Ok(false) => {
-                    // Cancelled: keep only the commit, if there is one.
-                    restore(self, batch);
-                    if marked.is_none() {
-                        return Ok(None);
-                    }
-                    self.composition = None;
-                    batch = Batch::default();
-                    self.commit_marked(&mut batch, marked.as_ref().expect("marked text"));
-                }
-                Err(error) => {
-                    restore(self, batch);
-                    return Err(error);
-                }
-            }
-        }
-        let accepted = match self.accept(batch, accept) {
-            Ok(accepted) => accepted,
-            Err(error) => {
-                self.restore(&opening);
-                self.composition = marked;
-                return Err(error);
-            }
-        };
-        let Some((edit, shown, mut records)) = accepted else {
-            // Typing's commands land even when they wrote the bytes already
-            // there, as typing them over a selection does. Marked text that
-            // committed unchanged still leaves the caret at its end.
-            let typed = command.as_ref().filter(|command| applied && command.typed);
-            if let (Some(command), None) = (typed, &committed) {
-                self.restore(&opening);
-                self.land(command.selection.clone(), command.affinity);
-            } else if committed.is_none() || applied {
-                self.restore(&opening);
-            }
-            return Ok(None);
-        };
-        self.typing = None;
-        self.formats = None;
-        self.history.redo.clear();
-        let mut before = opening;
-        if let Some((count, after_commit)) = committed {
-            let rest = records.split_off(count);
-            if records.iter().any(|r| r.removed != r.inserted) {
-                self.history.undo.push(Group {
-                    records,
-                    before,
-                    after: after_commit.clone(),
-                });
-                before = after_commit;
-            }
-            records = rest;
-        }
-        if let (true, Some(command)) = (applied, command) {
-            self.land(command.selection.clone(), command.affinity);
-            self.carry_deleted(command.carry);
-            if command.selects_block {
-                self.select_block_at(command.selection.start);
-            }
-        }
-        if !records.is_empty() {
-            self.history.undo.push(Group {
-                records,
-                before,
-                after: self.point(),
-            });
-        }
-        Ok(Some(self.change(edit, shown)))
-    }
-
-    /// Marked text written into `batch` as committing it writes it, the
-    /// caret at its end.
-    fn commit_marked(&mut self, batch: &mut Batch, marked: &Marked) {
-        self.adopt_marked_caret(marked.range);
-        let commit = self.plan_input(
-            self.outside_crlf(marked.range),
-            &marked.text,
-            InputAction::CompositionCommit,
-        );
-        self.raw(batch, commit.range.clone(), &commit.inserted);
-        self.caret_at(commit.caret);
-    }
-
-    /// Apply `command`'s edits to `batch`, then the guard. `false` when the
-    /// guard fails (the edits stay in `batch` for the caller to revert).
-    fn apply(&mut self, batch: &mut Batch, command: &Command) -> Result<bool, EditorError> {
-        let mut edits = command.edits.clone();
-        edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
-        for edit in &edits {
-            if edit.range.start > edit.range.end {
-                return Err(EditorError::InvalidRange);
-            }
-            self.check_source(edit.range.start)?;
-            self.check_source(edit.range.end)?;
-        }
-        if edits
-            .windows(2)
-            .any(|pair| pair[0].range.end > pair[1].range.start)
-        {
-            return Err(EditorError::InvalidRange);
-        }
-        let before = if command.typed {
-            None
-        } else {
-            Some(self.before_command(command, &edits)?)
-        };
-        self.raw_edits(batch, &edits);
-        Ok(before.is_none_or(|before| self.guard_holds(&before)))
     }
 
     /// Put the selection at source `range` of the current text.

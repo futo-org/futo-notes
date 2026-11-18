@@ -1,6 +1,6 @@
-//! Heading, quote and divider commands, and the paragraph keys on heading
-//! and quote lines. Each reads the lines it is pointed at and returns text
-//! edits; `Engine::run` applies them behind the one guard.
+//! Heading, quote, divider and table commands, and the paragraph keys on
+//! heading and quote lines. Each reads the lines it is pointed at and returns
+//! text edits; `Engine::run` applies them behind the one guard.
 //!
 //! A heading or quote command rewrites the head of each line it changes (its
 //! quote markers and block marker) and leaves the line's text alone, except
@@ -8,6 +8,7 @@
 //! another block once its marker goes (`# - item` to Text is `\- item`).
 mod divider;
 mod keys;
+mod table;
 
 use super::super::command::{kept_line, Command, Edit};
 use super::super::line::Entry;
@@ -39,6 +40,7 @@ impl Engine {
             }
             BlockCommand::Quote => self.quote(range),
             BlockCommand::Divider => self.divider(range),
+            BlockCommand::Table { rows, columns } => self.table(range, rows, columns),
             _ => None,
         })
     }
@@ -63,25 +65,19 @@ impl Engine {
         })
     }
 
-    /// The toolbar's heading for the selection: the level every touched line
-    /// shares (0 for text), as the heading toggle decides it.
-    pub(crate) fn toolbar_heading(&self) -> Option<u8> {
-        self.common_heading(&self.targets(self.selection))
-    }
-
-    /// Whether a heading command applies to any line the selection touches.
-    pub(crate) fn toolbar_heading_allowed(&self) -> bool {
-        !self.targets(self.selection).is_empty()
-    }
-
-    /// The toolbar's quote for the selection: whether Quote takes a level off.
-    pub(crate) fn toolbar_quote(&self) -> bool {
-        self.all_quoted(&self.targets(self.selection))
-    }
-
-    /// Whether Quote applies to any line the selection touches.
-    pub(crate) fn toolbar_quote_allowed(&self) -> bool {
-        !self.targets(self.selection).is_empty()
+    /// The toolbar's heading for the selection (the level every touched line
+    /// shares, 0 for text, as the heading toggle decides it), its quote
+    /// (whether Quote takes a level off), and whether the heading toggle and
+    /// Quote act on `body`, the selection's body part: each changes a line
+    /// whenever it touches one it applies to.
+    pub(in crate::engine) fn toolbar_blocks(&self, body: DisplayRange) -> (Option<u8>, bool, bool) {
+        let lines = self.targets(self.selection);
+        let act = if body == self.selection {
+            !lines.is_empty()
+        } else {
+            !self.targets(body).is_empty()
+        };
+        (self.common_heading(&lines), self.all_quoted(&lines), act)
     }
 
     /// The lines `range` touches that a heading or quote command changes.
