@@ -177,6 +177,11 @@ extension TextFirstEditorController {
         liftRecognizer = lift
         stockTextDrag = textView.textDragInteraction?.isEnabled ?? false
         armLift()
+        // An incoming call or a switch away resigns the app's activity before any touch is
+        // cancelled: a drag ends there, with nothing moved.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(blockDragInterrupted),
+            name: UIApplication.willResignActiveNotification, object: nil)
     }
 
     /// Whether a press may lift anything, before the line under it is asked: not while the
@@ -357,7 +362,8 @@ extension TextFirstEditorController {
         if abs(y - textView.contentOffset.y) > 0.25 { textView.contentOffset.y = y }
     }
 
-    /// End the drag in progress with nothing moved, the finger still down or not. The card,
+    /// End the drag in progress with nothing moved, the finger still down or not: the note's
+    /// text changed under it, the app is leaving the foreground, or the note closed. The card,
     /// the drop line and the dim go at once, silently, and the press is over: nothing the
     /// finger does until it lifts is a drag.
     func cancelBlockDrag() {
@@ -366,6 +372,13 @@ extension TextFirstEditorController {
         liftRecognizer?.isEnabled = false
         liftRecognizer?.isEnabled = true
     }
+
+    /// The note's revision moved: a drag lifted at another revision ends.
+    func noteRevisionChanged() {
+        if let drag = blockDrag, drag.lift.revision != rev { cancelBlockDrag() }
+    }
+
+    @objc func blockDragInterrupted() { cancelBlockDrag() }
 
     private func takeBlockDrag() -> TextFirstBlockDrag? {
         textView.panGestureRecognizer.isEnabled = true

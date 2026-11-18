@@ -40,6 +40,12 @@ final class TextFirstTextView: UITextView {
         controller?.remeasureBlockDrag()
     }
 
+    /// Off screen (the note closed or another took its place) a block drag ends.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { controller?.cancelBlockDrag() }
+    }
+
     // MARK: long notes
     //
     // TextKit 2 lays out only the viewport and places it from an estimate of the heights above

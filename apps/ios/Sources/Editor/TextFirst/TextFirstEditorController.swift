@@ -19,7 +19,7 @@ final class TextFirstEditorController: NSObject {
     var noteId: String
 
     /// The engine's revision; every call carries it and every accepted change advances it.
-    var rev: UInt64
+    var rev: UInt64 { didSet { if rev != oldValue { noteRevisionChanged() } } }
     /// The engine's selection in view units (the view's may differ while composing).
     var engineSelection = NSRange(location: 0, length: 0)
     /// The revision `engineSelection` was set at (its units are that display's).
@@ -36,7 +36,7 @@ final class TextFirstEditorController: NSObject {
     /// The committed-display range the live composition replaces.
     var compositionRange = NSRange(location: 0, length: 0)
     var lastMarked = ""
-    var closed = false
+    var closed = false { didSet { if closed { cancelBlockDrag() } } }
     /// Typed since the last save the engine confirmed.
     var dirty = false
     /// The screen left: the leave registry runs this draft's saves (no timer, no checkpoint of

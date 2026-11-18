@@ -110,6 +110,27 @@
             #expect(drag.dimmedSource.frame.width == 800)
         }
 
+        @Test func aDragEndsWithNothingMovedWhenItsNoteCloses() throws {
+            // Closed (leaving the note, or discarding it), or taken off screen (another note
+            // pushed over it) while the finger is still down.
+            let leaves: [(TextFirstHarness) -> Void] = [
+                { $0.controller.discard() }, { $0.tv.removeFromSuperview() },
+            ]
+            for leave in leaves {
+                let h = TextFirstHarness("one\ntwo\nthree", focused: false)
+                let drag = try begin(h, at: h.point(line: 0))
+                h.controller.followBlockDrag(to: h.point(line: 2, fraction: 0.8))
+                #expect(drag.slot != nil)
+                leave(h)
+                #expect(h.controller.blockDrag == nil)
+                let drawn = [drag.card, drag.dropLine, drag.dimmedSource]
+                #expect(drawn.allSatisfy { $0.superview == nil })
+                // The finger lifts later, over the drop line it saw.
+                h.controller.endBlockDrag(dropping: true)
+                #expect(h.source == "one\ntwo\nthree")
+            }
+        }
+
         /// Lift what a hold at `p` lifts, as the long-press does at its 340 ms.
         private func begin(_ h: TextFirstHarness, at p: CGPoint) throws -> TextFirstBlockDrag {
             #expect(h.controller.liftShouldBegin(at: p))

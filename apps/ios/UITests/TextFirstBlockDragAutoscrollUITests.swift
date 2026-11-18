@@ -1,8 +1,9 @@
 import UIKit
 import XCTest
 
-/// The block drag with real touches while the note scrolls under it (#443): held near an edge
-/// the note scrolls and the block lands where the drop line showed.
+/// The block drag with real touches while the note scrolls under it, and what ends it early
+/// (#443): held near an edge the note scrolls and the block lands where the drop line showed; a
+/// change to the note's text, the app leaving the foreground, or a second finger.
 /// The drop line is read through the debug build's puppet `state` while the finger is held.
 final class TextFirstBlockDragAutoscrollUITests: XCTestCase {
     private let lines = (1...150).map { String(format: "line %03d", $0) }
@@ -85,5 +86,75 @@ final class TextFirstBlockDragAutoscrollUITests: XCTestCase {
         XCTAssertEqual(Set(last.map { $0.firstLineOnScreen ?? -1 }).count, 1, "it stopped")
         let before = try XCTUnwrap(last.last?.dropLineBefore)
         XCTAssertTrue(note.saved(moving(1, before: before)), "it lands at the drop line")
+    }
+
+    @MainActor
+    func testATextChangeWhileHeldCancelsTheDragAtOnce() throws {
+        let text = "alpha\nbravo\ncharlie\ndelta\necho"
+        let note = try TextFirstDragNote.open(text)
+        let finger = TextFirstTouch(down: note.screen(line: 0)).hold(0.6)
+            .move(to: note.screen(line: 3), over: 0.4).hold(2.5)
+            .move(to: note.screen(line: 4), over: 0.3).hold(0.3).lift()
+        let changed = TextFirstStates()
+        let states = try note.puppet.watch(
+            while: { try TextFirstTouch.perform([finger]) },
+            look: {
+                [puppet = note.puppet] state in
+                // As a sync would, once the block is held over a drop line.
+                guard changed.all.isEmpty, state.dropLineBefore != nil else { return }
+                changed.append(puppet.post("/do/Insert", ["text": "!", "after": "echo"]) ?? [:])
+            })
+        XCTAssertEqual(changed.all.first?["ok"] as? Bool, true)
+        // From the change on no state shows the drag, though the finger stayed down for seconds
+        // more (polled every 50 ms; the watch ends as the finger lifts).
+        let shown = try XCTUnwrap(states.lastIndex { $0.blockDrag != nil })
+        XCTAssertGreaterThan(states.count - shown - 1, 20)
+        XCTAssertTrue(note.saved(text + "!"), "the change lands and nothing moved")
+        XCTAssertFalse(note.saved({ $0 != text + "!" }, within: 1.5))
+    }
+
+    @MainActor
+    func testLeavingTheAppWhileHeldCancelsTheDrag() throws {
+        let text = "alpha\n[site](https://example.com)\ncharlie\ndelta"
+        let note = try TextFirstDragNote.open(text)
+        let finger = TextFirstTouch(down: note.screen(line: 0)).hold(0.6)
+            .move(to: note.screen(line: 3), over: 0.4).hold(2.5).lift()
+        let left = TextFirstStates()
+        _ = try note.puppet.watch(
+            while: { try TextFirstTouch.perform([finger]) },
+            look: {
+                [puppet = note.puppet] state in
+                // Another app comes to the front (Safari, for the link) while the block is held.
+                guard left.all.isEmpty, state.dropLineBefore != nil else { return }
+                left.append(puppet.post("/do/OpenLink", ["find": "site"]) ?? [:])
+            })
+        XCTAssertEqual(left.all.first?["ok"] as? Bool, true)
+        XCTAssertNotEqual(note.app.state, .runningForeground)
+        note.app.activate()
+        XCTAssertTrue(note.app.wait(for: .runningForeground, timeout: 10))
+        XCTAssertFalse(note.saved({ $0 != text }, within: 2), "nothing moved")
+        XCTAssertNil(try XCTUnwrap(note.puppet.editor()).blockDrag)
+    }
+
+    @MainActor
+    func testASecondFingerWhileHeldIsIgnored() throws {
+        let text = "alpha\nbravo\ncharlie\ndelta\necho"
+        let note = try TextFirstDragNote.open(text)
+        let finger = TextFirstTouch(down: note.screen(line: 0)).hold(0.6)
+            .move(to: note.screen(line: 2), over: 0.3).hold(1.5)
+            .move(to: note.screen(dy: 4 + 3.9 * TextFirstDragNote.lineStep), over: 0.3)
+            .hold(0.6).lift()
+        // A tap, then a short drag, by another finger on a line while the block is held.
+        let tap = TextFirstTouch(down: note.screen(line: 4, x: 250), at: 1.2).hold(0.1).lift()
+        let swipe = TextFirstTouch(down: note.screen(line: 1, x: 250), at: 1.6)
+            .move(to: note.screen(line: 4, x: 250), over: 0.3).lift()
+        let since = try XCTUnwrap(note.puppet.post("/touches")?["last"] as? Int)
+        let states = try note.puppet.watch { try TextFirstTouch.perform([finger, tap, swipe]) }
+        let landed = note.puppet.post("/touches", ["since": since])?["touches"] as? [Any]
+        XCTAssertGreaterThanOrEqual(landed?.count ?? 0, 3, "the app got all three fingers")
+        let held = try XCTUnwrap(states.last { $0.blockDrag != nil })
+        XCTAssertEqual(held.dropLineBefore, 5, "the drag went on to the first finger's last slot")
+        XCTAssertTrue(note.saved("bravo\ncharlie\ndelta\nalpha\necho"))
+        XCTAssertFalse(note.app.keyboards.firstMatch.exists, "the second finger placed no caret")
     }
 }
