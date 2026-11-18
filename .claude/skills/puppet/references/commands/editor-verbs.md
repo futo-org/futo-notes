@@ -39,7 +39,7 @@ with one of `at`, `after`, `before` (no `expect`).
 | `OpenLink` | `{"at"}` or `{"find"}`; `newTab?` (desktop): follows the link | ✓ | ✓ `{"find"}` | a different verb of the same name: the toolbar's link dialog (iOS's `Link`) |
 | `AcceptSuggestion` | `{"index"}` (0-based) or `{"text"}` (label or note id) | — (`PickLinkSuggestion {noteId}`) | ✓ only while wikilink suggestions show | — 404 |
 | `PickLinkSuggestion` | `{"noteId"}` while `[[` suggestions show | ✓ | — 501 | — 404 |
-| `MoveBlock` | `{"line"}` + `before` or `after` line | ✓ a whole top-level block | ✓ the engine's block (an item with its children, a quote run, a code block, a table, else the line); display lines, `line` on screen; 409 when the boundary is not one of its slots | — 404 |
+| `MoveBlock` | `{"line"}` + `before` or `after` line; iOS also `column` | ✓ a whole top-level block | ✓ what a press at `column` (UTF-16, default 0) of `line` lifts: an image there sharing its line alone, else the engine's block (an item with its children, a quote run, a code block, a table, else the line); display lines, `line` on screen; 409 when the boundary is not one of its slots | — 404 |
 | `InsertImage` | `{"path"}` | ✓ | — 501, `tap` the toolbar's image button | — 404 |
 | `Undo` · `Redo` | 409 with nothing to undo | ✓ | ✓ editor or cell focused | `Undo` only, while a table cell is open |
 | `Bold` `Italic` `Strikethrough` `Heading1`-`Heading3` `Quote` `CodeBlock` `BulletList` `OrderedList` `TaskList` `Indent` `Outdent` | the toolbar's commands, on the selection or the caret's block | ✓ | ✓ editor or cell focused | — 404 |

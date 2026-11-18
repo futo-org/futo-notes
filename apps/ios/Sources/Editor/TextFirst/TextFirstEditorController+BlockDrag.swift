@@ -1,11 +1,12 @@
 import UIKit
 
 // Long-press block drag (#441; #311 holds the design). With the keyboard down, a press that
-// holds still lifts the block the engine says the line under it lifts: a snapshot card of the
-// block follows the finger, the source dims in place, a drop line marks the engine's slot
-// nearest the finger, and releasing moves the block there as one Undo step (+BlockMove). While
-// the note is being edited every long-press is the platform's, as in the web editor. The view
-// decides only which line is under the finger and which slot is nearest.
+// holds still lifts what the engine says a press at the position under the finger lifts (a
+// photo sharing its line alone, else the line's block): a snapshot card of it follows the
+// finger, the source dims in place, a drop line marks the engine's slot nearest the finger,
+// and releasing moves it there as one Undo step (+BlockMove). While the note is being edited
+// every long-press is the platform's, as in the web editor. The view decides only which
+// position is under the finger and which slot is nearest.
 
 /// How a press lifts a block: the old web editor's hold and tolerance.
 enum TextFirstLiftPolicy {
@@ -40,7 +41,8 @@ final class TextFirstDragHaptics {
 
 /// Where a lifted block may land on screen: each of the engine's slots on screen with the y of
 /// its boundary, and the y of the block's own top and bottom edges (where they show), where a
-/// drop would change nothing.
+/// drop would change nothing. A lifted photo has no such edge (every slot moves it, its own
+/// line's edges too), so both are its middle: held where it was, it drops nowhere.
 struct TextFirstDropTargets {
     let slots: [(offset: Int, y: CGFloat)]
     let ownTop: CGFloat
@@ -54,10 +56,11 @@ struct TextFirstDropTargets {
     }
 }
 
-/// What a press at a point lifts: the line pressed (its UTF-16 offset), the block it lifts, the
-/// card's frame (the block's part on screen) and where it may land, at the engine's revision.
+/// What a press at a point lifts: the position pressed (its UTF-16 offset), the block it lifts,
+/// the card's frame (the block's part on screen, or the photo) and where it may land, at the
+/// engine's revision.
 struct TextFirstLift {
-    let lineOffset: Int
+    let offset: Int
     let block: NSRange
     let frame: CGRect
     let targets: TextFirstDropTargets
@@ -180,12 +183,12 @@ extension TextFirstEditorController {
     /// platform's long-press: a blank line, an empty note, front matter, code nothing closes, or
     /// anything `mayLift` rules out.
     func liftPlan(at p: CGPoint) -> TextFirstLift? {
-        guard mayLift, let line = lineOffset(at: p) else { return nil }
+        guard mayLift, let offset = pressOffset(at: p) else { return nil }
         let block: NSRange
         let slots: [Int]
         do {
-            guard let found = try blockRange(atLineOffset: line),
-                let landing = try blockSlots(atLineOffset: line)
+            guard let found = try blockRange(at: offset),
+                let landing = try blockSlots(at: offset)
             else { return nil }
             (block, slots) = (found, landing)
         } catch {
@@ -196,34 +199,57 @@ extension TextFirstEditorController {
         let insets = textView.adjustedContentInset
         let shown = textView.bounds.inset(
             by: UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0))
-        let top = max(boundaryY(block.location) ?? -.infinity, shown.minY)
-        let bottom = min(boundaryY(NSMaxRange(block)) ?? .infinity, shown.maxY)
-        guard bottom > top else { return nil }
+        let frame: CGRect
+        let own: (top: CGFloat, bottom: CGFloat)
+        if let photo = imageAt(p), photo.range == block {
+            frame = photo.frame.intersection(shown)
+            own = (frame.midY, frame.midY)
+        } else {
+            let top = max(boundaryY(block.location) ?? -.infinity, shown.minY)
+            let bottom = min(boundaryY(NSMaxRange(block)) ?? .infinity, shown.maxY)
+            frame = CGRect(x: 0, y: top, width: textView.bounds.width, height: bottom - top)
+            own = (top, bottom)
+        }
+        guard !frame.isNull, frame.height > 0 else { return nil }
         let targets = TextFirstDropTargets(
             slots: slots.compactMap { slot in
                 boundaryY(slot).flatMap { shown.minY...shown.maxY ~= $0 ? (slot, $0) : nil }
             },
-            ownTop: top, ownBottom: bottom)
+            ownTop: own.top, ownBottom: own.bottom)
         return TextFirstLift(
-            lineOffset: line, block: block,
-            frame: CGRect(x: 0, y: top, width: textView.bounds.width, height: bottom - top),
-            targets: targets, revision: rev)
+            offset: offset, block: block, frame: frame, targets: targets, revision: rev)
     }
 
-    /// The UTF-16 offset of the line at `p`'s height, anywhere across the page (its margins
-    /// too); the display's end on the note's empty last line. Nil off the text.
-    private func lineOffset(at p: CGPoint) -> Int? {
+    /// The UTF-16 display offset under `p`, as the engine reads a press: on a photo, the photo's
+    /// start; elsewhere the character nearest the finger on the row at `p`'s height, anywhere
+    /// across the page (its margins too); the display's end on the note's empty last line. Nil
+    /// off the text.
+    private func pressOffset(at p: CGPoint) -> Int? {
+        if let photo = imageAt(p) { return photo.range.location }
         guard let manager = textView.textLayoutManager,
             let f = manager.textLayoutFragment(for: CGPoint(x: 1, y: p.y - inset.top))
         else { return nil }
-        let local = p.y - inset.top - f.layoutFragmentFrame.minY
+        let local = CGPoint(x: p.x - inset.left, y: p.y - inset.top - f.layoutFragmentFrame.minY)
         // The empty last line lays out as a zero-length line at the end of the last paragraph.
         if let last = f.textLineFragments.last, last.characterRange.length == 0,
-            f.textLineFragments.count > 1, local >= last.typographicBounds.minY
+            f.textLineFragments.count > 1, local.y >= last.typographicBounds.minY
         {
             return storage.length
         }
-        return manager.offset(from: manager.documentRange.location, to: f.rangeInElement.location)
+        let start = manager.offset(
+            from: manager.documentRange.location, to: f.rangeInElement.location)
+        // The row at the finger's height, or the one above the line spacing it is in.
+        guard
+            let row = f.textLineFragments.last(where: { $0.typographicBounds.minY <= local.y })
+                ?? f.textLineFragments.first
+        else { return start }
+        let bounds = row.typographicBounds
+        let index = row.characterIndex(
+            for: CGPoint(x: local.x - bounds.minX, y: local.y - bounds.minY))
+        // At most the row's last character: past it is the line ending, or the next row's.
+        let range = row.characterRange
+        let last = max(range.location, NSMaxRange(range) - 1)
+        return start + min(max(index, range.location), last)
     }
 
     /// The y (text view coordinates) of the boundary at UTF-16 `offset`: the top of the line
@@ -309,7 +335,7 @@ extension TextFirstEditorController {
         var moved = false
         if dropping, let slot = drag.slot, drag.lift.revision == rev {
             do {
-                moved = try moveBlock(atLineOffset: drag.lift.lineOffset, toSlot: slot)
+                moved = try moveBlock(at: drag.lift.offset, toSlot: slot)
             } catch {
                 recover(error, context: "move block")
             }

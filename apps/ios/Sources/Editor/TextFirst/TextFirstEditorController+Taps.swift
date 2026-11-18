@@ -128,17 +128,24 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
     }
 
     /// The storage range of the image whose drawn rect holds `p`, if any.
-    func imageHit(at p: CGPoint) -> NSRange? {
+    func imageHit(at p: CGPoint) -> NSRange? { imageAt(p)?.range }
+
+    /// The image whose drawn rect holds `p`: its storage range and that rect in text view
+    /// coordinates.
+    func imageAt(_ p: CGPoint) -> (range: NSRange, frame: CGRect)? {
         guard let f = fragment(at: p) as? TextFirstLayoutFragment, !f.imageRuns.isEmpty,
             let manager = textView.textLayoutManager
         else { return nil }
-        let local = CGPoint(
-            x: p.x - inset.left, y: p.y - inset.top - f.layoutFragmentFrame.minY)
+        let origin = CGPoint(x: inset.left, y: inset.top + f.layoutFragmentFrame.minY)
+        let local = CGPoint(x: p.x - origin.x, y: p.y - origin.y)
         let base = manager.offset(
             from: manager.documentRange.location, to: f.rangeInElement.location)
         for run in f.imageRuns {
             if let rect = f.imageRect(run), rect.contains(local) {
-                return NSRange(location: base + run.range.location, length: run.range.length)
+                return (
+                    NSRange(location: base + run.range.location, length: run.range.length),
+                    rect.offsetBy(dx: origin.x, dy: origin.y)
+                )
             }
         }
         return nil
@@ -147,7 +154,7 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
     /// A plain tap on an image, anywhere on it, is a collapsed caret right after it (the
     /// caret is drawn at its trailing edge): typing goes after the image and Backspace removes
     /// it whole. A drag selection or select-all still selects it as one object (with the
-    /// keyboard down a long-press lifts its line, +BlockDrag).
+    /// keyboard down a long-press lifts it, or its line, +BlockDrag).
     private func placeCaretAfterImage(_ range: NSRange) {
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {

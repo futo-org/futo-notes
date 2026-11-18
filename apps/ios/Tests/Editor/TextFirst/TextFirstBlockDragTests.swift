@@ -56,7 +56,9 @@
             }.map(\.offset)
         }
 
-        @Test func aLongPressLiftsTheBlockUnderTheFingerAndBlankLinesKeepThePlatforms() async {
+        @Test func aLongPressLiftsTheBlockUnderTheFingerAndBlankLinesKeepThePlatforms()
+            async throws
+        {
             // Lines: 0 Head, 1 blank, 2-4 table, 5 text and a photo, 6 link, 7 end, 8 the empty
             // last line. Which lines a line lifts is the engine's (engine/tests/moves.rs); this
             // is which line a point is.
@@ -72,13 +74,14 @@
             // The page margin left of the text is the line's too.
             #expect(lifted(h, at: point(h, line: 0, x: 4)) == [0])
             #expect(lifted(h, at: point(h, line: 1)) == nil)
-            // The table's grid lifts the whole table; an image or a link the block holding it.
-            // The photo is too wide to share a row with `see` and is drawn on its own, but it is
-            // on `see`'s line, and a press on it lifts that line.
+            // The table's grid lifts the whole table; a link the block holding it. The photo is
+            // too wide to share a row with `see` and is drawn on its own: a press on it lifts the
+            // photo alone, a press on `see` the whole line, photo included.
             #expect(lifted(h, at: point(h, line: 4, x: 40)) == [2, 3, 4])
-            let photo = h.controller.imageHit(at: point(h, line: 5, x: 70, fraction: 0.7))
-            #expect(photo != nil)
-            #expect(lifted(h, at: point(h, line: 5, x: 70, fraction: 0.7)) == [5])
+            let onPhoto = point(h, line: 5, x: 70, fraction: 0.7)
+            let photo = try #require(h.controller.imageHit(at: onPhoto))
+            #expect(h.controller.liftPlan(at: onPhoto)?.block == photo)
+            #expect(lifted(h, at: point(h, line: 5, x: 20, fraction: 0.02)) == [5])
             #expect(lifted(h, at: point(h, line: 6, x: 30)) == [6])
             // The note's empty last line lifts nothing (TextKit lays it out in the last
             // paragraph's fragment, under `end`).
@@ -104,6 +107,30 @@
             // An empty note has nothing to lift.
             let empty = TextFirstHarness("")
             #expect(empty.controller.liftPlan(at: CGPoint(x: 60, y: 14)) == nil)
+        }
+
+        @Test func aPhotoSharingItsLineLiftsAloneAndDropsJustBelowIt() async throws {
+            // As the maintainer's `Nice!![](…)`: text, then a photo too wide to share its row.
+            let h = TextFirstHarness(
+                "Nice! Nice! Nice! Nice!![](pic.png)\nnext",
+                files: ["pic.png": TextFirstHarness.png(900, 900)], focused: false)
+            #expect(await h.until { h.lineHeights(at: 0).contains { $0 > 100 } })
+            let onPhoto = point(h, line: 0, x: 70, fraction: 0.7)
+            let lift = try #require(h.controller.liftPlan(at: onPhoto))
+            #expect(lift.block == NSRange(location: 23, length: 12))
+            // The card is the photo, not `Nice!`'s row above it.
+            #expect(lift.frame.contains(onPhoto))
+            #expect(lift.frame.minY > point(h, line: 0, fraction: 0.02).y)
+            #expect(lift.frame.height > 100)
+            // Held where it was, it drops nowhere; just below its line it lands above `next`,
+            // above `Nice!` it lands at the note's top.
+            #expect(lift.targets.slot(nearest: lift.frame.midY) == nil)
+            #expect(lift.targets.slot(nearest: lift.frame.maxY + 2)?.offset == 36)
+            #expect(lift.targets.slot(nearest: point(h, line: 0, fraction: 0).y)?.offset == 0)
+            #expect(try h.controller.moveBlock(at: lift.offset, toSlot: 36))
+            let moved = try h.controller.session.sourceText()
+            #expect(moved == "Nice! Nice! Nice! Nice!\n![](pic.png)\nnext")
+            #expect(h.controller.divergences.isEmpty, "\(h.controller.divergences)")
         }
 
         @Test func aBlockRunningOffScreenLiftsWhatShows() throws {
@@ -165,9 +192,9 @@
             // strings equal, but they are one UTF-16 unit apart. Moving line 0 below line 1
             // swaps them; a view that took them for unchanged would no longer match the engine.
             let h = TextFirstHarness("\u{e9}\ne\u{301}\nz", focused: false)
-            let slots = try #require(try h.controller.blockSlots(atLineOffset: 0))
+            let slots = try #require(try h.controller.blockSlots(at: 0))
             #expect(slots == [5, 6])
-            #expect(try h.controller.moveBlock(atLineOffset: 0, toSlot: 5))
+            #expect(try h.controller.moveBlock(at: 0, toSlot: 5))
             let shown = Array(h.controller.storage.string.utf16)
             #expect(shown == Array("e\u{301}\n\u{e9}\nz".utf16))
             #expect(shown == Array(try h.controller.session.displayText().utf16))
