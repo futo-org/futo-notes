@@ -122,14 +122,12 @@ impl Engine {
             if at < count {
                 display += self.line(at).size.display;
             }
-            // Strictly inside a list: both lines around the boundary in one.
-            let in_list = || 0 < at && at < count && self.held(at) && self.held(at - 1);
             let ruled_out = own.as_ref().is_some_and(|(block, edges)| {
                 (block.start..=block.end).contains(&at) || edges.contains(&name)
             }) || self.inside_unit(at)
                 || (at == count && self.end_twins_last_line())
                 || out.last().is_some_and(|(_, last)| *last == name)
-                || (!joins_lists && in_list());
+                || (!joins_lists && self.inside_list(at));
             if !ruled_out {
                 out.push((at, name));
             }

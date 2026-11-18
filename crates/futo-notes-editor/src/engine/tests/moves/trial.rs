@@ -2,7 +2,10 @@
 //! boundary of the fixture notes and of seeded notes, a boundary is offered
 //! exactly when `move_block` there is accepted (#446). Front matter,
 //! dividers, fences, tables, quotes, lists, empty tasks, photos, CRLF and
-//! notes with and without a final line ending all appear.
+//! notes with and without a final line ending all appear, and the seeded
+//! notes hold the lines a list arrival rewrites (#442): numbers with either
+//! delimiter and leading zeros, nested and tab-indented items, checked
+//! boxes, and texts a new marker or a lost indent would read as more.
 use super::super::ok;
 use super::corpus::fixture_notes;
 use super::{line, slots};
@@ -72,6 +75,13 @@ const LINES: &[&str] = &[
     "- [ ] ",
     "- ",
     "1. one",
+    "2. one",
+    "  1. sub",
+    "\t02) tab",
+    "* [x] done",
+    "  # not",
+    "[ ] box",
+    "  ```",
     "> q",
     "> - r",
     ">",

@@ -10,6 +10,7 @@
 //! opened under an item and its code) are passed over; anything else ends
 //! the walk, a blank line included.
 use super::draft::Draft;
+use super::parts;
 use crate::lines::{FenceRole, Kind, Line};
 
 /// A level of items: quote depth and indent columns.
@@ -92,10 +93,19 @@ fn step(line: &Line, level: Level) -> Step {
     }
 }
 
-impl Draft<'_> {
+/// Lines a walk along a level reads and renumbers, in their order: a
+/// command's draft, or the note as a move leaves it (`arrival.rs`).
+pub(super) trait Numbering {
+    fn count(&self) -> usize;
+    fn line(&self, index: usize) -> &Line;
+    /// Line `index` without its ending.
+    fn body(&self, index: usize) -> &str;
+    /// Replace the text before `cut` with `prefix`.
+    fn set_prefix(&mut self, index: usize, prefix: &str, cut: usize);
+
     /// The numbered sibling above line `index` at `level`, and its number
     /// and delimiter.
-    pub fn number_above(&self, index: usize, level: Level) -> Option<(usize, i128, u8)> {
+    fn number_above(&self, index: usize, level: Level) -> Option<(usize, i128, u8)> {
         for above in (0..index).rev() {
             let line = self.line(above);
             match step(line, level) {
@@ -114,7 +124,7 @@ impl Draft<'_> {
     /// instead of counting up: the numbered sibling below carries the same
     /// number (a list numbered `1.` on every item), or, with none below,
     /// the one above does.
-    pub fn repeats(&self, index: usize, level: Level, number: i128, delimiter: u8) -> bool {
+    fn repeats(&self, index: usize, level: Level, number: i128, delimiter: u8) -> bool {
         let below = (index + 1..self.count())
             .find_map(|below| match step(self.line(below), level) {
                 Step::Under => None,
@@ -127,7 +137,7 @@ impl Draft<'_> {
     }
 
     /// Write `number` as line `index`'s number (an ordered item).
-    pub fn set_number(&mut self, index: usize, number: i128) {
+    fn set_number(&mut self, index: usize, number: i128) {
         let Kind::List { text, .. } = &self.line(index).kind else {
             return;
         };
@@ -138,7 +148,7 @@ impl Draft<'_> {
         if spelled == digits {
             return;
         }
-        let content = self.parts(index).content;
+        let content = parts(self.body(index), self.line(index)).content;
         let prefix = format!(
             "{}{spelled}{}",
             &body[..text.start],
@@ -149,7 +159,7 @@ impl Draft<'_> {
 
     /// Bump the numbered siblings from line `from` on at `level` that count
     /// on from `was` with `delimiter`, so they count on from `now` instead.
-    pub fn bump(&mut self, from: usize, level: Level, delimiter: u8, mut was: i128, mut now: i128) {
+    fn bump(&mut self, from: usize, level: Level, delimiter: u8, mut was: i128, mut now: i128) {
         for index in from..self.count() {
             match step(self.line(index), level) {
                 Step::Under => continue,
@@ -171,5 +181,20 @@ impl Draft<'_> {
             self.set_number(index, next);
             (was, now) = (number, next);
         }
+    }
+}
+
+impl Numbering for Draft<'_> {
+    fn count(&self) -> usize {
+        Draft::count(self)
+    }
+    fn line(&self, index: usize) -> &Line {
+        Draft::line(self, index)
+    }
+    fn body(&self, index: usize) -> &str {
+        Draft::body(self, index)
+    }
+    fn set_prefix(&mut self, index: usize, prefix: &str, cut: usize) {
+        Draft::set_prefix(self, index, prefix, cut)
     }
 }

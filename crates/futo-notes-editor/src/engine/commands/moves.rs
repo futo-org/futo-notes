@@ -10,17 +10,18 @@
 //!
 //! Every line stays its own block in the projection; this is only which
 //! lines move together. Where they may land is `slots.rs`.
-use super::super::command::{Command, Edit};
+use super::super::command::Command;
 use super::super::edit::Change;
 use super::super::{store, Engine};
 use super::images::{inside_another_mark, shows_around};
-use crate::lines::{block, FenceRole, Kind, Line, SpanKind};
+use crate::lines::{FenceRole, Kind, Line, SpanKind};
 use crate::{
     BlockBoundary, BlockSlots, DisplayOffset, DisplayRange, EditWork, EditorError, LiftedBlock,
     Revision, SourceEdit,
 };
 use std::ops::Range;
 
+mod command;
 mod held;
 mod order;
 mod selection;
@@ -148,121 +149,6 @@ impl Engine {
         }
     }
 
-    /// The move of the image at line-relative source `span` of line `index`
-    /// to boundary `slot`: its source leaves the line, nothing else there
-    /// changes, and it lands at the slot as a line of its own, with a line
-    /// ending of the note's after it (before it at the note's end). The
-    /// selection follows `moved_selection`; a caret stays with its text.
-    /// `None` when the line would read differently
-    /// without the image (`---` a divider, ` text` an indented line); the
-    /// lines it passes must read as the same kind of block afterwards.
-    fn image_move_command(&self, index: usize, span: Range<usize>, slot: usize) -> Option<Command> {
-        let count = self.line_count();
-        let entry = self.line(index);
-        let mut left = entry.text.clone();
-        left.replace_range(span.clone(), "");
-        let read = block::read_line(&mut entry.carry.clone(), &left, 0);
-        if (&read.kind, read.quote) != (&entry.line.kind, entry.line.quote) {
-            return None;
-        }
-        let base = self.line_start(index);
-        let span = base + span.start..base + span.end;
-        let image = self.source_slice(span.clone());
-        let ending = self.line_ending_near(index);
-        let (at, text, lands) = if slot == count {
-            let len = self.source_len();
-            (len, format!("{ending}{image}"), len + ending.len())
-        } else {
-            let at = self.line_start(slot);
-            (at, format!("{image}{ending}"), at)
-        };
-        // Where the image starts in the new text: its removal is after the
-        // insertion or before it.
-        let lands = if at <= span.start {
-            lands
-        } else {
-            lands - image.len()
-        };
-        let edits = vec![Edit::insert(at, text), Edit::new(span.clone(), "")];
-        let lines = index.min(slot)..(index + 1).max(slot);
-        let shift = usize::from(slot <= index);
-        let same_kind = lines.clone().map(|line| (line, line + shift)).collect();
-        let mut command = Command::new(edits, lines, 0..0);
-        let after = slot < count;
-        command.selection = self.moved_selection(&command, span, lands, image.len(), |at| {
-            command.map(at, after)
-        });
-        command.same_kind = same_kind;
-        Some(command)
-    }
-
-    /// The move of `block` to boundary `slot` (one of its slots): the block's
-    /// text inserted at the slot and removed where it was, the selection
-    /// following `moved_selection`. Every line it passes, and the block's own, must
-    /// read as the same kind of block afterwards.
-    fn move_command(&self, block: Range<usize>, slot: usize) -> Command {
-        let count = self.line_count();
-        let (s, e) = (block.start, block.end);
-        let (from, to) = (self.line_start(s), self.line_start(e));
-        let text = self.source_slice(from..to);
-        let len = self.source_len();
-        let (edits, block_start, shown) = if e == count {
-            // The last line moves up: it takes the ending of the line above
-            // it, which becomes the last line.
-            let above = self.line(s - 1);
-            let ending = above.ending();
-            let at = self.line_start(slot);
-            let removed = self.line_start(s - 1) + above.body_len()..len;
-            let edits = vec![
-                Edit::insert(at, format!("{text}{ending}")),
-                Edit::new(removed, ""),
-            ];
-            (edits, at, text.len())
-        } else if slot == count {
-            // To the end: the line that was last takes the block's ending.
-            let ending = self.line(e - 1).ending();
-            let body = &text[..text.len() - ending.len()];
-            let edits = vec![
-                Edit::insert(len, format!("{ending}{body}")),
-                Edit::new(from..to, ""),
-            ];
-            (edits, len - text.len() + ending.len(), body.len())
-        } else {
-            let at = self.line_start(slot);
-            let start = if slot < s { at } else { at - text.len() };
-            (
-                vec![Edit::insert(at, text.clone()), Edit::new(from..to, "")],
-                start,
-                text.len(),
-            )
-        };
-        let lines = s.min(slot)..e.max(slot);
-        let moved = e - s;
-        let place = |index: usize| match index {
-            index if block.contains(&index) && slot < s => slot + (index - s),
-            index if block.contains(&index) => slot - moved + (index - s),
-            index if slot < s => index + moved,
-            index => index - moved,
-        };
-        let same_kind = lines.clone().map(|index| (index, place(index))).collect();
-        let mut command = Command::new(edits, lines, 0..0);
-        // A caret in the block moves with its text; one at the slot's line
-        // start stays on that line, below the block, and one at the note's
-        // end stays on the line the block now follows. `shown` is what is
-        // left of the block's text where it lands: moved to the end, it
-        // leaves its ending behind.
-        let after = slot < count;
-        command.selection = self.moved_selection(&command, from..to, block_start, shown, |at| {
-            if at >= from && (at < to || (at == to && e == count)) {
-                block_start + (at - from).min(shown)
-            } else {
-                command.map(at, after)
-            }
-        });
-        command.same_kind = same_kind;
-        command
-    }
-
     /// The source line a renderer has at display offset `at`.
     fn line_shown_at(&self, expected: Revision, at: DisplayOffset) -> Result<usize, EditorError> {
         self.check_revision(expected)?;
@@ -343,10 +229,13 @@ impl Engine {
         let Some(lifted) = lifted else {
             return Ok(None);
         };
-        let Some(command) = self
-            .slot_named(&lifted, to)
-            .and_then(|slot| self.move_of(&lifted, slot))
-        else {
+        // A move that changes nothing but numbers is no move, as a slot's
+        // trial judges it.
+        let Some(command) = self.slot_named(&lifted, to).and_then(|slot| {
+            let trial = self.trial_of(&lifted, slot)?;
+            self.trial_changes(&trial, &mut EditWork::default())
+                .then(|| self.move_of(&lifted, slot))?
+        }) else {
             return Ok(None);
         };
         self.run(expected, |_| Ok(Some(command)), accept)

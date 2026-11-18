@@ -191,7 +191,7 @@ fn the_work_to_find_the_slots_near_a_block_does_not_grow_with_the_note() {
         let count = note.split('\n').count();
         (note, count - 1 - lifted, count - 31 - lifted..count)
     }
-    let shapes: [(&str, Shape); 13] = [
+    let shapes: [(&str, Shape); 15] = [
         // The note above grows.
         ("a heading under mixed blocks", |n| {
             near_end(MIXED.repeat(n) + TAIL, 7)
@@ -250,6 +250,20 @@ fn the_work_to_find_the_slots_near_a_block_does_not_grow_with_the_note() {
         ("a long code block", |n| {
             let note = format!("{}```\n{}```\nafter", "p\n".repeat(20), "x\n".repeat(n));
             (note, 20, 0..21)
+        }),
+        // An item whose lines shift as it lands in a nested list.
+        ("an item with many lines under it", |n| {
+            let note = format!(
+                "{}- big\n{}after",
+                "- p\n    - q\n".repeat(10),
+                "  - c\n".repeat(n)
+            );
+            (note, 20, 0..21)
+        }),
+        // A line landing in a numbered list that runs on below the range.
+        ("a line into a long numbered list", |n| {
+            let items: String = (1..=n).map(|i| format!("{i}. item\n")).collect();
+            (format!("x\n{items}end"), 0, 0..31)
         }),
     ];
     for (name, shape) in shapes {

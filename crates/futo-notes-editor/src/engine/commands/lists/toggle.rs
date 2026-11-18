@@ -3,7 +3,7 @@
 use super::super::super::command::{kept_line, Command};
 use super::super::super::Engine;
 use super::draft::Draft;
-use super::number::{spell, Level};
+use super::number::{spell, Level, Numbering};
 use super::{lifted, parts};
 use crate::lines::block::width;
 use crate::lines::{Kind, Line};

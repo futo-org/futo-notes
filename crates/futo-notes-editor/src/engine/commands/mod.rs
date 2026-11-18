@@ -14,6 +14,8 @@ mod moves;
 mod tables;
 mod wikilinks;
 
+pub(crate) use lists::Shift;
+
 use super::command::{Command, Edit};
 use super::Engine;
 use crate::{BlockCommand, CaretDirection, DisplayOffset, DisplayRange, EditorError, ParagraphKey};

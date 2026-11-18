@@ -1,8 +1,15 @@
-//! The note's lines in the order a move leaves them, for the slot trial
+//! The note's lines in the order a move leaves it, for the slot trial
 //! (`command/trial.rs`): the same bytes `move_command` and
-//! `image_move_command` write, without copying the block. The trial
-//! property (`tests/moves/trial.rs`) holds the two descriptions together.
+//! `image_move_command` write, without copying the block. The first line
+//! is written as it arrives (`Landing`), with the digits of the item below
+//! for a number: the trial compares lines without their numbers, and a
+//! number never changes how a line reads. Lines under an item that changes
+//! indent are read shifted, one at a time, as the trial reaches them. The
+//! renumbered lines elsewhere are not in the trial: only their digits
+//! change. The trial property (`tests/moves/trial.rs`) holds the two
+//! descriptions together.
 use super::super::super::command::trial::{Piece, Trial};
+use super::super::lists::Landing;
 use super::Lifted;
 use crate::engine::Engine;
 use crate::lines::block;
@@ -12,45 +19,98 @@ impl Engine {
     /// The move of `lifted` to boundary `slot` as a trial; `None` when the
     /// move has no command (an image that cannot leave its line).
     pub(super) fn trial_of(&self, lifted: &Lifted, slot: usize) -> Option<Trial> {
+        let landing = self.landing_at(lifted, slot);
         match lifted {
-            Lifted::Lines(block) => Some(self.lines_trial(block.clone(), slot)),
-            Lifted::Image { line, span } => self.image_trial(*line, span.clone(), slot),
+            Lifted::Lines(block) => Some(self.lines_trial(block.clone(), slot, landing)),
+            Lifted::Image { line, span } => self.image_trial(*line, span.clone(), slot, landing),
         }
+    }
+
+    /// The lines of `block` as they land, the last one ending with `last`
+    /// instead of its own ending when given.
+    fn landed(
+        &self,
+        block: Range<usize>,
+        landing: Option<&Landing>,
+        last: Option<&str>,
+    ) -> Vec<Piece> {
+        use Piece::{Line, Run, Shifted};
+        let (s, e) = (block.start, block.end);
+        let body = |index: usize| match (index, landing) {
+            (index, Some(landing)) if index == s => {
+                landing.first_line(self.line(s).body(), None).body
+            }
+            (
+                index,
+                Some(Landing {
+                    shift: Some(shift), ..
+                }),
+            ) if index > s => {
+                let text = shift.text(self.line(index));
+                text[..text.len() - self.line(index).ending().len()].to_owned()
+            }
+            (index, _) => self.line(index).body().to_owned(),
+        };
+        let text = |index: usize| match (index == e - 1).then_some(last).flatten() {
+            Some(ending) => body(index) + ending,
+            None => body(index) + self.line(index).ending(),
+        };
+        let kept = if last.is_some() { e - 1 } else { e };
+        let mut pieces = Vec::new();
+        match landing {
+            None => pieces.push(Run(s..kept)),
+            Some(landing) => {
+                let old = (!landing.becomes_item).then_some(s);
+                pieces.push(Line(old, text(s)));
+                if s + 1 < kept {
+                    pieces.push(match landing.shift.clone() {
+                        Some(shift) => Shifted(s + 1..kept, shift),
+                        None => Run(s + 1..kept),
+                    });
+                }
+            }
+        }
+        if last.is_some() && (landing.is_none() || e - 1 > s) {
+            pieces.push(Line(Some(e - 1), text(e - 1)));
+        }
+        pieces.retain(|piece| !matches!(piece, Run(run) if run.is_empty()));
+        pieces
     }
 
     /// Lines `s..e` moved to `slot`. The last line has no ending: a block
     /// leaving it gives the line above's ending to its own last line, and a
     /// block moving to the end gives its last line's ending to the line that
     /// was last.
-    fn lines_trial(&self, block: Range<usize>, slot: usize) -> Trial {
+    fn lines_trial(&self, block: Range<usize>, slot: usize, landing: Option<Landing>) -> Trial {
         use Piece::{Line, Run};
         let count = self.line_count();
         let (s, e) = (block.start, block.end);
+        let landing = landing.as_ref();
         let text = |index: usize| self.line(index).text.clone();
         let body = |index: usize| self.line(index).body().to_owned();
-        let pieces = if e == count {
+        let mut pieces = Vec::new();
+        if e == count {
             let ending = self.line(s - 1).ending();
-            vec![
-                Run(0..slot),
-                Run(s..e - 1),
-                Line(Some(e - 1), text(e - 1) + ending),
-                Run(slot..s - 1),
-                Line(Some(s - 1), body(s - 1)),
-            ]
+            pieces.push(Run(0..slot));
+            pieces.extend(self.landed(block, landing, Some(ending)));
+            pieces.extend([Run(slot..s - 1), Line(Some(s - 1), body(s - 1))]);
         } else if slot == count {
             let ending = self.line(e - 1).ending();
-            vec![
+            pieces.extend([
                 Run(0..s),
                 Run(e..count - 1),
                 Line(Some(count - 1), text(count - 1) + ending),
-                Run(s..e - 1),
-                Line(Some(e - 1), body(e - 1)),
-            ]
+            ]);
+            pieces.extend(self.landed(block, landing, Some("")));
         } else if slot < s {
-            vec![Run(0..slot), Run(s..e), Run(slot..s), Run(e..count)]
+            pieces.push(Run(0..slot));
+            pieces.extend(self.landed(block, landing, None));
+            pieces.extend([Run(slot..s), Run(e..count)]);
         } else {
-            vec![Run(0..s), Run(e..slot), Run(s..e), Run(slot..count)]
-        };
+            pieces.extend([Run(0..s), Run(e..slot)]);
+            pieces.extend(self.landed(block, landing, None));
+            pieces.push(Run(slot..count));
+        }
         Trial {
             pieces,
             window: s.min(slot)..e.max(slot),
@@ -59,7 +119,13 @@ impl Engine {
 
     /// The image at line-relative `span` of line `index` moved to `slot`:
     /// its line without it, and a line of its own at the slot.
-    fn image_trial(&self, index: usize, span: Range<usize>, slot: usize) -> Option<Trial> {
+    fn image_trial(
+        &self,
+        index: usize,
+        span: Range<usize>,
+        slot: usize,
+        landing: Option<Landing>,
+    ) -> Option<Trial> {
         use Piece::{Line, Run};
         let count = self.line_count();
         let entry = self.line(index);
@@ -69,7 +135,11 @@ impl Engine {
         if (&read.kind, read.quote) != (&entry.line.kind, entry.line.quote) {
             return None;
         }
-        let image = entry.text[span].to_owned();
+        let source = &entry.text[span];
+        let image = match &landing {
+            Some(landing) => landing.first_line(source, None).body,
+            None => source.to_owned(),
+        };
         let ending = self.line_ending_near(index);
         let pieces = if slot == count {
             let mut pieces = vec![Run(0..index)];

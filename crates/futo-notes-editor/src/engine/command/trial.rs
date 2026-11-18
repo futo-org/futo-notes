@@ -15,6 +15,7 @@
 //! settles when the carry matches the old one but for the list stack, which
 //! decides list levels and never a line's kind.
 use super::{alone, class};
+use crate::engine::commands::Shift;
 use crate::engine::line::{trimmed, Entry};
 use crate::engine::Engine;
 use crate::lines::{Carry, FrontMatterRole, Kind, TableRole};
@@ -25,8 +26,37 @@ use std::ops::Range;
 pub(crate) enum Piece {
     /// Untouched lines, as they were.
     Run(Range<usize>),
-    /// A line with new text: old line `Some(index)` rewritten, or a new one.
+    /// A line with new text: old line `Some(index)` rewritten, or a new one
+    /// (whose kind is not held to the old line's).
     Line(Option<usize>, String),
+    /// Lines under an item, with the item's whitespace swapped.
+    Shifted(Range<usize>, Shift),
+}
+
+impl Piece {
+    /// Line `index` of this run as it reads in the new order.
+    fn text(&self, engine: &Engine, index: usize) -> String {
+        match self {
+            Piece::Shifted(_, shift) => shift.text(engine.line(index)),
+            _ => engine.line(index).text.clone(),
+        }
+    }
+}
+
+/// `text` without a numbered item's digits: a move renumbers, and a trial
+/// does not, so lines are compared without them.
+fn unnumbered(text: &str) -> (&str, &str) {
+    let lead = text.len() - text.trim_start_matches([' ', '\t']).len();
+    let digits = text[lead..].bytes().take_while(u8::is_ascii_digit).count();
+    let rest = &text[lead + digits..];
+    let marker = digits > 0
+        && matches!(rest.as_bytes().first(), Some(b'.' | b')'))
+        && matches!(rest.as_bytes().get(1), Some(b' ' | b'\t'));
+    if marker {
+        (&text[..lead], rest)
+    } else {
+        (text, "")
+    }
 }
 
 /// A move: the new order, and the old lines its command names.
@@ -100,7 +130,7 @@ impl Engine {
         let mut position = 0;
         for piece in &trial.pieces {
             match piece {
-                Piece::Run(run) => {
+                Piece::Run(run) | Piece::Shifted(run, _) => {
                     let mut index = run.start.max(at);
                     position += index - run.start;
                     while index < run.end {
@@ -120,7 +150,7 @@ impl Engine {
                                 carry = self.line(index).carry.clone();
                             }
                         }
-                        let text = self.line(index).text.clone();
+                        let text = piece.text(self, index);
                         let read =
                             self.trial_read(text, position, Some(index), &mut carry, dashes, work);
                         if !close(&mut pending, Some(&read.kind)) {
@@ -196,26 +226,29 @@ impl Engine {
         })
     }
 
-    /// Whether the new order's text differs from the note's: compared from
-    /// the window's first line, up to the first line that differs.
-    fn trial_changes(&self, trial: &Trial, work: &mut EditWork) -> bool {
+    /// Whether the new order's text differs from the note's but for the
+    /// digits of numbered items: compared up to the first line that
+    /// differs. A move that would change only numbers is no move.
+    pub(crate) fn trial_changes(&self, trial: &Trial, work: &mut EditWork) -> bool {
         let count = self.line_count();
         let mut position = 0;
+        let mut differs = |text: &str, position: usize| {
+            work.link_metadata_items += 1;
+            position >= count || unnumbered(text) != unnumbered(&self.line(position).text)
+        };
         for piece in &trial.pieces {
             match piece {
                 Piece::Run(run) if run.start == position => position = run.end,
-                Piece::Run(run) => {
+                Piece::Run(run) | Piece::Shifted(run, _) => {
                     for index in run.clone() {
-                        work.link_metadata_items += 1;
-                        if position >= count || self.line(index).text != self.line(position).text {
+                        if differs(&piece.text(self, index), position) {
                             return true;
                         }
                         position += 1;
                     }
                 }
                 Piece::Line(_, text) => {
-                    work.link_metadata_items += 1;
-                    if position >= count || *text != self.line(position).text {
+                    if differs(text, position) {
                         return true;
                     }
                     position += 1;

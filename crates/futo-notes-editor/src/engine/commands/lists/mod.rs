@@ -6,11 +6,16 @@
 //! renumbering is the one exception, and names the lines it bumps
 //! (`number.rs`). Indent and Outdent also move the lines under an item,
 //! which they name.
+mod arrival;
 mod draft;
 mod enter;
 mod indent;
 mod number;
+mod shift;
 mod toggle;
+
+pub(in crate::engine::commands) use arrival::{Arriving, Landing};
+pub(crate) use shift::Shift;
 
 use super::super::command::{kept_line, Command};
 use super::super::Engine;

@@ -120,8 +120,13 @@ fn a_lifted_image_leaves_its_line_as_written_and_lands_as_a_line_of_its_own() {
         ("![](a.jpg)![](b.jpg)", 0, 1, "![](b.jpg)\n![](a.jpg)"),
         ("![](a.jpg)![](b.jpg)", 1, 1, "![](a.jpg)\n![](b.jpg)"),
         ("![](a.jpg)![](b.jpg)", 1, 0, "![](b.jpg)\n![](a.jpg)"),
-        // Out of a list item, between items, as written.
-        ("- item![](a.jpg)\n- two", 0, 1, "- item\n![](a.jpg)\n- two"),
+        // Out of a list item, between items, it is an item (arrival.rs).
+        (
+            "- item![](a.jpg)\n- two",
+            0,
+            1,
+            "- item\n- ![](a.jpg)\n- two",
+        ),
         ("# T![](a.jpg)\nb", 0, 2, "# T\nb\n![](a.jpg)"),
         // The note's last line: the image takes a line ending of the note's
         // up, and gives one to the line that was last down.

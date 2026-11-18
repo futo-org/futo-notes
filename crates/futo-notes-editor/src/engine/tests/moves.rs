@@ -5,6 +5,7 @@ use super::{ok, range};
 use crate::{BlockBoundary, DisplayOffset, EditorError, EditorSession, LiftedBlock, Revision};
 use std::ops::Range;
 
+mod arrival;
 mod corpus;
 mod images;
 mod selection;
@@ -168,8 +169,6 @@ fn a_move_changes_only_where_the_block_is_and_one_undo_restores_it() {
         ("a\n```\ncode\n```\nb", 2, 5, "a\nb\n```\ncode\n```"),
         ("| h |\n|---|\n| x |\n\nb", 1, 5, "\nb\n| h |\n|---|\n| x |"),
         ("a\r\nb", 0, 2, "b\r\na"),
-        // Dropped inside a list, a line keeps its bytes as written.
-        ("- a\n- b\nplain", 2, 1, "- a\nplain\n- b"),
         ("a\n\nb", 0, 3, "\nb\na"),
     ] {
         let mut session = EditorSession::open(before);

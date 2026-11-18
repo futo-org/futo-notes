@@ -6,8 +6,7 @@ use std::ops::Range;
 
 impl Engine {
     /// The selection after `command` moves source `moved` (offsets before
-    /// it) to `lands` (after it), where its first `shown` bytes are still
-    /// the moved text. A selection inside the moved text, exactly it or part
+    /// it), each offset in it landing at `travel` (after it). A selection inside the moved text, exactly it or part
     /// of it, travels with it. Any other keeps the text it covered: an end
     /// in the moved text stays where the text before it ends, a start there
     /// goes where the text after it starts, and moved text landing at either
@@ -19,8 +18,7 @@ impl Engine {
         &self,
         command: &Command,
         moved: Range<usize>,
-        lands: usize,
-        shown: usize,
+        travel: impl Fn(usize) -> usize,
         caret: impl Fn(usize) -> usize,
     ) -> Range<usize> {
         let selection = self.selection;
@@ -31,7 +29,6 @@ impl Engine {
         let start = self.source_span(selection.start.0).1;
         let end = self.lowest_source(selection.end.0).max(start);
         if moved.start <= start && end <= moved.end {
-            let travel = |at: usize| lands + (at - moved.start).min(shown);
             return travel(start)..travel(end);
         }
         let start = if moved.contains(&start) {

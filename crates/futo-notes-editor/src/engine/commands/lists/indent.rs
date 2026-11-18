@@ -13,8 +13,8 @@
 use super::super::super::command::Command;
 use super::super::super::Engine;
 use super::draft::Draft;
-use super::number::{ordinal, Level};
-use crate::lines::block::width;
+use super::number::{ordinal, Level, Numbering};
+use super::shift::Shift;
 use crate::lines::{FenceRole, Kind};
 use crate::{DisplayRange, EditorError};
 
@@ -171,34 +171,24 @@ impl Draft<'_> {
     }
 
     /// Give item `root` the leading whitespace `new_space`; the lines under
-    /// it (`root + 1..end`) swap the item's old whitespace at their start
-    /// for it. A line that does not start with the item's whitespace keeps
-    /// its columns past the item's; code keeps it as written.
+    /// it (`root + 1..end`) move with it (`Shift`).
     fn move_to(&mut self, root: usize, end: usize, new_space: &str) {
         let part = self.parts(root);
-        let old_space = self.body(root)[part.quote..part.space].to_owned();
-        for index in root..end {
-            let body = self.body(index);
-            let part = self.parts(index);
-            let space = &body[part.quote..part.space];
-            let fence = matches!(self.line(index).kind, Kind::Fence { .. });
-            let written = if index == root {
-                new_space.to_owned()
-            } else if let Some(rest) = space.strip_prefix(old_space.as_str()) {
-                format!("{new_space}{rest}")
-            } else if fence {
-                // Code keeps whitespace it does not share with the item.
-                continue;
-            } else {
-                let keep = width(space).saturating_sub(width(&old_space));
-                format!("{new_space}{}", " ".repeat(keep))
-            };
-            let prefix = format!(
-                "{}{written}{}",
-                &body[..part.quote],
-                &body[part.space..part.content]
-            );
-            self.set_prefix(index, &prefix, part.content);
+        let body = self.body(root);
+        let shift = Shift {
+            from: body[part.quote..part.space].to_owned(),
+            to: new_space.to_owned(),
+        };
+        let prefix = format!(
+            "{}{new_space}{}",
+            &body[..part.quote],
+            &body[part.space..part.content]
+        );
+        self.set_prefix(root, &prefix, part.content);
+        for index in root + 1..end {
+            if let Some((prefix, cut)) = shift.under(self.body(index), self.line(index)) {
+                self.set_prefix(index, &prefix, cut);
+            }
         }
     }
 

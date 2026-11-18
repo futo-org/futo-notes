@@ -7,6 +7,12 @@ use crate::engine::Engine;
 use crate::lines::{FenceRole, Kind};
 
 impl Engine {
+    /// Whether boundary `at` is strictly inside a list: a list holds the
+    /// lines on both sides of it.
+    pub(super) fn inside_list(&self, at: usize) -> bool {
+        0 < at && at < self.line_count() && self.held(at) && self.held(at - 1)
+    }
+
     /// Whether a list holds line `index`.
     pub(super) fn held(&self, index: usize) -> bool {
         let entry = self.line(index);
