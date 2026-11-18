@@ -93,6 +93,8 @@ internal class TextFirstEditText(
 
     init {
         background = null
+        // With no background, Android draws its focus highlight, a grey film over the whole note, out of touch mode.
+        defaultFocusHighlightEnabled = false
         setTextColor(style.textColor)
         setTextSize(TypedValue.COMPLEX_UNIT_PX, style.textSizePx)
         typeface = style.regular
