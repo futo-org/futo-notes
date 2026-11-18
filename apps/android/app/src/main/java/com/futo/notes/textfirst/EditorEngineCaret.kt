@@ -27,6 +27,8 @@ internal fun EditorEngine.refreshCaretState() {
                 if (!selected.canOutdent) add("outdent")
                 if (!selected.canUndo) add("undo")
                 if (!selected.canRedo) add("redo")
+                // Android's own guard (TextFirstController.block, P155): the code toggle does nothing on a selected block.
+                if (mirror.selectedBlock != null) add("code-block")
             },
         )
         ui.post { sink.onCaretState(state) }
