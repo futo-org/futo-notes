@@ -85,6 +85,8 @@ internal class EditorEngine(
         private set
     @Volatile var publishedIme: EngineImeState? = null
         private set
+    /** Rides on the next posted update: a dropped block landing (EditorEngineBlocks.kt). */
+    internal var pendingDrop: DropHold? = null
     /** The display offset at the top of the view's screen, written by the view as it scrolls. */
     @Volatile var screenStart = 0
 
@@ -390,6 +392,7 @@ internal class EditorEngine(
             complete = session != null && !streaming && !renderWork.stylesPending,
             sourceChanged = sourceChanged, preserveScroll = preserveScroll,
             marked = marked,
+            drop = pendingDrop.also { pendingDrop = null },
         )
         publishSelection()
         publishCell()

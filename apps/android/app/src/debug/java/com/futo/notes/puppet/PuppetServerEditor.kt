@@ -43,6 +43,7 @@ internal suspend fun forward(
                 if (!input.commitText(args.getString("text"), 1))
                     return PuppetContract.refusal(409, "native input refused the edit")
             }
+            "MoveBlock" -> return moveBlockVerb(view, args)
             else -> return PuppetContract.refusal(404, "unknown native editor verb: $verb")
         }
         return PuppetReply(200, JSONObject().put("ok", true).toString())
@@ -95,8 +96,9 @@ internal suspend fun awaitEditorLoaded(bound: Binding, action: String): PuppetRe
 
 
 internal fun nativeEditorActions(): org.json.JSONArray = org.json.JSONArray().apply {
-    for (name in listOf("FocusEditor", "BlurEditor", "Select", "Insert", "Type")) {
+    for (name in listOf("FocusEditor", "BlurEditor", "Select", "Insert", "Type", "MoveBlock")) {
         val schema = when (name) {
+            "MoveBlock" -> PuppetContract.schema(listOf("line"), listOf("column", "before", "after"), integers = listOf("line", "column", "before", "after"))
             "Select" -> PuppetContract.schema(listOf("from"), listOf("to"), integers = listOf("from", "to"))
             "Insert", "Type" -> PuppetContract.schema(listOf("text"))
             else -> PuppetContract.schema(emptyList())

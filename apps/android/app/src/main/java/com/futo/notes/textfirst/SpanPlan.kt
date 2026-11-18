@@ -70,7 +70,18 @@ internal class UiUpdate(
      * [composingStart, composingEnd); null when this update leaves them as they are.
      */
     val marked: List<SpanSpec.Inline>? = null,
+    /** This update is a dropped block landing: how the view keeps its place (EditorEngineBlocks.kt). */
+    val drop: DropHold? = null,
 )
+
+/**
+ * How the view keeps its place when a dropped block lands. [KEEP] keeps the scroll; otherwise
+ * the line holding display offset [offset] (as the move leaves the text) is put back with its
+ * top [top] px below the view's top. Either way the caret the move carries is not revealed.
+ */
+internal class DropHold(val offset: Int, val top: Int) {
+    companion object { val KEEP = DropHold(-1, 0) }
+}
 
 /**
  * Where one key's time went, all in elapsedRealtimeNanos: the editor thread
