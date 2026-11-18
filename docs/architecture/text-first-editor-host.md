@@ -42,7 +42,7 @@ Three layers, same semantics:
 Public surface (portable/WASM names; FFI mirrors the input `_utf16` calls with typed errors): input
 `replace`, `replace_utf16`, `replace_many_utf16`, `replace_os_utf16`, `compose_utf16`,
 `commit_composition_utf16`, `cancel_composition`, `undo`, `redo`; structure
-`block_command_utf16`, `paragraph_key_utf16`; block movement `block_at`, `block_slots`,
+`block_command_utf16`, `paragraph_key_utf16`; block movement `block_at`, `block_slots` (inside a display range),
 `move_block` (native and engine only; desktop keeps Milkdown's drag); tables `inspect_table`, `table_command`,
 `table_key` (`inspect_table_utf16` and `table_command_utf16` for UTF-16 ranges); view `project`,
 `select_with_affinity`, `toggle_format`, `active_formats`; clipboard `copy_markdown`,
