@@ -55,6 +55,7 @@ The per-area items from `VERDICT.md` (every `leave` and every `ask Mason`) are i
 - **The caret is cut to its text's height** (the platform caret's width), **and in code it is as tall as in body text** (Mason's rule; the 77 px value and centring on the code are ours). !300's caret is 82 px in body, 70 in code. Reverse: `small` (TextFirstEditTextCaret.kt).
 - **The field caret is 1 dp wide.** Reverse: `one line`.
 - **The selection band in code fills the whole row** to the card's inner edge; !300's is text-height. Reverse: `small` (CodeSelectionPaint.drawSelectionRows).
+- **A selection run in code is rounded where it stops mid-text with half the card's radius** (P179, !300's spec; the radius is ours: !300's page draws square). Reverse: `one line` (drawSelectionRows).
 - **A long name is cut at !300's character count** (its 45% counted in !300's glyphs), because our mono glyphs are wider. Reverse: `one line` (CodeBlockChrome.nameChars).
 
 ## Things not done

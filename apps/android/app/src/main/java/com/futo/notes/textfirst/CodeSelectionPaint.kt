@@ -145,7 +145,21 @@ private fun TextFirstEditText.drawSelectionRows(canvas: Canvas, l: Layout, e: Sp
         val left = l.getPrimaryHorizontal(a)
         val right = if (breakSelected || line < lastLine) l.width.toFloat() else l.getPrimaryHorizontal(minOf(to, lineEnd))
         val (top, bottom) = textRowBand(l, e, line)
-        canvas.drawRect(minOf(left, right), top, maxOf(left, right), bottom, paint)
+        // Rounded where the run stops mid-text, square where it runs out to the block's side (!300 cb 591-597).
+        val roundLeft = line == firstLine && a > lineStart
+        val roundRight = line == lastLine && !breakSelected
+        if (!roundLeft && !roundRight) {
+            canvas.drawRect(minOf(left, right), top, maxOf(left, right), bottom, paint)
+            continue
+        }
+        val chrome = codeChrome
+        val radius = style.codeRadius / 2f
+        val radii = chrome.selectionRadii
+        for (i in 0..7) radii[i] = if ((i in 0..1 || i in 6..7) && roundLeft || (i in 2..5) && roundRight) radius else 0f
+        chrome.selectionPath.rewind()
+        chrome.selectionRow.set(minOf(left, right), top, maxOf(left, right), bottom)
+        chrome.selectionPath.addRoundRect(chrome.selectionRow, radii, android.graphics.Path.Direction.CW)
+        canvas.drawPath(chrome.selectionPath, paint)
     }
 }
 

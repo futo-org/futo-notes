@@ -49,6 +49,10 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     /** Drawing scratch, reused every frame: the card being drawn, and the paint of a selection's rows. */
     val card = RectF()
     val selectionPaint = Paint()
+    val selectionPath = android.graphics.Path()
+    val selectionRow = RectF()
+    /** A selection row's corner radii, top-left first, clockwise, two values a corner. */
+    val selectionRadii = FloatArray(8)
 
     /** The line box "add a line below" was last drawn in, in layout coordinates. */
     var belowLabelBox: RectF? = null
