@@ -171,14 +171,14 @@ fn native_block_slots_are_asked_for_inside_a_display_range() {
 #[test]
 fn native_block_move_reports_one_change_spanning_the_numbers_it_rewrites() {
     let tree = TempTree::new();
-    let note = "1. a\n2. b\n3. c\n\n1. d\n2. e";
+    let note = "1. a\n2. b\n3. c\n\n1. d\n2. e\n3. f";
     let (store, session) = open(&tree, note);
-    // Markers are hidden: the display is `a\nb\nc\n\nd\ne`. `a` dropped
+    // Markers are hidden: the display is `a\nb\nc\n\nd\ne\nf`. `a` dropped
     // above `e` joins the second list as its second item: the first list
-    // closes up and `e` counts on, edits far apart in one change.
+    // closes up and `e` and `f` count on, edits far apart in one change.
     let before = session.display_text().unwrap();
     let change = session.move_block(0, at(0), above(9)).unwrap().unwrap();
-    let after = "1. b\n2. c\n\n1. d\n2. a\n3. e";
+    let after = "1. b\n2. c\n\n1. d\n2. a\n3. e\n4. f";
     assert_eq!(session.source_text().unwrap(), after);
     let mut display = before;
     display.replace_range(
@@ -186,6 +186,19 @@ fn native_block_move_reports_one_change_spanning_the_numbers_it_rewrites() {
         &change.inserted,
     );
     assert_eq!(display, session.display_text().unwrap());
+    // The renderer restyles the projection: it must carry every rewritten
+    // marker, `b`'s at the top and `f`'s at the bottom included, though
+    // the displayed text changes only before `e`.
+    assert!(change.range.end <= 9);
+    let markers: Vec<_> = change
+        .projection
+        .blocks
+        .iter()
+        .filter_map(|block| block.list.as_ref().map(|list| list.marker.clone()))
+        .collect();
+    assert_eq!(markers, ["1.", "2.", "1.", "2.", "3.", "4."]);
+    assert_eq!(change.projection.range.start, 0);
+    assert_eq!(change.projection.range.end, display.len() as u64);
     session.undo(1).unwrap().unwrap();
     assert_eq!(session.source_text().unwrap(), note);
     session.checkpoint().unwrap();
