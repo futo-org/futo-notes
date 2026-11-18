@@ -56,37 +56,64 @@ final class TextFirstBlockDragAutoscrollUITests: XCTestCase {
         XCTAssertGreaterThan(held.before, 20, "it went past the paragraph's own end")
     }
 
+    @MainActor
+    func testReleasedWithoutAPauseTheBlockLandsUnderTheFinger() throws {
+        let note = try TextFirstDragNote.open(lines.joined(separator: "\n"))
+        // Carried down by the autoscroll, then brought up mid-screen and let go at once.
+        let release = note.screen(dy: note.editor.frame.height / 2 + 7)
+        let finger = TextFirstTouch(down: note.screen(line: 0)).hold(0.6)
+            .move(to: note.screen(dy: note.editor.frame.height - 50), over: 0.5).hold(1.5)
+            .move(to: release, over: 0.3).lift()
+        try TextFirstTouch.perform([finger])
+        XCTAssertTrue(note.saved { !$0.hasPrefix("line 001") }, "it moved")
+        // The block left from above the screen, which held still: `line 001` is drawn on the
+        // boundary nearest where the finger let go.
+        let landed = try XCTUnwrap(
+            note.puppet.post("/show", ["text": "line 001"])?["rect"] as? [String: Int])
+        let top = CGFloat(try XCTUnwrap(landed["y"]))
+        XCTAssertLessThanOrEqual(abs(top - release.y), TextFirstDragNote.lineStep / 2 + 3)
+    }
+
     /// Play `finger`, a drag of one of `lines` that ends held still over a drop line, then
-    /// check the block landed where that drop line showed and that the line drawn just above
+    /// check the drop line was drawn between the line above it and the line it shows the
+    /// block landing above, that the block landed there, and that the line drawn just above
     /// the drop line stayed where it was: the note did not jump. The line lifted and the line
     /// the drop line was above.
     @MainActor
     private func drop(
         _ finger: TextFirstTouch, in note: TextFirstDragNote, lines: [String]? = nil
-    ) throws -> (
-        line: Int, before: Int
-    ) {
+    ) throws -> (line: Int, before: Int) {
         let lines = lines ?? self.lines
         let drawn = TextFirstStates()
         let states = try note.puppet.watch(
             while: { try TextFirstTouch.perform([finger]) },
             look: {
                 [puppet = note.puppet, lines] state in
-                guard let before = state.dropLineBefore, before > 1 else { return }
-                let rect = puppet.post("/show", ["text": lines[before - 2]])?["rect"]
-                drawn.append(["before": before, "rect": rect ?? NSNull()])
+                guard let before = state.dropLineBefore, before > 1, let y = state.dropLineY
+                else { return }
+                let above = puppet.post("/show", ["text": lines[before - 2]])?["rect"]
+                let below = puppet.post("/show", ["text": lines[before - 1]])?["rect"]
+                drawn.append([
+                    "before": before, "y": y, "above": above ?? NSNull(),
+                    "below": below ?? NSNull(),
+                ])
             })
         // The last state seen with the finger down, held still.
         let held = try XCTUnwrap(states.last { $0.blockDrag != nil })
         let line = try XCTUnwrap(held.blockDrag?["line"] as? Int)
         let before = try XCTUnwrap(held.dropLineBefore)
+        let seen = try XCTUnwrap(drawn.all.last { $0["before"] as? Int == before })
+        let above = try XCTUnwrap(seen["above"] as? [String: Int])
+        let below = try XCTUnwrap(seen["below"] as? [String: Int])
+        let y = try XCTUnwrap(seen["y"] as? Double)
+        XCTAssertTrue(
+            Double(above["y"]! + above["h"]! - 1) <= y && y <= Double(below["y"]! + 1),
+            "the drop line (\(y)) is drawn between \(above) and \(below)")
         XCTAssertTrue(
             note.saved(moving(line, before: before, in: lines)), "it lands at the drop line")
-        let above = lines[before - 2]
-        let rect = try XCTUnwrap(drawn.all.last { $0["before"] as? Int == before }?["rect"])
         XCTAssertEqual(
-            String(describing: note.puppet.post("/show", ["text": above])?["rect"] ?? "gone"),
-            String(describing: rect), "`\(above)`, drawn just above the drop line, stays put")
+            note.puppet.post("/show", ["text": lines[before - 2]])?["rect"] as? [String: Int],
+            above, "`\(lines[before - 2])`, drawn just above the drop line, stays put")
         return (line, before)
     }
 
@@ -157,23 +184,27 @@ final class TextFirstBlockDragAutoscrollUITests: XCTestCase {
 
     @MainActor
     func testASecondFingerWhileHeldIsIgnored() throws {
-        let text = "alpha\nbravo\ncharlie\ndelta\necho"
-        let note = try TextFirstDragNote.open(text)
+        let note = try TextFirstDragNote.open(lines.joined(separator: "\n"))
+        // The first finger holds still over line 7 from 0.9 s to 3.1 s.
         let finger = TextFirstTouch(down: note.screen(line: 0)).hold(0.6)
-            .move(to: note.screen(line: 2), over: 0.3).hold(1.5)
-            .move(to: note.screen(dy: 4 + 3.9 * TextFirstDragNote.lineStep), over: 0.3)
-            .hold(0.6).lift()
-        // A tap, then a short drag, by another finger on a line while the block is held.
-        let tap = TextFirstTouch(down: note.screen(line: 4, x: 250), at: 1.2).hold(0.1).lift()
-        let swipe = TextFirstTouch(down: note.screen(line: 1, x: 250), at: 1.6)
+            .move(to: note.screen(line: 6), over: 0.3).hold(2.2).lift()
+        // Meanwhile another finger comes down on a line, rests, then swipes as if to scroll.
+        // (One other finger: the simulator's digitizer has two touch points.)
+        let other = TextFirstTouch(down: note.screen(line: 14, x: 250), at: 1.3).hold(0.3)
             .move(to: note.screen(line: 4, x: 250), over: 0.3).lift()
         let since = try XCTUnwrap(note.puppet.post("/touches")?["last"] as? Int)
-        let states = try note.puppet.watch { try TextFirstTouch.perform([finger, tap, swipe]) }
+        let states = try note.puppet.watch { try TextFirstTouch.perform([finger, other]) }
         let landed = note.puppet.post("/touches", ["since": since])?["touches"] as? [Any]
-        XCTAssertGreaterThanOrEqual(landed?.count ?? 0, 3, "the app got all three fingers")
-        let held = try XCTUnwrap(states.last { $0.blockDrag != nil })
-        XCTAssertEqual(held.dropLineBefore, 5, "the drag went on to the first finger's last slot")
-        XCTAssertTrue(note.saved("bravo\ncharlie\ndelta\nalpha\necho"))
+        XCTAssertGreaterThanOrEqual(landed?.count ?? 0, 2, "the app got both fingers")
+        // While the first finger is still, nothing the drag draws moves: not the card, the
+        // drop line or the scroll, and no caret or selection appears.
+        let still = states.filter { (1.1...2.9).contains($0["t"] as? Double ?? 0) }
+        XCTAssertGreaterThan(still.count, 20)
+        XCTAssertTrue(still.allSatisfy { $0.blockDrag != nil })
+        let looks = Set(still.map(\.dragLook))
+        XCTAssertEqual(looks.count, 1, "\(looks)")
+        let before = try XCTUnwrap(still.last?.dropLineBefore)
+        XCTAssertTrue(note.saved(moving(1, before: before, in: lines)))
         XCTAssertFalse(note.app.keyboards.firstMatch.exists, "the second finger placed no caret")
     }
 }

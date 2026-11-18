@@ -105,17 +105,25 @@
         }
 
         /// The block drag in progress, so a test can hold a real finger and still see where a
-        /// release would land: the display line it lifted, and what its drop line shows (the
-        /// line it would land above, or the note's end; null with no drop line).
+        /// release would land: the display line it lifted, what its drop line shows (the line it
+        /// would land above, or the note's end; null with no drop line), and what is drawn, in
+        /// screen points: the drop line's y (null while hidden), the card, and the scroll.
         private func blockDrag(_ c: TextFirstEditorController, _ document: Document)
             -> [String: Any]?
         {
-            guard let drag = c.blockDrag else { return nil }
+            guard let drag = c.blockDrag, let window = c.textView.window else { return nil }
             let shows: Any =
                 drag.slot.map { slot -> [String: Any] in
                     slot.end ? ["end": true] : ["before": document.line(at: slot.offset).number]
                 } ?? NSNull()
-            return ["line": document.line(at: drag.lift.block.location).number, "dropLine": shows]
+            let screen = window.screen.coordinateSpace
+            return [
+                "line": document.line(at: drag.lift.block.location).number, "dropLine": shows,
+                "dropLineY": drag.dropLine.isHidden
+                    ? NSNull() : Double(c.textView.convert(drag.dropLine.center, to: screen).y),
+                "card": Document.box(c.textView.convert(drag.card.frame, to: screen)),
+                "scrollY": Double(c.textView.contentOffset.y),
+            ]
         }
 
         func requireController() throws -> TextFirstEditorController {

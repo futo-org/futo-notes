@@ -89,11 +89,13 @@ final class TextFirstTouch {
         (at, position) = (time, p)
     }
 
-    /// Keep still for `seconds`. XCTest glides a finger from one event to the next, so the
-    /// hold ends with an event where it is: the next move starts from there, then.
+    /// Keep still for `seconds`, reporting where it is 30 times a second as a resting finger
+    /// does. XCTest glides a finger between its events, and a finger with none for a while
+    /// can have its identity given to another finger that comes down.
     @discardableResult func hold(_ seconds: TimeInterval) -> Self {
+        let steps = max(1, Int(seconds * 30))
+        for i in 1...steps { moveTo(position, at: at + seconds * (Double(i) / Double(steps))) }
         at += seconds
-        moveTo(position, at: at)
         return self
     }
 
@@ -178,16 +180,20 @@ final class TextFirstPuppetProbe: @unchecked Sendable {
     }
 
     /// Poll the editor's state every 50 ms on a background thread while `run` runs (the
-    /// touches), handing each to `look` there; the states seen, in order.
+    /// touches), handing each to `look` there; the states seen, in order, each with `t`: the
+    /// seconds since `run` began when it was asked for.
     func watch(
         while run: () throws -> Void, look: @escaping @Sendable ([String: Any]) -> Void = { _ in }
     ) rethrows -> [[String: Any]] {
         let seen = TextFirstStates()
         let stop = DispatchSemaphore(value: 0)
         let stopped = DispatchSemaphore(value: 0)
+        let start = Date()
         Thread.detachNewThread { [self] in
             while stop.wait(timeout: .now() + 0.05) == .timedOut {
-                if let state = editor() {
+                let asked = Date().timeIntervalSince(start)
+                if var state = editor() {
+                    state["t"] = asked
                     seen.append(state)
                     look(state)
                 }
@@ -220,5 +226,17 @@ extension Dictionary where Key == String, Value == Any {
         return shows["end"] != nil ? 0 : shows["before"] as? Int
     }
     var firstLineOnScreen: Int? { (self["onScreen"] as? [String: Any])?["first"] as? Int }
+    /// Where the drag's drop line is drawn (screen y), nil while hidden or with no drag.
+    var dropLineY: Double? { blockDrag?["dropLineY"] as? Double }
+    /// What a drag draws and where, and the selection, as one comparable string.
+    var dragLook: String {
+        let card = (blockDrag?["card"] as? [String: Int]).map {
+            "\($0["x"]!),\($0["y"]!) \($0["w"]!)x\($0["h"]!)"
+        }
+        let selection = self["selection"] as? [String: Any]
+        return "card \(card ?? "-") line \(dropLineBefore ?? -1) at \(dropLineY ?? -1)"
+            + " scroll \(blockDrag?["scrollY"] as? Double ?? -1)"
+            + " selection \(selection?["from"] as? Int ?? -1)-\(selection?["to"] as? Int ?? -1)"
+    }
     var lastLineOnScreen: Int? { (self["onScreen"] as? [String: Any])?["last"] as? Int }
 }
