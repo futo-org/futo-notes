@@ -20,7 +20,8 @@ class CodeSelectionTest {
 
     @Test fun aRangeThatOnlyMeetsABlockTakesNoneOfIt() {
         assertEquals(2 to 10, resolveCodeSelection(2, 10, listOf(block)))
-        assertEquals(30 to 35, resolveCodeSelection(35, 30, listOf(block)))
+        // From the line below, the range starts past the block's line break, never at its last code position (P166).
+        assertEquals(31 to 35, resolveCodeSelection(35, 30, listOf(block)))
     }
 
     @Test fun anEmptyBlockHasNoInsideSoAPressThereTakesIt() {
@@ -30,5 +31,10 @@ class CodeSelectionTest {
 
     @Test fun aPressAtTheCodesEdgeDraggedOutSelectsNothing() {
         assertEquals(10 to 10, resolveCodeSelection(10, 3, listOf(block)))
+    }
+
+    /** Mason (P166): a selection made from the line below a block never ends at the block's last code position. */
+    @Test fun aSelectionFromTheLineBelowStartsPastTheBlocksBreak() {
+        assertEquals(31 to 41, resolveCodeSelection(41, 30, listOf(block)))
     }
 }

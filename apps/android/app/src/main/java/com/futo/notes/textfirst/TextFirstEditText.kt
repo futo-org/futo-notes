@@ -65,6 +65,8 @@ internal class TextFirstEditText(
     internal var applying = false
     /** True while the view moves its own selection (endSelectionOnBlur): not a placement by the user. */
     internal var movingSelectionItself = false
+    /** True while the view takes the engine's selection: already resolved, so it is painted as it is. */
+    internal var settlingFromEngine = false
     internal var appliedSeq = 0
     internal var pendingTimings: KeyTimings? = null
     private var checkboxDown = -1
@@ -282,7 +284,7 @@ internal class TextFirstEditText(
         renderedSelection = (selStart.toLong() shl 32) or (selEnd.toLong() and 0xffffffffL)
         selectedObject = selectedObject?.takeIf { it.first == selStart && it.second == selEnd }
         selectedCodeBlock = selectedCodeBlock?.takeIf { it.first == selStart && it.second == selEnd }
-        val painted = paintCodeSelection(selStart, selEnd, settled = applying)
+        val painted = paintCodeSelection(selStart, selEnd, settled = settlingFromEngine)
         if (applying) return
         val e = editableText ?: return
         // The end sentinel is not a caret position (an empty Editable has none yet).

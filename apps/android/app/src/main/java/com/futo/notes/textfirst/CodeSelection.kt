@@ -20,6 +20,9 @@ internal fun resolveCodeSelection(anchor: Int, head: Int, blocks: List<CodeRange
     var to = maxOf(anchor, head)
     if (from == to) return from to to
     for (block in blocks) {
+        // Made from the line below, a range that only meets a block's end starts past its line break: it never ends
+        // at the block's last code position, holding only that break (Mason, P166).
+        if (block.start < block.end && from == block.end && anchor > block.end && to > from) { from = block.end + 1; continue }
         val reached = if (block.start == block.end) (from < block.start && to > block.start) || anchor == block.start
             else from < block.end && to > block.start
         if (!reached) continue
