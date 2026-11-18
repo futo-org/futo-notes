@@ -6,7 +6,7 @@ import android.view.MotionEvent
 
 /**
  * A tap on a block's last line hangs the caret's handle over "add a line below", and the handle's
- * own window takes every tap there. The label wins its box (Mason, job13 review; verifier run 3, G),
+ * own window takes every tap there. The label wins its box (Mason's rule),
  * so a handle that would cover it goes. The label shows only once the engine has placed the caret,
  * a frame or more after the tap, so the check runs on the frames that follow the tap.
  */

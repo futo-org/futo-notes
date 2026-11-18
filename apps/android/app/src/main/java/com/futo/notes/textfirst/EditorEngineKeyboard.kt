@@ -24,7 +24,7 @@ internal fun EditorEngine.imeCommit(value: String) = input {
     val typedAfter = pairKeyAfterCorrection(value)
     when {
         // A keyboard's correction can carry the pair key the user typed after the word ("world*"): the word commits,
-        // then that key is typed as a key, so it still steps out of or into a pair (pairing verifier, FUTO Keyboard).
+        // then that key is typed as a key, so it still steps out of or into a pair (FUTO Keyboard).
         o != null && typedAfter != null -> {
             commitComposition(value.dropLast(typedAfter.length))
             replace(mirror.selStart, mirror.selEnd, typedAfter, EditorInputAction.PAIRED_TYPING)
@@ -93,7 +93,7 @@ internal fun EditorEngine.imeFinishComposing() = input {
 
 internal fun EditorEngine.imeDeleteSurrounding(before: Int, after: Int) = input {
     // A keyboard's one-step delete over a range is its Backspace or Delete key on the selection (FUTO Keyboard sends it
-    // so): it removes the selection, a selected block whole, not the character beside it (area 5 verifier, P107, P110).
+    // so): it removes the selection, a selected block whole, not the character beside it.
     if (mirror.selStart != mirror.selEnd && mirror.overlay == null) {
         if (before == 1 && after == 0) return@input key(EditorParagraphKey.BACKSPACE)
         if (before == 0 && after == 1) return@input key(EditorParagraphKey.DELETE)

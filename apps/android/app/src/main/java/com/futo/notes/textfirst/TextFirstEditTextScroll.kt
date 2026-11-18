@@ -37,7 +37,7 @@ internal fun TextFirstEditText.scrollAnchor(): ScrollAnchor? {
     val l = layout ?: return null
     val y = scrollY - totalPaddingTop
     // Within the top padding the anchor keeps the exact offset (negative into the first line), or a
-    // restyle there would scroll the note down by the padding (job13 verifier run 1, item 3).
+    // restyle there would scroll the note down by the padding.
     if (y <= 0) return ScrollAnchor(0, y)
     val line = l.getLineForVertical(y)
     return ScrollAnchor(l.getLineStart(line), (y - l.getLineTop(line)).coerceAtLeast(0))

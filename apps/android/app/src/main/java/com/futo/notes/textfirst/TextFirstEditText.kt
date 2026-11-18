@@ -53,7 +53,7 @@ internal class TextFirstEditText(
             // A selected empty block is a collapsed range, but it is the object: no caret or handle in it, as on !300.
             isCursorVisible = value == null || value.first != value.second
             // Undo selects a block after its edits painted the same range as a band; the card alone shows it (12.5).
-            if (value != null) codeChrome.selection = null
+            if (value != null) codeSelectionTracker.painted = null
             refreshCodeHighlight()
             invalidate()
         }
@@ -183,7 +183,7 @@ internal class TextFirstEditText(
         refreshCodeInput()
     }
 
-    /** Code input while the caret is in code; a block selected as one object is replaced by prose, so not then (P151). */
+    /** Code input while the caret is in code; a block selected as one object is replaced by prose, so not then. */
     private fun refreshCodeInput() {
         val code = codeCaret && selectedCodeBlock == null
         if (codeInput == code) return
@@ -237,6 +237,7 @@ internal class TextFirstEditText(
     internal val reveal = CaretReveal()
     internal val codeCardPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
     internal val codeChrome by lazy { CodeBlockChrome(style) }
+    internal val codeSelectionTracker = CodeSelectionTracker()
 
     override fun bringPointIntoView(offset: Int): Boolean = revealCaret(offset) { super.bringPointIntoView(offset) }
 

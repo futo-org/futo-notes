@@ -64,7 +64,7 @@ internal class TfCodeBlock(private val look: TextFirstStyle, line: CodeLineFacts
         val spanned = text as Spanned
         // !300's code line, its leading split above and below the text as CSS does; the TextView adds its body spacing
         // below every line, so it is taken out here. Top and bottom follow, so a block on the note's first line is not
-        // given the font's padding (area 2 verifier: 6 px taller). The code face's own metrics, not the incoming ones:
+        // given the font's padding. The code face's own metrics, not the incoming ones:
         // a wrapped row of a block's first line arrives with them changed, and its text fell below the row.
         val code = numberPaint.fontMetricsInt
         val leading = look.codeLineHeight.toInt() - (code.descent - code.ascent)

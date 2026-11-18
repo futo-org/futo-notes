@@ -16,6 +16,9 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
     private var downX = 0f
     private var downY = 0f
     val headerField = CodeHeaderField(view)
+    /** The code start of the block whose copy glyph shows a checkmark, -1 for none. */
+    var copiedBlock = -1
+        private set
 
     fun onTouch(event: MotionEvent): Boolean {
         when (event.actionMasked) {
@@ -123,14 +126,14 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
     /** The checkmark stands for about a second, as in !300. */
     private fun copy(target: CodeBlockTarget) {
         view.clipboard.copyCode(target.codeStart)
-        view.codeChrome.copiedBlock = target.codeStart
+        copiedBlock = target.codeStart
         view.invalidate()
         view.removeCallbacks(clearCopied)
         view.postDelayed(clearCopied, COPIED_MILLISECONDS)
     }
 
     private val clearCopied = Runnable {
-        view.codeChrome.copiedBlock = -1
+        copiedBlock = -1
         view.invalidate()
     }
 

@@ -26,7 +26,7 @@ internal fun TextFirstEditText.selectedBlockKey(keyCode: Int, event: KeyEvent): 
         enter && event.isCtrlPressed -> engine.openCodeBlockLine(start,
             if (event.isShiftPressed) EditorBlockCommand.OpenLineBeforeCodeBlock else EditorBlockCommand.OpenLineAfterCodeBlock)
         event.isShiftPressed || event.isCtrlPressed || event.isAltPressed -> return false
-        // An empty block at the note's edge has no line to stop on: the selection stays (cb 868-869, P144).
+        // An empty block at the note's edge has no line to stop on: the selection stays (cb 868-869).
         up -> if (start > 0 && !isEmptyBlockAtEdge(start - 1)) Selection.setSelection(editableText, start - 1)
         down -> if (end < textEnd) { if (!isEmptyBlockAtEdge(end + 1)) Selection.setSelection(editableText, end + 1) }
             else engine.openCodeBlockLine(start, EditorBlockCommand.OpenLineAfterCodeBlock)
@@ -63,7 +63,7 @@ private fun TextFirstEditText.isEmptyBlockAtEdge(offset: Int): Boolean {
     }
 }
 
-/** Shift-Tab at the very start of a block's first code line walks back to its language field (cb 198-199, P220). */
+/** Shift-Tab at the very start of a block's first code line walks back to its language field (cb 198-199). */
 internal fun TextFirstEditText.codeStartBackTab(keyCode: Int, event: KeyEvent): Boolean {
     if (keyCode != KeyEvent.KEYCODE_TAB || !event.isShiftPressed || selectionStart != selectionEnd || selectedCodeBlock != null) return false
     val e = editableText ?: return false
@@ -74,7 +74,7 @@ internal fun TextFirstEditText.codeStartBackTab(keyCode: Int, event: KeyEvent): 
     return true
 }
 
-/** Down on the last line of a block that ends the note opens a line below it, as from a selected block (P306, Mason). */
+/** Down on the last line of a block that ends the note opens a line below it, as from a selected block (Mason's rule). */
 internal fun TextFirstEditText.downOutOfLastBlock(keyCode: Int, event: KeyEvent): Boolean {
     if (keyCode != KeyEvent.KEYCODE_DPAD_DOWN || event.isShiftPressed || selectionStart != selectionEnd || selectedCodeBlock != null) return false
     val engine = engine ?: return false

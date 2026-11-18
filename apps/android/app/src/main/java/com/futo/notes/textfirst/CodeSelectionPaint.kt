@@ -12,6 +12,17 @@ import android.text.Spanned
  * meanwhile. The native selection is never rewritten, so its handles stay under the finger; the
  * engine is sent the resolved range, so every action takes what is painted.
  */
+/** What the selection painter remembers between the view's selection reports. */
+internal class CodeSelectionTracker {
+    /** The selection a block owns the paint of. */
+    var painted: CodeSelectionPaint? = null
+    /** The view's last reported selection ends, to tell which end a handle moved. */
+    var lastStart = -1
+    var lastEnd = -1
+    /** Whether the last selection was near a block, so its line numbers need repainting when it leaves. */
+    var lastNear = false
+}
+
 internal class CodeSelectionPaint(
     /** The resolved range, start first. */
     val start: Int,
@@ -65,13 +76,13 @@ internal fun TextFirstEditText.codeSelectionFor(anchor: Int, head: Int, settled:
     return CodeSelectionPaint(start, end, home)
 }
 
-internal val TextFirstEditText.codeSelection: CodeSelectionPaint? get() = codeChrome.selection
+internal val TextFirstEditText.codeSelection: CodeSelectionPaint? get() = codeSelectionTracker.painted
 
 /** Repaint for the view's new selection, [start] to [end] as it reports them; returns what is painted, null when the TextView paints it. */
 internal fun TextFirstEditText.paintCodeSelection(start: Int, end: Int, settled: Boolean = false): CodeSelectionPaint? {
     // The TextView reports a selection from its own constructor, before this view's fields exist.
     if (layout == null) return null
-    val chrome = codeChrome
+    val chrome = codeSelectionTracker
     // A handle drag moves one end and reports it as either; the end that stayed is where the gesture started.
     val anchor = if (start != chrome.lastStart && end == chrome.lastEnd) end else start
     val head = if (anchor == end && start != end) start else end
@@ -82,8 +93,8 @@ internal fun TextFirstEditText.paintCodeSelection(start: Int, end: Int, settled:
     val near = codeRangesNear(editableText ?: return null, minOf(start, end), maxOf(start, end)).isNotEmpty()
     if (near || chrome.lastNear) invalidate()
     chrome.lastNear = near
-    if (painted == null && codeChrome.selection == null) return null
-    codeChrome.selection = painted
+    if (painted == null && chrome.painted == null) return null
+    chrome.painted = painted
     refreshCodeHighlight()
     invalidate()
     return painted
@@ -91,7 +102,7 @@ internal fun TextFirstEditText.paintCodeSelection(start: Int, end: Int, settled:
 
 /** The TextView's own highlight shows only while no block owns the selection's paint. */
 internal fun TextFirstEditText.refreshCodeHighlight() {
-    highlightColor = if (selectedCodeBlock != null || codeChrome.selection != null) 0 else style.selectionColor
+    highlightColor = if (selectedCodeBlock != null || codeSelectionTracker.painted != null) 0 else style.selectionColor
 }
 
 /** Whether the painted selection takes the block whose code starts at [codeStart] whole. */

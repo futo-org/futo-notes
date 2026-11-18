@@ -77,7 +77,7 @@ internal class TextFirstController(
         MainThreadWatchdog.start()
         view.setOnFocusChangeListener { _, hasFocus ->
             // A code block's header field is part of the note: the editor toolbar keeps the state it had
-            // when the field opened, as !300's did (verifier run 3, B), and the selection stays.
+            // when the field opened, as !300's did, and the selection stays.
             if (!hasFocus && view.codeTouch.headerField.openField != null) return@setOnFocusChangeListener
             focused = hasFocus
             // The cell field takes focus with its content selected in the note.
@@ -226,7 +226,7 @@ internal class TextFirstController(
     fun toolbarFormat(format: EditorInlineFormat) { engine?.toggleToolbarFormat(format) }
     fun block(command: EditorBlockCommand) {
         // The code-block command would unwrap a block selected as one object, which !300 never did; whether it may is
-        // Mason's to decide (P155). Line formats over a block change only the text lines around it, as on desktop.
+        // Mason's to decide. Line formats over a block change only the text lines around it, as on desktop.
         if (command is EditorBlockCommand.WrapCodeBlock && view.selectedCodeBlock != null) return
         engine?.blockCommand(command)
     }

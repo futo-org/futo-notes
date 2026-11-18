@@ -13,7 +13,7 @@ internal enum class CodeBlockAction { SELECT_BLOCK, NAME_FIELD, LANGUAGE_LABEL, 
 
 /** One block's header as drawn: [revealFields] while the caret is in the block, so its empty fields show their placeholders. */
 /** [openField] is the header field open on this block, whose text is the field's to show. */
-internal class CodeHeaderState(val block: CodeBlockFacts, val codeStart: Int, val left: Float, val right: Float, val top: Float, val lineAbove: Boolean, val revealFields: Boolean, val openField: CodeHeaderField.Kind?)
+internal class CodeHeaderState(val block: CodeBlockFacts, val codeStart: Int, val left: Float, val right: Float, val top: Float, val lineAbove: Boolean, val revealFields: Boolean, val openField: CodeHeaderField.Kind?, val copied: Boolean)
 
 /** One pressable part of a drawn block, in layout coordinates; [codeStart] is where the block's code starts. */
 internal class CodeBlockTarget(val area: RectF, val action: CodeBlockAction, val codeStart: Int, val block: CodeBlockFacts? = null)
@@ -38,16 +38,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     private val targets = ArrayList<CodeBlockTarget>()
 
     var labels = CodeBlockLabels("", "", "", "")
-    /** The selection a block owns the paint of (CodeSelectionPaint). */
-    var selection: CodeSelectionPaint? = null
-    /** The view's last reported selection ends, to tell which end a handle moved. */
-    var lastStart = -1
-    var lastEnd = -1
-    /** Whether the last selection was near a block, so its line numbers need repainting when it leaves. */
-    var lastNear = false
     private val numbers = TextPaint(Paint.ANTI_ALIAS_FLAG)
-    /** The code start of the block whose copy glyph shows a checkmark, -1 for none. */
-    var copiedBlock = -1
 
     /** The line box "add a line below" was last drawn in, in layout coordinates. */
     var belowLabelBox: RectF? = null
@@ -77,7 +68,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         namePaint.textSize = look.codeHeaderTextSize
         namePaint.color = look.codeChromeInk
         val language = block.language?.takeIf { it.isNotEmpty() }
-        // !300 draws a language in Barlow 500 and its ghost "language" in Barlow (area 2 verifier, P063).
+        // !300 draws a language in Barlow 500 and its ghost "language" in Barlow.
         languagePaint.typeface = if (language != null) look.medium else look.regular
         languagePaint.textSize = look.codeHeaderTextSize
         languagePaint.color = look.codeChromeInk
@@ -89,15 +80,15 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         val glyph = look.codeHeaderTextSize * 16f / 18f
         val glyphRight = right - look.codeCorner
         val glyphLeft = glyphRight - glyph
-        // !300 sets the glyph 3 px above the header's middle (area 2 verifier).
+        // !300 sets the glyph 3 px above the header's middle.
         val glyphTop = top + (look.codeHeaderHeight - glyph) / 2f - look.codeGlyphLift
         val editingLanguage = header.openField == CodeHeaderField.Kind.LANGUAGE
-        if (copiedBlock == codeStart) drawCheckmark(canvas, glyphLeft, glyphTop, glyph)
+        if (header.copied) drawCheckmark(canvas, glyphLeft, glyphTop, glyph)
         else if (!editingLanguage) drawCopyGlyph(canvas, glyphLeft, glyphTop, glyph)
         val room = glyphLeft - look.codeChipPad - look.codeCorner
         // Shown as written in the fence, as the desktop editor shows it (Mason, 2026-11-17).
         val languageText = language ?: labels.languagePlaceholder
-        // !300 caps the language chip at 30% of the header (area 2 verifier, P025).
+        // !300 caps the language chip at 30% of the header.
         val shownLanguage = TextUtils.ellipsize(languageText, languagePaint, minOf(room, (right - left) * LANGUAGE_SHARE), TextUtils.TruncateAt.END)
         val languageRight = glyphLeft - look.codeGlyphGap
         val languageLeft = languageRight - languagePaint.measureText(shownLanguage, 0, shownLanguage.length)
@@ -137,7 +128,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     /**
      * The most characters a name shows in a header from [left] to [right], its ellipsis among them: !300's field is at
      * most 30 characters or 45% of the header. The 45% is counted in !300's glyphs (the system monospace, 0.6 em), so a
-     * long name is cut at the same character as !300's though ours are a little wider (verifier runs 4-6: the hyphen).
+     * long name is cut at the same character as !300's though ours are a little wider.
      */
     fun nameChars(left: Float, right: Float): Int {
         val referenceGlyph = look.codeHeaderTextSize * 0.6f
@@ -160,7 +151,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
 
     /**
      * "Add a line below", a skirt-tall line box from [labelTop], centred across the card; a press from
-     * its top down to [pressBottom] opens the line (!300's page, job13/report3: the box sits 0.2 skirt
+     * its top down to [pressBottom] opens the line (!300's page: the box sits 0.2 skirt
      * above the skirt, and the strip under it reaches the next card).
      */
     fun drawLineBelow(canvas: Canvas, codeStart: Int, width: Float, labelTop: Float, pressBottom: Float) {
@@ -219,7 +210,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         glyphPaint.strokeWidth = size / 11f
         val square = size * 0.6f
         val corner = size * 0.12f
-        // The front square hides the back one where they overlap, as !300's icon does (area 2 verifier, P057).
+        // The front square hides the back one where they overlap, as !300's icon does.
         glyphBox.set(left + size - square, top + size - square, left + size, top + size)
         val save = canvas.save()
         canvas.clipOutRect(glyphBox.left - glyphPaint.strokeWidth, glyphBox.top - glyphPaint.strokeWidth, glyphBox.right + glyphPaint.strokeWidth, glyphBox.bottom + glyphPaint.strokeWidth)

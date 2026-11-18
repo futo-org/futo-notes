@@ -73,7 +73,7 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         note.viewTreeObserver.addOnPreDrawListener(follow)
         place()
         field.requestFocus()
-        // Placed and laid out above, so the caret goes straight to the tap: never a frame at the start (verifier run 1, item 7).
+        // Placed and laid out above, so the caret goes straight to the tap: never a frame at the start.
         when {
             selectAll -> field.selectAll()
             tapX != null -> field.setSelection(field.getOffsetForPosition(tapX - fieldLeft, field.height / 2f).coerceIn(0, field.length()))
@@ -147,7 +147,7 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         // Both of !300's fields are mono.
         field.typeface = look.mono
         field.setTextSize(TypedValue.COMPLEX_UNIT_PX, look.codeHeaderTextSize)
-        // !300's fields are inked as text while edited, with a thin caret in the same ink (job13 run 2, K-namefield-compare.png).
+        // !300's fields are inked as text while edited, with a thin caret in the same ink.
         field.setTextColor(look.textColor)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             field.setTextCursorDrawable(GradientDrawable().apply { setColor(look.textColor); setSize(look.dp(1f).roundToInt(), 0) })
@@ -170,7 +170,7 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         field.gravity = Gravity.TOP or Gravity.START
         field.isSingleLine = true
         field.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        // !300's fields name their Enter key (enterkeyhint), which Gboard shows as the Go arrow (job12/ref-fields-light.png).
+        // !300's fields name their Enter key (enterkeyhint), which Gboard shows as the Go arrow.
         field.imeOptions = EditorInfo.IME_ACTION_GO or EditorInfo.IME_FLAG_NO_EXTRACT_UI
         if (state.kind == Kind.LANGUAGE) field.filters = arrayOf(languageFilter)
         val labels = note.codeChrome.labels
@@ -204,7 +204,7 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
     }
 
     private fun key(state: Editing, keyCode: Int, event: KeyEvent): Boolean {
-        // Undo and redo are the note's, one keystroke at a time, as the toolbar's are (area 8 verifier, P189).
+        // Undo and redo are the note's, one keystroke at a time, as the toolbar's are.
         if (event.isCtrlPressed && (keyCode == KeyEvent.KEYCODE_Z || keyCode == KeyEvent.KEYCODE_Y)) {
             val engine = note.engine ?: return false
             if (keyCode == KeyEvent.KEYCODE_Y || event.isShiftPressed) engine.redo() else engine.undo()
@@ -254,8 +254,8 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         val open = field ?: return
         val keyboard = ViewCompat.getRootWindowInsets(note)?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
         // The insets give the keyboard's final height at once, so a keyboard change reveals at once, while it rises, as
-        // !300 does (verifier run 6); the note's own resize follows over many frames and settles first.
-        // The keyboard went away with the field open: the field closes to its label, as !300's does (area 8 verifier).
+        // !300 does; the note's own resize follows over many frames and settles first.
+        // The keyboard went away with the field open: the field closes to its label, as !300's does.
         if (settledKeyboard > 0 && keyboard == 0) { note.post { close() }; return }
         val keyboardMoved = settledKeyboard != -1 && keyboard != settledKeyboard
         if (keyboardMoved || note.height != settledHeight || settledKeyboard == -1) {
@@ -268,9 +268,9 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         val look = note.style
         // Its text, or the placeholder while empty, and a constant collar: no minimum, no pocket of space (cb 66-73).
         val shown = open.text.ifEmpty { open.hint ?: "" }.toString()
-        // The collar, and the caret's own width so the text never scrolls under it (verifier run 6: 90 vs 80 px for one letter).
+        // The collar, and the caret's own width so the text never scrolls under it.
         val textWidth = open.paint.measureText(shown) + look.codeChipPad * 2 + look.dp(1f)
-        // !300's name field is at most 45% of the header, its language chip 30% (area 2 verifier, P024).
+        // !300's name field is at most 45% of the header, its language chip 30%.
         val header = (note.layout?.width ?: note.width) + look.codeCardOutset * 2
         val widest = header * if (state.kind == Kind.NAME) CodeBlockChrome.NAME_SHARE else CodeBlockChrome.LANGUAGE_SHARE
         val width = textWidth.coerceAtMost(widest)
@@ -303,8 +303,8 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
     private fun keepInView(state: Editing) {
         val area = fieldArea(state) ?: return
         // The keyboard resizes the note (the screen's imePadding) a few frames after it reports its height: measure
-        // against the keyboard's own top, so the first reveal lands where the note will end and the resize moves nothing
-        // (verifier run 4). Only a field the keyboard covers moves the note, as on !300 (area 8 verifier); when leaving
+        // against the keyboard's own top, so the first reveal lands where the note will end and the resize moves nothing.
+        // Only a field the keyboard covers moves the note, as on !300; when leaving
         // brings the toolbar back over the caret's line, the caret's own reveal moves it then (ruling, 2026-11-17).
         val keyboard = ViewCompat.getRootWindowInsets(note)?.takeIf { it.isVisible(WindowInsetsCompat.Type.ime()) }
             ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom

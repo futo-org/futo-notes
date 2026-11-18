@@ -54,7 +54,7 @@ private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditTe
         val metrics = paint.fontMetricsInt
         val baseline = layout.getLineBaseline(line)
         if (text.getSpans(at, at + 1, TfCodeBlock::class.java).isEmpty()) return baseline + metrics.ascent..baseline + metrics.descent
-        // In code the caret is as tall as in body text, centred on the code (Mason, 2026-11-17, P329).
+        // In code the caret is as tall as in body text, centred on the code (Mason's rule).
         val body = view.paint.fontMetricsInt
         val centre = baseline + (metrics.ascent + metrics.descent) / 2
         val half = (body.descent - body.ascent) / 2

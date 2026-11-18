@@ -71,7 +71,7 @@ internal class TextFirstStyle(
     // !300's code: 15.84 px text on a 27.72 px line (0.88 and 1.75 of its 18 px body), its px at our default body.
     val codeTextSize = codeMetric(15.84f)
     val codeLineHeight = codeMetric(27.72f)
-    /** !300's gutter, from the card's text column: the numbers end, the rule, the code (cb 264-283, area 2 verifier). */
+    /** !300's gutter, from the card's text column: the numbers end, the rule, the code (cb 264-283). */
     val codeNumbersEnd = codeMetric(21.9f)
     val codeRuleGap = codeMetric(9f)
     val codeTextGap = codeMetric(7.5f)

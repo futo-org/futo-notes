@@ -76,16 +76,17 @@ class TextFirstPairedTypingTest {
         assertEquals("x **world** y", c.sourceText())
     }
 
+    /** Two asterisks committed together are typed as given; typed one at a time they would pair to `x ****`. */
     @Test fun aLongerCommitIsTypedAsGiven() = textFirstSession("x ") { c ->
         caretAtEnd(c)
-        type(c, "``")
-        assertEquals("x ``", c.sourceText())
+        type(c, "**")
+        assertEquals("x **", c.sourceText())
     }
 
     @Test fun aHardwareBacktickPairsToo() = textFirstSession("x ") { c ->
         caretAtEnd(c)
         c.view.onKeyDown(KeyEvent.KEYCODE_GRAVE, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_GRAVE))
-        delay(300)
+        withTimeout(5_000) { while (c.sourceText() == "x ") delay(20) }
         assertEquals("x ``", c.sourceText())
     }
 
