@@ -305,72 +305,6 @@ extension TextFirstEditorController {
         }
     }
 
-    /// The finger lifted (`dropping`) or iOS cancelled the touch: move the block to the slot
-    /// shown, or return the card when there is none or the engine refuses.
-    func endBlockDrag(dropping: Bool) {
-        pendingLift = nil
-        guard let drag = takeBlockDrag() else { return }
-        var moved = false
-        if dropping, outsideChangesPending == 0, let slot = drag.slot, drag.lift.revision == rev {
-            let held = leavesFromAboveTheScreen(drag, to: slot) ? lineAbove(slot, drag) : nil
-            do {
-                moved = try moveBlock(at: drag.lift.offset, to: slot)
-            } catch {
-                recover(error, context: "move block")
-            }
-            if moved, let held { holdStill(held) }
-        }
-        if moved { dragHaptics.landed() }
-        drag.finish(returning: !moved)
-    }
-
-    /// Whether `drag` drops its block below the screen's top while the block starts above it:
-    /// taking it out there would pull everything on screen up by its height.
-    private func leavesFromAboveTheScreen(_ drag: TextFirstBlockDrag, to slot: TextFirstBlockSlot)
-        -> Bool
-    {
-        let shownTop = textView.bounds.minY + textView.adjustedContentInset.top
-        return drag.lift.block.location < slot.offset
-            && (drag.targets.source.map { $0.minY <= shownTop + 0.5 } ?? true)
-    }
-
-    /// The line drawn just above the drop line at `slot`, as the drop will leave it: the middle
-    /// of its text once `drag`'s block, above it, has moved there (it moves up by the block's
-    /// length; arrival changes shift it by a few units at most), and its top now on screen. Nil
-    /// when TextKit has not laid that line out.
-    private func lineAbove(_ slot: TextFirstBlockSlot, _ drag: TextFirstBlockDrag)
-        -> (middle: Int, top: CGFloat)?
-    {
-        guard let laidOut = laidOutRange() else { return nil }
-        let line = (storage.string as NSString).lineRange(
-            for: NSRange(location: slot.offset - 1, length: 0))
-        let start = TextFirstBlockSlot(offset: line.location, end: false)
-        guard let top = boundaryY(start, in: laidOut)
-        else { return nil }
-        return (
-            line.location + line.length / 2 - drag.lift.block.length,
-            top - textView.contentOffset.y
-        )
-    }
-
-    /// Scroll so the line `held` names is back where it was drawn: what the move took out above
-    /// the screen does not make the note jump at the drop.
-    private func holdStill(_ held: (middle: Int, top: CGFloat)) {
-        textView.layoutIfNeeded()
-        let text = storage.string as NSString
-        guard text.length > 0, let laidOut = laidOutRange() else { return }
-        let line = text.lineRange(
-            for: NSRange(location: min(max(held.middle, 0), text.length - 1), length: 0))
-        let start = TextFirstBlockSlot(offset: line.location, end: false)
-        guard let top = boundaryY(start, in: laidOut)
-        else { return }
-        let insets = textView.adjustedContentInset
-        let lowest = max(
-            -insets.top, textView.contentSize.height + insets.bottom - textView.bounds.height)
-        let y = min(max(top - held.top, -insets.top), lowest)
-        if abs(y - textView.contentOffset.y) > 0.25 { textView.contentOffset.y = y }
-    }
-
     /// End the drag in progress with nothing moved, the finger still down or not: the note's
     /// text changed under it, the app is leaving the foreground, or the note closed. The card,
     /// the drop line and the dim go at once, silently, and the press is over: nothing the
@@ -398,7 +332,7 @@ extension TextFirstEditorController {
 
     @objc func blockDragInterrupted() { cancelBlockDrag() }
 
-    private func takeBlockDrag() -> TextFirstBlockDrag? {
+    func takeBlockDrag() -> TextFirstBlockDrag? {
         textView.panGestureRecognizer.isEnabled = true
         guard let drag = blockDrag else { return nil }
         blockDrag = nil

@@ -131,6 +131,37 @@
             }
         }
 
+        @Test func aPhotoDroppedBelowItsOwnLineLeavesTheScreenWhereItWas() async throws {
+            // `x` and a photo share line 1; the photo is drawn on a row of its own under `x`.
+            // The paragraph above wraps to several rows.
+            let rest = (0..<40).map { "line \($0)" }.joined(separator: "\n")
+            let above = Array(repeating: "preceding", count: 10).joined(separator: " ")
+            let h = TextFirstHarness(
+                "\(above)\nx![](pic.png)\n\(rest)",
+                files: ["pic.png": TextFirstHarness.png(900, 900)], focused: false)
+            #expect(await h.until { h.lineHeights(at: h.lineStarts[1]).contains { $0 > 100 } })
+            // Scrolled so the photo's top is cut off, it lifts alone and is carried just below
+            // its own line, above `line 0`.
+            let onPhoto = h.point(line: 1, x: 70, fraction: 0.6)
+            let photo = try #require(h.controller.imageAt(onPhoto)?.frame)
+            h.tv.contentOffset.y = photo.minY + 40
+            h.tv.layoutIfNeeded()
+            let drag = try begin(h, at: onPhoto)
+            #expect(drag.lift.block.length == 12)
+            let below = h.point(line: 2, fraction: 0).y + 2
+            h.controller.followBlockDrag(to: CGPoint(x: 60, y: below))
+            #expect(drag.slot?.offset == h.lineStarts[2])
+            let before = photo.minY - h.tv.contentOffset.y
+            h.controller.endBlockDrag(dropping: true)
+            #expect(h.source.hasPrefix("\(above)\nx\n![](pic.png)\nline 0"))
+            try await Task.sleep(nanoseconds: 100_000_000)
+            // It only went from a row of `x`'s line to a line of its own, which sets it lower by
+            // a paragraph's spacing (24 pt): nothing jumps by the paragraph above it.
+            let moved = try #require(h.controller.imageAt(h.point(line: 2, x: 70))?.frame)
+            let after = moved.minY - h.tv.contentOffset.y
+            #expect(abs(after - before) < 30, "\(before) → \(after)")
+        }
+
         @Test func aStillFingerInAnEdgeZoneScrollsTheNote() async throws {
             let h = TextFirstHarness(
                 (0..<300).map { "line \($0)" }.joined(separator: "\n"), focused: false)
