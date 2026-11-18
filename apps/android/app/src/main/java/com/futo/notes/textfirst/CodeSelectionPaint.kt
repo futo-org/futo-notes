@@ -20,7 +20,7 @@ internal class CodeSelectionPaint(
     val home: CodeRange?,
 )
 
-/** The code blocks with spans in [from, to], from their spans where shown and their facts beyond. */
+/** The code blocks with spans in [from, to], each whole however far it runs past them. */
 internal fun codeRangesNear(e: Spanned, from: Int, to: Int): List<CodeRange> {
     val spans = e.getSpans(maxOf(0, from - 1), minOf(e.length, to + 1), TfCodeBlock::class.java)
     if (spans.isEmpty()) return emptyList()
@@ -32,8 +32,8 @@ internal fun codeRangesNear(e: Spanned, from: Int, to: Int): List<CodeRange> {
         while (last + 1 < spans.size && continuesCard(e, spans[last], spans[last + 1])) last++
         val head = spans[at]
         val tail = spans[last]
-        val start = if (head.line.first) e.getSpanStart(head) else head.line.block.start
-        val end = if (tail.line.last) codeLineEnd(e, tail) else tail.line.block.end
+        val start = if (head.line.first) e.getSpanStart(head) else e.codeBlockRange(head).start
+        val end = if (tail.line.last) codeLineEnd(e, tail) else e.codeBlockRange(tail).end
         ranges.add(CodeRange(start, end))
         at = last + 1
     }

@@ -89,7 +89,8 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
                 (if (keepDirection) nativeStart else update.selStart).coerceIn(0, length),
                 (if (keepDirection) nativeEnd else update.selEnd).coerceIn(0, length))
         } finally { settlingFromEngine = false }
-        if (update.writesLanguage) openLanguageFieldAt(update.selStart)
+        codeTouch.headerField.followEngine()
+        if (update.writesLanguage) codeTouch.openLanguageAt(update.selStart)
         appliedSeq = update.seq
         if (update.inputUptimeNanos != 0L && (update.reset == null || update.sourceChanged)) {
             pendingTimings = KeyTimings(

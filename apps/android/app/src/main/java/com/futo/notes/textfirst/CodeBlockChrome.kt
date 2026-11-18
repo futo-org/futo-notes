@@ -12,7 +12,8 @@ import kotlin.math.floor
 internal enum class CodeBlockAction { SELECT_BLOCK, NAME_FIELD, LANGUAGE_LABEL, COPY_CODE, OPEN_LINE_ABOVE, OPEN_LINE_BELOW, NOTHING }
 
 /** One block's header as drawn: [revealFields] while the caret is in the block, so its empty fields show their placeholders. */
-internal class CodeHeaderState(val block: CodeBlockFacts, val codeStart: Int, val left: Float, val right: Float, val top: Float, val lineAbove: Boolean, val revealFields: Boolean)
+/** [openField] is the header field open on this block, whose text is the field's to show. */
+internal class CodeHeaderState(val block: CodeBlockFacts, val codeStart: Int, val left: Float, val right: Float, val top: Float, val lineAbove: Boolean, val revealFields: Boolean, val openField: CodeHeaderField.Kind?)
 
 /** One pressable part of a drawn block, in layout coordinates; [codeStart] is where the block's code starts. */
 internal class CodeBlockTarget(val area: RectF, val action: CodeBlockAction, val codeStart: Int, val block: CodeBlockFacts? = null)
@@ -44,8 +45,6 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     var lastEnd = -1
     /** Whether the last selection was near a block, so its line numbers need repainting when it leaves. */
     var lastNear = false
-    /** The block and field a CodeHeaderField has open; that field's text is the field's to show. */
-    var openField: Pair<Int, CodeHeaderField.Kind>? = null
     private val numbers = TextPaint(Paint.ANTI_ALIAS_FLAG)
     /** The code start of the block whose copy glyph shows a checkmark, -1 for none. */
     var copiedBlock = -1
@@ -92,14 +91,14 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         val glyphLeft = glyphRight - glyph
         // !300 sets the glyph 3 px above the header's middle (area 2 verifier).
         val glyphTop = top + (look.codeHeaderHeight - glyph) / 2f - look.codeGlyphLift
-        val editingLanguage = openField == (codeStart to CodeHeaderField.Kind.LANGUAGE)
+        val editingLanguage = header.openField == CodeHeaderField.Kind.LANGUAGE
         if (copiedBlock == codeStart) drawCheckmark(canvas, glyphLeft, glyphTop, glyph)
         else if (!editingLanguage) drawCopyGlyph(canvas, glyphLeft, glyphTop, glyph)
         val room = glyphLeft - look.codeChipPad - look.codeCorner
         // Shown as written in the fence, as the desktop editor shows it (Mason, 2026-11-17).
         val languageText = language ?: labels.languagePlaceholder
         // !300 caps the language chip at 30% of the header (area 2 verifier, P025).
-        val shownLanguage = TextUtils.ellipsize(languageText, languagePaint, minOf(room, (right - left) * 0.3f), TextUtils.TruncateAt.END)
+        val shownLanguage = TextUtils.ellipsize(languageText, languagePaint, minOf(room, (right - left) * LANGUAGE_SHARE), TextUtils.TruncateAt.END)
         val languageRight = glyphLeft - look.codeGlyphGap
         val languageLeft = languageRight - languagePaint.measureText(shownLanguage, 0, shownLanguage.length)
         if ((language != null || header.revealFields) && !editingLanguage) {
@@ -110,7 +109,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         val nameLeft = left + look.codeFieldInset + look.codeChipPad
         var nameEnd = nameLeft
         // The ghost "name" tells a reader with no hover that the header is editable (cb 671-677).
-        if (block.name.isNullOrEmpty() && header.revealFields && openField != (codeStart to CodeHeaderField.Kind.NAME)) {
+        if (block.name.isNullOrEmpty() && header.revealFields && header.openField != CodeHeaderField.Kind.NAME) {
             namePaint.alpha = GHOST_ALPHA
             canvas.drawText(labels.namePlaceholder, nameLeft, nameBaseline, namePaint)
         }
@@ -118,7 +117,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
             val chars = nameChars(left, right)
             val capped = if (name.length > chars) name.take(chars - 1) + "\u2026" else name
             val shown = TextUtils.ellipsize(capped, namePaint, nameRight - nameLeft, TextUtils.TruncateAt.END)
-            if (openField != (codeStart to CodeHeaderField.Kind.NAME)) canvas.drawText(shown, 0, shown.length, nameLeft, nameBaseline, namePaint)
+            if (header.openField != CodeHeaderField.Kind.NAME) canvas.drawText(shown, 0, shown.length, nameLeft, nameBaseline, namePaint)
             nameEnd += namePaint.measureText(shown, 0, shown.length)
         }
         val nameBoxEnd = (maxOf(nameEnd, nameLeft + namePaint.measureText(labels.namePlaceholder)) + look.codeNameEndPad).coerceAtMost(nameRight)
@@ -142,8 +141,9 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
      */
     fun nameChars(left: Float, right: Float): Int {
         val referenceGlyph = look.codeHeaderTextSize * 0.6f
-        val fits = ((right - left) * 0.45f - look.codeChipPad - look.codeNameEndPad) / referenceGlyph
-        return minOf(30, floor(fits).toInt())
+        val fits = ((right - left) * NAME_SHARE - look.codeChipPad - look.codeNameEndPad) / referenceGlyph
+        // At least one: a note too narrow for a letter still shows the ellipsis, not a negative cut.
+        return floor(fits).toInt().coerceIn(1, 30)
     }
 
     /**
@@ -238,5 +238,8 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         const val GHOST_ALPHA = 0xB3
         /** !300's copy glyph is inked at 0.7. */
         private const val GLYPH_ALPHA = 0xB3
+        /** !300's name takes at most 45% of the header, its language chip 30%: drawn or open in a field. */
+        const val NAME_SHARE = 0.45f
+        const val LANGUAGE_SHARE = 0.3f
     }
 }

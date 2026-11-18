@@ -227,6 +227,6 @@ class TextFirstCodeHeaderFieldRevealTest {
         delay(300)
         view.context.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0)
         withTimeout(5_000) { while (field.isAttachedToWindow) delay(20) }
-        assertEquals(null, view.codeChrome.openField)
+        assertEquals(null, view.codeTouch.headerField.openField)
     }
 }

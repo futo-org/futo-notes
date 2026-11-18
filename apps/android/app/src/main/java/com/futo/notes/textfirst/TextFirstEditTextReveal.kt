@@ -71,7 +71,7 @@ internal fun TextFirstEditText.revealCaret(offset: Int, nativeReveal: () -> Bool
     // The reader is being put back on their line (an open, a new width); the caret stays where it is.
     if (restoring != null || selectedCodeBlock != null) return false
     // A code block's header field has the keyboard: the note's own caret is not where the reader is (CodeHeaderField).
-    if (codeChrome.openField != null) return false
+    if (codeTouch.headerField.openField != null) return false
     val end = (editableText?.length ?: 0) - 1
     if (end > 0 && minOf(selectionStart, selectionEnd) == 0 && maxOf(selectionStart, selectionEnd) == end) return false
     return reveal.at(offset, ready = layout != null && height > 0, reveal = nativeReveal)

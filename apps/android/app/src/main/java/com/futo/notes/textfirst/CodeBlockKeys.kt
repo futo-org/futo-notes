@@ -72,7 +72,7 @@ internal fun TextFirstEditText.codeLineKey(keyCode: Int, event: KeyEvent): Boole
 private fun TextFirstEditText.isEmptyBlockAtEdge(offset: Int): Boolean {
     val e = editableText ?: return false
     return e.getSpans(offset, offset, TfCodeBlock::class.java).any { span ->
-        span.line.block.start == span.line.block.end && e.getSpanStart(span) == offset &&
+        span.line.first && span.line.last && codeLineEnd(e, span) == offset && e.getSpanStart(span) == offset &&
             (offset == 0 || e.getSpanEnd(span) >= length() - TextFirstEditText.END_SENTINEL.length)
     }
 }
@@ -84,7 +84,7 @@ internal fun TextFirstEditText.codeStartBackTab(keyCode: Int, event: KeyEvent): 
     val caret = selectionStart
     val first = e.getSpans(caret, caret, TfCodeBlock::class.java).any { it.line.first && e.getSpanStart(it) == caret }
     if (!first) return false
-    openLanguageFieldAt(caret)
+    codeTouch.openLanguageAt(caret)
     return true
 }
 

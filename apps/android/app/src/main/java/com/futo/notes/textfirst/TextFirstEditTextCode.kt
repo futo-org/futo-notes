@@ -71,12 +71,14 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
     card.inset(stroke / 2, stroke / 2)
     canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
     // A block whose header field is open is still the one being edited, as on !300 (job13 run 2, item 2).
-    val editingHeader = codeChrome.openField?.first == (if (head.line.first) headStart else head.line.block.start)
+    val openField = codeTouch.headerField.openField
+    val blockStart = if (head.line.first) headStart else if (openField != null) e.codeBlockRange(head).start else -1
+    val editingHeader = openField?.first == blockStart
     val active = editingHeader || isCardActive(e, head, tail)
     // Its caret inside or the block selected (cb 97-105); not a range only part of it (area 6 verifier).
     val revealFields = editingHeader || (active && (selectionStart == selectionEnd || isCardSelected(headStart)))
     if (head.line.first && headStart == 0) codeChrome.addSpaceAbove(headStart, width, cardTop)
-    if (head.line.first) codeChrome.drawHeader(canvas, CodeHeaderState(head.line.block, headStart, -outset, width + outset, cardTop, active && opensLineAbove(e, head), revealFields))
+    if (head.line.first) codeChrome.drawHeader(canvas, CodeHeaderState(head.line.block, headStart, -outset, width + outset, cardTop, active && opensLineAbove(e, head), revealFields, openField?.takeIf { editingHeader }?.second))
     if (!tail.line.last) return
     val endsNote = tailEnd >= e.length - TextFirstEditText.END_SENTINEL.length
     // Under a block that ends the note the label sits under the card, its space already the target (cb 791-797);
@@ -94,9 +96,9 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
 /** The block holds the caret or the selection: on touch, only its "add a line" affordances show. */
 private fun TextFirstEditText.isCardActive(e: android.text.Editable, head: TfCodeBlock, tail: TfCodeBlock): Boolean {
     if (!isFocused) return false
-    val start = if (head.line.first) e.getSpanStart(head) else head.line.block.start
+    val start = if (head.line.first) e.getSpanStart(head) else e.codeBlockRange(head).start
     // The block's last line break is not in it: a caret on the line opened under it is outside.
-    val end = if (tail.line.last) codeLineEnd(e, tail) else tail.line.block.end
+    val end = if (tail.line.last) codeLineEnd(e, tail) else e.codeBlockRange(tail).end
     return selectionStart >= start && selectionEnd <= end
 }
 

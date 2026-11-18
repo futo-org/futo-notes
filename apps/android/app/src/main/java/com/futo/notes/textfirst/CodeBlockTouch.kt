@@ -50,10 +50,11 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
         view.postOnAnimation {
             view.post {
                 val e = view.editableText ?: return@post
-                val block = codeRangesNear(e, offset, offset).firstOrNull { offset in it.start..it.end } ?: return@post
-                val area = view.codeChrome.areaOf(block.start, CodeBlockAction.LANGUAGE_LABEL) ?: return@post
+                val range = codeRangesNear(e, offset, offset).firstOrNull { offset in it.start..it.end } ?: return@post
+                val area = view.codeChrome.areaOf(range.start, CodeBlockAction.LANGUAGE_LABEL) ?: return@post
                 val target = view.codeChrome.targetAt(area.centerX(), area.centerY()) ?: return@post
-                headerField.open(target, CodeHeaderField.Kind.LANGUAGE, selectAll = false)
+                val block = target.block ?: return@post
+                headerField.open(target.codeStart, CodeHeaderField.Kind.LANGUAGE, block.language.orEmpty(), block.name.orEmpty(), selectAll = false)
             }
         }
     }
@@ -85,7 +86,10 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
         }
         // A tap on the language takes the whole word, as !300's did; a tap on the name puts the caret at the tap.
         val selectAll = held || action == CodeHeaderField.Kind.LANGUAGE
-        if (action != null) return headerField.open(target, action, selectAll, tapX = x.takeIf { !selectAll })
+        val block = target.block
+        if (action != null && block != null) {
+            return headerField.open(target.codeStart, action, block.language.orEmpty(), block.name.orEmpty(), selectAll, tapX = x.takeIf { !selectAll })
+        }
         when (target.action) {
             CodeBlockAction.NOTHING -> Unit
             CodeBlockAction.COPY_CODE, CodeBlockAction.LANGUAGE_LABEL -> copy(target)
@@ -109,7 +113,7 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
 
     /** The caret or the selection is in the target's block. */
     private fun isActive(target: CodeBlockTarget): Boolean {
-        val block = target.block ?: return false
+        val block = view.editableText?.codeBlockStartingAt(target.codeStart) ?: return false
         return view.isFocused && view.selectionStart >= block.start && view.selectionEnd <= block.end
     }
 
@@ -118,8 +122,7 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
 
     /** The checkmark stands for about a second, as in !300. */
     private fun copy(target: CodeBlockTarget) {
-        val block = target.block ?: return
-        view.clipboard.copyCode(block.start, block.end)
+        view.clipboard.copyCode(target.codeStart)
         view.codeChrome.copiedBlock = target.codeStart
         view.invalidate()
         view.removeCallbacks(clearCopied)

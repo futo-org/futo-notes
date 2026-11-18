@@ -32,6 +32,9 @@ The per-area items from `VERDICT.md` (every `leave` and every `ask Mason`) are i
 - **The keyboard closing with a field open closes the field.** Matches the !300 app. Reverse: `one line` (CodeHeaderField.place).
 - **A field the keyboard covers is revealed in one movement, as the keyboard starts to rise; a field it does not cover never moves the note.** Matches the !300 app. Reverse: `small` (CodeHeaderField.keepInView).
 - **When leaving a field brings the editor toolbar back over the caret's line, the note moves (up to 168 px at the note's end).** Reviewer's ruling: the line must stay visible; the !300 app leaves its caret under its toolbar. Reverse: `small`.
+- **A change that moves the field's block (an undo of text above it, a vault change) closes the field** instead of following the block to its new place. Code review fix: the field wrote to the old offset. Reverse: `small` (CodeHeaderField.followEngine).
+- **Focus going anywhere but the note (the title, a cell) closes the field, and the note then takes the blur it skipped.** Code review fix: the toolbar stayed for the wrong field. Reverse: `one line` (the field's focus listener).
+- **A value the fence refuses (a name with outer spaces, a language with a space) stays in the field while it is open; the drawn label shows the fence's value once it closes.** Reverse: `small`.
 - **The editor toolbar keeps the state it had when a field opened** (hidden if the keyboard was down, shown if up). Matches the !300 app. Reverse: `one line` (TextFirstController focus listener).
 - **While a field is open its block stays active** (ghost "name", "add a line" labels). The !300 app keeps them only if the block was active before. Reverse: `one line` (TextFirstEditTextCode `editingHeader`).
 
@@ -82,6 +85,7 @@ The per-area items from `VERDICT.md` (every `leave` and every `ask Mason`) are i
 - **Backspace after a wikilink, or Delete before it, deletes it whole**, read from the engine's style plan on the editor thread. Desktop's rule; the engine leaves it to the renderer. Reverse: `small` (EditorEngineKeyboard.wikilinkBesideCaret).
 - **Built from a desktop decision, phone form: Backspace right after an image, or hardware Delete right before it, selects the image; the next press deletes it.** Mason's rule; the engine deletes at once, so the host selects first from the engine's style plan. mobile/images.md now has an Android line and an iOS gap. Reverse: `small` (drop the Image branch of EditorEngineKeyboard.atomBesideCaret, restore the spec line).
 - **Built from a desktop decision, phone form: a selected image is tinted with the selection colour over the picture.** Reverse: `small` (delete ImageSelectionTint.kt and its two calls).
+- **Built from a desktop decision, phone form: a tap on a wikilink to a missing note creates the note and opens it; left untouched it is deleted again.** Created at once (desktop does too) through `store.createNote`, opened as the list's new note is, so its untouched-delete applies. Differs from wikilinks.md's older deferred-create line for web. Reverse: `small` (MissingWikilink.kt and the Missing branch of WikilinkTouch; a tap then places the caret again).
 - **A find match is clipped to its text row in code**, as the selection is. Reverse: `one line`.
 - **The 23 other measured differences are recorded, not built** (desktop-decisions-on-android, "not built"): over the 50-line limit, or not clearly Mason's.
 

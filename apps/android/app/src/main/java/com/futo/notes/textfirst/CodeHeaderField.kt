@@ -52,18 +52,21 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
     private var fieldLeft = 0f
     /** An undo or redo was sent from the field: its text follows the block's once the change arrives. */
     private var followingHistory = false
+    /** The field's text is being set from the block, not typed: it is not written back. */
+    private var adopting = false
     private val follow = ViewTreeObserver.OnPreDrawListener { place(); true }
 
+    /** The block (by where its code starts) and the field open on it, while one is. */
+    val openField: Pair<Int, Kind>? get() = editing?.let { it.codeStart to it.kind }
+
     /** [tapX], in layout coordinates, is where a tap landed: the field's caret goes there (cb 285-299). */
-    fun open(target: CodeBlockTarget, kind: Kind, selectAll: Boolean, tapX: Float? = null) {
+    fun open(codeStart: Int, kind: Kind, language: String, name: String, selectAll: Boolean, tapX: Float? = null) {
         close()
-        val block = target.block ?: return
-        val state = Editing(target.codeStart, kind, block.language.orEmpty(), block.name.orEmpty())
+        val host = note.parent as? FrameLayout ?: return
+        val state = Editing(codeStart, kind, language, name)
         editing = state
-        note.codeChrome.openField = target.codeStart to kind
         // Entering a field ends the note's selection, so a selected block's paint goes (cb 285-299).
         if (note.selectionStart != note.selectionEnd) Selection.setSelection(note.editableText, note.selectionStart)
-        val host = note.parent as? FrameLayout ?: return
         val field = buildField(state)
         this.field = field
         host.addView(field, FrameLayout.LayoutParams(1, 1))
@@ -88,13 +91,37 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         if (hadFocus) note.requestFocus()
     }
 
+    /**
+     * After every change the engine applied: the field stays on its block only while that block's code still starts
+     * where it did (its own header write moves nothing); an undo it sent shows the block's value.
+     */
+    fun followEngine() {
+        val state = editing ?: return
+        val open = field ?: return
+        val e = note.editableText ?: return
+        val head = e.getSpans(state.codeStart, state.codeStart, TfCodeBlock::class.java)
+            .firstOrNull { it.line.first && e.getSpanStart(it) == state.codeStart }
+        if (head == null) { close(); return }
+        if (!followingHistory) return
+        followingHistory = false
+        val value = (if (state.kind == Kind.NAME) head.line.block.name else head.line.block.language).orEmpty()
+        if (state.kind == Kind.NAME) state.name = value else state.language = value
+        if (value == open.text.toString()) return
+        adopting = true
+        try {
+            open.setText(value)
+            open.text.setSpan(CentredLine(open.paint), 0, open.text.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+            open.setSelection(open.length())
+        } finally { adopting = false }
+    }
+
     private fun forget() {
         note.removeCallbacks(settle)
         settledHeight = -1
         settledKeyboard = -1
         field = null
         editing = null
-        note.codeChrome.openField = null
+        followingHistory = false
         note.viewTreeObserver.takeIf { it.isAlive }?.removeOnPreDrawListener(follow)
         note.invalidate()
     }
@@ -154,15 +181,25 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         field.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: Editable) { if (!followingHistory) write(state, s.toString()) }
+            override fun afterTextChanged(s: Editable) { if (!adopting) write(state, s.toString()) }
         })
+        // The field is part of the note: focus going anywhere else (the title, a cell) closes it, and the note then
+        // takes the blur it skipped when the field opened (TextFirstController's focus listener).
+        field.setOnFocusChangeListener { view, hasFocus ->
+            if (hasFocus || this.field !== view) return@setOnFocusChangeListener
+            note.post {
+                if (this.field !== view || view.hasFocus() || note.hasFocus()) return@post
+                close()
+                note.onFocusChangeListener?.onFocusChange(note, false)
+            }
+        }
         field.setOnEditorActionListener { _, _, _ -> leaveToCode(state); true }
         return field
     }
 
     private fun write(state: Editing, text: String) {
         if (state.kind == Kind.NAME) state.name = text.trim() else state.language = text
-        note.engine?.writeCodeBlockHeader(state.codeStart, state.language, state.name) {}
+        note.engine?.writeCodeBlockHeader(state.codeStart, state.language, state.name)
         place()
     }
 
@@ -193,9 +230,8 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
 
     private fun reopen(state: Editing, kind: Kind) {
         val action = if (kind == Kind.NAME) CodeBlockAction.NAME_FIELD else CodeBlockAction.LANGUAGE_LABEL
-        val area = note.codeChrome.areaOf(state.codeStart, action) ?: return
-        val block = CodeBlockFacts(state.codeStart, state.codeStart, state.language, state.name, 0)
-        open(CodeBlockTarget(area, action, state.codeStart, block), kind, selectAll = false)
+        if (note.codeChrome.areaOf(state.codeStart, action) == null) return
+        open(state.codeStart, kind, state.language, state.name, selectAll = false)
     }
 
     private fun leaveToCode(state: Editing) {
@@ -228,7 +264,6 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
             note.removeCallbacks(settle)
             if (keyboardMoved) note.post(settle) else note.postDelayed(settle, SETTLE_MILLISECONDS)
         }
-        if (followingHistory) followHistory(state, open)
         val area = fieldArea(state) ?: return
         val look = note.style
         // Its text, or the placeholder while empty, and a constant collar: no minimum, no pocket of space (cb 66-73).
@@ -237,7 +272,7 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         val textWidth = open.paint.measureText(shown) + look.codeChipPad * 2 + look.dp(1f)
         // !300's name field is at most 45% of the header, its language chip 30% (area 2 verifier, P024).
         val header = (note.layout?.width ?: note.width) + look.codeCardOutset * 2
-        val widest = header * if (state.kind == Kind.NAME) 0.45f else 0.6f
+        val widest = header * if (state.kind == Kind.NAME) CodeBlockChrome.NAME_SHARE else CodeBlockChrome.LANGUAGE_SHARE
         val width = textWidth.coerceAtMost(widest)
         // The language field takes the chip's place, its glyph included, anchored to the card's right corner (cb 300-302).
         val chipRight = (note.codeChrome.areaOf(state.codeStart, CodeBlockAction.COPY_CODE)?.right ?: area.right) - look.codeCorner + look.codeChipPad
@@ -263,19 +298,6 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         val action = if (state.kind == Kind.NAME) CodeBlockAction.NAME_FIELD else CodeBlockAction.LANGUAGE_LABEL
         note.codeChrome.areaOf(state.codeStart, action)?.let { drawn -> state.area = RectF(drawn) }
         return state.area
-    }
-
-    /** Once the note shows the undone or redone header, the field takes its value, without writing it back. */
-    private fun followHistory(state: Editing, open: EditText) {
-        val e = note.editableText ?: return
-        val block = e.getSpans(state.codeStart, state.codeStart, TfCodeBlock::class.java).firstOrNull()?.line?.block ?: return
-        val value = (if (state.kind == Kind.NAME) block.name else block.language).orEmpty()
-        if (value == open.text.toString()) return
-        open.setText(value)
-        open.text.setSpan(CentredLine(open.paint), 0, open.text.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
-        open.setSelection(open.length())
-        if (state.kind == Kind.NAME) state.name = value else state.language = value
-        followingHistory = false
     }
 
     private fun keepInView(state: Editing) {

@@ -47,10 +47,10 @@ internal class TextFirstClipboard(
     }
 
     /** A block's copy glyph: its code from [start] to [end], no fences, onto the clipboard. */
-    fun copyCode(start: Int, end: Int) {
+    fun copyCode(codeStart: Int) {
         val engine = engine() ?: return
         val clipboard = context.getSystemService(ClipboardManager::class.java)
-        engine.copyCodeBlock(start, end) { code -> deliver(clipboard, code).also { if (it) main.post { onCodeCopied() } } }
+        engine.copyCodeBlock(codeStart) { code -> deliver(clipboard, code).also { if (it) main.post { onCodeCopied() } } }
     }
 
     private fun deliver(clipboard: ClipboardManager, text: String): Boolean {

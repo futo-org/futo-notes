@@ -41,8 +41,8 @@ class TextFirstCodeBlockKeysTest {
         view.setSelection(start)
         delay(200)
         view.onKeyDown(KeyEvent.KEYCODE_TAB, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_TAB, 0, KeyEvent.META_SHIFT_ON))
-        withTimeout(5_000) { while (view.codeChrome.openField == null) delay(20) }
-        assertEquals(start to CodeHeaderField.Kind.LANGUAGE, view.codeChrome.openField)
+        withTimeout(5_000) { while (view.codeTouch.headerField.openField == null) delay(20) }
+        assertEquals(start to CodeHeaderField.Kind.LANGUAGE, view.codeTouch.headerField.openField)
     }
 
     /** Area 4 verifier (P091): Ctrl+Shift+Enter opens a line above with the line's indent, the caret on it. */
