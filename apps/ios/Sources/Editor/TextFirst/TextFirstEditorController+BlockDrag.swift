@@ -246,9 +246,12 @@ extension TextFirstEditorController {
         let bounds = row.typographicBounds
         let index = row.characterIndex(
             for: CGPoint(x: local.x - bounds.minX, y: local.y - bounds.minY))
-        // At most the row's last character: past it is the line ending, or the next row's.
+        // At most the row's last character: past it is the line ending, or the next row's. Both
+        // steps land on a character's start, never inside a surrogate pair the engine cannot
+        // read (the end of a row ending in an emoji is two units past its start).
         let range = row.characterRange
-        var at = min(max(index, range.location), max(range.location, NSMaxRange(range) - 1))
+        let last = characterStart(start + max(range.location, NSMaxRange(range) - 1)) - start
+        var at = characterStart(start + min(max(index, range.location), last)) - start
         // Off a photo, a position inside one (beside it in the margin) steps past it: the engine
         // would lift that photo, which the finger is not on.
         let photos = (f as? TextFirstLayoutFragment)?.imageRuns.map(\.range) ?? []
@@ -256,6 +259,12 @@ extension TextFirstEditorController {
             at = NSMaxRange(photo)
         }
         return start + at
+    }
+
+    /// The start of the character holding UTF-16 `offset` (the text's end stays itself).
+    private func characterStart(_ offset: Int) -> Int {
+        guard offset < storage.length else { return offset }
+        return (storage.string as NSString).rangeOfComposedCharacterSequence(at: offset).location
     }
 
     /// The y (text view coordinates) of the boundary at UTF-16 `offset`: the top of the line
@@ -274,7 +283,8 @@ extension TextFirstEditorController {
         guard laidOut.contains(offset) else { return nil }
         let atEnd = offset >= storage.length
         guard storage.length > 0,
-            let location = content.location(begin, offsetBy: atEnd ? storage.length - 1 : offset),
+            let location = content.location(
+                begin, offsetBy: atEnd ? characterStart(storage.length - 1) : offset),
             let f = manager.textLayoutFragment(for: location)
         else { return nil }
         let top = inset.top + f.layoutFragmentFrame.minY

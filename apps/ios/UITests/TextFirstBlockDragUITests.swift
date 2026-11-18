@@ -5,13 +5,42 @@ import XCTest
 /// line and raises no keyboard; while the note is being edited every long-press is the
 /// platform's, and a double-tap still selects a word.
 final class TextFirstBlockDragUITests: XCTestCase {
+    /// A note open in the editor, with the keyboard down, and its file on disk.
+    private struct Opened {
+        let app: XCUIApplication
+        let editor: XCUIElement
+        let file: URL
+
+        /// A point on plain body line `index`: a 4 pt inset, then the body font's line plus
+        /// 4 pt spacing each.
+        func line(_ index: Int, x: CGFloat = 60) -> XCUICoordinate {
+            let y = 4 + (CGFloat(index) + 0.5) * Self.lineStep
+            return editor.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: x, dy: y))
+        }
+
+        static let lineStep = UIFont.systemFont(ofSize: 17).lineHeight + 4
+
+        func saved(_ matches: @escaping (String) -> Bool) -> Bool {
+            let landed = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in
+                    (try? String(contentsOf: file, encoding: .utf8)).map(matches) ?? false
+                }, object: nil)
+            return XCTWaiter.wait(for: [landed], timeout: 5) == .completed
+        }
+
+        func saved(_ text: String) -> Bool { saved { $0 == text } }
+    }
+
+    /// Open `text` as `drag.md` in a fresh vault holding `files` beside it.
     @MainActor
-    func testAHoldLiftsALineOnlyWhileTheKeyboardIsDown() throws {
+    private func open(_ text: String, files: [String: Data] = [:]) throws -> Opened {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("text-first-block-drag-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let file = root.appendingPathComponent("drag.md")
-        try "alpha\nbravo\ncharlie\ndelta".write(to: file, atomically: true, encoding: .utf8)
+        try text.write(to: file, atomically: true, encoding: .utf8)
+        for (name, data) in files { try data.write(to: root.appendingPathComponent(name)) }
         let app = makeIsolatedApplication()
         app.launchEnvironment["FUTO_NOTES_DATA_DIR"] = root.path
         app.launchArguments += ["-AppleLanguages", "(en)"]
@@ -22,50 +51,55 @@ final class TextFirstBlockDragUITests: XCTestCase {
         row.tap()
         let editor = app.textViews["text-first-editor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 15))
-        // Plain body lines: 4 pt inset, then the body font's line plus 4 pt spacing each.
-        func line(_ index: Int, x: CGFloat = 60) -> XCUICoordinate {
-            let y = 4 + (CGFloat(index) + 0.5) * (UIFont.systemFont(ofSize: 17).lineHeight + 4)
-            return editor.coordinate(withNormalizedOffset: .zero)
-                .withOffset(CGVector(dx: x, dy: y))
-        }
-        func saved(_ matches: @escaping (String) -> Bool) -> Bool {
-            let landed = XCTNSPredicateExpectation(
-                predicate: NSPredicate { _, _ in
-                    (try? String(contentsOf: file, encoding: .utf8)).map(matches) ?? false
-                }, object: nil)
-            return XCTWaiter.wait(for: [landed], timeout: 5) == .completed
-        }
-        func saved(_ text: String) -> Bool { saved { $0 == text } }
+        return Opened(app: app, editor: editor, file: file)
+    }
+
+    @MainActor
+    func testAHoldLiftsALineOnlyWhileTheKeyboardIsDown() throws {
+        let note = try open("alpha\nbravo\ncharlie\ndelta")
+        let (app, editor) = (note.app, note.editor)
 
         // Keyboard down: hold `alpha` past the lift, then carry it below `delta` (the drop
         // line there is the note's end). The lift starts no editing.
         XCTAssertFalse(app.keyboards.firstMatch.exists)
-        line(0).press(
-            forDuration: 0.8, thenDragTo: line(3).withOffset(CGVector(dx: 0, dy: 10)),
+        note.line(0).press(
+            forDuration: 0.8, thenDragTo: note.line(3).withOffset(CGVector(dx: 0, dy: 10)),
             withVelocity: .slow, thenHoldForDuration: 0.3)
-        XCTAssertTrue(saved("bravo\ncharlie\ndelta\nalpha"), "the held line lands at the drop line")
+        XCTAssertTrue(
+            note.saved("bravo\ncharlie\ndelta\nalpha"), "the held line lands at the drop line")
         XCTAssertFalse(app.keyboards.firstMatch.exists, "a lift does not raise the keyboard")
 
-        line(1, x: 40).doubleTap()
+        note.line(1, x: 40).doubleTap()
         editor.typeText("Z")
-        XCTAssertTrue(saved("bravo\nZ\ndelta\nalpha"), "a double-tap selects the word it hits")
+        XCTAssertTrue(note.saved("bravo\nZ\ndelta\nalpha"), "a double-tap selects the word it hits")
 
         // Keyboard up: a hold is the platform's. Its loupe carries the caret to where the
         // finger lets go, at a line's start, and nothing lifts: typing lands there and no line
         // moves (a lift would have carried the line, or left the caret after `Z`). The note
         // before the keystroke already satisfies "no line moved", so the `Y` itself must show
         // up in the saved file, once and at a line's start.
-        line(0).press(
-            forDuration: 0.8, thenDragTo: line(2, x: 2), withVelocity: .slow,
+        note.line(0).press(
+            forDuration: 0.8, thenDragTo: note.line(2, x: 2), withVelocity: .slow,
             thenHoldForDuration: 0.3)
         editor.typeText("Y")
         XCTAssertTrue(
-            saved { text in
+            note.saved { text in
                 let at = text.firstIndex(of: "Y")
                 return text.filter { $0 == "Y" }.count == 1
                     && text.replacingOccurrences(of: "Y", with: "") == "bravo\nZ\ndelta\nalpha"
                     && at.map { $0 == text.startIndex || text[text.index(before: $0)] == "\n" }
                         == true
             }, "a long-press while editing places the caret and moves no line")
+    }
+
+    /// Right of a last-line emoji, the row's end is two UTF-16 units past the emoji's start;
+    /// the press must still name the emoji, not the middle of its surrogate pair.
+    @MainActor
+    func testAHoldRightOfAnEmojiLiftsItsLine() throws {
+        let note = try open("first\n\u{1F642}")
+        note.line(1, x: 300).press(
+            forDuration: 0.8, thenDragTo: note.line(0).withOffset(CGVector(dx: 0, dy: -12)),
+            withVelocity: .slow, thenHoldForDuration: 0.3)
+        XCTAssertTrue(note.saved("\u{1F642}\nfirst"), "the emoji's line lands above `first`")
     }
 }

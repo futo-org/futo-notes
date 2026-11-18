@@ -139,6 +139,15 @@
             #expect(h.controller.divergences.isEmpty, "\(h.controller.divergences)")
         }
 
+        @Test func aPressRightOfALastEmojiLiftsItsLine() throws {
+            // TextKit gives the row's end right of the emoji; one UTF-16 unit back is the middle
+            // of its surrogate pair, which the engine cannot read.
+            for note in ["first\n\u{1F642}", "first\n\u{1F642}\nlast", "first\nab\u{1F642}"] {
+                let h = TextFirstHarness(note, focused: false)
+                #expect(lifted(h, at: point(h, line: 1, x: 300)) == [1], "\(note)")
+            }
+        }
+
         @Test func aBlockRunningOffScreenLiftsWhatShows() throws {
             // A code block taller than the screen, scrolled so its top is gone.
             let code = (1...80).map { "code \($0)" }.joined(separator: "\n")
