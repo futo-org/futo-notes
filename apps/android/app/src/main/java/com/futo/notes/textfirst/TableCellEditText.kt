@@ -119,7 +119,14 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         if (event.isCtrlPressed) {
             when (keyCode) {
                 KeyEvent.KEYCODE_Z -> { if (event.isShiftPressed) editor.redo() else editor.undo(); return true }
-                KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> { editor.leaveTableBelow(); return true }
+                KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                    // The note takes focus (and keeps the keyboard) before this field is removed.
+                    val host = parent as? android.view.ViewGroup
+                    val note = host?.let { (0 until it.childCount).map(it::getChildAt).firstOrNull { child -> child is TextFirstEditText } }
+                    editor.leaveTableBelow()
+                    note?.requestFocus()
+                    return true
+                }
                 KeyEvent.KEYCODE_Y -> { editor.redo(); return true }
                 KeyEvent.KEYCODE_A -> { onTextContextMenuItem(android.R.id.selectAll); return true }
                 KeyEvent.KEYCODE_C -> { onTextContextMenuItem(android.R.id.copy); return true }

@@ -6,6 +6,7 @@ import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.futo.notes.ui.FindQueryEditText
+import androidx.compose.ui.test.onAllNodesWithText
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -39,5 +40,31 @@ class TextFirstFindShortcutTest {
     @Test fun ctrlFOverSeveralLinesOpensEmpty() = compose.withTextFirstScreen("alpha beta gamma\nsecond line\n\n" + "ordinary note text ".repeat(10) + "\n") { view, _ ->
         val end = readOnMainThread { view.text.toString().indexOf("second") + 3 }
         assertEquals("", ctrlF(view, 2, end))
+    }
+
+    @Test fun ctrlGInTheQueryStepsToTheNextMatch() = compose.withTextFirstScreen("beta one\nbeta two\nbeta three\n\n" + "ordinary note text ".repeat(10) + "\n") { view, _ ->
+        assertEquals("beta", ctrlF(view, 0, 4))
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("1 of 3").fetchSemanticsNodes().isNotEmpty() }
+        compose.runOnUiThread {
+            val field = query(compose.activity.window.decorView)!!
+            field.onKeyDown(KeyEvent.KEYCODE_G, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_G, 0, KeyEvent.META_CTRL_ON))
+            field.onKeyDown(KeyEvent.KEYCODE_G, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_G, 0, KeyEvent.META_CTRL_ON))
+        }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("2 of 3").fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test fun ctrlEnterInACellLeavesTheNoteFocused() = compose.withTextFirstScreen(
+        "| Name | Owner |\n| - | - |\n| one | two |\n\n" + "ordinary note text ".repeat(10) + "\n", nativeTheme = tableSceneTheme,
+    ) { view, _ ->
+        val scene = TableCellScene(view, compose.activity) { action -> compose.runOnUiThread(action) }
+        compose.runOnUiThread { view.revealRange(0, 0) }
+        scene.tap(scene.pointAt("one", 0))
+        compose.waitUntil(9_000) { scene.field()?.isFocused == true }
+        compose.runOnUiThread {
+            scene.field()!!.onKeyDown(KeyEvent.KEYCODE_ENTER, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0, KeyEvent.META_CTRL_ON))
+        }
+        compose.waitUntil(10_000) { scene.field() == null }
+        compose.waitForIdle()
+        assertEquals("the note lost focus", true, readOnMainThread { view.isFocused })
     }
 }
