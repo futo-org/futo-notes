@@ -7,7 +7,6 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.InsetDrawable
 import android.os.Build
 import android.text.Editable
-import android.text.InputFilter
 import android.text.InputType
 import android.text.Selection
 import android.text.Spanned
@@ -345,13 +344,5 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
     private companion object {
         /** How long the note's height must hold still before an open field is brought into view. */
         const val SETTLE_MILLISECONDS = 120L
-
-        /** A language is one token: a space becomes a hyphen, and a leading one is dropped (!300 cb 371-373). */
-        val languageFilter = InputFilter { source, start, end, _, dstart, _ ->
-            val typed = source.subSequence(start, end).toString()
-            if (' ' !in typed) return@InputFilter null
-            val hyphenated = typed.replace(' ', '-')
-            if (dstart == 0) hyphenated.trimStart('-') else hyphenated
-        }
     }
 }
