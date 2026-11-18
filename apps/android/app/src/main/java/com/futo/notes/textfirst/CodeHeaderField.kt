@@ -26,6 +26,8 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import uniffi.futo_notes_ffi.editorTypedCodeBlockLanguage
+import uniffi.futo_notes_ffi.editorTypedCodeBlockName
 import kotlin.math.roundToInt
 
 /**
@@ -187,7 +189,6 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         field.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
         // !300's fields name their Enter key (enterkeyhint), which Gboard shows as the Go arrow.
         field.imeOptions = EditorInfo.IME_ACTION_GO or EditorInfo.IME_FLAG_NO_EXTRACT_UI
-        if (state.kind == Kind.LANGUAGE) field.filters = arrayOf(languageFilter)
         val labels = note.codeChrome.labels
         field.hint = if (state.kind == Kind.NAME) labels.namePlaceholder else labels.languagePlaceholder
         field.setHintTextColor((look.codeChromeInk and 0x00ffffff) or (CodeBlockChrome.GHOST_ALPHA shl 24))
@@ -196,7 +197,10 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         field.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: Editable) { if (!adopting) write(state, s.toString()) }
+            override fun afterTextChanged(s: Editable) {
+                if (adopting || keepEngineTypedText(s, keptOf(state.kind, s.toString()))) return
+                write(state, s.toString())
+            }
         })
         // The field is part of the note: focus going anywhere else (the title, a cell) closes it, and the note then
         // takes the blur it skipped when the field opened (TextFirstController's focus listener).
@@ -211,6 +215,9 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         field.setOnEditorActionListener { _, _, _ -> leaveToCode(state); true }
         return field
     }
+
+    private fun keptOf(kind: Kind, typed: String): String =
+        if (kind == Kind.NAME) editorTypedCodeBlockName(typed) else editorTypedCodeBlockLanguage(typed)
 
     private fun write(state: Editing, text: String) {
         if (state.kind == Kind.NAME) state.name = text.trim() else state.language = text
