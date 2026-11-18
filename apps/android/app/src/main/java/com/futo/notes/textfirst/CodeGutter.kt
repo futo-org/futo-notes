@@ -11,12 +11,13 @@ import android.text.Spanned
  * on every line the selection is on without the text being redrawn: the caret's line, or each line
  * a range paints, an empty line only when the range runs through it.
  */
-internal fun TextFirstEditText.drawCodeNumbers(canvas: Canvas, l: Layout, e: Spanned, lines: Array<TfCodeBlock>) {
+internal fun TextFirstEditText.drawCodeNumbers(canvas: Canvas, l: Layout, e: Spanned, lines: Array<TfCodeBlock>, from: Int, to: Int) {
     val look = style
     val paint = codeChrome.numberPaint(look)
     val start = Selection.getSelectionStart(e).let { s -> minOf(s, Selection.getSelectionEnd(e)) }
     val end = maxOf(Selection.getSelectionStart(e), Selection.getSelectionEnd(e))
-    for (span in lines) {
+    for (index in from..to) {
+        val span = lines[index]
         val spanStart = e.getSpanStart(span)
         val spanEnd = e.getSpanEnd(span)
         val line = l.getLineForOffset(spanStart)
@@ -25,7 +26,7 @@ internal fun TextFirstEditText.drawCodeNumbers(canvas: Canvas, l: Layout, e: Spa
         val on = isFocused && start >= 0 && isSelectionOnLine(start, end, spanStart, spanEnd, e)
         paint.color = if (on) look.codeNumberActiveColor else look.codeNumberColor
         paint.textAlign = if (dir < 0) Paint.Align.LEFT else Paint.Align.RIGHT
-        canvas.drawText(span.line.number.toString(), edge + span.numberEnd * dir, l.getLineBaseline(line).toFloat(), paint)
+        canvas.drawText(codeChrome.numberTexts.of(span.line.number), edge + span.numberEnd * dir, l.getLineBaseline(line).toFloat(), paint)
     }
 }
 

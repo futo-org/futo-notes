@@ -117,7 +117,7 @@ internal fun TextFirstEditText.drawCodeSelection(canvas: Canvas) {
     if (painted.start >= painted.end) return
     val l = layout ?: return
     val e = editableText ?: return
-    val paint = Paint().apply { color = this@drawCodeSelection.style.selectionColor }
+    val paint = codeChrome.selectionPaint.apply { color = this@drawCodeSelection.style.selectionColor }
     val save = canvas.save()
     canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
     var from = painted.start

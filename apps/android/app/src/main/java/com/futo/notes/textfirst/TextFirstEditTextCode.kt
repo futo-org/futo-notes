@@ -27,7 +27,7 @@ internal fun TextFirstEditText.drawCodeBlocks(canvas: Canvas) {
     while (from < lines.size) {
         var to = from
         while (to + 1 < lines.size && continuesCard(e, lines[to], lines[to + 1])) to++
-        drawCodeCard(canvas, l, e, lines.copyOfRange(from, to + 1))
+        drawCodeCard(canvas, l, e, lines, from, to)
         from = to + 1
     }
     canvas.restoreToCount(save)
@@ -41,11 +41,11 @@ internal fun continuesCard(e: android.text.Spanned, line: TfCodeBlock, next: TfC
     !line.line.last && !next.line.first && e.getSpanStart(next) <= e.getSpanEnd(line)
 
 /** One block's visible [lines], in order. A side the viewport cuts off is drawn past the edge, square. */
-private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layout, e: android.text.Editable, lines: Array<TfCodeBlock>) {
+private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layout, e: android.text.Editable, lines: Array<TfCodeBlock>, from: Int, to: Int) {
     val look = style
     val width = l.width.toFloat()
-    val head = lines.first()
-    val tail = lines.last()
+    val head = lines[from]
+    val tail = lines[to]
     val overhang = look.codeRadius * 2
     val cardTop = l.getLineTop(l.getLineForOffset(e.getSpanStart(head))) - if (head.line.first) 0f else overhang
     val tailEnd = e.getSpanEnd(tail)
@@ -53,7 +53,7 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
     val cardBottom = if (tail.line.last) tailBottom - tail.bottomExtra(e) + look.codeSkirt else tailBottom + overhang
     // The card stands a little past the text column, as !300's did, so code that wraps does not touch its border.
     val outset = look.codeCardOutset
-    val card = RectF(-outset, cardTop, width + outset, cardBottom)
+    val card = codeChrome.card.apply { set(-outset, cardTop, width + outset, cardBottom) }
     codeCardPaint.style = Paint.Style.FILL
     codeCardPaint.color = look.codeWellColor
     canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
@@ -63,7 +63,7 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
         codeCardPaint.color = look.selectionColor
         canvas.drawRoundRect(card, look.codeRadius, look.codeRadius, codeCardPaint)
     }
-    drawCodeNumbers(canvas, l, e, lines)
+    drawCodeNumbers(canvas, l, e, lines, from, to)
     val stroke = look.dp(1f)
     codeCardPaint.style = Paint.Style.STROKE
     codeCardPaint.strokeWidth = stroke

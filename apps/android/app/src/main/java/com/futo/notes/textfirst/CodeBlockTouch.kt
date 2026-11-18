@@ -24,7 +24,7 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 headerField.close()
-                pressed = targetAt(event)
+                pressed = targetAt(event)?.copy()
                 downX = event.x
                 downY = event.y
             }

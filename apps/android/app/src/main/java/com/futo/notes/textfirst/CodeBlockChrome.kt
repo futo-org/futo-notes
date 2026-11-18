@@ -16,7 +16,10 @@ internal enum class CodeBlockAction { SELECT_BLOCK, NAME_FIELD, LANGUAGE_LABEL, 
 internal class CodeHeaderState(val block: CodeBlockFacts, val codeStart: Int, val left: Float, val right: Float, val top: Float, val lineAbove: Boolean, val revealFields: Boolean, val openField: CodeHeaderField.Kind?, val copied: Boolean)
 
 /** One pressable part of a drawn block, in layout coordinates; [codeStart] is where the block's code starts. */
-internal class CodeBlockTarget(val area: RectF, val action: CodeBlockAction, val codeStart: Int, val block: CodeBlockFacts? = null)
+internal class CodeBlockTarget(val area: RectF, var action: CodeBlockAction, var codeStart: Int, var block: CodeBlockFacts? = null) {
+    /** A copy that keeps its values when the drawn target is reused for the next frame (a press outlasts frames). */
+    fun copy(): CodeBlockTarget = CodeBlockTarget(RectF(area), action, codeStart, block)
+}
 
 /** The catalog's words for a block's "add a line" affordances. */
 internal data class CodeBlockLabels(val addLineAbove: String, val addLineBelow: String, val namePlaceholder: String, val languagePlaceholder: String)
@@ -36,21 +39,39 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     private val glyphBox = RectF()
     private val baselinePaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private val targets = ArrayList<CodeBlockTarget>()
+    private var drawnTargets = 0
 
     var labels = CodeBlockLabels("", "", "", "")
     private val numbers = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private val shownText = ShownTextCache()
+    private val scratchMetrics = Paint.FontMetrics()
+    val numberTexts = NumberTexts()
+    /** Drawing scratch, reused every frame: the card being drawn, and the paint of a selection's rows. */
+    val card = RectF()
+    val selectionPaint = Paint()
 
     /** The line box "add a line below" was last drawn in, in layout coordinates. */
     var belowLabelBox: RectF? = null
         private set
 
     fun clearTargets() {
-        targets.clear()
+        drawnTargets = 0
         belowLabelBox = null
     }
 
+    /** A drawn part, reusing last frame's target objects: the chrome draws every frame. */
+    private fun addTarget(action: CodeBlockAction, codeStart: Int, block: CodeBlockFacts?, left: Float, top: Float, right: Float, bottom: Float) {
+        if (drawnTargets == targets.size) targets.add(CodeBlockTarget(RectF(), action, codeStart))
+        targets[drawnTargets++].apply {
+            area.set(left, top, right, bottom)
+            this.action = action
+            this.codeStart = codeStart
+            this.block = block
+        }
+    }
+
     /** The topmost part drawn at ([x], [y]) in layout coordinates. */
-    fun targetAt(x: Float, y: Float): CodeBlockTarget? = targets.lastOrNull { it.area.contains(x, y) }
+    fun targetAt(x: Float, y: Float): CodeBlockTarget? = (drawnTargets - 1 downTo 0).firstNotNullOfOrNull { targets[it].takeIf { target -> target.area.contains(x, y) } }
 
     /**
      * The name at the left, the chip (language, or the ghost "language" while the block is active,
@@ -73,7 +94,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         languagePaint.textSize = look.codeHeaderTextSize
         languagePaint.color = look.codeChromeInk
         val bottom = top + look.codeHeaderHeight
-        targets.add(CodeBlockTarget(RectF(left, top, right, bottom), CodeBlockAction.SELECT_BLOCK, codeStart, block))
+        addTarget(CodeBlockAction.SELECT_BLOCK, codeStart, block, left, top, right, bottom)
         val baseline = headerBaseline(top, languagePaint.typeface)
         val nameBaseline = headerBaseline(top, look.mono)
         // !300's glyph box: 12 px against its 18 px body.
@@ -89,7 +110,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         // Shown as written in the fence, as the desktop editor shows it (Mason, 2026-11-17).
         val languageText = language ?: labels.languagePlaceholder
         // !300 caps the language chip at 30% of the header.
-        val shownLanguage = TextUtils.ellipsize(languageText, languagePaint, minOf(room, (right - left) * LANGUAGE_SHARE), TextUtils.TruncateAt.END)
+        val shownLanguage = shownText.shown(languageText, languagePaint, minOf(room, (right - left) * LANGUAGE_SHARE))
         val languageRight = glyphLeft - look.codeGlyphGap
         val languageLeft = languageRight - languagePaint.measureText(shownLanguage, 0, shownLanguage.length)
         if ((language != null || header.revealFields) && !editingLanguage) {
@@ -105,16 +126,14 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
             canvas.drawText(labels.namePlaceholder, nameLeft, nameBaseline, namePaint)
         }
         block.name?.takeIf { it.isNotEmpty() }?.let { name ->
-            val chars = nameChars(left, right)
-            val capped = if (name.length > chars) name.take(chars - 1) + "\u2026" else name
-            val shown = TextUtils.ellipsize(capped, namePaint, nameRight - nameLeft, TextUtils.TruncateAt.END)
+            val shown = shownText.shown(name, namePaint, nameRight - nameLeft, nameChars(left, right))
             if (header.openField != CodeHeaderField.Kind.NAME) canvas.drawText(shown, 0, shown.length, nameLeft, nameBaseline, namePaint)
             nameEnd += namePaint.measureText(shown, 0, shown.length)
         }
         val nameBoxEnd = (maxOf(nameEnd, nameLeft + namePaint.measureText(labels.namePlaceholder)) + look.codeNameEndPad).coerceAtMost(nameRight)
-        targets.add(CodeBlockTarget(RectF(left, top, nameBoxEnd, bottom), CodeBlockAction.NAME_FIELD, codeStart, block))
-        targets.add(CodeBlockTarget(RectF(languageLeft - look.codeChipPad, top, languageRight, bottom), CodeBlockAction.LANGUAGE_LABEL, codeStart, block))
-        targets.add(CodeBlockTarget(RectF(languageRight, top, right, bottom), CodeBlockAction.COPY_CODE, codeStart, block))
+        addTarget(CodeBlockAction.NAME_FIELD, codeStart, block, left, top, nameBoxEnd, bottom)
+        addTarget(CodeBlockAction.LANGUAGE_LABEL, codeStart, block, languageLeft - look.codeChipPad, top, languageRight, bottom)
+        addTarget(CodeBlockAction.COPY_CODE, codeStart, block, languageRight, top, right, bottom)
         if (!header.lineAbove) return
         val label = edgeLabel(labels.addLineAbove, nameRight - nameBoxEnd - look.codeChipPad * 2)
         if (label.isEmpty()) return
@@ -122,7 +141,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         // Centred in !300's header space: from the name field's padded end to the language chip.
         val center = ((nameBoxEnd + nameRight) / 2f).coerceIn(nameBoxEnd + labelWidth / 2f, nameRight - labelWidth / 2f)
         drawEdgeLabel(canvas, label, center, top, bottom)
-        targets.add(CodeBlockTarget(RectF(center - labelWidth / 2f, top, center + labelWidth / 2f, bottom), CodeBlockAction.OPEN_LINE_ABOVE, codeStart))
+        addTarget(CodeBlockAction.OPEN_LINE_ABOVE, codeStart, null, center - labelWidth / 2f, top, center + labelWidth / 2f, bottom)
     }
 
     /**
@@ -142,12 +161,13 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
      * label and its open field both sit on it.
      */
     fun headerBaseline(top: Float, face: Typeface): Float {
-        val metrics = baselinePaint.apply { typeface = face; textSize = look.codeHeaderTextSize }.fontMetrics
+        val metrics = baselinePaint.apply { typeface = face; textSize = look.codeHeaderTextSize }.run { getFontMetrics(scratchMetrics); scratchMetrics }
         return top + (look.codeHeaderHeight - metrics.ascent - metrics.descent) / 2f
     }
 
     /** Where [action]'s part of the block at [codeStart] was last drawn, in layout coordinates. */
-    fun areaOf(codeStart: Int, action: CodeBlockAction): RectF? = targets.lastOrNull { it.codeStart == codeStart && it.action == action }?.area
+    fun areaOf(codeStart: Int, action: CodeBlockAction): RectF? =
+        (drawnTargets - 1 downTo 0).firstNotNullOfOrNull { targets[it].takeIf { target -> target.codeStart == codeStart && target.action == action }?.area }
 
     /**
      * "Add a line below", a skirt-tall line box from [labelTop], centred across the card; a press from
@@ -159,7 +179,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         val box = RectF(0f, labelTop, width, labelTop + look.codeSkirt)
         belowLabelBox = box
         if (label.isNotEmpty()) drawEdgeLabel(canvas, label, width / 2f, box.top, box.bottom)
-        targets.add(CodeBlockTarget(RectF(0f, labelTop, width, maxOf(pressBottom, box.bottom)), CodeBlockAction.OPEN_LINE_BELOW, codeStart))
+        addTarget(CodeBlockAction.OPEN_LINE_BELOW, codeStart, null, 0f, labelTop, width, maxOf(pressBottom, box.bottom))
     }
 
     /**
@@ -167,28 +187,28 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
      * above the block is its hidden opening fence, and "add a line above" is the way up there.
      */
     fun addSpaceAbove(codeStart: Int, width: Float, bottom: Float) {
-        targets.add(CodeBlockTarget(RectF(0f, -Float.MAX_VALUE, width, bottom), CodeBlockAction.NOTHING, codeStart))
+        addTarget(CodeBlockAction.NOTHING, codeStart, null, 0f, -Float.MAX_VALUE, width, bottom)
     }
 
     /** The gap between this block and the one touching it below, [top] to [bottom]: a press there opens a line between them. */
     fun addGapBelow(codeStart: Int, width: Float, top: Float, bottom: Float) {
-        targets.add(CodeBlockTarget(RectF(0f, top, width, bottom), CodeBlockAction.OPEN_LINE_BELOW, codeStart))
+        addTarget(CodeBlockAction.OPEN_LINE_BELOW, codeStart, null, 0f, top, width, bottom)
     }
 
     /** The empty space under a block that ends the note, from [top] down: a press there opens a line below it. */
     fun addSpaceBelow(codeStart: Int, width: Float, top: Float) {
-        targets.add(CodeBlockTarget(RectF(0f, top, width, Float.MAX_VALUE), CodeBlockAction.OPEN_LINE_BELOW, codeStart))
+        addTarget(CodeBlockAction.OPEN_LINE_BELOW, codeStart, null, 0f, top, width, Float.MAX_VALUE)
     }
 
     private fun edgeLabel(text: String, room: Float): String {
         edgePaint.typeface = look.regular
         edgePaint.textSize = look.codeEdgeLabelSize
         edgePaint.color = look.codeChromeInk
-        return TextUtils.ellipsize(text, edgePaint, room, TextUtils.TruncateAt.END).toString()
+        return shownText.shown(text, edgePaint, room)
     }
 
     private fun drawEdgeLabel(canvas: Canvas, label: String, center: Float, top: Float, bottom: Float) {
-        val metrics = edgePaint.fontMetrics
+        val metrics = edgePaint.run { getFontMetrics(scratchMetrics); scratchMetrics }
         val baseline = (top + bottom - metrics.ascent - metrics.descent) / 2f
         canvas.drawText(label, center - edgePaint.measureText(label) / 2f, baseline, edgePaint)
     }
