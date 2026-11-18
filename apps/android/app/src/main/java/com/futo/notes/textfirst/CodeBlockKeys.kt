@@ -54,9 +54,13 @@ internal fun TextFirstEditText.codeLineKey(keyCode: Int, event: KeyEvent): Boole
     var lineEnd = caret
     while (lineEnd < e.length && e[lineEnd] != '\n') lineEnd++
     if (event.isShiftPressed) {
-        Selection.setSelection(e, lineStart)
+        // Enter after the line's indent: the indent stays on the new line above and Enter copies it to the line below,
+        // so both keep it, as Ctrl+Enter's line does (P091); one Undo step.
+        var indentEnd = lineStart
+        while (indentEnd < lineEnd && (e[indentEnd] == ' ' || e[indentEnd] == '\t')) indentEnd++
+        Selection.setSelection(e, indentEnd)
         engine.handler.post { engine.key(EditorParagraphKey.ENTER) }
-        engine.hostSelect(lineStart, lineStart)
+        engine.hostSelect(indentEnd, indentEnd)
     } else {
         Selection.setSelection(e, lineEnd)
         engine.handler.post { engine.key(EditorParagraphKey.ENTER) }

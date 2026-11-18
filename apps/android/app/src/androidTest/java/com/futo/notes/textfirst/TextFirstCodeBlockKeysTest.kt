@@ -44,4 +44,18 @@ class TextFirstCodeBlockKeysTest {
         withTimeout(5_000) { while (view.codeChrome.openField == null) delay(20) }
         assertEquals(start to CodeHeaderField.Kind.LANGUAGE, view.codeChrome.openField)
     }
+
+    /** Area 4 verifier (P091): Ctrl+Shift+Enter opens a line above with the line's indent, the caret on it. */
+    @Test fun ctrlShiftEnterOpensAnIndentedLineAbove() = textFirstSession("```py\ndef f():\n    return x\n```\n\nend") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        view.setSelection(view.editableText.indexOf("turn"))
+        delay(200)
+        view.onKeyDown(KeyEvent.KEYCODE_ENTER, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0, KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON))
+        withTimeout(5_000) { while (c.sourceText() == "```py\ndef f():\n    return x\n```\n\nend") delay(50) }
+        textFirstIme(c) { commitText("z", 1) }
+        assertEquals("```py\ndef f():\n    z\n    return x\n```\n\nend", c.sourceText())
+    }
 }
