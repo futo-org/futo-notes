@@ -1,5 +1,6 @@
 mod editor;
 pub use editor::editor_find_scan;
+pub use editor::{editor_typed_code_block_language, editor_typed_code_block_name};
 pub use editor::{
     EditorAffinity, EditorBlockCommand, EditorBlockDescription, EditorByteRange,
     EditorCodeBlockDescription, EditorCodeBlockHeader, EditorCodeLineDescription,

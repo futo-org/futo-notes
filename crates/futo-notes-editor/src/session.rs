@@ -113,6 +113,12 @@ impl EditorSession {
         self.engine.writes_language()
     }
 
+    /// Whether the caret writes a table's delimiter row, as changes report
+    /// it (`writes_delimiter_row`).
+    pub fn writes_delimiter_row(&self) -> bool {
+        self.engine.writes_delimiter_row()
+    }
+
     /// The word a double click at `offset` selects (`engine/words.rs`).
     pub fn word_at(
         &self,

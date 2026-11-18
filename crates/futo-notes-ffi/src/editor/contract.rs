@@ -51,6 +51,9 @@ pub struct EditorSelectionChange {
     /// The caret is at a code block's hidden opening fence end: letters
     /// write the block's language (its header), not code.
     pub writes_language: bool,
+    /// The caret is writing a table's delimiter row (typing on that line
+    /// left it there); a view draws the row only while this holds.
+    pub writes_delimiter_row: bool,
     pub affinity: EditorAffinity,
 }
 
@@ -61,6 +64,7 @@ impl From<editor::SelectionChange> for EditorSelectionChange {
             selection: value.selection.into(),
             selected_block: value.selected_block.map(Into::into),
             writes_language: value.writes_language,
+            writes_delimiter_row: value.writes_delimiter_row,
             affinity: value.affinity.into(),
         }
     }
@@ -231,6 +235,8 @@ pub struct EditorViewChange {
     pub selected_block: Option<EditorByteRange>,
     /// As on `EditorSelectionChange`.
     pub writes_language: bool,
+    /// As on `EditorSelectionChange`.
+    pub writes_delimiter_row: bool,
     pub materialized_source_bytes: u64,
     pub inserted_bytes: u64,
     pub parsed_source_bytes: u64,
@@ -250,6 +256,7 @@ impl From<editor::ViewChange> for EditorViewChange {
             selection: value.selection.into(),
             selected_block: value.selected_block.map(Into::into),
             writes_language: value.writes_language,
+            writes_delimiter_row: value.writes_delimiter_row,
             materialized_source_bytes: value.work.materialized_source_bytes as u64,
             inserted_bytes: value.work.inserted_bytes as u64,
             parsed_source_bytes: value.work.parsed_source_bytes as u64,

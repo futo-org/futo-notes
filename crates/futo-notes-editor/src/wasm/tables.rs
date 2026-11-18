@@ -11,6 +11,12 @@ fn range(start: usize, end: usize) -> DisplayRange {
 
 #[wasm_bindgen]
 impl WasmSession {
+    /// Whether the caret writes a table's delimiter row (draw the row only
+    /// while it does).
+    pub fn writes_delimiter_row(&self) -> bool {
+        self.0.writes_delimiter_row()
+    }
+
     /// Table description or `null` when the range is not in a table.
     pub fn inspect_table(
         &self,

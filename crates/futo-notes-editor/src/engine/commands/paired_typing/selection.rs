@@ -54,6 +54,12 @@ impl Engine {
         if self.touch(range).is_some() {
             return self.typed_paired_input(key, accept);
         }
+        // Over a code block and other lines the Code block command changes
+        // nothing, and so does its backtick: typing it over them would
+        // delete the block for one character.
+        if pair.is_backtick() && self.holds_code_block(self.lines_of(range)) {
+            return Ok(None);
+        }
         if pair.is_backtick() && self.lines_of(range).len() > 1 {
             return self.paired_or_typed(key, accept, |engine| {
                 engine.fence_command(range, BlockCommand::CodeBlock)

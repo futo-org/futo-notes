@@ -121,6 +121,45 @@ pub(crate) fn write_fence_info(info: &str, language: Option<&str>, name: Option<
     written
 }
 
+/// What a code block's language field keeps of `typed`: the name field's
+/// text (`typed_code_block_name`) as one word, its leading whitespace gone
+/// and any other whitespace written `-`.
+pub fn typed_code_block_language(typed: &str) -> String {
+    typed_code_block_name(typed)
+        .trim_start()
+        .chars()
+        .map(|character| {
+            if character.is_whitespace() {
+                '-'
+            } else {
+                character
+            }
+        })
+        .collect()
+}
+
+/// What a code block's name field keeps of `typed`: a backtick goes, as on
+/// either fence kind (a backtick fence's info cannot hold one, and a block
+/// reads the same whichever fence it has); a tab or line break becomes a
+/// space and any other control character goes. Outer spaces stay, since
+/// the field is typed a character at a time; the host trims the name it
+/// writes.
+pub fn typed_code_block_name(typed: &str) -> String {
+    typed
+        .chars()
+        .filter(|character| {
+            *character != '`' && (!character.is_control() || character.is_whitespace())
+        })
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect()
+}
+
 /// The text before an info string's first key with its first word replaced
 /// by `language`, or removed with the whitespace after it.
 fn written_language(head: &str, language: Option<&str>) -> String {

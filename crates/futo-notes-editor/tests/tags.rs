@@ -55,7 +55,7 @@ fn queries_follow_the_canonical_tag_rules() {
 fn add_spells_canonically_and_touches_only_the_header() {
     for (source, tag, expected) in [
         ("body", "Work Stuff", "#work_stuff\n\nbody"),
-        ("", "#a", "#a"),
+        ("", "#a", "#a\n"),
         ("body\r\nmore", "a", "#a\r\n\r\nbody\r\nmore"),
         // A lone CR is an ordinary character, not a line ending.
         ("body\rmore", "a", "#a\n\nbody\rmore"),
@@ -83,6 +83,21 @@ fn add_spells_canonically_and_touches_only_the_header() {
         assert!(session
             .add_header_tag(Revision(0), bad, &mut |_| Ok(()))
             .is_err());
+    }
+}
+
+#[test]
+fn a_first_tag_leaves_the_caret_in_the_body_under_it() {
+    for (source, written) in [("", "#first\nx"), ("hello", "#first\n\nxhello")] {
+        let mut session = EditorSession::open(source);
+        session.select(Revision(0), caret(0)).unwrap();
+        session
+            .add_header_tag(Revision(0), "first", &mut |_| Ok(()))
+            .unwrap();
+        session
+            .replace(Revision(1), session.selection(), "x", &mut |_| Ok(()))
+            .unwrap();
+        assert_eq!(session.source_text(), written, "{source:?}");
     }
 }
 

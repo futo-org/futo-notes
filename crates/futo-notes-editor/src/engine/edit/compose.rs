@@ -54,7 +54,7 @@ impl Engine {
                 if self.touches_metadata(range) {
                     return Err(EditorError::InvalidRange);
                 }
-                range
+                self.in_body(range)
             }
         };
         let marked = Marked {

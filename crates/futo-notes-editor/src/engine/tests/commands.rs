@@ -134,7 +134,8 @@ fn a_cancelled_command_still_commits_marked_text() {
 
 #[test]
 fn typing_is_never_guarded() {
-    // A typed delimiter row makes the line above a header: it lands.
+    // A typed delimiter row makes the line above a header: it lands, and
+    // starts the table with its first body row (tables.md).
     let mut engine = Engine::open("| x |\n");
     let end = engine.display_len();
     engine
@@ -147,7 +148,7 @@ fn typing_is_never_guarded() {
         )
         .unwrap()
         .unwrap();
-    assert_eq!(engine.source_text(), "| x |\n|---|");
+    assert_eq!(engine.source_text(), "| x |\n|---|\n|  |");
 }
 
 #[test]

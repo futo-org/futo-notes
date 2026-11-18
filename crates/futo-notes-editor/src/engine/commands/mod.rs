@@ -26,15 +26,19 @@ type KeyFamily = fn(&Engine, DisplayRange, ParagraphKey) -> Result<Option<Comman
 
 impl Engine {
     /// The command a paragraph key runs on the lines it is pointed at, when
-    /// a family claims the key there; a range is first taken out of images
-    /// and wikilinks (`outside_atoms`), as for every plan.
+    /// a family claims the key there; a range is first taken out of front
+    /// matter (`in_body`), images and wikilinks (`outside_atoms`), as for
+    /// every plan. None claims a range holding part of the front matter.
     pub(crate) fn key_command(
         &self,
         range: DisplayRange,
         key: ParagraphKey,
     ) -> Result<Option<Command>, EditorError> {
         self.check_display_range(range)?;
-        let range = self.outside_atoms(range);
+        if self.touches_metadata(range) {
+            return Ok(None);
+        }
+        let range = self.outside_atoms(self.in_body(range));
         let families: [KeyFamily; 5] = [
             Self::atom_key,
             Self::table_key,
@@ -101,13 +105,15 @@ impl Engine {
         Ok(Some(command))
     }
 
-    /// A toolbar block command, by family.
+    /// A toolbar block command, by family, on the range's body part
+    /// (`in_body`).
     pub(crate) fn block_command(
         &self,
         range: DisplayRange,
         command: BlockCommand,
     ) -> Result<Option<Command>, EditorError> {
         self.check_display_range(range)?;
+        let range = self.in_body(range);
         match command {
             BlockCommand::Heading(_)
             | BlockCommand::ToggleHeading(_)

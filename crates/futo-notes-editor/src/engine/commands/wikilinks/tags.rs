@@ -115,8 +115,10 @@ impl Engine {
             } else {
                 ""
             };
-            let tail = if at == self.source_len() { "" } else { &eol };
-            Edit::insert(at, format!("{lead}#{name}{tail}{tail}"))
+            // An empty body gets the line under the tag line; a body keeps
+            // a blank line between it and the tags.
+            let separator = if at == self.source_len() { "" } else { &eol };
+            Edit::insert(at, format!("{lead}#{name}{eol}{separator}"))
         } else {
             let (offset, last) = header
                 .text
@@ -197,7 +199,8 @@ impl Engine {
     }
 
     /// Run one header edit as a command naming the lines it changes; the
-    /// selection keeps its place around it.
+    /// selection keeps its place around it. A point where a tag is inserted
+    /// stays after it, so a caret at the body's start stays with the body.
     fn header_edit(
         &mut self,
         expected: Revision,
@@ -205,9 +208,11 @@ impl Engine {
         accept: Accept,
     ) -> Result<Option<ViewChange>, EditorError> {
         let lines = self.line_of(edit.range.start)..self.line_of(edit.range.end) + 1;
+        let inserts = edit.range.is_empty();
         let mut command = Command::new(vec![edit], lines, 0..0);
         let selection = self.source_selection(self.selection);
-        command.selection = command.map(selection.start, false)..command.map(selection.end, false);
+        command.selection =
+            command.map(selection.start, inserts)..command.map(selection.end, inserts);
         command.affinity = Some(self.affinity);
         let change = self.run(expected, |_| Ok(Some(command)), accept)?;
         Ok(change.map(|change| self.view(change)))

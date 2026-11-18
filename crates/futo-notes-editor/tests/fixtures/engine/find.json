@@ -22,6 +22,7 @@
   {"name": "rows are barriers", "before": "| a | b |\n|---|---|\n| c | d |", "command": {"find": "b c"}, "after": {"matches": []}},
   {"name": "pipes are not findable in a table", "before": "| a | b |\n|---|---|\n| c | d |", "command": {"find": "|"}, "after": {"matches": []}},
   {"name": "the delimiter row is not findable", "before": "| a | b |\n|---|---|\n| c | d |", "command": {"find": "---"}, "after": {"matches": []}},
+  {"name": "a delimiter row's alignment colons are not findable either", "before": "| a: |\n|:-:|\n| b |", "command": {"find": ":"}, "after": {"matches": [":"], "source": ":"}},
   {"name": "an escaped pipe is cell text", "before": "x\n\n| a\\|b | y |\n|---|---|\n\nx | y", "command": {"find": "a|b"}, "after": {"matches": ["a|b"], "source": "a\\|b"}},
   {"name": "a pipe line with no delimiter row is plain", "before": "| a | b |\n| c | d |", "command": {"find": "a | b"}, "after": {"matches": ["a | b"]}},
   {"name": "a row with no leading pipe is plain", "before": "x\n\n| a | y |\n|---|---|\n\nx | y", "command": {"find": "x | y"}, "after": {"matches": ["x | y"]}},

@@ -282,6 +282,73 @@ fn a_header_change_reports_its_block_with_the_new_header() {
     assert_eq!(change.selection, range(0, 0));
 }
 
+/// What a header field keeps of any typed text is written, unless it is
+/// refused for one of the reasons fenced-code.md names: a language that
+/// reads as a key (or, on a tilde fence, starts with `~`), a name with
+/// outer whitespace or a key at a word start.
+#[test]
+fn what_a_header_field_keeps_is_written_or_refused_for_a_named_reason() {
+    let pieces = [
+        "`", " ", "\t", "\n", "\r", "\u{0}", "\u{a0}", "\u{2003}", "name:", "hl:2", "ll:", ":",
+        "go", "é", "名", "~", "-", "#", "a",
+    ];
+    let starts_with_key = |text: &str| {
+        ["name:", "hl:", "ll:"]
+            .iter()
+            .any(|key| text.starts_with(key))
+    };
+    let mut state: u32 = 0x5eed_c0de;
+    let mut next = || {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        state as usize
+    };
+    for _ in 0..4_000 {
+        let typed: String = (0..next() % 7)
+            .map(|_| pieces[next() % pieces.len()])
+            .collect();
+        for fence in ["```\nx\n```", "```py hl:2\nx\n```", "~~~\nx\n~~~"] {
+            let tilde = fence.starts_with('~');
+            let language = crate::typed_code_block_language(&typed);
+            let name = crate::typed_code_block_name(&typed);
+            let language_refused =
+                starts_with_key(&language) || (tilde && language.starts_with('~'));
+            let name_refused = name != name.trim()
+                || name.char_indices().any(|(at, character)| {
+                    character.is_whitespace() && starts_with_key(&name[at + character.len_utf8()..])
+                });
+            for (language, name, refused) in [
+                (language.clone(), String::new(), language_refused),
+                (String::new(), name, name_refused),
+            ] {
+                let mut engine = Engine::open(fence);
+                let header = CodeBlockHeader {
+                    at: DisplayOffset(0),
+                    language: language.clone(),
+                    name: name.clone(),
+                };
+                let written = engine.set_code_block_header(engine.revision(), &header, &mut ok);
+                match written {
+                    Err(EditorError::InvalidText) => {
+                        assert!(
+                            refused,
+                            "{fence:?} refused {language:?} {name:?} from {typed:?}"
+                        )
+                    }
+                    Ok(_) => {
+                        assert!(
+                            !refused,
+                            "{fence:?} wrote {language:?} {name:?} from {typed:?}"
+                        )
+                    }
+                    Err(error) => panic!("{fence:?} {language:?} {name:?}: {error:?}"),
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn the_toolbar_reads_code_from_the_caret_line() {
     for (source, caret, code, indent, outdent) in [

@@ -110,8 +110,9 @@ pub(super) fn type_step(
     let selection = engine.selection();
     let collapsed = selection.start == selection.end;
     // Carets snap to an image edge; a nonempty range includes any image it
-    // touches, and any wikilink it reaches across the edge of.
-    let stop = engine.outside_atoms(selection);
+    // touches, and any wikilink it reaches across the edge of, and leaves
+    // front matter out.
+    let stop = engine.outside_atoms(engine.in_body(selection));
     let at = if stop == selection {
         engine.caret_source()
     } else {
@@ -129,15 +130,8 @@ pub(super) fn type_step(
     // space first when the text would otherwise unquote it (display rule 6).
     let quote_space = engine.quote_space(at, text);
     // A selection's edit stays inside the source it spans: from the hidden
-    // pieces at its start to those at its end (from 0 over front matter).
-    let spanned = {
-        let start = if engine.metadata_end().is_some() && stop.start.0 == 0 {
-            0
-        } else {
-            engine.source_span(stop.start.0).0
-        };
-        start..engine.source_span(stop.end.0).1
-    };
+    // pieces at its start to those at its end.
+    let spanned = engine.source_span(stop.start.0).0..engine.source_span(stop.end.0).1;
     let reach = whole_blocks(engine, &spanned);
     let block_selected = engine.selected_block().is_some();
     let change = engine
@@ -190,7 +184,12 @@ pub(super) fn type_step(
                 .chain(bounds.0..=bounds.1)
                 .filter(|&place| before.source.is_char_boundary(place))
         };
-        let plain = places().any(|place| typed_at(place) == now);
+        // Typing that starts a table may also write its first body row.
+        let started = engine.typed_table == Some(engine.revision());
+        let plain = places().any(|place| {
+            let typed = typed_at(place);
+            typed == now || (started && with_blank_row(&typed, &now))
+        });
         match &carried {
             // (a) Exactly the typed bytes, at the caret's display point.
             None => assert!(
@@ -226,6 +225,25 @@ pub(super) fn type_step(
     }
     model.edited(engine, before, groups);
     format!("type {text:?} at {selection:?}")
+}
+
+/// Whether `now` is `typed` with one blank table row (`|`, then `  |` per
+/// column) written on a line of its own.
+fn with_blank_row(typed: &str, now: &str) -> bool {
+    let prefix = typed
+        .bytes()
+        .zip(now.bytes())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let rest = &typed[prefix.min(typed.len())..];
+    let Some(written) = now.get(prefix..).and_then(|after| after.strip_suffix(rest)) else {
+        return false;
+    };
+    let row = written.trim_matches(['\n', '\r']);
+    written.contains('\n')
+        && row.starts_with('|')
+        && row.len() > 1
+        && row.trim_matches([' ', '|']).is_empty()
 }
 
 /// Where `a` and `b` differ (without the characters they share at either

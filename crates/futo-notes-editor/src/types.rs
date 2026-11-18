@@ -87,6 +87,10 @@ pub struct ViewChange {
     /// letters write the block's language (shown in its header), not code.
     #[serde(default)]
     pub writes_language: bool,
+    /// The caret is writing a table's delimiter row: typing on that line
+    /// left it there. A host draws the row only while this holds.
+    #[serde(default)]
+    pub writes_delimiter_row: bool,
     pub work: EditWork,
     pub affinity: Affinity,
     /// Semantic replacement for the reparsed paragraph window, including
@@ -111,6 +115,9 @@ pub struct SelectionChange {
     /// As `ViewChange::writes_language`.
     #[serde(default)]
     pub writes_language: bool,
+    /// As `ViewChange::writes_delimiter_row`.
+    #[serde(default)]
+    pub writes_delimiter_row: bool,
     pub affinity: Affinity,
 }
 

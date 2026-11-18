@@ -160,12 +160,12 @@
     ]
   },
   {
-    "name": "P4: a selection reaching into a code block takes it in",
+    "name": "P4: a selection holding a code block and a line outside it changes nothing, as the Code block command does",
     "before": "[x\n```\ny]\n```",
     "steps": [
       {
         "do": "pair:`",
-        "after": "```\n[x\ny]\n```"
+        "after": "[x\n```\ny]\n```"
       }
     ]
   },

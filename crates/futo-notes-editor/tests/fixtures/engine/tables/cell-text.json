@@ -1,0 +1,92 @@
+[
+ {
+  "name": "typing in a cell writes only that cell's bytes",
+  "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+  "command": "type xy",
+  "after": "| a | b |\n| --- | :-: |\n| cxy‸ | d |\n"
+ },
+ {
+  "name": "a typed pipe lands as typed: the row gains a cell",
+  "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+  "command": "type |",
+  "after": "| a | b |\n| --- | :-: |\n| c|‸ | d |\n"
+ },
+ {
+  "name": "#419: typing in an extra cell edits it like any cell",
+  "before": "| a |\n|---|\n| b | c‸ |",
+  "command": "type x",
+  "after": "| a |\n|---|\n| b | cx‸ |"
+ },
+ {
+  "name": "a typed line break in a cell lands as typed: the row breaks",
+  "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+  "command": "type x\ny",
+  "after": "| a | b |\n| --- | :-: |\n| cx\ny‸ | d |\n"
+ },
+ {
+  "name": "a text service's line break in a cell becomes a space, as paste's does",
+  "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+  "command": "service x\ny",
+  "after": "| a | b |\n| --- | :-: |\n| cx y‸ | d |\n"
+ },
+ {
+  "name": "dictation over a cell's text joins its lines with a space and drops edge line breaks",
+  "before": "| a | b |\n| --- | :-: |\n| «c» | d |\n",
+  "command": "service one\r\n\ntwo\n",
+  "after": "| a | b |\n| --- | :-: |\n| one two‸ | d |\n"
+ },
+ {
+  "name": "a committed composition's CRLF in a cell becomes a space",
+  "before": "| a | b |\n| - | - |\n| c‸ | d |",
+  "command": "commit x\r\ny",
+  "after": "| a | b |\n| - | - |\n| cx y‸ | d |"
+ },
+ {
+  "name": "a committed composition's LF in a cell becomes a space",
+  "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+  "command": "commit x\ny",
+  "after": "| a | b |\n| --- | :-: |\n| cx y‸ | d |\n"
+ },
+ {
+  "name": "a text service's pipe in a cell lands as given",
+  "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+  "command": "service x|y",
+  "after": "| a | b |\n| --- | :-: |\n| cx|y‸ | d |\n"
+ },
+ {
+  "name": "a text service's line break outside a table lands as given",
+  "before": "| a |\n|---|\n\nc‸",
+  "command": "service x\ny",
+  "after": "| a |\n|---|\n\ncx\ny‸"
+ },
+ {
+  "name": "paste in a cell writes the pasted text",
+  "before": "| r1a‸ | b |\n| - | - |",
+  "command": "paste  world",
+  "after": "| r1a world‸ | b |\n| - | - |"
+ },
+ {
+  "name": "paste in a cell drops edge blank lines, joins lines with a space and keeps a pipe in the cell",
+  "before": "| a | b‸ |\n| - | - |",
+  "command": "paste \n\none\n  two | three\r\nfour\n",
+  "after": "| a | bone two \\| three four‸ |\n| - | - |"
+ },
+ {
+  "name": "paste over a cell's text replaces it",
+  "before": "| «r1a» | b |\n| - | - |",
+  "command": "paste x\n# y",
+  "after": "| x # y‸ | b |\n| - | - |"
+ },
+ {
+  "name": "paste across cells is refused",
+  "before": "| «a | b» |\n| - | - |",
+  "command": "paste x",
+  "error": "InvalidRange"
+ },
+ {
+  "name": "paste outside a table is not the table's",
+  "before": "plain‸",
+  "command": "paste x",
+  "after": null
+ }
+]
