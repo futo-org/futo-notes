@@ -98,7 +98,8 @@ internal class TfTableRow(
             strokeWidth = look.dp(1f)
             style = Paint.Style.STROKE
         }
-        if (row.header) canvas.drawRect(x, top.toFloat(), x + width(), bottom.toFloat(), Paint().apply { color = look.codeBackground })
+        // The fill covers the header's columns, not the note's width: a narrow table's header ends with its last column.
+        if (row.header) canvas.drawRect(origin, top.toFloat(), origin + row.columns * cellWidth, bottom.toFloat(), Paint().apply { color = look.codeBackground })
         for (column in 0 until row.columns) {
             val left = origin + column * cellWidth
             // Canvas clipping hides offscreen cells but still records their text drawing.
