@@ -4,6 +4,13 @@ Every choice the Android work made itself: by the implementer, a verifier, or th
 
 The per-area items from `VERDICT.md` (every `leave` and every `ask Mason`) are in [android-own-decisions/by-area.md](android-own-decisions/by-area.md).
 
+## Changes to behaviour the mobile spec already stated
+
+- **Backspace right after an image (or hardware Delete right before it) selects the image first; the next press deletes it.**
+  - Old line (mobile/images.md, shared iOS and Android): "A plain tap anywhere on an image puts a normal collapsed caret right after it ... and Backspace from there removes the image whole in one edit (one Undo restores it)."
+  - New line (Android): "Backspace with the caret right after an image, or hardware Delete right before it, selects the image first; the next press deletes it whole in one edit (one Undo restores it). A selected image carries the selection colour over it."
+  - iOS still deletes at once (the spec's iOS gap says so). Kept because it is Mason's desktop answer ("Delete right before an image selects it first, as Backspace after it does"); flagged by the reviewer, 2026-11-18. Reverse: `small` (bd2a4e6e4: the Image branch of EditorEngineKeyboard.imageBesideCaret, ImageSelectionTint.kt, and the spec line).
+
 ## Guards Android adds around code blocks
 
 - **The code toggle does nothing on a block selected as one object.** Differs from desktop (the engine would unwrap it) and from the !300 app (no such button). Why: unwrapping a block on a tap of the toolbar lost its fences with no warning; P155. Over a range that takes a block it still wraps (TextFirstBlockIndicatorTest pins it). Reverse: `one line` (TextFirstController.block).
@@ -86,7 +93,6 @@ The per-area items from `VERDICT.md` (every `leave` and every `ask Mason`) are i
 - **Toolbar Bold/Italic/Strike at a caret inside a word, or at its start, toggle the whole word**; at a word's end or away from words they are pending. Differs from the ruling as written ("keep pending-format at a caret"); it is the engine's own mobile rule (`toggle_toolbar_format_view`) and mobile/toolbar.md, so it was not overridden. Reverse: `one line` (call `toggleFormat` from the toolbar).
 - **Ctrl+Alt+X is strikethrough, Ctrl+E inline code, Ctrl+Alt+1-6 headings, Ctrl+Alt+7/8 lists, Ctrl+Shift+B quote** (desktop's chords; Ctrl stands for Cmd). Ctrl+Alt+X used to cut. Reverse: `small` (TextFirstShortcutKeys.kt).
 - **Backspace after a wikilink, or Delete before it, deletes it whole.** Now the engine's rule (engine 40d77fc20); the host keeps none of it. Reverse: engine.
-- **Built from a desktop decision, phone form: Backspace right after an image, or hardware Delete right before it, selects the image; the next press deletes it.** Mason's rule; the engine deletes at once, so the host selects first from the engine's style plan. mobile/images.md now has an Android line and an iOS gap. Reverse: `small` (drop the Image branch of EditorEngineKeyboard.atomBesideCaret, restore the spec line).
 - **Built from a desktop decision, phone form: a selected image is tinted with the selection colour over the picture.** Reverse: `small` (delete ImageSelectionTint.kt and its two calls).
 - **A tap on a wikilink to a missing note places the caret at the link's edge and writes nothing** (reviewer's ruling, 2026-11-18, taking back the eager create of 028131088): wikilinks.md (2026-07-11) is already the phone form of Mason's "a missing note is created on follow" (open empty, write on the first edit), and eager creation could orphan a second note on a double tap or a failed leave. The deferred form is not built: the Android editor cannot open a note without a file. Reverse: `large` (opening a missing note).
 - **Built from a desktop decision, phone form: the Link form saves a typed address through the engine's `normalize_link_destination`, and hardware Ctrl+K opens the form.** Reverse: `one line` each (EditorEngineLinks.editLink; the KEYCODE_K line in TextFirstShortcutKeys).
