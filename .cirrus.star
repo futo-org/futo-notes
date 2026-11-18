@@ -6,6 +6,7 @@ load("cirrus", "fs")
 
 TASK_FILES = [
     "ci/cirrus/ios-test.yml",
+    "ci/cirrus/ios-test-xcode27.yml",
     "ci/cirrus/macos-build.yml",
     "ci/cirrus/ios-build.yml",
 ]

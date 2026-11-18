@@ -110,3 +110,37 @@ test:ios-native:
         - ci/*.yml
         - .gitlab-ci.yml
     - if: $CI_COMMIT_TAG
+
+# CANARY: the same tests on the Xcode 27.2 image (testFutoNotesIOSNativeXcode27 in
+# ci/cirrus/ios-test-xcode27.yml), so that moving the required job to 27.2 is
+# proved before it is attempted. Merge requests get no pipeline, so a change to
+# the required job can only be tried on main, and two such tries broke main
+# (pipelines 40319, 40354). Press it on a main pipeline; it never blocks anything.
+# Deliberately NOT in release:gate.needs and allow_failure: it is a temporary
+# experiment, and a red canary must not hold a release back. Removed when the
+# required test:ios-native moves to 27.2.
+test:ios-native:xcode27:
+  stage: test
+  needs: []
+  tags:
+    - macscript
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    - env | grep -E '^(CI_|IOS_)' > "$CI_PROJECT_DIR/.cienv"
+  script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
+    - cirrus run testFutoNotesIOSNativeXcode27 --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  artifacts:
+    when: always
+    paths:
+      - testFutoNotesIOSNativeXcode27/ios_test_results/**/*
+      # The whole xcodebuild output; the job log is the same minus keyboard-renderer noise.
+      - testFutoNotesIOSNativeXcode27/ios_test_log/**/*
+    expire_in: 1 week
+  rules:
+    - !reference [.not-scheduled, rules]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
