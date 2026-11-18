@@ -205,4 +205,21 @@ class TextFirstCodeBlockTest {
         delay(300)
         assertEquals(android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, inputType() and android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
     }
+
+    /**
+     * Area 5 verifier (P107, P110): FUTO Keyboard's backspace over a selection is deleteSurroundingText(1, 0). Over a
+     * selected block it removes the block, as Backspace does, not the character before it.
+     */
+    @Test fun theKeyboardsBackspaceOverASelectedBlockRemovesTheBlock() = textFirstSession("intro\n\n```js\nconst a = 1\n```\n\nafter") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        val start = view.editableText.indexOf("const a")
+        withTimeout(5_000) { while (view.codeChrome.areaOf(start, CodeBlockAction.SELECT_BLOCK) == null) delay(20) }
+        val header = view.codeChrome.areaOf(start, CodeBlockAction.SELECT_BLOCK)!!
+        tapNoteAt(view, view.totalPaddingLeft + header.centerX(), view.totalPaddingTop - view.scrollY + header.centerY())
+        awaitSelectedBlock(view)
+        textFirstIme(c) { deleteSurroundingText(1, 0) }
+        assertEquals("intro\n\n\n\nafter", c.sourceText())
+    }
 }

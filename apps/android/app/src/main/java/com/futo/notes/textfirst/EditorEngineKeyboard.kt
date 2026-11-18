@@ -91,6 +91,12 @@ internal fun EditorEngine.imeFinishComposing() = input {
 }
 
 internal fun EditorEngine.imeDeleteSurrounding(before: Int, after: Int) = input {
+    // A keyboard's one-step delete over a range is its Backspace or Delete key on the selection (FUTO Keyboard sends it
+    // so): it removes the selection, a selected block whole, not the character beside it (area 5 verifier, P107, P110).
+    if (mirror.selStart != mirror.selEnd && mirror.overlay == null) {
+        if (before == 1 && after == 0) return@input key(EditorParagraphKey.BACKSPACE)
+        if (before == 0 && after == 1) return@input key(EditorParagraphKey.DELETE)
+    }
     if (mirror.selStart == mirror.selEnd && mirror.overlay == null) {
         if (after == 0 && before > 0 && mirror.selStart - before == mirror.previousGrapheme(mirror.selStart)) {
             return@input key(EditorParagraphKey.BACKSPACE)
