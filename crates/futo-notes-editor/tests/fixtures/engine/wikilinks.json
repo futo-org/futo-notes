@@ -91,11 +91,18 @@
   "after": "#work_stuff\n\nbody‸"
  },
  {
-  "name": "add to an empty note writes only the tag, after the caret",
+  "name": "add to an empty note writes the tag and an empty body line under it, the caret on that line",
   "before": "‸",
   "command": "add_header_tag",
   "arg": "#a",
-  "after": "‸#a"
+  "after": "#a\n‸"
+ },
+ {
+  "name": "add keeps a caret at the body's start with the body",
+  "before": "‸hello",
+  "command": "add_header_tag",
+  "arg": "a",
+  "after": "#a\n\n‸hello"
  },
  {
   "name": "add uses the note's CRLF",
@@ -158,7 +165,7 @@
   "before": "---\ntags: x\n---",
   "command": "add_header_tag",
   "arg": "a",
-  "after": "---\ntags: x\n---\n#a"
+  "after": "---\ntags: x\n---\n#a\n"
  },
  {
   "name": "add after CRLF front matter uses CRLF",

@@ -57,7 +57,11 @@ impl Engine {
         start..end
     }
 
+    /// A table's delimiter row has none: no caret stands on it.
     fn line_segments(&self, line: Range<usize>) -> Vec<Segment> {
+        if self.on_delimiter_row(line.start) {
+            return Vec::new();
+        }
         segments(&self.display_slice(line.clone()), line.start)
     }
 
@@ -74,7 +78,8 @@ impl Engine {
 
     /// The word a double click at `offset` selects: the segment there (a run of spaces or
     /// punctuation is one), or, where only the text before `offset` is a word (past a
-    /// word's or the line's end), that word. Empty on an empty line.
+    /// word's or the line's end), that word. Empty on an empty line and on a table's
+    /// delimiter row.
     pub fn word_at(
         &self,
         expected: Revision,
@@ -99,7 +104,7 @@ impl Engine {
     /// Where Option+Arrow from `offset` stops, and Option+Backspace deletes to: the end of
     /// the next word forward, the start of the previous one backward, across line breaks
     /// and blank lines as AppKit's word motion goes; past the last word, the note's end
-    /// (start).
+    /// (start), or the header's end where a table's delimiter row ends the note.
     pub fn word_stop(
         &self,
         expected: Revision,
@@ -130,7 +135,10 @@ impl Engine {
                     line.end + if crlf { 2 } else { 1 }
                 }
                 CaretDirection::Backward if line.start > 0 => line.start - 1,
-                CaretDirection::Forward => return Ok(DisplayOffset(self.display_len())),
+                CaretDirection::Forward => {
+                    let end = self.past_delimiter_row(self.display_len(), direction);
+                    return Ok(DisplayOffset(end));
+                }
                 CaretDirection::Backward => return Ok(DisplayOffset(0)),
             };
         }

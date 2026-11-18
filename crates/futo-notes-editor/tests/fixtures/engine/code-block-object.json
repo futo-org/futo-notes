@@ -32,10 +32,31 @@
     "block": true
   },
   {
-    "name": "enter: a selected empty block puts the caret on its line",
+    "name": "enter: a selected empty block puts the caret on the line below it",
     "before": "a\n```|\n```\nb",
     "command": "Enter",
-    "after": "a\n```|\n```\nb",
+    "after": "a\n```\n```\n|b",
+    "block": true
+  },
+  {
+    "name": "enter: a selected empty block that ends the note opens a line below it",
+    "before": "a\n  ```|\n  ```",
+    "command": "Enter",
+    "after": "a\n  ```\n  ```\n  |",
+    "block": true
+  },
+  {
+    "name": "shift enter: a selected empty block with a block under it opens a line between them",
+    "before": "```|\n```\n```\nx\n```",
+    "command": "ShiftEnter",
+    "after": "```\n```\n|\n```\nx\n```",
+    "block": true
+  },
+  {
+    "name": "enter: a selected empty block nothing closes is closed, a line opened below it",
+    "before": "a\n```|",
+    "command": "Enter",
+    "after": "a\n```\n```\n|",
     "block": true
   },
   {

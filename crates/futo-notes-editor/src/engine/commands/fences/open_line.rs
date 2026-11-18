@@ -72,6 +72,21 @@ impl Engine {
         ))
     }
 
+    /// The caret at the start of the line after `block`, moved with no edit;
+    /// where no line follows or the next line opens another block, on an
+    /// empty line opened after it.
+    pub(in super::super) fn below_block(&self, block: &CodeBlock) -> Command {
+        let Some(closer) = block.closer else {
+            return self.line_after_block(block);
+        };
+        let next = closer + 1;
+        if next == self.line_count() || is_opening_fence(self.line(next)) {
+            return self.line_after(closer);
+        }
+        let start = self.line_start(next);
+        Command::new(Vec::new(), next..next + 1, start..start)
+    }
+
     /// A line before the opening fence, at its indent.
     fn line_before_block(&self, block: &CodeBlock) -> Command {
         let opener = block.opener;

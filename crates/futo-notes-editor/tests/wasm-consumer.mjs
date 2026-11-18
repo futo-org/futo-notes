@@ -13,11 +13,26 @@ import console from 'node:console';
 import { setTimeout, clearTimeout } from 'node:timers';
 import { runMergeRegressions } from './wasm-merge-consumer.mjs';
 import { runBlockRegressions } from './wasm-block-consumer.mjs';
-const { WasmSession, is_paired_typing_key } = await import(pathToFileURL(process.argv[2]).href);
+const { WasmSession, is_paired_typing_key, typed_code_block_language, typed_code_block_name } =
+  await import(pathToFileURL(process.argv[2]).href);
 
 // A host reads which characters pair from the engine's own table.
 for (const text of ['`', '*', '~', '[', ']']) assert.equal(is_paired_typing_key(text), true);
 for (const text of ['(', '_', '**', 'a', '']) assert.equal(is_paired_typing_key(text), false);
+
+// A host reads what a code block's header fields keep from the engine's own rule.
+assert.equal(typed_code_block_language(' c sharp`'), 'c-sharp');
+assert.equal(typed_code_block_name('a`\tb '), 'a b ');
+
+// A host draws a delimiter row only while the caret is writing it.
+{
+  const table = new WasmSession(11n, '| a | b |\n|', 0n);
+  table.select_with_affinity(0n, 11, 11, '"Backward"');
+  const dash = Uint16Array.of(45);
+  const typed = JSON.parse(table.replace_utf16_action(0n, 11, 11, dash, '"Typing"'));
+  assert.equal(typed.change.writes_delimiter_row, true);
+  assert.equal(table.writes_delimiter_row(), true);
+}
 
 // Input that changes no source returns null, sends nothing, collapses the selection to the
 // end of its text and leaves the session taking input.
@@ -152,6 +167,7 @@ for (const text of ['(', '_', '**', 'a', '']) assert.equal(is_paired_typing_key(
         selection: { start: 3, end: 3 },
         selected_block: null,
         writes_language: false,
+        writes_delimiter_row: false,
         affinity,
       });
     }

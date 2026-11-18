@@ -138,8 +138,9 @@ impl Engine {
 
     /// Images and wikilinks are atoms: an end of `range` inside one moves to
     /// its edge (`outside_atoms`), so no plan keeps part of one's spelling.
+    /// No plan writes front matter (`in_body`).
     fn plan_writing(&self, range: DisplayRange, text: &str, writes: bool) -> Plan {
-        let plan = self.replacement(self.outside_atoms(range), text, writes);
+        let plan = self.replacement(self.outside_atoms(self.in_body(range)), text, writes);
         // A deletion keeps a span's format when it leaves a space at its
         // edge (inline family, `commands/inline/typing.rs`).
         match self.kept_formats(&plan.range, &plan.inserted) {
@@ -213,13 +214,11 @@ impl Engine {
         }
         let (lo_s, _) = self.source_span(s);
         let (_, hi_e) = self.source_span(e);
-        let metadata_start = self.metadata_end().is_some() && s == 0;
         let (from, to) = match &reach {
             Some(reach) => (reach.start, self.kept_break(reach.start, reach.end, writes)),
-            None if metadata_start => (0, self.source_bounds(e).0),
             None => (self.source_bounds(s).1, self.source_bounds(e).0),
         };
-        let lo_s = if metadata_start { 0 } else { lo_s.min(from) };
+        let lo_s = lo_s.min(from);
         let hi_e = hi_e.max(to);
         if self.quote_space(from, &inserted) {
             inserted.insert(0, ' ');
@@ -300,12 +299,12 @@ impl Engine {
     /// after the whole of `text`. A text service's line break inside a table
     /// cell, a committed composition's included, becomes a space
     /// (`cell_service_text`). Input never lands inside an image, nor
-    /// partly in a wikilink (`outside_atoms`).
+    /// partly in a wikilink (`outside_atoms`), nor in front matter (`in_body`).
     pub(crate) fn plan_input(&self, range: DisplayRange, text: &str, action: InputAction) -> Plan {
         if self.block_selected && range == self.selection {
             return self.plan(range, text);
         }
-        let range = self.outside_atoms(range);
+        let range = self.outside_atoms(self.in_body(range));
         let flat = matches!(
             action,
             InputAction::Isolated | InputAction::CompositionCommit

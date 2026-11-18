@@ -1,10 +1,11 @@
 //! Keys in a table. Tab, Shift+Tab and Enter move between cells (a move is
 //! a selection change with no edit); entering a cell a short row lacks gives
 //! the row the cells up to it, and leaving the last row appends one.
-//! Backspace and Delete never remove a pipe or the line break between two of
-//! a table's lines.
+//! Backspace and Delete never remove a pipe, the line break between two of
+//! a table's lines or the one after its delimiter row.
 use super::super::super::command::{Command, Edit};
 use super::super::super::Engine;
+use super::delimiter_row::is_delimiter_row;
 use super::{Cell, Row, Table};
 use crate::lines::{Kind, TableRole};
 use crate::{
@@ -22,13 +23,23 @@ fn moved(line: usize, selection: Range<usize>) -> Command {
 
 impl Engine {
     /// The paragraph keys a table claims. Enter and Shift+Enter in a cell
-    /// are the table's Enter, Tab and Shift+Tab its Tab keys; Backspace and
-    /// Delete that would remove a pipe or join two of its lines do nothing.
+    /// are the table's Enter, Tab and Shift+Tab its Tab keys; Enter and Tab
+    /// on a delimiter row leave it (`delimiter_row_key`). Backspace and
+    /// Delete that would remove a pipe or join two of its lines do nothing,
+    /// except on the delimiter row the caret is writing.
     pub(crate) fn table_key(
         &self,
         range: DisplayRange,
         key: ParagraphKey,
     ) -> Result<Option<Command>, EditorError> {
+        if matches!(
+            key,
+            ParagraphKey::Enter | ParagraphKey::ShiftEnter | ParagraphKey::Tab
+        ) {
+            if let Some(command) = self.delimiter_row_key(range) {
+                return Ok(Some(command));
+            }
+        }
         let key = match key {
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => TableKey::Enter,
             ParagraphKey::Tab => TableKey::Tab,
@@ -94,10 +105,11 @@ impl Engine {
     }
 
     /// Backspace or Delete at a collapsed caret that would remove a pipe of
-    /// a table line, or the line break between two lines of one table: the
-    /// caret stays where it is.
+    /// a table line, the line break between two lines of one table or the
+    /// one after a delimiter row: the caret stays where it is. On the row
+    /// the caret is writing they are ordinary text edits.
     fn kept_structure(&self, range: DisplayRange, direction: CaretDirection) -> Option<Command> {
-        if range.start != range.end {
+        if range.start != range.end || (range == self.selection && self.writes_delimiter_row()) {
             return None;
         }
         let deletion = self.caret_deletion(range.start.0, direction);
@@ -111,14 +123,15 @@ impl Engine {
         let entry = self.line(index);
         let kept = match shown.as_str() {
             "\n" | "\r\n" => {
-                index + 1 < self.line_count()
-                    && matches!(
-                        self.line(index + 1).line.kind,
-                        Kind::Table {
-                            role: TableRole::Delimiter | TableRole::Row,
-                            ..
-                        }
-                    )
+                is_delimiter_row(entry)
+                    || (index + 1 < self.line_count()
+                        && matches!(
+                            self.line(index + 1).line.kind,
+                            Kind::Table {
+                                role: TableRole::Delimiter | TableRole::Row,
+                                ..
+                            }
+                        ))
             }
             "|" => {
                 matches!(entry.line.kind, Kind::Table { .. })
@@ -214,7 +227,7 @@ fn fill(line: &Row, count: usize, cell: &str) -> (usize, String) {
 }
 
 /// An empty row after the last, with the caret in its cell `column`.
-fn append_row(table: &Table, column: usize) -> Command {
+pub(super) fn append_row(table: &Table, column: usize) -> Command {
     let last = table.last();
     let eol = table.ending(last);
     let blank = table.blank_row();

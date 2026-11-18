@@ -220,6 +220,10 @@ fn native_code_block_header_and_language_caret() {
         .is_none());
     let refused = session.set_code_block_header(1, header("c sharp", ""));
     assert!(matches!(refused, Err(EditorSessionError::InvalidText)));
+    let language = futo_notes_ffi::editor_typed_code_block_language(" c sharp`".into());
+    assert_eq!(language, "c-sharp");
+    let name = futo_notes_ffi::editor_typed_code_block_name("a`\tb ".into());
+    assert_eq!(name, "a b ");
     session.undo(1).unwrap().unwrap();
     assert_eq!(session.source_text().unwrap(), "```js hl:1\nx\n```\n");
 

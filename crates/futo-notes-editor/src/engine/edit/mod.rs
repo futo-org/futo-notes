@@ -283,6 +283,7 @@ impl Engine {
         if self.touches_metadata(range) {
             return Err(EditorError::InvalidRange);
         }
+        let range = self.in_body(range);
         let kind = (action == InputAction::Typing)
             .then(|| typing_kind(range, text, self.selection))
             .flatten();
@@ -291,7 +292,14 @@ impl Engine {
         let plan = self.plan_input(range, text, action);
         let mut batch = Batch::default();
         batch.work.parsed_source_bytes += plan.parsed;
+        let typed_line = (action == InputAction::Typing && !text.contains(['\n', '\r']))
+            .then(|| self.line_of(plan.range.start))
+            .filter(|&index| !self.is_finished_row(index));
         self.raw(&mut batch, plan.range.clone(), &plan.inserted);
+        let finished = match typed_line {
+            Some(index) => self.finished_row_exit(&mut batch, index),
+            None => None,
+        };
         let Some((edit, shown, records)) = self.accept(batch, accept)? else {
             // Unchanged input still finishes at the end of its text.
             if range.start != range.end {
@@ -299,7 +307,13 @@ impl Engine {
             }
             return Ok(None);
         };
-        self.caret_at(plan.caret);
+        self.caret_at(finished.unwrap_or(plan.caret));
+        // The keystroke that finishes a delimiter row is an Undo step of its
+        // own; until then typing on the row leaves the caret writing it.
+        let kind = kind.filter(|_| finished.is_none());
+        self.typed_table = finished.map(|_| self.revision);
+        self.writing_row =
+            (typed_line.is_some() && finished.is_none()).then_some((self.revision, self.selection));
         if plan.carry.is_some() {
             self.formats = plan.carry;
         }

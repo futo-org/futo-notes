@@ -54,6 +54,12 @@ pub(crate) struct Engine {
     /// Whether the selection is the code block it covers, selected as one
     /// object (`commands/fences/selected.rs`).
     block_selected: bool,
+    /// The revision whose keystroke finished a table's delimiter row, which
+    /// a Backspace right after takes back (`commands/tables/delimiter_row.rs`).
+    typed_table: Option<Revision>,
+    /// The revision and caret typing left on a delimiter row
+    /// (`writes_delimiter_row`).
+    writing_row: Option<(Revision, DisplayRange)>,
     history: History,
     clock: Arc<dyn HistoryClock>,
     typing: Option<TypingRun>,
@@ -88,6 +94,8 @@ impl Engine {
             formats: None,
             pin: None,
             block_selected: false,
+            typed_table: None,
+            writing_row: None,
             history: History::default(),
             clock,
             typing: None,
@@ -128,6 +136,15 @@ impl Engine {
             let (index, before) = read::line_at(&self.store, at);
             code_block::is_opening_fence_end(self.store.get(index), at - before.source)
         })
+    }
+
+    /// Whether the caret writes a table's delimiter row: typing on its line
+    /// left the caret on it and nothing has moved it or edited the note
+    /// since. A host draws the row only while this holds; any other caret
+    /// is kept off it (`commands/tables/delimiter_row.rs`).
+    pub fn writes_delimiter_row(&self) -> bool {
+        self.writing_row == Some((self.revision, self.selection))
+            && self.on_delimiter_row(self.selection.start.0)
     }
 
     /// Explicit whole-text query; never called by the input path.
@@ -339,14 +356,27 @@ impl Engine {
         })
     }
 
-    /// A selection with no end resting in metadata, unless it covers it all.
+    /// A selection with no end resting in metadata, unless it covers it all
+    /// (Select All, which Copy copies whole).
     fn outside_metadata(&self, range: DisplayRange) -> DisplayRange {
+        if self.covers_metadata(range) {
+            return range;
+        }
+        self.in_body(range)
+    }
+
+    /// Whether `range` covers all of the shown front matter.
+    pub(crate) fn covers_metadata(&self, range: DisplayRange) -> bool {
+        self.metadata_end()
+            .is_some_and(|body| range.start.0 == 0 && range.end.0 >= body && body > 0)
+    }
+
+    /// The part of `range` an edit changes: front matter is never edited,
+    /// so a range covering it (Select All) edits from the body's start.
+    pub(crate) fn in_body(&self, range: DisplayRange) -> DisplayRange {
         let Some(body) = self.metadata_end() else {
             return range;
         };
-        if range.start.0 == 0 && range.end.0 >= body && body > 0 {
-            return range;
-        }
         let snap = |at: DisplayOffset| DisplayOffset(at.0.max(body));
         DisplayRange {
             start: snap(range.start),

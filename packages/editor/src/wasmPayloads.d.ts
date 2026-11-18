@@ -290,6 +290,8 @@ export interface ViewChange {
   selected_block: DisplayRange | null;
   /** The caret is at a code block's hidden opening fence end: letters write its language. */
   writes_language: boolean;
+  /** The caret is writing a table's delimiter row (typing on that line left it there); draw the row only while this holds. */
+  writes_delimiter_row: boolean;
   work: EditWork;
   affinity: Affinity;
   projection: ProjectionSlice;
@@ -303,6 +305,8 @@ export interface SelectionChange {
   selected_block: DisplayRange | null;
   /** As on `ViewChange`. */
   writes_language: boolean;
+  /** As on `ViewChange`. */
+  writes_delimiter_row: boolean;
   affinity: Affinity;
 }
 
