@@ -125,6 +125,19 @@ fn a_lifted_image_leaves_its_line_as_written_and_lands_as_a_line_of_its_own() {
         ("Nice!![](a.jpg)\r\nb", 0, 1, "Nice!\r\n![](a.jpg)\r\nb"),
         ("Nice!![](a.jpg)\r\nb", 0, 2, "Nice!\r\nb\r\n![](a.jpg)"),
         ("a\r\nNice!![](x.jpg)", 0, 0, "![](x.jpg)\r\na\r\nNice!"),
+        // In a quote run or a table, the unit moves as before.
+        (
+            "p\n> Nice!![](a.jpg)\n> b",
+            0,
+            0,
+            "> Nice!![](a.jpg)\n> b\np",
+        ),
+        (
+            "| a![](x.jpg) |\n|---|\n| 1 |\nq",
+            0,
+            4,
+            "q\n| a![](x.jpg) |\n|---|\n| 1 |",
+        ),
     ] {
         let mut session = EditorSession::open(before);
         let revision = session.revision();
@@ -199,15 +212,21 @@ fn a_selected_image_travels_with_it_and_a_caret_stays_with_its_text() {
 
 #[test]
 fn an_image_move_that_would_change_its_line_or_is_stale_changes_nothing() {
-    // Without the image, `---` is a divider.
-    let mut session = EditorSession::open("x\n---![](a.jpg)");
-    let revision = session.revision();
-    let at = image(&session, 0).start;
-    let to = line(&session, 0);
-    assert!(session.block_slots(revision, at).unwrap().contains(&to));
-    assert_eq!(session.move_block(revision, at, to, &mut ok).unwrap(), None);
-    assert_eq!(session.source_text(), "x\n---![](a.jpg)");
-    assert!(!session.toolbar_state().can_undo);
+    // Without the image, `---` is a divider, and ` text` an indented line.
+    for note in ["x\n---![](a.jpg)", "x\n![](a.jpg) text"] {
+        let mut session = EditorSession::open(note);
+        let revision = session.revision();
+        let at = image(&session, 0).start;
+        let to = line(&session, 0);
+        assert!(session.block_slots(revision, at).unwrap().contains(&to));
+        assert_eq!(
+            session.move_block(revision, at, to, &mut ok).unwrap(),
+            None,
+            "{note:?}"
+        );
+        assert_eq!(session.source_text(), note);
+        assert!(!session.toolbar_state().can_undo, "{note:?}");
+    }
     let mut session = EditorSession::open("Nice!![](a.jpg)");
     session
         .replace(Revision(0), range(0, 0), "x", &mut ok)

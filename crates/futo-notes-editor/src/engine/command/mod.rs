@@ -480,6 +480,19 @@ impl Engine {
         self.store.len()
     }
 
+    /// The line ending a line of its own made from line `index` takes: that
+    /// line's, else the line's above (the note's last line has none), else
+    /// `\n`.
+    pub(crate) fn line_ending_near(&self, index: usize) -> String {
+        [Some(index), index.checked_sub(1)]
+            .into_iter()
+            .flatten()
+            .map(|index| self.line(index).ending())
+            .find(|ending| !ending.is_empty())
+            .unwrap_or("\n")
+            .to_owned()
+    }
+
     /// Source offset where line `index` starts.
     pub(crate) fn line_start(&self, index: usize) -> usize {
         self.store.before(index).source

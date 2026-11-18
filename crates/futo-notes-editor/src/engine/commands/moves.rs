@@ -13,7 +13,8 @@
 use super::super::command::{Command, Edit};
 use super::super::edit::Change;
 use super::super::{store, Engine};
-use crate::lines::{FenceRole, FrontMatterRole, Kind, Line, SpanKind, TableRole};
+use super::images::inside_another_mark;
+use crate::lines::{block, FenceRole, FrontMatterRole, Kind, Line, SpanKind, TableRole};
 use crate::{DisplayOffset, DisplayRange, EditorError, Revision, SourceEdit};
 use std::ops::Range;
 
@@ -212,18 +213,13 @@ impl Engine {
                     ..before + entry.to_display(span.range.end))
                     .contains(&at.0)
         })?;
-        let held = entry.spans.iter().any(|other| {
-            other.range != span.range
-                && other.range.start <= span.range.start
-                && span.range.end <= other.range.end
-        });
         let content = &entry.text[line.content.clone()];
         let (start, end) = (
             span.range.start - line.content.start,
             span.range.end - line.content.start,
         );
         let alone = content[..start].trim().is_empty() && content[end..].trim().is_empty();
-        (!held && !alone).then(|| span.range.clone())
+        (!inside_another_mark(&entry.spans, &span.range) && !alone).then(|| span.range.clone())
     }
 
     /// What a press at display offset `at` lifts.
@@ -247,28 +243,23 @@ impl Engine {
         }
     }
 
-    /// The line ending a line of its own made from line `index` takes: that
-    /// line's, else the line's above (the note's last line has none), else
-    /// `\n`.
-    fn line_ending_near(&self, index: usize) -> String {
-        [Some(index), index.checked_sub(1)]
-            .into_iter()
-            .flatten()
-            .map(|index| self.line(index).ending())
-            .find(|ending| !ending.is_empty())
-            .unwrap_or("\n")
-            .to_owned()
-    }
-
     /// The move of the image at line-relative source `span` of line `index`
     /// to boundary `slot`: its source leaves the line, nothing else there
     /// changes, and it lands at the slot as a line of its own, with a line
     /// ending of the note's after it (before it at the note's end). A
     /// selection of exactly the image travels with it; any other offset
-    /// stays with its text. The image's line and the lines it passes must
-    /// read as the same kind of block afterwards.
-    fn image_move_command(&self, index: usize, span: Range<usize>, slot: usize) -> Command {
+    /// stays with its text. `None` when the line would read differently
+    /// without the image (`---` a divider, ` text` an indented line); the
+    /// lines it passes must read as the same kind of block afterwards.
+    fn image_move_command(&self, index: usize, span: Range<usize>, slot: usize) -> Option<Command> {
         let count = self.line_count();
+        let entry = self.line(index);
+        let mut left = entry.text.clone();
+        left.replace_range(span.clone(), "");
+        let read = block::read_line(&mut entry.carry.clone(), &left, 0);
+        if (&read.kind, read.quote) != (&entry.line.kind, entry.line.quote) {
+            return None;
+        }
         let base = self.line_start(index);
         let span = base + span.start..base + span.end;
         let image = self.source_slice(span.clone());
@@ -304,7 +295,7 @@ impl Engine {
             start..end.max(start)
         };
         command.same_kind = same_kind;
-        command
+        Some(command)
     }
 
     /// The move of `block` to boundary `slot` (one of its slots): the block's
@@ -455,7 +446,10 @@ impl Engine {
         };
         let command = match lifted {
             Lifted::Lines(lines) => self.move_command(lines, slot),
-            Lifted::Image { line, span } => self.image_move_command(line, span, slot),
+            Lifted::Image { line, span } => match self.image_move_command(line, span, slot) {
+                Some(command) => command,
+                None => return Ok(None),
+            },
         };
         self.run(expected, |_| Ok(Some(command)), accept)
     }

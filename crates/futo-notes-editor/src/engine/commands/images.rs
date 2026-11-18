@@ -35,6 +35,15 @@ fn image_text(reference: &str, alt: &str) -> Option<String> {
     Some(format!("![{alt}]({destination})"))
 }
 
+/// Whether a mark other than the image at `image` holds it (a link around
+/// it, bold around it): taking the image out alone would leave that mark
+/// empty, and a line break inside it would split it.
+pub(super) fn inside_another_mark(spans: &[Span], image: &Range<usize>) -> bool {
+    spans.iter().any(|span| {
+        span.range != *image && span.range.start <= image.start && image.end <= span.range.end
+    })
+}
+
 /// Whether `spans` hold one image exactly at `at` of `text`, with exactly
 /// `reference` as its destination, `alt` as its alt and no title.
 fn is_image(spans: &[Span], text: &str, at: &Range<usize>, reference: &str, alt: &str) -> bool {
