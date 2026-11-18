@@ -283,6 +283,7 @@ internal class TextFirstEditText(
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
         super.onSelectionChanged(selStart, selEnd)
         if (coversImage(selStart, selEnd) || coversImage((renderedSelection shr 32).toInt(), renderedSelection.toInt())) invalidate()
+        val shown = renderedSelection
         renderedSelection = (selStart.toLong() shl 32) or (selEnd.toLong() and 0xffffffffL)
         selectedObject = imageSelectedWhole(selStart, selEnd)
         selectedCodeBlock = selectedCodeBlock?.takeIf { it.first == selStart && it.second == selEnd }
@@ -291,7 +292,7 @@ internal class TextFirstEditText(
         val e = editableText ?: return
         // The end sentinel is not a caret position (an empty Editable has none yet).
         val last = (e.length - 1).coerceAtLeast(0)
-        val (a, b) = clampSelectionOutOfAtoms(e, selStart.coerceAtMost(last), selEnd.coerceAtMost(last))
+        val (a, b) = clampSelectionOutOfAtoms(e, selStart.coerceAtMost(last), selEnd.coerceAtMost(last), shown)
         if (a != selStart || b != selEnd) {
             val wasApplying = applying
             applying = true
