@@ -37,3 +37,13 @@ internal fun TextFirstEditText.coversImage(start: Int, end: Int): Boolean {
     if (start < 0 || start >= end || end > e.length) return false
     return e.getSpans(start, end, TfImage::class.java).any { e.getSpanStart(it) >= start && e.getSpanEnd(it) <= end }
 }
+
+/**
+ * The image [start] to [end] selects exactly, as one object (a tap, Backspace after it, a long-press): the keyboard's
+ * collapse-and-delete then removes it whole, and the TextView's own highlight stays hidden under its tint.
+ */
+internal fun TextFirstEditText.imageSelectedWhole(start: Int, end: Int): Pair<Int, Int>? {
+    val e = editableText ?: return null
+    if (start < 0 || start >= end || end > e.length) return null
+    return e.getSpans(start, end, TfImage::class.java).firstOrNull { e.getSpanStart(it) == start && e.getSpanEnd(it) == end }?.let { start to end }
+}

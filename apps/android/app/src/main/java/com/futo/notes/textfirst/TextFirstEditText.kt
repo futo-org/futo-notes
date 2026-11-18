@@ -286,7 +286,7 @@ internal class TextFirstEditText(
         super.onSelectionChanged(selStart, selEnd)
         if (coversImage(selStart, selEnd) || coversImage((renderedSelection shr 32).toInt(), renderedSelection.toInt())) invalidate()
         renderedSelection = (selStart.toLong() shl 32) or (selEnd.toLong() and 0xffffffffL)
-        selectedObject = selectedObject?.takeIf { it.first == selStart && it.second == selEnd }
+        selectedObject = imageSelectedWhole(selStart, selEnd)
         selectedCodeBlock = selectedCodeBlock?.takeIf { it.first == selStart && it.second == selEnd }
         val painted = paintCodeSelection(selStart, selEnd, settled = settlingFromEngine)
         if (applying) return

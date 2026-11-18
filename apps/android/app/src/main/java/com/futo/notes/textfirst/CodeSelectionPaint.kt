@@ -85,6 +85,7 @@ internal val TextFirstEditText.codeSelection: CodeSelectionPaint? get() = codeSe
 internal fun TextFirstEditText.paintCodeSelection(start: Int, end: Int, settled: Boolean = false): CodeSelectionPaint? {
     // The TextView reports a selection from its own constructor, before this view's fields exist.
     if (layout == null) return null
+    refreshCodeHighlight()
     val chrome = codeSelectionTracker
     // A handle drag moves one end and reports it as either; the end that stayed is where the gesture started.
     val anchor = if (start != chrome.lastStart && end == chrome.lastEnd) end else start
@@ -104,9 +105,11 @@ internal fun TextFirstEditText.paintCodeSelection(start: Int, end: Int, settled:
     return painted
 }
 
-/** The TextView's own highlight shows only while no block owns the selection's paint. */
+/** The TextView's own highlight shows only while no block owns the selection's paint and no object (an image) is selected whole. */
 internal fun TextFirstEditText.refreshCodeHighlight() {
-    highlightColor = if (selectedCodeBlock != null || codeSelectionTracker.painted != null) 0 else style.selectionColor
+    val hidden = selectedCodeBlock != null || codeSelectionTracker.painted != null || selectedObject != null
+    val color = if (hidden) 0 else style.selectionColor
+    if (highlightColor != color) highlightColor = color
 }
 
 /** Whether the painted selection takes the block whose code starts at [codeStart] whole. */

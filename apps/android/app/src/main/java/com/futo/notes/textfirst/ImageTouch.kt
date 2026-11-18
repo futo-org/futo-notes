@@ -21,7 +21,6 @@ internal class ImageTouch(private val view: TextFirstEditText) {
     fun settleSelection() {
         val range = select ?: return
         select = null
-        view.selectedObject = range
         view.setSelection(range.first, range.second)
     }
 

@@ -2,6 +2,7 @@ package com.futo.notes.textfirst
 
 import android.view.KeyEvent
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
 import uniffi.futo_notes_ffi.EditorBlockCommand
@@ -326,15 +327,11 @@ class TextFirstExitTest {
     }
 
     /** The keyboard answers Enter on a selection by collapsing it and deleting the selected text first. */
+    /** FUTO Keyboard and Gboard both send Enter on a selection as a committed line break (traced 2026-11-18). */
     @Test fun enterOnASelectedImageKeepsItAndAddsALineBelow() = textFirstSession("![](a.png)\n") { c ->
-        c.view.selectedObject = 0 to 10
         c.select(0, 10)
-        delay(300L)
-        textFirstIme(c) {
-            setSelection(10, 10)
-            deleteSurroundingText(10, 0)
-        }
-        enter(c)
+        withTimeout(5_000) { while (c.view.selectionEnd != 10) delay(20) }
+        textFirstIme(c) { commitText("\n", 1) }
         assertEquals("![](a.png)\n\n", c.sourceText())
     }
 
