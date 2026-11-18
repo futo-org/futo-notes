@@ -106,4 +106,18 @@ class TextFirstDesktopRulesTest {
         textFirstIme(c) { commitText("y", 1) }
         assertEquals("alpha beta\nx\ny\nsecond", c.sourceText())
     }
+
+    @Test fun aTapOnADividerSelectsIt() = textFirstSession("above\n\n---\n\nbelow") { c ->
+        ready(c, 0)
+        val view = c.view
+        val e = view.editableText
+        val divider = e.getSpans(0, e.length, TfDivider::class.java).single()
+        val start = e.getSpanStart(divider)
+        val end = e.getSpanEnd(divider)
+        val l = view.layout
+        val line = l.getLineForOffset(start)
+        tapNoteAt(view, view.totalPaddingLeft + view.width / 3f, view.totalPaddingTop - view.scrollY + (l.getLineTop(line) + l.getLineBottom(line)) / 2f)
+        withTimeout(5_000) { while (view.selectionEnd != end) delay(20) }
+        assertEquals(start to end, view.selectionStart to view.selectionEnd)
+    }
 }

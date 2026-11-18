@@ -10,7 +10,7 @@ Source: `origin/desktop/new-editor:docs/spec/editor/desktop/blocks.md`.
 | bl-4 | Highlights a selected marker from its left edge to the text start, no gap. | host: phone form | The same. | same, except a last partial line's number is not tinted | measured; small, not built |
 | bl-5 | Typing over the marker unit replaces it; Backspace after it takes it off. | engine | lists.md. | to measure | none |
 | bl-6 | Draws a 3px tinted quote bar per level and quote text muted. | host: phone form | The same. | grey bar, upright text; colour open (V 3.10, #13) | none |
-| bl-7 | A divider is one atom: a click selects it whole; Backspace after it deletes it. | host: phone form | A tap selects it. | a tap puts the caret before the divider; Backspace after deletes it whole | differs (tap does not select); host, small; not built |
+| bl-7 | A divider is one atom: a click selects it whole; Backspace after it deletes it. | host: phone form | A tap selects it. | built: a tap on a divider selects it whole, as a tap on an image does (TextFirstDesktopRulesTest); Backspace after it deletes it | built |
 | bl-8 | A click on a task's checkbox toggles it in one Undo step; caret, selection and scroll stay. | host: phone form | A tap. | same | measured |
 | bl-9 | Enter, Backspace, Tab in lists and quotes, and typed line starts, are the engine's. | engine | lists.md, list-indent.md, list-shortcuts.md. | same | none |
 | bl-10 | Mod+Alt+8 bullets, Mod+Alt+7 numbers, Mod+Shift+B quotes. | host: phone form | Hardware Ctrl+Alt+8, Ctrl+Alt+7, Ctrl+Shift+B; touch uses the toolbar. | built: Ctrl+Alt+8, Ctrl+Alt+7, Ctrl+Shift+B (e0d9b4610, TextFirstDesktopRulesTest) | built |
