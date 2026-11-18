@@ -67,6 +67,8 @@ test:ios-native:
     when: always
     paths:
       - testFutoNotesIOSNative/ios_test_results/**/*
+      # The whole xcodebuild output; the job log is the same minus keyboard-renderer noise.
+      - testFutoNotesIOSNative/ios_test_log/**/*
     expire_in: 1 week
   rules:
     - !reference [.not-scheduled, rules]
@@ -104,77 +106,11 @@ test:ios-native:
         - src/features/folders/**/*
         - svelte.config.js
         - scripts/build-rust-ios.sh
+        - scripts/ci-ios-test-log.sh
+        - scripts/ios-sdk-floor.mjs
         - .cirrus.star
         - ci/cirrus/*.yml
         - .cirrus.yml
         - ci/*.yml
         - .gitlab-ci.yml
     - if: $CI_COMMIT_TAG
-
-# CANARY: the same tests on the Xcode 27.2 image (testFutoNotesIOSNativeXcode27 in
-# ci/cirrus/ios-test-xcode27.yml), so that moving the required job to 27.2 is
-# proved before it is attempted. Merge requests get no pipeline, so a change to
-# the required job can only be tried on main, and two such tries broke main
-# (pipelines 40319, 40354). Press it on a main pipeline; it never blocks anything.
-# Deliberately NOT in release:gate.needs and allow_failure: it is a temporary
-# experiment, and a red canary must not hold a release back. Removed when the
-# required test:ios-native moves to 27.2.
-test:ios-native:xcode27:
-  stage: test
-  needs: []
-  tags:
-    - macscript
-  variables:
-    GIT_STRATEGY: clone
-  before_script:
-    - env | grep -E '^(CI_|IOS_)' > "$CI_PROJECT_DIR/.cienv"
-  script:
-    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
-    - command -v cirrus || brew install cirruslabs/cli/cirrus
-    - cirrus run testFutoNotesIOSNativeXcode27 --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
-  artifacts:
-    when: always
-    paths:
-      - testFutoNotesIOSNativeXcode27/ios_test_results/**/*
-      # The whole xcodebuild output; the job log is the same minus keyboard-renderer noise.
-      - testFutoNotesIOSNativeXcode27/ios_test_log/**/*
-    expire_in: 1 week
-  rules:
-    - !reference [.not-scheduled, rules]
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      when: manual
-      allow_failure: true
-
-# TEMPORARY, with the canary above: get the Xcode 27.2 VM image onto every Mac
-# runner before the required job moves to it. A first pull is 70.8 GB; on a
-# slow link it outlasts the 1 h job timeout (job 294571 spent its whole hour
-# pulling and tested nothing), and a required job landing on such a runner
-# would fail. Jobs cannot pick a runner, so this runs five at once: on a runner
-# that already has the image the pull returns at once and the job then holds
-# the runner for five minutes, which leaves the rest for the runners without it.
-# Press it on a main pipeline; removed with the canary.
-ios:prepull-xcode27-image:
-  stage: test
-  needs: []
-  tags:
-    - macscript
-  variables:
-    GIT_STRATEGY: none
-  parallel: 5
-  timeout: 4h
-  # Not the default before_script: it installs fnm from the checkout, and this
-  # job has neither a checkout nor a use for Node.
-  before_script: []
-  script:
-    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
-    - hostname
-    - START=$(date +%s)
-    - tart pull ghcr.io/cirruslabs/macos-tahoe-xcode:27.2
-    - TOOK=$(( $(date +%s) - START ))
-    - echo "pull took ${TOOK}s on $(hostname)"
-    - if [ "$TOOK" -lt 60 ]; then echo "already cached; holding this runner for 5 minutes"; sleep 300; fi
-  rules:
-    - !reference [.not-scheduled, rules]
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      when: manual
-      allow_failure: true

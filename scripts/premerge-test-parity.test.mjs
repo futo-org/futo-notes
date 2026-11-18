@@ -33,7 +33,7 @@ describe('pre-merge CI routing contracts', () => {
   it('provisions missing Cirrus tools in every Mac runner shell', () => {
     const jobs = gitlabPipeline.split(/(?=^[^ #\n][^\n]*:\n)/m);
     const cirrusJobs = jobs.filter((job) => job.includes('    - cirrus run '));
-    expect(cirrusJobs).toHaveLength(9);
+    expect(cirrusJobs).toHaveLength(8);
     for (const job of cirrusJobs) {
       expect(job).toContain('    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"');
       expect(job).toContain('command -v cirrus || brew install cirruslabs/cli/cirrus');
