@@ -131,6 +131,27 @@
             }
         }
 
+        @Test func aStillFingerInAnEdgeZoneScrollsTheNote() async throws {
+            let h = TextFirstHarness(
+                (0..<300).map { "line \($0)" }.joined(separator: "\n"), focused: false)
+            // Lifted 30 pt above the bottom edge and never moved.
+            _ = try begin(h, at: CGPoint(x: 60, y: h.tv.bounds.maxY - 30))
+            #expect(await h.until(2) { h.tv.contentOffset.y > 100 })
+            h.controller.endBlockDrag(dropping: false)
+            // Lifted mid-screen, then the visible area shrinks under the still finger (a
+            // rotation, a bar coming in) until it is 30 pt from the bottom edge.
+            let from = h.tv.contentOffset.y
+            let middle = CGPoint(x: 60, y: h.tv.bounds.midY)
+            _ = try begin(h, at: middle)
+            try await Task.sleep(nanoseconds: 200_000_000)
+            #expect(h.tv.contentOffset.y == from)
+            h.window.frame.size.height = middle.y - h.tv.bounds.minY + 30
+            h.tv.frame = h.window.bounds
+            h.tv.layoutIfNeeded()
+            #expect(await h.until(2) { h.tv.contentOffset.y > from + 100 })
+            h.controller.endBlockDrag(dropping: false)
+        }
+
         @Test func aSyncWriteEndsTheDragBeforeTheEditorHasTakenItIn() async throws {
             let h = TextFirstHarness("one\ntwo\nthree", focused: false)
             let drag = try begin(h, at: h.point(line: 0))

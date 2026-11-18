@@ -255,15 +255,23 @@ extension TextFirstEditorController {
             lift, at: p, snapshot: snapshot, on: textView,
             autoscroll: { [weak self] step in self?.autoscrollBlockDrag(by: step) })
         dragHaptics.lifted()
+        steerAutoscroll()
     }
 
     func followBlockDrag(to p: CGPoint) {
         guard let drag = blockDrag else { return }
         if drag.follow(p) { dragHaptics.reachedSlot() }
+        steerAutoscroll()
+    }
+
+    /// Set the autoscroll's speed from where the finger is in what shows of the note: at the
+    /// lift, as the finger moves, and as the visible area changes under a still finger.
+    private func steerAutoscroll() {
+        guard let drag = blockDrag else { return }
         let insets = textView.adjustedContentInset
         let bounds = textView.bounds
         drag.autoscroller.velocity = TextFirstAutoscroll.velocity(
-            at: p.y, in: (bounds.minY + insets.top)...(bounds.maxY - insets.bottom))
+            at: drag.fingerY, in: (bounds.minY + insets.top)...(bounds.maxY - insets.bottom))
     }
 
     /// One autoscroll frame: scroll by `step`, held to the note's ends, and read the targets
@@ -290,6 +298,7 @@ extension TextFirstEditorController {
         defer { drag.measuring = false }
         do {
             drag.remeasured(try dropTargets(&drag.book))
+            steerAutoscroll()
         } catch {
             print("text-first: drop targets failed: \(error)")
             cancelBlockDrag()
