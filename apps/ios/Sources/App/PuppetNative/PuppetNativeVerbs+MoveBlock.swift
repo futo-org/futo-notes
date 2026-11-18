@@ -34,14 +34,17 @@
                 column = value
             }
             let at = line.range.location + column
+            // Above a line is its start; below the last line is the note's end, which an empty
+            // last line (an empty task shows no characters) shares with the boundary above it.
             let target = try document.requireLine(before ?? after!, visibleOnly: false)
-            let slot: Int
+            let slot: TextFirstBlockSlot
             if before != nil {
-                slot = target.range.location
+                slot = TextFirstBlockSlot(offset: target.range.location, end: false)
             } else if target.number < document.lines.count {
-                slot = document.lines[target.number].range.location
+                slot = TextFirstBlockSlot(
+                    offset: document.lines[target.number].range.location, end: false)
             } else {
-                slot = document.text.length
+                slot = TextFirstBlockSlot(offset: document.text.length, end: true)
             }
             let side = before != nil ? "before" : "after"
             guard let slots = try c.blockSlots(at: at) else {
@@ -53,13 +56,13 @@
             guard slots.contains(slot) else {
                 throw PuppetVerbRefusal(
                     409,
-                    "line \(number)'s block cannot land \(side) line \(target.number): that boundary is its own edge, or inside a quote, code block, table or front matter, or inside a list that takes only list items and plain lines"
+                    "line \(number)'s block cannot land \(side) line \(target.number): that boundary is its own edge, or inside a quote, code block, table or front matter, or inside a list that takes only list items and plain lines, or a line would read as another kind of block there"
                 )
             }
-            guard try c.moveBlock(at: at, toSlot: slot) else {
+            guard try c.moveBlock(at: at, to: slot) else {
                 throw PuppetVerbRefusal(
                     409,
-                    "the editor refused to move line \(number)'s block \(side) line \(target.number): a line would read as another kind of block, or the editor was busy"
+                    "the editor refused to move line \(number)'s block \(side) line \(target.number): the note changed, or the editor was busy"
                 )
             }
             return ["moved": ["line": number, side: target.number]]

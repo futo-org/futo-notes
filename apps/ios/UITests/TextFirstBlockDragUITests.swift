@@ -131,4 +131,24 @@ final class TextFirstBlockDragUITests: XCTestCase {
             withVelocity: .slow, thenHoldForDuration: 0.3)
         XCTAssertTrue(note.saved("![](pic.png)\nfirst\nsecond"), "carried up, it lands at the top")
     }
+
+    /// An empty task on the last line shows its box and no characters, so the boundary above it
+    /// and the note's end share a display position (#446): a line carried below the task's row
+    /// lands after the task, and the task itself lifts.
+    @MainActor
+    func testAnEmptyLastTaskLiftsAndADropBelowItLandsAfterIt() throws {
+        let after = try open("alpha\nbravo\n- [ ] ")
+        after.line(0).press(
+            forDuration: 0.8,
+            thenDragTo: after.line(2).withOffset(CGVector(dx: 0, dy: Opened.lineStep * 0.45)),
+            withVelocity: .slow, thenHoldForDuration: 0.3)
+        XCTAssertTrue(after.saved("bravo\n- [ ] \nalpha"), "dropped below the task, after it")
+        after.app.terminate()
+
+        let task = try open("alpha\nbravo\n- [ ] ")
+        task.line(2).press(
+            forDuration: 0.8, thenDragTo: task.line(0).withOffset(CGVector(dx: 0, dy: -12)),
+            withVelocity: .slow, thenHoldForDuration: 0.3)
+        XCTAssertTrue(task.saved("- [ ] \nalpha\nbravo"), "the empty task lifts and lands on top")
+    }
 }

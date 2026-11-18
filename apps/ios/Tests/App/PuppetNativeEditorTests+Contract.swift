@@ -211,6 +211,27 @@
             #expect(h.source == "intro\nend\n- a\n  - b")
         }
 
+        @Test func moveBlockTellsAboveAnEmptyLastTaskFromAfterIt() async throws {
+            // Display lines: 1 a, 2 b, 3 the task, which shows no characters.
+            let h = TextFirstHarness("a\nb\n- [ ] ")
+            let unmount = mount(h)
+            defer { unmount() }
+            let adapter = attached(h)
+            let after = await adapter.perform("MoveBlock", arguments: ["line": 1, "after": 3])
+            #expect(after.status == 200)
+            #expect(h.source == "b\n- [ ] \na")
+            h.controller.undo()
+            let before = await adapter.perform("MoveBlock", arguments: ["line": 1, "before": 3])
+            #expect(before.status == 200)
+            #expect(h.source == "b\na\n- [ ] ")
+            h.controller.undo()
+            // The task itself lifts.
+            #expect(
+                await adapter.perform("MoveBlock", arguments: ["line": 3, "before": 1]).status
+                    == 200)
+            #expect(h.source == "- [ ] \na\nb")
+        }
+
         @Test func moveBlockTakesOnlyANonNegativeIntegerColumn() async throws {
             // Display lines: 1 the text and photo, 2 next. Column 4 is the photo.
             let note = "text![](p.png)\nnext"

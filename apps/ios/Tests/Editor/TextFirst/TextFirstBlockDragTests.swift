@@ -131,9 +131,11 @@
             // Held where it was, it drops nowhere; just below its line it lands above `next`,
             // above `Nice!` it lands at the note's top.
             #expect(lift.targets.slot(nearest: lift.frame.midY) == nil)
-            #expect(lift.targets.slot(nearest: lift.frame.maxY + 2)?.offset == 36)
-            #expect(lift.targets.slot(nearest: point(h, line: 0, fraction: 0).y)?.offset == 0)
-            #expect(try h.controller.moveBlock(at: lift.offset, toSlot: 36))
+            #expect(lift.targets.slot(nearest: lift.frame.maxY + 2)?.slot.offset == 36)
+            #expect(lift.targets.slot(nearest: point(h, line: 0, fraction: 0).y)?.slot.offset == 0)
+            #expect(
+                try h.controller.moveBlock(
+                    at: lift.offset, to: TextFirstBlockSlot(offset: 36, end: false)))
             let moved = try h.controller.session.sourceText()
             #expect(moved == "Nice! Nice! Nice! Nice!\n![](pic.png)\nnext")
             #expect(h.controller.divergences.isEmpty, "\(h.controller.divergences)")
@@ -166,7 +168,8 @@
             // drop line, and above `second` only once the finger is nearer that boundary.
             #expect(lift.targets.slot(nearest: lift.frame.minY + 4) == nil)
             #expect(lift.targets.slot(nearest: lift.frame.maxY - 4) == nil)
-            #expect(lift.targets.slot(nearest: point(h, line: 1, fraction: 0.2).y)?.offset == 6)
+            let aboveSecond = lift.targets.slot(nearest: point(h, line: 1, fraction: 0.2).y)
+            #expect(aboveSecond?.slot.offset == 6)
         }
 
         @Test func aBlockRunningOffScreenLiftsWhatShows() throws {
@@ -192,7 +195,7 @@
             let starts = lineStarts(h)
             let targets = try #require(h.controller.liftPlan(at: point(h, line: 2))).targets
             func drop(_ line: Int, _ fraction: CGFloat) -> Int? {
-                targets.slot(nearest: point(h, line: line, fraction: fraction).y)?.offset
+                targets.slot(nearest: point(h, line: line, fraction: fraction).y)?.slot.offset
             }
             let end = h.controller.storage.length
             #expect(drop(0, 0.2) == starts[0])
@@ -223,14 +226,41 @@
             #expect(ticks == [false, true, false, true, false, true])
         }
 
+        @Test func anEmptyTaskOnTheLastLineLiftsAndADropAfterItLandsAfterIt() throws {
+            // The task draws a box and no characters: the display is `a\nb\n`, and the
+            // boundary above the task and the note's end are both at 4, drawn at the top and
+            // the bottom of the task's row.
+            let h = TextFirstHarness("a\nb\n- [ ] ", focused: false)
+            let task = try #require(h.controller.liftPlan(at: trailingLine(h)))
+            #expect(task.block == NSRange(location: 4, length: 0))
+            #expect(task.frame.height > 10)
+            #expect(task.frame.contains(CGPoint(x: 60, y: trailingLine(h).y)))
+            // Over its own row it drops nowhere; above `b` it lands there.
+            #expect(task.targets.slot(nearest: task.frame.midY) == nil)
+            let aboveB = task.targets.slot(nearest: point(h, line: 1, fraction: 0.2).y)
+            #expect(aboveB?.slot == TextFirstBlockSlot(offset: 2, end: false))
+            // `a` may land above the task or after it, two targets one row apart.
+            let a = try #require(h.controller.liftPlan(at: point(h, line: 0)))
+            let above = TextFirstBlockSlot(offset: 4, end: false)
+            let end = TextFirstBlockSlot(offset: 4, end: true)
+            let ys = Dictionary(uniqueKeysWithValues: a.targets.slots.map { ($0.slot, $0.y) })
+            let (top, bottom) = (try #require(ys[above]), try #require(ys[end]))
+            #expect(top == task.frame.minY && bottom == task.frame.maxY)
+            #expect(a.targets.slot(nearest: bottom + 2)?.slot == end)
+            #expect(try h.controller.moveBlock(at: a.offset, to: end))
+            #expect(try h.controller.session.sourceText() == "b\n- [ ] \na")
+            #expect(h.controller.divergences.isEmpty, "\(h.controller.divergences)")
+        }
+
         @Test func aMoveLeavesTheViewWithTheEnginesExactUtf16() throws {
             // Line 0 is precomposed `é`, line 1 decomposed `e` and U+0301: Swift calls the two
             // strings equal, but they are one UTF-16 unit apart. Moving line 0 below line 1
             // swaps them; a view that took them for unchanged would no longer match the engine.
             let h = TextFirstHarness("\u{e9}\ne\u{301}\nz", focused: false)
             let slots = try #require(try h.controller.blockSlots(at: 0))
-            #expect(slots == [5, 6])
-            #expect(try h.controller.moveBlock(at: 0, toSlot: 5))
+            let above = TextFirstBlockSlot(offset: 5, end: false)
+            #expect(slots == [above, TextFirstBlockSlot(offset: 6, end: true)])
+            #expect(try h.controller.moveBlock(at: 0, to: above))
             let shown = Array(h.controller.storage.string.utf16)
             #expect(shown == Array("e\u{301}\n\u{e9}\nz".utf16))
             #expect(shown == Array(try h.controller.session.displayText().utf16))

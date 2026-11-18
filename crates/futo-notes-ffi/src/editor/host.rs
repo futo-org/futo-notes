@@ -109,6 +109,17 @@ impl EditorDisplayMirror {
         Ok(self.with(|m| m.byte_to_utf16(byte))? as u64)
     }
 
+    /// `byte_to_utf16` for each of `bytes`, in one call: a renderer placing many offsets at once
+    /// (a lifted block's slots) pays one crossing, not one per offset. Any bad offset refuses all.
+    pub fn bytes_to_utf16(&self, bytes: Vec<u64>) -> Result<Vec<u64>, EditorMirrorError> {
+        self.with(|m| {
+            bytes
+                .into_iter()
+                .map(|byte| Ok(m.byte_to_utf16(index(byte)?)? as u64))
+                .collect()
+        })
+    }
+
     pub fn utf16_to_byte(&self, unit: u64) -> Result<u64, EditorMirrorError> {
         let unit = index(unit)?;
         Ok(self.with(|m| m.utf16_to_byte(unit))? as u64)
