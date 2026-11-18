@@ -167,3 +167,27 @@ fn native_block_slots_are_asked_for_inside_a_display_range() {
     assert_eq!(session.source_text().unwrap(), "a\nb\nc\nd\ne");
     assert!(matches!(session.undo(0), Ok(None)));
 }
+
+#[test]
+fn native_block_move_reports_one_change_spanning_the_numbers_it_rewrites() {
+    let tree = TempTree::new();
+    let note = "1. a\n2. b\n3. c\n\n1. d\n2. e";
+    let (store, session) = open(&tree, note);
+    // Markers are hidden: the display is `a\nb\nc\n\nd\ne`. `a` dropped
+    // above `e` joins the second list as its second item: the first list
+    // closes up and `e` counts on, edits far apart in one change.
+    let before = session.display_text().unwrap();
+    let change = session.move_block(0, at(0), above(9)).unwrap().unwrap();
+    let after = "1. b\n2. c\n\n1. d\n2. a\n3. e";
+    assert_eq!(session.source_text().unwrap(), after);
+    let mut display = before;
+    display.replace_range(
+        change.range.start as usize..change.range.end as usize,
+        &change.inserted,
+    );
+    assert_eq!(display, session.display_text().unwrap());
+    session.undo(1).unwrap().unwrap();
+    assert_eq!(session.source_text().unwrap(), note);
+    session.checkpoint().unwrap();
+    assert_eq!(store.read("note".into()).unwrap(), note);
+}
