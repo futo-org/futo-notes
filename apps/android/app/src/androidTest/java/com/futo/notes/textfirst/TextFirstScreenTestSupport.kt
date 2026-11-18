@@ -22,6 +22,7 @@ internal fun AndroidComposeTestRule<ActivityScenarioRule<ComponentActivity>, Com
     note: String,
     nativeTheme: Int? = null,
     darkTheme: () -> Boolean = { false },
+    otherNotes: Map<String, String> = emptyMap(),
     check: (TextFirstEditText, InputConnection) -> Unit,
 ) {
     NoteScrollMemory.clear()
@@ -29,6 +30,7 @@ internal fun AndroidComposeTestRule<ActivityScenarioRule<ComponentActivity>, Com
     val scratch = File(context.cacheDir, "caret-follow-${UUID.randomUUID()}").apply { check(mkdirs()) }
     val root = File(scratch, "vault").apply { check(mkdirs()) }
     File(root, "draft.md").writeText(note)
+    for ((title, body) in otherNotes) File(root, "$title.md").writeText(body)
     lateinit var store: NotesStore
     runOnUiThread {
         nativeTheme?.let {

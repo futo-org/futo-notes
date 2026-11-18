@@ -34,8 +34,7 @@ internal class TextFirstEditText(
         }
     internal val imePublisher = NativeImePublisher(this)
     var onOpenWikilink: ((WikilinkDestination) -> Unit)? = null
-    var onLinkShortcut: (() -> Unit)? = null
-    var onFindShortcut: ((FindShortcut) -> Unit)? = null
+    internal val keyHooks = HardwareKeyHooks()
     var onOpenUrl: ((String) -> Boolean)? = null
     private val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
     private val imageTouch = ImageTouch(this)
@@ -360,7 +359,7 @@ internal class TextFirstEditText(
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val engine = engine ?: return super.onKeyDown(keyCode, event)
         if (selectedBlockKey(keyCode, event) || codeLineKey(keyCode, event) || codeStartBackTab(keyCode, event) || downOutOfLastBlock(keyCode, event)) return true
-        if (shortcutKey(engine, keyCode, event) || engineKey(engine, keyCode, event)) return true
+        if (completionKey(keyCode, event) || shortcutKey(engine, keyCode, event) || engineKey(engine, keyCode, event)) return true
         return super.onKeyDown(keyCode, event) || keyCode in NOTE_MOVE_KEYS
     }
 

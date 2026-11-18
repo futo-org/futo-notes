@@ -39,8 +39,8 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
         try { draft = controller.linkDraft() } finally { opening = false }
     }
     DisposableEffect(controller) {
-        controller.view.onLinkShortcut = { if (controller.opened) scope.launch { openLink() } }
-        onDispose { controller.view.onLinkShortcut = null }
+        controller.view.keyHooks.link = { if (controller.opened) scope.launch { openLink() } }
+        onDispose { controller.view.keyHooks.link = null }
     }
     PuppetVerbScope {
         if (!visible || !controller.opened || opening || draft != null) emptyList() else listOf(

@@ -63,7 +63,7 @@ class TextFirstDesktopRulesTest {
     @Test fun ctrlKOpensTheLinkForm() = textFirstSession("alpha beta") { c ->
         ready(c, 6, 10)
         var opened = 0
-        c.view.onLinkShortcut = { opened++ }
+        c.view.keyHooks.link = { opened++ }
         assertEquals(true, c.view.onKeyDown(KeyEvent.KEYCODE_K, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_K, 0, KeyEvent.META_CTRL_ON)))
         assertEquals(1, opened)
     }

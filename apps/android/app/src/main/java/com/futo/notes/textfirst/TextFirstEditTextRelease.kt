@@ -11,8 +11,7 @@ internal fun TextFirstEditText.releasePayload() {
     onRenderFrame = null
     onApplyMeasured = null
     onOpenWikilink = null
-    onLinkShortcut = null
-    onFindShortcut = null
+    keyHooks.clear()
     onOpenUrl = null
     onTableCell = null
     setOnFocusChangeListener(null)

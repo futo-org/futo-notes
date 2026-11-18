@@ -89,8 +89,8 @@ internal fun rememberTextFirstFind(controller: TextFirstController, key: Any): T
     val focus = LocalFocusManager.current
     val find = remember(key) { TextFirstFind(controller, scope, focus) }
     DisposableEffect(find) {
-        controller.view.onFindShortcut = find::shortcut
-        onDispose { controller.view.onFindShortcut = null }
+        controller.view.keyHooks.find = find::shortcut
+        onDispose { controller.view.keyHooks.find = null }
     }
     return find
 }

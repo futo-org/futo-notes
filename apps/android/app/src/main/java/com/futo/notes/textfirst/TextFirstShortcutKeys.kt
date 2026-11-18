@@ -4,6 +4,29 @@ import android.view.KeyEvent
 import uniffi.futo_notes_ffi.EditorBlockCommand
 import uniffi.futo_notes_ffi.EditorInlineFormat
 
+/** What the screen around the note does for a hardware key: the link form, the find bar, the wikilink completion list. */
+internal class HardwareKeyHooks {
+    var link: (() -> Unit)? = null
+    var find: ((FindShortcut) -> Unit)? = null
+    /** Up, Down, Enter, Tab and Escape while the completion list is open; true when the list took the key. */
+    var completion: ((Int) -> Boolean)? = null
+
+    fun clear() {
+        link = null
+        find = null
+        completion = null
+    }
+}
+
+/** The completion list takes its keys before the note does. */
+internal fun TextFirstEditText.completionKey(keyCode: Int, event: KeyEvent): Boolean =
+    !event.isCtrlPressed && !event.isAltPressed && keyCode in COMPLETION_KEYS && keyHooks.completion?.invoke(keyCode) == true
+
+private val COMPLETION_KEYS = setOf(
+    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
+    KeyEvent.KEYCODE_TAB, KeyEvent.KEYCODE_ESCAPE,
+)
+
 /**
  * A hardware keyboard's Ctrl shortcuts: undo and redo, the inline formats, select all, copy, cut and paste, and
  * desktop's line chords (Ctrl+Alt+1-6 headings, +8 bullets, +7 numbers, Ctrl+Shift+B quote).
@@ -19,11 +42,11 @@ internal fun TextFirstEditText.shortcutKey(engine: EditorEngine, keyCode: Int, e
             return true
         }
         KeyEvent.KEYCODE_E -> { engine.toggleFormat(EditorInlineFormat.CODE); return true }
-        KeyEvent.KEYCODE_K -> { onLinkShortcut?.invoke(); return onLinkShortcut != null }
-        KeyEvent.KEYCODE_F -> { onFindShortcut?.invoke(FindShortcut.OPEN); return onFindShortcut != null }
+        KeyEvent.KEYCODE_K -> { keyHooks.link?.invoke(); return keyHooks.link != null }
+        KeyEvent.KEYCODE_F -> { keyHooks.find?.invoke(FindShortcut.OPEN); return keyHooks.find != null }
         KeyEvent.KEYCODE_G -> {
-            onFindShortcut?.invoke(if (event.isShiftPressed) FindShortcut.PREVIOUS else FindShortcut.NEXT)
-            return onFindShortcut != null
+            keyHooks.find?.invoke(if (event.isShiftPressed) FindShortcut.PREVIOUS else FindShortcut.NEXT)
+            return keyHooks.find != null
         }
         KeyEvent.KEYCODE_I -> { engine.toggleFormat(EditorInlineFormat.ITALIC); return true }
         KeyEvent.KEYCODE_A -> { engine.selectAll(); return true }

@@ -93,6 +93,7 @@ The per-area items from `VERDICT.md` (every `leave` and every `ask Mason`) are i
 - **Built from a desktop decision, phone form: hardware Ctrl+Enter / Ctrl+Shift+Enter open a line below or above in prose, as in code; Ctrl+Enter in a table cell goes to the empty line after the table, or opens one.** Host sequences on the editor thread (the caret moves, then the engine's Enter), until the engine has commands for them. Reverse: `small` (EditorEngine.openLine, EditorEngine.leaveTableBelow).
 - **Built from a desktop decision, phone form: a tap on a divider selects it whole**, as a tap on an image does. Reverse: `one line` (ImageTouch.hit's TfDivider case).
 - **A selection end moved off screen with a hardware key is scrolled into view** (desktop scrolls nothing for a selection change). Kept: it is the platform TextView's, not small to take over. Reverse: `large`.
+- **Built from a desktop decision, phone form: the `[[` list has a highlighted row for a hardware keyboard: Up and Down move it, Enter and Tab take it, Escape closes the list.** Touch is unchanged (a tap takes any row). The highlight is the sunken surface colour (ours). Reverse: `small` (the completion hook in TextFirstCompletions and TextFirstShortcutKeys).
 - **A find match is clipped to its text row in code**, as the selection is. Reverse: `one line`.
 - **The 23 other measured differences are recorded, not built** (desktop-decisions-on-android, "not built"): over the 50-line limit, or not clearly Mason's.
 
