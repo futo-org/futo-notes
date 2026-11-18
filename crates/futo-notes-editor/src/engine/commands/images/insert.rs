@@ -33,6 +33,35 @@ fn image_text(reference: &str, alt: &str) -> Option<String> {
     Some(format!("![{alt}]({destination})"))
 }
 
+/// The edit writing `new` over `old`, which starts at source `at`, without
+/// the bytes the two share at either end.
+fn trimmed(at: usize, old: &str, new: &str) -> Edit {
+    let mut prefix = old
+        .bytes()
+        .zip(new.bytes())
+        .take_while(|(a, b)| a == b)
+        .count();
+    while !old.is_char_boundary(prefix) || !new.is_char_boundary(prefix) {
+        prefix -= 1;
+    }
+    let (old_rest, new_rest) = (&old[prefix..], &new[prefix..]);
+    let mut suffix = old_rest
+        .bytes()
+        .rev()
+        .zip(new_rest.bytes().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    while !old_rest.is_char_boundary(old_rest.len() - suffix)
+        || !new_rest.is_char_boundary(new_rest.len() - suffix)
+    {
+        suffix -= 1;
+    }
+    Edit::new(
+        at + prefix..at + old.len() - suffix,
+        &new_rest[..new_rest.len() - suffix],
+    )
+}
+
 /// Where an image inserted on a line goes on a line of its own.
 enum Side {
     Before,
@@ -140,10 +169,18 @@ impl Engine {
         let rest = &after[image.end..piece.start + line.range.end];
         let spaces = rest.len() - rest.trim_start_matches([' ', '\t']).len();
         let gap = &after[image.end..image.end + spaces];
-        let side = (plan.inserted == text)
-            .then(|| own_line(&after[piece.clone()], &line, image.start - piece.start))
-            .flatten()
-            .filter(|side| {
+        // What the replacement writes around the image: syntax a selection
+        // leaves (a bold opener kept after it, `**c**`) is no part of the
+        // image, which `own_line` reads where it lands.
+        let lead = image.start - (plan.range.start - base);
+        let pre = &plan.inserted[..lead];
+        let post = &plan.inserted[lead + text.len()..];
+        // The spaces after the image, in what the replacement writes and in
+        // the source after it.
+        let in_post = spaces.min(post.len());
+        let replaced = plan.range.start..plan.range.end + spaces - in_post;
+        let side =
+            own_line(&after[piece.clone()], &line, image.start - piece.start).filter(|side| {
                 // The lines the split leaves, as the named lines would read.
                 let (moved, kept, rest) = match side {
                     Side::Before => {
@@ -181,28 +218,26 @@ impl Engine {
             ),
             // Before the line, the caret where the image would have been.
             Some(Side::Before) => {
-                let at = piece.start;
+                let at = base + piece.start;
                 let own = format!("{text}{gap}{ending}");
-                let removed = plan.range.start..plan.range.end + spaces;
-                let caret = plan.caret - text.len() + own.len();
-                let mut edits = vec![Edit::insert(base + at, own)];
-                if !removed.is_empty() {
-                    edits.push(Edit::new(removed, ""));
+                let caret = base + image.start + own.len();
+                let mut edits = vec![Edit::insert(at, own)];
+                let left = format!("{pre}{}", &post[in_post..]);
+                if !replaced.is_empty() || !left.is_empty() {
+                    edits.push(Edit::new(replaced, left));
                 }
-                (edits, base + at, caret)
+                (edits, at, caret)
             }
             // After the text before it and the spaces, the caret at the start
             // of the line that follows: the rest of its line, or a new empty
             // one.
             Some(Side::After) => {
                 let own = format!("{ending}{text}{ending}");
-                let mut edits = vec![Edit::insert(plan.range.end + spaces, own.clone())];
-                if !plan.range.is_empty() {
-                    edits.push(Edit::new(plan.range.clone(), ""));
-                }
-                let at = plan.caret - text.len() + spaces + ending.len();
-                let caret = plan.caret - text.len() + spaces + own.len();
-                (edits, at, caret)
+                let old = self.source_slice(replaced.clone());
+                let new = format!("{pre}{gap}{own}{}", &post[in_post..]);
+                let at = base + image.start + spaces + ending.len();
+                let caret = base + image.start + spaces + own.len();
+                (vec![trimmed(replaced.start, &old, &new)], at, caret)
             }
         };
         let mut command = Command::new(edits, lines, caret..caret);
