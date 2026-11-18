@@ -26,6 +26,7 @@ use crate::{
     SourceEdit,
 };
 use caret::CaretPairing;
+pub use pairs::is_paired_typing_key;
 use pairs::pair_key;
 
 type Accept<'a> = &'a mut dyn FnMut(&SourceEdit) -> Result<(), String>;
@@ -77,6 +78,10 @@ impl Engine {
         }
         let caret = self.outside_crlf(range);
         match self.caret_pairing(&pair, caret) {
+            CaretPairing::ClosingFence(fence) => {
+                let command = self.closing_fence_command(&fence, text);
+                self.paired_or_typed(key, accept, |_| Ok(Some(command)))
+            }
             CaretPairing::CodeBlock(index) => {
                 let command = self.lone_pair_block(index);
                 self.paired_or_typed(key, accept, |_| Ok(Some(command)))

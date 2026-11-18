@@ -144,7 +144,9 @@ pub(super) fn command_step(
             BlockCommand::WrapCodeBlock,
             BlockCommand::OpenLineBeforeCodeBlock,
             BlockCommand::OpenLineAfterCodeBlock,
-        ][random.below(14)];
+            BlockCommand::OpenCodeLineBelow,
+            BlockCommand::OpenCodeLineAbove,
+        ][random.below(16)];
         (
             engine.block(revision, range, command, &mut ok).unwrap(),
             format!("command {command:?} at {range:?}"),

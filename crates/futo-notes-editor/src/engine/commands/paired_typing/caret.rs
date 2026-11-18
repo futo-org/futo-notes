@@ -1,10 +1,11 @@
 //! A pair character typed at a collapsed caret.
+use super::super::super::code_block::CodeBlock;
 use super::super::super::command::{Command, Edit};
 use super::super::super::line::Entry;
 use super::super::super::{read, Engine};
 use super::is_escaped_at;
 use super::pairs::{Opening, Pair, PairKey};
-use crate::lines::{block, Kind, Span, SpanKind};
+use crate::lines::{block, FenceRole, Kind, Span, SpanKind};
 use crate::{DisplayRange, InputAction};
 
 /// What a pair character typed at a collapsed caret does.
@@ -12,6 +13,8 @@ pub(super) enum CaretPairing {
     /// Line `index` is a lone backtick pair the caret ends: it becomes a
     /// code block.
     CodeBlock(usize),
+    /// The character makes a code line its block's closing fence.
+    ClosingFence(ClosingFence),
     /// A hidden closing marker follows the caret: the caret takes its far
     /// side.
     CrossMarker,
@@ -22,6 +25,14 @@ pub(super) enum CaretPairing {
     /// The pair's halves around the caret (`pair_command`).
     Pair(&'static Pair),
     Typed,
+}
+
+/// A character typed at source `at` that makes code line `index` its
+/// block's closing fence, above the block's old closing line `closer`.
+pub(super) struct ClosingFence {
+    index: usize,
+    at: usize,
+    closer: usize,
 }
 
 /// Where only a line's indent and quote markers stand before byte `local`.
@@ -199,10 +210,13 @@ impl Engine {
         let at = self.input_at(range);
         let (index, before) = read::line_at(&self.store, at);
         let entry = self.store.get(index);
+        let local = at - before.source;
+        if let Some(closer) = self.closes_block(index, local, key) {
+            return CaretPairing::ClosingFence(ClosingFence { index, at, closer });
+        }
         if matches!(entry.line.kind, Kind::Fence { .. } | Kind::FrontMatter(_)) {
             return CaretPairing::Typed;
         }
-        let local = at - before.source;
         let body = entry.body();
         let (pair, typed) = match key {
             PairKey::Open(pair) => (*pair, pair.typed),
@@ -254,6 +268,57 @@ impl Engine {
             }
         }
         pairing_in_text(&around)
+    }
+
+    /// The closing line of code line `index`'s block when the character
+    /// `key` types at byte `local` makes the line close the block instead:
+    /// that old closing line would then open a block of the text below.
+    fn closes_block(&self, index: usize, local: usize, key: &PairKey) -> Option<usize> {
+        let entry = self.line(index);
+        let Kind::Fence {
+            role: FenceRole::Code,
+            ..
+        } = entry.line.kind
+        else {
+            return None;
+        };
+        let typed = match key {
+            PairKey::Open(pair) => pair.typed,
+            PairKey::Close(pair) => pair.close,
+        };
+        let body = entry.body();
+        let written = format!("{}{typed}{}", &body[..local], &body[local..]);
+        let read = block::read_line(&mut entry.carry.clone(), &written, 0);
+        let closes = matches!(
+            read.kind,
+            Kind::Fence {
+                role: FenceRole::Close,
+                ..
+            }
+        );
+        closes
+            .then(|| CodeBlock::holding(&self.store, index).closer)
+            .flatten()
+    }
+
+    /// `typed` written where it closes the block (`fence`), and the block's
+    /// old closing line removed with its line break, so it opens no block of
+    /// the text below; the caret after `typed`.
+    pub(super) fn closing_fence_command(&self, fence: &ClosingFence, typed: &str) -> Command {
+        let ClosingFence { index, at, closer } = *fence;
+        let removed = if closer + 1 < self.line_count() {
+            self.line_start(closer)..self.line_start(closer + 1)
+        } else {
+            let above = closer - 1;
+            self.line_start(above) + self.line(above).body_len()
+                ..self.line_start(closer) + self.line(closer).body_len()
+        };
+        let caret = at + typed.len();
+        Command::new(
+            vec![Edit::insert(at, typed), Edit::new(removed, "")],
+            index..closer + 1,
+            caret..caret,
+        )
     }
 
     /// `pair` typed at the caret as typing writes it, with the caret before

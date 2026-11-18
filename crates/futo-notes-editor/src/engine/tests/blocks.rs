@@ -1,5 +1,6 @@
 //! Heading, quote and divider commands: the literal cases in
-//! `tests/fixtures/engine/blocks.json`, each also undone and redone.
+//! `tests/fixtures/engine/blocks.json` and `divider.json`, each also undone
+//! and redone.
 use super::super::Engine;
 use super::{ok, range};
 use crate::{Affinity, BlockCommand, DisplayRange, InputAction, ParagraphKey};
@@ -92,8 +93,11 @@ fn run(engine: &mut Engine, command: &str) -> bool {
 
 #[test]
 fn heading_quote_and_divider_cases() {
-    let cases: Vec<Case> =
+    let mut cases: Vec<Case> =
         serde_json::from_str(include_str!("../../../tests/fixtures/engine/blocks.json")).unwrap();
+    let dividers: Vec<Case> =
+        serde_json::from_str(include_str!("../../../tests/fixtures/engine/divider.json")).unwrap();
+    cases.extend(dividers);
     assert!(cases.len() >= 60, "{} cases", cases.len());
     let mut failures = Vec::new();
     for case in &cases {

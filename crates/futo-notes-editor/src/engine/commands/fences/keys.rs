@@ -127,7 +127,9 @@ impl Engine {
             let caret = at + text.len();
             return Command::new(vec![Edit::insert(at, text)], *open..open + 1, caret..caret);
         }
-        if !outdent && collapsed && key {
+        // A selected block of one empty code line is collapsed too, but Tab
+        // acts on its lines, as on a selection of them.
+        if !outdent && collapsed && key && !self.block_selected {
             // At the caret.
             let plan = self.plan(range, unit);
             let line = self.line_of(plan.range.start);

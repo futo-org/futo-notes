@@ -292,32 +292,43 @@ impl Engine {
         }
     }
 
-    /// The formats a deletion of display `range` (input of no text) keeps
-    /// for the caret: those of its first character, as Cut keeps. `None`
-    /// for other input, and where the caret already carries formats, which
-    /// the deletion keeps.
+    /// The formats a deletion of display `range` (input of no text) leaves
+    /// the caret: those of its first character, as Cut keeps. `None` for
+    /// other input, and for spaces and tabs deleted at a caret carrying
+    /// formats, which it keeps (a space typed at a span's end was written
+    /// outside its marks under them).
     pub(crate) fn deleted_formats(
         &self,
         range: DisplayRange,
         text: &str,
     ) -> Option<Vec<InlineFormat>> {
-        (text.is_empty() && range.start != range.end && self.formats.is_none())
-            .then(|| self.formats_at(self.source_selection(range).start))
+        if !text.is_empty() || range.start == range.end {
+            return None;
+        }
+        let keeps_carried = self.formats.is_some()
+            && self
+                .display_slice(range.start.0..range.end.0)
+                .chars()
+                .all(|character| matches!(character, ' ' | '\t'));
+        if keeps_carried {
+            return None;
+        }
+        Some(self.formats_at(self.source_selection(range).start))
     }
 
     /// After a deletion, the caret carries `formats` (`deleted_formats`)
     /// where it no longer reads them, because the deletion emptied their
     /// span: the next character typed takes them, as in a rich-text editor.
+    /// Where it reads them, it carries none: formats carried before the
+    /// deletion end with it.
     pub(crate) fn carry_deleted(&mut self, formats: Option<Vec<InlineFormat>>) {
         let Some(formats) = formats else {
             return;
         };
-        if self.selection.start == self.selection.end
-            && self.formats.is_none()
-            && self.formats_at(self.caret_source()) != formats
-        {
-            self.formats = Some(formats);
+        if self.selection.start != self.selection.end {
+            return;
         }
+        self.formats = (self.formats_at(self.caret_source()) != formats).then_some(formats);
     }
 
     /// Whether inline commands apply: some line the selection or caret is

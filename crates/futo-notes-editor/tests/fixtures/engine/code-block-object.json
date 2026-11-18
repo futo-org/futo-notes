@@ -250,6 +250,13 @@
     "copied": "code"
   },
   {
+    "name": "tab on a selected block of one empty code line writes on its line",
+    "before": "x\n```\n|\n```\ny",
+    "command": "Tab",
+    "after": "x\n```\n  |\n```\ny",
+    "block": true
+  },
+  {
     "name": "typing from code past the block takes the block whole",
     "before": "```\nx\nc[ode\n```\nb]c\nd",
     "command": "type:Z",
@@ -339,6 +346,104 @@
     "before": "a|",
     "command": "OpenLineAfterCodeBlock",
     "after": "a|"
+  },
+  {
+    "name": "open code line below: after the caret's line, the caret on it",
+    "before": "```\nc|ode\nz\n```",
+    "command": "OpenCodeLineBelow",
+    "after": "```\ncode\n|\nz\n```"
+  },
+  {
+    "name": "open code line below: at the line's leading whitespace",
+    "before": "```\n  a|b\n```",
+    "command": "OpenCodeLineBelow",
+    "after": "```\n  ab\n  |\n```"
+  },
+  {
+    "name": "open code line below: under a bullet, the fence's indent first",
+    "before": "- a\n  ```\n  \tc|\n  ```",
+    "command": "OpenCodeLineBelow",
+    "after": "- a\n  ```\n  \tc\n  \t|\n  ```"
+  },
+  {
+    "name": "open code line below: the last line of a block nothing closes, in its CRLF",
+    "before": "```\r\nc|",
+    "command": "OpenCodeLineBelow",
+    "after": "```\r\nc\r\n|"
+  },
+  {
+    "name": "open code line below: after the line the selection ends on",
+    "before": "```\n[a\nb]\nc\n```",
+    "command": "OpenCodeLineBelow",
+    "after": "```\na\nb\n|\nc\n```"
+  },
+  {
+    "name": "open code line below: an empty block gains its first code line and a second",
+    "before": "```|\n```",
+    "command": "OpenCodeLineBelow",
+    "after": "```\n\n|\n```"
+  },
+  {
+    "name": "open code line above: before the caret's line, at its indent",
+    "before": "```\nx\n  c|ode\n```",
+    "command": "OpenCodeLineAbove",
+    "after": "```\nx\n  |\n  code\n```"
+  },
+  {
+    "name": "open code line above: before the block's first line",
+    "before": "- a\n  ```\n  c|\n  ```",
+    "command": "OpenCodeLineAbove",
+    "after": "- a\n  ```\n  |\n  c\n  ```"
+  },
+  {
+    "name": "open code line above: an empty block, the caret on the first line",
+    "before": "```|\n```",
+    "command": "OpenCodeLineAbove",
+    "after": "```\n|\n\n```"
+  },
+  {
+    "name": "open code line below: a selected block, after its last line",
+    "before": "```\n[a\nb]\n```",
+    "command": "OpenCodeLineBelow",
+    "after": "```\na\nb\n|\n```",
+    "block": true
+  },
+  {
+    "name": "open code line below: at the language caret of a typed fence",
+    "before": "x\n|\n```",
+    "typed": "```",
+    "command": "OpenCodeLineBelow",
+    "after": "x\n```\n\n|\n```"
+  },
+  {
+    "name": "open code line: outside code changes nothing",
+    "before": "a|\n```\nc\n```",
+    "command": "OpenCodeLineAbove",
+    "after": "a|\n```\nc\n```"
+  },
+  {
+    "name": "backspace on an empty first line above a block removes the line; the block opens the note",
+    "before": "|\n```\ncode\n```\nx",
+    "command": "Backspace",
+    "after": "```\n|code\n```\nx"
+  },
+  {
+    "name": "backspace on an empty first line above an empty block",
+    "before": "|\r\n```\r\n```\r\nx",
+    "command": "BackspaceJoiningHeading",
+    "after": "|```\r\n```\r\nx"
+  },
+  {
+    "name": "backspace on a blank first line above a block nothing closes",
+    "before": "|  \n```\ncode",
+    "command": "Backspace",
+    "after": "```\n|code"
+  },
+  {
+    "name": "backspace at the note's start above text changes nothing",
+    "before": "|x\n```\ncode\n```",
+    "command": "Backspace",
+    "after": "|x\n```\ncode\n```"
   },
   {
     "name": "header: the language only, hl: and ll: kept",

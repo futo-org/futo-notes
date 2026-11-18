@@ -2,6 +2,7 @@
 //! the selection, and returns a `Command` (text edits plus a new selection);
 //! `Engine::run` applies it behind the one guard. A family that does not
 //! claim a key leaves it to typing.
+mod atoms;
 mod blocks;
 mod clipboard;
 mod fences;
@@ -18,23 +19,24 @@ mod wikilinks;
 use super::command::{Command, Edit};
 use super::Engine;
 use crate::{BlockCommand, CaretDirection, DisplayRange, EditorError, ParagraphKey};
+pub use paired_typing::is_paired_typing_key;
 
 /// A family's claim on a paragraph key: the command it runs, if it claims it.
 type KeyFamily = fn(&Engine, DisplayRange, ParagraphKey) -> Result<Option<Command>, EditorError>;
 
 impl Engine {
     /// The command a paragraph key runs on the lines it is pointed at, when
-    /// a family claims the key there; a range end inside an image stands at
-    /// its edge (`outside_images`), as for every plan.
+    /// a family claims the key there; a range is first taken out of images
+    /// and wikilinks (`outside_atoms`), as for every plan.
     pub(crate) fn key_command(
         &self,
         range: DisplayRange,
         key: ParagraphKey,
     ) -> Result<Option<Command>, EditorError> {
         self.check_display_range(range)?;
-        let range = self.outside_images(range);
+        let range = self.outside_atoms(range);
         let families: [KeyFamily; 5] = [
-            Self::image_key,
+            Self::atom_key,
             Self::table_key,
             Self::fence_key,
             Self::list_key,
@@ -126,6 +128,8 @@ impl Engine {
             }
             BlockCommand::OpenLineBeforeCodeBlock => Ok(self.open_line_beside_block(range, false)),
             BlockCommand::OpenLineAfterCodeBlock => Ok(self.open_line_beside_block(range, true)),
+            BlockCommand::OpenCodeLineBelow => Ok(self.open_code_line(range, true)),
+            BlockCommand::OpenCodeLineAbove => Ok(self.open_code_line(range, false)),
         }
     }
 }

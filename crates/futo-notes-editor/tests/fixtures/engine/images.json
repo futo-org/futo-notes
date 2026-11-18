@@ -276,7 +276,6 @@
     "alt": "x\n",
     "error": "InvalidText"
   },
-
   {
     "name": "Backspace after an image removes it whole",
     "before": "a ![alt](p.png)‸ b",
@@ -404,5 +403,26 @@
     "command": "cut",
     "alt": "b![alt](p.png)",
     "after": "a‸ z"
+  },
+  {
+    "name": "a selection reaching into a wikilink takes it whole: Cut copies what it removes",
+    "before": "a«b [[no»te]] z",
+    "command": "cut",
+    "alt": "b [[note]]",
+    "after": "a‸ z"
+  },
+  {
+    "name": "a selection inside a wikilink's brackets stays: Cut copies its text",
+    "before": "[[«no»te]]",
+    "command": "cut",
+    "alt": "no",
+    "after": "[[‸te]]"
+  },
+  {
+    "name": "a selection from inside a wikilink to its edge takes it whole: Cut copies it",
+    "before": "a [[my «note]]» z",
+    "command": "cut",
+    "alt": "[[my note]]",
+    "after": "a ‸ z"
   }
 ]

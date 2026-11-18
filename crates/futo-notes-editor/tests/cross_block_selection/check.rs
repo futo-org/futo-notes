@@ -239,7 +239,8 @@ pub(crate) fn checked_as(
     Some(source)
 }
 
-/// The display `[a, b)` of `note` (showing `old`) an input takes: a code
+/// The display `[a, b)` of `note` (showing `old`) an input takes: a wikilink
+/// it reaches the edge of from inside goes whole (wikilinks.md); a code
 /// block it reaches into or out of goes whole (fenced-code.md), except that a
 /// range from a block's code to the start of the line after it stays in the
 /// code, one from the end of a block's code starts after its line break, and
@@ -263,6 +264,14 @@ pub(crate) fn taken(note: &str, old: &str, a: usize, b: usize, writes: bool) -> 
         }
     };
     let (mut a, mut b) = (a, b);
+    // A range reaching a wikilink's edge from inside takes it whole (wikilinks.md).
+    for link in &fresh(note).wikilinks {
+        let (start, end) = (link.range.start.0, link.range.end.0);
+        let within = start < a && b < end;
+        if !within && start < b && a < end {
+            (a, b) = (a.min(start), b.max(end));
+        }
+    }
     let mut inside = holding(a);
     if let Some((_, e)) = inside.filter(|&(s, e)| s < e && a == e && b >= e + break_after(e)) {
         a = e + break_after(e);

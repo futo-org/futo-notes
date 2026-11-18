@@ -27,7 +27,9 @@ impl Engine {
     /// Backspace in a block down to one empty line selects it; at the start
     /// of its code it does nothing. At the start of a line right after a
     /// closing fence, a line no other family claims (no marker), it selects
-    /// the block, and removes the line when it is blank.
+    /// the block, and removes the line when it is blank. At the start of the
+    /// note, on a blank first line above an opening fence, it removes that
+    /// line, so the block opens the note.
     fn backspace_at_block(&self, range: DisplayRange) -> Option<Command> {
         let at = range.start.0;
         if let Some(block) = self.block_at(at) {
@@ -37,11 +39,18 @@ impl Engine {
             return (at == block.description.range.start.0).then(|| self.staying(range));
         }
         let (index, before) = self.line_at_display(store::display, at);
+        if at == 0
+            && self.line_count() > 1
+            && self.role(1) == Some(FenceRole::Open)
+            && self.is_blank(0)
+        {
+            return Some(self.blank_line_removed(0));
+        }
         if at != before.display || index == 0 || self.role(index - 1) != Some(FenceRole::Close) {
             return None;
         }
         let entry = self.line(index);
-        let blank = entry.body().trim_matches([' ', '\t']).is_empty();
+        let blank = self.is_blank(index);
         if !blank && !entry.line.marker.is_empty() {
             return None;
         }
@@ -74,18 +83,35 @@ impl Engine {
         {
             return None;
         }
-        let empty = self.line(opener).view.role == Role::Empty;
-        let block = CodeBlock::holding(&self.store, opener + usize::from(!empty));
-        if !entry.body().trim_matches([' ', '\t']).is_empty() {
-            return Some(self.block_selecting(&block, Vec::new()));
+        if !self.is_blank(index) {
+            return Some(self.block_selecting(&self.block_opened(opener), Vec::new()));
         }
+        Some(self.blank_line_removed(index))
+    }
+
+    /// Whether line `index` holds only spaces and tabs.
+    fn is_blank(&self, index: usize) -> bool {
+        self.line(index).body().trim_matches([' ', '\t']).is_empty()
+    }
+
+    /// The block opening fence line `opener` opens.
+    fn block_opened(&self, opener: usize) -> CodeBlock {
+        let empty = self.line(opener).view.role == Role::Empty;
+        CodeBlock::holding(&self.store, opener + usize::from(!empty))
+    }
+
+    /// Blank line `index`, right above an opening fence, removed, the caret
+    /// at the start of the block's code.
+    fn blank_line_removed(&self, index: usize) -> Command {
+        let opener = index + 1;
         let start = self.line_start(index);
-        let caret = self.line_start(block.first) - entry.text.len();
-        Some(Command::new(
+        let removed = self.line(index).text.len();
+        let caret = self.line_start(self.block_opened(opener).first) - removed;
+        Command::new(
             vec![Edit::new(start..self.line_start(opener), "")],
             index..index + 1,
             caret..caret,
-        ))
+        )
     }
 
     /// A command that leaves the caret where it is.

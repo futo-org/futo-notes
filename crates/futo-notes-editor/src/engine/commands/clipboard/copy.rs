@@ -17,7 +17,7 @@ impl Engine {
     /// outside edge spaces and tabs; spaces and tabs alone get no marks. The
     /// first line's leading whitespace comes off every copied line.
     pub(super) fn copied(&self, range: DisplayRange) -> String {
-        let range = self.outside_images(range);
+        let range = self.outside_atoms(range);
         let (s, e) = (range.start.0, range.end.0);
         // A code block the range takes whole (`fences/reach.rs`).
         let reach = self.block_reach(range);

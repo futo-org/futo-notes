@@ -101,6 +101,12 @@ pub(super) enum PairKey {
     Close(&'static Pair),
 }
 
+/// Whether `text` is one character paired typing acts on: an opening
+/// character of the table above, or a distinct closing one (`]`).
+pub fn is_paired_typing_key(text: &str) -> bool {
+    pair_key(text).is_some()
+}
+
 pub(super) fn pair_key(text: &str) -> Option<PairKey> {
     PAIRS.iter().find_map(|pair| {
         if text == pair.typed {

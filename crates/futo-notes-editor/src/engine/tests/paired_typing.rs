@@ -1,11 +1,12 @@
 //! Paired typing: the literal sequences in
-//! `tests/fixtures/engine/paired-typing*.json` (the backtick, `*` and `~`,
-//! `[` and `]`).
+//! `tests/fixtures/engine/paired-typing*.json` (the backtick, code blocks,
+//! `*` and `~`, `[` and `]`).
 //!
 //! Each case marks the selection in its source with `|` (a caret) or `[`
 //! and `]` (`marks` names other characters when the note needs these) and
 //! runs its steps in order: `pair:` text typed under
-//! `InputAction::PairedTyping`, `type:` text typed as plain typing, a
+//! `InputAction::PairedTyping`, `type:` text typed as plain typing,
+//! `service:` a text service's replacement (`InputAction::Isolated`), a
 //! paragraph key (`PairedBackspace` among them), `Code`, `Bold` or `Italic`
 //! (the toolbar's toggles), `Complete:` a note id (the `[[` completion
 //! offered at the caret, accepted with that id, from the case's `ids`),
@@ -84,6 +85,8 @@ fn run_step(engine: &mut Engine, action: &str) -> Result<(), EditorError> {
         )?;
     } else if let Some(text) = action.strip_prefix("type:") {
         engine.input(revision, selection, text, InputAction::Typing, &mut ok)?;
+    } else if let Some(text) = action.strip_prefix("service:") {
+        engine.input(revision, selection, text, InputAction::Isolated, &mut ok)?;
     } else if let Some(key) = key(action) {
         engine.key(revision, selection, key, &mut ok)?;
     } else if let Some(format) = format(action) {
@@ -112,6 +115,7 @@ fn paired_typing_cases() {
     let mut failures = Vec::new();
     for file in [
         include_str!("../../../tests/fixtures/engine/paired-typing.json"),
+        include_str!("../../../tests/fixtures/engine/paired-typing-code-blocks.json"),
         include_str!("../../../tests/fixtures/engine/paired-typing-emphasis.json"),
         include_str!("../../../tests/fixtures/engine/paired-typing-brackets.json"),
     ] {
@@ -193,5 +197,16 @@ fn marked_text_makes_paired_typing_plain_typing() {
             results.push((engine.source_text(), engine.selection()));
         }
         assert_eq!(results[0], results[1], "{text:?}");
+    }
+}
+
+/// Hosts ask the engine's own table which characters pair.
+#[test]
+fn hosts_read_the_pair_keys_from_the_table() {
+    for text in ["`", "*", "~", "[", "]"] {
+        assert!(crate::is_paired_typing_key(text), "{text:?}");
+    }
+    for text in ["(", "_", "**", "a", ""] {
+        assert!(!crate::is_paired_typing_key(text), "{text:?}");
     }
 }
