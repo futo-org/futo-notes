@@ -315,8 +315,10 @@ impl EditorSession {
         self.run(|e| e.block(expected, range, command, accept))
     }
 
-    /// The display extent of the block the line at `at` lifts for a move:
-    /// `None` for a blank line, front matter or code nothing closes.
+    /// The display extent of what a press at display position `at` (the one
+    /// under the finger) lifts for a move: an image there that shares its
+    /// line with other content alone, else the block its line lifts. `None`
+    /// for a blank line, front matter or code nothing closes.
     pub fn block_at(
         &self,
         expected: Revision,

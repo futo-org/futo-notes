@@ -4,8 +4,11 @@ use super::*;
 
 #[uniffi::export]
 impl NativeEditorSession {
-    /// The display extent of the block the line at `at` lifts for a move;
-    /// none for a blank line, front matter or code nothing closes.
+    /// The display extent of what a press at `at`, the display position under
+    /// the finger, lifts for a move: an image there that shares its line with
+    /// other content alone, else the block its line lifts (any position on
+    /// the line off an image names the line). None for a blank line, front
+    /// matter or code nothing closes.
     pub fn block_at(
         &self,
         expected: u64,

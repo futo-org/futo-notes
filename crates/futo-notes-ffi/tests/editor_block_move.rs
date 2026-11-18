@@ -63,3 +63,38 @@ fn native_block_move_offers_no_slot_the_blocks_own_bottom_edge_cannot_be_told_fr
     assert_eq!(session.source_text().unwrap(), "a\nb\n");
     assert!(matches!(session.undo(0), Ok(None)));
 }
+
+#[test]
+fn native_block_move_lifts_a_photo_out_of_its_line_by_the_position_under_the_finger() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    let note = "Nice!![](image-20261113-160256.jpg)\nnext";
+    store
+        .create_note("photo".into(), "".into(), note.into())
+        .unwrap();
+    let session = store.open_editor("photo".into()).unwrap();
+    // The display is the source here: the photo shows its spelling, bytes 5..35.
+    assert_eq!(
+        session.block_at(0, at(5)).unwrap(),
+        Some(EditorByteRange { start: 5, end: 35 })
+    );
+    // On `Nice!` the whole line lifts, photo included.
+    assert_eq!(
+        session.block_at(0, at(2)).unwrap(),
+        Some(EditorByteRange { start: 0, end: 36 })
+    );
+    assert_eq!(session.block_slots(0, at(2)).unwrap(), vec![at(40)]);
+    // The photo also lands on its own line's two edges.
+    assert_eq!(
+        session.block_slots(0, at(5)).unwrap(),
+        vec![at(0), at(36), at(40)]
+    );
+    session.move_block(0, at(5), at(36)).unwrap().unwrap();
+    assert_eq!(
+        session.source_text().unwrap(),
+        "Nice!\n![](image-20261113-160256.jpg)\nnext"
+    );
+    session.undo(1).unwrap().unwrap();
+    assert_eq!(session.source_text().unwrap(), note);
+}

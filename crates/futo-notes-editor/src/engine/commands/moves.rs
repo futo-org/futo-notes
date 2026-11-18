@@ -4,12 +4,16 @@
 //! note's last line ending: the last line has none, so a block moving to or
 //! from the last line trades endings with the line that becomes last.
 //!
+//! An image that shares its line with other content lifts alone: its source
+//! leaves the line, nothing else there changes, and it lands as a line of
+//! its own.
+//!
 //! Every line stays its own block in the projection; this is only which
 //! lines move together.
 use super::super::command::{Command, Edit};
 use super::super::edit::Change;
 use super::super::{store, Engine};
-use crate::lines::{FenceRole, FrontMatterRole, Kind, Line, TableRole};
+use crate::lines::{FenceRole, FrontMatterRole, Kind, Line, SpanKind, TableRole};
 use crate::{DisplayOffset, DisplayRange, EditorError, Revision, SourceEdit};
 use std::ops::Range;
 
@@ -22,6 +26,16 @@ fn quoted(line: &Line) -> bool {
             line.kind,
             Kind::FrontMatter(_) | Kind::Fence { .. } | Kind::Table { .. }
         )
+}
+
+/// What a press lifts: whole lines, or one image out of its line.
+enum Lifted {
+    Lines(Range<usize>),
+    /// The image at line-relative source `span` of line `line`.
+    Image {
+        line: usize,
+        span: Range<usize>,
+    },
 }
 
 impl Engine {
@@ -117,20 +131,36 @@ impl Engine {
     }
 
     /// The boundaries `block` may land on, in order: every boundary between
-    /// lines except the block's own edges and those inside it, those inside
-    /// front matter (or above it), a code block, a table or a quote run, and,
-    /// unless the block is an unquoted list item or one plain line, those
-    /// strictly between two lines of a list (its items and the lines under
-    /// them). Of boundaries a renderer cannot tell apart (the same display
-    /// offset: the empty last line after a final line ending), the first, and
-    /// none that it cannot tell from the block's own edges.
+    /// lines except the block's own edges and those inside it, and the
+    /// boundaries no block lands on (`slots`). Lists take the block when it
+    /// is an unquoted list item or one plain line. None that a renderer
+    /// cannot tell from the block's own edges.
     pub(crate) fn block_slots(&self, block: Range<usize>) -> Vec<usize> {
-        let count = self.line_count();
         let first = &self.line(block.start).line;
         let joins_lists = first.quote == 0
             && (matches!(first.kind, Kind::List { .. })
                 || (block.len() == 1 && matches!(first.kind, Kind::Plain { .. })));
         let edges = [self.boundary(block.start), self.boundary(block.end)];
+        self.slots(joins_lists, |at| {
+            (block.start..=block.end).contains(&at) || edges.contains(&self.boundary(at))
+        })
+    }
+
+    /// The boundaries a lifted image may land on: a plain line's, its own
+    /// line's two edges included, since a drop there splits the image from
+    /// that line's other content.
+    fn image_slots(&self) -> Vec<usize> {
+        self.slots(true, |_| false)
+    }
+
+    /// Every boundary between lines, in order, except those `own` rules
+    /// out and those inside front matter (or above it), a code block, a
+    /// table or a quote run, and, unless `joins_lists`, those strictly
+    /// between two lines of a list (its items and the lines under them). Of
+    /// boundaries a renderer cannot tell apart (the same display offset: the
+    /// empty last line after a final line ending), the first.
+    fn slots(&self, joins_lists: bool, own: impl Fn(usize) -> bool) -> Vec<usize> {
+        let count = self.line_count();
         let mut slots = Vec::new();
         // Lines before `list_end` belong to a list; `listed` is the line above.
         let mut list_end = 0;
@@ -145,10 +175,9 @@ impl Engine {
             };
             let in_list = listed && here;
             listed = here;
-            if (block.start..=block.end).contains(&at)
+            if own(at)
                 || self.inside_unit(at)
                 || (in_list && !joins_lists)
-                || edges.contains(&self.boundary(at))
                 || slots
                     .last()
                     .is_some_and(|&last| self.boundary(last) == self.boundary(at))
@@ -158,6 +187,124 @@ impl Engine {
             slots.push(at);
         }
         slots
+    }
+
+    /// The image under display offset `at` on line `index`, as a
+    /// line-relative source span, when it lifts alone: the line has content
+    /// besides it (text or another image; markers and whitespace do not
+    /// count), no other mark holds it, and the line is no quote, table, code
+    /// or front matter line.
+    fn image_lifted(&self, index: usize, at: DisplayOffset) -> Option<Range<usize>> {
+        let entry = self.line(index);
+        let line = &entry.line;
+        if line.quote > 0
+            || !matches!(
+                line.kind,
+                Kind::Plain { .. } | Kind::Heading { .. } | Kind::List { .. }
+            )
+        {
+            return None;
+        }
+        let before = self.store.before(index).display;
+        let span = entry.spans.iter().find(|span| {
+            matches!(span.kind, SpanKind::Image { .. })
+                && (before + entry.to_display(span.range.start)
+                    ..before + entry.to_display(span.range.end))
+                    .contains(&at.0)
+        })?;
+        let held = entry.spans.iter().any(|other| {
+            other.range != span.range
+                && other.range.start <= span.range.start
+                && span.range.end <= other.range.end
+        });
+        let content = &entry.text[line.content.clone()];
+        let (start, end) = (
+            span.range.start - line.content.start,
+            span.range.end - line.content.start,
+        );
+        let alone = content[..start].trim().is_empty() && content[end..].trim().is_empty();
+        (!held && !alone).then(|| span.range.clone())
+    }
+
+    /// What a press at display offset `at` lifts.
+    fn lifted_at(
+        &self,
+        expected: Revision,
+        at: DisplayOffset,
+    ) -> Result<Option<Lifted>, EditorError> {
+        let index = self.line_shown_at(expected, at)?;
+        Ok(match self.image_lifted(index, at) {
+            Some(span) => Some(Lifted::Image { line: index, span }),
+            None => self.block_lines(index).map(Lifted::Lines),
+        })
+    }
+
+    /// The boundaries what is lifted may land on.
+    fn slots_for(&self, lifted: &Lifted) -> Vec<usize> {
+        match lifted {
+            Lifted::Lines(lines) => self.block_slots(lines.clone()),
+            Lifted::Image { .. } => self.image_slots(),
+        }
+    }
+
+    /// The line ending a line of its own made from line `index` takes: that
+    /// line's, else the line's above (the note's last line has none), else
+    /// `\n`.
+    fn line_ending_near(&self, index: usize) -> String {
+        [Some(index), index.checked_sub(1)]
+            .into_iter()
+            .flatten()
+            .map(|index| self.line(index).ending())
+            .find(|ending| !ending.is_empty())
+            .unwrap_or("\n")
+            .to_owned()
+    }
+
+    /// The move of the image at line-relative source `span` of line `index`
+    /// to boundary `slot`: its source leaves the line, nothing else there
+    /// changes, and it lands at the slot as a line of its own, with a line
+    /// ending of the note's after it (before it at the note's end). A
+    /// selection of exactly the image travels with it; any other offset
+    /// stays with its text. The image's line and the lines it passes must
+    /// read as the same kind of block afterwards.
+    fn image_move_command(&self, index: usize, span: Range<usize>, slot: usize) -> Command {
+        let count = self.line_count();
+        let base = self.line_start(index);
+        let span = base + span.start..base + span.end;
+        let image = self.source_slice(span.clone());
+        let ending = self.line_ending_near(index);
+        let (at, text, lands) = if slot == count {
+            let len = self.source_len();
+            (len, format!("{ending}{image}"), len + ending.len())
+        } else {
+            let at = self.line_start(slot);
+            (at, format!("{image}{ending}"), at)
+        };
+        // Where the image starts in the new text: its removal is after the
+        // insertion or before it.
+        let lands = if at <= span.start {
+            lands
+        } else {
+            lands - image.len()
+        };
+        let edits = vec![Edit::insert(at, text), Edit::new(span.clone(), "")];
+        let lines = index.min(slot)..(index + 1).max(slot);
+        let shift = usize::from(slot <= index);
+        let same_kind = lines.clone().map(|line| (line, line + shift)).collect();
+        let mut command = Command::new(edits, lines, 0..0);
+        let selected = self.source_selection(self.selection);
+        command.selection = if selected == span {
+            lands..lands + image.len()
+        } else {
+            let after = slot < count;
+            let (start, end) = (
+                command.map(selected.start, after),
+                command.map(selected.end, after),
+            );
+            start..end.max(start)
+        };
+        command.same_kind = same_kind;
+        command
     }
 
     /// The move of `block` to boundary `slot` (one of its slots): the block's
@@ -243,41 +390,47 @@ impl Engine {
         Ok(self.line_at_display(store::display, at.0).0)
     }
 
-    /// The display extent of the block the line at `at` lifts: from its first
-    /// line's start to the start of the line after it.
+    /// The display extent of what a press at `at` lifts: an image that
+    /// lifts alone, else the block its line lifts, from its first line's
+    /// start to the start of the line after it.
     pub(crate) fn block_at(
         &self,
         expected: Revision,
         at: DisplayOffset,
     ) -> Result<Option<DisplayRange>, EditorError> {
-        let index = self.line_shown_at(expected, at)?;
-        Ok(self.block_lines(index).map(|lines| DisplayRange {
-            start: self.boundary(lines.start),
-            end: self.boundary(lines.end),
+        Ok(self.lifted_at(expected, at)?.map(|lifted| match lifted {
+            Lifted::Lines(lines) => DisplayRange {
+                start: self.boundary(lines.start),
+                end: self.boundary(lines.end),
+            },
+            Lifted::Image { line, span } => {
+                let (entry, before) = (self.line(line), self.store.before(line).display);
+                DisplayRange {
+                    start: DisplayOffset(before + entry.to_display(span.start)),
+                    end: DisplayOffset(before + entry.to_display(span.end)),
+                }
+            }
         }))
     }
 
-    /// Where the block the line at `at` lifts may land, each slot as the
-    /// display offset of the line start below it (the display's end for the
-    /// note's end). Empty when the line lifts nothing.
+    /// Where what a press at `at` lifts may land, each slot as the display
+    /// offset of the line start below it (the display's end for the note's
+    /// end). Empty when it lifts nothing.
     pub(crate) fn block_slots_at(
         &self,
         expected: Revision,
         at: DisplayOffset,
     ) -> Result<Vec<DisplayOffset>, EditorError> {
-        let index = self.line_shown_at(expected, at)?;
-        Ok(self.block_lines(index).map_or_else(Vec::new, |lines| {
-            self.block_slots(lines)
-                .into_iter()
-                .map(|slot| self.boundary(slot))
-                .collect()
-        }))
+        let slots = self
+            .lifted_at(expected, at)?
+            .map_or_else(Vec::new, |lifted| self.slots_for(&lifted));
+        Ok(slots.into_iter().map(|slot| self.boundary(slot)).collect())
     }
 
-    /// Move the block the line at `at` lifts to its slot at display offset
-    /// `to`, as one action and one Undo step. `None` (nothing changed) when
-    /// the line lifts nothing, `to` is not one of its slots, or the guard
-    /// cancels the move. Refused while text is marked, as table commands are.
+    /// Move what a press at `at` lifts to its slot at display offset `to`,
+    /// as one action and one Undo step. `None` (nothing changed) when it
+    /// lifts nothing, `to` is not one of its slots, or the guard cancels the
+    /// move. Refused while text is marked, as table commands are.
     pub(crate) fn move_block(
         &mut self,
         expected: Revision,
@@ -285,22 +438,25 @@ impl Engine {
         to: DisplayOffset,
         accept: Accept,
     ) -> Result<Option<Change>, EditorError> {
-        let index = self.line_shown_at(expected, at)?;
+        let lifted = self.lifted_at(expected, at)?;
         self.check_display(to.0)?;
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);
         }
-        let Some(block) = self.block_lines(index) else {
+        let Some(lifted) = lifted else {
             return Ok(None);
         };
         let Some(slot) = self
-            .block_slots(block.clone())
+            .slots_for(&lifted)
             .into_iter()
             .find(|&slot| self.boundary(slot) == to)
         else {
             return Ok(None);
         };
-        let command = self.move_command(block, slot);
+        let command = match lifted {
+            Lifted::Lines(lines) => self.move_command(lines, slot),
+            Lifted::Image { line, span } => self.image_move_command(line, span, slot),
+        };
         self.run(expected, |_| Ok(Some(command)), accept)
     }
 }
