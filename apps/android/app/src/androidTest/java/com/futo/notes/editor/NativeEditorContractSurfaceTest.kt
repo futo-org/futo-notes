@@ -112,7 +112,7 @@ class NativeEditorContractSurfaceTest {
             } catch (_: EditorSessionException.StaleClaim) {}
             s.acceptWikilinkCompletion(0uL, found.range, found.query, "Projects/Roadmap")
         })
-        assertEquals("a ![x](image-1.png) b![](image-2.png)", scenario("a ![x](image-1.png) b") { _, s ->
+        assertEquals("a ![x](image-1.png) b\n![](image-2.png)\n", scenario("a ![x](image-1.png) b") { _, s ->
             val atom = s.project(0uL, at(0, 21)).atoms.first()
             assertEquals(at(2, 19), atom.range)
             assertEquals("image-1.png", atom.image?.destination)

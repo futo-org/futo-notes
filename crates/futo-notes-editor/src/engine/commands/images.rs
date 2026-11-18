@@ -1,13 +1,15 @@
 //! Images: claimed insertion, and the keys that treat an image as one unit.
 //!
 //! An image shows its whole source spelling (`![alt](reference)`) and a view
-//! draws its atom as one object. Insertion writes exact source at the caret,
-//! inline: `![alt](reference)`, with `<…>` around a reference holding spaces
-//! or parentheses, and only when that text reads back, on the line it lands
-//! on, as exactly one image with exactly that destination and alt.
+//! draws its atom as one object. Insertion writes exact source at the caret:
+//! `![alt](reference)`, with `<…>` around a reference holding spaces or
+//! parentheses, on a line of its own when the caret's line is a plain line or
+//! a heading with other content (`own_line`), else inline, and only when that
+//! text reads back, on the line it lands on, as exactly one image with
+//! exactly that destination and alt.
 use super::super::command::{Command, Edit};
 use super::super::Engine;
-use crate::lines::{block, line_spans, Kind, Span, SpanKind, TableRole};
+use crate::lines::{block, line_spans, Kind, Line, Span, SpanKind, TableRole};
 use crate::{
     CaretDirection, DisplayOffset, DisplayRange, EditorError, ParagraphKey, Revision, SourceEdit,
     ViewChange,
@@ -42,6 +44,43 @@ pub(super) fn inside_another_mark(spans: &[Span], image: &Range<usize>) -> bool 
     spans.iter().any(|span| {
         span.range != *image && span.range.start <= image.start && image.end <= span.range.end
     })
+}
+
+/// Where an image inserted on a line goes on a line of its own.
+enum Side {
+    Before,
+    After,
+}
+
+/// Where an image written at `at` of `line` (one line, `shown` its text)
+/// goes on a line of its own: on an unindented, unquoted plain line or a
+/// heading that has content besides it, before the line when nothing is
+/// before it there, else after what is. `None` keeps it inline: on any
+/// other line, alone on its line, or inside another mark, which a line of
+/// its own would split.
+fn own_line(shown: &str, line: &Line, at: usize) -> Option<Side> {
+    if line.quote > 0 || !matches!(line.kind, Kind::Plain { indent: 0 } | Kind::Heading { .. }) {
+        return None;
+    }
+    let spans = line_spans(shown, line);
+    let image = spans
+        .iter()
+        .find(|span| span.range.start == at && matches!(span.kind, SpanKind::Image { .. }))?;
+    if inside_another_mark(&spans, &image.range) {
+        return None;
+    }
+    let content = &line.content;
+    let before = shown
+        .get(content.start..at)
+        .is_none_or(|text| text.trim().is_empty());
+    let behind = shown
+        .get(image.range.end..content.end)
+        .is_none_or(|text| text.trim().is_empty());
+    match (before, behind) {
+        (true, true) => None,
+        (true, false) => Some(Side::Before),
+        _ => Some(Side::After),
+    }
 }
 
 /// Whether `spans` hold one image exactly at `at` of `text`, with exactly
@@ -97,13 +136,90 @@ impl Engine {
         {
             return Ok(None);
         }
-        // The named lines as they will read, the image's line checked.
+        // The named lines as they will read with the image inline.
         let base = self.line_start(first);
         let end = self.line_start(last) + self.line(last).text.len();
         let mut after = self.source_slice(base..plan.range.start);
         after.push_str(&plan.inserted);
         after.push_str(&self.source_slice(plan.range.end..end));
         let image = plan.caret - text.len() - base..plan.caret - base;
+        let lines = first..last + 1;
+        let (piece, line) = self
+            .image_line(first, last, &after, &image)
+            .ok_or(EditorError::InvalidText)?;
+        let side = (plan.inserted == text)
+            .then(|| own_line(&after[piece.clone()], &line, image.start - piece.start))
+            .flatten();
+        let ending = self.line_ending_near(first);
+        // Spaces right after the image go with the line before the split:
+        // a line of its own starting with them would be indented.
+        let rest = &after[image.end..piece.start + line.range.end];
+        let spaces = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+        let gap = &after[image.end..image.end + spaces];
+        let command = match side {
+            None => {
+                self.reads_back(first, last, &after, &image, reference, alt)?;
+                Command::new(
+                    vec![Edit::new(plan.range.clone(), plan.inserted.clone())],
+                    lines,
+                    plan.caret..plan.caret,
+                )
+            }
+            // Before the line, the caret where the image would have been.
+            Some(Side::Before) => {
+                let at = piece.start;
+                let own = format!("{text}{gap}{ending}");
+                let moved = [
+                    &after[..at],
+                    &own,
+                    &after[at..image.start],
+                    &after[image.end + spaces..],
+                ]
+                .concat();
+                self.reads_back(first, last, &moved, &(at..at + text.len()), reference, alt)?;
+                let removed = plan.range.start..plan.range.end + spaces;
+                let caret = plan.caret - text.len() + own.len();
+                let mut edits = vec![Edit::insert(base + at, own)];
+                if !removed.is_empty() {
+                    edits.push(Edit::new(removed, ""));
+                }
+                Command::new(edits, lines, caret..caret)
+            }
+            // After the text before it and the spaces, the caret at the start
+            // of the line that follows: the rest of its line, or a new empty
+            // one.
+            Some(Side::After) => {
+                let own = format!("{ending}{text}{ending}");
+                let split = image.end + spaces;
+                let moved = [
+                    &after[..image.start],
+                    &after[image.end..split],
+                    &own,
+                    &after[split..],
+                ]
+                .concat();
+                let at = image.start + spaces + ending.len();
+                self.reads_back(first, last, &moved, &(at..at + text.len()), reference, alt)?;
+                let mut edits = vec![Edit::insert(plan.range.end + spaces, own.clone())];
+                if !plan.range.is_empty() {
+                    edits.push(Edit::new(plan.range.clone(), ""));
+                }
+                let caret = plan.caret - text.len() + spaces + own.len();
+                Command::new(edits, lines, caret..caret)
+            }
+        };
+        Ok(Some(command))
+    }
+
+    /// The line of `after` (the text of lines `first..=last` with an edit
+    /// made) that holds `image`: its range in `after` and how it reads.
+    fn image_line(
+        &self,
+        first: usize,
+        last: usize,
+        after: &str,
+        image: &Range<usize>,
+    ) -> Option<(Range<usize>, Line)> {
         let delimiter_below = (last + 1 < self.line_count())
             .then(|| match self.line(last + 1).line.kind {
                 Kind::Table {
@@ -132,17 +248,32 @@ impl Engine {
                     };
                 }
             }
-            let local = image.start - range.start..image.end - range.start;
-            if !is_image(&line_spans(piece, &line), piece, &local, reference, alt) {
-                return Err(EditorError::InvalidText);
-            }
-            return Ok(Some(Command::new(
-                vec![Edit::new(plan.range.clone(), plan.inserted.clone())],
-                first..last + 1,
-                plan.caret..plan.caret,
-            )));
+            return Some((range, line));
         }
-        Err(EditorError::InvalidText)
+        None
+    }
+
+    /// Whether `image` of `after` reads, on its line, as exactly one image
+    /// with exactly `reference` as its destination and `alt` as its alt.
+    fn reads_back(
+        &self,
+        first: usize,
+        last: usize,
+        after: &str,
+        image: &Range<usize>,
+        reference: &str,
+        alt: &str,
+    ) -> Result<(), EditorError> {
+        let (piece, line) = self
+            .image_line(first, last, after, image)
+            .ok_or(EditorError::InvalidText)?;
+        let local = image.start - piece.start..image.end - piece.start;
+        let text = &after[piece];
+        if is_image(&line_spans(text, &line), text, &local, reference, alt) {
+            Ok(())
+        } else {
+            Err(EditorError::InvalidText)
+        }
     }
 
     /// Keys around an image: a caret's Backspace or Delete whose one-grapheme
