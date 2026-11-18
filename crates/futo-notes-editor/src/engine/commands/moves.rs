@@ -13,7 +13,7 @@
 use super::super::command::{Command, Edit};
 use super::super::edit::Change;
 use super::super::{store, Engine};
-use super::images::inside_another_mark;
+use super::images::{inside_another_mark, shows_around};
 use crate::lines::{block, FenceRole, FrontMatterRole, Kind, Line, SpanKind, TableRole};
 use crate::{DisplayOffset, DisplayRange, EditorError, Revision, SourceEdit};
 use std::ops::Range;
@@ -193,9 +193,9 @@ impl Engine {
     }
 
     /// The image under display offset `at` on line `index`, as a
-    /// line-relative source span, when it lifts alone: the line has content
-    /// besides it (text or another image; markers and whitespace do not
-    /// count), no other mark holds it, and the line is no quote, table, code
+    /// line-relative source span, when it lifts alone: the line shows content
+    /// besides it (text or another image; markers, whitespace and hidden
+    /// syntax do not count, `shows_around`), no other mark holds it, and the line is no quote, table, code
     /// or front matter line.
     fn image_lifted(&self, index: usize, at: DisplayOffset) -> Option<Range<usize>> {
         let entry = self.line(index);
@@ -215,13 +215,9 @@ impl Engine {
                     ..before + entry.to_display(span.range.end))
                     .contains(&at.0)
         })?;
-        let content = &entry.text[line.content.clone()];
-        let (start, end) = (
-            span.range.start - line.content.start,
-            span.range.end - line.content.start,
-        );
-        let alone = content[..start].trim().is_empty() && content[end..].trim().is_empty();
-        (!inside_another_mark(&entry.spans, &span.range) && !alone).then(|| span.range.clone())
+        let (before, after) = shows_around(&entry.text, &entry.spans, &line.content, &span.range);
+        (!inside_another_mark(&entry.spans, &span.range) && (before || after))
+            .then(|| span.range.clone())
     }
 
     /// What a press at display offset `at` lifts.

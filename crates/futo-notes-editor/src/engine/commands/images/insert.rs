@@ -7,7 +7,7 @@
 //! image with exactly that destination and alt (`Command::image`).
 use super::super::super::command::{Command, Edit, Written};
 use super::super::super::Engine;
-use super::inside_another_mark;
+use super::{inside_another_mark, shows_around};
 use crate::lines::{block, line_spans, Kind, Line, Span, SpanKind, TableRole};
 use crate::{EditorError, Revision, SourceEdit, ViewChange};
 use std::ops::Range;
@@ -70,8 +70,8 @@ enum Side {
 
 /// Where an image written at `at` of `line` (one line, `shown` its text)
 /// goes on a line of its own: on an unindented, unquoted plain line or a
-/// heading that has content besides it, before the line when nothing is
-/// before it there, else after what is. `None` keeps it inline: on any
+/// heading that shows content besides it (`shows_around`), before the line
+/// when nothing shows before it there, else after what does. `None` keeps it inline: on any
 /// other line, alone on its line, or inside another mark, which a line of
 /// its own would split.
 fn own_line(shown: &str, line: &Line, at: usize) -> Option<Side> {
@@ -85,16 +85,9 @@ fn own_line(shown: &str, line: &Line, at: usize) -> Option<Side> {
     if inside_another_mark(&spans, &image.range) {
         return None;
     }
-    let content = &line.content;
-    let before = shown
-        .get(content.start..at)
-        .is_none_or(|text| text.trim().is_empty());
-    let behind = shown
-        .get(image.range.end..content.end)
-        .is_none_or(|text| text.trim().is_empty());
-    match (before, behind) {
-        (true, true) => None,
-        (true, false) => Some(Side::Before),
+    match shows_around(shown, &spans, &line.content, &image.range) {
+        (false, false) => None,
+        (false, true) => Some(Side::Before),
         _ => Some(Side::After),
     }
 }

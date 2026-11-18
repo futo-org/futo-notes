@@ -34,6 +34,12 @@ fn an_image_sharing_its_line_lifts_alone_and_nothing_else_does() {
         ("![](a.jpg)", 0, false, 0..1),
         ("![](a.jpg)  \nb", 0, false, 0..1),
         ("- ![](a.jpg)\n  - child", 0, false, 0..2),
+        // Hidden syntax shows nothing: a link with no text beside the photo
+        // leaves it alone on the line it shows, and the item lifts whole.
+        ("- ![](a.jpg)[](u)\n  - child", 0, false, 0..2),
+        ("[](u)![](a.jpg)", 0, false, 0..1),
+        // An escaped character shows.
+        ("\\*![](a.jpg)", 0, true, 0..0),
         // Inside a quote run or a table the unit lifts, as before.
         ("> Nice!![](a.jpg)\n> b", 0, false, 0..2),
         ("| a![](x.jpg) |\n|---|\n| 1 |", 0, false, 0..3),

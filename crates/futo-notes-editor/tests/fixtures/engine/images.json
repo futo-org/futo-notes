@@ -6,6 +6,8 @@
   {"name": "over a selection at a line's start, the spaces after it ending the image's line", "before": "«ab» cd", "command": "insert", "reference": "image-9.png", "after": "![](image-9.png) \n‸cd"},
   {"name": "at a heading's start, on a line of its own before it", "before": "# ‸Title", "command": "insert", "reference": "image-9.png", "after": "![](image-9.png)\n# ‸Title"},
   {"name": "a CRLF note takes CRLF", "before": "ab‸\r\ncd", "command": "insert", "reference": "image-9.png", "after": "ab\r\n![](image-9.png)\r\n‸\r\ncd"},
+  {"name": "beside a link with no text, which shows nothing, inline", "before": "[](u)‸", "command": "insert", "reference": "image-9.png", "after": "[](u)![](image-9.png)‸"},
+  {"name": "after an escaped character, which shows, on a line of its own", "before": "\\*‸", "command": "insert", "reference": "image-9.png", "after": "\\*\n![](image-9.png)\n‸"},
   {"name": "on an empty line, inline as before", "before": "a\n‸\nb", "command": "insert", "reference": "image-9.png", "after": "a\n![](image-9.png)‸\nb"},
   {"name": "a whitespace-only line is empty, inline", "before": "a\n  ‸", "command": "insert", "reference": "image-9.png", "after": "a\n  ![](image-9.png)‸"},
   {"name": "over a selection", "before": "a«b c»d", "command": "insert", "reference": "image-9.png", "after": "a\n![](image-9.png)\n‸d"},
