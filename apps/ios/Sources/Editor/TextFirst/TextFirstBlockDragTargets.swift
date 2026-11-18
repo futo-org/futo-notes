@@ -37,6 +37,7 @@ enum TextFirstAutoscroll {
 }
 
 /// Runs the autoscroll once per frame while its velocity is not zero, the finger still or not.
+/// The display link reaches it through a weak proxy: it stops when its drag goes away.
 @MainActor
 final class TextFirstAutoscroller {
     private var link: CADisplayLink?
@@ -51,7 +52,9 @@ final class TextFirstAutoscroller {
             if velocity == 0 {
                 stop()
             } else if link == nil {
-                let link = CADisplayLink(target: self, selector: #selector(frame(_:)))
+                let link = CADisplayLink(
+                    target: TextFirstFrameProxy(self),
+                    selector: #selector(TextFirstFrameProxy.frame))
                 link.add(to: .main, forMode: .common)
                 self.link = link
             }
@@ -65,11 +68,22 @@ final class TextFirstAutoscroller {
         last = nil
     }
 
-    @objc private func frame(_ link: CADisplayLink) {
+    isolated deinit { link?.invalidate() }
+
+    fileprivate func frame(_ link: CADisplayLink) {
         // The first frame only starts the clock.
         defer { last = link.timestamp }
         guard let last else { return }
         scroll(TextFirstAutoscroll.step(velocity, elapsed: link.timestamp - last))
+    }
+}
+
+/// The display link's target, holding its autoscroller weakly (a link retains its target).
+private final class TextFirstFrameProxy: NSObject {
+    weak var autoscroller: TextFirstAutoscroller?
+    init(_ autoscroller: TextFirstAutoscroller) { self.autoscroller = autoscroller }
+    @MainActor @objc func frame(_ link: CADisplayLink) {
+        if let autoscroller { autoscroller.frame(link) } else { link.invalidate() }
     }
 }
 

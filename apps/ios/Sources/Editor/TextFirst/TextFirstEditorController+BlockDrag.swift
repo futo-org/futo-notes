@@ -149,8 +149,19 @@ final class TextFirstBlockDrag {
         if let nearest { dropLine.center.y = nearest.y }
     }
 
+    /// A drag its editor let go of without finishing it (the editor went away while its view
+    /// stayed) takes itself off the view.
+    isolated deinit {
+        guard !finished else { return }
+        for view in [card, dimmedSource, dropLine] { view.removeFromSuperview() }
+        textView?.panGestureRecognizer.isEnabled = true
+    }
+
+    private var finished = false
+
     /// Take everything down; a card that did not land first slides back to where it was lifted.
     func finish(returning: Bool) {
+        finished = true
         autoscroller.stop()
         dropLine.removeFromSuperview()
         guard returning else {

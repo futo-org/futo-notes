@@ -183,6 +183,35 @@
             h.controller.endBlockDrag(dropping: false)
         }
 
+        @Test func aDragEndsWhenItsEditorGoesAwayWhileTheViewStays() async throws {
+            let h = TextFirstHarness(
+                (0..<300).map { "line \($0)" }.joined(separator: "\n"), focused: false)
+            // A second editor on the same note, owned here alone, its view in the window.
+            _ = try h.controller.session.detach()
+            var editor: TextFirstEditorController? = try TextFirstEditorController(
+                noteId: "note", session: try h.store.openEditor(id: "note"), imageRoot: h.root)
+            let view = try #require(editor?.textView)
+            h.tv.removeFromSuperview()
+            view.frame = h.window.bounds
+            h.window.addSubview(view)
+            view.layoutIfNeeded()
+            // Held still in the bottom zone: the note is scrolling.
+            let p = CGPoint(x: 60, y: view.bounds.maxY - 30)
+            #expect(editor?.liftShouldBegin(at: p) == true)
+            editor?.beginBlockDrag(at: p)
+            weak var drag = editor?.blockDrag
+            #expect(await h.until(1) { view.contentOffset.y > 50 })
+            editor = nil
+            // The view outlives its editor: the drag is gone from it, and it scrolls no more.
+            try await Task.sleep(nanoseconds: 100_000_000)
+            #expect(drag == nil)
+            #expect(view.subviews.count(where: { !$0.isUserInteractionEnabled }) == 0)
+            #expect(view.panGestureRecognizer.isEnabled)
+            let stopped = view.contentOffset.y
+            try await Task.sleep(nanoseconds: 200_000_000)
+            #expect(view.contentOffset.y == stopped)
+        }
+
         @Test func aSyncWriteEndsTheDragBeforeTheEditorHasTakenItIn() async throws {
             let h = TextFirstHarness("one\ntwo\nthree", focused: false)
             let drag = try begin(h, at: h.point(line: 0))
