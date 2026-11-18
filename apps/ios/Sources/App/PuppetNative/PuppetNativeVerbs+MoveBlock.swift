@@ -14,6 +14,12 @@
             guard let number = args["line"] as? Int else {
                 throw PuppetVerbRefusal(400, "MoveBlock requires line")
             }
+            // Text being composed is the person's, and the view's lines then differ from the
+            // engine's: the engine refuses a move, as a drag cannot start with the keyboard up.
+            if c.engineComposing || c.textView.markedTextRange != nil {
+                throw PuppetVerbRefusal(
+                    409, "text is being composed: commit or cancel it before moving a block")
+            }
             let before = args["before"] as? Int
             let after = args["after"] as? Int
             guard (before == nil) != (after == nil) else {

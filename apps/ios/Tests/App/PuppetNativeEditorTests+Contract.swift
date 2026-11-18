@@ -211,6 +211,19 @@
             #expect(h.source == "intro\nend\n- a\n  - b")
         }
 
+        @Test func moveBlockDuringMarkedTextIsRefusedWithTheNoteUnchanged() async throws {
+            let h = TextFirstHarness("a\nb\nc")
+            let unmount = mount(h)
+            defer { unmount() }
+            let adapter = attached(h)
+            h.select(5, 5)
+            h.tv.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0))
+            let moved = await adapter.perform("MoveBlock", arguments: ["line": 1, "after": 2])
+            #expect(moved.status == 409)
+            #expect(h.source == "a\nb\nc")
+            #expect(h.tv.markedTextRange != nil)
+        }
+
         @Test func moveBlockTellsAboveAnEmptyLastTaskFromAfterIt() async throws {
             // Display lines: 1 a, 2 b, 3 the task, which shows no characters.
             let h = TextFirstHarness("a\nb\n- [ ] ")
