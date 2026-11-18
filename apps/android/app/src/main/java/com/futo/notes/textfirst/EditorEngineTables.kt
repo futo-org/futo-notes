@@ -1,5 +1,6 @@
 package com.futo.notes.textfirst
 
+import uniffi.futo_notes_ffi.EditorParagraphKey
 import uniffi.futo_notes_ffi.EditorTableAlignment
 import uniffi.futo_notes_ffi.EditorTableKey
 import uniffi.futo_notes_ffi.EditorUtf16Range
@@ -46,6 +47,35 @@ internal fun EditorEngine.finishCellEditing() = command {
     editingCell = false
     cellRange = null
     ui.post { sink.onCell(null) }
+}
+
+/**
+ * Ctrl+Enter in a cell (desktop's Mod+Enter): editing leaves the table for an empty line after it, the line after the
+ * table when that is empty, else a new one opened before that line (Enter at its start, so its own rules hold).
+ */
+internal fun EditorEngine.leaveTableBelow() = command {
+    if (mirror.overlay != null) commitComposition(null)
+    val text = mirror.text
+    var lineStart = text.lastIndexOf('\n', mirror.selStart - 1) + 1
+    var lineEnd = text.indexOf('\n', lineStart).let { if (it < 0) text.length else it }
+    while (lineEnd < text.length && text.substring(lineEnd + 1).trimStart(' ').startsWith("|")) {
+        lineStart = lineEnd + 1
+        lineEnd = text.indexOf('\n', lineStart).let { if (it < 0) text.length else it }
+    }
+    editingCell = false
+    cellRange = null
+    ui.post { sink.onCell(null) }
+    if (lineEnd >= text.length) {
+        select(lineEnd, lineEnd, fromView = false)
+        key(EditorParagraphKey.ENTER)
+        return@command
+    }
+    val next = lineEnd + 1
+    val nextEmpty = next >= text.length || text[next] == '\n'
+    select(next, next, fromView = false)
+    if (nextEmpty) return@command
+    key(EditorParagraphKey.ENTER)
+    select(next, next, fromView = false)
 }
 
 /** Tab navigation and row insertion are one canonical table-key outcome. */

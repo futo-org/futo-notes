@@ -119,6 +119,7 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         if (event.isCtrlPressed) {
             when (keyCode) {
                 KeyEvent.KEYCODE_Z -> { if (event.isShiftPressed) editor.redo() else editor.undo(); return true }
+                KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> { editor.leaveTableBelow(); return true }
                 KeyEvent.KEYCODE_Y -> { editor.redo(); return true }
                 KeyEvent.KEYCODE_A -> { onTextContextMenuItem(android.R.id.selectAll); return true }
                 KeyEvent.KEYCODE_C -> { onTextContextMenuItem(android.R.id.copy); return true }

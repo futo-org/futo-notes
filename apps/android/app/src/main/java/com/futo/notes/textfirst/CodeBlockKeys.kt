@@ -38,9 +38,9 @@ internal fun TextFirstEditText.selectedBlockKey(keyCode: Int, event: KeyEvent): 
 }
 
 /**
- * Mod-Enter on a code line opens a blank line below it and Mod-Shift-Enter one above it, the caret
- * on it (!300 cb 859-860, ed 841-842). The editor thread does it against the engine's own caret and
- * text (EditorEngine.openCodeLine). Returns whether it acted.
+ * Mod-Enter opens a blank line below the caret's line and Mod-Shift-Enter one above it, the caret
+ * on it (!300 cb 859-860, ed 841-842; desktop editing.md for prose). The editor thread does it
+ * against the engine's own caret and text (EditorEngine.openLine). Returns whether it acted.
  */
 internal fun TextFirstEditText.codeLineKey(keyCode: Int, event: KeyEvent): Boolean {
     if (keyCode != KeyEvent.KEYCODE_ENTER && keyCode != KeyEvent.KEYCODE_NUMPAD_ENTER || !event.isCtrlPressed) return false
@@ -48,9 +48,9 @@ internal fun TextFirstEditText.codeLineKey(keyCode: Int, event: KeyEvent): Boole
     val engine = engine ?: return false
     val e = editableText ?: return false
     val caret = selectionStart
-    if (e.getSpans(caret, caret, TfCodeBlock::class.java).isEmpty()) return false
+    val inCode = e.getSpans(caret, caret, TfCodeBlock::class.java).isNotEmpty()
     val above = event.isShiftPressed
-    engine.handler.post { engine.openCodeLine(above) }
+    engine.handler.post { engine.openLine(above, inCode) }
     return true
 }
 

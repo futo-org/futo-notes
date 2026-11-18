@@ -67,4 +67,43 @@ class TextFirstDesktopRulesTest {
         assertEquals(true, c.view.onKeyDown(KeyEvent.KEYCODE_K, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_K, 0, KeyEvent.META_CTRL_ON)))
         assertEquals(1, opened)
     }
+
+    private suspend fun ctrlEnterInACell(c: TextFirstController, typed: String = "z"): String? {
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        val cell = view.editableText.indexOf("c ")
+        view.onTableCell!!(cell, cell, view.appliedSeq)
+        withTimeout(5_000) { while (c.cellView == null) delay(20) }
+        val field = c.cellView!!
+        field.onKeyDown(KeyEvent.KEYCODE_ENTER, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0, KeyEvent.META_CTRL_ON))
+        withTimeout(5_000) { while (c.cellView != null) delay(20) }
+        delay(200)
+        textFirstIme(c) { commitText(typed, 1) }
+        return c.sourceText()
+    }
+
+    @Test fun ctrlEnterInACellGoesToTheEmptyLineAfterTheTable() = textFirstSession("| a | b |\n| - | - |\n| c | d |\n\nafter") { c ->
+        assertEquals("| a | b |\n| - | - |\n| c | d |\nz\nafter", ctrlEnterInACell(c))
+    }
+
+    @Test fun ctrlEnterInACellOpensALineBeforeTextRightAfterTheTable() = textFirstSession("| a | b |\n| - | - |\n| c | d |\nafter") { c ->
+        assertEquals("| a | b |\n| - | - |\n| c | d |\nz\nafter", ctrlEnterInACell(c))
+    }
+
+    @Test fun ctrlEnterInACellOfANoteEndingTableOpensALine() = textFirstSession("| a | b |\n| - | - |\n| c | d |") { c ->
+        assertEquals("| a | b |\n| - | - |\n| c | d |\nz", ctrlEnterInACell(c))
+    }
+
+    @Test fun ctrlEnterAndCtrlShiftEnterOpenLinesInProse() = textFirstSession("alpha beta\nsecond") { c ->
+        ready(c, 3)
+        chord(c, KeyEvent.KEYCODE_ENTER, KeyEvent.META_CTRL_ON, "alpha beta\nsecond")
+        textFirstIme(c) { commitText("x", 1) }
+        assertEquals("alpha beta\nx\nsecond", c.sourceText())
+        ready(c, c.view.editableText.indexOf("second") + 2)
+        chord(c, KeyEvent.KEYCODE_ENTER, KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON, "alpha beta\nx\nsecond")
+        textFirstIme(c) { commitText("y", 1) }
+        assertEquals("alpha beta\nx\ny\nsecond", c.sourceText())
+    }
 }
