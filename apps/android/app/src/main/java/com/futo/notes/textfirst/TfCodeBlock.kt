@@ -17,7 +17,7 @@ import android.text.style.MetricAffectingSpan
  * LineBackgroundSpan: the TextView draws the caret before the layout's line backgrounds, so the
  * view paints them first instead (`drawCodeBlocks`).
  */
-internal class TfCodeBlock(private val look: TextFirstStyle, val line: CodeLineFacts) :
+internal class TfCodeBlock(private val look: TextFirstStyle, line: CodeLineFacts) :
     MetricAffectingSpan(), LeadingMarginSpan, LineHeightSpan, TfSpan {
     private val numberPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = look.mono
@@ -25,11 +25,21 @@ internal class TfCodeBlock(private val look: TextFirstStyle, val line: CodeLineF
     }
     private val rulePaint = Paint()
     /** Where the numbers end: !300's two-digit column, one digit wider per digit past two the block's count needs. */
-    val numberEnd = look.codeNumbersEnd + maxOf(0, line.block.lineCount.toString().length - 2) * numberPaint.measureText("0")
+    val digits = digitsFor(line)
+    /**
+     * The facts drawn with the line (its number, the header's name and language). A restyle that changes only these
+     * sets them here instead of replacing the span, so the layout does not reflow the line: [sameMetrics] is the span's
+     * identity.
+     */
+    var line: CodeLineFacts = line
+    val numberEnd = look.codeNumbersEnd + maxOf(0, digits - 2) * numberPaint.measureText("0")
     val ruleX = numberEnd + look.codeRuleGap
     private val codeInset = ruleX + look.codeTextGap
 
     override fun slice(head: Boolean): TfSpan = if (head) this else TfCodeBlock(look, line)
+
+    /** Whether [facts] lays this line out the same: its header above, its skirt below and its number column. */
+    fun sameMetrics(facts: CodeLineFacts): Boolean = facts.first == line.first && facts.last == line.last && digitsFor(facts) == digits
 
     override fun updateMeasureState(paint: TextPaint) {
         paint.typeface = look.mono
@@ -90,3 +100,5 @@ internal class TfCodeBlock(private val look: TextFirstStyle, val line: CodeLineF
         return text.getSpans(next, next + 1, TfCodeBlock::class.java).any { it.line.first && text.getSpanStart(it) == next }
     }
 }
+
+private fun digitsFor(facts: CodeLineFacts): Int = facts.block.lineCount.toString().length

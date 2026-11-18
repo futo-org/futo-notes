@@ -1,7 +1,6 @@
 package com.futo.notes.textfirst
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import uniffi.futo_notes_ffi.EditorListMarker
@@ -50,7 +49,6 @@ class EngineStyleSpansTest {
             CodeLineFacts(2, first = false, last = true, js),
             CodeLineFacts(1, first = true, last = true, plain),
         ), lines)
-        assertNotEquals("a renumbered line is not the span already drawn", lines[1], lines[1].copy(number = 3))
     }
 
     @Test fun aTableRowReadsItsCellsFromTheDisplayAndHidesTheSpansInsideIt() {

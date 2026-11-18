@@ -65,6 +65,7 @@ internal fun TextFirstEditText.restyle(e: Editable, given: StyleWindow) {
         if (s >= window.start && en <= window.end) {
             val match = wanted.indexOfFirst { (it.start == s && (it.end == en || it.start == it.end && en == s + 1)) && spans.matches(it, span) }
             if (match >= 0) {
+                spans.refresh(wanted[match], span)
                 setRendererSpan(e, span, s, en)
                 wanted.removeAt(match)
                 continue
