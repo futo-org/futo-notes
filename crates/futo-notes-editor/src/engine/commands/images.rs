@@ -4,7 +4,8 @@
 //! draws its atom as one object. Insertion writes exact source at the caret:
 //! `![alt](reference)`, with `<…>` around a reference holding spaces or
 //! parentheses, on a line of its own when the caret's line is a plain line or
-//! a heading with other content (`own_line`), else inline, and only when that
+//! a heading with other content (`own_line`) and the lines the split leaves
+//! read as they should (`split_reads`), else inline, and only when that
 //! text reads back, with the whole note read after the edit, as exactly one
 //! image with exactly that destination and alt (`Command::image`).
 use super::super::command::{Command, Edit, Written};
@@ -147,15 +148,45 @@ impl Engine {
         let (piece, line) = self
             .image_line(first, last, &after, &image)
             .ok_or(EditorError::InvalidText)?;
-        let side = (plan.inserted == text)
-            .then(|| own_line(&after[piece.clone()], &line, image.start - piece.start))
-            .flatten();
         let ending = self.line_ending_near(first);
         // Spaces right after the image go with the line before the split:
         // a line of its own starting with them would be indented.
         let rest = &after[image.end..piece.start + line.range.end];
         let spaces = rest.len() - rest.trim_start_matches([' ', '\t']).len();
         let gap = &after[image.end..image.end + spaces];
+        let side = (plan.inserted == text)
+            .then(|| own_line(&after[piece.clone()], &line, image.start - piece.start))
+            .flatten()
+            .filter(|side| {
+                // The lines the split leaves, as the named lines would read.
+                let (moved, kept, rest) = match side {
+                    Side::Before => {
+                        let own = format!("{text}{gap}{ending}");
+                        let moved = [
+                            &after[..piece.start],
+                            &own,
+                            &after[piece.start..image.start],
+                            &after[image.end + spaces..],
+                        ]
+                        .concat();
+                        (moved, piece.start + own.len(), None)
+                    }
+                    Side::After => {
+                        let own = format!("{ending}{text}{ending}");
+                        let split = image.end + spaces;
+                        let moved = [
+                            &after[..image.start],
+                            &after[image.end..split],
+                            &own,
+                            &after[split..],
+                        ]
+                        .concat();
+                        let rest = image.start + spaces + own.len();
+                        (moved, piece.start, Some(rest))
+                    }
+                };
+                self.split_reads(first, last, &moved, kept, rest, &line)
+            });
         let (edits, at, caret) = match side {
             None => (
                 vec![Edit::new(plan.range.clone(), plan.inserted.clone())],
@@ -195,6 +226,49 @@ impl Engine {
             alt: alt.to_owned(),
         });
         Ok(Some(command))
+    }
+
+    /// Whether the lines an image put on a line of its own leaves read as
+    /// they should, with the line below the named ones `first..=last`: the
+    /// line starting at `kept` of `moved` (their text after the split) as
+    /// `line` did with the image inline, and the line starting at `rest`,
+    /// the text after the image, as a plain line or an empty one. A split
+    /// must never expose a marker (`# Title‸ - [ ] ship`) or leave a frame
+    /// line (`---‸x`).
+    fn split_reads(
+        &self,
+        first: usize,
+        last: usize,
+        moved: &str,
+        kept: usize,
+        rest: Option<usize>,
+        line: &Line,
+    ) -> bool {
+        let mut text = moved.to_owned();
+        if last + 1 < self.line_count() {
+            text.push_str(&self.line(last + 1).text);
+        }
+        let mut carry = self.line(first).carry.clone();
+        let mut lines: Vec<Line> = Vec::new();
+        let mut start = 0;
+        loop {
+            let read = block::read_line(&mut carry, &text, start);
+            let last = read.ending == 0;
+            start = read.end();
+            block::place(&mut lines, read);
+            if last {
+                break;
+            }
+        }
+        let at = |offset: usize| lines.iter().find(|read| read.range.start == offset);
+        let kept_holds =
+            at(kept).is_some_and(|read| (&read.kind, read.quote) == (&line.kind, line.quote));
+        let rest_holds = rest.is_none_or(|offset| {
+            at(offset).is_some_and(|read| {
+                read.quote == 0 && matches!(read.kind, Kind::Plain { indent: 0 } | Kind::Blank)
+            })
+        });
+        kept_holds && rest_holds
     }
 
     /// The line of `after` (the text of lines `first..=last` with an edit
