@@ -67,4 +67,18 @@ class TextFirstFindShortcutTest {
         compose.waitForIdle()
         assertEquals("the note lost focus", true, readOnMainThread { view.isFocused })
     }
+
+    /** Ctrl+K reaches the toolbar's link form through the screen's own wiring, not a hook a test sets. */
+    @Test fun ctrlKOpensTheToolbarsLinkForm() = compose.withTextFirstScreen("alpha beta gamma\nsecond line\n\n" + "ordinary note text ".repeat(10) + "\n") { view, _ ->
+        val start = readOnMainThread { view.text.toString().indexOf("beta") }
+        compose.runOnUiThread {
+            view.requestFocus()
+            view.engine!!.hostSelect(start, start + 4)
+        }
+        compose.waitUntil(5_000) { readOnMainThread { view.selectionEnd == start + 4 } }
+        compose.runOnUiThread {
+            view.onKeyDown(KeyEvent.KEYCODE_K, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_K, 0, KeyEvent.META_CTRL_ON))
+        }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Link text").fetchSemanticsNodes().isNotEmpty() }
+    }
 }
