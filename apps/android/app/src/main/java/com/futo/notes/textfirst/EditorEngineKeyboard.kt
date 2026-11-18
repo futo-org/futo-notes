@@ -119,8 +119,9 @@ internal fun EditorEngine.imeDeleteSurrounding(before: Int, after: Int) = input 
     }
 }
 
+/** A keyboard's move (a cursor swipe on the space bar) is the user's own, so the engine places it; a restatement is not. */
 internal fun EditorEngine.imeSetSelection(start: Int, end: Int) = input {
-    select(start, end, fromView = false)
+    select(start, end, fromView = false, placed = start != mirror.selStart || end != mirror.selEnd)
 }
 
 internal fun EditorEngine.key(key: EditorParagraphKey) = input {
