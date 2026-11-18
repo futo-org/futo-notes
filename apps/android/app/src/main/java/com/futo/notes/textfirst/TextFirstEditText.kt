@@ -257,7 +257,7 @@ internal class TextFirstEditText(
         val e = editableText as? ChunkedEditable
         e?.drawWindow = visibleChars()
         drawing = true
-        try { super.onDraw(canvas); drawTopPaddingBand(canvas); drawScrollEdge(canvas) } finally { drawing = false; e?.drawWindow = null }
+        try { super.onDraw(canvas); drawSelectedImageTint(canvas); drawTopPaddingBand(canvas); drawScrollEdge(canvas) } finally { drawing = false; e?.drawWindow = null }
         if (timings != null) {
             timings.drawEnd = android.os.SystemClock.elapsedRealtimeNanos()
             pendingTimings = null
@@ -283,6 +283,7 @@ internal class TextFirstEditText(
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
         super.onSelectionChanged(selStart, selEnd)
+        if (coversImage(selStart, selEnd) || coversImage((renderedSelection shr 32).toInt(), renderedSelection.toInt())) invalidate()
         renderedSelection = (selStart.toLong() shl 32) or (selEnd.toLong() and 0xffffffffL)
         selectedObject = selectedObject?.takeIf { it.first == selStart && it.second == selEnd }
         selectedCodeBlock = selectedCodeBlock?.takeIf { it.first == selStart && it.second == selEnd }

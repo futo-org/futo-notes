@@ -320,7 +320,7 @@ internal class TfImage(
     var failed = false
     private val placeholder = Paint().apply { color = look.surfaceColor }
 
-    private fun drawSize(): Pair<Int, Int> {
+    fun drawSize(): Pair<Int, Int> {
         val bmp = bitmap
         val limit = maxOf(1, maxWidth())
         if (bmp == null) return limit to if (failed) look.dp(28f).toInt() else look.dp(48f).toInt()

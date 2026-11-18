@@ -130,7 +130,11 @@ internal fun EditorEngine.key(key: EditorParagraphKey) = input {
     if (mirror.overlay != null) commitComposition(null)
     if (editingCell && (key == EditorParagraphKey.TAB || key == EditorParagraphKey.SHIFT_TAB) &&
         tableTab(key == EditorParagraphKey.SHIFT_TAB)) return@input
-    wikilinkBesideCaret(key)?.let { (start, end) -> return@input replace(start, end, "", EditorInputAction.TYPING) }
+    when (val atom = atomBesideCaret(key)) {
+        is EditorStyleSpan.Wikilink -> return@input replace(atom.start.toInt(), atom.end.toInt(), "", EditorInputAction.TYPING)
+        is EditorStyleSpan.Image -> return@input select(atom.start.toInt(), atom.end.toInt(), fromView = false)
+        else -> {}
+    }
     val intent = if (key == EditorParagraphKey.BACKSPACE) EditorParagraphKey.BACKSPACE_JOINING_HEADING else key
     val change = checkNotNull(fast).paragraphKey(rev, mirror.selStart, mirror.selEnd, intent)
     if (change != null) accept(change)
@@ -138,10 +142,11 @@ internal fun EditorEngine.key(key: EditorParagraphKey) = input {
 
 
 /**
- * A wikilink is one unit (Mason's desktop rule; the engine leaves it to the renderer): Backspace right after it or
- * Delete right before it takes it whole, one Undo step.
+ * The wikilink or image a collapsed Backspace would reach from after it, or Delete from before it. Mason's desktop
+ * rules, which the engine leaves to the renderer: a wikilink is one unit and goes whole, one Undo step; an image is
+ * selected first and the next press deletes it.
  */
-private fun EditorEngine.wikilinkBesideCaret(key: EditorParagraphKey): Pair<Int, Int>? {
+private fun EditorEngine.atomBesideCaret(key: EditorParagraphKey): EditorStyleSpan? {
     val caret = mirror.selStart
     if (caret != mirror.selEnd || mirror.overlay != null) return null
     val (from, to) = when (key) {
@@ -150,10 +155,13 @@ private fun EditorEngine.wikilinkBesideCaret(key: EditorParagraphKey): Pair<Int,
         else -> return null
     }
     if (from < 0 || to > mirror.text.length) return null
-    return checkNotNull(session).stylePlan(rev, mirror.byteRange(from, to)).firstNotNullOfOrNull { span ->
-        val link = span as? EditorStyleSpan.Wikilink ?: return@firstNotNullOfOrNull null
-        val range = link.start.toInt() to link.end.toInt()
-        range.takeIf { if (key == EditorParagraphKey.BACKSPACE) it.second == caret else it.first == caret }
+    return checkNotNull(session).stylePlan(rev, mirror.byteRange(from, to)).firstOrNull { span ->
+        val range = when (span) {
+            is EditorStyleSpan.Wikilink -> span.start.toInt() to span.end.toInt()
+            is EditorStyleSpan.Image -> span.start.toInt() to span.end.toInt()
+            else -> return@firstOrNull false
+        }
+        if (key == EditorParagraphKey.BACKSPACE) range.second == caret else range.first == caret
     }
 }
 
