@@ -55,25 +55,23 @@ internal fun EditorEngine.finishCellEditing() = command {
  */
 internal fun EditorEngine.leaveTableBelow() = command {
     if (mirror.overlay != null) commitComposition(null)
+    val s = session ?: return@command
+    val table = s.inspectTable(rev, mirror.byteRange(mirror.selStart, mirror.selStart)) ?: return@command
     val text = mirror.text
-    var lineStart = text.lastIndexOf('\n', mirror.selStart - 1) + 1
-    var lineEnd = text.indexOf('\n', lineStart).let { if (it < 0) text.length else it }
-    while (lineEnd < text.length && text.substring(lineEnd + 1).trimStart(' ').startsWith("|")) {
-        lineStart = lineEnd + 1
-        lineEnd = text.indexOf('\n', lineStart).let { if (it < 0) text.length else it }
-    }
+    val tableStart = mirror.toUtf16(table.display.start.toInt())
+    var tableEnd = mirror.toUtf16(table.display.end.toInt())
+    if (tableEnd > tableStart && text[tableEnd - 1] == '\n') tableEnd--
     editingCell = false
     cellRange = null
     ui.post { sink.onCell(null) }
-    if (lineEnd >= text.length) {
-        select(lineEnd, lineEnd, fromView = false)
+    if (tableEnd >= text.length) {
+        select(tableEnd, tableEnd, fromView = false)
         key(EditorParagraphKey.ENTER)
         return@command
     }
-    val next = lineEnd + 1
-    val nextEmpty = next >= text.length || text[next] == '\n'
+    val next = tableEnd + 1
     select(next, next, fromView = false)
-    if (nextEmpty) return@command
+    if (next >= text.length || text[next] == '\n') return@command
     key(EditorParagraphKey.ENTER)
     select(next, next, fromView = false)
 }

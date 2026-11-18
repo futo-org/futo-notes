@@ -68,14 +68,17 @@ class TextFirstDesktopRulesTest {
         assertEquals(1, opened)
     }
 
-    private suspend fun ctrlEnterInACell(c: TextFirstController, typed: String = "z"): String? {
+    private suspend fun ctrlEnterInACell(c: TextFirstController, typed: String = "z", cellText: String = "c "): String? {
         val view = c.view
         view.isFocusableInTouchMode = true
         view.requestFocus()
         withTimeout(5_000) { while (view.layout == null) delay(20) }
-        val cell = view.editableText.indexOf("c ")
+        val cell = view.editableText.indexOf(cellText)
+        delay(300)
+        val rows = view.editableText.getSpans(0, view.editableText.length, TfTableRow::class.java).size
         view.onTableCell!!(cell, cell, view.appliedSeq)
-        withTimeout(5_000) { while (c.cellView == null) delay(20) }
+        val opened = runCatching { withTimeout(5_000) { while (c.cellView == null) delay(20) } }.isSuccess
+        org.junit.Assert.assertTrue("no cell opened; table rows drawn: $rows", opened)
         val field = c.cellView!!
         field.onKeyDown(KeyEvent.KEYCODE_ENTER, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0, KeyEvent.META_CTRL_ON))
         withTimeout(5_000) { while (c.cellView != null) delay(20) }
@@ -90,6 +93,11 @@ class TextFirstDesktopRulesTest {
 
     @Test fun ctrlEnterInACellOpensALineBeforeTextRightAfterTheTable() = textFirstSession("| a | b |\n| - | - |\n| c | d |\nafter") { c ->
         assertEquals("| a | b |\n| - | - |\n| c | d |\nz\nafter", ctrlEnterInACell(c))
+    }
+
+    /** Left from the header row, the caret goes past every row the engine counts as the table's. */
+    @Test fun ctrlEnterInTheHeaderRowLeavesTheWholeTable() = textFirstSession("| a | b |\n| - | - |\n| c | d |\n| e | f |\n\nafter") { c ->
+        assertEquals("| a | b |\n| - | - |\n| c | d |\n| e | f |\nz\nafter", ctrlEnterInACell(c, cellText = "a "))
     }
 
     @Test fun ctrlEnterInACellOfANoteEndingTableOpensALine() = textFirstSession("| a | b |\n| - | - |\n| c | d |") { c ->
