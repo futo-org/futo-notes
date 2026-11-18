@@ -16,10 +16,8 @@ extension TextFirstEditorController {
         let block: TextFirstLiftedBlock
         let slots: [TextFirstBlockSlot]
         do {
-            guard let found = try liftedBlock(at: offset),
-                let landing = try blockSlots(at: offset, within: laidOut)
-            else { return nil }
-            (block, slots) = (found, landing)
+            guard let found = try liftedBlock(at: offset) else { return nil }
+            (block, slots) = (found, try blockSlots(at: offset, within: laidOut))
         } catch {
             print("text-first: block lookup failed: \(error)")
             return nil

@@ -47,13 +47,13 @@
                 slot = TextFirstBlockSlot(offset: document.text.length, end: true)
             }
             let side = before != nil ? "before" : "after"
-            guard let slots = try c.blockSlots(at: at) else {
+            guard try c.liftedBlock(at: at) != nil else {
                 throw PuppetVerbRefusal(
                     409,
                     "line \(number) lifts nothing: a blank line, front matter and code nothing closes do not move"
                 )
             }
-            guard slots.contains(slot) else {
+            guard try c.blockSlots(at: at).contains(slot) else {
                 throw PuppetVerbRefusal(
                     409,
                     "line \(number)'s block cannot land \(side) line \(target.number): that boundary is its own edge, or inside a quote, code block, table or front matter, or inside a list that takes only list items and plain lines, or a line would read as another kind of block there"

@@ -257,7 +257,7 @@
             // strings equal, but they are one UTF-16 unit apart. Moving line 0 below line 1
             // swaps them; a view that took them for unchanged would no longer match the engine.
             let h = TextFirstHarness("\u{e9}\ne\u{301}\nz", focused: false)
-            let slots = try #require(try h.controller.blockSlots(at: 0))
+            let slots = try h.controller.blockSlots(at: 0)
             let above = TextFirstBlockSlot(offset: 5, end: false)
             #expect(slots == [above, TextFirstBlockSlot(offset: 6, end: true)])
             #expect(try h.controller.moveBlock(at: 0, to: above))

@@ -34,11 +34,10 @@ extension TextFirstEditorController {
     }
 
     /// Where what a press at UTF-16 `offset` lifts may land among the boundaries inside UTF-16
-    /// `within` (the whole note when nil), in order; nil when it lifts nothing. One engine call
+    /// `within` (the whole note when nil), in order; empty when it lifts nothing. One engine call
     /// and one conversion, however many slots: a lift asks only for what is near the screen.
-    func blockSlots(at offset: Int, within: NSRange? = nil) throws -> [TextFirstBlockSlot]? {
+    func blockSlots(at offset: Int, within: NSRange? = nil) throws -> [TextFirstBlockSlot] {
         let at = EditorDisplayByteOffset(offset: try mirror.utf16ToByte(unit: UInt64(offset)))
-        guard try session.blockAt(expected: rev, at: at) != nil else { return nil }
         let range = within ?? NSRange(location: 0, length: storage.length)
         let bytes = try mirror.displayBytes(range)
         let slots = try session.blockSlots(expected: rev, at: at, within: bytes)
