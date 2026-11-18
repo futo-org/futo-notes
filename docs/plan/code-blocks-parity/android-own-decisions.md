@@ -19,6 +19,8 @@ The per-area items from `VERDICT.md` (every `leave` and every `ask Mason`) are i
 - **Code input (no capitals, no suggestions) only while the caret is in code and no block is selected as an object.** Why: typing over a selected block writes prose. Reverse: `one line` (TextFirstEditText.refreshCodeInput).
 - **A selected empty block hides the caret and handle.** Matches the !300 app. Reverse: `one line` (TextFirstEditText.selectedCodeBlock setter).
 
+- **Ctrl+Enter / Ctrl+Shift+Enter on a code line are done on the editor thread from the engine's own caret and text**: the caret moves to the line's end (or after its indent), then the engine's Enter. A host sequence until the engine has one command for it (the review asked its owner). Reverse: `small` (EditorEngine.openCodeLine).
+
 ## Header fields (name, language)
 
 - **Each keystroke in a header field writes the fence at once** (engine `set_code_block_header` per change). Same as !300 (cb 285-299); differs from desktop, which writes once on leaving with Escape restoring. Reverse: `small` (CodeHeaderField.write).

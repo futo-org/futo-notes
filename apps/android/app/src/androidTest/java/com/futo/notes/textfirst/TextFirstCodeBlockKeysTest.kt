@@ -59,6 +59,20 @@ class TextFirstCodeBlockKeysTest {
         assertEquals("```py\ndef f():\n    z\n    return x\n```\n\nend", c.sourceText())
     }
 
+    /** Ctrl+Enter mid-line opens an indented line below, the caret on it. */
+    @Test fun ctrlEnterOpensAnIndentedLineBelow() = textFirstSession("```py\ndef f():\n    return x\n```\n\nend") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        view.setSelection(view.editableText.indexOf("turn"))
+        delay(200)
+        view.onKeyDown(KeyEvent.KEYCODE_ENTER, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0, KeyEvent.META_CTRL_ON))
+        withTimeout(5_000) { while (c.sourceText() == "```py\ndef f():\n    return x\n```\n\nend") delay(50) }
+        textFirstIme(c) { commitText("z", 1) }
+        assertEquals("```py\ndef f():\n    return x\n    z\n```\n\nend", c.sourceText())
+    }
+
     /** Area 13 verifier (P306): Down on the last line of a block that ends the note opens a line below it. */
     @Test fun downOnTheLastLineOfANoteEndingBlockOpensALine() = textFirstSession("intro\n\n```js\nconst a = 1\n```") { c ->
         val view = c.view

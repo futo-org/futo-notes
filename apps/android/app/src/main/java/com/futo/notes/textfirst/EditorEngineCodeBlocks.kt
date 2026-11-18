@@ -2,6 +2,7 @@ package com.futo.notes.textfirst
 
 import uniffi.futo_notes_ffi.EditorBlockCommand
 import uniffi.futo_notes_ffi.EditorCodeBlockHeader
+import uniffi.futo_notes_ffi.EditorParagraphKey
 import uniffi.futo_notes_ffi.EditorSessionException
 import uniffi.futo_notes_ffi.EditorStyleSpan
 import uniffi.futo_notes_ffi.EditorUtf16Range
@@ -46,4 +47,29 @@ internal fun EditorEngine.writeCodeBlockHeader(offset: Int, language: String, na
         s.setCodeBlockHeader(rev, header)?.let(::accept)
     } catch (_: EditorSessionException.InvalidText) {
     }
+}
+
+
+/**
+ * Ctrl+Enter (below) or Ctrl+Shift+Enter (above) on a code line, on the editor thread: the caret goes to the line's end,
+ * or after its indent, and the engine's Enter, which carries the line's indent, makes the line; above, the caret then
+ * stays on the line it opened. Read from the engine's own text and caret, so a view update in flight cannot move it.
+ * One engine command would be better (asked of the engine's owner).
+ */
+internal fun EditorEngine.openCodeLine(above: Boolean) = input {
+    if (session == null) return@input
+    if (mirror.overlay != null) commitComposition(null)
+    val text = mirror.text
+    val caret = mirror.selStart
+    if (caret != mirror.selEnd) return@input
+    var lineStart = caret
+    while (lineStart > 0 && text[lineStart - 1] != '\n') lineStart--
+    var lineEnd = caret
+    while (lineEnd < text.length && text[lineEnd] != '\n') lineEnd++
+    var indentEnd = lineStart
+    while (indentEnd < lineEnd && (text[indentEnd] == ' ' || text[indentEnd] == '\t')) indentEnd++
+    val at = if (above) indentEnd else lineEnd
+    select(at, at, fromView = false)
+    key(EditorParagraphKey.ENTER)
+    if (above) select(at, at, fromView = false)
 }

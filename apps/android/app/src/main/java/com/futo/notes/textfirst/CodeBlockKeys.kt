@@ -39,8 +39,8 @@ internal fun TextFirstEditText.selectedBlockKey(keyCode: Int, event: KeyEvent): 
 
 /**
  * Mod-Enter on a code line opens a blank line below it and Mod-Shift-Enter one above it, the caret
- * on it (!300 cb 859-860, ed 841-842): the caret goes to the line's end (or start) and the engine's
- * Enter, which in code carries the line's leading spaces, makes the line. Returns whether it acted.
+ * on it (!300 cb 859-860, ed 841-842). The editor thread does it against the engine's own caret and
+ * text (EditorEngine.openCodeLine). Returns whether it acted.
  */
 internal fun TextFirstEditText.codeLineKey(keyCode: Int, event: KeyEvent): Boolean {
     if (keyCode != KeyEvent.KEYCODE_ENTER && keyCode != KeyEvent.KEYCODE_NUMPAD_ENTER || !event.isCtrlPressed) return false
@@ -49,22 +49,8 @@ internal fun TextFirstEditText.codeLineKey(keyCode: Int, event: KeyEvent): Boole
     val e = editableText ?: return false
     val caret = selectionStart
     if (e.getSpans(caret, caret, TfCodeBlock::class.java).isEmpty()) return false
-    var lineStart = caret
-    while (lineStart > 0 && e[lineStart - 1] != '\n') lineStart--
-    var lineEnd = caret
-    while (lineEnd < e.length && e[lineEnd] != '\n') lineEnd++
-    if (event.isShiftPressed) {
-        // Enter after the line's indent: the indent stays on the new line above and Enter copies it to the line below,
-        // so both keep it, as Ctrl+Enter's line does (P091); one Undo step.
-        var indentEnd = lineStart
-        while (indentEnd < lineEnd && (e[indentEnd] == ' ' || e[indentEnd] == '\t')) indentEnd++
-        Selection.setSelection(e, indentEnd)
-        engine.handler.post { engine.key(EditorParagraphKey.ENTER) }
-        engine.hostSelect(indentEnd, indentEnd)
-    } else {
-        Selection.setSelection(e, lineEnd)
-        engine.handler.post { engine.key(EditorParagraphKey.ENTER) }
-    }
+    val above = event.isShiftPressed
+    engine.handler.post { engine.openCodeLine(above) }
     return true
 }
 
