@@ -162,7 +162,13 @@ class NativeEditorSessionTest {
                         fail("Invalid range was accepted")
                     } catch (_: EditorSessionException.InvalidRange) {}
                 }
-                val change = session.replaceUtf16(0uL, EditorUtf16Range(1uL, 3uL), "🇯🇵\u0000".map { it.code.toUShort() })
+                // interpretation-and-input.md: typed text holding a control character other than tab and line feed is
+                // refused; the same text as an isolated replacement (a paste, a text service) lands exactly.
+                try {
+                    session.replaceUtf16(0uL, EditorUtf16Range(1uL, 3uL), "🇯🇵\u0000".map { it.code.toUShort() })
+                    fail("Typed control character was accepted")
+                } catch (_: EditorSessionException.InvalidText) {}
+                val change = session.replaceUtf16Action(0uL, EditorUtf16Range(1uL, 3uL), "🇯🇵\u0000".map { it.code.toUShort() }, EditorInputAction.ISOLATED)
                 val delay = checkNotNull(session.saveDelay())
                 assertFalse(delay.isNegative)
                 assertTrue(delay <= java.time.Duration.ofMillis(500))
