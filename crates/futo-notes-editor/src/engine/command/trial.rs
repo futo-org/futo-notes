@@ -58,11 +58,19 @@ pub(crate) struct Trial {
     pub window: Range<usize>,
 }
 
-/// How many lines of the note are exactly `---`, counted to two, once per
-/// listing: a move that puts one on line 1 opens front matter when another
-/// follows it.
+/// The note's lines that are exactly `---`, counted only as far as a
+/// listing has needed: a move that puts one on line 1 opens front matter
+/// when another follows it.
 #[derive(Default)]
-pub(crate) struct Dashes(Option<usize>);
+pub(crate) struct Dashes {
+    found: usize,
+    /// The first line not yet counted.
+    next: usize,
+}
+
+fn is_dash(text: &str) -> bool {
+    trimmed(text) == "---"
+}
 
 /// A line read but not yet compared: a delimiter row under it would still
 /// make it a table header.
@@ -97,6 +105,20 @@ impl Engine {
             Some(old) if below(old) => alone(&self.line(old).line.kind) == alone(&read.kind),
             Some(old) => class(&self.line(old).line.kind) == class(&read.kind),
         };
+        // Line 1, a `---` above the line the reading starts at, opens front
+        // matter only while another `---` follows: the lines the move
+        // writes may add or take away that one.
+        if window.start > 1 && is_dash(&self.line(0).text) {
+            let opened = matches!(
+                self.line(0).line.kind,
+                Kind::FrontMatter(FrontMatterRole::Open)
+            );
+            if self.dash_lines_written(trial, work) != (0, 0)
+                && self.two_dashes(trial, dashes, work) != opened
+            {
+                return false;
+            }
+        }
         // Lines above the window read as they did: start at the one above.
         let (mut carry, mut at) = match window.start {
             0 => (Carry::start(), 0),
@@ -144,8 +166,15 @@ impl Engine {
                             }
                         }
                         let text = piece.text(self, index);
-                        let read =
-                            self.trial_read(text, position, Some(index), &mut carry, dashes, work);
+                        let read = self.trial_read(
+                            trial,
+                            text,
+                            position,
+                            Some(index),
+                            &mut carry,
+                            dashes,
+                            work,
+                        );
                         if !close(&mut pending, Some(&read.kind)) {
                             return false;
                         }
@@ -162,8 +191,15 @@ impl Engine {
                         continue;
                     }
                     work.link_metadata_items += 1;
-                    let read =
-                        self.trial_read(text.clone(), position, *old, &mut carry, dashes, work);
+                    let read = self.trial_read(
+                        trial,
+                        text.clone(),
+                        position,
+                        *old,
+                        &mut carry,
+                        dashes,
+                        work,
+                    );
                     if !close(&mut pending, Some(&read.kind)) {
                         return false;
                     }
@@ -176,8 +212,10 @@ impl Engine {
     }
 
     /// Read `text` at new position `position` as a fresh open would.
+    #[allow(clippy::too_many_arguments)]
     fn trial_read(
         &self,
+        trial: &Trial,
         text: String,
         position: usize,
         old: Option<usize>,
@@ -186,37 +224,70 @@ impl Engine {
         work: &mut EditWork,
     ) -> Read {
         work.parsed_source_bytes += text.len();
-        let dash = trimmed(&text) == "---";
+        let dash = is_dash(&text);
         // Line 1 opens front matter when a later line is `---`. Untouched,
         // it opens it as it did; moved there, the note's other lines decide.
         let rest_closes = carry.first
             && dash
             && match old {
-                Some(0) if position == 0 => matches!(
-                    self.line(0).line.kind,
-                    Kind::FrontMatter(FrontMatterRole::Open)
-                ),
-                _ => self.dashes(dashes, work) >= 2,
+                Some(0) if position == 0 && self.dash_lines_written(trial, work) == (0, 0) => {
+                    matches!(
+                        self.line(0).line.kind,
+                        Kind::FrontMatter(FrontMatterRole::Open)
+                    )
+                }
+                _ => self.two_dashes(trial, dashes, work),
             };
         let kind = Entry::read(text, carry, rest_closes).line.kind;
         Read { old, kind }
     }
 
-    /// The note's `---` lines, counted to two.
-    fn dashes(&self, dashes: &mut Dashes, work: &mut EditWork) -> usize {
-        *dashes.0.get_or_insert_with(|| {
-            let mut found = 0;
-            for entry in self.store.iter_from(0) {
+    /// The lines the move writes that become a `---` line, and that stop
+    /// being one (a line under an item shifted into or out of `---`).
+    fn dash_lines_written(&self, trial: &Trial, work: &mut EditWork) -> (usize, usize) {
+        let (mut added, mut removed) = (0, 0);
+        let mut count = |was: bool, now: bool| match (was, now) {
+            (false, true) => added += 1,
+            (true, false) => removed += 1,
+            _ => {}
+        };
+        for piece in &trial.pieces {
+            match piece {
+                Piece::Run(_) => {}
+                Piece::Line(old, text) => count(
+                    old.is_some_and(|i| is_dash(&self.line(i).text)),
+                    is_dash(text),
+                ),
+                Piece::Shifted(run, _) => {
+                    for index in run.clone() {
+                        work.link_metadata_items += 1;
+                        let text = piece.text(self, index);
+                        count(is_dash(&self.line(index).text), is_dash(&text));
+                    }
+                }
+            }
+        }
+        (added, removed)
+    }
+
+    /// Whether the new order has two `---` lines or more: the note's, as
+    /// far as they are needed, with the ones the move writes.
+    fn two_dashes(&self, trial: &Trial, dashes: &mut Dashes, work: &mut EditWork) -> bool {
+        let (added, removed) = self.dash_lines_written(trial, work);
+        let need = (2 + removed).saturating_sub(added);
+        if dashes.found < need {
+            for entry in self.store.iter_from(dashes.next) {
                 work.link_metadata_items += 1;
-                if trimmed(&entry.text) == "---" {
-                    found += 1;
-                    if found == 2 {
+                dashes.next += 1;
+                if is_dash(&entry.text) {
+                    dashes.found += 1;
+                    if dashes.found == need {
                         break;
                     }
                 }
             }
-            found
-        })
+        }
+        dashes.found >= need
     }
 
     /// Whether the new order's text differs from the note's but for the

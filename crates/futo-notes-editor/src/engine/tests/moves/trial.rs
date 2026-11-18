@@ -98,6 +98,19 @@ fn a_slot_is_offered_exactly_where_the_move_is_accepted_in_every_fixture() {
     assert!(tried > 5000, "only {tried} moves tried");
 }
 
+#[test]
+fn a_shifted_fence_line_that_becomes_or_stops_being_a_dash_line_is_read_as_written() {
+    // Outdented, `  ---` in the code becomes a second `---` and the divider
+    // on line 1 would open front matter; indented, the second `---` stops
+    // being one and line 1 stays a divider.
+    for note in [
+        "---\n\n  - a\n    ~~~\n  ---\n    ~~~\n\ntail",
+        "- a\n  ~~~\n---\n  ~~~\n---\n- p\n  - target\nend",
+    ] {
+        check(note);
+    }
+}
+
 /// Lines a seeded note is made of: every kind a move can change.
 const LINES: &[&str] = &[
     "---",
