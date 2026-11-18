@@ -40,15 +40,23 @@ internal fun TextFirstCompletions(controller: TextFirstController) {
     val list = rememberLazyListState()
     // The row a hardware keyboard's Enter or Tab takes (desktop's completion keys); a tap takes any row.
     var highlighted by remember(draft) { mutableIntStateOf(0) }
-    DisposableEffect(draft) {
-        controller.view.keyHooks.completion = { keyCode ->
-            val count = draft.value.candidates.size
+    DisposableEffect(controller) {
+        // The hook can run after the engine replaced the list and before this composable redraws: it reads the
+        // current list and keeps the row inside it.
+        controller.view.keyHooks.completion = hook@{ keyCode ->
+            val current = controller.completion?.takeIf { controller.focused } ?: return@hook false
+            val count = current.value.candidates.size
+            if (count == 0) return@hook false
+            val row = highlighted.coerceIn(0, count - 1)
             when (keyCode) {
-                KeyEvent.KEYCODE_DPAD_DOWN -> { highlighted = (highlighted + 1) % count; scope.launch { list.animateScrollToItem(highlighted) }; true }
-                KeyEvent.KEYCODE_DPAD_UP -> { highlighted = (highlighted + count - 1) % count; scope.launch { list.animateScrollToItem(highlighted) }; true }
-                KeyEvent.KEYCODE_ESCAPE -> { controller.dismissCompletion(draft); true }
-                else -> { scope.launch { controller.acceptCompletion(draft, draft.value.candidates[highlighted].noteId) }; true }
+                KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_UP -> {
+                    highlighted = if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) (row + 1) % count else (row + count - 1) % count
+                    scope.launch { list.animateScrollToItem(highlighted) }
+                }
+                KeyEvent.KEYCODE_ESCAPE -> controller.dismissCompletion(current)
+                else -> scope.launch { controller.acceptCompletion(current, current.value.candidates[row].noteId) }
             }
+            true
         }
         onDispose { controller.view.keyHooks.completion = null }
     }
