@@ -12,5 +12,5 @@ Source: `origin/desktop/new-editor:docs/spec/editor/desktop/tables.md`. Ruling: 
 | ta-6 | Up/Down move between rows by column; a selection in one cell is highlighted in that cell. | host: phone form | Hardware keyboard; taps open a cell. | to measure | none |
 | ta-7 | Redraws only the edited row unless columns change. | not on a phone | DOM drawing detail. | none | none |
 | ta-8 | Tab, Enter, Backspace, paste and `\|` in cells follow the engine's table rules. | engine | tables.md. | same | none |
-| ta-9 | Mod+Enter in a cell goes to an empty line after the table. | host: phone form | Hardware Ctrl+Enter. | Ctrl+Enter in a cell does nothing | differs; host, small; not built |
+| ta-9 | Mod+Enter in a cell goes to an empty line after the table. | host: phone form | Hardware Ctrl+Enter. | built: Ctrl+Enter in a cell leaves for the empty line after the table, or opens one (TextFirstDesktopRulesTest) | built |
 | ta-10 | Has no control yet for the engine's row and column commands. | host: phone form | A phone control (ruling: open). | none | open with Mason |
