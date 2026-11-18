@@ -102,4 +102,33 @@ final class TextFirstBlockDragUITests: XCTestCase {
             withVelocity: .slow, thenHoldForDuration: 0.3)
         XCTAssertTrue(note.saved("\u{1F642}\nfirst"), "the emoji's line lands above `first`")
     }
+
+    /// A tall photo alone on the note's last line, with no final line ending, lifts its line:
+    /// just above the line's top edge the finger is still over the block, so a release there
+    /// moves nothing. Carried higher, it lands at the top.
+    @MainActor
+    func testAPhotoAloneOnTheLastLineDropsNowhereNearItsOwnTop() throws {
+        let photo = UIGraphicsImageRenderer(size: CGSize(width: 900, height: 900)).pngData {
+            context in
+            UIColor.systemTeal.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 900, height: 900))
+        }
+        let text = "first\nsecond\n![](pic.png)"
+        let note = try open(text, files: ["pic.png": photo])
+        // Wait for the photo to load and take its height.
+        let top = 4 + 2 * Opened.lineStep
+        let onPhoto = note.editor.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: 120, dy: top + 14))
+        Thread.sleep(forTimeInterval: 2)
+        onPhoto.press(
+            forDuration: 0.8, thenDragTo: onPhoto.withOffset(CGVector(dx: 0, dy: -20)),
+            withVelocity: .slow, thenHoldForDuration: 0.3)
+        XCTAssertFalse(
+            note.saved { $0 != text }, "released by its own top edge, the photo's line stays")
+        onPhoto.press(
+            forDuration: 0.8,
+            thenDragTo: note.line(0).withOffset(CGVector(dx: 60, dy: -12)),
+            withVelocity: .slow, thenHoldForDuration: 0.3)
+        XCTAssertTrue(note.saved("![](pic.png)\nfirst\nsecond"), "carried up, it lands at the top")
+    }
 }

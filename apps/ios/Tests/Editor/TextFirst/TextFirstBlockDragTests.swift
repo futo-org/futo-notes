@@ -148,6 +148,27 @@
             }
         }
 
+        @Test func aPhotoAloneOnTheLastLineLiftsItsLineWithTheLinesEdges() async throws {
+            // Without a final line ending the photo's range is its whole line's: the engine lifts
+            // the line, so the card and the edges a drop there would not move are the line's.
+            let h = TextFirstHarness(
+                "first\nsecond\n![](pic.png)", files: ["pic.png": TextFirstHarness.png(900, 900)],
+                focused: false)
+            #expect(await h.until { h.lineHeights(at: 13).contains { $0 > 100 } })
+            let onPhoto = point(h, line: 2, x: 70, fraction: 0.5)
+            let photo = try #require(h.controller.imageAt(onPhoto))
+            let lift = try #require(h.controller.liftPlan(at: onPhoto))
+            #expect(lift.block == NSRange(location: 13, length: 12))
+            #expect(lift.block == photo.range)
+            // The card is the line, page-wide, not the photo cropped.
+            #expect(lift.frame.minX == 0 && lift.frame.width == h.tv.bounds.width)
+            // Just inside its top edge or bottom, the finger is over the block's own edge: no
+            // drop line, and above `second` only once the finger is nearer that boundary.
+            #expect(lift.targets.slot(nearest: lift.frame.minY + 4) == nil)
+            #expect(lift.targets.slot(nearest: lift.frame.maxY - 4) == nil)
+            #expect(lift.targets.slot(nearest: point(h, line: 1, fraction: 0.2).y)?.offset == 6)
+        }
+
         @Test func aBlockRunningOffScreenLiftsWhatShows() throws {
             // A code block taller than the screen, scrolled so its top is gone.
             let code = (1...80).map { "code \($0)" }.joined(separator: "\n")

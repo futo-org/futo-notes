@@ -201,7 +201,10 @@ extension TextFirstEditorController {
             by: UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0))
         let frame: CGRect
         let own: (top: CGFloat, bottom: CGFloat)
-        if let photo = imageAt(p), photo.range == block {
+        // A photo that lifted alone: the card is the photo, and having no edges of its own (its
+        // line's edges are slots) it drops nowhere while the finger stays over its middle. A
+        // photo alone on its line lifts the line, with the line's card and edges.
+        if let photo = imageAt(p), photo.range == block, !coversWholeLines(block) {
             frame = photo.frame.intersection(shown)
             own = (frame.midY, frame.midY)
         } else {
@@ -265,6 +268,18 @@ extension TextFirstEditorController {
     private func characterStart(_ offset: Int) -> Int {
         guard offset < storage.length else { return offset }
         return (storage.string as NSString).rangeOfComposedCharacterSequence(at: offset).location
+    }
+
+    /// Whether UTF-16 `range` runs from a display line's start to the start of a line after it
+    /// (or the text's end): what lifts with its lines. A photo lifted alone shares its line with
+    /// text that shows, so its range never does; a photo alone on its line lifts that line, and
+    /// its range can then equal the line's.
+    private func coversWholeLines(_ range: NSRange) -> Bool {
+        let text = storage.string as NSString
+        let end = NSMaxRange(range)
+        let startsLine = range.location == 0 || text.character(at: range.location - 1) == 0x0A
+        let endsLine = end == text.length || (end > 0 && text.character(at: end - 1) == 0x0A)
+        return startsLine && endsLine
     }
 
     /// The y (text view coordinates) of the boundary at UTF-16 `offset`: the top of the line
