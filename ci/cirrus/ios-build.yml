@@ -5,7 +5,7 @@
 build_ios_native_task:
   name: buildFutoNotesIOSNative
   macos_instance:
-    image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
+    image: ghcr.io/cirruslabs/macos-tahoe-xcode:27.2
   env:
     # Incremental artifacts are per-machine scratch that a fresh VM can never
     # reuse, and they are ~0.6 GB of pure churn in every target/ cache upload.
@@ -31,6 +31,9 @@ build_ios_native_task:
     - brew install fnm xcodegen
     - eval "$(fnm env --shell bash)"
     - fnm use --install-if-missing
+    # Apple stops accepting last year's SDK each April (ITMS-90725); this
+    # fails from January if the image above has not moved to the new Xcode.
+    - node scripts/ios-sdk-floor.mjs "$(xcodebuild -version -sdk iphoneos SDKVersion)"
     - corepack enable
     - corepack prepare pnpm@12.15.0 --activate
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
