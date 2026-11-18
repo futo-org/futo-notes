@@ -19,7 +19,7 @@ The per-area items from `VERDICT.md` (every `leave` and every `ask Mason`) are i
 - **Code input (no capitals, no suggestions) only while the caret is in code and no block is selected as an object.** Why: typing over a selected block writes prose. Reverse: `one line` (TextFirstEditText.refreshCodeInput).
 - **A selected empty block hides the caret and handle.** Matches the !300 app. Reverse: `one line` (TextFirstEditText.selectedCodeBlock setter).
 
-- **Ctrl+Enter / Ctrl+Shift+Enter on a code line are done on the editor thread from the engine's own caret and text**: the caret moves to the line's end (or after its indent), then the engine's Enter. A host sequence until the engine has one command for it (the review asked its owner). Reverse: `small` (EditorEngine.openCodeLine).
+- **Ctrl+Enter / Ctrl+Shift+Enter on a code line are the engine's OpenCodeLineBelow / OpenCodeLineAbove** (engine 40d77fc20); the host workaround is gone. Reverse: engine.
 
 ## Header fields (name, language)
 

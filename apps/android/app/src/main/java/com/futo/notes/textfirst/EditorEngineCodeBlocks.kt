@@ -51,12 +51,11 @@ internal fun EditorEngine.writeCodeBlockHeader(offset: Int, language: String, na
 
 
 /**
- * Ctrl+Enter (below) or Ctrl+Shift+Enter (above), on the editor thread: the caret goes to the line's end, or its start
- * (after its indent in code, so the engine's Enter carries the indent to both lines), and the engine's Enter makes the
- * line; above, the caret then stays on the line it opened. Read from the engine's own text and caret, so a view update
- * in flight cannot move it. One engine command would be better (asked of the engine's owner).
+ * Ctrl+Enter (below) or Ctrl+Shift+Enter (above) in prose, on the editor thread: the caret goes to the line's end or
+ * start and the engine's Enter makes the line; above, the caret then stays on the line it opened. Read from the
+ * engine's own text and caret, so a view update in flight cannot move it. Code has the engine's own commands.
  */
-internal fun EditorEngine.openLine(above: Boolean, inCode: Boolean) = input {
+internal fun EditorEngine.openLine(above: Boolean) = input {
     if (session == null) return@input
     if (mirror.overlay != null) commitComposition(null)
     val text = mirror.text
@@ -66,9 +65,7 @@ internal fun EditorEngine.openLine(above: Boolean, inCode: Boolean) = input {
     while (lineStart > 0 && text[lineStart - 1] != '\n') lineStart--
     var lineEnd = caret
     while (lineEnd < text.length && text[lineEnd] != '\n') lineEnd++
-    var indentEnd = lineStart
-    while (inCode && indentEnd < lineEnd && (text[indentEnd] == ' ' || text[indentEnd] == '\t')) indentEnd++
-    val at = if (above) indentEnd else lineEnd
+    val at = if (above) lineStart else lineEnd
     select(at, at, fromView = false)
     key(EditorParagraphKey.ENTER)
     if (above) select(at, at, fromView = false)
