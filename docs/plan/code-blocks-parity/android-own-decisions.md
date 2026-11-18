@@ -75,6 +75,15 @@ The per-area items from `VERDICT.md` (every `leave` and every `ask Mason`) are i
 - Syntax colours are not built.
 - Table controls, quick open and outside changes stay open with Mason.
 
+## Desktop rules in their phone form (2026-11-18)
+
+- **Toolbar Bold/Italic/Strike at a caret inside a word, or at its start, toggle the whole word**; at a word's end or away from words they are pending. Differs from the ruling as written ("keep pending-format at a caret"); it is the engine's own mobile rule (`toggle_toolbar_format_view`) and mobile/toolbar.md, so it was not overridden. Reverse: `one line` (call `toggleFormat` from the toolbar).
+- **Ctrl+Alt+X is strikethrough, Ctrl+E inline code, Ctrl+Alt+1-6 headings, Ctrl+Alt+7/8 lists, Ctrl+Shift+B quote** (desktop's chords; Ctrl stands for Cmd). Ctrl+Alt+X used to cut. Reverse: `small` (TextFirstShortcutKeys.kt).
+- **Backspace after a wikilink, or Delete before it, deletes it whole**, read from the engine's style plan on the editor thread. Desktop's rule; the engine leaves it to the renderer. Reverse: `small` (EditorEngineKeyboard.wikilinkBesideCaret).
+- **Backspace after an image deletes it at once** (desktop selects it first). Kept: the shared mobile spec and the engine say so. Reverse: `small` per platform.
+- **A find match is clipped to its text row in code**, as the selection is. Reverse: `one line`.
+- **The 23 other measured differences are recorded, not built** (desktop-decisions-on-android, "not built"): over the 50-line limit, or not clearly Mason's.
+
 ## From the earlier polish branch, still in this build
 
 - H2 keeps its natural height (not snapped to a grid).

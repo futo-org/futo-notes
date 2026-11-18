@@ -4,7 +4,7 @@ Source: `origin/desktop/new-editor:docs/spec/editor/desktop/find.md`. Ruling: An
 
 | # | Desktop does | Kind | Phone form / reason | Android now | Action |
 | --- | --- | --- | --- | --- | --- |
-| fd-1 | Ctrl/Cmd+F opens the bar, query from a one-line selection, else this note's last query. | host: phone form | The overflow menu; hardware Ctrl+F. | opens from the overflow menu (find-in-note.md) | measure |
+| fd-1 | Ctrl/Cmd+F opens the bar, query from a one-line selection, else this note's last query. | host: phone form | The overflow menu; hardware Ctrl+F. | no Ctrl+F; find from the menu starts empty with a selection; reopening restores the last query | differs; host, small; not built |
 | fd-2 | Shows query, count (`3 of 17`, red `0`), previous, next, close. | Android's earlier decision | Android keeps its find bar (ruling). | same items (find-in-note.md) | none |
 | fd-3 | Matching is the engine's: case-insensitive, display text, no line crossing. | engine | find.md. | same | none |
 | fd-4 | Typing the query makes the first match at or after the selection current and reveals it; the selection does not move. | engine | find.md. | same: typing highlights and reveals; the selection stays (area 15 verifier, 2026-11-17) | measured |
