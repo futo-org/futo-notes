@@ -96,7 +96,7 @@ The per-area items from `VERDICT.md` (every `leave` and every `ask Mason`) are i
 - **A selection end moved off screen with a hardware key is scrolled into view** (desktop scrolls nothing for a selection change). Kept: it is the platform TextView's, not small to take over. Reverse: `large`.
 - **Built from a desktop decision, phone form: the `[[` list has a highlighted row for a hardware keyboard: Up and Down move it, Enter and Tab take it, Escape closes the list.** Touch is unchanged (a tap takes any row). The highlight is the sunken surface colour (ours). Reverse: `small` (the completion hook in TextFirstCompletions and TextFirstShortcutKeys).
 - **A find match is clipped to its text row in code**, as the selection is. Reverse: `one line`.
-- **The 23 other measured differences are recorded, not built** (desktop-decisions-on-android, "not built"): over the 50-line limit, or not clearly Mason's.
+- **Still recorded, not built** (desktop-decisions-on-android): cb-12 Escape restoring a header field (desktop's own choice), cb-23 square card corners under a run-on selection, bl-2/bl-3 a caret stop before a list marker, bl-4 a partly selected number's tint, ed-7/8/9/11 the caret side at format edges (large), ed-22 selection scroll (the platform's), pt-5 brackets shown while `[[` is typed, ta-4 table cell drawing, tb-4 greying Heading and Quote (blocked: engine, the FFI snapshot lacks the flags), cc-1 syntax colours.
 
 ## From the earlier polish branch, still in this build
 
