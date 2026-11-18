@@ -20,6 +20,11 @@ internal fun TextFirstEditText.shortcutKey(engine: EditorEngine, keyCode: Int, e
         }
         KeyEvent.KEYCODE_E -> { engine.toggleFormat(EditorInlineFormat.CODE); return true }
         KeyEvent.KEYCODE_K -> { onLinkShortcut?.invoke(); return onLinkShortcut != null }
+        KeyEvent.KEYCODE_F -> { onFindShortcut?.invoke(FindShortcut.OPEN); return onFindShortcut != null }
+        KeyEvent.KEYCODE_G -> {
+            onFindShortcut?.invoke(if (event.isShiftPressed) FindShortcut.PREVIOUS else FindShortcut.NEXT)
+            return onFindShortcut != null
+        }
         KeyEvent.KEYCODE_I -> { engine.toggleFormat(EditorInlineFormat.ITALIC); return true }
         KeyEvent.KEYCODE_A -> { engine.selectAll(); return true }
         KeyEvent.KEYCODE_C -> { onTextContextMenuItem(android.R.id.copy); return true }
