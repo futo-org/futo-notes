@@ -130,11 +130,7 @@ internal fun EditorEngine.key(key: EditorParagraphKey) = input {
     if (mirror.overlay != null) commitComposition(null)
     if (editingCell && (key == EditorParagraphKey.TAB || key == EditorParagraphKey.SHIFT_TAB) &&
         tableTab(key == EditorParagraphKey.SHIFT_TAB)) return@input
-    when (val atom = atomBesideCaret(key)) {
-        is EditorStyleSpan.Wikilink -> return@input replace(atom.start.toInt(), atom.end.toInt(), "", EditorInputAction.TYPING)
-        is EditorStyleSpan.Image -> return@input select(atom.start.toInt(), atom.end.toInt(), fromView = false)
-        else -> {}
-    }
+    imageBesideCaret(key)?.let { image -> return@input select(image.start.toInt(), image.end.toInt(), fromView = false) }
     val intent = if (key == EditorParagraphKey.BACKSPACE) EditorParagraphKey.BACKSPACE_JOINING_HEADING else key
     val change = checkNotNull(fast).paragraphKey(rev, mirror.selStart, mirror.selEnd, intent)
     if (change != null) accept(change)
@@ -142,11 +138,10 @@ internal fun EditorEngine.key(key: EditorParagraphKey) = input {
 
 
 /**
- * The wikilink or image a collapsed Backspace would reach from after it, or Delete from before it. Mason's desktop
- * rules, which the engine leaves to the renderer: a wikilink is one unit and goes whole, one Undo step; an image is
- * selected first and the next press deletes it.
+ * The image a collapsed Backspace would reach from after it, or Delete from before it: it is selected first and the
+ * next press deletes it (Mason's desktop rule; the engine deletes an image at once).
  */
-private fun EditorEngine.atomBesideCaret(key: EditorParagraphKey): EditorStyleSpan? {
+private fun EditorEngine.imageBesideCaret(key: EditorParagraphKey): EditorStyleSpan.Image? {
     val caret = mirror.selStart
     if (caret != mirror.selEnd || mirror.overlay != null) return null
     val (from, to) = when (key) {
@@ -155,16 +150,10 @@ private fun EditorEngine.atomBesideCaret(key: EditorParagraphKey): EditorStyleSp
         else -> return null
     }
     if (from < 0 || to > mirror.text.length) return null
-    // An atom's shown spelling ends `]]` or `)` and starts `[[` or `!`: any other character costs no engine call.
-    val beside = mirror.text[from]
-    if (if (key == EditorParagraphKey.BACKSPACE) beside != ']' && beside != ')' else beside != '[' && beside != '!') return null
-    return checkNotNull(session).stylePlan(rev, mirror.byteRange(from, to)).firstOrNull { span ->
-        val range = when (span) {
-            is EditorStyleSpan.Wikilink -> span.start.toInt() to span.end.toInt()
-            is EditorStyleSpan.Image -> span.start.toInt() to span.end.toInt()
-            else -> return@firstOrNull false
-        }
-        if (key == EditorParagraphKey.BACKSPACE) range.second == caret else range.first == caret
+    // An image's shown spelling starts `!` and ends `)`: any other character costs no engine call.
+    if (mirror.text[from] != if (key == EditorParagraphKey.BACKSPACE) ')' else '!') return null
+    return checkNotNull(session).stylePlan(rev, mirror.byteRange(from, to)).filterIsInstance<EditorStyleSpan.Image>().firstOrNull {
+        if (key == EditorParagraphKey.BACKSPACE) it.end.toInt() == caret else it.start.toInt() == caret
     }
 }
 
