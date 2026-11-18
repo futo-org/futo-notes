@@ -98,4 +98,21 @@ class TextFirstCodeBlockKeysTest {
         assertEquals(true, view.onKeyDown(KeyEvent.KEYCODE_DPAD_UP, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP)))
         assertEquals(true, view.onKeyDown(KeyEvent.KEYCODE_PAGE_UP, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_PAGE_UP)))
     }
+
+    /** fenced-code.md (engine 3f61dd0a1): Enter on a selected empty block puts the caret on the line below it, as the keyboard sends it. */
+    @Test fun enterOnASelectedEmptyBlockGoesToTheLineBelow() = textFirstSession("intro\n\n```js\n```\n\nafter") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.editableText.getSpans(0, view.length(), TfCodeBlock::class.java).isEmpty()) delay(20) }
+        val keyboard = view.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!
+        val e = view.editableText
+        view.engine!!.selectCodeBlock(e.getSpanStart(e.getSpans(0, e.length, TfCodeBlock::class.java).first()))
+        withTimeout(5_000) { while (view.selectedCodeBlock == null) delay(20) }
+        textFirstIme(c, connection = keyboard) { commitText("\n", 1) }
+        c.sourceText()
+        assertEquals("intro\n\n```js\n```\n\nafter", c.sourceText())
+        textFirstIme(c, connection = keyboard) { commitText("x", 1) }
+        assertEquals("intro\n\n```js\n```\nx\nafter", c.sourceText())
+    }
 }
