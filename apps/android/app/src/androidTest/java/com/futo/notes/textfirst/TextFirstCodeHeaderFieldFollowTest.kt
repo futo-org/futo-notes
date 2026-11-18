@@ -9,6 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** A header field follows the note it is part of: its history, the block moving under it, focus leaving the note. */
@@ -55,12 +56,18 @@ class TextFirstCodeHeaderFieldFollowTest {
     }
 
     @Test fun focusLeavingTheNoteClosesTheField() = textFirstSession("```js\nconst a = 1\n```\n\nafter") { c ->
+        c.view.isFocusableInTouchMode = true
+        c.view.requestFocus()
+        withTimeout(5_000) { while (!c.focused) delay(20) }
         val field = holdLanguage(c, "const a")
+        assertTrue("opening the field is not leaving the note", c.focused)
         val elsewhere = EditText(c.view.context)
         (c.view.parent as android.view.ViewGroup).addView(elsewhere)
         elsewhere.requestFocus()
         withTimeout(5_000) { while (field.isAttachedToWindow) delay(20) }
         assertFalse(c.view.hasFocus())
+        // The controller's focus is what shows the editor toolbar: the note's skipped blur must reach it.
+        withTimeout(5_000) { while (c.focused) delay(20) }
     }
 
     @Test fun aVeryNarrowNoteStillDrawsANamedBlock() = textFirstSession("```js name:a-very-long-file-name-for-the-block.go\nx\n```") { c ->
