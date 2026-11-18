@@ -84,3 +84,10 @@ Numbers are VERDICT.md's. "Android does" is today's behaviour. Reverse: `one lin
 - **15.2 A word only in a block's info string** is not found (!300 app finds it). Engine searches display text. Reverse: engine.
 - **15.3 The first › after typing** selects the current match without stepping (desktop's rule; !300 app steps). Reverse: engine.
 - **15.4 Closing find keeps the match selected** (desktop's rule; !300 app restores the old selection). Reverse: small.
+
+## Areas 16-18 and 1
+
+- **17.1 Accessibility text** leaves out fences and info strings (!300 app reads them). Engine display text. Reverse: small.
+- **17.2 The header is not in the accessibility tree** (!300 app: buttons and fields). Reverse: large (virtual views).
+- **1.1 The language label is the info string's first word, case kept** (!300 app: the whole string, capitalised). The engine's language is the first word; Mason's "as written" did not say which. Reverse: engine.
+- **1.2 A `~~~~` line opens a block to the note's end** (!300 app: text). Engine. Reverse: engine.
