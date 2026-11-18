@@ -202,6 +202,23 @@ final class TextFirstLayoutFragment: NSTextLayoutFragment {
             baseline: bounds.minY + line.glyphOrigin.y, font: font)
     }
 
+    /// The note's empty last line as it is drawn, top and height in the fragment's
+    /// coordinates (the row its block art fills, where TextKit misplaced it included); nil
+    /// when this fragment does not hold it. A block drag reads the row here, so it lifts,
+    /// cards and drops where the box is drawn.
+    var trailingRowFrame: (top: CGFloat, height: CGFloat)? {
+        guard let line = textLineFragments.last, line.characterRange.length == 0 else {
+            return nil
+        }
+        if let trailing = MainActor.assumeIsolated({ host?.trailingBlock }),
+            let row = trailingRow(of: trailing)
+        {
+            return (row.top, row.height)
+        }
+        let bounds = misplacedTrailingLine ?? line.typographicBounds
+        return (bounds.minY, bounds.height)
+    }
+
     /// Adjacent fragments share pixel edges, so the block reads as one surface even at
     /// fractional text baselines. An opaque fill avoids darker overlapping edges.
     private func decorationRect(at point: CGPoint, row: Row, x: CGFloat, width: CGFloat)

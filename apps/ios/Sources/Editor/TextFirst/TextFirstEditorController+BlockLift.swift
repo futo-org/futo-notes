@@ -72,22 +72,25 @@ extension TextFirstEditorController {
     /// note's empty last line. Nil off the text.
     private func pressOffset(at p: CGPoint) -> Int? {
         if let photo = imageAt(p) { return photo.range.location }
-        guard let manager = textView.textLayoutManager,
-            let f = manager.textLayoutFragment(for: CGPoint(x: 1, y: p.y - inset.top))
-        else { return nil }
-        let local = CGPoint(x: p.x - inset.left, y: p.y - inset.top - f.layoutFragmentFrame.minY)
-        // The empty last line lays out as a zero-length line at the end of the last paragraph.
-        if let last = f.textLineFragments.last, last.characterRange.length == 0,
-            f.textLineFragments.count > 1, local.y >= last.typographicBounds.minY
-        {
-            return storage.length
+        guard let manager = textView.textLayoutManager else { return nil }
+        // The empty last line lays out as a zero-length line at the end of the last paragraph,
+        // and is pressed where it is drawn, which can be below the fragment TextKit measured.
+        if let last = lastFragment(), let row = last.trailingRowFrame {
+            let top = inset.top + last.layoutFragmentFrame.minY
+            if (top + row.top...top + row.top + row.height) ~= p.y { return storage.length }
         }
+        guard let f = manager.textLayoutFragment(for: CGPoint(x: 1, y: p.y - inset.top)) else {
+            return nil
+        }
+        let local = CGPoint(x: p.x - inset.left, y: p.y - inset.top - f.layoutFragmentFrame.minY)
         let start = manager.offset(
             from: manager.documentRange.location, to: f.rangeInElement.location)
-        // The row at the finger's height, or the one above the line spacing it is in.
+        // The row at the finger's height, or the one above the line spacing it is in; never the
+        // empty last line, which is pressed only where it is drawn (above).
         guard
-            let row = f.textLineFragments.last(where: { $0.typographicBounds.minY <= local.y })
-                ?? f.textLineFragments.first
+            let row = f.textLineFragments.last(where: {
+                $0.characterRange.length > 0 && $0.typographicBounds.minY <= local.y
+            }) ?? f.textLineFragments.first
         else { return start }
         let bounds = row.typographicBounds
         let index = row.characterIndex(
@@ -126,26 +129,37 @@ extension TextFirstEditorController {
     }
 
     /// The y (text view coordinates) of boundary `slot`: the top of the line that starts at its
-    /// offset, or for the note's end the bottom of the last row, the empty one after a final line
-    /// ending included (an empty task draws its box there). At the text's end, a boundary that is
-    /// not the note's end is that empty row's top, where the last row with text ends. Nil outside
-    /// `laidOut`, where asking would lay out text that is not shown.
+    /// offset, or for the note's end the bottom of the last row. The note's empty last line
+    /// after a final line ending is read where it is drawn: a boundary at
+    /// the text's end that is not the note's end is that row's top, and the note's end its
+    /// bottom. Nil outside `laidOut`, where asking would lay out text that is not shown.
     private func boundaryY(_ slot: TextFirstBlockSlot, in laidOut: NSRange) -> CGFloat? {
         guard laidOut.location <= slot.offset, slot.offset <= NSMaxRange(laidOut),
             storage.length > 0, let manager = textView.textLayoutManager,
             let content = manager.textContentManager
         else { return nil }
         let atEnd = slot.offset >= storage.length
-        guard
-            let location = content.location(
-                manager.documentRange.location,
-                offsetBy: atEnd ? characterStart(storage.length - 1) : slot.offset),
-            let f = manager.textLayoutFragment(for: location)
-        else { return nil }
+        let f =
+            atEnd
+            ? lastFragment()
+            : content.location(manager.documentRange.location, offsetBy: slot.offset)
+                .flatMap { manager.textLayoutFragment(for: $0) }
+        guard let f else { return nil }
         let top = inset.top + f.layoutFragmentFrame.minY
         guard atEnd else { return top }
-        let rows = f.textLineFragments
-        let row = slot.end ? rows.last : rows.last { $0.characterRange.length > 0 }
-        return top + (row?.typographicBounds.maxY ?? f.layoutFragmentFrame.height)
+        if let row = (f as? TextFirstLayoutFragment)?.trailingRowFrame {
+            return top + row.top + (slot.end ? row.height : 0)
+        }
+        let text = f.textLineFragments.last { $0.characterRange.length > 0 }
+        return top + (text?.typographicBounds.maxY ?? f.layoutFragmentFrame.height)
+    }
+
+    /// The fragment of the note's last paragraph, which holds its empty last line.
+    private func lastFragment() -> TextFirstLayoutFragment? {
+        guard storage.length > 0, let manager = textView.textLayoutManager,
+            let location = manager.textContentManager?.location(
+                manager.documentRange.location, offsetBy: characterStart(storage.length - 1))
+        else { return nil }
+        return manager.textLayoutFragment(for: location) as? TextFirstLayoutFragment
     }
 }
