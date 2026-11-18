@@ -424,5 +424,61 @@
     "command": "cut",
     "alt": "[[my note]]",
     "after": "a ‸ z"
+  },
+  {
+    "name": "place: a caret placed inside an image lands on its nearer edge, before",
+    "before": "x ![](a‸bcdefgh.png) y",
+    "command": "Place",
+    "after": "x ‸![](abcdefgh.png) y"
+  },
+  {
+    "name": "place: a caret placed inside an image lands on its nearer edge, after",
+    "before": "x ![](abcdefgh.p‸ng) y",
+    "command": "Place",
+    "after": "x ![](abcdefgh.png)‸ y"
+  },
+  {
+    "name": "place: a caret placed at an image's middle lands after it",
+    "before": "x ![](ab‸c.png) y",
+    "command": "Place",
+    "after": "x ![](abc.png)‸ y"
+  },
+  {
+    "name": "place: a caret placed at an image's edge stays",
+    "before": "x ‸![](abc.png) y",
+    "command": "Place"
+  },
+  {
+    "name": "place: a range starting inside an image takes it whole",
+    "before": "x ![](a«bc.png) y»z",
+    "command": "Place",
+    "after": "x «![](abc.png) y»z"
+  },
+  {
+    "name": "place: a range ending inside an image takes it whole",
+    "before": "«x ![](ab»c.png) y",
+    "command": "Place",
+    "after": "«x ![](abc.png)» y"
+  },
+  {
+    "name": "place: a range inside an image takes it whole",
+    "before": "x ![](a«b»c.png) y",
+    "command": "Place",
+    "after": "x «![](abc.png)» y"
+  },
+  {
+    "name": "place: a caret placed inside a wikilink stays",
+    "before": "a [[no‸te]] b",
+    "command": "Place"
+  },
+  {
+    "name": "place: a range reaching into a wikilink stays",
+    "before": "«a [[no»te]] b",
+    "command": "Place"
+  },
+  {
+    "name": "place: a range inside a wikilink stays",
+    "before": "a [[«no»te]] b",
+    "command": "Place"
   }
 ]

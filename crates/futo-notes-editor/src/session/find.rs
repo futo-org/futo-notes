@@ -13,6 +13,8 @@ pub struct FindWork {
     pub scanned_bytes: u64,
     /// Source bytes the table-barrier pass materialized for scan requests.
     pub barrier_bytes: u64,
+    /// Lines whose display applying a scan built to check its matches.
+    pub checked_lines: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,6 +70,9 @@ pub struct FindScanResult {
 /// character whose lowercase is longer matches only itself, so folding never
 /// moves a match off the text it covers.
 fn fold(character: char) -> char {
+    if character.is_ascii() {
+        return character.to_ascii_lowercase();
+    }
     let mut lower = character.to_lowercase();
     let first = lower.next().unwrap_or(character);
     let folded = if lower.next().is_none() {
@@ -98,8 +103,7 @@ impl FindScanRequest {
         if needle.is_empty() || self.query.contains(['\r', '\n']) {
             return result;
         }
-        let mut haystack = Vec::new();
-        let mut starts = Vec::new();
+        let mut stretch = Stretch::default();
         let mut soft = self.soft_breaks.iter().peekable();
         let mut barriers = self.barriers.iter().peekable();
         let mut skip = 0;
@@ -109,32 +113,54 @@ impl FindScanRequest {
             }
             while soft.next_if(|range| range.end.0 <= at).is_some() {}
             while barriers.next_if(|range| range.end.0 <= at).is_some() {}
-            starts.push(at);
             if barriers.peek().is_some_and(|range| range.start.0 <= at) {
-                haystack.push('\n');
+                stretch.search(&needle, at, &mut result.matches);
             } else if let Some(range) = soft.next_if(|range| range.start.0 == at) {
                 skip = range.end.0;
-                haystack.push(' ');
+                stretch.push(' ', at);
             } else if matches!(character, '\r' | '\n') {
-                haystack.push('\n');
+                stretch.search(&needle, at, &mut result.matches);
             } else {
-                haystack.push(fold(character));
+                stretch.push(fold(character), at);
             }
         }
-        starts.push(self.text.len());
+        stretch.search(&needle, self.text.len(), &mut result.matches);
+        result
+    }
+}
+
+/// The folded text between two barriers, which no match crosses, with the
+/// display offset each character starts at.
+#[derive(Default)]
+struct Stretch {
+    folded: Vec<char>,
+    starts: Vec<usize>,
+}
+
+impl Stretch {
+    fn push(&mut self, folded: char, at: usize) {
+        self.folded.push(folded);
+        self.starts.push(at);
+    }
+
+    /// Add the occurrences of `needle` in the stretch, which ends at display
+    /// offset `end`, to `matches`, and empty it.
+    fn search(&mut self, needle: &[char], end: usize, matches: &mut Vec<DisplayRange>) {
+        self.starts.push(end);
         let mut at = 0;
-        while at + needle.len() <= haystack.len() {
-            if haystack[at..at + needle.len()] == needle[..] {
-                result.matches.push(DisplayRange {
-                    start: DisplayOffset(starts[at]),
-                    end: DisplayOffset(starts[at + needle.len()]),
+        while at + needle.len() <= self.folded.len() {
+            if self.folded[at..at + needle.len()] == *needle {
+                matches.push(DisplayRange {
+                    start: DisplayOffset(self.starts[at]),
+                    end: DisplayOffset(self.starts[at + needle.len()]),
                 });
                 at += needle.len();
             } else {
                 at += 1;
             }
         }
-        result
+        self.folded.clear();
+        self.starts.clear();
     }
 }
 

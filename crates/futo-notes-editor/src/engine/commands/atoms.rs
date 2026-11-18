@@ -23,6 +23,34 @@ impl Atom {
     }
 }
 
+/// `range` out of the images among `atoms`: a caret strictly inside one
+/// moves to its nearer edge (after, on a tie), and a range touching part of
+/// one includes it whole.
+fn out_of_images(range: DisplayRange, atoms: &[Atom]) -> DisplayRange {
+    let mut images = atoms.iter().filter(|atom| !atom.wikilink);
+    if range.start != range.end {
+        let mut whole = range;
+        for image in images.filter(|image| image.overlaps(range.start.0, range.end.0)) {
+            whole.start.0 = whole.start.0.min(image.range.start.0);
+            whole.end.0 = whole.end.0.max(image.range.end.0);
+        }
+        return whole;
+    }
+    let at = range.start.0;
+    let Some(image) = images.find(|image| image.holds(at)) else {
+        return range;
+    };
+    let edge = if at - image.range.start.0 < image.range.end.0 - at {
+        image.range.start
+    } else {
+        image.range.end
+    };
+    DisplayRange {
+        start: edge,
+        end: edge,
+    }
+}
+
 impl Engine {
     /// Keys around an atom: a caret's Backspace or Delete whose one-grapheme
     /// step reaches into an image or a wikilink removes it whole (not a
@@ -104,40 +132,29 @@ impl Engine {
     /// within it while the caret is inside it (a Backspace or Delete step
     /// from there).
     pub(crate) fn outside_atoms(&self, range: DisplayRange) -> DisplayRange {
-        if range.start != range.end {
-            let caret =
-                (self.selection.start == self.selection.end).then_some(self.selection.start.0);
-            let mut whole = range;
-            for atom in self.atoms_in(range.start.0, range.end.0) {
-                let (start, end) = (atom.range.start.0, atom.range.end.0);
-                let within = start <= range.start.0 && range.end.0 <= end;
-                let strictly_within = start < range.start.0 && range.end.0 < end;
-                let edits_text = atom.wikilink
-                    && (strictly_within || (within && caret.is_some_and(|at| atom.holds(at))));
-                if atom.overlaps(range.start.0, range.end.0) && !edits_text {
-                    whole.start.0 = whole.start.0.min(atom.range.start.0);
-                    whole.end.0 = whole.end.0.max(atom.range.end.0);
-                }
-            }
+        let atoms = self.atoms_in(range.start.0, range.end.0);
+        let mut whole = out_of_images(range, &atoms);
+        if range.start == range.end {
             return whole;
         }
-        let at = range.start.0;
-        let Some(image) = self
-            .atoms_in(at, at)
-            .into_iter()
-            .find(|atom| !atom.wikilink && atom.holds(at))
-        else {
-            return range;
-        };
-        let edge = if at - image.range.start.0 < image.range.end.0 - at {
-            image.range.start
-        } else {
-            image.range.end
-        };
-        DisplayRange {
-            start: edge,
-            end: edge,
+        let caret = (self.selection.start == self.selection.end).then_some(self.selection.start.0);
+        for atom in atoms.iter().filter(|atom| atom.wikilink) {
+            let (start, end) = (atom.range.start.0, atom.range.end.0);
+            let within = start <= range.start.0 && range.end.0 <= end;
+            let strictly_within = start < range.start.0 && range.end.0 < end;
+            let edits_text = strictly_within || (within && caret.is_some_and(|at| atom.holds(at)));
+            if atom.overlaps(range.start.0, range.end.0) && !edits_text {
+                whole.start.0 = whole.start.0.min(start);
+                whole.end.0 = whole.end.0.max(end);
+            }
         }
+        whole
+    }
+
+    /// `range` out of images only, as `outside_atoms` fits it; a wikilink is
+    /// left as it is.
+    pub(crate) fn outside_images(&self, range: DisplayRange) -> DisplayRange {
+        out_of_images(range, &self.atoms_in(range.start.0, range.end.0))
     }
 
     /// The images and wikilinks on the lines showing display offsets

@@ -30,6 +30,7 @@
   {"name": "an escaped character is found, its backslash is not", "before": "\\*a\\*", "command": {"find": "*a*"}, "after": {"matches": ["*a*"], "source": "\\*a\\*"}},
   {"name": "every sigma is one letter", "before": "ΟΔΟΣΑ οδος", "command": {"find": "οδοσ"}, "after": {"matches": ["ΟΔΟΣ", "οδος"]}},
   {"name": "a letter with a longer lowercase matches only itself", "before": "İi", "command": {"find": "i"}, "after": {"matches": ["i"]}},
+  {"name": "a sign whose lowercase is a plain letter matches that letter", "before": "\u212a k", "command": {"find": "K"}, "after": {"matches": ["\u212a", "k"]}},
   {"name": "the whole text matches", "before": "abab", "command": {"find": "abab"}, "after": {"matches": ["abab"]}},
   {"name": "matches never overlap", "before": "aaaa", "command": {"find": "aa"}, "after": {"matches": ["aa", "aa"]}},
   {"name": "an empty query finds nothing", "before": "anything", "command": {"find": ""}, "after": {"matches": []}},
