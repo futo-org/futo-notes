@@ -30,9 +30,7 @@ final class AppStorePurchaseTests: XCTestCase {
     /// every test here fails on a timeout. Probed once per process with a
     /// purchase the session then clears; skipped only when the run opted out
     /// with `FUTO_STOREKIT_TESTS_OPTIONAL=1` (`just test-ios-native-ui`), a
-    /// failure everywhere else, CI included (M11). A freshly erased simulator
-    /// needs `StoreKitPrimeTests` run once first, and the app installed (a unit
-    /// run does both); CI's warm-up step takes care of both.
+    /// failure everywhere else, CI included (M11).
     private func requireStoreKitTestEnvironment() async throws {
         if Self.storeKitAnswers == nil {
             Self.storeKitAnswers =
