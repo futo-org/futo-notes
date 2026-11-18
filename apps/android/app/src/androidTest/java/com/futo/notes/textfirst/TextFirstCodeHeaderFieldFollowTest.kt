@@ -84,4 +84,47 @@ class TextFirstCodeHeaderFieldFollowTest {
         view.codeTouch.headerField.open(view.editableText.indexOf("const"), CodeHeaderField.Kind.NAME, "js", "a.js", selectAll = false)
         assertEquals(null, view.codeTouch.headerField.openField)
     }
+
+    /**
+     * Review bug 3, the in-flight case: a keystroke typed while an engine change above the block is not yet in the view
+     * is refused, not written against the moved offset; the field then closes on that change.
+     */
+    @Test fun aKeystrokeAgainstAnUnappliedChangeIsNotMisapplied() = textFirstSession("x\n\n```js\na\n```\n\n```py\nb\n```") { c ->
+        val field = holdLanguage(c, "a\n")
+        val engine = c.view.engine!!
+        val blocked = java.util.concurrent.CountDownLatch(1)
+        val resume = java.util.concurrent.CountDownLatch(1)
+        engine.handler.post { blocked.countDown(); resume.await(10, java.util.concurrent.TimeUnit.SECONDS) }
+        blocked.await(10, java.util.concurrent.TimeUnit.SECONDS)
+        // Deleting the three characters above slides the py block's code start onto the js block's old one.
+        engine.handler.post { engine.replace(0, 3, "", uniffi.futo_notes_ffi.EditorInputAction.TYPING) }
+        field.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!.commitText("go", 1)
+        resume.countDown()
+        withTimeout(5_000) { while (c.sourceText()!!.startsWith("x")) delay(20) }
+        withTimeout(5_000) { while (field.isAttachedToWindow) delay(20) }
+        delay(300)
+        assertEquals("```js\na\n```\n\n```py\nb\n```", c.sourceText())
+    }
+
+    /** Review leftover of bug 2: after Ctrl+Z with nothing to undo, a typed space stays (a guard: it did not reproduce). */
+    @Test fun aSpaceTypedAfterAnEmptyUndoStays() = textFirstSession("```js name:my\nconst a = 1\n```\n\nafter") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        val start = view.editableText.indexOf("const")
+        withTimeout(5_000) { while (view.codeChrome.areaOf(start, CodeBlockAction.NAME_FIELD) == null) delay(20) }
+        val area = view.codeChrome.areaOf(start, CodeBlockAction.NAME_FIELD)!!
+        holdNoteAt(view, view.totalPaddingLeft + area.centerX(), view.totalPaddingTop - view.scrollY + area.centerY())
+        val field = openHeaderField(view)
+        undoIn(field)
+        delay(300)
+        field.setSelection(field.length())
+        val input = field.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!
+        input.commitText(" ", 1)
+        delay(300)
+        input.commitText("x", 1)
+        withTimeout(5_000) { while (!c.sourceText()!!.contains("name:")) delay(20) }
+        delay(300)
+        assertEquals("my x", field.text.toString())
+    }
 }

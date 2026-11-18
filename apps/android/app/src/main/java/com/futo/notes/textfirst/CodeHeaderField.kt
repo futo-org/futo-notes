@@ -40,7 +40,14 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
     enum class Kind { NAME, LANGUAGE }
 
     /** [area] is the field's last drawn place: a header scrolled out of the drawn range has no target, yet must be revealed. */
-    private class Editing(val codeStart: Int, val kind: Kind, var language: String, var name: String, var area: RectF? = null)
+    /**
+     * [seenSeq] is the last engine update the field saw applied; a write sent against an older one is refused and
+     * [rewrite] sends the field's whole text again once the view has caught up.
+     */
+    private class Editing(val codeStart: Int, val kind: Kind, var language: String, var name: String, var seenSeq: Int) {
+        var area: RectF? = null
+        var rewrite = false
+    }
 
     private var editing: Editing? = null
     private var field: EditText? = null
@@ -63,7 +70,7 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
     fun open(codeStart: Int, kind: Kind, language: String, name: String, selectAll: Boolean, tapX: Float? = null) {
         close()
         val host = note.parent as? FrameLayout ?: return
-        val state = Editing(codeStart, kind, language, name)
+        val state = Editing(codeStart, kind, language, name, note.appliedSeq)
         editing = state
         // Entering a field ends the note's selection, so a selected block's paint goes (cb 285-299).
         if (note.selectionStart != note.selectionEnd) Selection.setSelection(note.editableText, note.selectionStart)
@@ -95,13 +102,21 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
      * After every change the engine applied: the field stays on its block only while that block's code still starts
      * where it did (its own header write moves nothing); an undo it sent shows the block's value.
      */
-    fun followEngine() {
+    fun followEngine(update: UiUpdate) {
         val state = editing ?: return
         val open = field ?: return
         val e = note.editableText ?: return
+        // The field's own header writes change only the hidden fence line: any text changed at or before the block's
+        // code is another change, and the field may no longer be on its block (or another block sits there now).
+        if (update.reset != null || update.edits.any { (it.start != it.end || it.text.isNotEmpty()) && it.start <= state.codeStart }) { close(); return }
+        state.seenSeq = update.seq
         val head = e.getSpans(state.codeStart, state.codeStart, TfCodeBlock::class.java)
             .firstOrNull { it.line.first && e.getSpanStart(it) == state.codeStart }
         if (head == null) { close(); return }
+        if (state.rewrite) {
+            state.rewrite = false
+            write(state, open.text.toString())
+        }
         if (!followingHistory) return
         followingHistory = false
         val value = (if (state.kind == Kind.NAME) head.line.block.name else head.line.block.language).orEmpty()
@@ -199,7 +214,9 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
 
     private fun write(state: Editing, text: String) {
         if (state.kind == Kind.NAME) state.name = text.trim() else state.language = text
-        note.engine?.writeCodeBlockHeader(state.codeStart, state.language, state.name)
+        note.engine?.writeCodeBlockHeader(state.codeStart, state.language, state.name, state.seenSeq) {
+            if (editing === state) state.rewrite = true
+        }
         place()
     }
 
@@ -207,8 +224,10 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         // Undo and redo are the note's, one keystroke at a time, as the toolbar's are.
         if (event.isCtrlPressed && (keyCode == KeyEvent.KEYCODE_Z || keyCode == KeyEvent.KEYCODE_Y)) {
             val engine = note.engine ?: return false
-            if (keyCode == KeyEvent.KEYCODE_Y || event.isShiftPressed) engine.redo() else engine.undo()
+            // Nothing to undo leaves nothing to follow: the next keystroke's own write must not be taken back.
+            val nothing = { followingHistory = false }
             followingHistory = true
+            if (keyCode == KeyEvent.KEYCODE_Y || event.isShiftPressed) engine.redo(nothing) else engine.undo(nothing)
             return true
         }
         when (keyCode) {

@@ -22,12 +22,15 @@ internal fun EditorEngine.blockCommand(command: EditorBlockCommand) = toolbarCom
     session?.blockCommandUtf16(rev, EditorUtf16Range(mirror.selStart.toULong(), mirror.selEnd.toULong()), command)?.let(::accept)
 }
 
-internal fun EditorEngine.undo() = toolbarCommands.post {
+/** [onNoChange] hears, on the UI thread, that there was nothing to undo. */
+internal fun EditorEngine.undo(onNoChange: () -> Unit = {}) = toolbarCommands.post {
     if (mirror.overlay != null) commitComposition(null)
-    session?.undo(rev)?.let(::accept)
+    val change = session?.undo(rev)
+    if (change != null) accept(change) else ui.post(onNoChange)
 }
 
-internal fun EditorEngine.redo() = toolbarCommands.post {
+internal fun EditorEngine.redo(onNoChange: () -> Unit = {}) = toolbarCommands.post {
     if (mirror.overlay != null) commitComposition(null)
-    session?.redo(rev)?.let(::accept)
+    val change = session?.redo(rev)
+    if (change != null) accept(change) else ui.post(onNoChange)
 }

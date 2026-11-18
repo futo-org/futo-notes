@@ -91,7 +91,7 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
         } finally { settlingFromEngine = false }
         // The paint of a range kept across an edit was resolved against the old text.
         if (update.edits.isNotEmpty() && selectionStart != selectionEnd) paintCodeSelection(selectionStart, selectionEnd, settled = true)
-        codeTouch.headerField.followEngine()
+        codeTouch.headerField.followEngine(update)
         if (update.writesLanguage) codeTouch.openLanguageAt(update.selStart)
         appliedSeq = update.seq
         if (update.inputUptimeNanos != 0L && (update.reset == null || update.sourceChanged)) {
