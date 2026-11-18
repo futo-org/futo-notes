@@ -45,6 +45,21 @@ internal class ImageTouch(private val view: TextFirstEditText) {
         }
     }
 
+    /**
+     * A long-press on an image (or a divider) selects it as one object too, never the platform's word selection, which
+     * took the line break after an image that ends its line. The lift that ends the press settles the same selection.
+     */
+    fun longPress(): Boolean {
+        val atom = pressed ?: return false
+        pressed = null
+        val text = view.editableText
+        val range = text.getSpanStart(atom) to text.getSpanEnd(atom)
+        if (range.first < 0) return false
+        select = range
+        view.setSelection(range.first, range.second)
+        return true
+    }
+
     private fun hit(x: Float, y: Float): ReplacementSpan? {
         val layout = view.layout ?: return null
         val text = view.editableText ?: return null

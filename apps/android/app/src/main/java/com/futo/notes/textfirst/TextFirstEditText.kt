@@ -176,7 +176,7 @@ internal class TextFirstEditText(
 
     override fun performLongClick(): Boolean {
         renderHold.longPressed()
-        return super.performLongClick()
+        return imageTouch.longPress() || super.performLongClick()
     }
 
     internal fun setCodeInput(code: Boolean) {

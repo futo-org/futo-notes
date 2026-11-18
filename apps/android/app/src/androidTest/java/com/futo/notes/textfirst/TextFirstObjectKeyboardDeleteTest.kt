@@ -77,4 +77,30 @@ class TextFirstObjectKeyboardDeleteTest {
         withTimeout(5_000) { while (c.sourceText()!!.contains("missing")) delay(20) }
         assertEquals("before  after", c.sourceText())
     }
+
+    /** Mason: an image is selected as one object; a long-press on one that ends its line took the line break after it. */
+    @Test fun aLongPressOnAnImageThatEndsItsLineSelectsTheImage() = textFirstSession("a ![one](missing.png)![two](missing2.png)\n\nnext") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        val e = view.editableText
+        val two = e.getSpans(0, e.length, TfImage::class.java).maxBy { e.getSpanStart(it) }
+        val start = e.getSpanStart(two)
+        val end = e.getSpanEnd(two)
+        val l = view.layout
+        val x = view.totalPaddingLeft + l.getPrimaryHorizontal(start) + two.drawSize().first / 2f
+        val y = view.totalPaddingTop - view.scrollY + l.getLineBaseline(l.getLineForOffset(start)) - two.drawSize().second / 2f
+        val down = android.os.SystemClock.uptimeMillis()
+        fun send(action: Int, time: Long) {
+            val event = android.view.MotionEvent.obtain(down, time, action, x, y, 0)
+            event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+            try { view.dispatchTouchEvent(event) } finally { event.recycle() }
+        }
+        send(android.view.MotionEvent.ACTION_DOWN, down)
+        delay(android.view.ViewConfiguration.getLongPressTimeout() + 300L)
+        send(android.view.MotionEvent.ACTION_UP, android.os.SystemClock.uptimeMillis())
+        delay(300)
+        assertEquals(start to end, view.selectionStart to view.selectionEnd)
+    }
 }
