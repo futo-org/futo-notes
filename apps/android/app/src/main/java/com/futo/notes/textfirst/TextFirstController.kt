@@ -157,8 +157,12 @@ internal class TextFirstController(
         observer.addOnDrawListener(listener)
     }
 
-    override fun onCell(update: CellUpdate?) {
-        if (update == null) { cellView = null; return }
+    override fun onCell(update: CellUpdate?, toNote: Boolean) {
+        if (update == null) {
+            cellView = null
+            if (toNote) { view.requestFocus(); view.showKeyboard() }
+            return
+        }
         val e = engine ?: return
         val field = cellView ?: TableCellEditText(context, e, style).also {
             it.clipboard.onCopyRefused = { onClipboardRefused() }

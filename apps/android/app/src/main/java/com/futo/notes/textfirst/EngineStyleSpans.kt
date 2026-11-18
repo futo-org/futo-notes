@@ -8,11 +8,11 @@ import uniffi.futo_notes_ffi.EditorStyleSpan
  * table's header or delimiter holds the whole table, so the window grows to cover every span:
  * an old span is then replaced rather than kept beside the new one.
  */
-internal fun List<EditorStyleSpan>.toStyleWindow(start: Int, end: Int, display: CharSequence): StyleWindow {
+internal fun List<EditorStyleSpan>.toStyleWindow(start: Int, end: Int, display: CharSequence, typedDelimiterAt: Int = -1): StyleWindow {
     val blocks = filterIsInstance<EditorStyleSpan.CodeBlock>().map {
         CodeBlockFacts(it.start.toInt(), it.end.toInt(), it.language, it.name, it.lineCount.toInt())
     }
-    val (grid, text) = mapNotNull { it.toSpanSpec(display, blocks) }
+    val (grid, text) = mapNotNull { it.toSpanSpec(display, blocks, typedDelimiterAt) }
         .partition { it is SpanSpec.TableRow || it is SpanSpec.TableDelimiter }
     // Grid rows are disjoint lines in document order, so the row a span could sit in is the last one starting at or before it.
     val rows = grid.sortedBy { it.start }
@@ -23,7 +23,7 @@ internal fun List<EditorStyleSpan>.toStyleWindow(start: Int, end: Int, display: 
     return StyleWindow(minOf(start, specs.minOfOrNull { it.start } ?: start), maxOf(end, specs.maxOfOrNull { it.end } ?: end), specs)
 }
 
-private fun EditorStyleSpan.toSpanSpec(display: CharSequence, blocks: List<CodeBlockFacts>): SpanSpec? = when (this) {
+private fun EditorStyleSpan.toSpanSpec(display: CharSequence, blocks: List<CodeBlockFacts>, typedDelimiterAt: Int): SpanSpec? = when (this) {
     is EditorStyleSpan.Inline -> SpanSpec.Inline(start.toInt(), end.toInt(), bold, italic, strike, code)
     is EditorStyleSpan.Heading -> SpanSpec.Heading(start.toInt(), end.toInt(), level.toInt())
     is EditorStyleSpan.Quote -> SpanSpec.Quote(start.toInt(), end.toInt(), depth.toInt())
@@ -37,7 +37,7 @@ private fun EditorStyleSpan.toSpanSpec(display: CharSequence, blocks: List<CodeB
     is EditorStyleSpan.Divider -> SpanSpec.Divider(start.toInt(), end.toInt())
     is EditorStyleSpan.Image -> SpanSpec.Image(start.toInt(), end.toInt(), destination, alt, vault, remote)
     is EditorStyleSpan.TableRow -> toTableSpec(display)
-    is EditorStyleSpan.TableDelimiter -> SpanSpec.TableDelimiter(start.toInt(), end.toInt())
+    is EditorStyleSpan.TableDelimiter -> SpanSpec.TableDelimiter(start.toInt(), end.toInt(), typed = typedDelimiterAt in start.toInt()..end.toInt())
     is EditorStyleSpan.Table -> null
 }
 

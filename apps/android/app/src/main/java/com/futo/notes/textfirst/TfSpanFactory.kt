@@ -17,7 +17,7 @@ internal class TfSpanFactory(private val style: TextFirstStyle, private val mark
         is SpanSpec.Divider -> TfDivider(style) { contentWidth() }
         is SpanSpec.Image -> TfImage(style, spec.destination, spec.alt, spec.vault, spec.remote) { contentWidth() }
         is SpanSpec.TableRow -> TfTableRow(style, spec.row, spec.start, tableScroll.getOrPut(spec.row.tableStart) { TableScroll() }, marks, contentWidth)
-        is SpanSpec.TableDelimiter -> TfTableDelimiter(style)
+        is SpanSpec.TableDelimiter -> if (spec.typed) TfTypedDelimiter(style) else TfTableDelimiter(style)
     }
 
     /** A kept span takes the facts it draws but does not lay out (a code line's number). */
@@ -39,6 +39,6 @@ internal class TfSpanFactory(private val style: TextFirstStyle, private val mark
         is SpanSpec.Divider -> span is TfDivider
         is SpanSpec.Image -> span is TfImage && span.destination == spec.destination
         is SpanSpec.TableRow -> span is TfTableRow && span.matches(spec.row, spec.start)
-        is SpanSpec.TableDelimiter -> span is TfTableDelimiter
+        is SpanSpec.TableDelimiter -> if (spec.typed) span is TfTypedDelimiter else span is TfTableDelimiter
     }
 }

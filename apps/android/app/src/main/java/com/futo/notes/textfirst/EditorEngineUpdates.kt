@@ -25,6 +25,9 @@ internal fun EditorEngine.acceptViewChange(change: EditorViewChange) {
     mirror.selEnd = mirror.toUtf16(change.selection.end.toInt())
     mirror.selectedBlock = change.selectedBlock?.let(mirror::toUtf16Range)
     writesLanguage = change.writesLanguage
+    val finishedDelimiterRow = writesDelimiterRow && !change.writesDelimiterRow
+    delimiterRowFinishedAt = -1
+    writesDelimiterRow = change.writesDelimiterRow
     verify()
     val needsReset = requiresPrefixReset(edits, shownBefore)
     if (needsReset) {
@@ -53,6 +56,12 @@ internal fun EditorEngine.acceptViewChange(change: EditorViewChange) {
             postUpdate(edits, listOf(window), sourceChanged = true)
         }
         streamTail()
+    }
+    // The keystroke that finishes a typed delimiter row puts the caret in the first body cell: it is edited there, as
+    // after a tap on that cell (Android's grid shows a cell's caret only in its field).
+    if (finishedDelimiterRow && mirror.selStart == mirror.selEnd && mirror.overlay == null) {
+        showDisplayRange(mirror.selStart, mirror.selEnd)
+        delimiterRowFinishedAt = mirror.selStart
     }
     armSave()
 }

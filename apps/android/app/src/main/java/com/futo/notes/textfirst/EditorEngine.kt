@@ -55,6 +55,12 @@ internal class EditorEngine(
     internal var rev: ULong = 0u
     /** The last change made a block whose opening fence takes the next letters as its language (writes_language). */
     internal var writesLanguage = false
+    /** The caret is on a table's delimiter row while the person types it (writes_delimiter_row): the row is drawn as text. */
+    internal var writesDelimiterRow = false
+    /** Where the caret left a typed delimiter row with no edit: that line is restyled with the next update. */
+    private var delimiterRowLeftAt = -1
+    /** Where the keystroke that finished a typed delimiter row put the caret, until anything else happens. */
+    internal var delimiterRowFinishedAt = -1
     internal val mirror = DisplayMirror()
 
     /** The keyboard's view, read by the input connection on this thread. */
@@ -318,10 +324,14 @@ internal class EditorEngine(
     }
 
     internal fun applySelectionChange(change: EditorSelectionChange) {
+        val before = mirror.selStart
+        delimiterRowFinishedAt = -1
         rev = change.revision
         mirror.selStart = mirror.toUtf16(change.selection.start.toInt())
         mirror.selEnd = mirror.toUtf16(change.selection.end.toInt())
         mirror.selectedBlock = change.selectedBlock?.let(mirror::toUtf16Range)
+        if (writesDelimiterRow && !change.writesDelimiterRow) delimiterRowLeftAt = before
+        writesDelimiterRow = change.writesDelimiterRow
     }
 
     /** Apply one accepted engine change to its authoritative mirror and bounded view projection. */
@@ -335,6 +345,8 @@ internal class EditorEngine(
     }
 
     internal fun postUpdate(edits: List<TextEdit>, windows: List<StyleWindow>, reset: String? = null, sourceChanged: Boolean = false, preserveScroll: Boolean = false, paced: Boolean = false, marked: List<SpanSpec.Inline>? = null) {
+        val left = delimiterRowLeftAt.also { delimiterRowLeftAt = -1 }
+        if (left >= 0 && edits.isEmpty() && reset == null) return postUpdate(edits, windows + planStyleWindow(left, left), preserveScroll = preserveScroll, paced = paced, marked = marked)
         seq += 1
         viewEdits.record(seq, edits)
         val update = UiUpdate(

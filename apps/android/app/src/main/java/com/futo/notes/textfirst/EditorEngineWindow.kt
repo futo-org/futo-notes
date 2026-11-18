@@ -11,7 +11,8 @@ import uniffi.futo_notes_ffi.EditorProjection
 internal fun EditorEngine.planStyleWindow(from: Int, to: Int): StyleWindow {
     val start = lineStartAt(mirror.text, from)
     val end = lineEndAfter(mirror.text, start, to)
-    return checkNotNull(session).stylePlan(rev, mirror.byteRange(start, end)).toStyleWindow(start, end, mirror.text)
+    val typedDelimiterAt = if (writesDelimiterRow) mirror.selStart else -1
+    return checkNotNull(session).stylePlan(rev, mirror.byteRange(start, end)).toStyleWindow(start, end, mirror.text, typedDelimiterAt)
 }
 
 internal fun EditorEngine.planStyleWindow(projection: EditorProjection): StyleWindow =

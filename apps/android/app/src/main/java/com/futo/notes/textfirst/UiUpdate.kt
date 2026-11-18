@@ -31,7 +31,8 @@ internal sealed class SpanSpec(val start: Int, val end: Int) {
     class Divider(start: Int, end: Int) : SpanSpec(start, end)
     class Image(start: Int, end: Int, val destination: String, val alt: String, val vault: Boolean, val remote: Boolean) : SpanSpec(start, end)
     class TableRow(start: Int, end: Int, val row: GridRow) : SpanSpec(start, end)
-    class TableDelimiter(start: Int, end: Int) : SpanSpec(start, end)
+    /** [typed]: the person is typing this row (writes_delimiter_row), so it shows as muted text, not the hidden grid line. */
+    class TableDelimiter(start: Int, end: Int, val typed: Boolean = false) : SpanSpec(start, end)
 }
 
 internal class StyleWindow(val start: Int, val end: Int, val specs: List<SpanSpec>)

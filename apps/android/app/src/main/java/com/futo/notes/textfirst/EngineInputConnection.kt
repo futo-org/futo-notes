@@ -161,6 +161,10 @@ internal open class EngineInputConnection(
         if (cell && !engine.editingCell) return true
         if (selectedDeletion(beforeLength, afterLength)) return true
         flushSelection()
+        if (beforeLength > 0 && afterLength == 0 && takesBackFinishedDelimiterRow()) {
+            engine.key(EditorParagraphKey.BACKSPACE)
+            return true
+        }
         trace("deleteSurroundingText(" + "beforeLength=" + beforeLength + " " + "afterLength=" + afterLength + ")")
         engine.imeDeleteSurrounding(minOf(beforeLength, engine.selStart - low), minOf(afterLength, high - engine.selEnd))
         return true
@@ -310,6 +314,13 @@ internal open class EngineInputConnection(
         return batch > 0
     }
 
+    /**
+     * A Backspace in the cell straight after the keystroke that finished a typed delimiter row is the note's Backspace
+     * key, which takes that keystroke back (tables.md); the cell's own delete stops at the cell's start.
+     */
+    private fun takesBackFinishedDelimiterRow(): Boolean =
+        cell && engine.selStart == engine.selEnd && engine.selStart == engine.delimiterRowFinishedAt
+
     override fun sendKeyEvent(event: KeyEvent): Boolean {
         flushSelection()
         if (cell && !engine.editingCell) return true
@@ -319,7 +330,7 @@ internal open class EngineInputConnection(
             return true
         }
         if (event.action != KeyEvent.ACTION_DOWN) return true
-        if (cell && event.keyCode == KeyEvent.KEYCODE_DEL && engine.selStart == low && engine.selEnd == low) return true
+        if (cell && event.keyCode == KeyEvent.KEYCODE_DEL && engine.selStart == low && engine.selEnd == low && !takesBackFinishedDelimiterRow()) return true
         if (cell && event.keyCode == KeyEvent.KEYCODE_FORWARD_DEL && engine.selStart == high && engine.selEnd == high) return true
         when (event.keyCode) {
             KeyEvent.KEYCODE_DEL -> engine.key(EditorParagraphKey.BACKSPACE)

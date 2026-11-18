@@ -6,8 +6,10 @@ import android.text.Layout
 import android.text.Spanned
 import android.text.StaticLayout
 import android.text.TextPaint
+import android.text.style.CharacterStyle
 import android.text.style.LineHeightSpan
 import android.text.style.ReplacementSpan
+import android.text.style.UpdateAppearance
 import uniffi.futo_notes_ffi.EditorTableAlignment
 
 internal class TableScroll { var x = 0f }
@@ -137,6 +139,12 @@ internal class TfTableRow(
         return true
     }
     fun scrollBy(dx: Float) { scroll.x = (scroll.x + dx).coerceIn(0f, (row.columns * cellWidth - width()).coerceAtLeast(0f)) }
+}
+
+/** A delimiter row while the person types it: its text as typed, muted (tables.md). */
+internal class TfTypedDelimiter(private val look: TextFirstStyle) : CharacterStyle(), UpdateAppearance, TfSpan {
+    override fun slice(head: Boolean): TfSpan = if (head) this else TfTypedDelimiter(look)
+    override fun updateDrawState(paint: TextPaint) { paint.color = look.mutedColor }
 }
 
 /** The delimiter belongs to Markdown, and takes no visible row in the grid. */

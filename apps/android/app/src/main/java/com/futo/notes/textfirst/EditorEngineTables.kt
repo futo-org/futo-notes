@@ -101,7 +101,8 @@ internal fun EditorEngine.publishCell() {
     val cell = focus?.let { table.rows.getOrNull(it.row.toInt())?.getOrNull(it.column.toInt()) }
     if (cell == null) {
         editingCell = false; cellRange = null
-        ui.post { sink.onCell(null) }
+        val toNote = writesDelimiterRow
+        ui.post { sink.onCell(null, toNote) }
         return
     }
     val selected = checkNotNull(focus)
