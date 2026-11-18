@@ -56,8 +56,10 @@
   Restore, refund), `LicensePlateTests` 3/3. `SKTestSession` cannot configure an
   iOS 26.5 simulator from Xcode 27.1 (`SKInternalErrorDomain` 3: "Fetching the
   Octane server port is no longer supported"), so local StoreKit testing needs a
-  runtime matching Xcode; a freshly erased matching simulator also loads no product
-  on its first run. Without a working environment `AppStore.sync()` waits forever
+  runtime matching Xcode. A freshly erased matching simulator loads no product in
+  the first test process that creates an `SKTestSession`, and answers from the second; so CI first runs
+  `StoreKitPrimeTests` alone as a throwaway process (2026-11-18, Xcode 27.2; the
+  UI class also needs the app installed, which that run does). Without a working environment `AppStore.sync()` waits forever
   on an Apple Account sign-in, so both StoreKit suites probe once and fail fast
   with that reason, or skip with it under `FUTO_STOREKIT_TESTS_OPTIONAL=1`
   (`just test-ios-native` sets it; CI does not). A real TestFlight purchase is

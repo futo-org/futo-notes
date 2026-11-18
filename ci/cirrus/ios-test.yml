@@ -81,6 +81,26 @@ test_ios_native_task:
       xcrun simctl bootstatus "$SIM" -b
       echo "Testing on simulator $SIM"
       export SIM
+    # Warm-up: open StoreKit's local test environment once in a throwaway test
+    # process. On a simulator that has never run an SKTestSession (every Cirrus VM)
+    # the first process to create one finds no product, and every later process
+    # does (measured on Xcode 27.2 / iOS 27.2), so the real run below has to be a
+    # second process. This step's own result is ignored: if the environment is
+    # really unusable the StoreKit suites fail the real run (CI does not set
+    # FUTO_STOREKIT_TESTS_OPTIONAL).
+    - |
+      mkdir -p apps/ios/.build
+      set +e
+      xcodebuild test -project apps/ios/FutoNotesNative.xcodeproj \
+        -scheme FutoNotesNative \
+        -destination "id=$SIM" \
+        -derivedDataPath apps/ios/.build \
+        -only-testing:FutoNotesNativeTests/StoreKitPrimeTests \
+        ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+        CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" \
+        2>&1 | tee apps/ios/.build/storekit-prime.log | grep -E 'Test run with|\*\* TEST|error:'
+      echo "storekit warm-up: xcodebuild exit ${PIPESTATUS[0]} (informational)"
+      set -e
     # Main pushes and tags (the only pipelines that run this) test both
     # bundles: FutoNotesNativeTests (Swift Testing units) and
     # FutoNotesNativeUITests (XCTest UI cases), every suite.
