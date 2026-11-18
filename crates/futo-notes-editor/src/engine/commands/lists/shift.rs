@@ -4,7 +4,7 @@
 use super::parts;
 use crate::engine::line::Entry;
 use crate::lines::block::width;
-use crate::lines::{Kind, Line};
+use crate::lines::{FenceRole, Kind, Line};
 
 /// An item's leading whitespace before and after it moves.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -17,13 +17,25 @@ impl Shift {
     /// The prefix line `body` (read as `line`, under the item) takes and
     /// where its old prefix ends; `None` when it keeps its bytes. A line
     /// that does not start with the item's whitespace keeps its columns
-    /// past the item's; code keeps whitespace it does not share with it.
+    /// past the item's, a fence's delimiters included, so the code stays
+    /// under the item. A code line keeps whitespace it does not share with
+    /// the item, and an empty one stays empty.
     pub(crate) fn under(&self, body: &str, line: &Line) -> Option<(String, usize)> {
+        let code = matches!(
+            line.kind,
+            Kind::Fence {
+                role: FenceRole::Code,
+                ..
+            }
+        );
+        if code && body.is_empty() {
+            return None;
+        }
         let part = parts(body, line);
         let space = &body[part.quote..part.space];
         let written = if let Some(rest) = space.strip_prefix(self.from.as_str()) {
             format!("{}{rest}", self.to)
-        } else if matches!(line.kind, Kind::Fence { .. }) {
+        } else if code {
             return None;
         } else {
             let keep = width(space).saturating_sub(width(&self.from));

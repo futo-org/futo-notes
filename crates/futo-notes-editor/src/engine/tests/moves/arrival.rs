@@ -98,6 +98,28 @@ fn a_block_inside_a_list_takes_the_indent_and_marker_of_the_item_below() {
 }
 
 #[test]
+fn a_fence_under_an_item_moves_with_it_and_its_code_keeps_its_bytes() {
+    check(&[
+        // The fences keep their two columns past the item, spelled in
+        // spaces when the item's whitespace is not theirs; code that does
+        // not share the item's whitespace keeps its own.
+        (
+            "  - a\n\t~~~\nx\n\t~~~\n\n- p\n      - b",
+            Line(0),
+            6,
+            "\n- p\n      - a\n        ~~~\nx\n        ~~~\n      - b",
+        ),
+        // An empty code line stays empty.
+        (
+            "- a\n  ~~~\n\n  ~~~\n\n- p\n\t- b",
+            Line(0),
+            6,
+            "\n- p\n\t- a\n\t  ~~~\n\n\t  ~~~\n\t- b",
+        ),
+    ]);
+}
+
+#[test]
 fn a_box_a_block_already_has_is_kept_with_its_state() {
     check(&[
         ("- a\n- b\n* [x] done", Line(2), 1, "- a\n- [x] done\n- b"),
