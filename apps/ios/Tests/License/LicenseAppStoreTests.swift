@@ -21,8 +21,8 @@ struct LicenseAppStoreTests {
             await StoreKitTestEnvironment.answers(),
             """
             StoreKit's local test environment did not load the product on this simulator: \
-            use a simulator runtime matching Xcode's iOS SDK, run StoreKitPrimeTests once on a \
-            freshly erased one, or set FUTO_STOREKIT_TESTS_OPTIONAL=1 to skip these tests
+            use a simulator runtime matching Xcode's iOS SDK (a freshly erased one answers \
+            from its second run), or set FUTO_STOREKIT_TESTS_OPTIONAL=1 to skip these tests
             """)
         let session = try SKTestSession(configurationFileNamed: "FutoNotes")
         session.resetToDefaultState()
@@ -211,11 +211,8 @@ struct LicenseAppStoreTests {
 /// product loads and `AppStore.sync()` waits forever on an Apple Account
 /// sign-in, so the suite hangs rather than fails. Seen on the Mac with
 /// Xcode 27.1: an iOS 26.5 simulator never answers (every `SKTestSession` call
-/// logs `SKInternalErrorDomain` 3 without throwing). A freshly erased iOS 27
-/// one answers only from its second test process: the process that first
-/// creates an `SKTestSession` there finds no product, so CI runs `StoreKitPrimeTests` alone first
-/// (ci/cirrus/ios-test.yml) and a local run on a new simulator should too.
-/// Probed once per process: an unusable
+/// logs `SKInternalErrorDomain` 3 without throwing), and a freshly erased
+/// iOS 27.1 one not on its first run. Probed once per process: an unusable
 /// environment fails every test at its first line, unless the run opted out
 /// with `FUTO_STOREKIT_TESTS_OPTIONAL=1` (`just test-ios-native` passes it as
 /// `TEST_RUNNER_…`), which skips the suite with its reason. CI never opts out,
