@@ -12,7 +12,7 @@ private enum CoinAsset {
 }
 
 /// Debug builds only: `FUTO_STILL_COIN=1` in the environment shows the still coin
-/// instead of the RealityKit one. For the Xcode 27 CI canary, whose virtual Mac has a
+/// instead of the RealityKit one. For the CI iOS test job, whose virtual Mac has a
 /// paravirtual GPU on which RealityKit's Metal work aborts the whole simulator process
 /// (the app crashes with a lost SimMetalHost connection the moment a coin is drawn).
 /// Everything else, a real GPU included, renders the coin.
