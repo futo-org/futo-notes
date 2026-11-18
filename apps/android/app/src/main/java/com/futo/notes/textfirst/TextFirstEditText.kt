@@ -268,8 +268,6 @@ internal class TextFirstEditText(
     }
 
 
-    internal fun contentWidth(): Int = maxOf(1, width - totalPaddingLeft - totalPaddingRight - style.dp(4f).toInt())
-
     // Images and dividers size to the content width; a new width re-measures
     // their lines (one measured while the view was not laid out yet would
     // otherwise keep a stale height).
