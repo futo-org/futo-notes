@@ -179,6 +179,54 @@ class TextFirstCodeHeaderFieldRevealTest {
         withTimeout(5_000) { while (view.height != params.height) delay(20) }
         delay(500)
         view.viewTreeObserver.removeOnScrollChangedListener(record)
-        assertEquals("leaving the field moved the note: $positions", 2, positions.size)
+        // The note moves on leaving only as far as the caret's line needs, above the returned toolbar (ruling, 2026-11-17).
+        val caretLine = view.layout.getLineForOffset(view.selectionStart)
+        val caretBottom = view.totalPaddingTop - view.scrollY + view.layout.getLineBottom(caretLine)
+        assert(caretBottom <= view.height - view.totalPaddingBottom) { "the caret's line (bottom $caretBottom) is under the toolbar" }
+    }
+
+    /** Area 8 verifier: a field the keyboard does not cover leaves the note where it is, as on !300. */
+    @Test fun aFieldAboveTheKeyboardLeavesTheNoteStill() = textFirstSession("line\n".repeat(12) + "```py\nb = 2\n```\n" + "end\n".repeat(60)) { c ->
+        val view = c.view
+        (view.context as android.app.Activity).window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        view.isFocusableInTouchMode = true
+        val codeStart = view.editableText.indexOf("b = 2")
+        fun keyboard() = androidx.core.view.ViewCompat.getRootWindowInsets(view)?.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())?.bottom ?: 0
+        // The keyboard's height first, so the block can sit just above where it will rise to.
+        view.showKeyboard()
+        withTimeout(5_000) { while (keyboard() == 0) delay(20) }
+        val keyboardHeight = keyboard()
+        view.hideKeyboard()
+        withTimeout(5_000) { while (keyboard() != 0) delay(20) }
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        val inWindow = IntArray(2).also(view::getLocationInWindow)
+        val keyboardTop = view.rootView.height - keyboardHeight - inWindow[1]
+        val header = view.layout.getLineTop(view.layout.getLineForOffset(codeStart))
+        view.scrollTo(0, (view.totalPaddingTop + header + view.style.codeHeaderHeight * 1.5f - keyboardTop).toInt().coerceAtLeast(0))
+        withTimeout(5_000) { while (view.codeChrome.areaOf(codeStart, CodeBlockAction.LANGUAGE_LABEL) == null) delay(20) }
+        val area = view.codeChrome.areaOf(codeStart, CodeBlockAction.LANGUAGE_LABEL)!!
+        val before = view.scrollY
+        assert(view.totalPaddingTop - before + area.bottom < keyboardTop) { "the field is not above the keyboard here" }
+        holdNoteAt(view, view.totalPaddingLeft + area.centerX(), view.totalPaddingTop - view.scrollY + area.centerY())
+        openHeaderField(view)
+        withTimeout(5_000) { while (keyboard() == 0) delay(20) }
+        delay(1_000)
+        assertEquals("the note moved for a field the keyboard does not cover", before, view.scrollY)
+    }
+
+    /** Area 8 verifier: the keyboard going away with a field open closes the field to its label, as on !300. */
+    @Test fun theKeyboardGoingAwayClosesTheField() = textFirstSession("```js name:server.go\nconst a = 1\n```\n\nafter") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        withTimeout(5_000) { while (view.codeChrome.areaOf(0, CodeBlockAction.NAME_FIELD) == null) delay(20) }
+        val area = view.codeChrome.areaOf(0, CodeBlockAction.NAME_FIELD)!!
+        holdNoteAt(view, view.totalPaddingLeft + area.centerX(), view.totalPaddingTop + area.centerY())
+        val field = openHeaderField(view)
+        fun keyboard() = androidx.core.view.ViewCompat.getRootWindowInsets(view)?.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())?.bottom ?: 0
+        withTimeout(5_000) { while (keyboard() == 0) delay(20) }
+        delay(300)
+        view.context.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0)
+        withTimeout(5_000) { while (field.isAttachedToWindow) delay(20) }
+        assertEquals(null, view.codeChrome.openField)
     }
 }

@@ -211,6 +211,8 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         val keyboard = ViewCompat.getRootWindowInsets(note)?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
         // The insets give the keyboard's final height at once, so a keyboard change reveals at once, while it rises, as
         // !300 does (verifier run 6); the note's own resize follows over many frames and settles first.
+        // The keyboard went away with the field open: the field closes to its label, as !300's does (area 8 verifier).
+        if (settledKeyboard > 0 && keyboard == 0) { note.post { close() }; return }
         val keyboardMoved = settledKeyboard != -1 && keyboard != settledKeyboard
         if (keyboardMoved || note.height != settledHeight || settledKeyboard == -1) {
             settledHeight = note.height
@@ -256,23 +258,15 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         val area = fieldArea(state) ?: return
         // The keyboard resizes the note (the screen's imePadding) a few frames after it reports its height: measure
         // against the keyboard's own top, so the first reveal lands where the note will end and the resize moves nothing
-        // (verifier run 4). Leaving the field puts the caret on the block's first line and may bring the editor toolbar
-        // back over the keyboard: keep that line in view too, with the toolbar's room, so leaving never scrolls the note.
+        // (verifier run 4). Only a field the keyboard covers moves the note, as on !300 (area 8 verifier); when leaving
+        // brings the toolbar back over the caret's line, the caret's own reveal moves it then (ruling, 2026-11-17).
         val keyboard = ViewCompat.getRootWindowInsets(note)?.takeIf { it.isVisible(WindowInsetsCompat.Type.ime()) }
             ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom
         val inWindow = IntArray(2).also(note::getLocationInWindow)
         val keyboardTop = keyboard?.let { note.rootView.height - it - inWindow[1] } ?: note.height
-        val layout = note.layout ?: return
-        val firstLine = layout.getLineForOffset(state.codeStart)
-        val firstLineBottom = layout.getLineBottom(firstLine).toFloat()
-        val visibleHeight = minOf(note.height, keyboardTop) - note.totalPaddingTop - note.totalPaddingBottom
-        // TextView reveals a caret with half its line clear of the edge (at most a quarter of the view): this line carries
-        // the header and skirt, so that half is large, and it is kept too, or the toolbar's return would scroll.
-        val revealSlack = minOf((firstLineBottom - layout.getLineTop(firstLine)) / 2f, visibleHeight / 4f)
-        val toolbarRoom = if (keyboard != null) note.style.codeHeaderHeight * 2 + revealSlack else 0f
-        val visibleBottom = minOf(note.height, keyboardTop) - note.totalPaddingBottom - toolbarRoom
+        val visibleBottom = minOf(note.height, keyboardTop) - note.totalPaddingBottom
         val top = note.totalPaddingTop - note.scrollY + area.top
-        val bottom = note.totalPaddingTop - note.scrollY + maxOf(area.bottom, firstLineBottom)
+        val bottom = note.totalPaddingTop - note.scrollY + area.bottom
         val shift = when {
             bottom > visibleBottom -> bottom - visibleBottom
             top < note.totalPaddingTop -> top - note.totalPaddingTop
