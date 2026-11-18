@@ -144,3 +144,34 @@ test:ios-native:xcode27:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: manual
       allow_failure: true
+
+# TEMPORARY, with the canary above: get the Xcode 27.2 VM image onto every Mac
+# runner before the required job moves to it. A first pull is 70.8 GB; on a
+# slow link it outlasts the 1 h job timeout (job 294571 spent its whole hour
+# pulling and tested nothing), and a required job landing on such a runner
+# would fail. Jobs cannot pick a runner, so this runs five at once: on a runner
+# that already has the image the pull returns at once and the job then holds
+# the runner for five minutes, which leaves the rest for the runners without it.
+# Press it on a main pipeline; removed with the canary.
+ios:prepull-xcode27-image:
+  stage: test
+  needs: []
+  tags:
+    - macscript
+  variables:
+    GIT_STRATEGY: none
+  parallel: 5
+  timeout: 4h
+  script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - hostname
+    - START=$(date +%s)
+    - tart pull ghcr.io/cirruslabs/macos-tahoe-xcode:27.2
+    - TOOK=$(( $(date +%s) - START ))
+    - echo "pull took ${TOOK}s on $(hostname)"
+    - if [ "$TOOK" -lt 60 ]; then echo "already cached; holding this runner for 5 minutes"; sleep 300; fi
+  rules:
+    - !reference [.not-scheduled, rules]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
