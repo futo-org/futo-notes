@@ -53,6 +53,8 @@ internal class TextFirstEditText(
             refreshCodeInput()
             // A selected empty block is a collapsed range, but it is the object: no caret or handle in it, as on !300.
             isCursorVisible = value == null || value.first != value.second
+            // Undo selects a block after its edits painted the same range as a band; the card alone shows it (12.5).
+            if (value != null) codeChrome.selection = null
             refreshCodeHighlight()
             invalidate()
         }
