@@ -47,7 +47,7 @@ internal fun AndroidComposeTestRule<ActivityScenarioRule<ComponentActivity>, Com
                 if (nativeTheme != null) com.futo.notes.ui.components.ClearFocusOnImeDismiss(
                     com.futo.notes.ui.components.imeTargetVisible(),
                 )
-                TextFirstEditorScreen(store, "draft", false, dark, {}, {}, registerLeave = { {} })
+                TextFirstEditorScreen(store, "draft", false, dark, {}, {}, {}, registerLeave = { {} })
             }
         }
     }

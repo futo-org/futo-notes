@@ -245,7 +245,7 @@ class TextFirstLinkTest {
                 val tall = view.layout.getLineBottom(row) - view.layout.getLineTop(row)
                 assertTrue("wrapped label reserves its full visual height", tall > view.paint.fontSpacing * 2)
                 val opened = mutableListOf<String>()
-                view.onOpenWikilink = { opened.add(it) }
+                view.onOpenWikilink = { opened.add((it as WikilinkDestination.Note).id) }
                 val x = view.totalPaddingLeft + view.paint.textSize
                 val firstY = view.totalPaddingTop + view.layout.getLineTop(row) + view.paint.textSize
                 val lastY = view.totalPaddingTop + view.layout.getLineBaseline(row) - view.paint.textSize / 2

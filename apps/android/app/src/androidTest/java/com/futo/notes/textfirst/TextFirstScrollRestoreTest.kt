@@ -46,7 +46,7 @@ class TextFirstScrollRestoreTest {
                     AppNavigation(hasBootstrapped = false, availableFolderPaths = emptyList()) { screen, nav, _ ->
                         navigator = nav
                         if (screen is Screen.Editor) TextFirstEditorScreen(
-                            store, screen.noteId, false, false, nav::goBack, nav::openNote,
+                            store, screen.noteId, false, false, nav::goBack, nav::openNote, nav::openCreatedNote,
                             registerLeave = { handler -> nav.registerEditorLeave(screen, handler) },
                         ) else Text("Note list")
                     }

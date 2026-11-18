@@ -5,19 +5,17 @@ import android.view.MotionEvent
 import android.view.ViewConfiguration
 import kotlin.math.abs
 
+/** Where a followed wikilink goes: the note it resolves to, or the target no note has yet. */
+internal sealed interface WikilinkDestination {
+    data class Note(val id: String) : WikilinkDestination
+    data class Missing(val target: String) : WikilinkDestination
+}
+
 /** Short taps follow a projected destination; ordinary selection and scrolling stay native. */
-internal class WikilinkTouch(private val view: TextFirstEditText, private val open: (String) -> Unit) {
+internal class WikilinkTouch(private val view: TextFirstEditText, private val open: (WikilinkDestination) -> Unit) {
     private val slop = ViewConfiguration.get(view.context).scaledTouchSlop
     private var pressed: TfWikilink? = null
-    private var unresolved: Pair<TfWikilink, Float>? = null
-    private var settle = -1
-
-    /** After the native tap has focused the view and placed its caret, move the caret to the atom edge. */
-    fun settleCaret() {
-        val edge = settle
-        settle = -1
-        if (edge >= 0) view.setSelection(edge)
-    }
+    private var unresolved: TfWikilink? = null
     private var downX = 0f
     private var downY = 0f
 
@@ -25,7 +23,7 @@ internal class WikilinkTouch(private val view: TextFirstEditText, private val op
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 pressed = hit(event.x, event.y)
-                unresolved = locate(event.x, event.y)?.takeIf { it.first.noteId == null }
+                unresolved = locate(event.x, event.y)?.first?.takeIf { it.noteId == null }
                 downX = event.x
                 downY = event.y
             }
@@ -37,15 +35,19 @@ internal class WikilinkTouch(private val view: TextFirstEditText, private val op
                 val broken = unresolved
                 unresolved = null
                 if (broken != null && event.eventTime - event.downTime < ViewConfiguration.getLongPressTimeout()) {
+                    // Mason's desktop rule: following a missing note creates it (and an untouched one goes again).
                     val text = view.editableText
-                    val edge = if (broken.second < 0.5f) text.getSpanStart(broken.first) else text.getSpanEnd(broken.first)
-                    settle = edge
+                    val target = text.subSequence(text.getSpanStart(broken) + 2, text.getSpanEnd(broken) - 2).toString()
+                    view.cancelLongPress()
+                    view.isPressed = false
+                    open(WikilinkDestination.Missing(target))
+                    return true
                 }
                 if (link != null && event.eventTime - event.downTime < ViewConfiguration.getLongPressTimeout() &&
                     hit(event.x, event.y) === link) {
                     view.cancelLongPress()
                     view.isPressed = false
-                    link.noteId?.let(open)
+                    link.noteId?.let { open(WikilinkDestination.Note(it)) }
                     return true
                 }
             }
