@@ -273,6 +273,9 @@ impl Engine {
         inside: bool,
     ) -> Option<Landing> {
         let first = match arriving {
+            // A quote run, like every block but an unquoted item or plain
+            // line, lands as written.
+            Arriving::Lines(lines) if self.line(lines.start).line.quote > 0 => return None,
             Arriving::Lines(lines) => {
                 let entry = self.line(lines.start);
                 First {

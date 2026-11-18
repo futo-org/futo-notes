@@ -9,6 +9,8 @@
 use super::super::ok;
 use super::corpus::fixture_notes;
 use super::{line, slots};
+use crate::engine::store;
+use crate::lines::Kind;
 use crate::{BlockBoundary, DisplayOffset, EditorSession};
 
 /// Every boundary of `session`'s note as a renderer names it.
@@ -24,18 +26,46 @@ fn names(session: &EditorSession) -> Vec<BlockBoundary> {
     names
 }
 
-/// Offered equals accepted for every press on a line start or an image.
+/// The lines a press at line start `at` lifts when they must move byte
+/// for byte: any block but an unquoted list item or plain line.
+fn untouched(session: &EditorSession, at: DisplayOffset) -> Option<Vec<String>> {
+    let engine = session.engine();
+    let index = engine.line_at_display(store::display, at.0).0;
+    let lines = engine.block_lines(index)?;
+    let first = &engine.line(lines.start).line;
+    let rewritten =
+        first.quote == 0 && matches!(first.kind, Kind::List { .. } | Kind::Plain { .. });
+    (!rewritten).then(|| lines.map(|i| engine.line(i).body().to_owned()).collect())
+}
+
+/// Whether `note` holds `lines` as consecutive lines.
+fn holds(note: &str, lines: &[String]) -> bool {
+    let all: Vec<&str> = note
+        .split('\n')
+        .map(|l| l.strip_suffix('\r').unwrap_or(l))
+        .collect();
+    all.windows(lines.len())
+        .any(|run| run.iter().zip(lines).all(|(a, b)| a == b))
+}
+
+/// Offered equals accepted for every press on a line start or an image, and
+/// a block that is no list item or plain line moves byte for byte.
 fn check(note: &str) -> usize {
     let mut session = EditorSession::open(note);
     let display = session.display_text();
     let mut presses: Vec<_> = (0..session.engine().line_count())
-        .map(|index| line(&session, index))
-        .chain(display.match_indices("![").map(|(at, _)| DisplayOffset(at)))
+        .map(|index| (line(&session, index), true))
+        .chain(
+            display
+                .match_indices("![")
+                .map(|(at, _)| (DisplayOffset(at), false)),
+        )
         .collect();
-    presses.sort_by_key(|at| at.0);
-    presses.dedup();
+    presses.sort_by_key(|(at, _)| at.0);
+    presses.dedup_by_key(|(at, _)| *at);
     let mut tried = 0;
-    for at in presses {
+    for (at, line_start) in presses {
+        let kept = line_start.then(|| untouched(&session, at)).flatten();
         let offered = slots(&mut session, at);
         for to in names(&session) {
             let revision = session.revision();
@@ -46,6 +76,13 @@ fn check(note: &str) -> usize {
                 "{note:?}: a press at {at:?} to {to:?}"
             );
             if moved.is_some() {
+                if let Some(kept) = &kept {
+                    let after = session.source_text();
+                    assert!(
+                        holds(&after, kept),
+                        "{note:?}: {at:?} to {to:?} gave {after:?}"
+                    );
+                }
                 session.undo(session.revision(), &mut ok).unwrap().unwrap();
                 assert_eq!(session.source_text(), note);
             }
@@ -83,6 +120,11 @@ const LINES: &[&str] = &[
     "[ ] box",
     "  ```",
     "> q",
+    ">   - qi",
+    ">   first",
+    "  ~~~",
+    "    ---",
+    "\t~~~",
     "> - r",
     ">",
     "```",

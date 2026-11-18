@@ -223,6 +223,15 @@ fn an_item_dropped_outside_any_list_goes_to_the_left_margin_as_written() {
 }
 
 #[test]
+fn a_block_that_is_no_list_item_or_plain_line_moves_as_written() {
+    check(&[
+        // A quote's first line keeps its markers whatever its indent.
+        (">   - a\n> b\nz", Line(0), 3, "z\n>   - a\n> b"),
+        (">   first\n> b\nz", Line(0), 3, "z\n>   first\n> b"),
+    ]);
+}
+
+#[test]
 fn a_plain_line_outside_a_list_stays_plain_and_loses_its_indent() {
     check(&[
         ("- a\n  note\n\nend", Line(1), 4, "- a\n\nend\nnote"),
