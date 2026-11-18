@@ -231,8 +231,8 @@ internal class TextFirstController(
     fun format(format: EditorInlineFormat) { engine?.toggleFormat(format) }
     fun toolbarFormat(format: EditorInlineFormat) { engine?.toggleToolbarFormat(format) }
     fun block(command: EditorBlockCommand) {
-        // The code-block command would unwrap a block selected as one object, which !300 never did; whether it may is
-        // Mason's to decide. Line formats over a block change only the text lines around it, as on desktop.
+        // On a block selected as one object the engine would unwrap it; Mason chose the code toggle disabled there (9A),
+        // the one toolbar rule Android keeps (EditorEngineCaret). Line formats over a block are the engine's.
         if (command is EditorBlockCommand.WrapCodeBlock && view.selectedCodeBlock != null) return
         engine?.blockCommand(command)
     }

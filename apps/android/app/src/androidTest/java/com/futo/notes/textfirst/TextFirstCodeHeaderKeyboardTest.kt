@@ -6,7 +6,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /** Mason (18B): the header fields' keyboard has capitals and suggestions, as !300's had; a composition still writes the fence. */
@@ -55,7 +54,7 @@ class TextFirstCodeHeaderKeyboardTest {
     }
 
     /** Mason: a picked suggestion must not leave `Python-` (FUTO commits the word, then its own space). */
-    @Ignore("engine: editor_typed_code_block_language writes a trailing space as `-` (`Python ` gives `Python-`); with the engine's owner") @Test fun aPickedLanguageSuggestionWritesTheWordWithoutAHyphen() = textFirstSession("```js\nconst a = 1\n```\n\nafter") { c ->
+    @Test fun aPickedLanguageSuggestionWritesTheWordWithoutAHyphen() = textFirstSession("```js\nconst a = 1\n```\n\nafter") { c ->
         val field = openField(c, CodeBlockAction.LANGUAGE_LABEL)
         field.selectAll()
         pickSuggestion(field, "pyth", "Python")
@@ -75,7 +74,7 @@ class TextFirstCodeHeaderKeyboardTest {
         assertEquals("c-sharp", field.text.toString())
     }
 
-    @Ignore("engine: editor_typed_code_block_language writes a trailing space as `-` (`Python ` gives `Python-`); with the engine's owner") @Test fun closingTheLanguageWithASpaceAtItsEndLeavesItWithout() = textFirstSession("```js\nconst a = 1\n```\n\nafter") { c ->
+    @Test fun closingTheLanguageWithASpaceAtItsEndLeavesItWithout() = textFirstSession("```js\nconst a = 1\n```\n\nafter") { c ->
         val field = openField(c, CodeBlockAction.LANGUAGE_LABEL)
         field.selectAll()
         pickSuggestion(field, "ru", "rust")
