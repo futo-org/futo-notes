@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -37,6 +38,8 @@ private fun stepFindVerb(step: suspend (forward: Boolean) -> Unit) = PuppetVerb(
 internal class TextFirstFind(private val controller: TextFirstController, private val scope: CoroutineScope, private val focus: FocusManager) {
     var visible by mutableStateOf(false); private set
     var query by mutableStateOf(""); private set
+    /** Its query field holds focus: no press lifts a block then. */
+    var focused by mutableStateOf(false)
     val state: FindSnapshot? get() = controller.find
 
     fun open() { visible = true; scope.launch { controller.findSetQuery(query) } }
@@ -87,12 +90,12 @@ internal fun TextFirstFindVerbs(find: TextFirstFind, enabled: Boolean) {
 @Composable
 internal fun TextFirstFindBar(find: TextFirstFind) {
     if (!find.visible) return
-    FindInNoteBar(
+    androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.onFocusChanged { find.focused = it.hasFocus }) { FindInNoteBar(
         query = find.query,
         label = findLabel(LocalLocalization.current, find.state),
         total = find.state?.total ?: 0,
         onQueryChange = find::type,
         onStep = { direction -> find.step(direction > 0) },
         onClose = find::close,
-    )
+    ) }
 }

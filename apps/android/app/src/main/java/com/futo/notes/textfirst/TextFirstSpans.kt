@@ -38,6 +38,8 @@ internal class TextFirstStyle(
     val italic: Typeface = regular,
     val boldItalic: Typeface = bold,
     val semiboldItalic: Typeface = Typeface.create(italic, 600, true),
+    /** The page under the note: a lifted block's card and its dimmed place are painted with it. */
+    var pageColor: Int = android.graphics.Color.WHITE,
 ) {
     fun dp(value: Float) = value * density
     val listIndent = textSizePx * 1.4f

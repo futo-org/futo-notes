@@ -31,19 +31,20 @@ internal class TextFirstEditText(
 ) : AppCompatEditText(context), EngineInputConnection.ViewSide {
     var engine: EditorEngine? = null
         set(value) {
+            if (value == null) blockLift.interrupt()
             field = value
             if (renderHold.held) value?.holdRender(true)
         }
     internal val imePublisher = NativeImePublisher(this)
     var onOpenWikilink: ((String) -> Unit)? = null
     var onOpenUrl: ((String) -> Boolean)? = null
-    private val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
-    private val imageTouch = ImageTouch(this)
+    internal val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
+    internal val imageTouch = ImageTouch(this)
     @Volatile override var renderedSelection: Long = Long.MIN_VALUE
         private set
     @Volatile override var selectedObject: Pair<Int, Int>? = null
-    private val linkTouch = ExternalLinkTouch(this, { onOpenUrl?.invoke(it) ?: false }, ::nativeTouch)
-    private val lineTouch = LineSelectTouch(this)
+    internal val linkTouch = ExternalLinkTouch(this, { onOpenUrl?.invoke(it) ?: false }, ::nativeTouch)
+    internal val lineTouch = LineSelectTouch(this)
     /** The first draw after a keyed update, with where that key's time went. */
     var onFrameDrawn: ((KeyTimings) -> Unit)? = null
     /** Optional benchmark observer for every apply, including progressive append work. */
@@ -53,13 +54,13 @@ internal class TextFirstEditText(
     internal var applying = false
     internal var appliedSeq = 0
     internal var pendingTimings: KeyTimings? = null
-    private var checkboxDown = -1
+    internal var checkboxDown = -1
     var onTableCell: ((Int, Int, Int) -> Unit)? = null
     /** The cell host settles against Android's final layout/caret reveal before drawing. */
     internal var onViewportReady: (() -> Unit)? = null
     /** Paste and keyboard content; its [TextFirstClipboard.onImageContent] owner saves images. */
     val clipboard = TextFirstClipboard(context) { engine }
-    private val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, ::invalidateTableScroll)
+    internal val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, ::invalidateTableScroll)
     internal val marks = FindMarks()
     internal val scroll = NoteScroll(this)
     internal val spans = TfSpanFactory(style, marks, { contentWidth() }) { span ->
@@ -71,6 +72,10 @@ internal class TextFirstEditText(
     /** The view cut itself to a prefix for a new width; engine updates wait for the engine's reset (TextFirstEditTextWidth.kt). */
     internal var awaitingRelayout = false
     internal val renderHold = RenderHold(this)
+    /** The long-press block drag (BlockDrag.kt); it sees every touch first. */
+    internal val blockLift = BlockLift(this)
+    /** Whether the note's screen lets a press lift a block: the note is open and no other field of the screen holds focus. */
+    var liftAllowed: () -> Boolean = { false }
 
     init {
         background = null
@@ -154,8 +159,25 @@ internal class TextFirstEditText(
     }
 
     override fun performLongClick(): Boolean {
+        // A press that may lift a block waits for the engine; one that lifted has no platform long press.
+        if (blockLift.holdsLongPress(::platformLongClick)) return true
+        return platformLongClick()
+    }
+
+    private fun platformLongClick(): Boolean {
         renderHold.longPressed()
         return super.performLongClick()
+    }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        // A call, a system dialog, the app leaving the foreground: a drag ends with nothing moved.
+        if (!hasWindowFocus) blockLift.interrupt()
+    }
+
+    override fun onDetachedFromWindow() {
+        blockLift.interrupt()
+        super.onDetachedFromWindow()
     }
 
     internal fun setCodeInput(code: Boolean) {
@@ -191,6 +213,7 @@ internal class TextFirstEditText(
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)
+        blockLift.relayout()
         val anchor = pinned ?: return
         val y = anchorY(anchor) ?: return
         if (y != scrollY) scrollTo(scrollX, y)
@@ -226,6 +249,7 @@ internal class TextFirstEditText(
         e?.drawWindow = visibleChars()
         drawing = true
         try { super.onDraw(canvas); drawTopPaddingBand(canvas); drawScrollEdge(canvas) } finally { drawing = false; e?.drawWindow = null }
+        blockLift.drag?.draw(canvas)
         if (timings != null) {
             timings.drawEnd = android.os.SystemClock.elapsedRealtimeNanos()
             pendingTimings = null
@@ -280,32 +304,12 @@ internal class TextFirstEditText(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN) { restoring = null; stopPinning(); scroll.down(event) } else scroll.track(event)
-        if (!scroll.stoppingTouch && tableTouch.onTouch(event)) return true
-        if (scroll.own(event) { super.onTouchEvent(it) }) return true
-        if (onOpenUrl != null && linkTouch.onTouch(event)) return true
-        if (wikilinkTouch.onTouch(event)) return true
-        imageTouch.onTouch(event)
-        // After the links, so a third quick tap on a link still opens it.
-        if (lineTouch.onTouch(event)) return true
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                checkboxDown = checkboxAt(this, style, event.x, event.y)
-                if (checkboxDown >= 0) return true
-            }
-            MotionEvent.ACTION_UP -> if (checkboxDown >= 0) {
-                val hit = checkboxAt(this, style, event.x, event.y)
-                if (hit == checkboxDown) engine?.toggleTaskAt(hit)
-                checkboxDown = -1
-                return true
-            }
-            MotionEvent.ACTION_MOVE -> if (checkboxDown >= 0) return true
-            MotionEvent.ACTION_CANCEL -> if (checkboxDown >= 0) { checkboxDown = -1; return true }
-        }
-        return super.onTouchEvent(event).also { wikilinkTouch.settleCaret(); imageTouch.settleSelection() }
+        if (blockLift.onTouch(event)) return true
+        return routeTouch(event)
     }
 
-    private fun nativeTouch(event: MotionEvent) { super.onTouchEvent(event) }
+    /** The platform's own touch handling, under the note's handlers (TextFirstEditTextTouch.kt). */
+    internal fun nativeTouch(event: MotionEvent): Boolean = super.onTouchEvent(event)
 
     override fun computeScroll() {
         super.computeScroll()

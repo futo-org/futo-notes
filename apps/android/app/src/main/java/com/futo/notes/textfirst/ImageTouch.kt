@@ -45,20 +45,5 @@ internal class ImageTouch(private val view: TextFirstEditText) {
         }
     }
 
-    private fun hit(x: Float, y: Float): TfImage? {
-        val layout = view.layout ?: return null
-        val text = view.editableText ?: return null
-        val localX = x - view.totalPaddingLeft + view.scrollX
-        val localY = y - view.totalPaddingTop + view.scrollY
-        if (localY < 0 || localY >= layout.height) return null
-        val line = layout.getLineForVertical(localY.toInt())
-        for (image in text.getSpans(layout.getLineStart(line), layout.getLineEnd(line), TfImage::class.java)) {
-            val start = text.getSpanStart(image)
-            if (layout.getLineForOffset(start) != line) continue
-            val left = layout.getPrimaryHorizontal(start)
-            val width = image.getSize(view.paint, text, start, text.getSpanEnd(image), null)
-            if (localX >= left && localX < left + width) return image
-        }
-        return null
-    }
+    private fun hit(x: Float, y: Float): TfImage? = view.imageAt(x, y)
 }

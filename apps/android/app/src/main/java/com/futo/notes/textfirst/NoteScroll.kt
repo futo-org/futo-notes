@@ -22,7 +22,9 @@ internal class NoteScroll(private val view: TextFirstEditText) {
     private var downX = 0f
     private var downY = 0f
     private var lastY = 0f
-    private var dragging = false
+    /** The finger is scrolling the note. */
+    var dragging = false
+        private set
     /** The gesture began on a coasting note: it only stops the note, and is never a tap. */
     private var stopping = false
 

@@ -135,6 +135,7 @@ internal fun TextFirstEditorScreen(
             borderColor = c.border.toArgb(),
             codeBackground = (if (darkTheme) FutoPalette.InkHairline else FutoPalette.N200).toArgb(),
             surfaceColor = c.surfaceSunken.toArgb(),
+            pageColor = c.surface.toArgb(),
         )
         TextFirstController(context, { store.core }, java.io.File(store.rootPath), style, store)
     }
@@ -146,10 +147,12 @@ internal fun TextFirstEditorScreen(
             border = c.border.toArgb(),
             code = (if (darkTheme) FutoPalette.InkHairline else FutoPalette.N200).toArgb(),
             surface = c.surfaceSunken.toArgb(),
+            page = c.surface.toArgb(),
         )
     }
 
     val find = rememberTextFirstFind(controller, initialNoteId)
+    controller.screenFieldFocused = { titleField.isFocused || (find.visible && find.focused) }
     val images = rememberTextFirstImages(controller, store, noteId, leaving, imagePicker)
 
     val titleWarning = remember(initialNoteId) { TitleWarning(scope) }
