@@ -98,6 +98,9 @@ test_ios_native_task:
       # makes it, by which point tee has already failed to open the file
       # (output still streams to the Cirrus log, so the file silently stays
       # empty). A warm local .build hid this. Create the dir first.
+      # The file keeps every line (artifact, and what the arbiter reads); the
+      # console gets it minus the iOS 27 keyboard-renderer chatter, ~15,000
+      # lines that took the job past GitLab's 4 MB log limit (pipeline 40319).
       mkdir -p apps/ios/.build
       set +e
       xcodebuild test -project apps/ios/FutoNotesNative.xcodeproj \
@@ -107,56 +110,13 @@ test_ios_native_task:
         -resultBundlePath apps/ios/.build/TestResults.xcresult \
         ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
         CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" \
-        2>&1 | tee apps/ios/.build/xcodebuild-test.log
+        2>&1 | tee apps/ios/.build/xcodebuild-test.log | bash scripts/ci-ios-test-log.sh filter
       XCODEBUILD_EXIT=${PIPESTATUS[0]}
       set -e
       echo "xcodebuild-exit=$XCODEBUILD_EXIT (informational; the arbiter below decides)"
     # M11 outcome arbiter — pass/fail from what xcodebuild REPORTED, never its
-    # exit code. Layered so it can never go silently green, and it checks each
-    # bundle by its own marker, so one bundle's tests can never stand in for
-    # the other's.
-    - |
-      LOG=apps/ios/.build/xcodebuild-test.log
-      # (1) Any genuine test/build failure marker -> red.
-      if grep -Eq '\*\* TEST FAILED \*\*|Testing failed:|Failing tests:|Executed [0-9]+ tests?, with [1-9][0-9]* failures?|Test run with [0-9]+ tests?( in [0-9]+ suites?)? failed' "$LOG"; then
-        echo "ERROR: xcodebuild reported test/build failures" >&2
-        grep -Ei 'fail' "$LOG" | tail -20 >&2
-        exit 1
-      fi
-      # (2) The unit bundle: Swift Testing's own summary with
-      #     >=1 test. FutoNotesNativeTests is the only Swift Testing bundle
-      #     (UITests is XCTest), so this line is its count and nothing else's.
-      #     Its XCTest half always prints "Executed 0 tests" (it holds no
-      #     XCTestCase), and that line must never satisfy anything here.
-      UNIT_SUMMARY="$(awk '/Test run with [1-9][0-9]* tests?( in [0-9]+ suites?)? passed/ { line = $0 } END { print line }' "$LOG")"
-      if [ -z "$UNIT_SUMMARY" ]; then
-        echo "ERROR: no passing Swift Testing summary with >=1 test from FutoNotesNativeTests" >&2
-        grep -E 'Executed [0-9]+ tests?|Test run with [0-9]+ tests?' "$LOG" >&2 || echo "(no test summary at all)" >&2
-        exit 1
-      fi
-      echo "unit bundle: $UNIT_SUMMARY"
-      # (3) The UI bundle: its XCTest suite passed with >=1 executed case.
-      #     awk reads the whole log (no early-exit pipe, RC-65).
-      UI_EXECUTED="$(awk '/Test Suite .FutoNotesNativeUITests\.xctest. passed/ { getline; if (match($0, /Executed [0-9]+ test/)) { n = substr($0, RSTART + 9, RLENGTH - 14) } } END { print n + 0 }' "$LOG")"
-      if [ "$UI_EXECUTED" -lt 1 ]; then
-        echo "ERROR: FutoNotesNativeUITests reported no passing suite with >=1 executed test" >&2
-        exit 1
-      fi
-      echo "UI bundle: $UI_EXECUTED test(s) executed"
-      # Every UI suite must have passed, so a suite that silently never ran
-      # cannot hide behind the bundle total.
-      for SUITE in $(sed -n 's/^final class \([A-Za-z0-9_]*\): XCTestCase.*/\1/p' apps/ios/UITests/*.swift); do
-        if ! grep -q "Test Suite '$SUITE' passed" "$LOG"; then
-          echo "ERROR: UI suite $SUITE did not pass or did not run" >&2
-          exit 1
-        fi
-      done
-      # (4) Require the overall success marker.
-      if ! grep -q '\*\* TEST SUCCEEDED \*\*' "$LOG"; then
-        echo "ERROR: no '** TEST SUCCEEDED **' marker in the test log" >&2
-        exit 1
-      fi
-      echo "iOS tests passed (arbiter: TEST SUCCEEDED + per-bundle test counts + no failure markers)"
+    # exit code; see the script header. Last, so the job log ends on its verdict.
+    - bash scripts/ci-ios-test-log.sh verdict apps/ios/.build/xcodebuild-test.log
   always:
     # See the note on testRustMacOS's upload_caches: naming any cache disables
     # the automatic upload for all of them, so this list stays exhaustive.
@@ -166,6 +126,8 @@ test_ios_native_task:
       - cargo_target
     ios_test_results_artifacts:
       path: "apps/ios/.build/TestResults.xcresult/**"
+    ios_test_log_artifacts:
+      path: "apps/ios/.build/xcodebuild-test.log"
 
 publish_ios_task:
   name: publishFutoNotesIOS
