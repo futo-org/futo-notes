@@ -155,6 +155,9 @@ private fun EditorEngine.atomBesideCaret(key: EditorParagraphKey): EditorStyleSp
         else -> return null
     }
     if (from < 0 || to > mirror.text.length) return null
+    // An atom's shown spelling ends `]]` or `)` and starts `[[` or `!`: any other character costs no engine call.
+    val beside = mirror.text[from]
+    if (if (key == EditorParagraphKey.BACKSPACE) beside != ']' && beside != ')' else beside != '[' && beside != '!') return null
     return checkNotNull(session).stylePlan(rev, mirror.byteRange(from, to)).firstOrNull { span ->
         val range = when (span) {
             is EditorStyleSpan.Wikilink -> span.start.toInt() to span.end.toInt()

@@ -1,0 +1,15 @@
+{
+  "concept": "editor-pair-characters",
+  "description": "The characters paired typing pairs. The engine owns the table (paired_typing/pairs.rs PAIRS: backtick, *, ~, and [ with its closing ]). Android keeps a copy (EditorEngineKeyboard.kt PAIR_KEYS) to split a keyboard's autocorrect commit that ends in a pair character into the word and the paired key; the engine cannot see a composition's commit as typing. A new pair in PAIRS changes its length, so the pattern below stops matching and this gate fails until the Android set is updated in the same commit.",
+  "lockStatus": "unlocked",
+  "copies": [
+    {
+      "location": "crates/futo-notes-editor/src/engine/commands/paired_typing/pairs.rs",
+      "pattern": "static PAIRS: \\[Pair; 4\\]"
+    },
+    {
+      "location": "apps/android/app/src/main/java/com/futo/notes/textfirst/EditorEngineKeyboard.kt",
+      "pattern": "PAIR_KEYS = setOf\\(\"`\", \"\\*\", \"~\", \"\\[\", \"\\]\"\\)"
+    }
+  ]
+}
