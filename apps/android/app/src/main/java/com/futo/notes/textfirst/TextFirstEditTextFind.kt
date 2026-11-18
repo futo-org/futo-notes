@@ -59,7 +59,10 @@ internal fun TextFirstEditText.drawFindMarks(canvas: Canvas) {
         markPath.rewind()
         l.getSelectionPath(s, en.coerceAtMost(e.length), markPath)
         markPaint.color = style.findMarkColor(current)
+        val rows = canvas.save()
+        canvas.clipRect(0f, textRowBand(l, e, l.getLineForOffset(s)).first, l.width.toFloat(), textRowBand(l, e, l.getLineForOffset(en)).second)
         canvas.drawPath(markPath, markPaint)
+        canvas.restoreToCount(rows)
     }
     canvas.restoreToCount(save)
 }

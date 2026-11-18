@@ -133,11 +133,19 @@ private fun TextFirstEditText.drawSelectionRows(canvas: Canvas, l: Layout, e: Sp
         val breakSelected = to >= lineEnd && lineEnd > lineStart && e[lineEnd - 1] == '\n'
         val left = l.getPrimaryHorizontal(a)
         val right = if (breakSelected || line < lastLine) l.width.toFloat() else l.getPrimaryHorizontal(minOf(to, lineEnd))
-        var top = l.getLineTop(line).toFloat()
-        var bottom = l.getLineBottom(line).toFloat()
-        val code = e.getSpans(lineStart, lineStart, TfCodeBlock::class.java).firstOrNull { e.getSpanEnd(it) > lineStart }
-        if (code != null && code.line.first && e.getSpanStart(code) == lineStart) top += style.codeHeaderHeight
-        if (code != null && code.line.last && lineEnd >= e.getSpanEnd(code) - 1) bottom -= code.bottomExtra(e)
+        val (top, bottom) = textRowBand(l, e, line)
         canvas.drawRect(minOf(left, right), top, maxOf(left, right), bottom, paint)
     }
+}
+
+/** A layout row's top and bottom without a code block's header above its first row or skirt below its last. */
+internal fun TextFirstEditText.textRowBand(l: Layout, e: Spanned, line: Int): Pair<Float, Float> {
+    val lineStart = l.getLineStart(line)
+    val lineEnd = l.getLineEnd(line)
+    var top = l.getLineTop(line).toFloat()
+    var bottom = l.getLineBottom(line).toFloat()
+    val code = e.getSpans(lineStart, lineStart, TfCodeBlock::class.java).firstOrNull { e.getSpanEnd(it) > lineStart }
+    if (code != null && code.line.first && e.getSpanStart(code) == lineStart) top += style.codeHeaderHeight
+    if (code != null && code.line.last && lineEnd >= e.getSpanEnd(code) - 1) bottom -= code.bottomExtra(e)
+    return top to bottom
 }

@@ -74,3 +74,13 @@ Numbers are VERDICT.md's. "Android does" is today's behaviour. Reverse: `one lin
 - **13.3 Up/Down across a block keep the column** (!300 app column 0 / line end). Reverse: small.
 - **13.4 Shift+PageUp stops at a block's code start.** Reverse: small.
 - **13.5 Shift+arrows stop at a block's edges.** Reverse: small.
+
+## Areas 14-15
+
+- **14.2 A paste ending in a closed block** leaves the caret on the line after it, opening one at the note's end (!300 app: the end of the pasted code). Engine's rule. Reverse: engine.
+- **14.3 Redo of Backspace below a block** re-selects the block (!300 app: caret at the code's end). Engine spec. Reverse: engine.
+- **14.4 Three typed backticks** write an empty block with no code line, take two Undo steps, and Redo reopens the language field (!300 app: an empty code line, one step). Engine. Reverse: engine.
+- **14.5 Toolbar Undo/Redo** (!300 app has none). Reverse: small.
+- **15.2 A word only in a block's info string** is not found (!300 app finds it). Engine searches display text. Reverse: engine.
+- **15.3 The first › after typing** selects the current match without stepping (desktop's rule; !300 app steps). Reverse: engine.
+- **15.4 Closing find keeps the match selected** (desktop's rule; !300 app restores the old selection). Reverse: small.
