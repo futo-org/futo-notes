@@ -118,16 +118,10 @@ impl Engine {
         }
     }
 
-    /// Accept a batch as one source record, or put the text back.
-    pub(crate) fn accept(
-        &mut self,
-        batch: Batch,
-        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
-    ) -> Result<Option<(SourceEdit, Shown, Vec<Record>)>, EditorError> {
-        let work = batch.work;
-        let Some((start, old_end, end)) = batch.source else {
-            return Ok(None);
-        };
+    /// A batch's footprint: where it starts, where it ended before, and the
+    /// text it removed and inserted there. `None` when it changed nothing.
+    fn batch_text(&self, batch: &Batch) -> Option<(usize, usize, String, String)> {
+        let (start, old_end, end) = batch.source?;
         let inserted = self.source_slice(start..end);
         let mut removed = inserted.clone();
         for record in batch.records.iter().rev() {
@@ -135,10 +129,31 @@ impl Engine {
             removed.replace_range(at..at + record.inserted.len(), &record.removed);
         }
         debug_assert_eq!(removed.len(), old_end - start);
-        if removed == inserted {
+        (removed != inserted).then_some((start, old_end, removed, inserted))
+    }
+
+    /// Whether applied `batch` changes the text; its work is added to
+    /// `work`, and the text put back as it was.
+    pub(crate) fn changes_then_revert(&mut self, batch: Batch, work: &mut EditWork) -> bool {
+        let changes = self.batch_text(&batch).is_some();
+        work.parsed_source_bytes += batch.work.parsed_source_bytes;
+        work.materialized_source_bytes += batch.work.materialized_source_bytes;
+        work.inserted_bytes += batch.work.inserted_bytes;
+        self.revert(batch);
+        changes
+    }
+
+    /// Accept a batch as one source record, or put the text back.
+    pub(crate) fn accept(
+        &mut self,
+        batch: Batch,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<(SourceEdit, Shown, Vec<Record>)>, EditorError> {
+        let work = batch.work;
+        let Some((start, old_end, removed, inserted)) = self.batch_text(&batch) else {
             self.revert(batch);
             return Ok(None);
-        }
+        };
         let Some(revision) = self.revision.0.checked_add(1).map(Revision) else {
             self.revert(batch);
             return Err(EditorError::RevisionExhausted);

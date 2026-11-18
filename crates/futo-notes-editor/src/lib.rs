@@ -22,12 +22,13 @@ pub use table::{
     TableOutcome,
 };
 pub use types::{
-    Affinity, AtomDescription, AtomKind, BlockDescription, CaretDirection, Correspondence,
-    CorrespondenceKind, DisplayOffset, DisplayRange, DisplayUtf16Offset, DisplayUtf16Range,
-    EditWork, EditorError, ImageClaim, ImageDescription, InlineFormat, LinkDescription,
-    ListDescription, NoteIdChange, NoteIdWork, ProjectionSlice, Revision, SelectionChange,
-    SemanticRun, SourceEdit, SourceOffset, SourceRange, SourceUtf16Offset, SourceUtf16Range,
-    ViewChange, WikilinkCandidate, WikilinkCompletion, WikilinkDescription,
+    Affinity, AtomDescription, AtomKind, BlockBoundary, BlockDescription, BlockSlots,
+    CaretDirection, Correspondence, CorrespondenceKind, DisplayOffset, DisplayRange,
+    DisplayUtf16Offset, DisplayUtf16Range, EditWork, EditorError, ImageClaim, ImageDescription,
+    InlineFormat, LiftedBlock, LinkDescription, ListDescription, NoteIdChange, NoteIdWork,
+    ProjectionSlice, Revision, SelectionChange, SemanticRun, SourceEdit, SourceOffset, SourceRange,
+    SourceUtf16Offset, SourceUtf16Range, ViewChange, WikilinkCandidate, WikilinkCompletion,
+    WikilinkDescription,
 };
 
 pub use link_target::external_link_url;

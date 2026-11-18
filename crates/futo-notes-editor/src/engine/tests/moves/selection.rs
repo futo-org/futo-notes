@@ -6,7 +6,7 @@
 //! the line start before it.
 use super::super::{ok, range};
 use super::images::image;
-use super::line;
+use super::{line, slot};
 use crate::EditorSession;
 
 /// (note, the selection, what is pressed: a line, or `None` for the first
@@ -32,7 +32,7 @@ fn check(cases: &[Case]) {
             None => image(&session, 0).start,
         };
         session
-            .move_block(revision, at, line(&session, to), &mut ok)
+            .move_block(revision, at, slot(&session, to), &mut ok)
             .unwrap()
             .unwrap_or_else(|| panic!("{before:?} to {to} was refused"));
         assert_eq!(session.source_text(), after, "{before:?} to {to}");

@@ -25,6 +25,7 @@ mod images;
 mod jni_keys;
 mod links;
 mod moves;
+pub use moves::{EditorBlockBoundary, EditorLiftedBlock};
 mod tags;
 mod toolbar;
 pub use contract::*;

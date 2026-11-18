@@ -11,6 +11,7 @@
 //! also hold named lines to their kind (`Command::same_kind`). Typing never
 //! goes through the guard.
 mod kept_line;
+mod trial;
 
 pub(crate) use kept_line::kept_line;
 

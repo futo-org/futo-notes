@@ -9,6 +9,7 @@ pub use editor::{
     EditorSourceByteOffset, EditorSourceByteRange, EditorToolbarList, EditorToolbarSnapshot,
     EditorUtf16Range, EditorUtf16Replacement, EditorViewChange, NativeEditorSession,
 };
+pub use editor::{EditorBlockBoundary, EditorLiftedBlock};
 pub use editor::{
     EditorDisplayMirror, EditorFindLanding, EditorFindSnapshot, EditorFindStep, EditorListMarker,
     EditorMirrorEdit, EditorMirrorError, EditorPendingEdits, EditorQuickView, EditorStyleSpan,

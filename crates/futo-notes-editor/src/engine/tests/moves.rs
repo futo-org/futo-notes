@@ -2,11 +2,12 @@
 //! they may land, and the move itself as one exact Undo step (#311, #440).
 use super::properties::checks::check_fresh;
 use super::{ok, range};
-use crate::{DisplayOffset, EditorError, EditorSession, Revision};
+use crate::{BlockBoundary, DisplayOffset, EditorError, EditorSession, LiftedBlock, Revision};
 use std::ops::Range;
 
 mod images;
 mod selection;
+mod slots;
 
 /// The display offset where source line `index` starts (the note's display
 /// end for the line count): what a renderer has under a finger.
@@ -19,6 +20,31 @@ fn lines(session: &EditorSession, range: Range<usize>) -> crate::DisplayRange {
     crate::DisplayRange { start, end }
 }
 
+/// What lifting source lines `range` reports.
+fn lifted(session: &EditorSession, range: Range<usize>) -> LiftedBlock {
+    let to_end = range.end == session.engine().line_count();
+    LiftedBlock {
+        range: lines(session, range),
+        to_end,
+    }
+}
+
+/// Boundary `index` (above source line `index`; the line count is the
+/// note's end) as a renderer names it.
+fn slot(session: &EditorSession, index: usize) -> BlockBoundary {
+    BlockBoundary {
+        at: line(session, index),
+        end: index == session.engine().line_count(),
+    }
+}
+
+/// The slots for a press at `at`, anywhere in the note.
+fn slots(session: &mut EditorSession, at: DisplayOffset) -> Vec<BlockBoundary> {
+    let whole = range(0, session.display_text().len());
+    let revision = session.revision();
+    session.block_slots(revision, at, whole).unwrap().slots
+}
+
 /// A line, the lines it lifts, and the boundaries they may land on.
 type Lifts = (usize, Option<Range<usize>>, &'static [usize]);
 
@@ -26,7 +52,7 @@ const NOTE: &str = "---\ntags: a\n---\n# Title\nplain\n- a\n  - b\n  note\n- c\n
 
 #[test]
 fn every_block_kind_lifts_its_lines_and_lands_only_on_its_slots() {
-    let session = EditorSession::open(NOTE);
+    let mut session = EditorSession::open(NOTE);
     let revision = session.revision();
     // (line, the lines that lift, the boundaries they may land on: boundary
     // `b` is above line `b`, and 20 is the note's end). Frame lines (front
@@ -55,18 +81,14 @@ fn every_block_kind_lifts_its_lines_and_lands_only_on_its_slots() {
     ];
     for (index, lifts, slots) in cases {
         let at = line(&session, index);
-        let expected = lifts.map(|lifted| lines(&session, lifted));
+        let expected = lifts.map(|lines| lifted(&session, lines));
         assert_eq!(
             session.block_at(revision, at).unwrap(),
             expected,
             "line {index}"
         );
-        let want: Vec<_> = slots.iter().map(|&b| line(&session, b)).collect();
-        assert_eq!(
-            session.block_slots(revision, at).unwrap(),
-            want,
-            "line {index}"
-        );
+        let want: Vec<_> = slots.iter().map(|&b| slot(&session, b)).collect();
+        assert_eq!(self::slots(&mut session, at), want, "line {index}");
     }
     // An unclosed fence is code to the note's end: it lifts nothing, nor
     // does an item whose lines run into it, and nothing lands after it.
@@ -83,42 +105,46 @@ fn every_block_kind_lifts_its_lines_and_lands_only_on_its_slots() {
     // A quote is no list item or plain line, even when it is one line or
     // starts with an item: it lands beside a list, never inside one.
     for note in ["- a\n- b\n\n> q", "- a\n- b\n\n> - q"] {
-        let session = EditorSession::open(note);
-        assert_eq!(
-            session.block_slots(Revision(0), line(&session, 3)).unwrap(),
-            vec![line(&session, 0), line(&session, 2)],
-            "{note:?}"
-        );
+        let mut session = EditorSession::open(note);
+        let at = line(&session, 3);
+        let want = vec![slot(&session, 0), slot(&session, 2)];
+        assert_eq!(slots(&mut session, at), want, "{note:?}");
     }
     // After a note's last line ending, the empty last line has no width:
     // the boundary above it is the one slot at the display's end.
-    let session = EditorSession::open("a\nb\n");
-    assert_eq!(
-        session.block_slots(Revision(0), line(&session, 0)).unwrap(),
-        vec![line(&session, 2)]
-    );
-    let session = EditorSession::open("a\n```\ncode");
-    assert_eq!(
-        session.block_slots(Revision(0), line(&session, 0)).unwrap(),
-        vec![]
-    );
+    let mut session = EditorSession::open("a\nb\n");
+    let want = vec![slot(&session, 2)];
+    assert_eq!(slots(&mut session, DisplayOffset(0)), want);
+    let mut session = EditorSession::open("a\n```\ncode");
+    assert_eq!(slots(&mut session, DisplayOffset(0)), vec![]);
 }
 
 #[test]
 fn a_boundary_a_renderer_cannot_tell_from_the_blocks_own_edge_is_no_slot() {
-    // The empty last line after a final line ending has no width, so the
-    // boundary above it and the one at the note's end sit where the line
-    // above ends. For that line, they are its own bottom edge. (note, the
-    // display offsets the last line's block may land on, its own edges.)
+    // The empty last line after a final line ending is blank and has no
+    // width, so the note's end is drawn where the boundary above it is. For
+    // the line above it, that is its own bottom edge. (note, the display
+    // offsets the last line's block may land on, its own edges, then the
+    // note's end at the same place.)
     for (note, slots, edges) in [("a\nb\n", vec![0], (2, 4)), ("a\n", vec![], (0, 2))] {
         let mut session = EditorSession::open(note);
         let revision = session.revision();
         let at = DisplayOffset(edges.0);
-        let want: Vec<_> = slots.into_iter().map(DisplayOffset).collect();
-        assert_eq!(session.block_slots(revision, at).unwrap(), want, "{note:?}");
-        for edge in [edges.0, edges.1] {
-            let moved = session.move_block(revision, at, DisplayOffset(edge), &mut ok);
-            assert_eq!(moved.unwrap(), None, "{note:?} to {edge}");
+        let want: Vec<_> = slots
+            .into_iter()
+            .map(|at| BlockBoundary {
+                at: DisplayOffset(at),
+                end: false,
+            })
+            .collect();
+        assert_eq!(self::slots(&mut session, at), want, "{note:?}");
+        for (edge, end) in [(edges.0, false), (edges.1, false), (edges.1, true)] {
+            let to = BlockBoundary {
+                at: DisplayOffset(edge),
+                end,
+            };
+            let moved = session.move_block(revision, at, to, &mut ok);
+            assert_eq!(moved.unwrap(), None, "{note:?} to {to:?}");
             assert_eq!(session.source_text(), note);
             assert_eq!(session.revision(), revision);
             assert!(!session.toolbar_state().can_undo, "{note:?}");
@@ -147,7 +173,7 @@ fn a_move_changes_only_where_the_block_is_and_one_undo_restores_it() {
         let mut session = EditorSession::open(before);
         let revision = session.revision();
         let change = session
-            .move_block(revision, line(&session, from), line(&session, to), &mut ok)
+            .move_block(revision, line(&session, from), slot(&session, to), &mut ok)
             .unwrap()
             .unwrap_or_else(|| panic!("{before:?} line {from} to {to} was refused"));
         assert_eq!(session.source_text(), after, "{before:?}");
@@ -167,7 +193,7 @@ fn the_caret_moves_with_the_block_it_is_in_and_stays_with_any_other_line() {
         let revision = session.revision();
         session.select(revision, range(caret, caret)).unwrap();
         session
-            .move_block(revision, line(&session, 0), line(&session, 2), &mut ok)
+            .move_block(revision, line(&session, 0), slot(&session, 2), &mut ok)
             .unwrap()
             .unwrap();
         assert_eq!(session.selection(), range(landed, landed));
@@ -203,7 +229,7 @@ fn a_selection_covering_the_block_moves_whole_with_it() {
             .select(revision, range(selected.0, selected.1))
             .unwrap();
         session
-            .move_block(revision, line(&session, from), line(&session, to), &mut ok)
+            .move_block(revision, line(&session, from), slot(&session, to), &mut ok)
             .unwrap()
             .unwrap_or_else(|| panic!("{before:?} line {from} to {to} was refused"));
         assert_eq!(session.source_text(), after, "{before:?}");
@@ -220,23 +246,22 @@ fn a_selection_covering_the_block_moves_whole_with_it() {
 
 #[test]
 fn a_refused_move_changes_nothing() {
-    // (note, a line, a boundary, whether the boundary is one of its slots):
-    // moves that are no move, and moves the guard cancels because a line
-    // would read as another kind of block.
-    for (before, from, to, offered) in [
+    // (note, a line, a boundary): moves that are no move, and moves the
+    // guard cancels because a line would read as another kind of block,
+    // which are therefore no slot either.
+    for (before, from, to) in [
         // A blank line lifts nothing; a block's own edge is no slot.
-        ("a\n\nb", 1, 0, false),
-        ("a\nb", 0, 1, false),
+        ("a\n\nb", 1, 0),
+        ("a\nb", 0, 1),
         // A plain `|---|` under a pipe line makes it a table header.
-        ("| a |\n\n|---|", 2, 1, true),
+        ("| a |\n\n|---|", 2, 1),
         // A `---` reaching line 1 opens front matter with a later `---`.
-        ("a\n---\nb\n---\nc", 0, 4, true),
+        ("a\n---\nb\n---\nc", 0, 4),
     ] {
         let mut session = EditorSession::open(before);
         let revision = session.revision();
-        let (at, to) = (line(&session, from), line(&session, to));
-        let slots = session.block_slots(revision, at).unwrap();
-        assert_eq!(slots.contains(&to), offered, "{before:?}");
+        let (at, to) = (line(&session, from), slot(&session, to));
+        assert!(!slots(&mut session, at).contains(&to), "{before:?}");
         let moved = session.move_block(revision, at, to, &mut ok).unwrap();
         assert!(moved.is_none(), "{before:?}");
         assert_eq!(session.source_text(), before);
@@ -247,8 +272,16 @@ fn a_refused_move_changes_nothing() {
     session
         .replace(Revision(0), range(0, 0), "x", &mut ok)
         .unwrap();
+    let to = slot(&session, 3);
     assert_eq!(
-        session.move_block(Revision(0), DisplayOffset(0), line(&session, 3), &mut ok),
+        session.move_block(Revision(0), DisplayOffset(0), to, &mut ok),
+        Err(EditorError::StaleRevision {
+            expected: Revision(0),
+            actual: Revision(1)
+        })
+    );
+    assert_eq!(
+        session.block_slots(Revision(0), DisplayOffset(0), range(0, 1)),
         Err(EditorError::StaleRevision {
             expected: Revision(0),
             actual: Revision(1)

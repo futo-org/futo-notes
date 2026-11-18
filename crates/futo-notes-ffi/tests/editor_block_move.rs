@@ -1,11 +1,50 @@
 //! The native block move: lookup, slots and the move cross the boundary in
 //! display bytes, and the move is one accepted edit and one Undo step.
 mod support;
-use futo_notes_ffi::{EditorByteRange, EditorDisplayByteOffset, EditorSessionError, NoteStore};
+use futo_notes_ffi::{
+    EditorBlockBoundary, EditorByteRange, EditorDisplayByteOffset, EditorLiftedBlock,
+    EditorSessionError, NativeEditorSession, NoteStore,
+};
+use std::sync::Arc;
 use support::{path_string, TempTree};
 
 fn at(offset: u64) -> EditorDisplayByteOffset {
     EditorDisplayByteOffset { offset }
+}
+
+/// The boundary above the line shown from display byte `offset`.
+fn above(offset: u64) -> EditorBlockBoundary {
+    EditorBlockBoundary { offset, end: false }
+}
+
+/// The note's end, at display byte `offset`.
+fn end(offset: u64) -> EditorBlockBoundary {
+    EditorBlockBoundary { offset, end: true }
+}
+
+fn lines(start: u64, end: u64, to_end: bool) -> Option<EditorLiftedBlock> {
+    Some(EditorLiftedBlock {
+        range: EditorByteRange { start, end },
+        to_end,
+    })
+}
+
+/// The slots of a press at `press` anywhere in the note.
+fn slots(session: &NativeEditorSession, revision: u64, press: u64) -> Vec<EditorBlockBoundary> {
+    let len = session.display_text().unwrap().len() as u64;
+    let whole = EditorByteRange { start: 0, end: len };
+    session.block_slots(revision, at(press), whole).unwrap()
+}
+
+/// A session on a new note holding `text`.
+fn open(tree: &TempTree, text: &str) -> (Arc<NoteStore>, Arc<NativeEditorSession>) {
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("note".into(), "".into(), text.into())
+        .unwrap();
+    let session = store.open_editor("note".into()).unwrap();
+    (store, session)
 }
 
 #[test]
@@ -19,14 +58,11 @@ fn native_block_move_lifts_a_list_item_with_its_children_and_undo_restores_it() 
         .unwrap();
     let session = store.open_editor("list".into()).unwrap();
     // Display "a\nb\nc\nd": `b` at byte 2 lifts `b` and `c`.
-    assert_eq!(
-        session.block_at(0, at(2)).unwrap(),
-        Some(EditorByteRange { start: 2, end: 6 })
-    );
-    assert_eq!(session.block_slots(0, at(2)).unwrap(), vec![at(0), at(7)]);
+    assert_eq!(session.block_at(0, at(2)).unwrap(), lines(2, 6, false));
+    assert_eq!(slots(&session, 0, 2), vec![above(0), end(7)]);
     // Not a slot: refused, nothing changes.
-    assert!(session.move_block(0, at(2), at(4)).unwrap().is_none());
-    let change = session.move_block(0, at(2), at(7)).unwrap().unwrap();
+    assert!(session.move_block(0, at(2), above(4)).unwrap().is_none());
+    let change = session.move_block(0, at(2), end(7)).unwrap().unwrap();
     assert_eq!(change.revision, 1);
     let mut display = "a\nb\nc\nd".to_owned();
     display.replace_range(
@@ -36,7 +72,7 @@ fn native_block_move_lifts_a_list_item_with_its_children_and_undo_restores_it() 
     assert_eq!(display, session.display_text().unwrap());
     assert_eq!(session.source_text().unwrap(), "a\nd\n- b\n  - c");
     assert!(matches!(
-        session.move_block(0, at(0), at(7)),
+        session.move_block(0, at(0), end(7)),
         Err(EditorSessionError::StaleRevision {
             expected: 0,
             actual: 1
@@ -57,9 +93,11 @@ fn native_block_move_offers_no_slot_the_blocks_own_bottom_edge_cannot_be_told_fr
         .create_note("ends".into(), "".into(), "a\nb\n".into())
         .unwrap();
     let session = store.open_editor("ends".into()).unwrap();
-    // `b` ends where the empty last line starts: byte 4 is its own edge.
-    assert_eq!(session.block_slots(0, at(2)).unwrap(), vec![at(0)]);
-    assert!(session.move_block(0, at(2), at(4)).unwrap().is_none());
+    // `b` ends where the empty last line starts: byte 4 is its own edge, and
+    // the note's end after that blank line is drawn there too.
+    assert_eq!(slots(&session, 0, 2), vec![above(0)]);
+    assert!(session.move_block(0, at(2), above(4)).unwrap().is_none());
+    assert!(session.move_block(0, at(2), end(4)).unwrap().is_none());
     assert_eq!(session.source_text().unwrap(), "a\nb\n");
     assert!(matches!(session.undo(0), Ok(None)));
 }
@@ -75,26 +113,57 @@ fn native_block_move_lifts_a_photo_out_of_its_line_by_the_position_under_the_fin
         .unwrap();
     let session = store.open_editor("photo".into()).unwrap();
     // The display is the source here: the photo shows its spelling, bytes 5..35.
-    assert_eq!(
-        session.block_at(0, at(5)).unwrap(),
-        Some(EditorByteRange { start: 5, end: 35 })
-    );
+    assert_eq!(session.block_at(0, at(5)).unwrap(), lines(5, 35, false));
     // On `Nice!` the whole line lifts, photo included.
-    assert_eq!(
-        session.block_at(0, at(2)).unwrap(),
-        Some(EditorByteRange { start: 0, end: 36 })
-    );
-    assert_eq!(session.block_slots(0, at(2)).unwrap(), vec![at(40)]);
+    assert_eq!(session.block_at(0, at(2)).unwrap(), lines(0, 36, false));
+    assert_eq!(slots(&session, 0, 2), vec![end(40)]);
     // The photo also lands on its own line's two edges.
-    assert_eq!(
-        session.block_slots(0, at(5)).unwrap(),
-        vec![at(0), at(36), at(40)]
-    );
-    session.move_block(0, at(5), at(36)).unwrap().unwrap();
+    assert_eq!(slots(&session, 0, 5), vec![above(0), above(36), end(40)]);
+    session.move_block(0, at(5), above(36)).unwrap().unwrap();
     assert_eq!(
         session.source_text().unwrap(),
         "Nice!\n![](image-20261113-160256.jpg)\nnext"
     );
     session.undo(1).unwrap().unwrap();
     assert_eq!(session.source_text().unwrap(), note);
+}
+
+#[test]
+fn native_block_move_tells_the_two_edges_of_an_empty_last_task_apart() {
+    let tree = TempTree::new();
+    let (store, session) = open(&tree, "a\nb\n- [ ] ");
+    // The task shows no characters: the display is `a\nb\n`, and both the
+    // boundary above the task and the note's end are at byte 4.
+    assert_eq!(session.display_text().unwrap(), "a\nb\n");
+    assert_eq!(session.block_at(0, at(4)).unwrap(), lines(4, 4, true));
+    assert_eq!(slots(&session, 0, 4), vec![above(0), above(2)]);
+    assert_eq!(slots(&session, 0, 0), vec![above(4), end(4)]);
+    session.move_block(0, at(0), end(4)).unwrap().unwrap();
+    assert_eq!(session.source_text().unwrap(), "b\n- [ ] \na");
+    session.undo(1).unwrap().unwrap();
+    session.move_block(2, at(0), above(4)).unwrap().unwrap();
+    assert_eq!(session.source_text().unwrap(), "b\na\n- [ ] ");
+    session.checkpoint().unwrap();
+    assert_eq!(store.read("note".into()).unwrap(), "b\na\n- [ ] ");
+}
+
+#[test]
+fn native_block_slots_are_asked_for_inside_a_display_range() {
+    let tree = TempTree::new();
+    let (_store, session) = open(&tree, "a\nb\nc\nd\ne");
+    // `a` lands below each other line; bytes 3..6 hold the boundaries above
+    // `c` (4) and `d` (6), both ends included.
+    let near = EditorByteRange { start: 3, end: 6 };
+    assert_eq!(
+        session.block_slots(0, at(0), near).unwrap(),
+        vec![above(4), above(6)]
+    );
+    // A range off the display is refused, never clamped; nothing changed.
+    let past = EditorByteRange { start: 0, end: 10 };
+    assert!(matches!(
+        session.block_slots(0, at(0), past),
+        Err(EditorSessionError::InvalidRange)
+    ));
+    assert_eq!(session.source_text().unwrap(), "a\nb\nc\nd\ne");
+    assert!(matches!(session.undo(0), Ok(None)));
 }
