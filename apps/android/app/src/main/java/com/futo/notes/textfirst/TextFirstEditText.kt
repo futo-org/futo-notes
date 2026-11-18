@@ -33,7 +33,7 @@ internal class TextFirstEditText(
             if (renderHold.held) value?.holdRender(true)
         }
     internal val imePublisher = NativeImePublisher(this)
-    var onOpenWikilink: ((String) -> Unit)? = null
+    var onOpenWikilink: ((WikilinkDestination) -> Unit)? = null
     internal val keyHooks = HardwareKeyHooks()
     var onOpenUrl: ((String) -> Boolean)? = null
     private val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
@@ -327,7 +327,7 @@ internal class TextFirstEditText(
             MotionEvent.ACTION_MOVE -> if (checkboxDown >= 0) return true
             MotionEvent.ACTION_CANCEL -> if (checkboxDown >= 0) { checkboxDown = -1; return true }
         }
-        return super.onTouchEvent(event).also { wikilinkTouch.settleCaret(); imageTouch.settleSelection(); codeTouch.settleTap(event); lineBelowHandle.onTouch(event) }
+        return super.onTouchEvent(event).also { imageTouch.settleSelection(); codeTouch.settleTap(event); lineBelowHandle.onTouch(event) }
     }
 
     private fun nativeTouch(event: MotionEvent) { super.onTouchEvent(event) }

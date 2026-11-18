@@ -91,6 +91,7 @@ internal fun TextFirstEditorScreen(
     darkTheme: Boolean,
     onBack: () -> Unit,
     onOpenNote: (String) -> Unit,
+    onOpenCreatedNote: (String) -> Unit,
     imagePicker: ImagePicker? = null,
     registerLeave: (((() -> Unit) -> Unit) -> (() -> Unit)),
 ) {
@@ -107,6 +108,8 @@ internal fun TextFirstEditorScreen(
     var saveFailed by remember(initialNoteId) { mutableStateOf(false) }
     var confirmDiscard by remember(initialNoteId) { mutableStateOf(false) }
     var pendingNavigation by remember(initialNoteId) { mutableStateOf<(() -> Unit)?>(null) }
+    // A second tap while the first one's note is being made would make a second note nobody opens.
+    var creatingLinkedNote by remember(initialNoteId) { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
     val ownerToken = remember(initialNoteId) { store.claimDraftOwnership() }
@@ -400,7 +403,18 @@ internal fun TextFirstEditorScreen(
             Spacer(Modifier.size(4.dp))
             Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
                 TextFirstNoteView(controller, enabled = !images.recovering && !leaving,
-                    onOpenWikilink = { target -> if (target != noteId) onOpenNote(target) },
+                    onOpenWikilink = { destination ->
+                        when (destination) {
+                            is WikilinkDestination.Note -> if (destination.id != noteId) onOpenNote(destination.id)
+                            is WikilinkDestination.Missing -> if (!creatingLinkedNote && !leaving) {
+                                creatingLinkedNote = true
+                                scope.launch {
+                                    try { openMissingWikilink(store, destination.target, localization, context, onOpenCreatedNote) }
+                                    finally { creatingLinkedNote = false }
+                                }
+                            }
+                        }
+                    },
                     onOpenUrl = { url -> com.futo.notes.ui.openExternalUrl(context, url) })
                 TextFirstOpening(controller)
             }
