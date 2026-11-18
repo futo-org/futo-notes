@@ -69,6 +69,40 @@
             }
         }
 
+        @Test func theAutoscrollRestsWhileNothingCanMove() async throws {
+            var calls = 0
+            var moves = false
+            let autoscroller = TextFirstAutoscroller { _ in
+                calls += 1
+                return moves
+            }
+            defer { autoscroller.stop() }
+            // At a scroll limit one frame finds nothing moves, and the frames stop coming.
+            autoscroller.velocity = 800
+            try await Task.sleep(nanoseconds: 300_000_000)
+            #expect((1...2).contains(calls), "\(calls)")
+            // Once something may have changed (the finger, the layout) it tries again.
+            moves = true
+            autoscroller.resume()
+            try await Task.sleep(nanoseconds: 300_000_000)
+            #expect(calls > 5)
+        }
+
+        @Test func aCardThatLandsNowhereReturnsToWhereItsBlockIsNow() async throws {
+            let h = TextFirstHarness(
+                "![](pic.png)\nalpha\nbravo", files: ["pic.png": TextFirstHarness.png(900, 900)],
+                focused: false)
+            // `alpha` lifts before the photo above it has its height, which then pushes it down.
+            #expect(h.lineHeights(at: 0).allSatisfy { $0 < 100 })
+            let drag = try begin(h, at: h.point(line: 1))
+            #expect(await h.until { h.lineHeights(at: 0).contains { $0 > 100 } })
+            // Released over itself: no drop line, and the card slides back onto it.
+            h.controller.followBlockDrag(to: h.point(line: 1))
+            #expect(drag.slot == nil)
+            h.controller.endBlockDrag(dropping: true)
+            #expect(abs(drag.card.center.y - h.point(line: 1).y) < 1)
+        }
+
         @Test func theSlotBookAsksOnlyForWhatIsNewAndKeepsWhatIsNear() {
             // A stand-in engine: a slot every 10 units, both ends of an ask included.
             var asked: [NSRange] = []

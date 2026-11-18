@@ -76,7 +76,7 @@ final class TextFirstBlockDrag {
 
     init(
         _ lift: TextFirstLift, at start: CGPoint, snapshot: UIView, on textView: UITextView,
-        autoscroll: @escaping (CGFloat) -> Void = { _ in }
+        autoscroll: @escaping (CGFloat) -> Bool = { _ in false }
     ) {
         (self.lift, book, targets, self.start, self.textView) =
             (lift, lift.book, lift.targets, start, textView)
@@ -169,8 +169,11 @@ final class TextFirstBlockDrag {
             dimmedSource.removeFromSuperview()
             return
         }
+        // Onto the block where it is drawn now (a photo above it may have loaded since the
+        // lift); where it was lifted when it no longer shows.
+        let home = targets.source.map { CGPoint(x: liftedCenter.x, y: $0.midY) } ?? liftedCenter
         UIView.animate(
-            withDuration: 0.2, animations: { [card, liftedCenter] in card.center = liftedCenter },
+            withDuration: 0.2, animations: { [card, home] in card.center = home },
             completion: { [card, dimmedSource] _ in
                 card.removeFromSuperview()
                 dimmedSource.removeFromSuperview()
@@ -264,7 +267,7 @@ extension TextFirstEditorController {
         for case let menu as UIEditMenuInteraction in textView.interactions { menu.dismissMenu() }
         blockDrag = TextFirstBlockDrag(
             lift, at: p, snapshot: snapshot, on: textView,
-            autoscroll: { [weak self] step in self?.autoscrollBlockDrag(by: step) })
+            autoscroll: { [weak self] step in self?.autoscrollBlockDrag(by: step) ?? false })
         dragHaptics.lifted()
         steerAutoscroll()
     }
@@ -283,22 +286,25 @@ extension TextFirstEditorController {
         let bounds = textView.bounds
         drag.autoscroller.velocity = TextFirstAutoscroll.velocity(
             at: drag.fingerY, in: (bounds.minY + insets.top)...(bounds.maxY - insets.bottom))
+        drag.autoscroller.resume()
     }
 
     /// One autoscroll frame: scroll by `step`, held to the note's ends, and read the targets
-    /// again from the layout that scrolled into view. The finger has not moved: no tick.
-    private func autoscrollBlockDrag(by step: CGFloat) {
-        guard blockDrag != nil else { return }
+    /// again from the layout that scrolled into view. The finger has not moved: no tick. False
+    /// when the note is at that end.
+    private func autoscrollBlockDrag(by step: CGFloat) -> Bool {
+        guard blockDrag != nil else { return false }
         let insets = textView.adjustedContentInset
         let top = -insets.top
         let bottom = max(
             top, textView.contentSize.height + insets.bottom - textView.bounds.height)
         let from = textView.contentOffset.y
         let to = min(max(from + step, top), bottom)
-        guard to != from else { return }
+        guard to != from else { return false }
         textView.contentOffset.y = to
         textView.layoutIfNeeded()
         remeasureBlockDrag()
+        return true
     }
 
     /// The note was laid out again (a scroll, a photo that decoded, a rotation): the drag's

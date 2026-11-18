@@ -42,10 +42,11 @@ enum TextFirstAutoscroll {
 final class TextFirstAutoscroller {
     private var link: CADisplayLink?
     private var last: CFTimeInterval?
-    private let scroll: (CGFloat) -> Void
+    private let scroll: (CGFloat) -> Bool
 
-    /// `scroll` moves the note by a frame's step.
-    init(_ scroll: @escaping (CGFloat) -> Void) { self.scroll = scroll }
+    /// `scroll` moves the note by a frame's step, false when it could not move at all (at an
+    /// end of the note): the frames then rest until `resume`.
+    init(_ scroll: @escaping (CGFloat) -> Bool) { self.scroll = scroll }
 
     var velocity: CGFloat = 0 {
         didSet {
@@ -61,6 +62,13 @@ final class TextFirstAutoscroller {
         }
     }
 
+    /// Something that may let the note move again changed (the finger, the layout).
+    func resume() {
+        guard let link, link.isPaused else { return }
+        last = nil
+        link.isPaused = false
+    }
+
     /// Parks the loop (the display link holds this object until then).
     func stop() {
         link?.invalidate()
@@ -74,7 +82,9 @@ final class TextFirstAutoscroller {
         // The first frame only starts the clock.
         defer { last = link.timestamp }
         guard let last else { return }
-        scroll(TextFirstAutoscroll.step(velocity, elapsed: link.timestamp - last))
+        if !scroll(TextFirstAutoscroll.step(velocity, elapsed: link.timestamp - last)) {
+            link.isPaused = true
+        }
     }
 }
 
