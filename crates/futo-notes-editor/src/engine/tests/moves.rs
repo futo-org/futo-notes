@@ -5,6 +5,7 @@ use super::{ok, range};
 use crate::{BlockBoundary, DisplayOffset, EditorError, EditorSession, LiftedBlock, Revision};
 use std::ops::Range;
 
+mod corpus;
 mod images;
 mod selection;
 mod slots;

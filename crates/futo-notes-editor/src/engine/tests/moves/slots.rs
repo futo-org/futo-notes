@@ -3,6 +3,7 @@
 //! one display offset are two targets.
 use super::super::properties::checks::check_fresh;
 use super::super::{ok, range};
+use super::corpus::fixture_notes;
 use super::{line, slot, slots, NOTE};
 use crate::{BlockBoundary, DisplayOffset, EditWork, EditorSession, LiftedBlock};
 
@@ -26,51 +27,17 @@ fn a_drop_the_guard_would_cancel_is_no_slot() {
     }
 }
 
-/// Every note the engine and Linedown fixtures hold (every JSON file under
-/// `tests/fixtures/`), as written and without its first `|` (most engine
-/// fixtures mark the caret with one).
-fn fixture_notes() -> Vec<String> {
-    fn files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-        for entry in std::fs::read_dir(dir).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                files(&path, out);
-            } else if path.extension().is_some_and(|ext| ext == "json") {
-                out.push(path);
-            }
-        }
+#[test]
+fn the_corpus_is_each_fixtures_decoded_markdown() {
+    let notes = fixture_notes();
+    // fences.json marks this table's selection with `<` and `>`.
+    assert!(notes.iter().any(|note| note == "| a |\n|---|\n| 1 |"));
+    for mark in ['‸', '«', '»', '⟦', '⟧'] {
+        assert!(
+            !notes.iter().any(|note| note.contains(mark)),
+            "{mark} left in"
+        );
     }
-    fn walk(value: &serde_json::Value, notes: &mut Vec<String>) {
-        match value {
-            serde_json::Value::Array(items) => items.iter().for_each(|item| walk(item, notes)),
-            serde_json::Value::Object(fields) => {
-                for (key, field) in fields {
-                    match field.as_str() {
-                        Some(note) if matches!(key.as_str(), "input" | "before" | "after") => {
-                            notes.push(note.to_owned());
-                            notes.push(note.replacen('|', "", 1));
-                        }
-                        _ => walk(field, notes),
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    let mut paths = Vec::new();
-    files(
-        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures"),
-        &mut paths,
-    );
-    assert!(paths.len() > 20, "fixtures not found: {paths:?}");
-    let mut notes = vec![NOTE.to_owned(), "a\nb\n- [ ] ".to_owned()];
-    for path in paths {
-        let file = std::fs::read_to_string(&path).unwrap();
-        walk(&serde_json::from_str(&file).unwrap(), &mut notes);
-    }
-    notes.sort();
-    notes.dedup();
-    notes
 }
 
 #[test]
