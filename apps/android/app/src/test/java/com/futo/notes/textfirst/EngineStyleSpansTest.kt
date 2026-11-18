@@ -59,7 +59,7 @@ class EngineStyleSpansTest {
         val spans = listOf(
             EditorStyleSpan.Inline(0uL, 1uL, true, false, false, false),
             EditorStyleSpan.Inline(4uL, 5uL, true, false, false, false),
-            EditorStyleSpan.TableRow(2uL, 11uL, 2uL, true, 2uL, cells),
+            EditorStyleSpan.TableRow(start = 2uL, end = 11uL, columns = 2uL, header = true, row = 0uL, tableStart = 2uL, cells = cells, pipes = listOf(2uL, 6uL, 10uL)),
             EditorStyleSpan.TableDelimiter(12uL, 21uL),
         )
         val window = spans.toStyleWindow(0, 2, display)

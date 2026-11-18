@@ -38,6 +38,7 @@ private fun EditorStyleSpan.toSpanSpec(display: CharSequence, blocks: List<CodeB
     is EditorStyleSpan.Image -> SpanSpec.Image(start.toInt(), end.toInt(), destination, alt, vault, remote)
     is EditorStyleSpan.TableRow -> toTableSpec(display)
     is EditorStyleSpan.TableDelimiter -> SpanSpec.TableDelimiter(start.toInt(), end.toInt())
+    is EditorStyleSpan.Table -> null
 }
 
 /** The engine lists every block a code line it plans is in; a line it plans in no listed block draws nothing. */
