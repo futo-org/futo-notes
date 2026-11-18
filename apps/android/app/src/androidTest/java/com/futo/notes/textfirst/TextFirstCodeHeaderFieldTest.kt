@@ -164,4 +164,24 @@ class TextFirstCodeHeaderFieldTest {
         val look = view.style
         assertEquals(field.paint.measureText("x") + look.codeChipPad * 2 + look.dp(1f), field.width.toFloat(), 1f)
     }
+
+    /** Area 8 verifier (P189): Ctrl+Z in a header field takes back one keystroke, as the toolbar's Undo does, field and file alike. */
+    @Test fun ctrlZInAFieldUndoesOneKeystroke() = textFirstSession(raw) { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        withTimeout(5_000) { while (view.codeChrome.areaOf(0, CodeBlockAction.LANGUAGE_LABEL) == null) delay(20) }
+        val area = view.codeChrome.areaOf(0, CodeBlockAction.LANGUAGE_LABEL)!!
+        holdNoteAt(view, view.totalPaddingLeft + area.centerX(), view.totalPaddingTop + area.centerY())
+        val field = openHeaderField(view)
+        withTimeout(5_000) { while (!field.isFocused) delay(20) }
+        field.setSelection(field.length())
+        val input = field.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!
+        input.commitText("r", 1)
+        c.sourceText()
+        input.commitText("u", 1)
+        assertEquals("```jsru\nconst a = 1\nconst b = 2\n```\n\nafter", c.sourceText())
+        input.sendKeyEvent(android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_Z, 0, android.view.KeyEvent.META_CTRL_ON))
+        withTimeout(5_000) { while (c.sourceText() != "```jsr\nconst a = 1\nconst b = 2\n```\n\nafter") delay(50) }
+        withTimeout(5_000) { while (field.text.toString() != "jsr") delay(20) }
+    }
 }

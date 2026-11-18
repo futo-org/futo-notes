@@ -72,3 +72,15 @@ private fun TextFirstEditText.isEmptyBlockAtEdge(offset: Int): Boolean {
             (offset == 0 || e.getSpanEnd(span) >= length() - TextFirstEditText.END_SENTINEL.length)
     }
 }
+
+/** Shift-Tab at the very start of a block's first code line walks back to its language field (cb 198-199, P220). */
+internal fun TextFirstEditText.codeStartBackTab(keyCode: Int, event: KeyEvent): Boolean {
+    if (keyCode != KeyEvent.KEYCODE_TAB || !event.isShiftPressed || selectionStart != selectionEnd || selectedCodeBlock != null) return false
+    val e = editableText ?: return false
+    val caret = selectionStart
+    val first = e.getSpans(caret, caret, TfCodeBlock::class.java).any { it.line.first && e.getSpanStart(it) == caret }
+    if (!first) return false
+    openLanguageFieldAt(caret)
+    return true
+}
+

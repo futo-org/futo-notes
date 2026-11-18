@@ -30,4 +30,18 @@ class TextFirstCodeBlockKeysTest {
     @Test fun downTowardAnEmptyBlockEndingTheNoteStays() = textFirstSession("start\n\n```js\nconst a = 1\n```\n```\n```") { c ->
         selectBlockAndPress(c, "const a", KeyEvent.KEYCODE_DPAD_DOWN)
     }
+
+    /** Area 8 verifier (P220): Shift-Tab at the very start of the first code line opens the block's language field. */
+    @Test fun shiftTabAtTheCodesStartOpensTheLanguageField() = textFirstSession("intro\n\n```go\ntwo\n```\n\nend") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        val start = view.editableText.indexOf("two")
+        withTimeout(5_000) { while (view.codeChrome.areaOf(start, CodeBlockAction.LANGUAGE_LABEL) == null) delay(20) }
+        view.setSelection(start)
+        delay(200)
+        view.onKeyDown(KeyEvent.KEYCODE_TAB, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_TAB, 0, KeyEvent.META_SHIFT_ON))
+        withTimeout(5_000) { while (view.codeChrome.openField == null) delay(20) }
+        assertEquals(start to CodeHeaderField.Kind.LANGUAGE, view.codeChrome.openField)
+    }
 }

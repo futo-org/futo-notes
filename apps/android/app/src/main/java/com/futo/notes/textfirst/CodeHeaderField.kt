@@ -50,6 +50,8 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
     private val settle = Runnable { editing?.let { state -> keepInView(state) } }
     /** The open field's left edge, in layout coordinates. */
     private var fieldLeft = 0f
+    /** An undo or redo was sent from the field: its text follows the block's once the change arrives. */
+    private var followingHistory = false
     private val follow = ViewTreeObserver.OnPreDrawListener { place(); true }
 
     /** [tapX], in layout coordinates, is where a tap landed: the field's caret goes there (cb 285-299). */
@@ -153,7 +155,7 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         field.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: Editable) { write(state, s.toString()) }
+            override fun afterTextChanged(s: Editable) { if (!followingHistory) write(state, s.toString()) }
         })
         field.setOnEditorActionListener { _, _, _ -> leaveToCode(state); true }
         return field
@@ -166,6 +168,13 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
     }
 
     private fun key(state: Editing, keyCode: Int, event: KeyEvent): Boolean {
+        // Undo and redo are the note's, one keystroke at a time, as the toolbar's are (area 8 verifier, P189).
+        if (event.isCtrlPressed && (keyCode == KeyEvent.KEYCODE_Z || keyCode == KeyEvent.KEYCODE_Y)) {
+            val engine = note.engine ?: return false
+            if (keyCode == KeyEvent.KEYCODE_Y || event.isShiftPressed) engine.redo() else engine.undo()
+            followingHistory = true
+            return true
+        }
         when (keyCode) {
             KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_DPAD_DOWN -> leaveToCode(state)
             KeyEvent.KEYCODE_DPAD_UP -> leaveUp(state)
@@ -220,6 +229,7 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
             note.removeCallbacks(settle)
             if (keyboardMoved) note.post(settle) else note.postDelayed(settle, SETTLE_MILLISECONDS)
         }
+        if (followingHistory) followHistory(state, open)
         val area = fieldArea(state) ?: return
         val look = note.style
         // Its text, or the placeholder while empty, and a constant collar: no minimum, no pocket of space (cb 66-73).
@@ -252,6 +262,19 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         val action = if (state.kind == Kind.NAME) CodeBlockAction.NAME_FIELD else CodeBlockAction.LANGUAGE_LABEL
         note.codeChrome.areaOf(state.codeStart, action)?.let { drawn -> state.area = RectF(drawn) }
         return state.area
+    }
+
+    /** Once the note shows the undone or redone header, the field takes its value, without writing it back. */
+    private fun followHistory(state: Editing, open: EditText) {
+        val e = note.editableText ?: return
+        val block = e.getSpans(state.codeStart, state.codeStart, TfCodeBlock::class.java).firstOrNull()?.line?.block ?: return
+        val value = (if (state.kind == Kind.NAME) block.name else block.language).orEmpty()
+        if (value == open.text.toString()) return
+        open.setText(value)
+        open.text.setSpan(CentredLine(open.paint), 0, open.text.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+        open.setSelection(open.length())
+        if (state.kind == Kind.NAME) state.name = value else state.language = value
+        followingHistory = false
     }
 
     private fun keepInView(state: Editing) {
