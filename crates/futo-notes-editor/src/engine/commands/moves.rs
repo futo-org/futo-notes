@@ -21,6 +21,7 @@ use crate::{
 };
 use std::ops::Range;
 
+mod held;
 mod selection;
 mod slots;
 

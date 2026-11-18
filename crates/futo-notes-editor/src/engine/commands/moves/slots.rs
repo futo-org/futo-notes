@@ -8,6 +8,7 @@
 //! note's end (`BlockBoundary`): around a last line that shows no characters
 //! (an empty task) the boundary above it and the note's end share an offset.
 use super::super::super::store;
+use super::held::Held;
 use super::{quoted, Lifted};
 use crate::engine::Engine;
 use crate::lines::{FenceRole, FrontMatterRole, Kind, TableRole};
@@ -67,25 +68,6 @@ impl Engine {
         last.line.quote == 0 && matches!(last.line.kind, Kind::Blank) && last.size.display == 0
     }
 
-    /// Whether no list can run from above line `index` into it, so lists can
-    /// be read from there: a line no item holds (a blank, quoted, heading,
-    /// divider, table or front matter line, or an unindented plain line or
-    /// fence), or an unindented item, which starts its own.
-    fn reads_lists_from(&self, index: usize) -> bool {
-        let line = &self.line(index).line;
-        line.quote > 0
-            || match line.kind {
-                Kind::Plain { indent } | Kind::List { indent, .. } => indent == 0,
-                Kind::Fence {
-                    role: FenceRole::Open,
-                    indent,
-                    ..
-                } => indent == 0,
-                Kind::Fence { .. } => false,
-                _ => true,
-            }
-    }
-
     /// The first boundary at or after display offset `at`.
     fn first_boundary_from(&self, at: usize) -> usize {
         let (index, before) = self.line_at_display(store::display, at);
@@ -126,29 +108,14 @@ impl Engine {
             }
             Lifted::Image { .. } => (true, None),
         };
-        // Lists are read from a line no list above runs into; lines before
-        // `list_end` belong to a list, and `listed` is the line above.
-        let mut start = from.saturating_sub(1);
-        while start > 0 && !self.reads_lists_from(start) {
-            start -= 1;
-        }
-        let (mut list_end, mut listed) = (start, false);
-        let mut display = self.store.before(start).display;
+        let mut held = Held::default();
+        let mut display = self.store.before(from).display;
         let mut out: Vec<(usize, BlockBoundary)> = Vec::new();
-        for at in start..=count {
+        for at in from..=count {
             work.link_metadata_items += 1;
-            if at >= from && display > until {
+            if display > until {
                 break;
             }
-            let here = at < count && {
-                let line = &self.line(at).line;
-                if at >= list_end && line.quote == 0 && matches!(line.kind, Kind::List { .. }) {
-                    list_end = self.list_subtree_end(at);
-                }
-                at < list_end
-            };
-            let in_list = listed && here;
-            listed = here;
             let name = BlockBoundary {
                 at: DisplayOffset(display),
                 end: at == count,
@@ -156,14 +123,19 @@ impl Engine {
             if at < count {
                 display += self.line(at).size.display;
             }
-            let ruled_out = at < from
-                || own.as_ref().is_some_and(|(block, edges)| {
-                    (block.start..=block.end).contains(&at) || edges.contains(&name)
-                })
-                || self.inside_unit(at)
-                || (in_list && !joins_lists)
+            // Strictly inside a list: both lines around the boundary in one.
+            let in_list = |held: &mut Held, work: &mut EditWork| {
+                0 < at
+                    && at < count
+                    && self.holder(at, held, work).is_some()
+                    && self.holder(at - 1, held, work).is_some()
+            };
+            let ruled_out = own.as_ref().is_some_and(|(block, edges)| {
+                (block.start..=block.end).contains(&at) || edges.contains(&name)
+            }) || self.inside_unit(at)
                 || (at == count && self.end_twins_last_line())
-                || out.last().is_some_and(|(_, last)| *last == name);
+                || out.last().is_some_and(|(_, last)| *last == name)
+                || (!joins_lists && in_list(&mut held, work));
             if !ruled_out {
                 out.push((at, name));
             }

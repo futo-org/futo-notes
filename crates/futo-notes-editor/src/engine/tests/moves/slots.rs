@@ -26,33 +26,20 @@ fn a_drop_the_guard_would_cancel_is_no_slot() {
     }
 }
 
-/// Every note the engine and Linedown fixtures hold, as written and without
-/// its first `|` (most engine fixtures mark the caret with one).
+/// Every note the engine and Linedown fixtures hold (every JSON file under
+/// `tests/fixtures/`), as written and without its first `|` (most engine
+/// fixtures mark the caret with one).
 fn fixture_notes() -> Vec<String> {
-    let files = [
-        include_str!("../../../../tests/fixtures/engine/blocks.json"),
-        include_str!("../../../../tests/fixtures/engine/fences.json"),
-        include_str!("../../../../tests/fixtures/engine/find.json"),
-        include_str!("../../../../tests/fixtures/engine/images.json"),
-        include_str!("../../../../tests/fixtures/engine/inline-toolbar.json"),
-        include_str!("../../../../tests/fixtures/engine/inline.json"),
-        include_str!("../../../../tests/fixtures/engine/links.json"),
-        include_str!("../../../../tests/fixtures/engine/tables.json"),
-        include_str!("../../../../tests/fixtures/engine/wikilinks.json"),
-        include_str!("../../../../tests/fixtures/engine/lists/backspace-delete.json"),
-        include_str!("../../../../tests/fixtures/engine/lists/enter.json"),
-        include_str!("../../../../tests/fixtures/engine/lists/indent.json"),
-        include_str!("../../../../tests/fixtures/engine/lists/toggles.json"),
-        include_str!("../../../../tests/fixtures/engine/lists/typed.json"),
-        include_str!("../../../../tests/fixtures/engine/clipboard/copy-and-cut.json"),
-        include_str!("../../../../tests/fixtures/engine/clipboard/paste.json"),
-        include_str!("../../../../tests/fixtures/engine/clipboard/plain-enter.json"),
-        include_str!("../../../../tests/fixtures/linedown/blocks.json"),
-        include_str!("../../../../tests/fixtures/linedown/code-and-tables.json"),
-        include_str!("../../../../tests/fixtures/linedown/inline.json"),
-        include_str!("../../../../tests/fixtures/linedown/lists-and-quotes.json"),
-        include_str!("../../../../tests/fixtures/linedown/not-in-version-1.json"),
-    ];
+    fn files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                files(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "json") {
+                out.push(path);
+            }
+        }
+    }
     fn walk(value: &serde_json::Value, notes: &mut Vec<String>) {
         match value {
             serde_json::Value::Array(items) => items.iter().for_each(|item| walk(item, notes)),
@@ -70,9 +57,16 @@ fn fixture_notes() -> Vec<String> {
             _ => {}
         }
     }
+    let mut paths = Vec::new();
+    files(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures"),
+        &mut paths,
+    );
+    assert!(paths.len() > 20, "fixtures not found: {paths:?}");
     let mut notes = vec![NOTE.to_owned(), "a\nb\n- [ ] ".to_owned()];
-    for file in files {
-        walk(&serde_json::from_str(file).unwrap(), &mut notes);
+    for path in paths {
+        let file = std::fs::read_to_string(&path).unwrap();
+        walk(&serde_json::from_str(&file).unwrap(), &mut notes);
     }
     notes.sort();
     notes.dedup();
@@ -190,6 +184,19 @@ fn a_renderer_asks_for_the_slots_inside_a_display_range() {
         let want: Vec<_> = want.iter().map(|&b| slot(&session, b)).collect();
         assert_eq!(found.slots, want, "line {press} within {within:?}");
     }
+    // Read near the range: a fence opened under an item is that item's, so
+    // the item after it joins the list; a blank line ends one; a line
+    // outdented below a nested item is still the outer item's. (note, the
+    // heading's line, its slots.)
+    for (note, press, want) in [
+        ("- a\n  ```\n  c\n  ```\n- b\n\n  x\n# h", 7, &[0, 5, 6][..]),
+        ("- a\n    - b\n  c\nd\n# h", 4, &[0, 3]),
+    ] {
+        let mut session = EditorSession::open(note);
+        let at = line(&session, press);
+        let want: Vec<_> = want.iter().map(|&b| slot(&session, b)).collect();
+        assert_eq!(slots(&mut session, at), want, "{note:?}");
+    }
     // A range that is not on the display is refused, never clamped.
     let past = session.display_text().len() + 1;
     assert_eq!(
@@ -204,31 +211,44 @@ fn total(work: &EditWork) -> usize {
 
 #[test]
 fn the_work_to_find_the_slots_near_a_block_does_not_grow_with_the_note() {
-    // A note of `copies` copies of `run`, the line `lifted` of the middle
-    // copy lifted and the slots asked for 30 lines around it: what a lift
-    // asks for the screen.
-    fn work(run: &str, lifted: usize, copies: usize) -> EditWork {
-        let note = run.repeat(copies);
+    // `head`, `copies` copies of `body`, then `tail`; the line `lifted` lines
+    // from the note's end lifted and the slots asked for the 30 lines above
+    // it and the lines below: what a lift asks for the screen.
+    fn work(head: &str, body: &str, tail: &str, lifted: usize, copies: usize) -> EditWork {
+        let note = format!("{head}{}{tail}", body.repeat(copies));
         let mut session = EditorSession::open(&note);
-        let middle = copies / 2 * run.lines().count() + lifted;
+        let count = session.engine().line_count();
+        let at = line(&session, count - 1 - lifted);
         let within = crate::DisplayRange {
-            start: line(&session, middle - 15),
-            end: line(&session, middle + 15),
+            start: line(&session, count - 31 - lifted),
+            end: line(&session, count),
         };
-        let at = line(&session, middle);
         let found = session.block_slots(session.revision(), at, within).unwrap();
-        assert!(found.slots.len() > 5, "{run:?}: {:?}", found.slots);
+        assert!(found.slots.len() > 2, "{tail:?}: {:?}", found.slots);
         found.work
     }
     let mixed = "# h\npara\n- a\n  - b\n  note\n- c\n\n> q\n```\nx\n```\n| h |\n|---|\n| 1 |\n";
-    for (run, lifted) in [
-        (mixed, 1),
-        (mixed, 2),
-        (mixed, 8),
-        ("- [ ] a\n- [x] b\n", 0),
+    // (head, body, tail, the lifted line counted from the end): mixed blocks
+    // with a heading, a paragraph, an item or a quote lifted; one item
+    // holding every line above a heading; a code block above a paragraph
+    // and a heading; a checklist.
+    let tail = "# h\npara\n- a\n  - b\n- c\n\n> q\nend";
+    for (head, body, tail, lifted) in [
+        ("", mixed, tail, 7),
+        ("", mixed, tail, 6),
+        ("", mixed, tail, 5),
+        ("", mixed, tail, 1),
+        ("- top\n", "  - [ ] t\n    note\n", "# h\npara\n# k\nend", 3),
+        ("```\n", "x\ny\n", "```\npara\n# h\nnext\nend", 3),
+        ("```\n", "x\ny\n", "```\npara\n# h\nnext\nend", 2),
+        ("", "- [ ] a\n- [x] b\n", "end", 1),
     ] {
-        let (short, long) = (work(run, lifted, 100), work(run, lifted, 2000));
-        assert!(total(&short) > 0, "{run:?}");
-        assert_eq!(short, long, "{run:?} line {lifted}");
+        let short = work(head, body, tail, lifted, 500);
+        let long = work(head, body, tail, lifted, 10_000);
+        assert!(total(&short) > 0, "{body:?}");
+        assert_eq!(
+            short, long,
+            "{body:?} then {tail:?}, line {lifted} from the end"
+        );
     }
 }

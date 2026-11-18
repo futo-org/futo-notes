@@ -42,7 +42,7 @@ pub(crate) struct Batch {
     display: Option<(usize, usize, usize)>,
     /// The display of the lines shown again, in the display now.
     lines: Option<Range<usize>>,
-    work: EditWork,
+    pub(crate) work: EditWork,
 }
 
 /// `lines` (display now) carried through a display edit of `range` that
@@ -109,18 +109,19 @@ impl Engine {
         });
     }
 
-    /// Undo a batch's edits without a trace.
-    pub(crate) fn revert(&mut self, batch: Batch) {
+    /// Undo a batch's edits without a trace; the work it took.
+    pub(crate) fn revert(&mut self, batch: Batch) -> EditWork {
         let mut scratch = Batch::default();
         for record in batch.records.iter().rev() {
             let range = record.start..record.start + record.inserted.len();
             self.raw(&mut scratch, range, &record.removed);
         }
+        scratch.work
     }
 
     /// A batch's footprint: where it starts, where it ended before, and the
     /// text it removed and inserted there. `None` when it changed nothing.
-    fn batch_text(&self, batch: &Batch) -> Option<(usize, usize, String, String)> {
+    pub(crate) fn batch_text(&self, batch: &Batch) -> Option<(usize, usize, String, String)> {
         let (start, old_end, end) = batch.source?;
         let inserted = self.source_slice(start..end);
         let mut removed = inserted.clone();
@@ -130,17 +131,6 @@ impl Engine {
         }
         debug_assert_eq!(removed.len(), old_end - start);
         (removed != inserted).then_some((start, old_end, removed, inserted))
-    }
-
-    /// Whether applied `batch` changes the text; its work is added to
-    /// `work`, and the text put back as it was.
-    pub(crate) fn changes_then_revert(&mut self, batch: Batch, work: &mut EditWork) -> bool {
-        let changes = self.batch_text(&batch).is_some();
-        work.parsed_source_bytes += batch.work.parsed_source_bytes;
-        work.materialized_source_bytes += batch.work.materialized_source_bytes;
-        work.inserted_bytes += batch.work.inserted_bytes;
-        self.revert(batch);
-        changes
     }
 
     /// Accept a batch as one source record, or put the text back.
