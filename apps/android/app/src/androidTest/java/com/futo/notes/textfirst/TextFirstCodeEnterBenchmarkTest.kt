@@ -19,7 +19,7 @@ import org.junit.Test
 class TextFirstCodeEnterBenchmarkTest {
     private fun block(lines: Int) = "intro\n\n```txt\n" + (1..lines).joinToString("\n") { "code line $it with some text" } + "\n```\n\nend"
 
-    private fun measure(lines: Int) = textFirstSession(block(lines)) { c ->
+    private fun measure(lines: Int, key: Int = KeyEvent.KEYCODE_ENTER) = textFirstSession(block(lines)) { c ->
         val view = c.view
         view.isFocusableInTouchMode = true
         view.requestFocus()
@@ -34,18 +34,19 @@ class TextFirstCodeEnterBenchmarkTest {
             val drawn = CompletableDeferred<Long>()
             view.onFrameDrawn = { drawn.complete(SystemClock.elapsedRealtimeNanos()) }
             val start = SystemClock.elapsedRealtimeNanos()
-            connection.handler!!.post { connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)) }
+            connection.handler!!.post { connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, key)) }
             val end = withTimeout(10_000) { drawn.await() }
             if (index >= 5) times.add(end - start)
             delay(150)
         }
         times.sort()
-        Log.i("CodeEnterBench", "lines=$lines median=${times[times.size / 2] / 1_000_000.0}ms max=${times.last() / 1_000_000.0}ms")
+        Log.i("CodeEnterBench", "lines=$lines key=${KeyEvent.keyCodeToString(key)} median=${times[times.size / 2] / 1_000_000.0}ms max=${times.last() / 1_000_000.0}ms")
     }
 
     @Test fun enterInABlock() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("codeEnterBench") == "true")
         measure(120)
         measure(2000)
+        measure(2000, KeyEvent.KEYCODE_X)
     }
 }

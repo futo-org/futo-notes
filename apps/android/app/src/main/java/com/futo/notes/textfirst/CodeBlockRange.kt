@@ -31,3 +31,23 @@ private fun Spanned.neighbourCodeLine(line: TfCodeBlock, before: Boolean): TfCod
         it !== line && if (before) getSpanStart(it) < start else getSpanStart(it) >= end
     }
 }
+
+/** Whether [line]'s block starts at or before [offset], walking back only as far as [offset]. */
+internal fun Spanned.codeBlockStartsBy(line: TfCodeBlock, offset: Int): Boolean {
+    var current = line
+    while (true) {
+        if (getSpanStart(current) <= offset) return true
+        if (current.line.first) return false
+        current = neighbourCodeLine(current, before = true) ?: return false
+    }
+}
+
+/** Whether [line]'s block ends at or after [offset], walking forward only as far as [offset]. */
+internal fun Spanned.codeBlockEndsBy(line: TfCodeBlock, offset: Int): Boolean {
+    var current = line
+    while (true) {
+        if (codeLineEnd(this, current) >= offset) return true
+        if (current.line.last) return false
+        current = neighbourCodeLine(current, before = false) ?: return false
+    }
+}

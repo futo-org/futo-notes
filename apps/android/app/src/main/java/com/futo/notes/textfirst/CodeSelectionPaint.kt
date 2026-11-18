@@ -29,6 +29,8 @@ internal class CodeSelectionPaint(
     val end: Int,
     /** The block whose code holds the anchor, or null when blocks are taken whole. */
     val home: CodeRange?,
+    /** The blocks this selection takes whole, painted as their cards. */
+    val whole: List<CodeRange>,
 )
 
 /** The code blocks with spans in [from, to], each whole however far it runs past them. */
@@ -64,7 +66,8 @@ internal fun codeLineEnd(e: Spanned, span: TfCodeBlock): Int {
  */
 internal fun TextFirstEditText.codeSelectionFor(anchor: Int, head: Int, settled: Boolean = false): CodeSelectionPaint? {
     val e = editableText ?: return null
-    if (anchor < 0 || head < 0) return null
+    // A caret paints nothing of its own, and resolving it would walk its block's lines on every keystroke.
+    if (anchor < 0 || head < 0 || anchor == head) return null
     val blocks = codeRangesNear(e, minOf(anchor, head), maxOf(anchor, head))
     if (blocks.isEmpty()) return null
     val (start, end) = if (settled) minOf(anchor, head) to maxOf(anchor, head) else resolveCodeSelection(anchor, head, blocks)
@@ -73,7 +76,7 @@ internal fun TextFirstEditText.codeSelectionFor(anchor: Int, head: Int, settled:
     val home = if (settled) blocks.firstOrNull { it.start < it.end && start >= it.start && end <= it.end }
         else blocks.firstOrNull { it.start < it.end && anchor >= it.start && anchor <= it.end }
     if (home == null && blocks.none { start <= it.start && end >= it.end }) return null
-    return CodeSelectionPaint(start, end, home)
+    return CodeSelectionPaint(start, end, home, if (home == null) blocks.filter { start <= it.start && end >= it.end } else emptyList())
 }
 
 internal val TextFirstEditText.codeSelection: CodeSelectionPaint? get() = codeSelectionTracker.painted
@@ -90,7 +93,8 @@ internal fun TextFirstEditText.paintCodeSelection(start: Int, end: Int, settled:
     chrome.lastEnd = end
     val painted = codeSelectionFor(anchor, head, settled)
     // The line numbers brighten with the selection, and they are drawn with the card, not the text.
-    val near = codeRangesNear(editableText ?: return null, minOf(start, end), maxOf(start, end)).isNotEmpty()
+    val e = editableText ?: return null
+    val near = e.getSpans(maxOf(0, minOf(start, end) - 1), minOf(e.length, maxOf(start, end) + 1), TfCodeBlock::class.java).isNotEmpty()
     if (near || chrome.lastNear) invalidate()
     chrome.lastNear = near
     if (painted == null && chrome.painted == null) return null
@@ -121,8 +125,7 @@ internal fun TextFirstEditText.drawCodeSelection(canvas: Canvas) {
     val save = canvas.save()
     canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
     var from = painted.start
-    val whole = if (painted.home == null) codeRangesNear(e, painted.start, painted.end).filter { painted.start <= it.start && painted.end >= it.end } else emptyList()
-    for (block in whole) {
+    for (block in painted.whole) {
         drawSelectionRows(canvas, l, e, from, block.start, paint)
         // The card paints the block, its last line to the edge too: go on from the line after it.
         from = if (block.end < e.length && e[block.end] == '\n') block.end + 1 else block.end

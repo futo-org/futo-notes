@@ -96,10 +96,9 @@ private fun TextFirstEditText.drawCodeCard(canvas: Canvas, l: android.text.Layou
 /** The block holds the caret or the selection: on touch, only its "add a line" affordances show. */
 private fun TextFirstEditText.isCardActive(e: android.text.Editable, head: TfCodeBlock, tail: TfCodeBlock): Boolean {
     if (!isFocused) return false
-    val start = if (head.line.first) e.getSpanStart(head) else e.codeBlockRange(head).start
-    // The block's last line break is not in it: a caret on the line opened under it is outside.
-    val end = if (tail.line.last) codeLineEnd(e, tail) else e.codeBlockRange(tail).end
-    return selectionStart >= start && selectionEnd <= end
+    // Walks only as far as the selection: a long block's far end is never read for a caret on screen. The block's
+    // last line break is not in it: a caret on the line opened under it is outside.
+    return e.codeBlockStartsBy(head, selectionStart) && e.codeBlockEndsBy(tail, selectionEnd)
 }
 
 /** No ordinary line reaches the block from above: it starts the note, or another block ends right above it. */

@@ -23,20 +23,22 @@ class TextFirstCodeDrawBenchmarkTest {
 
     @Test fun drawAScreenOfBlocks() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("codeDrawBench") == "true")
-        measure("blocks", note)
-        measure("plain", note.lines().filterNot { it.startsWith("```") }.joinToString("\n"))
+        measure("blocks", note, "line3 = 2")
+        measure("plain", note.lines().filterNot { it.startsWith("```") }.joinToString("\n"), "line3 = 2")
+        measure("long block middle", "intro\n\n```txt\n" + (1..2000).joinToString("\n") { "code line $it with some text" } + "\n```\n\nend", "code line 1000 ")
     }
 
     @Suppress("DEPRECATION")
-    private fun measure(label: String, note: String) {
+    private fun measure(label: String, note: String, selectedText: String) {
         textFirstSession(note) { c ->
             val view = c.view
             view.isFocusableInTouchMode = true
             view.requestFocus()
             withTimeout(10_000) { while (view.layout == null) delay(20) }
-            val at = view.editableText.indexOf("line3 = 2")
-            c.select(at, at + 12)
-            withTimeout(5_000) { while (view.selectionEnd != at + 12) delay(20) }
+            val at = view.editableText.indexOf(selectedText)
+            c.select(at, at + 6)
+            withTimeout(5_000) { while (view.selectionEnd != at + 6) delay(20) }
+            view.revealRange(at, at)
             delay(500)
             val canvas = Canvas(Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888))
             repeat(50) { view.draw(canvas) }
