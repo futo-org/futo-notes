@@ -222,8 +222,8 @@ extension TextFirstEditorController {
 
     /// The UTF-16 display offset under `p`, as the engine reads a press: on a photo, the photo's
     /// start; elsewhere the character nearest the finger on the row at `p`'s height, anywhere
-    /// across the page (its margins too); the display's end on the note's empty last line. Nil
-    /// off the text.
+    /// across the page (its margins too), never one inside a photo; the display's end on the
+    /// note's empty last line. Nil off the text.
     private func pressOffset(at p: CGPoint) -> Int? {
         if let photo = imageAt(p) { return photo.range.location }
         guard let manager = textView.textLayoutManager,
@@ -248,8 +248,14 @@ extension TextFirstEditorController {
             for: CGPoint(x: local.x - bounds.minX, y: local.y - bounds.minY))
         // At most the row's last character: past it is the line ending, or the next row's.
         let range = row.characterRange
-        let last = max(range.location, NSMaxRange(range) - 1)
-        return start + min(max(index, range.location), last)
+        var at = min(max(index, range.location), max(range.location, NSMaxRange(range) - 1))
+        // Off a photo, a position inside one (beside it in the margin) steps past it: the engine
+        // would lift that photo, which the finger is not on.
+        let photos = (f as? TextFirstLayoutFragment)?.imageRuns.map(\.range) ?? []
+        while let photo = photos.first(where: { NSLocationInRange(at, $0) }) {
+            at = NSMaxRange(photo)
+        }
+        return start + at
     }
 
     /// The y (text view coordinates) of the boundary at UTF-16 `offset`: the top of the line

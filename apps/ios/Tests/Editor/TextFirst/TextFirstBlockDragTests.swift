@@ -122,6 +122,12 @@
             #expect(lift.frame.contains(onPhoto))
             #expect(lift.frame.minY > point(h, line: 0, fraction: 0.02).y)
             #expect(lift.frame.height > 100)
+            // Beside the photo on its row, off it, the finger is on the line: it lifts whole.
+            for x in [lift.frame.minX - 2, lift.frame.maxX + 20] {
+                let beside = point(h, line: 0, x: x, fraction: 0.7)
+                #expect(h.controller.imageHit(at: beside) == nil)
+                #expect(lifted(h, at: beside) == [0], "x \(x)")
+            }
             // Held where it was, it drops nowhere; just below its line it lands above `next`,
             // above `Nice!` it lands at the note's top.
             #expect(lift.targets.slot(nearest: lift.frame.midY) == nil)
