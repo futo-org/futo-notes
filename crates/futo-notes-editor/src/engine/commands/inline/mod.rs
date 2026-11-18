@@ -2,7 +2,8 @@
 //!
 //! Inline marks open and close on one line, so every command here works one
 //! line at a time: a selection over several lines formats (or links) each
-//! line's text on its own, and each table cell's. A command tries a
+//! line's text on its own, and each table cell's; table lines selected with
+//! other lines are left alone (`formats_table_lines`). A command tries a
 //! spelling on a line and keeps it only when the line then reads as
 //! intended (`draft.rs`); house spelling is `**`, `*`, `~~` and backticks.
 //! A collapsed toggle writes nothing: it sets the formats typing at that
@@ -18,6 +19,7 @@ mod word;
 
 use super::super::command::{Command, Edit};
 use super::super::line::Entry;
+use super::super::table_block::table_role;
 use super::super::{store, Engine};
 use crate::{DisplayRange, EditorError, InlineFormat, Revision, SourceEdit, ViewChange};
 use draft::{
@@ -46,11 +48,8 @@ impl Engine {
     /// selects.
     fn bodies(&self, range: DisplayRange) -> Vec<Body<'_>> {
         let mut out = Vec::new();
-        for index in self.lines_of(range) {
+        for index in self.formatted_lines(range) {
             let entry = self.store.get(index);
-            if !inline_line(entry) {
-                continue;
-            }
             let start = self.store.before(index).display;
             let regions = regions(entry);
             let glyphs = glyphs(entry);
@@ -73,6 +72,27 @@ impl Engine {
             });
         }
         out
+    }
+
+    /// The lines `range` touches that hold inline text a command formats.
+    fn formatted_lines(&self, range: DisplayRange) -> Vec<usize> {
+        let lines = self.lines_of(range);
+        let tables = self.formats_table_lines(lines.clone());
+        lines
+            .filter(|&index| {
+                let entry = self.store.get(index);
+                inline_line(entry) && (tables || table_role(entry).is_none())
+            })
+            .collect()
+    }
+
+    /// Whether a command over `lines` formats their table lines: only when
+    /// every line is a table line. Selected with other lines, a table is
+    /// left as it is and the lines around it take the format.
+    fn formats_table_lines(&self, lines: Range<usize>) -> bool {
+        lines
+            .into_iter()
+            .all(|index| table_role(self.store.get(index)).is_some())
     }
 
     /// The source offset that shows at display `at` once `edited` lines are
@@ -301,11 +321,10 @@ impl Engine {
     }
 
     /// Whether inline commands apply: some line the selection or caret is
-    /// on holds inline text (not code, front matter, a divider or a table's
-    /// delimiter row).
+    /// on holds inline text they format (not code, front matter, a divider,
+    /// a table's delimiter row, or a table line selected with other lines).
     pub(crate) fn inline_allowed(&self) -> bool {
-        self.lines_of(self.selection)
-            .any(|index| inline_line(self.store.get(index)))
+        !self.formatted_lines(self.selection).is_empty()
     }
 
     /// The toolbar's format toggle. A collapsed caret changes the formats

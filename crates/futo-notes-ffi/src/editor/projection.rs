@@ -16,6 +16,8 @@ pub struct EditorProjection {
     pub atoms: Vec<super::images::EditorAtomDescription>,
     /// Each code block the projection's lines belong to, whole.
     pub code_blocks: Vec<EditorCodeBlockDescription>,
+    /// Each table the projection's lines belong to, whole.
+    pub tables: Vec<EditorTableBlockDescription>,
 }
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorListDescription {
@@ -47,6 +49,8 @@ pub struct EditorBlockDescription {
     pub list: Option<EditorListDescription>,
     /// A line of fenced code; its block is in `EditorProjection.code_blocks`.
     pub code: Option<EditorCodeLineDescription>,
+    /// A line of a table; its table is in `EditorProjection.tables`.
+    pub table: Option<EditorTableLineDescription>,
     /// Leading front matter, shown verbatim; hosts may render it as a panel.
     pub metadata: bool,
 }
@@ -102,6 +106,54 @@ impl From<editor::CodeBlockDescription> for EditorCodeBlockDescription {
         }
     }
 }
+/// What a table line is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum EditorTableLineRole {
+    Header,
+    Delimiter,
+    Row,
+}
+/// One line of a table: `row` counts as `EditorTableCell.row` does (header 0, the delimiter row
+/// 0 too), each cell's content as `EditorTableCell.content`, and where each pipe that bounds a
+/// cell shows.
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorTableLineDescription {
+    pub role: EditorTableLineRole,
+    pub row: u32,
+    pub cells: Vec<EditorByteRange>,
+    pub pipes: Vec<u64>,
+}
+impl From<editor::TableLineDescription> for EditorTableLineDescription {
+    fn from(value: editor::TableLineDescription) -> Self {
+        Self {
+            role: match value.role {
+                editor::TableLineRole::Header => EditorTableLineRole::Header,
+                editor::TableLineRole::Delimiter => EditorTableLineRole::Delimiter,
+                editor::TableLineRole::Row => EditorTableLineRole::Row,
+            },
+            row: value.row as u32,
+            cells: value.cells.into_iter().map(Into::into).collect(),
+            pipes: value.pipes.into_iter().map(|pipe| pipe.0 as u64).collect(),
+        }
+    }
+}
+/// A table, whole: `range` runs from its header's start to its last line's end (that line's
+/// break excluded); `columns` is its widest row, with one alignment per column.
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorTableBlockDescription {
+    pub range: EditorByteRange,
+    pub columns: u32,
+    pub alignments: Vec<super::tables::EditorTableAlignment>,
+}
+impl From<editor::TableBlockDescription> for EditorTableBlockDescription {
+    fn from(value: editor::TableBlockDescription) -> Self {
+        Self {
+            range: value.range.into(),
+            columns: value.columns as u32,
+            alignments: value.alignments.into_iter().map(Into::into).collect(),
+        }
+    }
+}
 impl From<editor::ProjectionSlice> for EditorProjection {
     fn from(value: editor::ProjectionSlice) -> Self {
         Self {
@@ -121,6 +173,7 @@ impl From<editor::ProjectionSlice> for EditorProjection {
                     divider: block.divider,
                     list: block.list.map(Into::into),
                     code: block.code.map(Into::into),
+                    table: block.table.map(Into::into),
                     metadata: block.metadata,
                 })
                 .collect(),
@@ -134,6 +187,7 @@ impl From<editor::ProjectionSlice> for EditorProjection {
                 .collect(),
             correspondence: value.correspondence.into_iter().map(Into::into).collect(),
             code_blocks: value.code_blocks.into_iter().map(Into::into).collect(),
+            tables: value.tables.into_iter().map(Into::into).collect(),
         }
     }
 }

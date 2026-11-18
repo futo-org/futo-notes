@@ -81,6 +81,8 @@ pub(crate) struct Entry {
     /// One bit per wikilink target leaf on the line (`link_bit`), so a
     /// note-id delivery skips lines whose links it cannot change.
     pub links: u64,
+    /// Cells on a table header or body line; 0 on any other line.
+    pub cells: usize,
     pub view: View,
     pub size: Size,
 }
@@ -92,6 +94,15 @@ pub(crate) fn link_bit(target: &str) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     futo_notes_wikilinks::note_id_leaf(target).hash(&mut hasher);
     1 << (hasher.finish() % 64)
+}
+
+/// Whether a line of `kind` read after `carry` is a table's delimiter row or
+/// the line that ends a table (`Size::table_edges`).
+fn is_table_edge(carry: &Carry, kind: &Kind) -> bool {
+    match kind {
+        Kind::Table { role, .. } => *role == TableRole::Delimiter,
+        _ => carry.table.is_some(),
+    }
 }
 
 /// What a line's display depends on beyond the line itself.
@@ -135,6 +146,7 @@ impl Entry {
                     ..
                 }
             )),
+            table_edges: usize::from(is_table_edge(&before, &line.kind)),
         };
         Self {
             text,
@@ -142,6 +154,7 @@ impl Entry {
             line,
             spans: Vec::new(),
             links: 0,
+            cells: 0,
             view: View {
                 role: Role::Text,
                 ending: true,
@@ -162,6 +175,13 @@ impl Entry {
                 _ => None,
             })
             .fold(0, |mask, bit| mask | bit);
+        self.cells = match self.line.kind {
+            Kind::Table {
+                role: TableRole::Header | TableRole::Row,
+                ..
+            } => crate::lines::table::cells(self.body()).len(),
+            _ => 0,
+        };
     }
 
     /// The line without its ending.

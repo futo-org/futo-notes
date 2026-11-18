@@ -22,6 +22,7 @@ mod read;
 mod selection;
 mod store;
 mod surface;
+mod table_block;
 #[cfg(test)]
 mod tests;
 mod utf16;

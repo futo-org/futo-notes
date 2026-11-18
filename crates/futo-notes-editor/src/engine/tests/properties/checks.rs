@@ -18,11 +18,12 @@ pub(in crate::engine::tests) fn check_fresh(engine: &Engine, context: &str) {
         assert_eq!(have.line, want.line, "line {index} reading {context}");
         assert_eq!(have.spans, want.spans, "line {index} spans {context}");
         assert_eq!(have.links, want.links, "line {index} link bits {context}");
+        assert_eq!(have.cells, want.cells, "line {index} cells {context}");
         assert_eq!(have.view, want.view, "line {index} display {context}");
         assert_eq!(have.size, want.size, "line {index} size {context}");
     }
     assert_eq!(engine.store.total(), fresh.total(), "{context}");
-    engine.store.check_links(context);
+    engine.store.check_chunks(context);
     let mut sum = crate::engine::store::Size::default();
     for index in 0..engine.store.len() {
         assert_eq!(
@@ -38,6 +39,7 @@ pub(in crate::engine::tests) fn check_fresh(engine: &Engine, context: &str) {
             source16: sum.source16 + size.source16,
             display16: sum.display16 + size.display16,
             frames: sum.frames + size.frames,
+            table_edges: sum.table_edges + size.table_edges,
         };
     }
     // The reader's whole-note reading, line-relative.

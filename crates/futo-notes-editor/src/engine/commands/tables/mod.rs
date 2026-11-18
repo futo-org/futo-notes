@@ -39,7 +39,7 @@ pub(in crate::engine) struct Row {
 }
 
 impl Row {
-    fn read(entry: &Entry, index: usize, start: usize) -> Self {
+    pub(in crate::engine) fn read(entry: &Entry, index: usize, start: usize) -> Self {
         let body = entry.body();
         let cells = lines::table::cells(body);
         // A table line starts with its first pipe.
@@ -164,6 +164,25 @@ fn alignment(cell: &str) -> TableAlignment {
     }
 }
 
+/// `width` columns' alignments, from the cells of `delimiter`, line `entry`.
+pub(in crate::engine) fn alignments(
+    delimiter: &Row,
+    entry: &Entry,
+    width: usize,
+) -> Vec<TableAlignment> {
+    let text = entry.body();
+    (0..width)
+        .map(|column| {
+            delimiter
+                .cells
+                .get(column)
+                .map_or(TableAlignment::None, |cell| {
+                    alignment(&text[cell.start - delimiter.start..cell.end - delimiter.start])
+                })
+        })
+        .collect()
+}
+
 /// A cell a display range lies in.
 struct Cell {
     table: Table,
@@ -208,18 +227,7 @@ impl Engine {
             .map(|(_, line)| line.cells.len())
             .max()
             .unwrap_or(0);
-        let delimiter = &lines[1];
-        let text = self.line(delimiter.index).body();
-        let alignments = (0..width)
-            .map(|column| {
-                delimiter
-                    .cells
-                    .get(column)
-                    .map_or(TableAlignment::None, |cell| {
-                        alignment(&text[cell.start - delimiter.start..cell.end - delimiter.start])
-                    })
-            })
-            .collect();
+        let alignments = alignments(&lines[1], self.line(lines[1].index), width);
         Some(Table {
             lines,
             width,

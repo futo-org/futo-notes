@@ -155,6 +155,8 @@ export interface BlockDescription {
   list: ListDescription | null;
   /** A line of fenced code; its block is in `ProjectionSlice.code_blocks`. */
   code: CodeLineDescription | null;
+  /** A line of a table; its table is in `ProjectionSlice.tables`. */
+  table: TableLineDescription | null;
   /** Leading front matter: inert, verbatim. */
   metadata: boolean;
 }
@@ -180,6 +182,31 @@ export interface CodeBlockDescription {
   language: string | null;
   name: string | null;
   line_count: number;
+}
+
+export type TableLineRole = 'Header' | 'Delimiter' | 'Row';
+
+/** One line of a table, read from that line alone (its row number aside). */
+export interface TableLineDescription {
+  role: TableLineRole;
+  /** As `TableCell.row` counts: the header is 0, the first row under the delimiter row 1; the delimiter row is 0. */
+  row: number;
+  /** Each cell's content, as `TableCell.content`. */
+  cells: DisplayRange[];
+  /** Where each pipe that bounds a cell shows; an escaped pipe is text. */
+  pipes: number[];
+}
+
+/**
+ * A table, whole even where the projection holds only part of it: `range` runs from its header's
+ * start to its last line's end (that line's break excluded).
+ */
+export interface TableBlockDescription {
+  range: DisplayRange;
+  /** Cells in its widest row, the delimiter row aside. */
+  columns: number;
+  /** One per column, from the delimiter row's cells. */
+  alignments: TableAlignment[];
 }
 
 /**
@@ -238,6 +265,8 @@ export interface ProjectionSlice {
   tags: DisplayRange[];
   /** Each code block the slice's lines belong to, in order. */
   code_blocks: CodeBlockDescription[];
+  /** Each table the slice's lines belong to, in order. */
+  tables: TableBlockDescription[];
 }
 
 export interface EditWork {
@@ -316,6 +345,8 @@ export interface ToolbarState {
   heading_allowed: boolean;
   /** Whether Quote takes a level off. */
   quote: boolean;
+  /** Whether Quote can change any touched line (false over only table lines, code, front matter or dividers). */
+  quote_allowed: boolean;
   list: ToolbarList | null;
   code: boolean;
   mixed: boolean;

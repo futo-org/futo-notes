@@ -1,17 +1,22 @@
-//! A host that keeps each shown line's block and each code block only from
-//! the projections of the changes it applies, never reading the note again.
-//! After every change it holds what a fresh projection of the whole note
-//! reports, except a code line's number and mark: a line added or removed
-//! above it in its block, or a split or join, shifts those, and hosts redraw
-//! them from the block's entry (fenced-code.md).
+//! A host that keeps each shown line's block, each code block and each table
+//! only from the projections of the changes it applies, never reading the
+//! note again. After every change it holds what a fresh projection of the
+//! whole note reports, except a code line's number and mark and a table
+//! line's row: a line added or removed above it in its block or table, or a
+//! split or join, shifts those, and hosts redraw them from the block's or
+//! table's entry (fenced-code.md, tables.md).
 use super::View;
 use crate::engine::Engine;
-use crate::{BlockDescription, CodeBlockDescription, DisplayRange, ProjectionSlice, ViewChange};
+use crate::{
+    BlockDescription, CodeBlockDescription, DisplayRange, ProjectionSlice, TableBlockDescription,
+    ViewChange,
+};
 use std::ops::Range;
 
 pub(in crate::engine::tests) struct BlockMirror {
     lines: Vec<BlockDescription>,
     code_blocks: Vec<CodeBlockDescription>,
+    tables: Vec<TableBlockDescription>,
     /// Changes applied and compared.
     pub checked: usize,
 }
@@ -33,7 +38,7 @@ fn span(range: &DisplayRange) -> Range<usize> {
 }
 
 /// `blocks` without what a host takes from elsewhere: a code line's number
-/// and mark.
+/// and mark, a table line's row.
 fn without_numbers(blocks: &[BlockDescription]) -> Vec<BlockDescription> {
     blocks
         .iter()
@@ -42,6 +47,9 @@ fn without_numbers(blocks: &[BlockDescription]) -> Vec<BlockDescription> {
             if let Some(code) = block.code.as_mut() {
                 code.line_number = 0;
                 code.mark = None;
+            }
+            if let Some(table) = block.table.as_mut() {
+                table.row = 0;
             }
             block
         })
@@ -76,6 +84,7 @@ impl BlockMirror {
         Self {
             lines: without_numbers(&whole.blocks),
             code_blocks: whole.code_blocks,
+            tables: whole.tables,
             checked: 0,
         }
     }
@@ -113,16 +122,36 @@ impl BlockMirror {
             self.code_blocks, fresh.code_blocks,
             "code blocks after {window:?}: {context}"
         );
+        assert_eq!(
+            self.tables, fresh.tables,
+            "tables after {window:?}: {context}"
+        );
     }
 
     fn apply(&mut self, change: &ViewChange) {
         let replaced = span(&change.range);
         let inserted = change.inserted.len();
         let slice = &change.projection;
-        self.lines
-            .retain_mut(|line| carried(&mut line.range, &replaced, inserted));
+        self.lines.retain_mut(|line| {
+            let was = line.range.start.0;
+            if !carried(&mut line.range, &replaced, inserted) {
+                return false;
+            }
+            // A table line's cells and pipes move with it.
+            let moved = |at: &mut crate::DisplayOffset| at.0 = at.0 + line.range.start.0 - was;
+            if let Some(table) = line.table.as_mut() {
+                table.cells.iter_mut().for_each(|cell| {
+                    moved(&mut cell.start);
+                    moved(&mut cell.end);
+                });
+                table.pipes.iter_mut().for_each(moved);
+            }
+            true
+        });
         self.code_blocks
             .retain_mut(|block| carried(&mut block.range, &replaced, inserted));
+        self.tables
+            .retain_mut(|table| carried(&mut table.range, &replaced, inserted));
         // The projection describes whole lines from the one holding its
         // start; a line starting at its end only when the slice says so.
         let window = span(&slice.range);
@@ -139,17 +168,21 @@ impl BlockMirror {
             let empty = line.range.end.0 == at;
             !(from <= at && at < window.end || at == window.end && (empty || described_at_end))
         });
-        // A block starting in the window has its first line described.
-        self.code_blocks.retain(|block| {
-            let range = span(&block.range);
+        // A block or table starting in the window has its first line described.
+        let kept = |range: Range<usize>| {
             let described = |line: &BlockDescription| meets(&range, &span(&line.range));
             !((from..window.end).contains(&range.start) || slice.blocks.iter().any(described))
-        });
+        };
+        self.code_blocks.retain(|block| kept(span(&block.range)));
+        self.tables.retain(|table| kept(span(&table.range)));
         self.lines.extend(without_numbers(&slice.blocks));
         self.lines
             .sort_by_key(|line| (line.range.start.0, line.range.end.0));
         self.code_blocks.extend(slice.code_blocks.iter().cloned());
         self.code_blocks
             .sort_by_key(|block| (block.range.start.0, block.range.end.0));
+        self.tables.extend(slice.tables.iter().cloned());
+        self.tables
+            .sort_by_key(|table| (table.range.start.0, table.range.end.0));
     }
 }

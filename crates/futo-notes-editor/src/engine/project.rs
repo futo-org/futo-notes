@@ -1,15 +1,17 @@
 //! What a view draws: each line's reading described in display offsets.
 //! Every description comes from one line's reading; nothing looks across
-//! lines except a code line's block (`code_block.rs`).
+//! lines except a code line's block (`code_block.rs`) and a table line's
+//! table (`table_block.rs`).
 use super::code_block::{is_code_line, CodeBlock};
 use super::line::{Cut, Entry, Role, DIVIDER};
+use super::table_block::{table_role, TableBlock};
 use super::Engine;
 use crate::lines::{reading_spans, FrontMatterRole, Kind, SpanKind};
 use crate::{
     AtomDescription, AtomKind, BlockDescription, CodeLineDescription, Correspondence,
     CorrespondenceKind, DisplayOffset, DisplayRange, ImageDescription, InlineFormat,
     LinkDescription, ListDescription, ProjectionSlice, SemanticRun, SourceOffset, SourceRange,
-    WikilinkDescription,
+    TableLineDescription, WikilinkDescription,
 };
 use futo_notes_wikilinks::WikilinkIndex;
 
@@ -52,6 +54,7 @@ impl Engine {
             atoms: Vec::new(),
             tags: Vec::new(),
             code_blocks: Vec::new(),
+            tables: Vec::new(),
         };
         let (first, before) = self.line_at_display(super::store::display, a);
         let first = (0..first)
@@ -67,6 +70,7 @@ impl Engine {
         };
         debug_assert!(display <= before.display);
         let mut block: Option<CodeBlock> = None;
+        let mut table: Option<TableBlock> = None;
         for (index, entry) in (first..).zip(self.store.iter_from(first)) {
             if display > b {
                 break;
@@ -76,8 +80,10 @@ impl Engine {
                 || (entry.shown_len() == 0 && display >= a && display <= b)
                 || (a == b && display <= a && a < end);
             if touches {
-                let code = self.code_line(index, entry, &mut block, &mut slice);
-                describe(entry, code, source, display, &self.notes, &mut slice);
+                let mut described = block_of(entry, display, entry.shown_len());
+                described.code = self.code_line(index, entry, &mut block, &mut slice);
+                described.table = self.table_line(index, entry, display, &mut table, &mut slice);
+                describe(entry, described, source, display, &self.notes, &mut slice);
             }
             source += entry.size.source;
             display = end;
@@ -106,6 +112,28 @@ impl Engine {
             }
         };
         Some(block.line(index))
+    }
+
+    /// Line `index`'s place in its table, when it is a table line, shown at
+    /// `display`. `table` is the last table described; a new one joins `slice`.
+    fn table_line(
+        &self,
+        index: usize,
+        entry: &Entry,
+        display: usize,
+        table: &mut Option<TableBlock>,
+        slice: &mut ProjectionSlice,
+    ) -> Option<TableLineDescription> {
+        table_role(entry)?;
+        let table = match table {
+            Some(known) if known.holds(index) => known,
+            _ => {
+                let found = TableBlock::holding(&self.store, index);
+                slice.tables.push(found.description.clone());
+                table.insert(found)
+            }
+        };
+        Some(table.line(index, entry, display))
     }
 
     /// The formats typing at the caret carries; over a selection, those
@@ -149,19 +177,18 @@ impl Engine {
     }
 }
 
-/// Add line `entry`'s descriptions, the line starting at `source` and
-/// `display`, to `slice`; its wikilinks resolve against `notes`.
+/// Add line `entry`'s descriptions, its block facts `block`, the line
+/// starting at `source` and `display`, to `slice`; its wikilinks resolve
+/// against `notes`.
 fn describe(
     entry: &Entry,
-    code: Option<CodeLineDescription>,
+    block: BlockDescription,
     source: usize,
     display: usize,
     notes: &WikilinkIndex,
     slice: &mut ProjectionSlice,
 ) {
     let view = &entry.view;
-    let shown = entry.shown_len();
-    let block = block_of(entry, code, display, shown);
     if view.role != Role::Text {
         let hidden = SourceRange {
             start: SourceOffset(source),
@@ -244,13 +271,9 @@ pub(crate) fn resolve(target: &str, notes: &WikilinkIndex) -> (String, Option<St
     }
 }
 
-/// The block facts of line `entry`, shown at `display` for `shown` bytes.
-fn block_of(
-    entry: &Entry,
-    code: Option<CodeLineDescription>,
-    display: usize,
-    shown: usize,
-) -> BlockDescription {
+/// The block facts line `entry` holds alone, shown at `display` for `shown`
+/// bytes: those of its code block and table are the caller's.
+fn block_of(entry: &Entry, display: usize, shown: usize) -> BlockDescription {
     let line = &entry.line;
     let mut block = BlockDescription {
         range: display_range(display, display + shown),
@@ -258,7 +281,8 @@ fn block_of(
         quote_depth: line.quote,
         divider: false,
         list: None,
-        code,
+        code: None,
+        table: None,
         metadata: false,
     };
     match &line.kind {

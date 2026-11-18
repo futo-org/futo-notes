@@ -302,6 +302,7 @@ impl Engine {
             heading: self.toolbar_heading(),
             heading_allowed: self.toolbar_heading_allowed(),
             quote: self.toolbar_quote(),
+            quote_allowed: self.toolbar_quote_allowed(),
             list: match line.kind {
                 Kind::List { task: Some(_), .. } => Some(ToolbarList::Task),
                 Kind::List { ordered: true, .. } => Some(ToolbarList::Ordered),
@@ -326,6 +327,7 @@ fn count_projection(slice: &ProjectionSlice, work: &mut EditWork) {
         + slice.correspondence.len()
         + slice.blocks.len()
         + slice.code_blocks.len()
+        + slice.tables.len()
         + slice.links.len()
         + slice.wikilinks.len()
         + slice.atoms.len();

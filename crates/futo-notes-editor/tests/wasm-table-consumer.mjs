@@ -102,4 +102,26 @@ assert.equal(JSON.parse(literalReopened.inspect_table(0n, 0, 0)), null);
 literalReopened.free();
 literal.free();
 
-console.log('Compiled WASM tables: inspect, cell paste, row command and Tab key passed.');
+// A projection names a table's lines, cells and pipes, and its whole table, with no inspection;
+// an escaped pipe is text in its cell.
+const facts = new WasmSession(5n, 'x\n| a \\| b | c |\n|:-:|---|\n| d |\n', 0n);
+const row = JSON.parse(facts.project(0n, 28, 28));
+assert.deepEqual(row.tables, [
+  { range: { start: 2, end: 31 }, columns: 2, alignments: ['Center', 'None'] },
+]);
+const described = row.blocks.find((b) => b.table).table;
+assert.deepEqual(described, {
+  role: 'Row',
+  row: 1,
+  cells: [{ start: 28, end: 29 }],
+  pipes: [26, 30],
+});
+const header = JSON.parse(facts.project(0n, 2, 2)).blocks.find((b) => b.table).table;
+assert.deepEqual(header.cells, [
+  { start: 4, end: 9 },
+  { start: 12, end: 13 },
+]);
+assert.deepEqual(header.pipes, [2, 10, 14]);
+console.log(
+  'Compiled WASM tables: inspect, cell paste, row command, Tab key and projected table facts passed.',
+);

@@ -26,7 +26,7 @@ impl Engine {
         Ok(match command {
             BlockCommand::Heading(level) if level <= 6 => self.heading(range, level),
             BlockCommand::ToggleHeading(level) if level <= 6 => {
-                let lines = self.targets(range, false);
+                let lines = self.targets(range);
                 let common = self.common_heading(&lines);
                 self.heading(
                     range,
@@ -66,28 +66,35 @@ impl Engine {
     /// The toolbar's heading for the selection: the level every touched line
     /// shares (0 for text), as the heading toggle decides it.
     pub(crate) fn toolbar_heading(&self) -> Option<u8> {
-        self.common_heading(&self.targets(self.selection, false))
+        self.common_heading(&self.targets(self.selection))
     }
 
     /// Whether a heading command applies to any line the selection touches.
     pub(crate) fn toolbar_heading_allowed(&self) -> bool {
-        !self.targets(self.selection, false).is_empty()
+        !self.targets(self.selection).is_empty()
     }
 
     /// The toolbar's quote for the selection: whether Quote takes a level off.
     pub(crate) fn toolbar_quote(&self) -> bool {
-        self.all_quoted(&self.targets(self.selection, true))
+        self.all_quoted(&self.targets(self.selection))
     }
 
-    /// The lines `range` touches that a heading command (`quote` false) or
-    /// the quote command changes. Fences, front matter and dividers are never
-    /// changed; table lines take a quote but no heading.
-    fn targets(&self, range: DisplayRange, quote: bool) -> Vec<usize> {
+    /// Whether Quote applies to any line the selection touches.
+    pub(crate) fn toolbar_quote_allowed(&self) -> bool {
+        !self.targets(self.selection).is_empty()
+    }
+
+    /// The lines `range` touches that a heading or quote command changes.
+    /// Fences, front matter, dividers and tables are never changed: Linedown
+    /// reads a table only at the top level, so a quoted table line is no
+    /// longer one.
+    fn targets(&self, range: DisplayRange) -> Vec<usize> {
         self.lines_of(range)
-            .filter(|&index| match self.line(index).line.kind {
-                Kind::Plain { .. } | Kind::Blank | Kind::Heading { .. } | Kind::List { .. } => true,
-                Kind::Table { .. } => quote,
-                _ => false,
+            .filter(|&index| {
+                matches!(
+                    self.line(index).line.kind,
+                    Kind::Plain { .. } | Kind::Blank | Kind::Heading { .. } | Kind::List { .. }
+                )
             })
             .collect()
     }
@@ -125,7 +132,7 @@ impl Engine {
     /// Heading `level` (0: text) on every touched line with text; blank
     /// lines take it only when every touched line is blank.
     fn heading(&self, range: DisplayRange, level: u8) -> Option<Command> {
-        let lines = self.content(&self.targets(range, false));
+        let lines = self.content(&self.targets(range));
         let changes = lines
             .into_iter()
             .filter_map(|index| Some((index, as_heading(self.line(index), level)?)))
@@ -138,7 +145,7 @@ impl Engine {
     /// line from the first with text to the last (blank lines between them
     /// too), each keeping its block and marker.
     fn quote(&self, range: DisplayRange) -> Option<Command> {
-        let lines = self.targets(range, true);
+        let lines = self.targets(range);
         let changes = if self.all_quoted(&lines) {
             lines
                 .into_iter()

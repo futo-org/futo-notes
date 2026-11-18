@@ -177,21 +177,22 @@ fn block(engine: &mut Engine, start: usize, end: usize, command: BlockCommand) -
 }
 
 #[test]
-fn quote_on_a_whole_table_quotes_it_and_the_guard_keeps_a_table_whole() {
+fn quote_never_changes_a_table_line() {
     let table = "| a |\n|---|\n| b |";
-    let mut engine = Engine::open(table);
-    let all = engine.display_len();
-    assert!(block(&mut engine, 0, all, BlockCommand::Quote));
-    assert_eq!(engine.source_text(), "> | a |\n> |---|\n> | b |");
-    // Quoting the header alone would leave its delimiter row plain.
-    let mut engine = Engine::open(table);
-    assert!(!block(&mut engine, 0, 0, BlockCommand::Quote));
-    assert_eq!(engine.source_text(), table);
-    assert!(!engine.can_undo());
-    // The last row may leave the table.
-    let end = engine.display_len();
-    assert!(block(&mut engine, end, end, BlockCommand::Quote));
-    assert_eq!(engine.source_text(), "| a |\n|---|\n> | b |");
+    for (start, end) in [(0, usize::MAX), (0, 0), (usize::MAX, usize::MAX)] {
+        let mut engine = Engine::open(table);
+        let all = engine.display_len();
+        assert!(!block(
+            &mut engine,
+            start.min(all),
+            end.min(all),
+            BlockCommand::Quote
+        ));
+        assert_eq!(engine.source_text(), table);
+        assert!(!engine.can_undo());
+        let toolbar = engine.toolbar();
+        assert!(!toolbar.quote_allowed && !toolbar.quote);
+    }
 }
 
 #[test]
@@ -233,7 +234,8 @@ fn counts(source: &str) -> (usize, [usize; 7]) {
 }
 
 /// For every selection of every note in a small corpus, a lit toolbar
-/// button's tap takes the format off, and an unlit one's never does.
+/// button's tap takes the format off, and an unlit one's never does; a
+/// heading or Quote tap changes the note exactly where the toolbar allows it.
 #[test]
 fn a_lit_toolbar_button_takes_its_format_off_and_an_unlit_one_never_does() {
     let fragments = [
@@ -292,11 +294,17 @@ fn a_lit_toolbar_button_takes_its_format_off_and_an_unlit_one_never_does() {
                     engine
                         .block(engine.revision(), selection, command, &mut ok)
                         .unwrap();
+                    let changed = engine.source_text() != *note;
                     if command == BlockCommand::ToggleHeading(1) {
-                        let changed = engine.source_text() != *note;
                         assert_eq!(
                             changed, toolbar.heading_allowed,
                             "{note:?} {start}..{end}: heading allowed"
+                        );
+                    }
+                    if command == BlockCommand::Quote {
+                        assert_eq!(
+                            changed, toolbar.quote_allowed,
+                            "{note:?} {start}..{end}: quote allowed"
                         );
                     }
                     let after = counts(&engine.source_text());

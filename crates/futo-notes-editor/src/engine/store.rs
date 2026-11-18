@@ -23,6 +23,10 @@ pub(crate) struct Size {
     /// Opening and closing fence lines. They alternate, so a count of them
     /// finds a code line's fence lines without walking its block.
     pub frames: usize,
+    /// Table delimiter rows and the lines that end a table (the first line
+    /// after its rows). They alternate, so a count of them finds a table
+    /// line's delimiter row and last line without walking its table.
+    pub table_edges: usize,
 }
 
 impl Size {
@@ -34,6 +38,7 @@ impl Size {
             source16: self.source16 + other.source16,
             display16: self.display16 + other.display16,
             frames: self.frames + other.frames,
+            table_edges: self.table_edges + other.table_edges,
         }
     }
 
@@ -45,6 +50,7 @@ impl Size {
             source16: self.source16 - other.source16,
             display16: self.display16 - other.display16,
             frames: self.frames - other.frames,
+            table_edges: self.table_edges - other.table_edges,
         }
     }
 }
@@ -67,6 +73,9 @@ pub(crate) fn display16(size: &Size) -> usize {
 pub(crate) fn frames(size: &Size) -> usize {
     size.frames
 }
+pub(crate) fn table_edges(size: &Size) -> usize {
+    size.table_edges
+}
 fn lines(size: &Size) -> usize {
     size.lines
 }
@@ -76,6 +85,8 @@ struct Chunk {
     size: Size,
     /// The entries' wikilink leaf bits, together.
     links: u64,
+    /// The most cells on one of its table lines.
+    widest: usize,
 }
 
 impl Chunk {
@@ -84,16 +95,22 @@ impl Chunk {
             .iter()
             .fold(Size::default(), |sum, e| sum.plus(e.size));
         let links = links(&entries);
+        let widest = widest(&entries);
         Self {
             entries,
             size,
             links,
+            widest,
         }
     }
 }
 
 fn links(entries: &[Entry]) -> u64 {
     entries.iter().fold(0, |mask, e| mask | e.links)
+}
+
+fn widest(entries: &[Entry]) -> usize {
+    entries.iter().map(|e| e.cells).max().unwrap_or(0)
 }
 
 pub(crate) struct Store {
@@ -154,9 +171,16 @@ impl Store {
     }
 
     /// Every chunk's link bits, and every node of their tree, are the OR of
-    /// what is below it.
+    /// what is below it; every chunk's widest table line is its entries'.
     #[cfg(test)]
-    pub fn check_links(&self, context: &str) {
+    pub fn check_chunks(&self, context: &str) {
+        for (index, chunk) in self.chunks.iter().enumerate() {
+            assert_eq!(
+                chunk.widest,
+                widest(&chunk.entries),
+                "chunk {index} {context}"
+            );
+        }
         let half = self.links.len() / 2;
         assert!(half >= self.chunks.len(), "{context}");
         for node in 1..2 * half {
@@ -286,7 +310,30 @@ impl Store {
         let after = entry.size;
         self.chunks[chunk].size = old.minus(before).plus(after);
         self.chunks[chunk].links = links(&self.chunks[chunk].entries);
+        self.chunks[chunk].widest = widest(&self.chunks[chunk].entries);
         self.resize(chunk, old);
+    }
+
+    /// The most cells on one table line of `lines`: whole chunks answer from
+    /// their own count, so a long table is not walked line by line.
+    pub fn widest_line(&self, lines: Range<usize>) -> usize {
+        if lines.is_empty() {
+            return 0;
+        }
+        let (first, start) = self.place(lines.start);
+        let (last, end) = self.place(lines.end - 1);
+        let within = |chunk: usize, range: Range<usize>| widest(&self.chunks[chunk].entries[range]);
+        if first == last {
+            return within(first, start..end + 1);
+        }
+        let middle = self.chunks[first + 1..last].iter().map(|c| c.widest);
+        middle
+            .chain([
+                within(first, start..self.chunks[first].entries.len()),
+                within(last, 0..end + 1),
+            ])
+            .max()
+            .unwrap_or(0)
     }
 
     /// Lines from `index` on.

@@ -96,17 +96,29 @@ pub enum EditorStyleSpan {
         vault: bool,
         remote: bool,
     },
+    /// `row` counts as a table cell's row does (header 0); `pipes` are where each pipe that
+    /// bounds a cell is.
     TableRow {
         start: u64,
         end: u64,
         columns: u64,
         header: bool,
+        row: u64,
         table_start: u64,
         cells: Vec<EditorStyleCell>,
+        pipes: Vec<u64>,
     },
     TableDelimiter {
         start: u64,
         end: u64,
+    },
+    /// A table the window touches, whole however the window cuts it; `end` excludes its last
+    /// line's break. `columns` is its widest row; one alignment per column.
+    Table {
+        start: u64,
+        end: u64,
+        columns: u64,
+        alignments: Vec<EditorTableAlignment>,
     },
 }
 
@@ -237,14 +249,18 @@ impl From<StyleSpec> for EditorStyleSpan {
                 end,
                 columns,
                 header,
+                row,
                 table_start,
                 cells,
+                pipes,
             } => Self::TableRow {
                 start: u(start),
                 end: u(end),
                 columns: u(columns),
                 header,
+                row: u(row),
                 table_start: u(table_start),
+                pipes: pipes.into_iter().map(u).collect(),
                 cells: cells
                     .into_iter()
                     .map(|cell| EditorStyleCell {
@@ -258,6 +274,17 @@ impl From<StyleSpec> for EditorStyleSpan {
             StyleSpec::TableDelimiter { start, end } => Self::TableDelimiter {
                 start: u(start),
                 end: u(end),
+            },
+            StyleSpec::Table {
+                start,
+                end,
+                columns,
+                alignments,
+            } => Self::Table {
+                start: u(start),
+                end: u(end),
+                columns: u(columns),
+                alignments: alignments.into_iter().map(Into::into).collect(),
             },
             StyleSpec::Image {
                 start,

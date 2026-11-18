@@ -1,7 +1,9 @@
 //! A link command never damages a table: a selection inside one cell links it
 //! there, a selection across cells links each cell it touches (the way the
-//! inline format toggles treat it), and a range outside every cell links
-//! nothing. Display offsets include the pipes and the delimiter row.
+//! inline format toggles treat it), a selection from a line into a table
+//! links the lines around it and leaves the table alone, and a range outside
+//! every cell links nothing. Display offsets include the pipes and the
+//! delimiter row.
 use super::*;
 
 const URL: &str = "https://x.y";
@@ -123,22 +125,21 @@ fn a_link_across_cells_of_a_row_or_across_rows_links_each_cell() {
 }
 
 #[test]
-fn a_link_from_a_paragraph_into_a_cell_or_back_leaves_the_table_intact() {
+fn a_link_from_a_paragraph_into_a_cell_or_back_leaves_the_table_alone() {
     assert_links(
         NOTE,
         (2, 10),
-        "in[tro](https://x.y)\n\n| [a](https://x.y) |\n| - |\n| b |\n\nafter\n",
+        "in[tro](https://x.y)\n\n| a |\n| - |\n| b |\n\nafter\n",
     );
     assert_links(
         NOTE,
         (21, 29),
-        "intro\n\n| a |\n| - |\n| [b](https://x.y) |\n\n[aft](https://x.y)er\n",
+        "intro\n\n| a |\n| - |\n| b |\n\n[aft](https://x.y)er\n",
     );
     assert_links(
         NOTE,
         (0, 31),
-        "[intro](https://x.y)\n\n| [a](https://x.y) |\n| - |\n| [b](https://x.y) |\n\n\
-         [after](https://x.y)\n",
+        "[intro](https://x.y)\n\n| a |\n| - |\n| b |\n\n[after](https://x.y)\n",
     );
 }
 
