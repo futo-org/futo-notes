@@ -40,6 +40,7 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
         maxOf(nativeStart, nativeEnd) == maxOf(update.selStart, update.selEnd)
     val applyStart = android.os.SystemClock.elapsedRealtimeNanos()
     var editsEnd = applyStart
+    val wasApplying = applying
     applying = true
     try {
         val reset = update.reset
@@ -105,7 +106,7 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
             )
         }
     } finally {
-        applying = false
+        applying = wasApplying
     }
     anchor?.let { anchorY(it)?.let { y -> if (y != scrollY) scrollTo(scrollX, y) } }
     onApplyMeasured?.invoke(KeyTimings(

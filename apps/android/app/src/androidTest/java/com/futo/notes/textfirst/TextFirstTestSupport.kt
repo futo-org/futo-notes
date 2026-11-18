@@ -64,9 +64,10 @@ internal suspend fun textFirstIme(c: TextFirstController, cell: Boolean = false,
     }
 }
 
-internal fun textFirstSession(raw: String, body: suspend (TextFirstController) -> Unit) = runBlocking {
+internal fun textFirstSession(raw: String, vaultFiles: (File) -> Unit = {}, body: suspend (TextFirstController) -> Unit) = runBlocking {
     val context = InstrumentationRegistry.getInstrumentation().targetContext
     val root = File(context.cacheDir, "exit-${UUID.randomUUID()}").apply { check(mkdirs()) }
+    vaultFiles(root)
     val scenario = ActivityScenario.launch(ComponentActivity::class.java)
     val store = NoteStore(root.path)
     lateinit var controller: TextFirstController

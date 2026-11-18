@@ -11,8 +11,9 @@ internal fun TextFirstEditText.requestImageLoads() {
             if (s < 0) return@load
             if (bitmap == null) span.failed = true else span.bitmap = bitmap
             val en = current.getSpanEnd(span)
+            val wasApplying = applying
             applying = true
-            try { current.setSpan(span, s, en, TF_SPAN_FLAGS) } finally { applying = false }
+            try { current.setSpan(span, s, en, TF_SPAN_FLAGS) } finally { applying = wasApplying }
             requestLayout()
             invalidate()
         }

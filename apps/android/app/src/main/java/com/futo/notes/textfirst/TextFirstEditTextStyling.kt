@@ -13,6 +13,7 @@ internal fun TextFirstEditText.applyAppend(update: UiUpdate) {
     val observer = onApplyMeasured
     val applyStart = if (observer != null) android.os.SystemClock.elapsedRealtimeNanos() else 0L
     var editsEnd = applyStart
+    val wasApplying = applying
     applying = true
     try {
         val start = Selection.getSelectionStart(e)
@@ -43,7 +44,7 @@ internal fun TextFirstEditText.applyAppend(update: UiUpdate) {
         if (clipped) reveal.hold(b, a)
     } finally {
         reveal.quiet = false
-        applying = false
+        applying = wasApplying
     }
     observer?.invoke(KeyTimings(
         update.inputUptimeNanos, update.postedNanos, update.engineNanos,
@@ -134,8 +135,9 @@ internal fun TextFirstEditText.requestImageLoads(from: Int = 0, to: Int = Int.MA
             if (s < 0) return@load
             if (bitmap == null) span.failed = true else span.bitmap = bitmap
             val en = current.getSpanEnd(span)
+            val wasApplying = applying
             applying = true
-            try { current.setSpan(span, s, en, TF_SPAN_FLAGS) } finally { applying = false }
+            try { current.setSpan(span, s, en, TF_SPAN_FLAGS) } finally { applying = wasApplying }
             requestLayout()
             invalidate()
         }
@@ -151,6 +153,7 @@ internal fun TextFirstEditText.applyStyleSlice(update: UiUpdate) {
     val anchor = if (restoring == null) scrollAnchor() else null
     val start = selectionStart
     val end = selectionEnd
+    val wasApplying = applying
     applying = true
     try {
         beginBatchEdit()
@@ -159,7 +162,7 @@ internal fun TextFirstEditText.applyStyleSlice(update: UiUpdate) {
         // TextView's renderer watcher may normalize a reverse range. This
         // slice has no selection authority over newer keyboard/touch input.
         if (start >= 0 && end >= 0) Selection.setSelection(editableText, start, end)
-    } finally { applying = false }
+    } finally { applying = wasApplying }
     anchor?.let { anchorY(it)?.let { y -> if (y != scrollY) scrollTo(scrollX, y) } }
     onApplyMeasured?.invoke(KeyTimings(0L, update.postedNanos, 0L, began, began, android.os.SystemClock.elapsedRealtimeNanos()), update)
 }

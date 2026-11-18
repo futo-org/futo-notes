@@ -70,10 +70,11 @@ internal fun TextFirstEditText.drawFindMarks(canvas: Canvas) {
 /** TextView caches span drawing: re-set each grid row (or those matching [only]) so it repaints. */
 internal fun TextFirstEditText.redrawTableRows(only: (TfTableRow) -> Boolean = { true }) {
     val e = editableText ?: return
+    val wasApplying = applying
     applying = true
     try {
         for (span in e.getSpans(0, e.length, TfTableRow::class.java)) {
             if (only(span)) e.setSpan(span, e.getSpanStart(span), e.getSpanEnd(span), e.getSpanFlags(span))
         }
-    } finally { applying = false }
+    } finally { applying = wasApplying }
 }

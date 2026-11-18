@@ -295,8 +295,9 @@ internal class TextFirstEditText(
         val last = (e.length - 1).coerceAtLeast(0)
         val (a, b) = clampSelectionOutOfAtoms(e, selStart.coerceAtMost(last), selEnd.coerceAtMost(last))
         if (a != selStart || b != selEnd) {
+            val wasApplying = applying
             applying = true
-            try { Selection.setSelection(e, a, b) } finally { applying = false }
+            try { Selection.setSelection(e, a, b) } finally { applying = wasApplying }
         }
         engine?.viewSelection(appliedSeq, painted?.start ?: a, painted?.end ?: b, placed = !movingSelectionItself)
     }
