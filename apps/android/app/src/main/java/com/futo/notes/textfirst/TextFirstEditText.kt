@@ -347,7 +347,7 @@ internal class TextFirstEditText(
     // otherwise deletes the selection before forwarding the key, losing the
     // whole-code-body Enter intent and splitting its Undo action.
     override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
-        if (engine != null && (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+        if (engine != null && (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER || isHistoryChord(keyCode, event))) {
             return when (event.action) {
                 KeyEvent.ACTION_DOWN -> onKeyDown(keyCode, event)
                 KeyEvent.ACTION_UP -> true

@@ -18,6 +18,13 @@ internal class HardwareKeyHooks {
     }
 }
 
+/**
+ * Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y are the note's history, taken before the keyboard: Gboard otherwise runs its own undo,
+ * replaying a stale range of text that can reach into an image and corrupt the note.
+ */
+internal fun isHistoryChord(keyCode: Int, event: KeyEvent): Boolean =
+    event.isCtrlPressed && !event.isAltPressed && (keyCode == KeyEvent.KEYCODE_Z || keyCode == KeyEvent.KEYCODE_Y)
+
 /** The completion list takes its keys before the note does. */
 internal fun TextFirstEditText.completionKey(keyCode: Int, event: KeyEvent): Boolean =
     !event.isCtrlPressed && !event.isAltPressed && keyCode in COMPLETION_KEYS && keyHooks.completion?.invoke(keyCode) == true

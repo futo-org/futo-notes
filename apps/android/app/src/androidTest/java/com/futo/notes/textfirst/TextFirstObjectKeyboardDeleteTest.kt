@@ -103,4 +103,20 @@ class TextFirstObjectKeyboardDeleteTest {
         delay(300)
         assertEquals(start to end, view.selectionStart to view.selectionEnd)
     }
+
+    /** Hardware Ctrl+Z is the note's Undo, taken before the keyboard (Gboard would run its own and replay stale text). */
+    @Test fun ctrlZIsTakenBeforeTheKeyboard() = textFirstSession("before ![inline](missing.png) after") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        c.select(view.editableText.indexOf(" after") + 6)
+        delay(200)
+        textFirstIme(c) { commitText("!", 1) }
+        withTimeout(5_000) { while (!c.sourceText()!!.endsWith("after!")) delay(20) }
+        val down = android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_Z, 0, android.view.KeyEvent.META_CTRL_ON)
+        assertEquals(true, view.dispatchKeyEventPreIme(down))
+        withTimeout(5_000) { while (c.sourceText()!!.endsWith("after!")) delay(20) }
+        assertEquals("before ![inline](missing.png) after", c.sourceText())
+    }
 }
