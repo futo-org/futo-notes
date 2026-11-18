@@ -178,7 +178,7 @@ fn front_matter_appears_and_disappears_only_through_its_own_fences() {
     assert_eq!(session.display_text(), "title: [x]\nbody b\n");
     assert_fresh(&session);
     // Deleting the body leaves the metadata, as deleting a selection covering all of it
-    // does: engine::tests::select_all_edits_the_body_and_keeps_the_front_matter.
+    // does: engine::tests::front_matter::select_all_edits_the_body_and_keeps_the_front_matter.
     let change = session
         .replace(Revision(1), range(11, 18), "", &mut accept)
         .unwrap();

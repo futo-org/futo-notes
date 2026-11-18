@@ -1,4 +1,4 @@
-//! Tables: the literal cases in `tests/fixtures/engine/tables.json`. Random
+//! Tables: the literal cases in `tests/fixtures/engine/tables/`. Random
 //! tables are in `random.rs`, the work at 20,000 rows in `work.rs` and the
 //! session surface in `surface.rs`.
 //!
@@ -30,7 +30,13 @@ use crate::{
 use serde_json::Value;
 use std::ops::Range;
 
-const CASES: &str = include_str!("../../../../tests/fixtures/engine/tables.json");
+const CASES: [&str; 5] = [
+    include_str!("../../../../tests/fixtures/engine/tables/inspect.json"),
+    include_str!("../../../../tests/fixtures/engine/tables/keys.json"),
+    include_str!("../../../../tests/fixtures/engine/tables/cell-text.json"),
+    include_str!("../../../../tests/fixtures/engine/tables/commands.json"),
+    include_str!("../../../../tests/fixtures/engine/tables/delimiter-row.json"),
+];
 
 /// Source text and the source selection its markers stand for.
 fn marked(text: &str) -> (String, Range<usize>) {
@@ -331,9 +337,11 @@ fn check_tables(case: &Value) {
 
 #[test]
 fn the_literal_table_cases() {
-    let file: Value = serde_json::from_str(CASES).unwrap();
-    let cases = file["cases"].as_array().unwrap();
-    for case in cases {
+    let cases: Vec<Value> = CASES
+        .iter()
+        .flat_map(|file| serde_json::from_str::<Vec<Value>>(file).unwrap())
+        .collect();
+    for case in &cases {
         if case.get("inspect").is_some() {
             check_inspect(case);
         } else if case.get("tables").is_some() {

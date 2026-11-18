@@ -1,0 +1,320 @@
+[
+ {
+  "name": "cells show in the note's display, with alignment, and an escaped pipe stays in its cell",
+  "before": "‸| **a** | b\\|c |\n|:--|--:|\n| x |\n\npara",
+  "inspect": {
+   "columns": 2,
+   "alignments": [
+    "Left",
+    "Right"
+   ],
+   "rows": [
+    [
+     "a",
+     "b|c"
+    ],
+    [
+     "x"
+    ]
+   ],
+   "focus": null,
+   "lines": [
+    "| a | b|c |",
+    "| x |"
+   ],
+   "delimiter": "|:--|--:|"
+  }
+ },
+ {
+  "name": "a caret in a header cell focuses it; the header cannot be deleted or have a row above it",
+  "before": "| a‸ | b |\n|---|---|\n| c | d |",
+  "inspect": {
+   "columns": 2,
+   "alignments": [
+    "None",
+    "None"
+   ],
+   "rows": [
+    [
+     "a",
+     "b"
+    ],
+    [
+     "c",
+     "d"
+    ]
+   ],
+   "focus": [
+    0,
+    0
+   ],
+   "controls": [
+    "below",
+    "left",
+    "right",
+    "delete column"
+   ]
+  }
+ },
+ {
+  "name": "the only body row cannot be deleted; a single column cannot be deleted",
+  "before": "| a |\n|---|\n| ‸b |",
+  "inspect": {
+   "columns": 1,
+   "alignments": [
+    "None"
+   ],
+   "rows": [
+    [
+     "a"
+    ],
+    [
+     "b"
+    ]
+   ],
+   "focus": [
+    1,
+    0
+   ],
+   "controls": [
+    "above",
+    "below",
+    "left",
+    "right"
+   ]
+  }
+ },
+ {
+  "name": "a body row with a sibling can be deleted",
+  "before": "| a |\n|:-:|\n| b |\n| c‸ |",
+  "inspect": {
+   "columns": 1,
+   "alignments": [
+    "Center"
+   ],
+   "rows": [
+    [
+     "a"
+    ],
+    [
+     "b"
+    ],
+    [
+     "c"
+    ]
+   ],
+   "focus": [
+    2,
+    0
+   ],
+   "controls": [
+    "above",
+    "below",
+    "delete row",
+    "left",
+    "right"
+   ]
+  }
+ },
+ {
+  "name": "#419: text in an extra cell is a column like any other, read and formatted",
+  "before": "| a |\n|---|\n| b | **c‸** |",
+  "inspect": {
+   "columns": 2,
+   "alignments": [
+    "None",
+    "None"
+   ],
+   "rows": [
+    [
+     "a"
+    ],
+    [
+     "b",
+     "c"
+    ]
+   ],
+   "focus": [
+    1,
+    1
+   ],
+   "lines": [
+    "| a |",
+    "| b | c |"
+   ]
+  }
+ },
+ {
+  "name": "a row with too few cells lists the cells it has; the table is as wide as its widest row",
+  "before": "| a | b |\n|---|---|\n| c‸ |\n| d | e | f |",
+  "inspect": {
+   "columns": 3,
+   "alignments": [
+    "None",
+    "None",
+    "None"
+   ],
+   "rows": [
+    [
+     "a",
+     "b"
+    ],
+    [
+     "c"
+    ],
+    [
+     "d",
+     "e",
+     "f"
+    ]
+   ],
+   "focus": [
+    1,
+    0
+   ]
+  }
+ },
+ {
+  "name": "an empty cell's content is the point after its padding space",
+  "before": "| a |  |\n|---|---|\n|‸",
+  "inspect": {
+   "columns": 2,
+   "alignments": [
+    "None",
+    "None"
+   ],
+   "rows": [
+    [
+     "a",
+     ""
+    ],
+    []
+   ],
+   "focus": null
+  }
+ },
+ {
+  "name": "a caret on the delimiter row finds the table without a focus",
+  "before": "| a |\n|-‸--|\n| b |",
+  "inspect": {
+   "columns": 1,
+   "alignments": [
+    "None"
+   ],
+   "rows": [
+    [
+     "a"
+    ],
+    [
+     "b"
+    ]
+   ],
+   "focus": null
+  }
+ },
+ {
+  "name": "a caret past a row's closing pipe finds the table without a focus",
+  "before": "| a |\n|---|\n| b |‸",
+  "inspect": {
+   "columns": 1,
+   "alignments": [
+    "None"
+   ],
+   "rows": [
+    [
+     "a"
+    ],
+    [
+     "b"
+    ]
+   ],
+   "focus": null
+  }
+ },
+ {
+  "name": "a header-only table has one row",
+  "before": "| a‸ | b |\n|:--|---|",
+  "inspect": {
+   "columns": 2,
+   "alignments": [
+    "Left",
+    "None"
+   ],
+   "rows": [
+    [
+     "a",
+     "b"
+    ]
+   ],
+   "focus": [
+    0,
+    0
+   ],
+   "controls": [
+    "below",
+    "left",
+    "right",
+    "delete column"
+   ]
+  }
+ },
+ {
+  "name": "until the delimiter row exists the header is a plain line",
+  "before": "| a‸ | b |\nno delimiter",
+  "inspect": null
+ },
+ {
+  "name": "a table row needs a leading pipe",
+  "before": "a‸ | b\n--- | ---\n1 | 2",
+  "inspect": null
+ },
+ {
+  "name": "tables are read only at the top level: not in a quote",
+  "before": "> | a‸ |\n> |---|",
+  "inspect": null
+ },
+ {
+  "name": "tables are read only at the top level: not in a list",
+  "before": "- | a‸ |\n  |---|",
+  "inspect": null
+ },
+ {
+  "name": "tables are read only at the top level: not indented",
+  "before": "  | a‸ |\n  |---|",
+  "inspect": null
+ },
+ {
+  "name": "a table in a code block is code",
+  "before": "```\n| a‸ |\n|---|\n```",
+  "inspect": null
+ },
+ {
+  "name": "a blank line ends a table",
+  "before": "| a |\n|---|\n\n| b‸ |",
+  "inspect": null
+ },
+ {
+  "name": "a line without a leading pipe ends a table",
+  "before": "| a |\n|---|\nb‸ | c",
+  "inspect": null
+ },
+ {
+  "name": "inspect_tables finds every table in the note, each once",
+  "before": "‸| a |\n|---|\n| b |\n\ntext | not a table\n\n| x | y |\n|---|---|\n| 1 | 2 | 3 |\n| 4 |",
+  "tables": [
+   [
+    1,
+    2
+   ],
+   [
+    3,
+    3
+   ]
+  ]
+ },
+ {
+  "name": "inspect_tables finds no table in a note of pipe lines without a delimiter row",
+  "before": "‸| a |\n| b |\nc | d",
+  "tables": []
+ }
+]

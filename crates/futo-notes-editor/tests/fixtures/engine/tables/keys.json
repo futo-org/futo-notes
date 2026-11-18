@@ -1,0 +1,218 @@
+[
+ {
+  "name": "Tab selects the next cell's content",
+  "before": "| a‸ | b |\n| --- | :-: |\n| c | d |\n",
+  "command": "Tab",
+  "after": "| a | «b» |\n| --- | :-: |\n| c | d |\n"
+ },
+ {
+  "name": "Tab in a row's last cell selects the next row's first cell",
+  "before": "| a | b‸ |\n| --- | :-: |\n| c | d |\n",
+  "command": "Tab",
+  "after": "| a | b |\n| --- | :-: |\n| «c» | d |\n"
+ },
+ {
+  "name": "Tab in the last cell appends a row and enters its first cell",
+  "before": "| a | b |\n| --- | :-: |\n| c | d‸ |\n",
+  "command": "Tab",
+  "after": "| a | b |\n| --- | :-: |\n| c | d |\n| ‸ |  |\n"
+ },
+ {
+  "name": "Tab in the last cell of a header-only table appends the first body row",
+  "before": "| a | b‸ |\n|---|---|",
+  "command": "Tab",
+  "after": "| a | b |\n|---|---|\n| ‸ |  |"
+ },
+ {
+  "name": "Shift+Tab selects the previous cell",
+  "before": "| a | b |\n| --- | :-: |\n| c | d‸ |\n",
+  "command": "ShiftTab",
+  "after": "| a | b |\n| --- | :-: |\n| «c» | d |\n"
+ },
+ {
+  "name": "Shift+Tab in a row's first cell selects the row above's last cell",
+  "before": "| a | b |\n| --- | :-: |\n| ‸c | d |\n",
+  "command": "ShiftTab",
+  "after": "| a | «b» |\n| --- | :-: |\n| c | d |\n"
+ },
+ {
+  "name": "Shift+Tab in the first cell is left to the host",
+  "before": "| ‸a | b |\n| --- | :-: |\n| c | d |\n",
+  "command": "ShiftTab",
+  "after": null
+ },
+ {
+  "name": "Enter selects the cell below",
+  "before": "| a | b‸ |\n| --- | :-: |\n| c | d |\n",
+  "command": "Enter",
+  "after": "| a | b |\n| --- | :-: |\n| c | «d» |\n"
+ },
+ {
+  "name": "Enter in the last row appends a row and enters the same column",
+  "before": "| a | b |\n| --- | :-: |\n| c | d‸ |\n",
+  "command": "Enter",
+  "after": "| a | b |\n| --- | :-: |\n| c | d |\n|  | ‸ |\n"
+ },
+ {
+  "name": "Shift+Enter in a cell is Enter: a cell holds one line",
+  "before": "| a‸ | b |\n| --- | :-: |\n| c | d |\n",
+  "command": "ShiftEnter",
+  "after": "| a | b |\n| --- | :-: |\n| «c» | d |\n"
+ },
+ {
+  "name": "an appended row takes the table's CRLF",
+  "before": "| a |\r\n|---|\r\n| b‸ |",
+  "command": "Enter",
+  "after": "| a |\r\n|---|\r\n| b |\r\n| ‸ |"
+ },
+ {
+  "name": "a short row gains the cells up to the one the caret enters",
+  "before": "| a | b‸ |\n|---|---|\n| c |",
+  "command": "Enter",
+  "after": "| a | b |\n|---|---|\n| c | ‸ |"
+ },
+ {
+  "name": "a lone pipe row gains cells up to the one the caret enters",
+  "before": "| a | b‸ |\n|---|---|\n|",
+  "command": "Enter",
+  "after": "| a | b |\n|---|---|\n|  | ‸ |"
+ },
+ {
+  "name": "a row whose last cell has no closing pipe is closed before it gains a cell",
+  "before": "| a | b‸ |\n|---|---|\n| c",
+  "command": "Enter",
+  "after": "| a | b |\n|---|---|\n| c| ‸ |"
+ },
+ {
+  "name": "Tab into a column only body rows have gives the header and its delimiter row the cell",
+  "before": "| a‸ |\n|---|\n| b | c |",
+  "command": "Tab",
+  "after": "| a | ‸ |\n|---| --- |\n| b | c |"
+ },
+ {
+  "name": "#419: Tab reaches an extra cell",
+  "before": "| a |\n|---|\n| b‸ | c |",
+  "command": "Tab",
+  "after": "| a |\n|---|\n| b | «c» |"
+ },
+ {
+  "name": "Mod+Enter at the note's end leaves an empty line after the table",
+  "before": "| a |\n|---|\n| b‸ |",
+  "command": "ModEnter",
+  "after": "| a |\n|---|\n| b |\n‸"
+ },
+ {
+  "name": "Mod+Enter writes an empty line between the table and the text after it",
+  "before": "| a‸ |\n|---|\ntext",
+  "command": "ModEnter",
+  "after": "| a |\n|---|\n‸\ntext"
+ },
+ {
+  "name": "Mod+Enter moves to an empty line already after the table",
+  "before": "| a‸ |\r\n|---|\r\n\r\nnext",
+  "command": "ModEnter",
+  "after": "| a |\r\n|---|\r\n‸\r\nnext"
+ },
+ {
+  "name": "a table key outside every cell is not the table's",
+  "before": "| a |\n|---|\n| b |‸",
+  "command": "Tab",
+  "after": null
+ },
+ {
+  "name": "a table key outside a table is not the table's",
+  "before": "plain‸",
+  "command": "Enter",
+  "after": null
+ },
+ {
+  "name": "paragraph Enter in a cell moves to the cell below",
+  "before": "| a‸ | b |\n| --- | :-: |\n| c | d |\n",
+  "command": "key Enter",
+  "after": "| a | b |\n| --- | :-: |\n| «c» | d |\n"
+ },
+ {
+  "name": "paragraph Enter in the last row appends a row",
+  "before": "| a |\n|---|\n| b‸ |\n",
+  "command": "key Enter",
+  "after": "| a |\n|---|\n| b |\n| ‸ |\n"
+ },
+ {
+  "name": "paragraph Shift+Enter in a cell moves to the cell below",
+  "before": "| a | b‸ |\n| --- | :-: |\n| c | d |\n",
+  "command": "key ShiftEnter",
+  "after": "| a | b |\n| --- | :-: |\n| c | «d» |\n"
+ },
+ {
+  "name": "paragraph Tab in a cell selects the next cell",
+  "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+  "command": "key Tab",
+  "after": "| a | b |\n| --- | :-: |\n| c | «d» |\n"
+ },
+ {
+  "name": "paragraph Shift+Tab in a cell selects the previous cell",
+  "before": "| a | b‸ |\n| --- | :-: |\n| c | d |\n",
+  "command": "key ShiftTab",
+  "after": "| «a» | b |\n| --- | :-: |\n| c | d |\n"
+ },
+ {
+  "name": "paragraph Enter past a row's closing pipe writes a line break, which ends the table there",
+  "before": "| a |\n|---|\n| b |‸\n| c |",
+  "command": "key Enter",
+  "after": "| a |\n|---|\n| b |\n‸\n| c |"
+ },
+ {
+  "name": "Backspace in a cell deletes a character",
+  "before": "| ab‸ |\n|---|",
+  "command": "key Backspace",
+  "after": "| a‸ |\n|---|"
+ },
+ {
+  "name": "Backspace after a pipe leaves the cells as they are",
+  "before": "| a |‸ b |\n|---|---|",
+  "command": "key Backspace",
+  "after": "| a |‸ b |\n|---|---|"
+ },
+ {
+  "name": "Backspace after a row's leading pipe leaves the row a row",
+  "before": "| a |\n|---|\n|‸b |\n| c |",
+  "command": "key Backspace",
+  "after": "| a |\n|---|\n|‸b |\n| c |"
+ },
+ {
+  "name": "Backspace at a row's start does not join it to the row above",
+  "before": "| a |\n|---|\n‸| b |",
+  "command": "key Backspace",
+  "after": "| a |\n|---|\n‸| b |"
+ },
+ {
+  "name": "Delete before a pipe leaves the cells as they are",
+  "before": "| a ‸| b |\n|---|---|",
+  "command": "key Delete",
+  "after": "| a ‸| b |\n|---|---|"
+ },
+ {
+  "name": "Delete at the header's end does not join it to its delimiter row",
+  "before": "| a |‸\n|---|",
+  "command": "key Delete",
+  "after": "| a |‸\n|---|"
+ },
+ {
+  "name": "Backspace in the delimiter row deletes a dash",
+  "before": "| a |\n|---‸|",
+  "command": "key Backspace",
+  "after": "| a |\n|--‸|"
+ },
+ {
+  "name": "Backspace deletes an escaped pipe, which is text",
+  "before": "| a\\|‸ |\n|---|",
+  "command": "key Backspace",
+  "after": "| a‸ |\n|---|"
+ },
+ {
+  "name": "Backspace at the line after a table joins it to the last row as typing does",
+  "before": "| a |\n|---|\n| b |\n‸c",
+  "command": "key Backspace",
+  "after": "| a |\n|---|\n| b |‸c"
+ }
+]
