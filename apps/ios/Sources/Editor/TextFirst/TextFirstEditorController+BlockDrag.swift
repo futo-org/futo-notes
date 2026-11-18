@@ -39,48 +39,50 @@ final class TextFirstDragHaptics {
     func landed() { drop.impactOccurred() }
 }
 
-/// Where a lifted block may land on screen: each of the engine's slots on screen with the y of
-/// its boundary, and the y of the block's own top and bottom edges (where they show), where a
-/// drop would change nothing. A lifted photo has no such edge (every slot moves it, its own
-/// line's edges too), so both are its middle: held where it was, it drops nowhere.
-struct TextFirstDropTargets {
-    let slots: [(slot: TextFirstBlockSlot, y: CGFloat)]
-    let ownTop: CGFloat
-    let ownBottom: CGFloat
-
-    /// The slot nearest `y`; nil when one of the block's own edges is nearer (no drop line, and
-    /// a release there returns the card).
-    func slot(nearest y: CGFloat) -> (slot: TextFirstBlockSlot, y: CGFloat)? {
-        guard let best = slots.min(by: { abs($0.y - y) < abs($1.y - y) }) else { return nil }
-        return abs(best.y - y) < min(abs(ownTop - y), abs(ownBottom - y)) ? best : nil
-    }
-}
-
-/// What a press at a point lifts: the position pressed (its UTF-16 offset), the block it lifts,
-/// the card's frame (the block's part on screen, or the photo) and where it may land among the
-/// slots near the screen, at the engine's revision.
+/// What a press at a point lifts, at the engine's revision: its slots, kept as the note scrolls
+/// (`book`), the card's frame (the block's part on screen, or the photo) and where it may land
+/// as the note was drawn at the lift.
 struct TextFirstLift {
-    let offset: Int
-    let block: NSRange
+    var book: TextFirstSlotBook
     let frame: CGRect
     let targets: TextFirstDropTargets
-    let revision: UInt64
+    /// The position pressed (UTF-16), by which the engine names the block, and the block.
+    var offset: Int { book.offset }
+    var block: NSRange { book.block.range }
+    var revision: UInt64 { book.revision }
 }
 
-/// One drag in progress: what was lifted and the views drawn for it.
+/// One drag in progress: what was lifted, where it may land as drawn now, and the views drawn for
+/// it. The card and the drop line live in the note's content, so they are placed again whenever
+/// the note scrolls; the finger is kept on screen, where it stays while the note scrolls under it.
 @MainActor
 final class TextFirstBlockDrag {
     let lift: TextFirstLift
-    /// Where the finger lifted the card, and the card's centre then.
+    var book: TextFirstSlotBook
+    private(set) var targets: TextFirstDropTargets
+    /// Where the finger lifted the card and the card's centre then (text view coordinates).
     let start: CGPoint
     let liftedCenter: CGPoint
+    /// The finger now, on screen: text view coordinates less the scroll.
+    private var finger: CGPoint
     let card: UIView
     let dimmedSource: UIView
     let dropLine: UIView
+    let autoscroller: TextFirstAutoscroller
     private(set) var slot: TextFirstBlockSlot?
+    /// `targets` are being read (reading lays text out, which can ask again).
+    var measuring = false
+    private weak var textView: UITextView?
 
-    init(_ lift: TextFirstLift, at start: CGPoint, snapshot: UIView, on textView: UITextView) {
-        (self.lift, self.start) = (lift, start)
+    init(
+        _ lift: TextFirstLift, at start: CGPoint, snapshot: UIView, on textView: UITextView,
+        autoscroll: @escaping (CGFloat) -> Void = { _ in }
+    ) {
+        (self.lift, book, targets, self.start, self.textView) =
+            (lift, lift.book, lift.targets, start, textView)
+        let scrolled = textView.contentOffset
+        finger = CGPoint(x: start.x - scrolled.x, y: start.y - scrolled.y)
+        autoscroller = TextFirstAutoscroller(autoscroll)
         let background = UIColor(Theme.background)
         dimmedSource = UIView(frame: lift.frame)
         dimmedSource.backgroundColor = background.withAlphaComponent(0.65)
@@ -95,12 +97,7 @@ final class TextFirstBlockDrag {
         card.layer.shadowOffset = CGSize(width: 0, height: 4)
         snapshot.frame = CGRect(origin: .zero, size: lift.frame.size)
         card.addSubview(snapshot)
-        let inset = textView.textContainerInset
-        dropLine = UIView(
-            frame: CGRect(
-                x: inset.left - 6, y: 0,
-                width: textView.bounds.width - inset.left - inset.right + 12,
-                height: 3))
+        dropLine = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: 3))
         dropLine.backgroundColor = textView.tintColor
         dropLine.layer.cornerRadius = 1.5
         dropLine.isHidden = true
@@ -112,20 +109,49 @@ final class TextFirstBlockDrag {
         liftedCenter = card.center
     }
 
-    /// The finger moved to `p`: the card follows it and the drop line moves to the nearest slot.
-    /// True when the drop line reached a slot it was not on (after showing none, any slot).
+    /// The finger moved to `p` (text view coordinates): the card follows it and the drop line
+    /// moves to the nearest slot. True when the drop line reached a slot it was not on (after
+    /// showing none, any slot).
     @discardableResult func follow(_ p: CGPoint) -> Bool {
-        card.center = CGPoint(x: liftedCenter.x + p.x - start.x, y: liftedCenter.y + p.y - start.y)
-        let nearest = lift.targets.slot(nearest: p.y)
+        let scrolled = textView?.contentOffset ?? .zero
+        finger = CGPoint(x: p.x - scrolled.x, y: p.y - scrolled.y)
         let previous = slot
+        place()
+        return slot != nil && slot != previous
+    }
+
+    /// The note scrolled or was laid out again under a still finger: `targets` are where things
+    /// are drawn now. The drop line may change slot; that is not the finger's doing, so no tick.
+    func remeasured(_ targets: TextFirstDropTargets) {
+        self.targets = targets
+        place()
+    }
+
+    /// The finger's y in text view coordinates.
+    var fingerY: CGFloat { finger.y + (textView?.contentOffset.y ?? 0) }
+
+    /// Keep the card under the finger, the dimmed place on the block and the drop line on the
+    /// slot nearest the finger, as drawn now.
+    private func place() {
+        guard let textView else { return }
+        let scrolled = textView.contentOffset
+        card.center = CGPoint(
+            x: liftedCenter.x - start.x + finger.x + scrolled.x,
+            y: liftedCenter.y - start.y + finger.y + scrolled.y)
+        dimmedSource.isHidden = targets.source == nil
+        if let source = targets.source { dimmedSource.frame = source }
+        let inset = textView.textContainerInset
+        dropLine.frame.origin.x = inset.left - 6
+        dropLine.frame.size.width = textView.bounds.width - inset.left - inset.right + 12
+        let nearest = targets.slot(nearest: fingerY)
         slot = nearest?.slot
         dropLine.isHidden = nearest == nil
         if let nearest { dropLine.center.y = nearest.y }
-        return slot != nil && slot != previous
     }
 
     /// Take everything down; a card that did not land first slides back to where it was lifted.
     func finish(returning: Bool) {
+        autoscroller.stop()
         dropLine.removeFromSuperview()
         guard returning else {
             card.removeFromSuperview()
@@ -196,18 +222,20 @@ extension TextFirstEditorController {
         case .ended:
             endBlockDrag(dropping: true)
         default:
+            // iOS took the touch (a call, the app going to the background): nothing moves.
             endBlockDrag(dropping: false)
         }
     }
 
-    private func beginBlockDrag(at p: CGPoint) {
-        guard let lift = pendingLift else { return }
+    func beginBlockDrag(at p: CGPoint) {
+        guard let lift = pendingLift, lift.revision == rev else { return }
         pendingLift = nil
         let snapshot =
             textView.resizableSnapshotView(
                 from: lift.frame, afterScreenUpdates: false, withCapInsets: .zero) ?? UIView()
-        // The lift takes the touch: scrolling stops for the drag and every other recognizer on
-        // the note (UIKit's selection, loupe and caret taps, the checkbox tap) stands down.
+        // The lift takes the touch: the finger no longer scrolls the note (the edge autoscroll
+        // does) and every other recognizer on the note (UIKit's selection, loupe and caret
+        // taps, the checkbox tap) stands down.
         textView.panGestureRecognizer.isEnabled = false
         for other in textView.gestureRecognizers ?? []
         where other !== liftRecognizer && other !== textView.panGestureRecognizer
@@ -218,31 +246,132 @@ extension TextFirstEditorController {
         }
         // An edit menu left from an earlier press points at a selection the drag is not about.
         for case let menu as UIEditMenuInteraction in textView.interactions { menu.dismissMenu() }
-        blockDrag = TextFirstBlockDrag(lift, at: p, snapshot: snapshot, on: textView)
+        blockDrag = TextFirstBlockDrag(
+            lift, at: p, snapshot: snapshot, on: textView,
+            autoscroll: { [weak self] step in self?.autoscrollBlockDrag(by: step) })
         dragHaptics.lifted()
     }
 
-    private func followBlockDrag(to p: CGPoint) {
-        if blockDrag?.follow(p) == true { dragHaptics.reachedSlot() }
+    func followBlockDrag(to p: CGPoint) {
+        guard let drag = blockDrag else { return }
+        if drag.follow(p) { dragHaptics.reachedSlot() }
+        let insets = textView.adjustedContentInset
+        let bounds = textView.bounds
+        drag.autoscroller.velocity = TextFirstAutoscroll.velocity(
+            at: p.y, in: (bounds.minY + insets.top)...(bounds.maxY - insets.bottom))
     }
 
-    /// The finger lifted (`dropping`) or the touch was cancelled: move the block to the slot
-    /// shown, or return the card when there is none, the note changed since the lift (the
-    /// offsets would name other text) or the engine refuses.
-    private func endBlockDrag(dropping: Bool) {
-        textView.panGestureRecognizer.isEnabled = true
+    /// One autoscroll frame: scroll by `step`, held to the note's ends, and read the targets
+    /// again from the layout that scrolled into view. The finger has not moved: no tick.
+    private func autoscrollBlockDrag(by step: CGFloat) {
+        guard blockDrag != nil else { return }
+        let insets = textView.adjustedContentInset
+        let top = -insets.top
+        let bottom = max(
+            top, textView.contentSize.height + insets.bottom - textView.bounds.height)
+        let from = textView.contentOffset.y
+        let to = min(max(from + step, top), bottom)
+        guard to != from else { return }
+        textView.contentOffset.y = to
+        textView.layoutIfNeeded()
+        remeasureBlockDrag()
+    }
+
+    /// The note was laid out again (a scroll, a photo that decoded, a rotation): the drag's
+    /// targets are read again from where things are drawn now, and the drag carries on.
+    func remeasureBlockDrag() {
+        guard let drag = blockDrag, !drag.measuring else { return }
+        drag.measuring = true
+        defer { drag.measuring = false }
+        do {
+            drag.remeasured(try dropTargets(&drag.book))
+        } catch {
+            print("text-first: drop targets failed: \(error)")
+            cancelBlockDrag()
+        }
+    }
+
+    /// The finger lifted (`dropping`) or iOS cancelled the touch: move the block to the slot
+    /// shown, or return the card when there is none or the engine refuses.
+    func endBlockDrag(dropping: Bool) {
         pendingLift = nil
-        guard let drag = blockDrag else { return }
-        blockDrag = nil
+        guard let drag = takeBlockDrag() else { return }
         var moved = false
         if dropping, let slot = drag.slot, drag.lift.revision == rev {
+            let held = leavesFromAboveTheScreen(drag, to: slot) ? lineAbove(slot, drag) : nil
             do {
                 moved = try moveBlock(at: drag.lift.offset, to: slot)
             } catch {
                 recover(error, context: "move block")
             }
+            if moved, let held { holdStill(held) }
         }
         if moved { dragHaptics.landed() }
         drag.finish(returning: !moved)
+    }
+
+    /// Whether `drag` drops its block below the screen's top while the block starts above it:
+    /// taking it out there would pull everything on screen up by its height.
+    private func leavesFromAboveTheScreen(_ drag: TextFirstBlockDrag, to slot: TextFirstBlockSlot)
+        -> Bool
+    {
+        let shownTop = textView.bounds.minY + textView.adjustedContentInset.top
+        return drag.lift.block.location < slot.offset
+            && (drag.targets.source.map { $0.minY <= shownTop + 0.5 } ?? true)
+    }
+
+    /// The line drawn just above the drop line at `slot`, as the drop will leave it: the middle
+    /// of its text once `drag`'s block, above it, has moved there (it moves up by the block's
+    /// length; arrival changes shift it by a few units at most), and its top now on screen. Nil
+    /// when TextKit has not laid that line out.
+    private func lineAbove(_ slot: TextFirstBlockSlot, _ drag: TextFirstBlockDrag)
+        -> (middle: Int, top: CGFloat)?
+    {
+        guard let laidOut = laidOutRange() else { return nil }
+        let line = (storage.string as NSString).lineRange(
+            for: NSRange(location: slot.offset - 1, length: 0))
+        let start = TextFirstBlockSlot(offset: line.location, end: false)
+        guard let top = boundaryY(start, in: laidOut)
+        else { return nil }
+        return (
+            line.location + line.length / 2 - drag.lift.block.length,
+            top - textView.contentOffset.y
+        )
+    }
+
+    /// Scroll so the line `held` names is back where it was drawn: what the move took out above
+    /// the screen does not make the note jump at the drop.
+    private func holdStill(_ held: (middle: Int, top: CGFloat)) {
+        textView.layoutIfNeeded()
+        let text = storage.string as NSString
+        guard text.length > 0, let laidOut = laidOutRange() else { return }
+        let line = text.lineRange(
+            for: NSRange(location: min(max(held.middle, 0), text.length - 1), length: 0))
+        let start = TextFirstBlockSlot(offset: line.location, end: false)
+        guard let top = boundaryY(start, in: laidOut)
+        else { return }
+        let insets = textView.adjustedContentInset
+        let lowest = max(
+            -insets.top, textView.contentSize.height + insets.bottom - textView.bounds.height)
+        let y = min(max(top - held.top, -insets.top), lowest)
+        if abs(y - textView.contentOffset.y) > 0.25 { textView.contentOffset.y = y }
+    }
+
+    /// End the drag in progress with nothing moved, the finger still down or not. The card,
+    /// the drop line and the dim go at once, silently, and the press is over: nothing the
+    /// finger does until it lifts is a drag.
+    func cancelBlockDrag() {
+        guard let drag = takeBlockDrag() else { return }
+        drag.finish(returning: false)
+        liftRecognizer?.isEnabled = false
+        liftRecognizer?.isEnabled = true
+    }
+
+    private func takeBlockDrag() -> TextFirstBlockDrag? {
+        textView.panGestureRecognizer.isEnabled = true
+        guard let drag = blockDrag else { return nil }
+        blockDrag = nil
+        drag.autoscroller.stop()
+        return drag
     }
 }

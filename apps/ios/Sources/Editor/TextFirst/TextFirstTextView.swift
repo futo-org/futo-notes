@@ -37,6 +37,7 @@ final class TextFirstTextView: UITextView {
         controller?.images.widthChanged()
         controller?.tablesWidthChanged()
         controller?.cellEditor?.reposition()
+        controller?.remeasureBlockDrag()
     }
 
     // MARK: long notes

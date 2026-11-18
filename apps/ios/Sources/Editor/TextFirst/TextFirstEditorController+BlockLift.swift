@@ -1,62 +1,85 @@
 import UIKit
 
-// What a long-press lifts and where it may land on screen (#311, #446). The engine names the
-// block and its slots; the view finds the position under the finger and the y of each slot. A lift
-// asks the engine only for the slots inside the laid-out viewport, in one call, so it costs the
-// same in a long note as in a short one.
+// What a long-press lifts and where it may land on screen (#311, #446, #443). The engine names
+// the block and its slots; the view finds the position under the finger and the y of each slot.
+// The view asks the engine only for the slots inside the laid-out viewport, in one call, so a lift
+// costs the same in a long note as in a short one, and asks again only for what scrolls near.
 
 extension TextFirstEditorController {
     /// What a long-press at `p` (text view coordinates) lifts; nil when the press keeps the
     /// platform's long-press: a blank line, an empty note, front matter, code nothing closes, or
     /// anything `mayLift` rules out.
     func liftPlan(at p: CGPoint) -> TextFirstLift? {
-        guard mayLift, let offset = pressOffset(at: p), let laidOut = laidOutRange() else {
-            return nil
-        }
-        let block: TextFirstLiftedBlock
-        let slots: [TextFirstBlockSlot]
+        guard mayLift, let offset = pressOffset(at: p) else { return nil }
         do {
-            guard let found = try liftedBlock(at: offset) else { return nil }
-            (block, slots) = (found, try blockSlots(at: offset, within: laidOut))
+            guard let block = try liftedBlock(at: offset) else { return nil }
+            // A photo lifted alone shares its line with text that shows, so its range never
+            // covers whole lines; a photo alone on its line lifts the line, whose range can
+            // then equal the photo's.
+            let photo = imageAt(p).map { $0.range == block.range && !coversWholeLines(block.range) }
+            var book = TextFirstSlotBook(
+                offset: offset, block: block, alonePhoto: photo ?? false, revision: rev)
+            let targets = try dropTargets(&book)
+            guard let frame = targets.source else { return nil }
+            return TextFirstLift(book: book, frame: frame, targets: targets)
         } catch {
             print("text-first: block lookup failed: \(error)")
             return nil
         }
-        // What shows: the text view's bounds less what the keyboard covers.
+    }
+
+    /// Where the block `book` lifted may land as the note is drawn now: the one place a drag
+    /// reads its targets, at the lift and every time the layout or the scroll changes. Asks the
+    /// engine for the slots of whatever part of the laid-out viewport it has not asked about
+    /// (one call and one conversion), then reads each slot's y, and the block's own edges and
+    /// place, from TextKit's real layout, within what shows: the text view's bounds less what
+    /// the keyboard and the bars cover. Text TextKit has not laid out has no y yet; it is read
+    /// once it is.
+    func dropTargets(_ book: inout TextFirstSlotBook) throws -> TextFirstDropTargets {
+        guard let laidOut = laidOutRange() else {
+            return TextFirstDropTargets(slots: [], own: nil, source: nil)
+        }
+        let (asks, covering) = book.missing(from: laidOut)
+        if !asks.isEmpty {
+            var found: [TextFirstBlockSlot] = []
+            for ask in asks { found += try blockSlots(at: book.offset, within: ask) }
+            book.add(found, covering: covering)
+        }
         let insets = textView.adjustedContentInset
         let shown = textView.bounds.inset(
             by: UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0))
-        let frame: CGRect
-        let own: (top: CGFloat, bottom: CGFloat)
-        // A photo that lifted alone: the card is the photo, and having no edges of its own (its
-        // line's edges are slots) it drops nowhere while the finger stays over its middle. A
-        // photo alone on its line lifts the line, with the line's card and edges.
-        if let photo = imageAt(p), photo.range == block.range, !coversWholeLines(block.range) {
-            frame = photo.frame.intersection(shown)
-            own = (frame.midY, frame.midY)
-        } else {
-            let topEdge = TextFirstBlockSlot(offset: block.range.location, end: false)
-            let bottomEdge = TextFirstBlockSlot(offset: NSMaxRange(block.range), end: block.toEnd)
-            let top = max(boundaryY(topEdge, in: laidOut) ?? -.infinity, shown.minY)
-            let bottom = min(boundaryY(bottomEdge, in: laidOut) ?? .infinity, shown.maxY)
-            frame = CGRect(x: 0, y: top, width: textView.bounds.width, height: bottom - top)
-            own = (top, bottom)
+        let slots = book.slots(in: laidOut).compactMap { slot in
+            boundaryY(slot, in: laidOut).flatMap {
+                shown.minY...shown.maxY ~= $0 ? (slot: slot, y: $0) : nil
+            }
         }
-        guard !frame.isNull, frame.height > 0 else { return nil }
-        let targets = TextFirstDropTargets(
-            slots: slots.compactMap { slot in
-                boundaryY(slot, in: laidOut).flatMap {
-                    shown.minY...shown.maxY ~= $0 ? (slot, $0) : nil
-                }
-            },
-            ownTop: own.top, ownBottom: own.bottom)
-        return TextFirstLift(
-            offset: offset, block: block.range, frame: frame, targets: targets, revision: rev)
+        let block = book.block
+        // A photo lifted alone: its place is the photo, and having no edges of its own (its
+        // line's edges are slots) it drops nowhere while the finger stays over its middle.
+        if book.alonePhoto {
+            guard let photo = drawnImage(block.range, in: laidOut)?.intersection(shown),
+                !photo.isNull, photo.height > 0
+            else { return TextFirstDropTargets(slots: slots, own: nil, source: nil) }
+            return TextFirstDropTargets(
+                slots: slots, own: (photo.midY, photo.midY), source: photo)
+        }
+        // An edge outside the laid-out stretch is beyond the side of it that it is on.
+        func y(_ edge: TextFirstBlockSlot) -> CGFloat {
+            boundaryY(edge, in: laidOut)
+                ?? (edge.offset < laidOut.location ? -.infinity : .infinity)
+        }
+        let top = max(y(TextFirstBlockSlot(offset: block.range.location, end: false)), shown.minY)
+        let bottom = min(
+            y(TextFirstBlockSlot(offset: NSMaxRange(block.range), end: block.toEnd)), shown.maxY)
+        guard top < bottom else { return TextFirstDropTargets(slots: slots, own: nil, source: nil) }
+        return TextFirstDropTargets(
+            slots: slots, own: (top, bottom),
+            source: CGRect(x: 0, y: top, width: textView.bounds.width, height: bottom - top))
     }
 
     /// The UTF-16 range TextKit has laid out (the viewport and a margin around it): where a y can
     /// be read without laying out text that is not shown.
-    private func laidOutRange() -> NSRange? {
+    func laidOutRange() -> NSRange? {
         guard let manager = textView.textLayoutManager,
             let viewport = manager.textViewportLayoutController.viewportRange
         else { return nil }
@@ -133,7 +156,7 @@ extension TextFirstEditorController {
     /// after a final line ending is read where it is drawn: a boundary at
     /// the text's end that is not the note's end is that row's top, and the note's end its
     /// bottom. Nil outside `laidOut`, where asking would lay out text that is not shown.
-    private func boundaryY(_ slot: TextFirstBlockSlot, in laidOut: NSRange) -> CGFloat? {
+    func boundaryY(_ slot: TextFirstBlockSlot, in laidOut: NSRange) -> CGFloat? {
         guard laidOut.location <= slot.offset, slot.offset <= NSMaxRange(laidOut),
             storage.length > 0, let manager = textView.textLayoutManager,
             let content = manager.textContentManager
@@ -152,6 +175,22 @@ extension TextFirstEditorController {
         }
         let text = f.textLineFragments.last { $0.characterRange.length > 0 }
         return top + (text?.typographicBounds.maxY ?? f.layoutFragmentFrame.height)
+    }
+
+    /// Where the image at UTF-16 `range` is drawn (text view coordinates), when TextKit has laid
+    /// it out.
+    private func drawnImage(_ range: NSRange, in laidOut: NSRange) -> CGRect? {
+        guard NSLocationInRange(range.location, laidOut), let manager = textView.textLayoutManager,
+            let location = manager.textContentManager?.location(
+                manager.documentRange.location, offsetBy: range.location),
+            let f = manager.textLayoutFragment(for: location) as? TextFirstLayoutFragment
+        else { return nil }
+        let base = manager.offset(
+            from: manager.documentRange.location, to: f.rangeInElement.location)
+        guard let run = f.imageRuns.first(where: { base + $0.range.location == range.location }),
+            let rect = f.imageRect(run)
+        else { return nil }
+        return rect.offsetBy(dx: inset.left, dy: inset.top + f.layoutFragmentFrame.minY)
     }
 
     /// The fragment of the note's last paragraph, which holds its empty last line.

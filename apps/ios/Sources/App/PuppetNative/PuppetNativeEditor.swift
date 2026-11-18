@@ -100,7 +100,22 @@
                 ],
                 "clipboard": clipboard.map { String($0.prefix(80)) } ?? NSNull(),
                 "canUndo": !disabled.contains("undo"), "canRedo": !disabled.contains("redo"),
+                "blockDrag": blockDrag(c, document) ?? NSNull(),
             ]
+        }
+
+        /// The block drag in progress, so a test can hold a real finger and still see where a
+        /// release would land: the display line it lifted, and what its drop line shows (the
+        /// line it would land above, or the note's end; null with no drop line).
+        private func blockDrag(_ c: TextFirstEditorController, _ document: Document)
+            -> [String: Any]?
+        {
+            guard let drag = c.blockDrag else { return nil }
+            let shows: Any =
+                drag.slot.map { slot -> [String: Any] in
+                    slot.end ? ["end": true] : ["before": document.line(at: slot.offset).number]
+                } ?? NSNull()
+            return ["line": document.line(at: drag.lift.block.location).number, "dropLine": shows]
         }
 
         func requireController() throws -> TextFirstEditorController {
