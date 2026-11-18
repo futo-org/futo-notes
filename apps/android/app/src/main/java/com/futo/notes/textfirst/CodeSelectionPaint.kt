@@ -145,14 +145,15 @@ private fun TextFirstEditText.drawSelectionRows(canvas: Canvas, l: Layout, e: Sp
         if (line == lastLine && to == lineStart && line > firstLine) break
         val a = maxOf(from, lineStart)
         val breakSelected = to >= lineEnd && lineEnd > lineStart && e[lineEnd - 1] == '\n'
+        val rightToLeft = l.getParagraphDirection(line) < 0
+        // A row whose line break is selected runs out to the line's far side: the left one on a right-to-left line.
         val left = l.getPrimaryHorizontal(a)
-        val right = if (breakSelected || line < lastLine) l.width.toFloat() else l.getPrimaryHorizontal(minOf(to, lineEnd))
+        val right = if (breakSelected || line < lastLine) (if (rightToLeft) 0f else l.width.toFloat()) else l.getPrimaryHorizontal(minOf(to, lineEnd))
         val (top, bottom) = textRowBand(l, e, line)
         // Rounded where the run stops mid-text, square where it runs out to the block's side (!300 cb 591-597).
         // The run's start and end are sides of the text, not of the screen: a right-to-left line starts on the right.
         val roundStart = line == firstLine && a > lineStart
         val roundEnd = line == lastLine && !breakSelected
-        val rightToLeft = l.getParagraphDirection(line) < 0
         val roundLeft = if (rightToLeft) roundEnd else roundStart
         val roundRight = if (rightToLeft) roundStart else roundEnd
         if (!roundLeft && !roundRight) {

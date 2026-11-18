@@ -52,15 +52,18 @@ class TextFirstCodeSelectionCornerTest {
         val (top, _) = view.textRowBand(l, e, line)
         val x = view.totalPaddingLeft + l.getPrimaryHorizontal(start).toInt()
         val y = view.totalPaddingTop - view.scrollY + top.toInt()
-        fun corner(): Int {
+        val inside = view.totalPaddingTop - view.scrollY + l.getLineBaseline(line) - 6
+        fun pixels(): Pair<Int, Int> {
             val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
             view.draw(Canvas(bitmap))
-            return bitmap.getPixel(x - 2, y + 1)
+            return bitmap.getPixel(x - 2, y + 1) to bitmap.getPixel(x - 30, inside)
         }
-        val before = corner()
+        val (cornerBefore, textBefore) = pixels()
         c.select(start, end)
         withTimeout(5_000) { while (view.selectionEnd != end) delay(20) }
         delay(300)
-        assertEquals("the run's start corner, on the right, is square", before, corner())
+        val (corner, text) = pixels()
+        assertNotEquals("the run is not painted over its text, left of where it starts", textBefore, text)
+        assertEquals("the run's start corner, on the right, is square", cornerBefore, corner)
     }
 }
