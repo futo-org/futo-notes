@@ -11,7 +11,7 @@ What a typed backtick, `*`, `~`, `[` or `]`, and Backspace in an empty pair, do.
 ## Where nothing pairs
 
 - In a code block or front matter, inside inline code (a backtick at its text end aside), at a caret that carries the toolbar's formats (they wrap what is typed: `*` under Bold gives `__*__`), and after an escaping `\` (an odd run of them), every pair character is typed as typing types it. → crates/futo-notes-editor/src/engine/commands/paired_typing/caret.rs `caret_pairing`
-- A pair is not written, nor grown, where it would make its line a divider or an opening fence it is not now: there the character is typed (`` `|x `` gives `` ``x ``; `~|` at a line's start gives `~~|`, as `~~~~` would open a fence; `*|*` alone on a line gives `***`, a divider). → crates/futo-notes-editor/src/engine/commands/paired_typing/caret.rs `pair_makes_block`
+- A pair is not written, nor grown, where it would make its line a divider or an opening fence it is not now: there the character is typed (`` `|x `` gives ` `x ``; `~|` at a line's start gives `~~|`, as `~~~~` would open a fence; `*|*` alone on a line gives `***`, a divider). → crates/futo-notes-editor/src/engine/commands/paired_typing/caret.rs `pair_makes_block`
 
 ## At a caret
 

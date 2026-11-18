@@ -1,4 +1,4 @@
-use futo_notes_editor::host::{plan_quick_open, plan_styles, plan_tables, DisplayMirror};
+use futo_notes_editor::host::{plan_quick_open, plan_styles, DisplayMirror};
 use futo_notes_editor::{quick_open, DisplayOffset, DisplayRange, EditorSession};
 
 /// The render-slice rule written out on UTF-16 units, the way a platform string holds them.
@@ -137,11 +137,6 @@ fn the_quick_plan_is_the_whole_notes_plan_of_the_same_range() {
     let mut to_utf16 = |byte: usize| mirror.byte_to_utf16(byte).unwrap();
     let slice = session.project(session.revision(), range).unwrap();
     let mut whole = plan_styles(&slice, 0, &mut to_utf16);
-    whole.extend(plan_tables(
-        &session.inspect_tables(session.revision(), range).unwrap(),
-        range,
-        &mut to_utf16,
-    ));
     let shown_units = quick.display.encode_utf16().count();
     // The whole plan also holds the block starting at the cut (its spans lie past the quick
     // display); within the quick display the two agree.

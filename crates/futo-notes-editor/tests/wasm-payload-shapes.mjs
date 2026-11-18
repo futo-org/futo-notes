@@ -114,6 +114,11 @@ assert.ok(slice.blocks.some((b) => b.list && b.code === null) && slice.atoms.len
 assert.ok(slice.links.length && slice.wikilinks.some((w) => w.note_id === 'Road'));
 assert.ok(slice.atoms.some((a) => a.image) && slice.code_blocks.some((b) => b.language === 'rust'));
 assert.ok(slice.blocks.some((b) => b.code?.line_number === 1 && b.code.mark === 'Highlight'));
+assert.deepEqual(
+  slice.tables.map((t) => [t.columns, t.alignments]),
+  [[2, ['None', 'None']]],
+);
+assert.ok(slice.blocks.some((b) => b.table?.role === 'Row' && b.table.row === 1));
 shape('NoteIdChange', session.update_note_ids('["Road","Other"]'));
 shape('NoteIdChange', session.update_note_ids('[]'));
 const rust = slice.code_blocks.find((b) => b.language === 'rust');
@@ -168,6 +173,7 @@ const cells = new WasmSession(11n, '| x |\n| --- |', 0n);
 cells.select_with_affinity(0n, 0, 1, '"Forward"');
 const tableToolbar = shape('ToolbarState', cells.toolbar_state());
 assert.equal(tableToolbar.heading_allowed, false);
+assert.equal(tableToolbar.quote_allowed, false);
 assert.equal(tableToolbar.heading, null);
 
 const completion = new WasmSession(2n, '[[Ro', 0n);

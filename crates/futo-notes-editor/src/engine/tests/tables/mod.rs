@@ -13,6 +13,7 @@
 //! and selection back) and redone. `inspect` describes the
 //! table `inspect_table` finds at the selection (`null`: none); `tables`
 //! lists `[columns, rows]` of each table `inspect_tables` finds in the note.
+pub(super) mod projection;
 mod random;
 mod surface;
 mod work;

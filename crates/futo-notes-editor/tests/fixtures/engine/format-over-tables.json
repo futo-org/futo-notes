@@ -1,0 +1,248 @@
+[
+  {
+    "name": "bold over text, a table and text leaves the table alone",
+    "before": "⟦one\n| a | b |\n|---|---|\n| c | d |\ntwo⟧",
+    "command": [["bold"]],
+    "after": "⟦**one**\n| a | b |\n|---|---|\n| c | d |\n**two**⟧"
+  },
+  {
+    "name": "bold over a table and text leaves the table alone",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |\ntwo⟧",
+    "command": [["bold"]],
+    "after": "⟦| a | b |\n|---|---|\n| c | d |\n**two**⟧"
+  },
+  {
+    "name": "bold over two tables with text between leaves the table alone",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |\none\n| x |\n|---|\n| y |⟧",
+    "command": [["bold"]],
+    "after": "⟦| a | b |\n|---|---|\n| c | d |\n**one**\n| x |\n|---|\n| y |⟧"
+  },
+  {
+    "name": "bold over text, a table, a code block and text leaves the table alone",
+    "before": "⟦one\n| a | b |\n|---|---|\n| c | d |\n```\nx\n```\ntwo⟧",
+    "command": [["bold"]],
+    "after": "⟦**one**\n| a | b |\n|---|---|\n| c | d |\n```\nx\n```\n**two**⟧"
+  },
+  {
+    "name": "italic over text, a table and text leaves the table alone",
+    "before": "⟦one\n| a | b |\n|---|---|\n| c | d |\ntwo⟧",
+    "command": [["italic"]],
+    "after": "⟦*one*\n| a | b |\n|---|---|\n| c | d |\n*two*⟧"
+  },
+  {
+    "name": "italic over a table and text leaves the table alone",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |\ntwo⟧",
+    "command": [["italic"]],
+    "after": "⟦| a | b |\n|---|---|\n| c | d |\n*two*⟧"
+  },
+  {
+    "name": "italic over two tables with text between leaves the table alone",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |\none\n| x |\n|---|\n| y |⟧",
+    "command": [["italic"]],
+    "after": "⟦| a | b |\n|---|---|\n| c | d |\n*one*\n| x |\n|---|\n| y |⟧"
+  },
+  {
+    "name": "italic over text, a table, a code block and text leaves the table alone",
+    "before": "⟦one\n| a | b |\n|---|---|\n| c | d |\n```\nx\n```\ntwo⟧",
+    "command": [["italic"]],
+    "after": "⟦*one*\n| a | b |\n|---|---|\n| c | d |\n```\nx\n```\n*two*⟧"
+  },
+  {
+    "name": "strike over text, a table and text leaves the table alone",
+    "before": "⟦one\n| a | b |\n|---|---|\n| c | d |\ntwo⟧",
+    "command": [["strike"]],
+    "after": "⟦~~one~~\n| a | b |\n|---|---|\n| c | d |\n~~two~~⟧"
+  },
+  {
+    "name": "strike over a table and text leaves the table alone",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |\ntwo⟧",
+    "command": [["strike"]],
+    "after": "⟦| a | b |\n|---|---|\n| c | d |\n~~two~~⟧"
+  },
+  {
+    "name": "strike over two tables with text between leaves the table alone",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |\none\n| x |\n|---|\n| y |⟧",
+    "command": [["strike"]],
+    "after": "⟦| a | b |\n|---|---|\n| c | d |\n~~one~~\n| x |\n|---|\n| y |⟧"
+  },
+  {
+    "name": "strike over text, a table, a code block and text leaves the table alone",
+    "before": "⟦one\n| a | b |\n|---|---|\n| c | d |\n```\nx\n```\ntwo⟧",
+    "command": [["strike"]],
+    "after": "⟦~~one~~\n| a | b |\n|---|---|\n| c | d |\n```\nx\n```\n~~two~~⟧"
+  },
+  {
+    "name": "code over text, a table and text leaves the table alone",
+    "before": "⟦one\n| a | b |\n|---|---|\n| c | d |\ntwo⟧",
+    "command": [["code"]],
+    "after": "⟦`one`\n| a | b |\n|---|---|\n| c | d |\n`two`⟧"
+  },
+  {
+    "name": "code over a table and text leaves the table alone",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |\ntwo⟧",
+    "command": [["code"]],
+    "after": "⟦| a | b |\n|---|---|\n| c | d |\n`two`⟧"
+  },
+  {
+    "name": "code over two tables with text between leaves the table alone",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |\none\n| x |\n|---|\n| y |⟧",
+    "command": [["code"]],
+    "after": "⟦| a | b |\n|---|---|\n| c | d |\n`one`\n| x |\n|---|\n| y |⟧"
+  },
+  {
+    "name": "code over text, a table, a code block and text leaves the table alone",
+    "before": "⟦one\n| a | b |\n|---|---|\n| c | d |\n```\nx\n```\ntwo⟧",
+    "command": [["code"]],
+    "after": "⟦`one`\n| a | b |\n|---|---|\n| c | d |\n```\nx\n```\n`two`⟧"
+  },
+  {
+    "name": "link over text, a table and text leaves the table alone",
+    "before": "⟦one\n| a | b |\n|---|---|\n| c | d |\ntwo⟧",
+    "command": [["link", "u"]],
+    "after": "⟦[one](u)\n| a | b |\n|---|---|\n| c | d |\n[two](u)⟧"
+  },
+  {
+    "name": "link over a table and text leaves the table alone",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |\ntwo⟧",
+    "command": [["link", "u"]],
+    "after": "⟦| a | b |\n|---|---|\n| c | d |\n[two](u)⟧"
+  },
+  {
+    "name": "link over two tables with text between leaves the table alone",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |\none\n| x |\n|---|\n| y |⟧",
+    "command": [["link", "u"]],
+    "after": "⟦| a | b |\n|---|---|\n| c | d |\n[one](u)\n| x |\n|---|\n| y |⟧"
+  },
+  {
+    "name": "link over text, a table, a code block and text leaves the table alone",
+    "before": "⟦one\n| a | b |\n|---|---|\n| c | d |\n```\nx\n```\ntwo⟧",
+    "command": [["link", "u"]],
+    "after": "⟦[one](u)\n| a | b |\n|---|---|\n| c | d |\n```\nx\n```\n[two](u)⟧"
+  },
+  {
+    "name": "quote over text, a table and text leaves the table alone",
+    "before": "⟦one\n| a | b |\n|---|---|\n| c | d |\ntwo⟧",
+    "command": [["quote"]],
+    "after": "⟦> one\n| a | b |\n|---|---|\n| c | d |\n> two⟧"
+  },
+  {
+    "name": "quote over a table and text leaves the table alone",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |\ntwo⟧",
+    "command": [["quote"]],
+    "after": "⟦| a | b |\n|---|---|\n| c | d |\n> two⟧"
+  },
+  {
+    "name": "quote over two tables with text between leaves the table alone",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |\none\n| x |\n|---|\n| y |⟧",
+    "command": [["quote"]],
+    "after": "⟦| a | b |\n|---|---|\n| c | d |\n> one\n| x |\n|---|\n| y |⟧"
+  },
+  {
+    "name": "quote over text, a table, a code block and text leaves the table alone",
+    "before": "⟦one\n| a | b |\n|---|---|\n| c | d |\n```\nx\n```\ntwo⟧",
+    "command": [["quote"]],
+    "after": "⟦> one\n| a | b |\n|---|---|\n| c | d |\n```\nx\n```\n> two⟧"
+  },
+  {
+    "name": "bold over a whole table formats each cell",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |⟧",
+    "command": [["bold"]],
+    "after": "⟦| **a** | **b** |\n|---|---|\n| **c** | **d** |⟧"
+  },
+  {
+    "name": "bold inside one cell formats it",
+    "before": "| a⟦bc⟧ | d |\n|---|---|\n| e | f |",
+    "command": [["bold"]],
+    "after": "| a**⟦bc⟧** | d |\n|---|---|\n| e | f |"
+  },
+  {
+    "name": "italic over a whole table formats each cell",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |⟧",
+    "command": [["italic"]],
+    "after": "⟦| *a* | *b* |\n|---|---|\n| *c* | *d* |⟧"
+  },
+  {
+    "name": "italic inside one cell formats it",
+    "before": "| a⟦bc⟧ | d |\n|---|---|\n| e | f |",
+    "command": [["italic"]],
+    "after": "| a*⟦bc⟧* | d |\n|---|---|\n| e | f |"
+  },
+  {
+    "name": "strike over a whole table formats each cell",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |⟧",
+    "command": [["strike"]],
+    "after": "⟦| ~~a~~ | ~~b~~ |\n|---|---|\n| ~~c~~ | ~~d~~ |⟧"
+  },
+  {
+    "name": "strike inside one cell formats it",
+    "before": "| a⟦bc⟧ | d |\n|---|---|\n| e | f |",
+    "command": [["strike"]],
+    "after": "| a~~⟦bc⟧~~ | d |\n|---|---|\n| e | f |"
+  },
+  {
+    "name": "code over a whole table formats each cell",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |⟧",
+    "command": [["code"]],
+    "after": "⟦| `a` | `b` |\n|---|---|\n| `c` | `d` |⟧"
+  },
+  {
+    "name": "code inside one cell formats it",
+    "before": "| a⟦bc⟧ | d |\n|---|---|\n| e | f |",
+    "command": [["code"]],
+    "after": "| a`⟦bc⟧` | d |\n|---|---|\n| e | f |"
+  },
+  {
+    "name": "link over a whole table formats each cell",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |⟧",
+    "command": [["link", "u"]],
+    "after": "⟦| [a](u) | [b](u) |\n|---|---|\n| [c](u) | [d](u) |⟧"
+  },
+  {
+    "name": "link inside one cell formats it",
+    "before": "| a⟦bc⟧ | d |\n|---|---|\n| e | f |",
+    "command": [["link", "u"]],
+    "after": "| a[⟦bc⟧](u) | d |\n|---|---|\n| e | f |"
+  },
+  {
+    "name": "quote over a whole table changes nothing",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |⟧",
+    "command": [["quote"]],
+    "after": "⟦| a | b |\n|---|---|\n| c | d |⟧",
+    "quote_allowed": false
+  },
+  {
+    "name": "quote inside one cell changes nothing",
+    "before": "| a⟦bc⟧ | d |\n|---|---|\n| e | f |",
+    "command": [["quote"]],
+    "after": "| a⟦bc⟧ | d |\n|---|---|\n| e | f |",
+    "quote_allowed": false
+  },
+  {
+    "name": "bold off is decided by the lines around a table",
+    "before": "⟦**one**\n| **a** | b |\n|---|---|\n| c | d |\n**two**⟧",
+    "command": [["bold"]],
+    "after": "⟦one\n| **a** | b |\n|---|---|\n| c | d |\ntwo⟧",
+    "formats": []
+  },
+  {
+    "name": "the toolbar reads the lines around a table",
+    "before": "⟦**one**\n| a | b |\n|---|---|\n| c | d |\n**two**⟧",
+    "command": [["select", 0, 37]],
+    "after": "⟦**one**\n| a | b |\n|---|---|\n| c | d |\n**two**⟧",
+    "formats": ["bold"],
+    "quote_allowed": true
+  },
+  {
+    "name": "unlinking over text and a table leaves the table's links",
+    "before": "⟦[one](u)\n| [a](u) | b |\n|---|---|\n| c | d |⟧",
+    "command": [["link", ""]],
+    "after": "⟦one\n| [a](u) | b |\n|---|---|\n| c | d |⟧"
+  },
+  {
+    "name": "a table and the blank line under it are not only a table",
+    "before": "⟦| a | b |\n|---|---|\n| c | d |\n\n⟧after",
+    "command": [["bold"]],
+    "after": "⟦| a | b |\n|---|---|\n| c | d |\n\n⟧after",
+    "inline_allowed": true
+  }
+]

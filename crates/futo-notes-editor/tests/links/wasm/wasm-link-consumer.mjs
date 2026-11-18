@@ -54,7 +54,10 @@ try {
   session.update_note_ids(JSON.stringify(['Projects/Roadmap', 'Projects/Plan']));
   assert.equal(session.resolve_note_link('Projects/Roadmap', 'Plan'), 'Projects/Plan');
   assert.equal(session.resolve_note_link('Projects/Roadmap', 'Missing'), undefined);
-  assert.equal(session.normalize_link_destination('Projects/Roadmap', 'logo.ai'), 'https://logo.ai');
+  assert.equal(
+    session.normalize_link_destination('Projects/Roadmap', 'logo.ai'),
+    'https://logo.ai',
+  );
   assert.equal(session.normalize_link_destination('Projects/Roadmap', 'Plan'), 'Plan');
   let display = 'see teh docs\r\n';
   // Every edit returns `{change, request}`: the page shows the change at once

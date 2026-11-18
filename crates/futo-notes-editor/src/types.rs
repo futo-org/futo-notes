@@ -262,6 +262,9 @@ pub struct BlockDescription {
     pub list: Option<ListDescription>,
     /// A line of fenced code; its block is in `ProjectionSlice::code_blocks`.
     pub code: Option<CodeLineDescription>,
+    /// A line of a table; its table is in `ProjectionSlice::tables`.
+    #[serde(default)]
+    pub table: Option<TableLineDescription>,
     /// Leading front matter, shown verbatim as inert metadata (no Markdown,
     /// no caret, no edits except a selection covering all of it).
     #[serde(default)]
@@ -309,6 +312,39 @@ pub struct CodeBlockDescription {
     pub line_count: u32,
 }
 
+/// What a table line is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TableLineRole {
+    Header,
+    Delimiter,
+    Row,
+}
+
+/// One line of a table, read from that line alone (its row number aside).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableLineDescription {
+    pub role: TableLineRole,
+    /// As `TableCell::row` counts: the header is 0, the first row under the
+    /// delimiter row 1. The delimiter row is 0, the header's.
+    pub row: usize,
+    /// Each cell's content, as `TableCell::content`.
+    pub cells: Vec<DisplayRange>,
+    /// Where each pipe that bounds a cell shows; an escaped pipe is text.
+    pub pipes: Vec<DisplayOffset>,
+}
+
+/// A table, whole even where a projection holds only part of it. `range`
+/// runs from its header's start to its last line's end (that line's break
+/// excluded).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableBlockDescription {
+    pub range: DisplayRange,
+    /// Cells in its widest row, the delimiter row aside.
+    pub columns: usize,
+    /// One per column, from the delimiter row's cells.
+    pub alignments: Vec<crate::TableAlignment>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectionSlice {
     pub revision: Revision,
@@ -329,6 +365,9 @@ pub struct ProjectionSlice {
     /// Each code block the slice's lines belong to, in order.
     #[serde(default)]
     pub code_blocks: Vec<CodeBlockDescription>,
+    /// Each table the slice's lines belong to, in order.
+    #[serde(default)]
+    pub tables: Vec<TableBlockDescription>,
 }
 
 /// What an atom is. Renderers draw it as one unit and keep the caret outside it.

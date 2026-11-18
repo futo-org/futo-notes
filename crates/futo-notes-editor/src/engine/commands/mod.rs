@@ -11,7 +11,7 @@ mod inline;
 mod lists;
 mod marks;
 mod paired_typing;
-mod tables;
+pub(super) mod tables;
 mod transpose;
 mod wikilinks;
 

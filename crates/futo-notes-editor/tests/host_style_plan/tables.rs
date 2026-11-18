@@ -1,20 +1,30 @@
 use futo_notes_editor::host::{self, DisplayMirror, StyleSpec};
 use futo_notes_editor::*;
 
+/// The style plan of display `window`, as a native session's `style_plan` makes it: over the
+/// window widened by `table_window`.
+fn planned(session: &EditorSession, window: DisplayRange) -> Vec<StyleSpec> {
+    let display = session.display_text();
+    let mirror = DisplayMirror::new(&display);
+    let slice = session.project(session.revision(), window).unwrap();
+    let widened = host::table_window(&slice);
+    let slice = session.project(session.revision(), widened).unwrap();
+    let mut to_utf16 = |b: usize| mirror.byte_to_utf16(b).unwrap();
+    let start = to_utf16(widened.start.0);
+    host::plan_styles(&slice, start, &mut to_utf16)
+}
+
 #[test]
 fn tables_plan_as_whole_row_spans_with_cell_ranges_and_a_delimiter() {
     let source = "intro\n\n| 日本 | b |\n|:--|--:|\n| x | y |\n\nafter\n";
     let session = EditorSession::open(source);
     let display = session.display_text();
-    let mirror = DisplayMirror::new(&display);
     let end = display.len();
     let range = DisplayRange {
         start: DisplayOffset(0),
         end: DisplayOffset(end),
     };
-    let tables = session.inspect_tables(session.revision(), range).unwrap();
-    assert_eq!(tables.len(), 1);
-    let spans = host::plan_tables(&tables, range, &mut |b| mirror.byte_to_utf16(b).unwrap());
+    let spans = planned(&session, range);
     let units: Vec<u16> = display.encode_utf16().collect();
     let text = |s: usize, e: usize| String::from_utf16(&units[s..e]).unwrap();
     let rows: Vec<_> = spans
@@ -57,6 +67,36 @@ fn tables_plan_as_whole_row_spans_with_cell_ranges_and_a_delimiter() {
             .count(),
         1
     );
+    let tables: Vec<_> = spans
+        .iter()
+        .filter_map(|s| match s {
+            StyleSpec::Table {
+                start,
+                end,
+                columns,
+                alignments,
+            } => Some((text(*start, *end), *columns, alignments.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        tables,
+        [(
+            "| 日本 | b |\n|:--|--:|\n| x | y |".to_string(),
+            2,
+            vec![TableAlignment::Left, TableAlignment::Right]
+        )]
+    );
+    let pipes: Vec<String> = spans
+        .iter()
+        .filter_map(|s| match s {
+            StyleSpec::TableRow { pipes, row, .. } if *row == 1 => {
+                Some(pipes.iter().map(|&p| text(p, p + 1)).collect())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(pipes, ["|||"]);
 }
 
 /// `(row text, header, table_start)` of each planned row and the delimiter count, for the
@@ -64,7 +104,6 @@ fn tables_plan_as_whole_row_spans_with_cell_ranges_and_a_delimiter() {
 fn table_rows(source: &str, window: Option<(&str, &str)>) -> (Vec<(String, bool, usize)>, usize) {
     let session = EditorSession::open(source);
     let display = session.display_text();
-    let mirror = DisplayMirror::new(&display);
     let whole = DisplayRange {
         start: DisplayOffset(0),
         end: DisplayOffset(display.len()),
@@ -73,8 +112,7 @@ fn table_rows(source: &str, window: Option<(&str, &str)>) -> (Vec<(String, bool,
         start: DisplayOffset(display.find(from).unwrap()),
         end: DisplayOffset(display.find(until).unwrap()),
     });
-    let tables = session.inspect_tables(session.revision(), window).unwrap();
-    let spans = host::plan_tables(&tables, window, &mut |b| mirror.byte_to_utf16(b).unwrap());
+    let spans = planned(&session, window);
     let units: Vec<u16> = display.encode_utf16().collect();
     let rows = spans
         .iter()
@@ -131,8 +169,8 @@ fn a_window_in_the_body_plans_only_the_rows_it_meets() {
     }
 }
 
-/// The header fixes every row's column count and the delimiter its alignments, so a window that
-/// meets either plans the whole table (and the delimiter span).
+/// A row's span carries its table's columns and the delimiter's alignments, so a window whose
+/// projection holds the header or the delimiter plans the whole table (and the delimiter span).
 #[test]
 fn a_window_on_the_header_or_delimiter_plans_the_whole_table() {
     let source = numbered_table();
@@ -156,23 +194,12 @@ fn a_lone_pipe_row_plans_as_an_empty_grid_row() {
     assert_eq!(texts, ["| a | b |", "| x | y |", "|", "| z | w |"]);
     let session = EditorSession::open(source);
     let display = session.display_text();
-    let mirror = DisplayMirror::new(&display);
-    let tables = session
-        .inspect_tables(
-            session.revision(),
-            DisplayRange {
-                start: DisplayOffset(0),
-                end: DisplayOffset(display.len()),
-            },
-        )
-        .unwrap();
-    let spans = host::plan_tables(
-        &tables,
+    let spans = planned(
+        &session,
         DisplayRange {
             start: DisplayOffset(0),
             end: DisplayOffset(display.len()),
         },
-        &mut |b| mirror.byte_to_utf16(b).unwrap(),
     );
     let empty: Vec<_> = spans
         .iter()

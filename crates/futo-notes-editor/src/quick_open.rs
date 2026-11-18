@@ -129,5 +129,6 @@ pub fn shown_projection(mut slice: ProjectionSlice) -> ProjectionSlice {
     slice.atoms.retain(|atom| atom.range.start.0 < end);
     slice.tags.retain(|tag| tag.start.0 < end);
     slice.code_blocks.retain(|block| block.range.start.0 < end);
+    slice.tables.retain(|table| table.range.start.0 < end);
     slice
 }

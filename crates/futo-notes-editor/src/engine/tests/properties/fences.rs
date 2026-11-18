@@ -1,8 +1,11 @@
-//! Random edits on notes dense with fences, where a host that applies each
-//! change's projection must hold what a fresh projection reports
-//! (`BlockMirror`): fence lines typed, pasted and deleted, info strings
-//! edited, adjacent blocks, the code block command and the keys at a block's
-//! edges, between the five properties' own steps.
+//! Random edits on notes dense with fences and tables, where a host that
+//! applies each change's projection must hold what a fresh projection
+//! reports (`BlockMirror`), and every table's facts equal inspection's
+//! (`check_table_facts`): fence and table lines typed, pasted and deleted,
+//! info strings and delimiter rows edited, adjacent blocks, the code block
+//! command, the keys at a block's edges, and table commands and keys, between
+//! the five properties' own steps.
+use super::super::tables::projection::check_table_facts;
 use super::block_mirror::BlockMirror;
 use super::*;
 use std::ops::Range;
@@ -25,6 +28,12 @@ const FENCE_NOTE_LINES: &[&str] = &[
     "- a",
     "# h",
     "> q",
+    "| a | b |",
+    "| a |",
+    "|---|---|",
+    "|:-:|",
+    "| x | y | z |",
+    "| p \\| q |",
 ];
 
 const FENCE_LINES: &[&str] = &[
@@ -34,9 +43,13 @@ const FENCE_LINES: &[&str] = &[
     "```py\n",
     "````\n",
     "```\n```\n",
+    "| a | b |\n",
+    "|---|\n",
+    "|:--|--:|\n",
+    "| c |\n",
 ];
 
-const INFO: &[&str] = &["js", " name:x", "y", " hl:2", "`", "~"];
+const INFO: &[&str] = &["js", " name:x", "y", " hl:2", "`", "~", "|", ":", " d |"];
 
 fn fenced_note(random: &mut Random) -> String {
     let lines: Vec<&str> = (0..random.below(14))
@@ -144,6 +157,53 @@ fn edge_key_step(
     format!("key {key:?} at {at}")
 }
 
+/// A table command at a random display offset, or a paragraph key the
+/// table claims there (Tab appends a row past the last cell, Enter below
+/// the last row).
+fn table_step(
+    engine: &mut Engine,
+    model: &mut Model,
+    view: &mut View,
+    random: &mut Random,
+) -> String {
+    use crate::{ParagraphKey, TableCommand};
+    let display = engine.display_text();
+    let mut stops: Vec<usize> = display.char_indices().map(|(at, _)| at).collect();
+    stops.push(display.len());
+    let at = stops[random.below(stops.len())];
+    let caret = DisplayRange {
+        start: DisplayOffset(at),
+        end: DisplayOffset(at),
+    };
+    let revision = engine.revision();
+    engine
+        .select_with_affinity(revision, caret, Affinity::Forward)
+        .unwrap();
+    let before = state(engine);
+    let groups = engine.history.undo.len();
+    let (change, name) = if random.below(2) == 0 {
+        let command = [
+            TableCommand::InsertRowAbove,
+            TableCommand::InsertRowBelow,
+            TableCommand::DeleteRow,
+            TableCommand::InsertColumnLeft,
+            TableCommand::InsertColumnRight,
+            TableCommand::DeleteColumn,
+        ][random.below(6)];
+        let change = engine.run_table_command(revision, caret, command, &mut ok);
+        (change.unwrap(), format!("table {command:?} at {at}"))
+    } else {
+        let key = [ParagraphKey::Tab, ParagraphKey::Enter][random.below(2)];
+        let change = engine.key(revision, caret, key, &mut ok).unwrap();
+        (change, format!("key {key:?} at {at}"))
+    };
+    if let Some(change) = change.filter(|change| change.revision != revision) {
+        apply_view_change(view, &change);
+        model.edited(engine, before, groups);
+    }
+    name
+}
+
 #[test]
 fn a_host_applying_each_change_holds_what_a_fresh_projection_reports() {
     let mut random = Random::from_env();
@@ -156,9 +216,10 @@ fn a_host_applying_each_change_holds_what_a_fresh_projection_reports() {
         let mut view = View::new(engine.display_text());
         let mut steps = Vec::new();
         for _ in 0..24 {
-            let done = match random.below(4) {
+            let done = match random.below(5) {
                 0 => fence_source_step(&mut engine, &mut model, &mut view, &mut random),
                 1 => edge_key_step(&mut engine, &mut model, &mut view, &mut random),
+                2 => table_step(&mut engine, &mut model, &mut view, &mut random),
                 _ => step(&mut engine, &mut model, &mut view, &mut random),
             };
             steps.push(done);
@@ -169,6 +230,7 @@ fn a_host_applying_each_change_holds_what_a_fresh_projection_reports() {
             assert_eq!(view.text, engine.display_text(), "view change {context}");
             view.restyled.clear();
             mirror.check(&engine, &mut view, &context);
+            check_table_facts(&engine, &context);
         }
         checked += mirror.checked;
     }

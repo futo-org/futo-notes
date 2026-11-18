@@ -4,7 +4,7 @@
 use std::sync::{Arc, Mutex};
 
 use futo_notes_editor::host::{
-    plan_styles, plan_tables, toolbar_highlights, DisplayMirror, FindSnapshot, MirrorEdit,
+    plan_styles, table_window, toolbar_highlights, DisplayMirror, FindSnapshot, MirrorEdit,
     MirrorError,
 };
 use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
@@ -222,8 +222,14 @@ impl NativeEditorSession {
         range: EditorByteRange,
     ) -> Result<Vec<EditorStyleSpan>, EditorSessionError> {
         self.with_revision(expected, |session| {
-            let display: DisplayRange = range.try_into()?;
-            let slice = session.project(Revision(expected), display)?;
+            let window: DisplayRange = range.try_into()?;
+            let slice = session.project(Revision(expected), window)?;
+            let display = table_window(&slice);
+            let slice = if display == window {
+                slice
+            } else {
+                session.project(Revision(expected), display)?
+            };
             let mut to_utf16 = |byte: usize| {
                 let at = DisplayRange {
                     start: DisplayOffset(byte),
@@ -234,9 +240,7 @@ impl NativeEditorSession {
                     .map_or(0, |r| r.start.0)
             };
             let start = to_utf16(display.start.0);
-            let mut spans = plan_styles(&slice, start, &mut to_utf16);
-            let tables = session.inspect_tables(Revision(expected), display)?;
-            spans.extend(plan_tables(&tables, display, &mut to_utf16));
+            let spans = plan_styles(&slice, start, &mut to_utf16);
             Ok(spans.into_iter().map(Into::into).collect())
         })
     }

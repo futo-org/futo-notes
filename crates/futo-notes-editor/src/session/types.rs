@@ -84,6 +84,9 @@ pub struct ToolbarState {
     /// lines no heading applies to (table lines, code, dividers).
     pub heading_allowed: bool,
     pub quote: bool,
+    /// Whether Quote can change a touched line: false over lines it never
+    /// changes (table lines, code, dividers).
+    pub quote_allowed: bool,
     pub list: Option<ToolbarList>,
     pub code: bool,
     pub mixed: bool,
