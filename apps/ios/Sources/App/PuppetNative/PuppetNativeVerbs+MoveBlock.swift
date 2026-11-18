@@ -21,9 +21,17 @@
                     400, #"MoveBlock needs one of {"before":<line>} or {"after":<line>}"#)
             }
             let line = try document.requireLine(number)
-            let column = args["column"] as? Int ?? 0
-            guard (0...line.range.length) ~= column else {
-                throw PuppetVerbRefusal(400, "column \(column) is not on line \(number)")
+            // Only an omitted column is the line's start; anything supplied must be a whole
+            // number on the line (JSON hands a boolean over as a number, so it is ruled out).
+            var column = 0
+            if let raw = args["column"] {
+                let boolean = CFGetTypeID(raw as CFTypeRef) == CFBooleanGetTypeID()
+                guard let value = raw as? Int, !boolean, (0...line.range.length) ~= value
+                else {
+                    throw PuppetVerbRefusal(
+                        400, "column \(raw) is not a UTF-16 column on line \(number)")
+                }
+                column = value
             }
             let at = line.range.location + column
             let target = try document.requireLine(before ?? after!, visibleOnly: false)

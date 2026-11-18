@@ -211,6 +211,33 @@
             #expect(h.source == "intro\nend\n- a\n  - b")
         }
 
+        @Test func moveBlockTakesOnlyANonNegativeIntegerColumn() async throws {
+            // Display lines: 1 the text and photo, 2 next. Column 4 is the photo.
+            let note = "text![](p.png)\nnext"
+            let h = TextFirstHarness(note)
+            let unmount = mount(h)
+            defer { unmount() }
+            let adapter = attached(h)
+            // As JSON hands them over: a string, a fraction, a boolean, null, a negative number.
+            for column: Any in ["4", NSNumber(value: 1.5), NSNumber(value: true), NSNull(), -1] {
+                let moved = await adapter.perform(
+                    "MoveBlock", arguments: ["line": 1, "column": column, "after": 2])
+                #expect(moved.status == 400, "column \(column)")
+                #expect(h.source == note, "column \(column)")
+            }
+            #expect(
+                await adapter.perform(
+                    "MoveBlock", arguments: ["line": 1, "column": NSNumber(value: 4), "after": 2]
+                ).status == 200)
+            #expect(h.source == "text\nnext\n![](p.png)")
+            h.controller.undo()
+            // Only an omitted column is the line's start: the line lifts whole.
+            #expect(
+                await adapter.perform("MoveBlock", arguments: ["line": 1, "after": 2]).status
+                    == 200)
+            #expect(h.source == "next\ntext![](p.png)")
+        }
+
         @Test func openLinkAndAcceptSuggestionAreTheTapsPaths() async throws {
             let h = TextFirstHarness("see [[Other]] and [[Missing]] end")
             _ = try h.store.createNote(title: "Other", folder: "", content: "other body")
