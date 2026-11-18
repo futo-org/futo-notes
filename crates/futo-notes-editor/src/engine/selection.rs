@@ -99,6 +99,7 @@ impl Engine {
     /// The user placed this selection: as `select_with_affinity`, but the
     /// same range also ends a selected block and a language caret, leaving
     /// an ordinary selection (on a block, a caret on its first code line).
+    /// It is fitted out of images as input is (`outside_images`).
     pub fn place_selection(
         &mut self,
         expected: Revision,
@@ -107,6 +108,7 @@ impl Engine {
     ) -> Result<SelectionChange, EditorError> {
         self.check_revision(expected)?;
         self.check_display_range(range)?;
+        let range = self.outside_images(range);
         if self.composition.is_none() {
             self.block_selected = false;
             self.pin = None;

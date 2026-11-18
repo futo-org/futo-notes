@@ -32,7 +32,7 @@ fn rescan(engine: &mut Engine) -> crate::FindReport {
 fn the_find_table() {
     let cases: Vec<Value> =
         serde_json::from_str(include_str!("../../../tests/fixtures/engine/find.json")).unwrap();
-    assert_eq!(cases.len(), 45);
+    assert_eq!(cases.len(), 46);
     for case in &cases {
         let name = case["name"].as_str().unwrap();
         let before = case["before"].as_str().unwrap();
@@ -354,4 +354,64 @@ fn a_20000_line_note_types_without_scanning_and_scans_tables_only() {
     }
     assert_eq!(engine.find_report().total, 0);
     assert_eq!(rescan(&mut engine).total, 12_001);
+}
+
+#[test]
+fn applying_a_scan_reads_each_line_holding_a_match_once() {
+    let mut source = String::new();
+    for line in 0..4_000 {
+        source.push_str(match line % 4 {
+            0 => "- banana **banana** banana\n",
+            1 => "xyz\n",
+            2 => "> bananas\n",
+            _ => "| x | y |\n",
+        });
+    }
+    let mut engine = Engine::open(&source);
+    engine.find_set_query(Revision(0), "a").unwrap();
+    let work = engine.find_work();
+    assert_eq!(all(&mut engine).len(), 12_000);
+    assert_eq!(work.checked_lines, 2_000);
+
+    // A host's rescan through `find_apply_scan` is checked the same way.
+    rescan(&mut engine);
+    assert_eq!(engine.find_work().checked_lines, 4_000);
+    assert_eq!(engine.find_work().scans, 2);
+}
+
+/// Prints how long find takes on a 20,000-line note:
+/// `cargo test --release -p futo-notes-editor find_timings -- --nocapture --ignored`.
+#[test]
+#[ignore]
+fn find_timings() {
+    let mut source = String::new();
+    for line in 0..20_000 {
+        source.push_str(match line % 5 {
+            0 => "- Here we see the evening green trees **every** time\n",
+            1 => "plain sentence where the seven elephants rest\n",
+            2 => "## a heading here\n",
+            3 => "> the quoted text enters\n",
+            _ if line % 1_000 == 4 => "1. ordered zephyr with [a link](https://example.com)\n",
+            _ => "1. ordered entry here with [a link](https://example.com)\n",
+        });
+    }
+    let mut engine = Engine::open(&source);
+    for query in ["e", "en", "zephyr", "qqq"] {
+        let clock = std::time::Instant::now();
+        let report = engine.find_set_query(Revision(0), query).unwrap();
+        let whole = clock.elapsed();
+        let clock = std::time::Instant::now();
+        let request = engine.find_scan_request().unwrap();
+        let requested = clock.elapsed();
+        let clock = std::time::Instant::now();
+        let result = request.run();
+        let scanned = clock.elapsed();
+        let clock = std::time::Instant::now();
+        engine.find_apply_scan(&result).unwrap();
+        let applied = clock.elapsed();
+        println!(
+            "{query:>7}: {:>7} matches, find_set_query {whole:?} (request {requested:?}, run {scanned:?}, apply {applied:?})",
+            report.total
+        );
+    }
 }

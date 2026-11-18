@@ -9,7 +9,7 @@
 //! replaced window are dropped, and the report is `stale` until a rescan
 //! lands. Find never edits the note, so it adds no undo step.
 use super::super::line::Role;
-use super::super::Engine;
+use super::super::{store, Engine};
 use crate::lines::{table, Kind, TableRole};
 use crate::{
     CaretDirection, DisplayOffset, DisplayRange, EditorError, FindReport, FindScanRequest,
@@ -352,18 +352,7 @@ impl Engine {
         {
             return None;
         }
-        let mut previous = 0;
-        for found in &result.matches {
-            let (start, end) = (found.start.0, found.end.0);
-            if start < previous
-                || end <= start
-                || self.check_display(start).is_err()
-                || self.check_display(end).is_err()
-            {
-                return None;
-            }
-            previous = end;
-        }
+        let checked_lines = self.find_checked_lines(&result.matches)?;
         self.find_rebase();
         let find = &mut self.find;
         find.matches = result.matches.clone();
@@ -372,11 +361,46 @@ impl Engine {
         find.dirty = false;
         find.work.scans += 1;
         find.work.scanned_bytes += result.scanned_bytes;
+        find.work.checked_lines += checked_lines;
         find.current = find.choose();
         if let Some(at) = find.current {
             find.anchor = find.matches[at].start.0;
         }
         Some(self.find_report_with(None))
+    }
+
+    /// The lines read to check that `matches` are non-empty, ascending,
+    /// non-overlapping and on character boundaries of the display, or `None`
+    /// when one is not. Each line's display is built once however many
+    /// matches it holds: an offset at either edge of a line is a boundary
+    /// of both lines that meet there.
+    fn find_checked_lines(&self, matches: &[DisplayRange]) -> Option<u64> {
+        let display_len = self.display_len();
+        let mut checked_lines = 0;
+        let mut line: Option<(usize, String)> = None;
+        let mut previous = 0;
+        for found in matches {
+            let (start, end) = (found.start.0, found.end.0);
+            if start < previous || end <= start || end > display_len {
+                return None;
+            }
+            for at in [start, end] {
+                let (base, shown) = match line.take() {
+                    Some((base, shown)) if base <= at && at <= base + shown.len() => (base, shown),
+                    _ => {
+                        checked_lines += 1;
+                        let (index, before) = self.line_at_display(store::display, at);
+                        (before.display, self.store.get(index).display())
+                    }
+                };
+                if !shown.is_char_boundary(at - base) {
+                    return None;
+                }
+                line = Some((base, shown));
+            }
+            previous = end;
+        }
+        Some(checked_lines)
     }
 
     pub(crate) fn find_work(&self) -> FindWork {

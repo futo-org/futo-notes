@@ -1,7 +1,8 @@
 //! Image insertion and the keys around an image. The literal cases are
 //! `tests/fixtures/engine/images.json`: `before` and `after` are source with
 //! the selection marked by `‸` (a caret) or `«…»` (a range), since `|`, `[`
-//! and `]` are Markdown here. `paste` pastes `reference`; `cut` copies `alt`.
+//! and `]` are Markdown here. `paste` pastes `reference`; `cut` copies `alt`;
+//! `Place` places the selection as the user's own (`after` omitted: it stays).
 use super::super::Engine;
 use super::{ok, range};
 use crate::lines::Kind;
@@ -84,6 +85,17 @@ fn image_cases() {
             before_marked, case.before,
             "{name}: the case's selection lands"
         );
+        if case.command == "Place" {
+            let revision = engine.revision();
+            let change = engine
+                .place_selection(revision, before, engine.affinity())
+                .unwrap_or_else(|error| panic!("{name}: {error:?}"));
+            let after = case.after.as_ref().unwrap_or(&case.before);
+            assert_eq!(marking(&engine), *after, "{name}");
+            assert_eq!(change.selection, engine.selection(), "{name}: the answer");
+            assert!(!engine.can_undo(), "{name}: no history");
+            continue;
+        }
         let result = run(&mut engine, case);
         match (&case.error, &case.after) {
             (Some(error), _) => {
