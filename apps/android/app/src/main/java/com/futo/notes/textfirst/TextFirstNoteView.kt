@@ -24,7 +24,7 @@ import com.futo.notes.puppet.puppetHostedField
 internal fun TextFirstNoteView(
     controller: TextFirstController,
     enabled: Boolean,
-    onOpenWikilink: (WikilinkDestination) -> Unit,
+    onOpenWikilink: (String) -> Unit,
     onOpenUrl: (String) -> Boolean,
 ) {
     val host = remember(controller) { TextFirstTableCellHost(controller.view, controller::finishCellEditing) }

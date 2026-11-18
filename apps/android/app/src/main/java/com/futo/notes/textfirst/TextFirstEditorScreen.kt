@@ -91,7 +91,6 @@ internal fun TextFirstEditorScreen(
     darkTheme: Boolean,
     onBack: () -> Unit,
     onOpenNote: (String) -> Unit,
-    onOpenCreatedNote: (String) -> Unit,
     imagePicker: ImagePicker? = null,
     registerLeave: (((() -> Unit) -> Unit) -> (() -> Unit)),
 ) {
@@ -401,14 +400,7 @@ internal fun TextFirstEditorScreen(
             Spacer(Modifier.size(4.dp))
             Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
                 TextFirstNoteView(controller, enabled = !images.recovering && !leaving,
-                    onOpenWikilink = { destination ->
-                        when (destination) {
-                            is WikilinkDestination.Note -> if (destination.id != noteId) onOpenNote(destination.id)
-                            is WikilinkDestination.Missing -> scope.launch {
-                                openMissingWikilink(store, destination.target, localization, context, onOpenCreatedNote)
-                            }
-                        }
-                    },
+                    onOpenWikilink = { target -> if (target != noteId) onOpenNote(target) },
                     onOpenUrl = { url -> com.futo.notes.ui.openExternalUrl(context, url) })
                 TextFirstOpening(controller)
             }
