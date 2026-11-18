@@ -1,18 +1,27 @@
-//! The numbers a move writes, under the rule editing follows (`number.rs`).
-//! Where a numbered item left, the items after it at its level that were
-//! counting on from it close up; the walk stops at the moved block, whose
-//! arrival renumbers what follows it. Where a block arrives as a numbered
-//! item it counts on from the numbered item above it at its new level (in a
-//! list numbered alike it repeats that number), or with none above takes
-//! the number of the item below; the items below that were counting on are
-//! bumped. Both walks read the note in the order the move leaves it.
+//! The numbers a move writes, under the rule editing follows (`number.rs`),
+//! decided from the note as it was before the move.
+//!
+//! - Where a numbered item leaves, its siblings after it that were counting
+//!   on from it (in sequence, with its delimiter) each count one less.
+//! - Where a block arrives as a numbered item, it counts on from the
+//!   numbered sibling above the slot (as that sibling ends up), or repeats
+//!   its number when the item below has it too (a list numbered alike).
+//!   With none above it takes the number of the item below, or 1 when that
+//!   number is too long to count with. When it counts up, the item below
+//!   and its siblings after it that were counting on from it each count one
+//!   more, unless the item below and the next sibling are numbered alike.
+//!
+//! Each walk reads the note as it was: it passes over lines indented
+//! further, and over the moved lines while they were part of the sequence,
+//! and stops where the note stopped it, so it never reaches a list the move
+//! put next to it. A line on both walks keeps its number.
 use super::super::super::super::command::Edit;
 use super::super::draft::diff;
-use super::super::number::{ordinal, Level, Numbering};
+use super::super::number::{ordinal, spell, step, Level, Step};
 use super::{Arriving, Landing};
 use crate::engine::Engine;
-use crate::lines::block::{read_line, width};
-use crate::lines::Line;
+use crate::lines::block::width;
+use crate::lines::Kind;
 use std::collections::BTreeMap;
 use std::ops::Range;
 
@@ -56,91 +65,68 @@ pub(in crate::engine::commands) struct Arrival {
     pub numbers: Vec<(usize, Edit)>,
 }
 
-/// The note in the order a move leaves it: the old lines in their order,
-/// with `moved` (old indices; empty for a photo) at positions `block`.
-struct Order<'a> {
-    engine: &'a Engine,
-    moved: Range<usize>,
-    block: Range<usize>,
-    /// Where a walk stops: the moved block, while the place it left closes up.
-    limit: usize,
-    rewrites: BTreeMap<usize, (String, Line)>,
-}
-
-impl Order<'_> {
-    /// The old line at position `at`; `None` for a photo's new line.
-    fn old(&self, at: usize) -> Option<usize> {
-        let (moved, block) = (&self.moved, &self.block);
-        if block.contains(&at) {
-            return (!moved.is_empty()).then(|| moved.start + at - block.start);
-        }
-        let k = if at < block.start {
-            at
-        } else {
-            at - block.len()
-        };
-        Some(if k < moved.start { k } else { k + moved.len() })
-    }
-
-    /// The position of old line `old`, which does not move.
-    fn position(&self, old: usize) -> usize {
-        let k = if old < self.moved.start {
-            old
-        } else {
-            old - self.moved.len()
-        };
-        if k < self.block.start {
-            k
-        } else {
-            k + self.block.len()
-        }
-    }
-
-    fn write(&mut self, at: usize, body: String) {
-        let mut carry = self
-            .old(at)
-            .map(|old| self.engine.line(old).carry.clone())
-            .unwrap_or_default();
-        carry.first = false;
-        let line = read_line(&mut carry, &body, 0);
-        self.rewrites.insert(at, (body, line));
-    }
-}
-
-impl Numbering for Order<'_> {
-    fn count(&self) -> usize {
-        self.limit
-    }
-
-    fn line(&self, index: usize) -> &Line {
-        match self.rewrites.get(&index) {
-            Some((_, line)) => line,
-            None => {
-                &self
-                    .engine
-                    .line(self.old(index).expect("a written line"))
-                    .line
+impl Engine {
+    /// The numbered siblings at `level` from line `from` on that count on
+    /// in sequence from `number` with `delimiter`, in the note as it is,
+    /// each with its number; lines in `moved` are counted but not listed.
+    fn counting_on(
+        &self,
+        from: usize,
+        level: Level,
+        (mut number, delimiter): (i128, u8),
+        moved: &Range<usize>,
+    ) -> Vec<(usize, i128)> {
+        let mut run = Vec::new();
+        for index in from..self.line_count() {
+            let entry = self.line(index);
+            match step(&entry.line, level) {
+                Step::Under => continue,
+                Step::End => break,
+                Step::Sibling => {}
+            }
+            match ordinal(entry.body(), &entry.line) {
+                Some((n, d)) if d == delimiter && number.checked_add(1) == Some(n) => {
+                    if !moved.contains(&index) {
+                        run.push((index, n));
+                    }
+                    number = n;
+                }
+                _ => break,
             }
         }
+        run
     }
 
-    fn body(&self, index: usize) -> &str {
-        match self.rewrites.get(&index) {
-            Some((body, _)) => body,
-            None => self
-                .engine
-                .line(self.old(index).expect("a written line"))
-                .body(),
-        }
+    /// The nearest sibling at `level` beside the slot above line `slot`
+    /// (`up`) or from line `slot` on, the moved lines left out, as the move
+    /// leaves the note: its index and number, when it is numbered.
+    fn sibling_beside(
+        &self,
+        slot: usize,
+        level: Level,
+        moved: &Range<usize>,
+        up: bool,
+    ) -> Option<(usize, i128, u8)> {
+        let mut indices: Box<dyn Iterator<Item = usize>> = if up {
+            Box::new((0..slot).rev())
+        } else {
+            Box::new(slot..self.line_count())
+        };
+        indices.find_map(|index| {
+            if moved.contains(&index) {
+                return None;
+            }
+            let entry = self.line(index);
+            match step(&entry.line, level) {
+                Step::Under => None,
+                Step::End => Some(None),
+                Step::Sibling => {
+                    Some(ordinal(entry.body(), &entry.line).map(|(n, d)| (index, n, d)))
+                }
+            }
+        })?
     }
 
-    fn set_prefix(&mut self, index: usize, prefix: &str, cut: usize) {
-        let body = format!("{prefix}{}", &self.body(index)[cut..]);
-        self.write(index, body);
-    }
-}
-
-impl Engine {
     /// What `arriving`, landing at boundary `slot` as `landing` says, writes:
     /// its lines, and the numbers at both ends of the move.
     pub(in crate::engine::commands) fn arrival(
@@ -153,99 +139,97 @@ impl Engine {
             Arriving::Lines(lines) => (lines.clone(), self.line(lines.start).body()),
             Arriving::Image(source) => (slot..slot, *source),
         };
-        let len = moved.len().max(1);
-        let start = if slot <= moved.start {
-            slot
-        } else {
-            slot - len
-        };
-        let count = self.line_count() + len - moved.len();
-        let mut order = Order {
-            engine: self,
-            moved: moved.clone(),
-            block: start..start + len,
-            limit: count,
-            rewrites: BTreeMap::new(),
-        };
+        let shift = landing.and_then(|landing| landing.shift.as_ref());
         let mut lines = vec![Written::kept(root)];
         for index in moved.start + 1..moved.end {
             let entry = self.line(index);
-            let shifted = landing.and_then(|landing| landing.shift.as_ref());
             lines.push(
-                match shifted.and_then(|s| s.under(entry.body(), &entry.line)) {
-                    Some((prefix, cut)) => {
-                        let body = format!("{prefix}{}", &entry.body()[cut..]);
-                        order.write(start + lines.len(), body.clone());
-                        Written {
-                            body,
-                            old_cut: cut,
-                            new_cut: prefix.len(),
-                            escape: None,
-                        }
-                    }
+                match shift.and_then(|s| s.under(entry.body(), &entry.line)) {
+                    Some((prefix, cut)) => Written {
+                        body: format!("{prefix}{}", &entry.body()[cut..]),
+                        old_cut: cut,
+                        new_cut: prefix.len(),
+                        escape: None,
+                    },
                     None => Written::kept(entry.body()),
                 },
             );
         }
-        // The place it left closes up, as far as the moved block.
+        // Each renumbered line's number and what the move adds to it.
+        let mut changes: BTreeMap<usize, (i128, i128)> = BTreeMap::new();
         let first = (!moved.is_empty()).then(|| &self.line(moved.start).line);
         if let Some((was, delimiter)) = first.and_then(|line| ordinal(root, line)) {
-            if moved.end < self.line_count() {
-                let from = order.position(moved.end);
-                if start > from {
-                    order.limit = start;
-                }
-                order.bump(
-                    from,
-                    Level::of(first.expect("lines")),
-                    delimiter,
-                    was,
-                    was - 1,
-                );
-                order.limit = count;
+            let level = Level::of(first.expect("lines"));
+            let none = moved.end..moved.end;
+            for (index, n) in self.counting_on(moved.end, level, (was, delimiter), &none) {
+                changes.entry(index).or_insert((n, 0)).1 -= 1;
             }
         }
-        let Some(landing) = landing else {
-            return finish(order, lines);
+        if let Some(landing) = landing {
+            lines[0] = self.arrive(landing, root, slot, &moved, &mut changes);
+        }
+        let numbers = changes
+            .into_iter()
+            .filter(|&(_, (_, by))| by != 0)
+            .filter_map(|(index, (n, by))| {
+                let entry = self.line(index);
+                let Kind::List { text, .. } = &entry.line.kind else {
+                    return None;
+                };
+                let body = entry.body();
+                let digits = &body[text.start..text.end - 1];
+                let new = format!(
+                    "{}{}{}",
+                    &body[..text.start],
+                    spell(n + by, digits),
+                    &body[text.end - 1..]
+                );
+                Some((index, diff(self.line_start(index), body, &new)?))
+            })
+            .collect();
+        Arrival { lines, numbers }
+    }
+
+    /// The first line written as `landing` says, counting in the numbered
+    /// list it joins; the siblings it pushes on go into `changes`.
+    fn arrive(
+        &self,
+        landing: &Landing,
+        root: &str,
+        slot: usize,
+        moved: &Range<usize>,
+        changes: &mut BTreeMap<usize, (i128, i128)>,
+    ) -> Written {
+        let Some(delimiter) = landing.numbered_delimiter() else {
+            return landing.first_line(root, None);
         };
         let level = Level {
             quote: 0,
             indent: width(landing.space()),
         };
-        let below = order.block.end;
-        let counted = landing.numbered_delimiter().and_then(|delimiter| {
-            let (number, _) = ordinal(order.body(below), order.line(below))?;
-            let above = order
-                .number_above(start, level)
-                .filter(|&(_, _, d)| d == delimiter);
-            Some((number, above.map(|(_, n, _)| n), delimiter))
-        });
-        let number = counted.map(|(below_n, above, _)| match above {
-            Some(n) if n == below_n => n,
-            Some(n) => n + 1,
-            None => below_n,
-        });
-        lines[0] = landing.first_line(root, number);
-        order.write(start, lines[0].body.clone());
-        if let (Some((below_n, above, delimiter)), Some(number)) = (counted, number) {
-            if above != Some(below_n) {
-                order.bump(below, level, delimiter, number - 1, number);
+        let below = self.line(slot);
+        let counted = ordinal(below.body(), &below.line);
+        // The number the sibling above ends with: it may close up.
+        let above = self
+            .sibling_beside(slot, level, moved, true)
+            .filter(|&(_, _, d)| d == delimiter)
+            .map(|(index, n, _)| (n, n + changes.get(&index).map_or(0, |&(_, by)| by)));
+        let (number, counts_up) = match (above, counted) {
+            (Some((was, now)), Some((b, _))) if b == was => (now, false),
+            (Some((was, now)), Some((b, _))) => (now + 1, b == was + 1),
+            (Some((_, now)), None) => (now + 1, false),
+            (None, Some((b, _))) => {
+                let next = self.sibling_beside(slot + 1, level, moved, false);
+                (b, next.is_none_or(|(_, n, d)| (n, d) != (b, delimiter)))
+            }
+            (None, None) => (1, false),
+        };
+        if counts_up {
+            let before = counted.expect("a counted item below").0 - 1;
+            for (index, n) in self.counting_on(slot, level, (before, delimiter), moved) {
+                changes.entry(index).or_insert((n, 0)).1 += 1;
             }
         }
-        finish(order, lines)
+        landing.first_line(root, Some(number))
     }
-}
-
-fn finish(order: Order, lines: Vec<Written>) -> Arrival {
-    let numbers = order
-        .rewrites
-        .iter()
-        .filter(|(at, _)| !order.block.contains(at))
-        .filter_map(|(&at, (body, _))| {
-            let old = order.old(at).expect("an old line");
-            let start = order.engine.line_start(old);
-            Some((old, diff(start, order.engine.line(old).body(), body)?))
-        })
-        .collect();
-    Arrival { lines, numbers }
 }

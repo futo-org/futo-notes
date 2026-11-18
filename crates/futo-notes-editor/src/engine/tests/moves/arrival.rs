@@ -200,6 +200,34 @@ fn numbered_lists_renumber_where_the_item_left_and_where_it_landed() {
             2,
             "1. a\n1. b\n1. x\n1. c",
         ),
+        (
+            "- p\n  1. a\n  1. b\nx",
+            Line(3),
+            1,
+            "- p\n  1. x\n  1. a\n  1. b",
+        ),
+        // Moved down into a child list, the list it left still closes up.
+        (
+            "1. a\n2. b\n  - child\n3. c",
+            Line(0),
+            2,
+            "1. b\n  - a\n  - child\n2. c",
+        ),
+        // The walks follow the note as it was: `3. d` was never counting on
+        // from `b`, and a line out of the list ended it there.
+        (
+            "1. a\n2. b\ncut\n3. d\n3. e",
+            Line(2),
+            1,
+            "1. a\n2. cut\n3. b\n3. d\n3. e",
+        ),
+        // A number too long to count with is neither copied nor bumped.
+        (
+            "1. a\n9999999999999999999999999999999999999. b\nx",
+            Line(2),
+            1,
+            "1. a\n2. x\n9999999999999999999999999999999999999. b",
+        ),
     ]);
 }
 

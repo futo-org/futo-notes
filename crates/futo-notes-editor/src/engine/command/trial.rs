@@ -105,19 +105,8 @@ impl Engine {
             Some(old) if below(old) => alone(&self.line(old).line.kind) == alone(&read.kind),
             Some(old) => class(&self.line(old).line.kind) == class(&read.kind),
         };
-        // Line 1, a `---` above the line the reading starts at, opens front
-        // matter only while another `---` follows: the lines the move
-        // writes may add or take away that one.
-        if window.start > 1 && is_dash(&self.line(0).text) {
-            let opened = matches!(
-                self.line(0).line.kind,
-                Kind::FrontMatter(FrontMatterRole::Open)
-            );
-            if self.dash_lines_written(trial, work) != (0, 0)
-                && self.two_dashes(trial, dashes, work) != opened
-            {
-                return false;
-            }
+        if window.start > 1 && !self.first_line_kept(trial, dashes, work) {
+            return false;
         }
         // Lines above the window read as they did: start at the one above.
         let (mut carry, mut at) = match window.start {
@@ -240,6 +229,19 @@ impl Engine {
             };
         let kind = Entry::read(text, carry, rest_closes).line.kind;
         Read { old, kind }
+    }
+
+    /// Whether line 1, untouched above the lines the reading starts at,
+    /// reads as before: a `---` there opens front matter only while
+    /// another `---` follows, which the lines the move writes may add or
+    /// take away.
+    fn first_line_kept(&self, trial: &Trial, dashes: &mut Dashes, work: &mut EditWork) -> bool {
+        let first = self.line(0);
+        if !is_dash(&first.text) || self.dash_lines_written(trial, work) == (0, 0) {
+            return true;
+        }
+        let opened = matches!(first.line.kind, Kind::FrontMatter(FrontMatterRole::Open));
+        self.two_dashes(trial, dashes, work) == opened
     }
 
     /// The lines the move writes that become a `---` line, and that stop

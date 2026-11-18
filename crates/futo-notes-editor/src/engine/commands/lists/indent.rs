@@ -13,7 +13,7 @@
 use super::super::super::command::Command;
 use super::super::super::Engine;
 use super::draft::Draft;
-use super::number::{ordinal, Level, Numbering};
+use super::number::{ordinal, Level};
 use super::shift::Shift;
 use crate::lines::{FenceRole, Kind};
 use crate::{DisplayRange, EditorError};

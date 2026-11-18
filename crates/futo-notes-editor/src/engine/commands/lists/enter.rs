@@ -4,7 +4,7 @@ use super::super::super::line::{Entry, Role};
 use super::super::super::{store, Engine};
 use super::super::marks::split;
 use super::draft::{diff, Draft};
-use super::number::{ordinal, spell, Level, Numbering};
+use super::number::{ordinal, spell, Level};
 use super::{is_item, lifted, parts, Parts};
 use crate::lines::Kind;
 use crate::{DisplayRange, EditorError};
