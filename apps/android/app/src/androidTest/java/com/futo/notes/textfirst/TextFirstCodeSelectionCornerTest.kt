@@ -37,4 +37,30 @@ class TextFirstCodeSelectionCornerTest {
         assertNotEquals("the run is not painted", insideBefore, insideSelected)
         assertEquals("the run's corner where it starts mid-text is square", cornerBefore, corner)
     }
+
+    /** On a right-to-left code line the run starts on the right, so that is the corner that is rounded. */
+    @Test fun aRightToLeftRunIsRoundedOnTheRight() = textFirstSession("intro\n\n```txt\nשלום עולם יפה\nעוד שורה כאן\n```\n\nend") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        val e = view.editableText
+        val start = e.indexOf("עולם")
+        val end = e.indexOf("שורה")
+        val l = view.layout
+        val line = l.getLineForOffset(start)
+        val (top, _) = view.textRowBand(l, e, line)
+        val x = view.totalPaddingLeft + l.getPrimaryHorizontal(start).toInt()
+        val y = view.totalPaddingTop - view.scrollY + top.toInt()
+        fun corner(): Int {
+            val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            view.draw(Canvas(bitmap))
+            return bitmap.getPixel(x - 2, y + 1)
+        }
+        val before = corner()
+        c.select(start, end)
+        withTimeout(5_000) { while (view.selectionEnd != end) delay(20) }
+        delay(300)
+        assertEquals("the run's start corner, on the right, is square", before, corner())
+    }
 }
