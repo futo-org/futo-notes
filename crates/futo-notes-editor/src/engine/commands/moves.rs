@@ -18,6 +18,8 @@ use crate::lines::{block, FenceRole, FrontMatterRole, Kind, Line, SpanKind, Tabl
 use crate::{DisplayOffset, DisplayRange, EditorError, Revision, SourceEdit};
 use std::ops::Range;
 
+mod selection;
+
 type Accept<'a> = &'a mut dyn FnMut(&SourceEdit) -> Result<(), String>;
 
 /// A line in a run of quote lines: quoted, and not code or a frame.
@@ -246,9 +248,9 @@ impl Engine {
     /// The move of the image at line-relative source `span` of line `index`
     /// to boundary `slot`: its source leaves the line, nothing else there
     /// changes, and it lands at the slot as a line of its own, with a line
-    /// ending of the note's after it (before it at the note's end). A
-    /// selection of exactly the image travels with it; any other offset
-    /// stays with its text. `None` when the line would read differently
+    /// ending of the note's after it (before it at the note's end). The
+    /// selection follows `moved_selection`; a caret stays with its text.
+    /// `None` when the line would read differently
     /// without the image (`---` a divider, ` text` an indented line); the
     /// lines it passes must read as the same kind of block afterwards.
     fn image_move_command(&self, index: usize, span: Range<usize>, slot: usize) -> Option<Command> {
@@ -283,24 +285,17 @@ impl Engine {
         let shift = usize::from(slot <= index);
         let same_kind = lines.clone().map(|line| (line, line + shift)).collect();
         let mut command = Command::new(edits, lines, 0..0);
-        let selected = self.source_selection(self.selection);
-        command.selection = if selected == span {
-            lands..lands + image.len()
-        } else {
-            let after = slot < count;
-            let (start, end) = (
-                command.map(selected.start, after),
-                command.map(selected.end, after),
-            );
-            start..end.max(start)
-        };
+        let after = slot < count;
+        command.selection = self.moved_selection(&command, span, lands, image.len(), |at| {
+            command.map(at, after)
+        });
         command.same_kind = same_kind;
         Some(command)
     }
 
     /// The move of `block` to boundary `slot` (one of its slots): the block's
     /// text inserted at the slot and removed where it was, the selection
-    /// following its text. Every line it passes, and the block's own, must
+    /// following `moved_selection`. Every line it passes, and the block's own, must
     /// read as the same kind of block afterwards.
     fn move_command(&self, block: Range<usize>, slot: usize) -> Command {
         let count = self.line_count();
@@ -348,28 +343,19 @@ impl Engine {
         };
         let same_kind = lines.clone().map(|index| (index, place(index))).collect();
         let mut command = Command::new(edits, lines, 0..0);
-        // A caret at the slot's line start stays on that line, below the
-        // block; at the note's end it stays on the line the block now follows.
-        // A selection that starts in the block and ends at its end takes the
-        // whole block, line ending and all, with it. `shown` is what is left
-        // of the block's text where it lands: moved to the end, it leaves its
-        // ending behind.
+        // A caret in the block moves with its text; one at the slot's line
+        // start stays on that line, below the block, and one at the note's
+        // end stays on the line the block now follows. `shown` is what is
+        // left of the block's text where it lands: moved to the end, it
+        // leaves its ending behind.
         let after = slot < count;
-        let selected = self.source_selection(self.selection);
-        let whole = selected.start >= from && selected.start < to && selected.end == to;
-        let carried = |at: usize| {
-            if at >= from && (at < to || (at == to && (e == count || whole))) {
+        command.selection = self.moved_selection(&command, from..to, block_start, shown, |at| {
+            if at >= from && (at < to || (at == to && e == count)) {
                 block_start + (at - from).min(shown)
             } else {
                 command.map(at, after)
             }
-        };
-        let (start, end) = (carried(selected.start), carried(selected.end));
-        command.selection = if start <= end {
-            start..end
-        } else {
-            start..start
-        };
+        });
         command.same_kind = same_kind;
         command
     }

@@ -7,7 +7,7 @@ use crate::{DisplayOffset, EditorError, EditorSession, Revision};
 
 /// The display range of image `n` (0 the first) in `session`'s display, which
 /// shows each image's whole spelling: what is under a finger on it.
-fn image(session: &EditorSession, n: usize) -> crate::DisplayRange {
+pub(super) fn image(session: &EditorSession, n: usize) -> crate::DisplayRange {
     let text = session.display_text();
     let start = text
         .match_indices("![](")
