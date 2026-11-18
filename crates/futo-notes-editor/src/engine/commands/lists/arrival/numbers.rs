@@ -213,7 +213,7 @@ impl Engine {
             indent: width(landing.space()),
         };
         let below = order.block.end;
-        let counted = landing.counts().and_then(|delimiter| {
+        let counted = landing.numbered_delimiter().and_then(|delimiter| {
             let (number, _) = ordinal(order.body(below), order.line(below))?;
             let above = order
                 .number_above(start, level)

@@ -40,8 +40,12 @@ enum Marker {
     /// Written as it is: its own marker, gap and box, or a new `- `.
     As(String),
     /// Counting among the numbered item below: its digits as spelled (a
-    /// trial writes them) and its delimiter.
-    Numbered { like: String, delimiter: u8 },
+    /// trial writes them), its delimiter and the gap after it.
+    Numbered {
+        like: String,
+        delimiter: u8,
+        gap: String,
+    },
 }
 
 /// The kind the first line must still read as.
@@ -57,8 +61,6 @@ enum Keeps {
 pub(in crate::engine::commands) struct Landing {
     space: String,
     marker: Marker,
-    /// The gap and box after a counted marker.
-    after: String,
     /// Where the first line's text starts in its old text.
     cut: usize,
     keeps: Keeps,
@@ -69,7 +71,7 @@ pub(in crate::engine::commands) struct Landing {
 
 impl Landing {
     /// The delimiter of the numbered list the first line counts in.
-    pub(super) fn counts(&self) -> Option<u8> {
+    pub(super) fn numbered_delimiter(&self) -> Option<u8> {
         match self.marker {
             Marker::Numbered { delimiter, .. } => Some(delimiter),
             Marker::As(_) => None,
@@ -92,9 +94,13 @@ impl Landing {
     ) -> Written {
         let marker = match &self.marker {
             Marker::As(marker) => marker.clone(),
-            Marker::Numbered { like, delimiter } => {
+            Marker::Numbered {
+                like,
+                delimiter,
+                gap,
+            } => {
                 let digits = number.map_or_else(|| like.clone(), |n| spell(n, like));
-                format!("{digits}{}{}", *delimiter as char, self.after)
+                format!("{digits}{}{gap}", *delimiter as char)
             }
         };
         let prefix = format!("{}{marker}", self.space);
@@ -172,12 +178,11 @@ impl First<'_> {
     }
 
     /// Landing with leading whitespace `space` and `marker`.
-    fn land(&self, space: &str, marker: Marker, after: &str, keeps: Keeps) -> Landing {
+    fn land(&self, space: &str, marker: Marker, keeps: Keeps) -> Landing {
         let item = self.kind().is_some();
         Landing {
             space: space.to_owned(),
             marker,
-            after: after.to_owned(),
             cut: self.part.as_ref().map_or(0, |p| p.content),
             keeps,
             becomes_item: !item,
@@ -193,11 +198,11 @@ impl First<'_> {
     fn outside(&self) -> Option<Landing> {
         match (self.kind(), self.line.map(|line| &line.kind)) {
             (Some(keeps), _) if !self.space().is_empty() => {
-                Some(self.land("", Marker::As(self.marker()), "", keeps))
+                Some(self.land("", Marker::As(self.marker()), keeps))
             }
             (None, Some(Kind::Plain { indent })) if *indent > 0 => Some(Landing {
                 becomes_item: false,
-                ..self.land("", Marker::As(String::new()), "", Keeps::Plain)
+                ..self.land("", Marker::As(String::new()), Keeps::Plain)
             }),
             _ => None,
         }
@@ -216,13 +221,13 @@ impl First<'_> {
         else {
             // Under an item: its whitespace, and the block's own marker.
             return match self.kind() {
-                Some(keeps) => self.land(space, Marker::As(self.marker()), "", keeps),
+                Some(keeps) => self.land(space, Marker::As(self.marker()), keeps),
                 None => {
                     let keeps = Keeps::Item {
                         ordered: false,
                         task: None,
                     };
-                    self.land(space, Marker::As("- ".to_owned()), "", keeps)
+                    self.land(space, Marker::As("- ".to_owned()), keeps)
                 }
             };
         };
@@ -232,15 +237,16 @@ impl First<'_> {
                 let numbered = Marker::Numbered {
                     like: body[marker.start..marker.end - 1].to_owned(),
                     delimiter: body.as_bytes()[marker.end - 1],
+                    gap: gap.to_owned(),
                 };
                 let keeps = Keeps::Item {
                     ordered: true,
                     task: None,
                 };
-                self.land(space, numbered, gap, keeps)
+                self.land(space, numbered, keeps)
             }
             // A box stays: among numbers the task keeps its own bullet.
-            (true, Some(_), Some(keeps)) => self.land(space, Marker::As(self.marker()), "", keeps),
+            (true, Some(_), Some(keeps)) => self.land(space, Marker::As(self.marker()), keeps),
             (_, held, own) => {
                 let boxed = held.or(task.map(|_| "[ ] ")).unwrap_or("");
                 let written = format!("{}{gap}{boxed}", &body[marker.clone()]);
@@ -251,7 +257,7 @@ impl First<'_> {
                         _ => task.map(|_| false),
                     },
                 };
-                self.land(space, Marker::As(written), "", keeps)
+                self.land(space, Marker::As(written), keeps)
             }
         }
     }

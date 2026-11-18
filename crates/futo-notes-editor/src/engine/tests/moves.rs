@@ -170,6 +170,14 @@ fn a_move_changes_only_where_the_block_is_and_one_undo_restores_it() {
         ("| h |\n|---|\n| x |\n\nb", 1, 5, "\nb\n| h |\n|---|\n| x |"),
         ("a\r\nb", 0, 2, "b\r\na"),
         ("a\n\nb", 0, 3, "\nb\na"),
+        // Only list items' numbers are left out when a move is judged a
+        // change: code that differs only in its digits still moves.
+        (
+            "```\n1) a\n```\n```\n2) a\n```",
+            3,
+            0,
+            "```\n2) a\n```\n```\n1) a\n```",
+        ),
     ] {
         let mut session = EditorSession::open(before);
         let revision = session.revision();
@@ -258,6 +266,8 @@ fn a_refused_move_changes_nothing() {
         ("| a |\n\n|---|", 2, 1),
         // A `---` reaching line 1 opens front matter with a later `---`.
         ("a\n---\nb\n---\nc", 0, 4),
+        // A move that would change only the numbers of items is no move.
+        ("1. a\n5. a", 0, 2),
     ] {
         let mut session = EditorSession::open(before);
         let revision = session.revision();

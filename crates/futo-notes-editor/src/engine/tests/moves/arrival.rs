@@ -256,6 +256,20 @@ fn a_photo_lifted_into_a_list_becomes_an_item_as_a_plain_line_would() {
 }
 
 #[test]
+fn a_selection_of_exactly_a_line_that_becomes_an_item_travels_with_its_text() {
+    // `plain` selected (display 4..9) lands as `- plain`, shown at 2..7.
+    let mut session = EditorSession::open("- a\n- b\nplain");
+    let revision = session.revision();
+    session.select(revision, range(4, 9)).unwrap();
+    session
+        .move_block(revision, line(&session, 2), slot(&session, 1), &mut ok)
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text(), "- a\n- plain\n- b");
+    assert_eq!(session.selection(), range(2, 7));
+}
+
+#[test]
 fn a_caret_in_the_block_keeps_its_place_in_the_text_when_its_marker_changes() {
     // (note, the caret, the line pressed, the boundary, the caret after):
     // display offsets, where markers and boxes are hidden. A caret keeps its

@@ -43,20 +43,13 @@ impl Piece {
     }
 }
 
-/// `text` without a numbered item's digits: a move renumbers, and a trial
-/// does not, so lines are compared without them.
+/// A numbered item's text without its digits, and the rest: a move
+/// renumbers items and a trial does not, so a numbered item is compared
+/// without them.
 fn unnumbered(text: &str) -> (&str, &str) {
     let lead = text.len() - text.trim_start_matches([' ', '\t']).len();
     let digits = text[lead..].bytes().take_while(u8::is_ascii_digit).count();
-    let rest = &text[lead + digits..];
-    let marker = digits > 0
-        && matches!(rest.as_bytes().first(), Some(b'.' | b')'))
-        && matches!(rest.as_bytes().get(1), Some(b' ' | b'\t'));
-    if marker {
-        (&text[..lead], rest)
-    } else {
-        (text, "")
-    }
+    (&text[..lead], &text[lead + digits..])
 }
 
 /// A move: the new order, and the old lines its command names.
@@ -227,14 +220,25 @@ impl Engine {
     }
 
     /// Whether the new order's text differs from the note's but for the
-    /// digits of numbered items: compared up to the first line that
-    /// differs. A move that would change only numbers is no move.
-    pub(crate) fn trial_changes(&self, trial: &Trial, work: &mut EditWork) -> bool {
+    /// digits of numbered items (unquoted, where a move renumbers): compared
+    /// up to the first line that differs. A move that would change only
+    /// those numbers is no move.
+    pub(in crate::engine) fn trial_changes(&self, trial: &Trial, work: &mut EditWork) -> bool {
         let count = self.line_count();
         let mut position = 0;
         let mut differs = |text: &str, position: usize| {
             work.link_metadata_items += 1;
-            position >= count || unnumbered(text) != unnumbered(&self.line(position).text)
+            if position >= count {
+                return true;
+            }
+            let old = self.line(position);
+            let numbered =
+                old.line.quote == 0 && matches!(old.line.kind, Kind::List { ordered: true, .. });
+            if numbered {
+                unnumbered(text) != unnumbered(&old.text)
+            } else {
+                *text != old.text
+            }
         };
         for piece in &trial.pieces {
             match piece {
