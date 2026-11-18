@@ -22,6 +22,7 @@ the deferred capabilities and current work bounds.
 - [Inline formatting](portable-core/inline-formatting.md)
 - [Heading, quote and divider block commands](portable-core/block-commands.md)
 - [Block movement](portable-core/block-movement.md)
+- [Block arrival in a list](portable-core/block-arrival.md)
 - [Find in note](portable-core/find.md)
 - [Link editing and source ownership](portable-core/links.md)
 - [Wikilink roles and note ids](portable-core/wikilinks.md)
