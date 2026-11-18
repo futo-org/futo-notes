@@ -34,17 +34,20 @@ Redo preserve outside contributions. Ambiguous historical overlap,
 transient syntax correspondence or bounded preflight failure parks the complete draft while
 retaining its history; ADR-0012 states the exact bounds.
 
-The portable page owns its selection, history and composition. Automatic `StoreEditorHost` saves
-therefore retain legacy parking. An explicitly merge-aware host first settles marked text on the
-page and acknowledges every request, then calls `StoreEditorHost::checkpoint_merged()` (never the
-bare `flush_draft_merged` beside an attached host: it leaves the host's saved baseline stale and a
-later Undo would park) and calls
-`PortableSession::adopt_merged_source(expected, source)` / WASM `adopt_merged_source`. Send the
-returned normal Append request in sequence, like any other edit. The merge becomes the saved baseline only when that Append replays; if adoption never arrives, the next save parks the unmerged draft rather than overwriting the merged bytes. A stale revision or active
-composition refuses adoption without changing the draft/history; retain the current draft and
-reconcile again. Never replace the page from a fresh snapshot as a substitute for rebasing history.
-The compiled WASM/store consumer exercises this explicit path through save, adoption, Undo, Redo
-and reopen bytes.
+The portable page owns its selection, history and composition, so the worker cannot adopt for it.
+`StoreEditorHost::checkpoint()` and `save_if_due()` merge like a native save and return
+`PortableSave { flush, offered }`: `offered` is the source the note holds when it is not the draft at
+the revision saved (an outside change merged in, or a clean draft's outside source, which is never
+written). The saved baseline stays the draft that was saved or merged; a draft typed past an
+unadopted offer therefore merges again on its next save instead of overwriting the outside change.
+The page adopts the offer at that revision with `PortableSession::adopt_merged_source(expected,
+source)` / WASM `adopt_merged_source` and sends the returned normal Append request in sequence, like
+any other edit; when it replays, the offer becomes the baseline. A page that typed past the offer
+ignores it: the next save offers again. A stale revision or active composition refuses adoption
+without changing the draft/history; reconcile again later. A page refused for front matter, history
+bounds or ambiguity re-opens the note: the file already holds both sides. Never pair
+`flush_draft_merged` with an attached host: that leaves the host's saved baseline stale. The compiled
+WASM/store consumer exercises this path through save, adoption, Undo, Redo and reopen bytes.
 
 Native device input/rendering remains a shell verification responsibility. Shared contract tests
 prove exact source, selection, composition state, mutation, failure/retry and Undo preservation;
@@ -71,6 +74,6 @@ Failed persistence keeps the final attachment and unsaved draft for retry; no ol
 
 The portable/WASM page retains its outstanding requests and history through retargeting. Send pending
 Append requests in their existing token/sequence order; the worker resolves persistence against its
-current attachment id. Automatic portable saves continue to park on divergence, preserving both
-versions. Explicit merge adoption remains the opt-in path described above. Native attached sessions
+current attachment id. Portable saves merge and offer as described above; overlapping edits park,
+preserving both versions. Native attached sessions
 adopt safe merges automatically and expose coordinated view changes through the existing contract.

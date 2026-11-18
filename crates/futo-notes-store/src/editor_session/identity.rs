@@ -131,6 +131,6 @@ impl IdentityTransition {
         }
         // A draft that differs from the file stays verbatim; either way the
         // file now holds the rewritten bytes.
-        state.base = rewritten;
+        state.set_base(rewritten);
     }
 }

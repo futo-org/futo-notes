@@ -27,7 +27,7 @@ pub use clock::EditorClock;
 pub(crate) use identity::IdentityTransition;
 use lease::EditorLease;
 pub(crate) use lease::{refuse_attached, terminate_deleted};
-pub use portable::StoreEditorHost;
+pub use portable::{PortableSave, StoreEditorHost};
 pub use quick_open::EditorNoteRead;
 
 /// Where the session stands relative to the markdown file.
@@ -75,8 +75,9 @@ pub(super) struct Attachment {
     lease: EditorLease,
     /// The markdown the file held when this draft last matched it.
     base: String,
-    /// Merged bytes committed for a portable page that has not adopted them yet.
-    pending_merge: Option<String>,
+    /// The source the note held at the last portable save, when it was not
+    /// the draft: offered to the page, the baseline once its adoption replays.
+    offered: Option<String>,
     clock: Arc<dyn EditorClock>,
     save: save::SaveSchedule,
     terminal: bool,
@@ -192,7 +193,7 @@ impl<'store> StoreEditorSession<'store> {
             engine,
             lease,
             base,
-            pending_merge: None,
+            offered: None,
             clock,
             terminal: false,
             coordinated: Vec::new(),

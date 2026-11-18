@@ -121,7 +121,9 @@ impl Worker {
                             let _ = reply.send(host.handle(request));
                         }
                         Ok(Job::Checkpoint(reply)) => {
-                            let _ = reply.send(host.checkpoint().map_err(Into::into));
+                            let _ = reply.send(
+                                host.checkpoint().map(|saved| saved.flush).map_err(Into::into),
+                            );
                         }
                         Ok(Job::Close(reply)) => {
                             let result = host.close();
@@ -134,7 +136,7 @@ impl Worker {
                         Err(RecvTimeoutError::Timeout) => match host.save_if_due() {
                             Ok(Some(result)) => saved(EditorSaved {
                                 token: token.0,
-                                result: Some(result),
+                                result: Some(result.flush),
                                 error: None,
                             }),
                             Ok(None) => {}

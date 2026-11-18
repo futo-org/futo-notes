@@ -13,6 +13,7 @@ mod merging;
 mod native_input_traces;
 mod portable;
 mod portable_attachment;
+mod portable_merging;
 mod portable_waiting;
 mod quick_open;
 mod recovery_retry;
