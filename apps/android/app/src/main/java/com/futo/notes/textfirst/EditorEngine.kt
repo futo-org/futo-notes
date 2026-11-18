@@ -71,7 +71,7 @@ internal class EditorEngine(
     /** A committed external event must survive migration admission or a failed write. */
     internal var reconcilePending = false
     internal var closed = false
-    private val toolbarCommands = ToolbarCommandQueue(handler) { executeCommand({}, it) }
+    internal val toolbarCommands = ToolbarCommandQueue(handler) { executeCommand({}, it) }
     private var inputStartNanos = 0L
     internal var engineNanos = 0L
     /** Characters at the end of the display the view has not been given yet (progressive open). */
@@ -90,7 +90,6 @@ internal class EditorEngine(
         private set
     /** The display offset at the top of the view's screen, written by the view as it scrolls. */
     @Volatile var screenStart = 0
-
 
     // ---- view and toolbar (posted from the UI thread) ----
 
@@ -112,38 +111,12 @@ internal class EditorEngine(
         guarded { select(a, b, fromView = true, echo = force || viewSeq != seq, placed = placed && !force) }
     }
 
-    fun toggleFormat(format: EditorInlineFormat) = toolbarCommands.post {
-        if (mirror.overlay != null) commitComposition(null)
-        session?.toggleFormat(rev, format)?.let(::accept)
-    }
-
-    /** A toolbar tap: a caret inside a word or at its start formats the whole word. */
-    fun toggleToolbarFormat(format: EditorInlineFormat) = toolbarCommands.post {
-        if (mirror.overlay != null) commitComposition(null)
-        session?.toggleToolbarFormat(rev, format)?.let(::accept)
-    }
-
-    fun blockCommand(command: EditorBlockCommand) = toolbarCommands.post {
-        if (mirror.overlay != null) commitComposition(null)
-        session?.blockCommandUtf16(rev, EditorUtf16Range(mirror.selStart.toULong(), mirror.selEnd.toULong()), command)?.let(::accept)
-    }
-
     fun toggleTaskAt(offset: Int) = command {
         if (mirror.overlay != null) commitComposition(null)
         val s = session ?: return@command
         val keepStart = mirror.selStart; val keepEnd = mirror.selEnd
         val change = s.blockCommandUtf16(rev, EditorUtf16Range(offset.toULong(), offset.toULong()), EditorBlockCommand.ToggleTask)
         if (change != null) accept(change) else if (keepStart != mirror.selStart || keepEnd != mirror.selEnd) postUpdate(emptyList(), emptyList())
-    }
-
-    fun undo() = toolbarCommands.post {
-        if (mirror.overlay != null) commitComposition(null)
-        session?.undo(rev)?.let(::accept)
-    }
-
-    fun redo() = toolbarCommands.post {
-        if (mirror.overlay != null) commitComposition(null)
-        session?.redo(rev)?.let(::accept)
     }
 
     fun selectAll() = command { select(0, mirror.text.length, fromView = false, finishTail = false); streamTail(0) }
@@ -398,7 +371,6 @@ internal class EditorEngine(
         ui.post { sink.onImeState(state) }
     }
 
-
     // ---- saving ----
 
     /**
@@ -429,7 +401,6 @@ internal class EditorEngine(
         handler.removeCallbacks(caretRunnable)
         handler.postDelayed(caretRunnable, CARET_STATE_DELAY_MS)
     }
-
 
     internal fun units(value: String): List<UShort> = List(value.length) { value[it].code.toUShort() }
 
