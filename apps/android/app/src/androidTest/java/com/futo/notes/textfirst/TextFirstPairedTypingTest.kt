@@ -76,6 +76,16 @@ class TextFirstPairedTypingTest {
         assertEquals("x **world** y", c.sourceText())
     }
 
+    /** p.3: Backspace that deletes letters drops the formats the caret carried, so the next letter is plain (engine 40d77fc20). */
+    @Test fun backspacingOutOfItalicLeavesTheNextLetterPlain() = textFirstSession("end") { c ->
+        caretAtEnd(c)
+        type(c, " ", "a", "*", "2", "*", "3")
+        repeat(5) { textFirstIme(c) { deleteSurroundingText(1, 0) } }
+        assertEquals("en", c.sourceText())
+        type(c, "d")
+        assertEquals("end", c.sourceText())
+    }
+
     /** Two asterisks committed together are typed as given; typed one at a time they would pair to `x ****`. */
     @Test fun aLongerCommitIsTypedAsGiven() = textFirstSession("x ") { c ->
         caretAtEnd(c)
