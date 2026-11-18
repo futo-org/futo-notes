@@ -17,3 +17,12 @@ internal fun TextFirstEditText.shortcutKey(engine: EditorEngine, keyCode: Int, e
     }
     return false
 }
+
+/**
+ * The keys that move in the note. One the note cannot make (Up at its start, PageDown at its end) is still the note's:
+ * unhandled, the window would move focus to the title (area 13 verifier, P303).
+ */
+internal val NOTE_MOVE_KEYS = setOf(
+    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+    KeyEvent.KEYCODE_PAGE_UP, KeyEvent.KEYCODE_PAGE_DOWN, KeyEvent.KEYCODE_MOVE_HOME, KeyEvent.KEYCODE_MOVE_END,
+)

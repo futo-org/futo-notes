@@ -354,7 +354,7 @@ internal class TextFirstEditText(
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val engine = engine ?: return super.onKeyDown(keyCode, event)
-        if (selectedBlockKey(keyCode, event) || codeLineKey(keyCode, event) || codeStartBackTab(keyCode, event)) return true
+        if (selectedBlockKey(keyCode, event) || codeLineKey(keyCode, event) || codeStartBackTab(keyCode, event) || downOutOfLastBlock(keyCode, event)) return true
         if (shortcutKey(engine, keyCode, event)) return true
         val paragraphKey = paragraphKeyFor(keyCode, event)
         if (paragraphKey != null) {
@@ -367,7 +367,7 @@ internal class TextFirstEditText(
             engine.handler.post { engine.imeCommit(typed) }
             return true
         }
-        return super.onKeyDown(keyCode, event)
+        return super.onKeyDown(keyCode, event) || keyCode in NOTE_MOVE_KEYS
     }
 
     override fun onTextContextMenuItem(id: Int): Boolean {

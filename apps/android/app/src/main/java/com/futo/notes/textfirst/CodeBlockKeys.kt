@@ -88,3 +88,17 @@ internal fun TextFirstEditText.codeStartBackTab(keyCode: Int, event: KeyEvent): 
     return true
 }
 
+/** Down on the last line of a block that ends the note opens a line below it, as from a selected block (P306, Mason). */
+internal fun TextFirstEditText.downOutOfLastBlock(keyCode: Int, event: KeyEvent): Boolean {
+    if (keyCode != KeyEvent.KEYCODE_DPAD_DOWN || event.isShiftPressed || selectionStart != selectionEnd || selectedCodeBlock != null) return false
+    val engine = engine ?: return false
+    val l = layout ?: return false
+    val e = editableText ?: return false
+    val caret = selectionStart
+    val textEnd = length() - TextFirstEditText.END_SENTINEL.length
+    if (l.getLineForOffset(caret) != l.getLineForOffset(textEnd)) return false
+    val block = codeRangesNear(e, caret, caret).firstOrNull { caret in it.start..it.end && it.end >= textEnd } ?: return false
+    engine.openCodeBlockLine(block.start, EditorBlockCommand.OpenLineAfterCodeBlock)
+    return true
+}
+

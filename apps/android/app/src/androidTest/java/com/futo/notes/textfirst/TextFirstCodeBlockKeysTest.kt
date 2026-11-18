@@ -58,4 +58,30 @@ class TextFirstCodeBlockKeysTest {
         textFirstIme(c) { commitText("z", 1) }
         assertEquals("```py\ndef f():\n    z\n    return x\n```\n\nend", c.sourceText())
     }
+
+    /** Area 13 verifier (P306): Down on the last line of a block that ends the note opens a line below it. */
+    @Test fun downOnTheLastLineOfANoteEndingBlockOpensALine() = textFirstSession("intro\n\n```js\nconst a = 1\n```") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        view.setSelection(view.editableText.indexOf("a = 1"))
+        delay(200)
+        view.onKeyDown(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN))
+        withTimeout(5_000) { while (c.sourceText() == "intro\n\n```js\nconst a = 1\n```") delay(50) }
+        textFirstIme(c) { commitText("x", 1) }
+        assertEquals("intro\n\n```js\nconst a = 1\n```\nx", c.sourceText())
+    }
+
+    /** Area 13 verifier (P303): Up at the note's start is the note's; it does not move focus to the title. */
+    @Test fun upAtTheNotesStartKeepsTheKey() = textFirstSession("first line\nsecond") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        view.setSelection(0)
+        delay(200)
+        assertEquals(true, view.onKeyDown(KeyEvent.KEYCODE_DPAD_UP, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP)))
+        assertEquals(true, view.onKeyDown(KeyEvent.KEYCODE_PAGE_UP, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_PAGE_UP)))
+    }
 }
