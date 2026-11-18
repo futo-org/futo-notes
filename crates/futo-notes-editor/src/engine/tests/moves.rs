@@ -266,8 +266,11 @@ fn a_refused_move_changes_nothing() {
         ("| a |\n\n|---|", 2, 1),
         // A `---` reaching line 1 opens front matter with a later `---`.
         ("a\n---\nb\n---\nc", 0, 4),
-        // A move that would change only the numbers of items is no move.
-        ("1. a\n5. a", 0, 2),
+        // Out of its list `|---|` loses its indent, and under `| h |` it
+        // would make that a table header: no `\` keeps the line above.
+        ("- p\n  |---|\n\n| h |\nend", 1, 4),
+        // A move that would change only the numbers it rewrites is no move.
+        ("1. a\n2. a\n3. b", 0, 2),
     ] {
         let mut session = EditorSession::open(before);
         let revision = session.revision();

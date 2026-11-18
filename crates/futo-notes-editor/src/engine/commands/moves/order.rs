@@ -2,17 +2,19 @@
 //! (`command/trial.rs`): the same bytes `move_command` and
 //! `image_move_command` write, without copying the block. The first line
 //! is written as it arrives (`Landing`), with the digits of the item below
-//! for a number: the trial compares lines without their numbers, and a
-//! number never changes how a line reads. Lines under an item that changes
+//! for a number: the trial compares the lines a move may renumber without
+//! their digits (`Renumbered`), and a number never changes how a line
+//! reads. Lines under an item that changes
 //! indent are read shifted, one at a time, as the trial reaches them. The
 //! renumbered lines elsewhere are not in the trial: only their digits
 //! change. The trial property (`tests/moves/trial.rs`) holds the two
 //! descriptions together.
-use super::super::super::command::trial::{Piece, Trial};
+use super::super::super::command::trial::{Piece, Renumbered, Trial};
 use super::super::lists::Landing;
 use super::Lifted;
 use crate::engine::Engine;
-use crate::lines::block;
+use crate::lines::block::{self, width};
+use crate::lines::Kind;
 use std::ops::Range;
 
 impl Engine {
@@ -20,9 +22,48 @@ impl Engine {
     /// move has no command (an image that cannot leave its line).
     pub(super) fn trial_of(&self, lifted: &Lifted, slot: usize) -> Option<Trial> {
         let landing = self.landing_at(lifted, slot);
-        match lifted {
-            Lifted::Lines(block) => Some(self.lines_trial(block.clone(), slot, landing)),
-            Lifted::Image { line, span } => self.image_trial(*line, span.clone(), slot, landing),
+        let renumbered = self.renumbered(lifted, landing.as_ref());
+        let mut trial = match lifted {
+            Lifted::Lines(block) => self.lines_trial(block.clone(), slot, landing),
+            Lifted::Image { line, span } => self.image_trial(*line, span.clone(), slot, landing)?,
+        };
+        trial.renumbered = renumbered;
+        Some(trial)
+    }
+
+    /// Which lines the move of `lifted`, landing as `landing` says, may
+    /// renumber: the first moved line where it counts in a numbered list,
+    /// and the numbered items at its own level and at the level it lands
+    /// on.
+    fn renumbered(&self, lifted: &Lifted, landing: Option<&Landing>) -> Renumbered {
+        let moved = match lifted {
+            Lifted::Lines(block) => block.clone(),
+            Lifted::Image { .. } => 0..0,
+        };
+        let mut levels = Vec::new();
+        if !moved.is_empty() {
+            let entry = self.line(moved.start);
+            if let Kind::List {
+                ordered: true,
+                indent,
+                text,
+                ..
+            } = &entry.line.kind
+            {
+                if entry.line.quote == 0 {
+                    levels.push((*indent, entry.body().as_bytes()[text.end - 1]));
+                }
+            }
+        }
+        let lands = landing.and_then(|landing| {
+            let delimiter = landing.numbered_delimiter()?;
+            Some((width(landing.space()), delimiter))
+        });
+        levels.extend(lands);
+        Renumbered {
+            levels,
+            moved,
+            first: lands.is_some(),
         }
     }
 
@@ -111,9 +152,12 @@ impl Engine {
             pieces.extend(self.landed(block, landing, None));
             pieces.push(Run(slot..count));
         }
+        let start = if slot < s { slot } else { slot - (e - s) };
         Trial {
             pieces,
             window: s.min(slot)..e.max(slot),
+            landed: start..start + (e - s),
+            renumbered: Renumbered::default(),
         }
     }
 
@@ -173,6 +217,8 @@ impl Engine {
         Some(Trial {
             pieces,
             window: index.min(slot)..(index + 1).max(slot),
+            landed: slot..slot + 1,
+            renumbered: Renumbered::default(),
         })
     }
 }

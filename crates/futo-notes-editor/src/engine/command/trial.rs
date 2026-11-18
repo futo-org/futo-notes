@@ -14,6 +14,10 @@
 //! last line, whose header status the next line may still change. Reading
 //! settles when the carry matches the old one but for the list stack, which
 //! decides list levels and never a line's kind.
+mod changes;
+
+pub(crate) use changes::Renumbered;
+
 use super::{alone, class};
 use crate::engine::commands::Shift;
 use crate::engine::line::{trimmed, Entry};
@@ -35,7 +39,7 @@ pub(crate) enum Piece {
 
 impl Piece {
     /// Line `index` of this run as it reads in the new order.
-    fn text(&self, engine: &Engine, index: usize) -> String {
+    pub(super) fn text(&self, engine: &Engine, index: usize) -> String {
         match self {
             Piece::Shifted(_, shift) => shift.text(engine.line(index)),
             _ => engine.line(index).text.clone(),
@@ -43,19 +47,13 @@ impl Piece {
     }
 }
 
-/// A numbered item's text without its digits, and the rest: a move
-/// renumbers items and a trial does not, so a numbered item is compared
-/// without them.
-fn unnumbered(text: &str) -> (&str, &str) {
-    let lead = text.len() - text.trim_start_matches([' ', '\t']).len();
-    let digits = text[lead..].bytes().take_while(u8::is_ascii_digit).count();
-    (&text[..lead], &text[lead + digits..])
-}
-
-/// A move: the new order, and the old lines its command names.
+/// A move: the new order, the old lines its command names, where the
+/// moved lines land in the new order, and which lines it may renumber.
 pub(crate) struct Trial {
     pub pieces: Vec<Piece>,
     pub window: Range<usize>,
+    pub landed: Range<usize>,
+    pub renumbered: Renumbered,
 }
 
 /// The note's lines that are exactly `---`, counted only as far as a
@@ -290,48 +288,5 @@ impl Engine {
             }
         }
         dashes.found >= need
-    }
-
-    /// Whether the new order's text differs from the note's but for the
-    /// digits of numbered items (unquoted, where a move renumbers): compared
-    /// up to the first line that differs. A move that would change only
-    /// those numbers is no move.
-    pub(in crate::engine) fn trial_changes(&self, trial: &Trial, work: &mut EditWork) -> bool {
-        let count = self.line_count();
-        let mut position = 0;
-        let mut differs = |text: &str, position: usize| {
-            work.link_metadata_items += 1;
-            if position >= count {
-                return true;
-            }
-            let old = self.line(position);
-            let numbered =
-                old.line.quote == 0 && matches!(old.line.kind, Kind::List { ordered: true, .. });
-            if numbered {
-                unnumbered(text) != unnumbered(&old.text)
-            } else {
-                *text != old.text
-            }
-        };
-        for piece in &trial.pieces {
-            match piece {
-                Piece::Run(run) if run.start == position => position = run.end,
-                Piece::Run(run) | Piece::Shifted(run, _) => {
-                    for index in run.clone() {
-                        if differs(&piece.text(self, index), position) {
-                            return true;
-                        }
-                        position += 1;
-                    }
-                }
-                Piece::Line(_, text) => {
-                    if differs(text, position) {
-                        return true;
-                    }
-                    position += 1;
-                }
-            }
-        }
-        position != count
     }
 }

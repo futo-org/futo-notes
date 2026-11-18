@@ -232,6 +232,21 @@ fn numbered_lists_renumber_where_the_item_left_and_where_it_landed() {
 }
 
 #[test]
+fn numbers_the_move_does_not_rewrite_count_as_written() {
+    // The children's numbers are theirs: the two subtrees trade places.
+    // `5.` was not counting on from `1.`: the move does not rewrite it.
+    check(&[
+        ("1. a\n5. a", Line(0), 2, "5. a\n1. a"),
+        (
+            "- A\n  4. Apples\n- A\n  8. Apples\n- B",
+            Line(0),
+            4,
+            "- A\n  8. Apples\n- A\n  4. Apples\n- B",
+        ),
+    ]);
+}
+
+#[test]
 fn a_hand_numbered_list_not_counting_in_sequence_is_left_alone() {
     check(&[
         (

@@ -191,7 +191,7 @@ fn the_work_to_find_the_slots_near_a_block_does_not_grow_with_the_note() {
         let count = note.split('\n').count();
         (note, count - 1 - lifted, count - 31 - lifted..count)
     }
-    let shapes: [(&str, Shape); 15] = [
+    let shapes: [(&str, Shape); 16] = [
         // The note above grows.
         ("a heading under mixed blocks", |n| {
             near_end(MIXED.repeat(n) + TAIL, 7)
@@ -260,6 +260,18 @@ fn the_work_to_find_the_slots_near_a_block_does_not_grow_with_the_note() {
             );
             (note, 20, 0..21)
         }),
+        // The first of many items that read alike, the range at the end:
+        // every candidate but the last moves it past copies of itself.
+        (
+            "an item far above the range among items that read alike",
+            |n| {
+                // One width of number, so lines read the same at both sizes.
+                let items: String = (1..=n).map(|i| format!("{i:05}. x\n")).collect();
+                let note = format!("{items}y\nz");
+                let count = n + 2;
+                (note, 0, count - 31..count)
+            },
+        ),
         // A line landing in a numbered list that runs on below the range.
         ("a line into a long numbered list", |n| {
             let items: String = (1..=n).map(|i| format!("{i}. item\n")).collect();

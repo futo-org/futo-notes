@@ -71,7 +71,7 @@ pub(in crate::engine::commands) struct Landing {
 
 impl Landing {
     /// The delimiter of the numbered list the first line counts in.
-    pub(super) fn numbered_delimiter(&self) -> Option<u8> {
+    pub(in crate::engine::commands) fn numbered_delimiter(&self) -> Option<u8> {
         match self.marker {
             Marker::Numbered { delimiter, .. } => Some(delimiter),
             Marker::As(_) => None,
@@ -79,7 +79,7 @@ impl Landing {
     }
 
     /// The first line's leading whitespace where it lands.
-    pub(super) fn space(&self) -> &str {
+    pub(in crate::engine::commands) fn space(&self) -> &str {
         &self.space
     }
 
