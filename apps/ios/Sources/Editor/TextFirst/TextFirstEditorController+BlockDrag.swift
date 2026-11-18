@@ -186,7 +186,7 @@ extension TextFirstEditorController {
 
     /// Whether a press may lift anything, before the line under it is asked: not while the
     /// note is being edited, nor while the editor is still opening or has closed.
-    var mayLift: Bool { !closed && !engineBusy && !editing }
+    var mayLift: Bool { !closed && !engineBusy && !editing && outsideChangesPending == 0 }
 
     /// The note is being edited: a field of the screen takes the keyboard, the on-screen one or
     /// a hardware one alike. That is the body, an open table cell, or any other text input in
@@ -302,7 +302,7 @@ extension TextFirstEditorController {
         pendingLift = nil
         guard let drag = takeBlockDrag() else { return }
         var moved = false
-        if dropping, let slot = drag.slot, drag.lift.revision == rev {
+        if dropping, outsideChangesPending == 0, let slot = drag.slot, drag.lift.revision == rev {
             let held = leavesFromAboveTheScreen(drag, to: slot) ? lineAbove(slot, drag) : nil
             do {
                 moved = try moveBlock(at: drag.lift.offset, to: slot)
@@ -371,6 +371,15 @@ extension TextFirstEditorController {
         drag.finish(returning: false)
         liftRecognizer?.isEnabled = false
         liftRecognizer?.isEnabled = true
+    }
+
+    /// A sync wrote this note on disk: take it in with a checkpoint. Until that has run (it
+    /// waits its turn on the I/O queue) the editor and the engine still agree on the old text,
+    /// so a drag ends now and no block lifts or drops before the new text is in.
+    func noteChangedOutside() {
+        cancelBlockDrag()
+        outsideChangesPending += 1
+        checkpoint { [weak self] in self?.outsideChangesPending -= 1 }
     }
 
     /// The note's revision moved: a drag lifted at another revision ends.

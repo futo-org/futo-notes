@@ -210,7 +210,7 @@ struct TextFirstNoteScreen: View {
             // The engine has already moved the attachment for a rename pair; the checkpoint
             // reports where it is (also when its save fails), so the screen follows.
             if change.affects(noteId) || change.renamed.values.contains(noteId) {
-                controller.checkpoint()
+                controller.noteChangedOutside()
             }
         }
         .onReceive(store.$notes) { _ in controller?.refreshNoteIds() }

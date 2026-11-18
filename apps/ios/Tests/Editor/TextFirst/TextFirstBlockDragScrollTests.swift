@@ -131,6 +131,28 @@
             }
         }
 
+        @Test func aSyncWriteEndsTheDragBeforeTheEditorHasTakenItIn() async throws {
+            let h = TextFirstHarness("one\ntwo\nthree", focused: false)
+            let drag = try begin(h, at: h.point(line: 0))
+            h.controller.followBlockDrag(to: h.point(line: 2, fraction: 0.8))
+            #expect(drag.slot != nil)
+            // A sync writes the note on disk and the screen hears of it, while the editor's
+            // I/O queue is still busy (an earlier save): its checkpoint has not run yet.
+            try "one\ntwo\nthree\nfour".write(
+                to: h.root.appendingPathComponent("note.md"), atomically: true, encoding: .utf8)
+            h.controller.io.async { Thread.sleep(forTimeInterval: 0.3) }
+            h.controller.noteChangedOutside()
+            #expect(h.controller.blockDrag == nil)
+            #expect(drag.card.superview == nil)
+            // The finger lifts over the drop line it saw, and holds again: nothing moves, and
+            // nothing lifts until the outside text is in.
+            h.controller.endBlockDrag(dropping: true)
+            #expect(h.controller.liftPlan(at: h.point(line: 0)) == nil)
+            #expect(await h.until { h.display == "one\ntwo\nthree\nfour" })
+            #expect(h.source == "one\ntwo\nthree\nfour")
+            #expect(h.controller.liftPlan(at: h.point(line: 0)) != nil)
+        }
+
         /// Lift what a hold at `p` lifts, as the long-press does at its 340 ms.
         private func begin(_ h: TextFirstHarness, at p: CGPoint) throws -> TextFirstBlockDrag {
             #expect(h.controller.liftShouldBegin(at: p))

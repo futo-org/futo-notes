@@ -139,6 +139,8 @@ final class TextFirstEditorController: NSObject {
     var stockTextDrag = false
     var pendingLift: TextFirstLift?
     var blockDrag: TextFirstBlockDrag?
+    /// Outside writes heard of and not yet taken in by their checkpoint (+BlockDrag).
+    var outsideChangesPending = 0
     let dragHaptics = TextFirstDragHaptics()
 
     let io = DispatchQueue(label: "futo.textfirst.io", qos: .userInitiated)
