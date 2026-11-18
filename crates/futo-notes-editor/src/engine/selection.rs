@@ -99,7 +99,8 @@ impl Engine {
     /// The user placed this selection: as `select_with_affinity`, but the
     /// same range also ends a selected block and a language caret, leaving
     /// an ordinary selection (on a block, a caret on its first code line).
-    /// It is fitted out of images as input is (`outside_images`).
+    /// It is fitted out of images as input is (`outside_images`) and off
+    /// table delimiter rows (`off_delimiter_rows`).
     pub fn place_selection(
         &mut self,
         expected: Revision,
@@ -108,7 +109,7 @@ impl Engine {
     ) -> Result<SelectionChange, EditorError> {
         self.check_revision(expected)?;
         self.check_display_range(range)?;
-        let range = self.outside_images(range);
+        let range = self.off_delimiter_rows(self.outside_images(range));
         if self.composition.is_none() {
             self.block_selected = false;
             self.pin = None;
@@ -124,11 +125,13 @@ impl Engine {
             selection: self.selection,
             selected_block: self.selected_block(),
             writes_language: self.writes_language(),
+            writes_delimiter_row: self.writes_delimiter_row(),
             affinity: self.affinity,
         }
     }
 
-    /// Move one extended grapheme, collapsing a selection to its edge first.
+    /// Move one extended grapheme, collapsing a selection to its edge first;
+    /// a step onto a table's delimiter row goes past it (`past_delimiter_row`).
     pub fn move_caret(
         &mut self,
         expected: Revision,
@@ -145,7 +148,7 @@ impl Engine {
         } else {
             self.grapheme_edge(from, direction)
         };
-        let at = DisplayOffset(to);
+        let at = DisplayOffset(self.past_delimiter_row(to, direction));
         self.select_with_affinity(
             expected,
             DisplayRange { start: at, end: at },

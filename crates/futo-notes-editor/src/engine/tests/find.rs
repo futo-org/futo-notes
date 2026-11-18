@@ -32,7 +32,7 @@ fn rescan(engine: &mut Engine) -> crate::FindReport {
 fn the_find_table() {
     let cases: Vec<Value> =
         serde_json::from_str(include_str!("../../../tests/fixtures/engine/find.json")).unwrap();
-    assert_eq!(cases.len(), 46);
+    assert_eq!(cases.len(), 47);
     for case in &cases {
         let name = case["name"].as_str().unwrap();
         let before = case["before"].as_str().unwrap();

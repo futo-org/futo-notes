@@ -45,7 +45,8 @@ impl Engine {
             expected,
             |engine| {
                 engine.check_display_range(range)?;
-                copied = engine.copied(range);
+                // Cut copies what it removes: never front matter.
+                copied = engine.copied(engine.in_body(range));
                 if copied.is_empty() {
                     return Ok(None);
                 }
@@ -53,6 +54,7 @@ impl Engine {
                 if engine.touches_metadata(range) {
                     return Err(EditorError::InvalidRange);
                 }
+                let range = engine.in_body(range);
                 formats = engine.formats_at(engine.source_selection(range).start);
                 let plan = engine.plan(range, "");
                 let lines = engine.line_of(plan.range.start)..engine.line_of(plan.range.end) + 1;

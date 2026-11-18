@@ -31,7 +31,12 @@ impl Engine {
         let whole_end = e == after.display + self.line(last).shown_len();
         let (mut tight_start, (tight_end, wide_end)) =
             (self.source_bounds(s).1, self.source_bounds(e));
-        let mut physical = self.line_start(first);
+        // A range covering the front matter copies its hidden opening line.
+        let mut physical = if self.covers_metadata(range) {
+            0
+        } else {
+            self.line_start(first)
+        };
         let mut start = if whole_start { physical } else { tight_start };
         let mut end = if whole_end { wide_end } else { tight_end }.max(start);
         if let Some(reach) = reach {

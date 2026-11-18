@@ -41,6 +41,7 @@ impl Engine {
             selection: change.selection,
             selected_block: self.selected_block(),
             writes_language: self.writes_language(),
+            writes_delimiter_row: self.writes_delimiter_row(),
             affinity: change.affinity,
             projection,
         }
@@ -70,6 +71,7 @@ impl Engine {
             selection: self.selection,
             selected_block: self.selected_block(),
             writes_language: self.writes_language(),
+            writes_delimiter_row: self.writes_delimiter_row(),
             work: EditWork::default(),
             affinity: self.affinity,
             projection: self.projection(self.revision, caret),
@@ -148,7 +150,8 @@ impl Engine {
     /// A paragraph key: the command a family claims it for on the lines it
     /// is pointed at, else typing (Enter writes the line's own line break;
     /// Backspace and Delete remove the range or one grapheme). Every
-    /// Backspace removes one level of an empty pair around the caret first.
+    /// Backspace removes one level of an empty pair around the caret first,
+    /// and right after typing started a table takes that keystroke back.
     pub(crate) fn key(
         &mut self,
         expected: Revision,
@@ -163,6 +166,11 @@ impl Engine {
                 | ParagraphKey::BackspaceJoiningHeading
                 | ParagraphKey::PairedBackspace
         );
+        if backspace && range == self.selection {
+            if let Some(change) = self.untyped_table_start(accept)? {
+                return Ok(Some(self.view(change)));
+            }
+        }
         let pair = backspace.then(|| self.empty_pair(range)).flatten();
         if let Some(pair) = pair {
             if range != self.selection {

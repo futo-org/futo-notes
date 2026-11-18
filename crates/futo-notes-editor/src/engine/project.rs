@@ -314,7 +314,6 @@ fn block_of(entry: &Entry, display: usize, shown: usize) -> BlockDescription {
             });
         }
         Kind::FrontMatter(FrontMatterRole::Body) => block.metadata = true,
-        Kind::FrontMatter(_) => block.metadata = entry.view.role == Role::Empty,
         _ => {}
     }
     block

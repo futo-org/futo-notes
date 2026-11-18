@@ -33,6 +33,7 @@ pub use types::{
 };
 
 pub use engine::is_paired_typing_key;
+pub use lines::fence_info::{typed_code_block_language, typed_code_block_name};
 pub use link_target::external_link_url;
 
 pub use quick_open::{quick_open, quick_open_cut, shown_projection, QuickOpen, QUICK_OPEN_BYTES};

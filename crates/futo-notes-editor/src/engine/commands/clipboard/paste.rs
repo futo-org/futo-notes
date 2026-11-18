@@ -137,6 +137,7 @@ impl Engine {
         if self.touches_metadata(range) {
             return Err(EditorError::InvalidRange);
         }
+        let range = self.in_body(range);
         let caret_line = self.line_of(self.source_selection(range).start);
         let newline = self.empty_line_ending(caret_line);
         let text = normalized(text, &newline);

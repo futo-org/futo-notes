@@ -1,5 +1,18 @@
-//! JSON wire facade for a code block as one object and its header.
+//! JSON wire facade for a code block as one object and its header. Hosts ask
+//! what a header field keeps of typed text and keep no rule of their own.
 use super::*;
+
+/// What a code block's language field keeps of `typed` (one word).
+#[wasm_bindgen]
+pub fn typed_code_block_language(typed: &str) -> String {
+    crate::typed_code_block_language(typed)
+}
+
+/// What a code block's name field keeps of `typed`.
+#[wasm_bindgen]
+pub fn typed_code_block_name(typed: &str) -> String {
+    crate::typed_code_block_name(typed)
+}
 
 #[wasm_bindgen]
 impl WasmSession {

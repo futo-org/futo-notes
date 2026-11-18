@@ -140,6 +140,12 @@ fn a_metadata_only_note_has_an_editable_empty_body() {
     ] {
         let mut session = EditorSession::open(source);
         assert_eq!(session.display_text(), shown);
+        let described: Vec<bool> = blocks(&session).iter().map(|b| b.metadata).collect();
+        assert_eq!(
+            described,
+            [true, false],
+            "{source:?}: the empty line is the body"
+        );
         let body = session.selection();
         assert_eq!(body.start.0, session.display_text().len());
         session
@@ -171,8 +177,8 @@ fn front_matter_appears_and_disappears_only_through_its_own_fences() {
     assert_eq!(session.source_text(), "---\ntitle: [x]\n---\nbody *b*\n");
     assert_eq!(session.display_text(), "title: [x]\nbody b\n");
     assert_fresh(&session);
-    // Deleting the body leaves the metadata. (A selection covering all of it takes the
-    // metadata too: engine::tests::front_matter_is_metadata_and_the_caret_starts_in_the_body.)
+    // Deleting the body leaves the metadata, as deleting a selection covering all of it
+    // does: engine::tests::select_all_edits_the_body_and_keeps_the_front_matter.
     let change = session
         .replace(Revision(1), range(11, 18), "", &mut accept)
         .unwrap();

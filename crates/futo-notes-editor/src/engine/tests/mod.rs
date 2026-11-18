@@ -168,19 +168,6 @@ fn front_matter_is_metadata_and_the_caret_starts_in_the_body() {
         engine.source_text(),
         "---\ntitle: x\ntags: [a, b]\n---\n# zBody\n"
     );
-    // Deleting everything takes the front matter too.
-    let all = engine.display_len();
-    engine
-        .replace(
-            engine.revision(),
-            range(0, all),
-            "",
-            InputAction::Typing,
-            &mut ok,
-        )
-        .unwrap();
-    assert_eq!(engine.source_text(), "");
-
     for (source, display, written) in [
         ("---\na: 1\n---\n", "a: 1\n", "---\na: 1\n---\nX"),
         ("---\r\na: 1\r\n---", "a: 1\r\n", "---\r\na: 1\r\n---\r\nX"),
@@ -203,6 +190,117 @@ fn front_matter_is_metadata_and_the_caret_starts_in_the_body() {
         typed(&mut engine, "X");
         assert_eq!(engine.source_text(), written, "{source:?}");
     }
+}
+
+/// Select All covers the front matter, and Copy copies it, but every edit
+/// over it changes the body only; one Undo restores the exact bytes.
+#[test]
+fn select_all_edits_the_body_and_keeps_the_front_matter() {
+    let source = "---\ntitle: x\n---\nbody\nmore";
+    let front = "---\ntitle: x\n---\n";
+    type Edit = fn(&mut Engine, DisplayRange) -> Option<String>;
+    let edits: [(&str, Edit, &str); 7] = [
+        (
+            "typing",
+            |engine, all| {
+                let revision = engine.revision();
+                engine
+                    .replace(revision, all, "X", InputAction::Typing, &mut ok)
+                    .unwrap();
+                None
+            },
+            "X",
+        ),
+        (
+            "Enter",
+            |engine, all| {
+                let revision = engine.revision();
+                engine
+                    .key(revision, all, crate::ParagraphKey::Enter, &mut ok)
+                    .unwrap();
+                None
+            },
+            "\n",
+        ),
+        (
+            "paste",
+            |engine, all| {
+                let revision = engine.revision();
+                engine
+                    .paste_markdown(revision, all, "# p\nq", &mut ok)
+                    .unwrap();
+                None
+            },
+            "# p\nq",
+        ),
+        (
+            "Backspace",
+            |engine, all| {
+                let revision = engine.revision();
+                engine
+                    .key(revision, all, crate::ParagraphKey::Backspace, &mut ok)
+                    .unwrap();
+                None
+            },
+            "",
+        ),
+        (
+            "Delete",
+            |engine, all| {
+                let revision = engine.revision();
+                engine
+                    .key(revision, all, crate::ParagraphKey::Delete, &mut ok)
+                    .unwrap();
+                None
+            },
+            "",
+        ),
+        (
+            "Cut",
+            |engine, all| {
+                let revision = engine.revision();
+                Some(engine.cut_markdown(revision, all, &mut ok).unwrap().0)
+            },
+            "",
+        ),
+        (
+            "Copy",
+            |engine, all| Some(engine.copy_markdown(engine.revision(), all).unwrap()),
+            "body\nmore",
+        ),
+    ];
+    for (name, edit, body) in edits {
+        let mut engine = Engine::open(source);
+        let all = range(0, engine.display_len());
+        assert_eq!(engine.select(Revision(0), all).unwrap().selection, all);
+        let copied = edit(&mut engine, all);
+        assert_eq!(engine.source_text(), format!("{front}{body}"), "{name}");
+        match name {
+            "Cut" => assert_eq!(
+                copied.as_deref(),
+                Some("body\nmore"),
+                "Cut copies what it removes"
+            ),
+            "Copy" => assert_eq!(
+                copied.as_deref(),
+                Some(source),
+                "Copy copies all it selects"
+            ),
+            _ => {}
+        }
+        if name != "Copy" {
+            engine.undo(engine.revision(), &mut ok).unwrap().unwrap();
+            assert_eq!(engine.source_text(), source, "{name}: undo");
+        }
+    }
+    // With an empty body, typing over everything writes the body line.
+    let mut engine = Engine::open("---\na: 1\n---");
+    let all = range(0, engine.display_len());
+    engine.select(Revision(0), all).unwrap();
+    engine
+        .replace(Revision(0), all, "X", InputAction::Typing, &mut ok)
+        .unwrap();
+    assert_eq!(engine.source_text(), "---\na: 1\n---\nX");
 }
 
 #[test]
@@ -353,8 +451,14 @@ fn replacing_a_selection_writes_these_bytes() {
             "X",
             "| X |\n|---|---|\n| c | d |",
         ),
-        // All of the front matter goes with a selection covering it.
-        ("---\nk: v\n---\nbody", "k: v\nbody", "X", "X"),
+        // A selection covering the front matter replaces the body only.
+        (
+            "---\nk: v\n---\nbody",
+            "k: v\nbody",
+            "X",
+            "---\nk: v\n---\nX",
+        ),
+        ("---\n---\nbody", "body", "X", "---\n---\nX"),
     ] {
         let mut engine = Engine::open(source);
         let display = engine.display_text();

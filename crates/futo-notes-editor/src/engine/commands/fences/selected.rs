@@ -1,7 +1,8 @@
 //! A code block selected as one object. The selection is then the block's
 //! display range and `block_selected` says it is the block, not its code:
 //! Backspace, Delete, typing, cut and copy take it whole, fences and all
-//! (`reach.rs`), and Enter puts the caret at the end of its code. Any other
+//! (`reach.rs`), and Enter puts the caret at the end of its code (below an
+//! empty block). Any other
 //! selection, and any edit, ends it; an echo of the same range keeps it.
 use super::super::super::code_block::{is_code_line, CodeBlock};
 use super::super::super::command::{Command, Edit};
@@ -42,7 +43,8 @@ impl Engine {
 
     /// A key on the selected block, when `range` is the selection: Backspace
     /// and Delete remove it whole; Enter puts the caret at the end of its
-    /// last code line. Other keys act on its code.
+    /// last code line, or below an empty block (`below_block`). Other keys
+    /// act on its code.
     pub(super) fn selected_block_key(
         &self,
         range: DisplayRange,
@@ -58,6 +60,9 @@ impl Engine {
             | ParagraphKey::Delete => Some(self.removed(range)),
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => {
                 let block = self.block_at(range.start.0)?;
+                if block.first == block.opener {
+                    return Some(self.below_block(&block));
+                }
                 let end = self.line_start(block.last) + self.line(block.last).body_len();
                 Some(Command::new(
                     Vec::new(),

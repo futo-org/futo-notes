@@ -6,6 +6,8 @@ use futo_notes_store::{LocalNoteStore, StoreEditorSession};
 use crate::FlushDraftResult;
 
 mod clipboard;
+mod code_blocks;
+pub use code_blocks::{editor_typed_code_block_language, editor_typed_code_block_name};
 mod composition;
 mod contract;
 mod correspondence;
@@ -297,36 +299,6 @@ impl NativeEditorSession {
             Ok(session
                 .select_with_affinity(Revision(expected), range.try_into()?, affinity.into())?
                 .into())
-        })
-    }
-
-    /// Select, as one object, the code block whose code shows at display
-    /// byte `at` (a tap on its header).
-    pub fn select_code_block(
-        &self,
-        expected: u64,
-        at: u64,
-    ) -> Result<EditorSelectionChange, EditorSessionError> {
-        self.with_revision(expected, |session| {
-            let at = usize::try_from(at).map_err(|_| EditorSessionError::InvalidRange)?;
-            Ok(session
-                .select_code_block(Revision(expected), futo_notes_editor::DisplayOffset(at))?
-                .into())
-        })
-    }
-
-    /// Write a code block's language and `name:` from its header fields, as
-    /// one Undo step that keeps the selection. `None` when the block already
-    /// has them; `InvalidText` (nothing changed) when they would not read back.
-    pub fn set_code_block_header(
-        &self,
-        expected: u64,
-        header: EditorCodeBlockHeader,
-    ) -> Result<Option<EditorViewChange>, EditorSessionError> {
-        self.with_revision(expected, |session| {
-            Ok(session
-                .set_code_block_header(Revision(expected), &header.try_into()?)?
-                .map(Into::into))
         })
     }
 

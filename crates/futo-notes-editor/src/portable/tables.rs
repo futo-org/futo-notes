@@ -10,6 +10,12 @@ pub enum PortableTableStep {
 }
 
 impl PortableSession {
+    /// Whether the caret writes a table's delimiter row. An input that
+    /// changes no source returns no change, so a view reads it here.
+    pub fn writes_delimiter_row(&self) -> bool {
+        self.engine.writes_delimiter_row()
+    }
+
     pub fn inspect_table(
         &self,
         expected: Revision,

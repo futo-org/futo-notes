@@ -756,6 +756,108 @@
    "before": "plain‸",
    "command": "paste x",
    "after": null
+  },
+  {
+   "name": "the delimiter row is not reachable: a step right from the header's end goes past it",
+   "before": "| a |‸\n|---|\n| b |",
+   "command": "move Forward",
+   "after": "| a |\n|---|\n‸| b |"
+  },
+  {
+   "name": "the delimiter row is not reachable: a step left from the first row's start goes past it",
+   "before": "| a |\n|---|\n‸| b |",
+   "command": "move Backward",
+   "after": "| a |‸\n|---|\n| b |"
+  },
+  {
+   "name": "the delimiter row is not reachable: past a delimiter row that ends the note the caret stays at the header's end",
+   "before": "| a |‸\n|---|",
+   "command": "move Forward",
+   "after": "| a |‸\n|---|"
+  },
+  {
+   "name": "the delimiter row is not reachable: a step right past a header-only table goes to the line after it",
+   "before": "| a |‸\n|---|\npara",
+   "command": "move Forward",
+   "after": "| a |\n|---|\n‸para"
+  },
+  {
+   "name": "a caret placed on the delimiter row goes to its nearer edge: the header's end",
+   "before": "| a |\n|‸---|\n| b |",
+   "command": "place",
+   "after": "| a |‸\n|---|\n| b |"
+  },
+  {
+   "name": "a caret placed on the delimiter row goes to its nearer edge: the next row's start",
+   "before": "| a |\n|---‸|\n| b |",
+   "command": "place",
+   "after": "| a |\n|---|\n‸| b |"
+  },
+  {
+   "name": "a placed range ending on the delimiter row ends at the header's end",
+   "before": "| «a |\n|-»--|\n| b |",
+   "command": "place",
+   "after": "| «a |»\n|---|\n| b |"
+  },
+  {
+   "name": "a placed range starting on the delimiter row starts at the next row",
+   "before": "| a |\n|--«-|\n| b» |",
+   "command": "place",
+   "after": "| a |\n|---|\n«| b» |"
+  },
+  {
+   "name": "a placed range with both ends on the delimiter row is a caret where its start goes",
+   "before": "| a |\n|«--»-|\n| b |",
+   "command": "place",
+   "after": "| a |‸\n|---|\n| b |"
+  },
+  {
+   "name": "a placed range over the whole table keeps the delimiter row inside it",
+   "before": "«| a |\n|---|\n| b |»",
+   "command": "place",
+   "after": "«| a |\n|---|\n| b |»"
+  },
+  {
+   "name": "a host's echo on the delimiter row is taken as given",
+   "before": "| a |\n|-‸--|\n| b |",
+   "command": "select",
+   "after": "| a |\n|-‸--|\n| b |"
+  },
+  {
+   "name": "Backspace at the first body row's start writes nothing: the delimiter row stays",
+   "before": "| a |\n|---|\n‸| b |",
+   "command": "key Backspace",
+   "after": null
+  },
+  {
+   "name": "Backspace at the start of the line after a header-only table writes nothing",
+   "before": "| a |\n|---|\n‸para",
+   "command": "key Backspace",
+   "after": null
+  },
+  {
+   "name": "Enter in a header cell goes to the first body row, past the delimiter row",
+   "before": "| a‸ |\n|---|\n| b |",
+   "command": "Enter",
+   "after": "| a |\n|---|\n| «b» |"
+  },
+  {
+   "name": "Tab in a header-only table's last cell appends a row under the delimiter row",
+   "before": "| a‸ |\n|---|",
+   "command": "Tab",
+   "after": "| a |\n|---|\n| ‸ |"
+  },
+  {
+   "name": "Enter on a delimiter row never splits it: the caret goes to the first body row's first cell, a blank row written when there is none",
+   "before": "| a | b |\n|---|---‸",
+   "command": "key Enter",
+   "after": "| a | b |\n|---|---\n| ‸ |  |"
+  },
+  {
+   "name": "Tab on a delimiter row goes to the first body row's first cell",
+   "before": "| a |\n|-‸--|\n| b |",
+   "command": "key Tab",
+   "after": "| a |\n|---|\n| ‸b |"
   }
  ]
 }
