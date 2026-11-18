@@ -8,7 +8,9 @@ mod types;
 
 pub use external::ExternalSourceAdoption;
 pub use find::{FindReport, FindScanRequest, FindScanResult, FindWork};
-pub use types::{BlockCommand, Composition, MarkedRun, ParagraphKey, ToolbarList, ToolbarState};
+pub use types::{
+    BlockCommand, Composition, MarkedRun, ParagraphKey, ToolbarCommand, ToolbarList, ToolbarState,
+};
 
 use crate::engine::Engine;
 use crate::history::{HistoryClock, MonotonicClock};
@@ -389,6 +391,21 @@ impl EditorSession {
         accept: Accept,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.run(|e| e.block(expected, range, command, accept))
+    }
+
+    /// `removed` (typed text on one line, such as a `/` menu's query)
+    /// removed, then a toolbar block command at the caret left: one
+    /// acceptance and one Undo step. The removal alone when the command
+    /// changes nothing there; `None`, and nothing removed, for a range across
+    /// lines, an image or a wikilink, or on a code line or in front matter.
+    pub fn block_command_removing(
+        &mut self,
+        expected: Revision,
+        removed: DisplayRange,
+        command: BlockCommand,
+        accept: Accept,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.run(|e| e.block_removing(expected, removed, command, accept))
     }
 
     /// Selection-wide formats and common blocks, plus command eligibility.

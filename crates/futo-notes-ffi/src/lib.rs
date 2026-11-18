@@ -9,8 +9,8 @@ pub use editor::{
     EditorInlineFormat, EditorInputAction, EditorLinkDescription, EditorListDescription,
     EditorNoteRead, EditorParagraphKey, EditorProjection, EditorQuickOpen, EditorSaveStatus,
     EditorSemanticRun, EditorSessionError, EditorSourceByteOffset, EditorSourceByteRange,
-    EditorToolbarList, EditorToolbarSnapshot, EditorUtf16Range, EditorUtf16Replacement,
-    EditorViewChange, NativeEditorSession,
+    EditorToolbarCommand, EditorToolbarList, EditorToolbarSnapshot, EditorUtf16Range,
+    EditorUtf16Replacement, EditorViewChange, NativeEditorSession,
 };
 pub use editor::{
     EditorDisplayMirror, EditorFindLanding, EditorFindSnapshot, EditorFindStep, EditorListMarker,

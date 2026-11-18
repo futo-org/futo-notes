@@ -37,7 +37,7 @@ impl Engine {
         let block = self
             .block_at(header.at.0)
             .ok_or(EditorError::InvalidRange)?;
-        let language = header_value(&header.language);
+        let language = header_value(header.language.trim_end());
         let name = header_value(&header.name);
         let fence_end = self.line_start(block.opener) + self.line(block.opener).body_len();
         if block.description.language.as_deref() == language

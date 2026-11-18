@@ -140,7 +140,7 @@ impl Table {
 
     /// An empty row as wide as the table.
     fn blank_row(&self) -> String {
-        format!("|{}", "  |".repeat(self.width))
+        new_row(EMPTY_CELL, self.width)
     }
 
     pub(in crate::engine) fn controls(&self, row: usize) -> TableControls {
@@ -153,6 +153,15 @@ impl Table {
             delete_column: self.width > 1,
         }
     }
+}
+
+/// A new empty cell, and a new delimiter row's cell.
+pub(in crate::engine) const EMPTY_CELL: &str = "  ";
+pub(in crate::engine) const DELIMITER_CELL: &str = " --- ";
+
+/// A new line of `columns` cells, each `cell`: `|`, then `cell|` per column.
+pub(in crate::engine) fn new_row(cell: &str, columns: usize) -> String {
+    format!("|{}", format!("{cell}|").repeat(columns))
 }
 
 fn alignment(cell: &str) -> TableAlignment {

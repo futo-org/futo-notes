@@ -16,7 +16,7 @@ mod types;
 
 pub use session::{
     BlockCommand, Composition, EditorSession, ExternalSourceAdoption, FindReport, FindScanRequest,
-    FindScanResult, FindWork, MarkedRun, ParagraphKey, ToolbarList, ToolbarState,
+    FindScanResult, FindWork, MarkedRun, ParagraphKey, ToolbarCommand, ToolbarList, ToolbarState,
 };
 pub use table::{
     TableAlignment, TableCell, TableCommand, TableControls, TableDescription, TableFocus, TableKey,

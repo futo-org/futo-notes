@@ -1,10 +1,12 @@
 //! Literal cases for the core. The five properties are in `properties.rs`.
+mod block_removing;
 mod blocks;
 mod clipboard;
 mod commands;
 mod commits;
 mod display_text;
 mod external;
+mod fence_headers;
 mod fences;
 mod find;
 mod front_matter;

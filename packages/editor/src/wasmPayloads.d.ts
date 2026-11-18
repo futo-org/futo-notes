@@ -47,7 +47,9 @@ export type BlockCommand =
   | 'OpenLineBeforeCodeBlock'
   | 'OpenLineAfterCodeBlock'
   | 'OpenCodeLineBelow'
-  | 'OpenCodeLineAbove';
+  | 'OpenCodeLineAbove'
+  /** An empty table at the caret: `rows` rows, the header row included, of `columns` cells. */
+  | { Table: { rows: number; columns: number } };
 export type TableKey = 'Tab' | 'ShiftTab' | 'Enter' | 'ModEnter' | 'ShiftEnter';
 export type TableCommand =
   | 'InsertRowAbove'
@@ -341,18 +343,35 @@ export interface MarkedRun {
 }
 
 export type ToolbarList = 'Bullet' | 'Ordered' | 'Task';
+/** A command a toolbar offers; `Heading` is the heading toggle at every level alike. */
+export type ToolbarCommand =
+  | 'Bold'
+  | 'Italic'
+  | 'Strike'
+  | 'Code'
+  | 'Link'
+  | 'Heading'
+  | 'Quote'
+  | 'BulletList'
+  | 'OrderedList'
+  | 'TaskList'
+  | 'CodeBlock'
+  | 'Divider'
+  | 'Table';
 
 /** `toolbar_state`: what the toolbar lights for the selection, by the engine's own rules. */
 export interface ToolbarState {
   formats: InlineFormat[];
   /** The heading level every touched line with text shares (0: text); null when they differ or none takes a heading. */
   heading: number | null;
-  /** Whether a heading command can change any touched line (false over only table lines, code, front matter or dividers). */
+  /** Whether `allowed` holds `Heading`. */
   heading_allowed: boolean;
   /** Whether Quote takes a level off. */
   quote: boolean;
-  /** Whether Quote can change any touched line (false over only table lines, code, front matter or dividers). */
+  /** Whether `allowed` holds `Quote`. */
   quote_allowed: boolean;
+  /** The commands that would act at the selection now (change the note, or at a caret the formats typing carries; the formats as the toolbar's toggle `toggle_toolbar_format` acts); a button whose command is left out would change nothing. */
+  allowed: ToolbarCommand[];
   list: ToolbarList | null;
   code: boolean;
   mixed: boolean;
@@ -445,7 +464,8 @@ export interface TableDescription {
 export type TableOutcome = { selected: SelectionChange } | { edited: Applied };
 
 // ---- Per-method results --------------------------------------------------
-// Edit methods (`replace*`, `toggle_format`, `block_command_utf16`, `paragraph_key_utf16`,
+// Edit methods (`replace*`, `toggle_format`, `block_command_utf16`,
+// `block_command_removing_utf16`, `paragraph_key_utf16`,
 // `undo`, `redo`, `set_link`, `insert_image`, `add_header_tag`, `remove_header_tag`,
 // `paste_markdown`, `commit_composition_utf16`, `replace_os_utf16`, `apply_relink_offer`,
 // `table_command*`) apply the edit to the page's engine and return `Applied | null`

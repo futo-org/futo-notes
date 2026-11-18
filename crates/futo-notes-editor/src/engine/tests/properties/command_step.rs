@@ -1,8 +1,8 @@
 //! A paragraph key, a toolbar block command, a code block command or a
 //! clipboard action at the selection, with properties 3 and 4 checked. A
-//! paste, Enter, Shift+Enter and the divider also keep every byte outside
-//! their reach (`kept_outside`), besides what Enter rewrites in a list
-//! (`enter_rewrites.rs`).
+//! paste, Enter, Shift+Enter, the divider and the table also keep every
+//! byte outside their reach (`kept_outside`), besides what Enter rewrites in
+//! a list (`enter_rewrites.rs`).
 use super::enter_rewrites::enter_rewrites;
 use super::*;
 use std::ops::Range;
@@ -146,11 +146,15 @@ pub(super) fn command_step(
             BlockCommand::OpenLineAfterCodeBlock,
             BlockCommand::OpenCodeLineBelow,
             BlockCommand::OpenCodeLineAbove,
-        ][random.below(16)];
+            BlockCommand::Table {
+                rows: 1 + random.below(3) as u16,
+                columns: 1 + random.below(3) as u16,
+            },
+        ][random.below(17)];
         (
             engine.block(revision, range, command, &mut ok).unwrap(),
             format!("command {command:?} at {range:?}"),
-            command == BlockCommand::Divider,
+            matches!(command, BlockCommand::Divider | BlockCommand::Table { .. }),
             false,
         )
     };

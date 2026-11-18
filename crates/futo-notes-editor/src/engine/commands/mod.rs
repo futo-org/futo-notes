@@ -2,6 +2,7 @@
 //! the selection, and returns a `Command` (text edits plus a new selection);
 //! `Engine::run` applies it behind the one guard. A family that does not
 //! claim a key leaves it to typing.
+mod allowed;
 mod atoms;
 mod blocks;
 mod clipboard;
@@ -118,7 +119,8 @@ impl Engine {
             BlockCommand::Heading(_)
             | BlockCommand::ToggleHeading(_)
             | BlockCommand::Quote
-            | BlockCommand::Divider => self.block_toggle(range, command),
+            | BlockCommand::Divider
+            | BlockCommand::Table { .. } => self.block_toggle(range, command),
             BlockCommand::Indent | BlockCommand::Outdent => {
                 match self.fence_indent(range, command == BlockCommand::Outdent)? {
                     Some(command) => Ok(Some(command)),

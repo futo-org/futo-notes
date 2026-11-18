@@ -343,6 +343,28 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
+    /// `block_command_utf16` at the caret left once UTF-16 `start..end`
+    /// (typed text on one line) is removed: one request, one Undo step.
+    pub fn block_command_removing_utf16(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        command: &str,
+    ) -> Result<String, JsValue> {
+        let command = serde_json::from_str(command).map_err(error)?;
+        let removed = DisplayUtf16Range {
+            start: DisplayUtf16Offset(start),
+            end: DisplayUtf16Offset(end),
+        };
+        json(
+            &self
+                .0
+                .block_command_removing_utf16(Revision(revision), removed, command)
+                .map_err(error)?,
+        )
+    }
+
     pub fn block_command_utf16(
         &mut self,
         revision: u64,

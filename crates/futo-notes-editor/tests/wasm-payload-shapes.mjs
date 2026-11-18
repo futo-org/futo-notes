@@ -175,6 +175,7 @@ const tableToolbar = shape('ToolbarState', cells.toolbar_state());
 assert.equal(tableToolbar.heading_allowed, false);
 assert.equal(tableToolbar.quote_allowed, false);
 assert.equal(tableToolbar.heading, null);
+assert.deepEqual(tableToolbar.allowed, []);
 
 const completion = new WasmSession(2n, '[[Ro', 0n);
 completion.update_note_ids('["Road"]');
@@ -230,6 +231,14 @@ const toggleHeading = '{"ToggleHeading":2}';
 shape('BlockCommand', toggleHeading);
 shape('Applied | null', toggled.block_command_utf16(0n, 0, 0, toggleHeading));
 assert.equal(toggled.draft_text(), 'abc');
+// A `/` menu's pick: the typed query removed and a table written, one request and one Undo step.
+const picked = new WasmSession(12n, 'a\n/ta', 0n);
+const tableCommand = '{"Table":{"rows":2,"columns":2}}';
+shape('BlockCommand', tableCommand);
+shape('Applied | null', picked.block_command_removing_utf16(0n, 2, 5, tableCommand));
+assert.equal(picked.draft_text(), 'a\n|  |  |\n| --- | --- |\n|  |  |');
+picked.undo(1n);
+assert.equal(picked.draft_text(), 'a\n/ta');
 shape('HostRequest', new WasmSession(6n, 'abc', 0n).resume());
 const fenced = new WasmSession(8n, '```rust hl:1\ncode\n```', 0n);
 const header = shape('CodeBlockHeader', { at: 0, language: 'go', name: 'main.go' });
