@@ -333,7 +333,7 @@ fn code_facts(slice: &crate::ProjectionSlice) -> (Vec<String>, Vec<String>) {
 #[test]
 fn a_fence_under_an_item_hides_its_indent_on_code_lines() {
     let slice = projected("- item\n  ```js\n  code\n    more\n less\n  ```");
-    assert_eq!(slice.text, "item\ncode\n  more\n less");
+    assert_eq!(slice.text, "\u{fffc}item\ncode\n  more\n less");
     let hidden: Vec<_> = slice
         .correspondence
         .iter()
