@@ -162,6 +162,9 @@ ios:prepull-xcode27-image:
     GIT_STRATEGY: none
   parallel: 5
   timeout: 4h
+  # Not the default before_script: it installs fnm from the checkout, and this
+  # job has neither a checkout nor a use for Node.
+  before_script: []
   script:
     - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
     - hostname
