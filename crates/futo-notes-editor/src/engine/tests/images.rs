@@ -113,6 +113,50 @@ fn image_cases() {
     }
 }
 
+/// An accepted insertion shows the photo as an image, read with the whole
+/// note: `---x---` split around `x` would read as front matter, which no
+/// one line read alone shows. Otherwise it is refused with nothing changed.
+#[test]
+fn an_accepted_insertion_always_shows_its_image() {
+    for (source, selection) in [
+        ("---x---", 3..4),
+        ("---x---", 3..3),
+        ("---x\n---", 3..3),
+        ("a\n---x\n---", 5..5),
+    ] {
+        let mut engine = Engine::open(source);
+        engine.land(selection.clone(), None);
+        let before = engine.selection();
+        match engine.insert_image(engine.revision(), "p.png", "", &mut ok) {
+            Ok(Some(_)) => {
+                let end = engine.display_text().len();
+                let slice = engine.project(engine.revision(), range(0, end)).unwrap();
+                let images = slice
+                    .atoms
+                    .iter()
+                    .filter(|atom| {
+                        atom.image
+                            .as_ref()
+                            .is_some_and(|image| image.destination == "p.png")
+                    })
+                    .count();
+                assert_eq!(
+                    images,
+                    1,
+                    "{source:?} {selection:?} gave {:?}",
+                    engine.source_text()
+                );
+            }
+            Ok(None) | Err(EditorError::InvalidText) => {
+                assert_eq!(engine.source_text(), source, "{source:?}");
+                assert_eq!(engine.selection(), before, "{source:?}");
+                assert!(!engine.can_undo(), "{source:?}");
+            }
+            Err(error) => panic!("{source:?}: {error:?}"),
+        }
+    }
+}
+
 #[test]
 fn an_inserted_image_keeps_its_line_the_block_it_was() {
     for (source, at) in [

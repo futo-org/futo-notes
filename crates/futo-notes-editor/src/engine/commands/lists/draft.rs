@@ -182,6 +182,7 @@ impl<'a> Draft<'a> {
             typed: false,
             carry: None,
             same_kind: Vec::new(),
+            image: None,
         })
     }
 }

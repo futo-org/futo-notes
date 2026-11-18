@@ -5,9 +5,9 @@
 //! `![alt](reference)`, with `<…>` around a reference holding spaces or
 //! parentheses, on a line of its own when the caret's line is a plain line or
 //! a heading with other content (`own_line`), else inline, and only when that
-//! text reads back, on the line it lands on, as exactly one image with
-//! exactly that destination and alt.
-use super::super::command::{Command, Edit};
+//! text reads back, with the whole note read after the edit, as exactly one
+//! image with exactly that destination and alt (`Command::image`).
+use super::super::command::{Command, Edit, Written};
 use super::super::Engine;
 use crate::lines::{block, line_spans, Kind, Line, Span, SpanKind, TableRole};
 use crate::{
@@ -156,58 +156,44 @@ impl Engine {
         let rest = &after[image.end..piece.start + line.range.end];
         let spaces = rest.len() - rest.trim_start_matches([' ', '\t']).len();
         let gap = &after[image.end..image.end + spaces];
-        let command = match side {
-            None => {
-                self.reads_back(first, last, &after, &image, reference, alt)?;
-                Command::new(
-                    vec![Edit::new(plan.range.clone(), plan.inserted.clone())],
-                    lines,
-                    plan.caret..plan.caret,
-                )
-            }
+        let (edits, at, caret) = match side {
+            None => (
+                vec![Edit::new(plan.range.clone(), plan.inserted.clone())],
+                plan.caret - text.len(),
+                plan.caret,
+            ),
             // Before the line, the caret where the image would have been.
             Some(Side::Before) => {
                 let at = piece.start;
                 let own = format!("{text}{gap}{ending}");
-                let moved = [
-                    &after[..at],
-                    &own,
-                    &after[at..image.start],
-                    &after[image.end + spaces..],
-                ]
-                .concat();
-                self.reads_back(first, last, &moved, &(at..at + text.len()), reference, alt)?;
                 let removed = plan.range.start..plan.range.end + spaces;
                 let caret = plan.caret - text.len() + own.len();
                 let mut edits = vec![Edit::insert(base + at, own)];
                 if !removed.is_empty() {
                     edits.push(Edit::new(removed, ""));
                 }
-                Command::new(edits, lines, caret..caret)
+                (edits, base + at, caret)
             }
             // After the text before it and the spaces, the caret at the start
             // of the line that follows: the rest of its line, or a new empty
             // one.
             Some(Side::After) => {
                 let own = format!("{ending}{text}{ending}");
-                let split = image.end + spaces;
-                let moved = [
-                    &after[..image.start],
-                    &after[image.end..split],
-                    &own,
-                    &after[split..],
-                ]
-                .concat();
-                let at = image.start + spaces + ending.len();
-                self.reads_back(first, last, &moved, &(at..at + text.len()), reference, alt)?;
                 let mut edits = vec![Edit::insert(plan.range.end + spaces, own.clone())];
                 if !plan.range.is_empty() {
                     edits.push(Edit::new(plan.range.clone(), ""));
                 }
+                let at = plan.caret - text.len() + spaces + ending.len();
                 let caret = plan.caret - text.len() + spaces + own.len();
-                Command::new(edits, lines, caret..caret)
+                (edits, at, caret)
             }
         };
+        let mut command = Command::new(edits, lines, caret..caret);
+        command.image = Some(Written {
+            range: at..at + text.len(),
+            destination: reference.to_owned(),
+            alt: alt.to_owned(),
+        });
         Ok(Some(command))
     }
 
@@ -253,27 +239,23 @@ impl Engine {
         None
     }
 
-    /// Whether `image` of `after` reads, on its line, as exactly one image
-    /// with exactly `reference` as its destination and `alt` as its alt.
-    fn reads_back(
-        &self,
-        first: usize,
-        last: usize,
-        after: &str,
-        image: &Range<usize>,
-        reference: &str,
-        alt: &str,
-    ) -> Result<(), EditorError> {
-        let (piece, line) = self
-            .image_line(first, last, after, image)
-            .ok_or(EditorError::InvalidText)?;
-        let local = image.start - piece.start..image.end - piece.start;
-        let text = &after[piece];
-        if is_image(&line_spans(text, &line), text, &local, reference, alt) {
-            Ok(())
-        } else {
-            Err(EditorError::InvalidText)
-        }
+    /// Whether the image a command wrote reads, with the whole note read
+    /// after its edits, as exactly one image with exactly its destination
+    /// and alt.
+    pub(crate) fn reads_as_image(&self, image: &Written) -> bool {
+        let index = self.line_of(image.range.start);
+        let entry = self.line(index);
+        let start = self.line_start(index);
+        let Some(local) = image
+            .range
+            .start
+            .checked_sub(start)
+            .map(|from| from..image.range.end - start)
+        else {
+            return false;
+        };
+        local.end <= entry.text.len()
+            && is_image(&entry.spans, &entry.text, &local, &image.destination, &image.alt)
     }
 
     /// Keys around an image: a caret's Backspace or Delete whose one-grapheme

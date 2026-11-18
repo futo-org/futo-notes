@@ -67,6 +67,19 @@ pub(crate) struct Command {
     /// edits, as (index before, index after): a block move's lines change
     /// place, never kind.
     pub same_kind: Vec<(usize, usize)>,
+    /// An image the command writes, which must read back, with the whole
+    /// note read after the edits, as exactly that image; else the command
+    /// fails with `InvalidText` and nothing changes.
+    pub image: Option<Written>,
+}
+
+/// An image a command writes: its source range after the edits, its
+/// destination and its alt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Written {
+    pub range: Range<usize>,
+    pub destination: String,
+    pub alt: String,
 }
 
 impl Command {
@@ -81,6 +94,7 @@ impl Command {
             typed: false,
             carry: None,
             same_kind: Vec::new(),
+            image: None,
         }
     }
 
@@ -413,7 +427,8 @@ impl Engine {
     }
 
     /// Apply `command`'s edits to `batch`, then the guard. `false` when the
-    /// guard fails (the edits stay in `batch` for the caller to revert).
+    /// guard fails, `InvalidText` when the image it writes does not read
+    /// back (the edits stay in `batch` for the caller to revert).
     fn apply(&mut self, batch: &mut Batch, command: &Command) -> Result<bool, EditorError> {
         let mut edits = command.edits.clone();
         edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
@@ -441,6 +456,11 @@ impl Engine {
             .map(|&(old, new)| (class(&self.store.get(old).line.kind), new))
             .collect();
         self.raw_edits(batch, &edits);
+        if let Some(image) = &command.image {
+            if !self.reads_as_image(image) {
+                return Err(EditorError::InvalidText);
+            }
+        }
         let count = self.store.len();
         let kinds_kept = same_kind
             .iter()
