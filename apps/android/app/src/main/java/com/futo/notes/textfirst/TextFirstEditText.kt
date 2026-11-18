@@ -85,8 +85,8 @@ internal class TextFirstEditText(
     }
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */
     internal var composing: Any? = null
-    private var codeInput = false
-    private var codeCaret = false
+    internal var codeInput = false
+    internal var codeCaret = false
     /** The view cut itself to a prefix for a new width; engine updates wait for the engine's reset (TextFirstEditTextWidth.kt). */
     internal var awaitingRelayout = false
     internal val renderHold = RenderHold(this)
@@ -177,19 +177,6 @@ internal class TextFirstEditText(
     override fun performLongClick(): Boolean {
         renderHold.longPressed()
         return imageTouch.longPress() || super.performLongClick()
-    }
-
-    internal fun setCodeInput(code: Boolean) {
-        codeCaret = code
-        refreshCodeInput()
-    }
-
-    /** Code input while the caret is in code; a block selected as one object is replaced by prose, so not then. */
-    private fun refreshCodeInput() {
-        val code = codeCaret && selectedCodeBlock == null
-        if (codeInput == code) return
-        codeInput = code
-        if (isFocused) restartKeyboard()
     }
 
     // ---- engine → view ----

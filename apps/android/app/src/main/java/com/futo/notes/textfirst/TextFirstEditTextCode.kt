@@ -155,3 +155,16 @@ internal fun TextFirstEditText.drawScrollEdge(canvas: Canvas) {
     val top = scrollY.toFloat()
     canvas.drawRect(scrollX.toFloat(), top, (scrollX + width).toFloat(), top + maxOf(1f, style.dp(1f)), paint)
 }
+
+internal fun TextFirstEditText.setCodeInput(code: Boolean) {
+    codeCaret = code
+    refreshCodeInput()
+}
+
+/** Code input while the caret is in code; a block selected as one object is replaced by prose, so not then. */
+internal fun TextFirstEditText.refreshCodeInput() {
+    val code = codeCaret && selectedCodeBlock == null
+    if (codeInput == code) return
+    codeInput = code
+    if (isFocused) restartKeyboard()
+}
