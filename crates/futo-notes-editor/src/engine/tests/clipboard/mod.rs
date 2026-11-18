@@ -122,6 +122,7 @@ fn run(engine: &mut Engine, case: &Case, view: &mut String) -> String {
 fn clipboard_cases() {
     let cases: Vec<Case> = [
         include_str!("../../../../tests/fixtures/engine/clipboard/paste.json"),
+        include_str!("../../../../tests/fixtures/engine/clipboard/paste-code-blocks.json"),
         include_str!("../../../../tests/fixtures/engine/clipboard/copy-and-cut.json"),
         include_str!("../../../../tests/fixtures/engine/clipboard/plain-enter.json"),
     ]

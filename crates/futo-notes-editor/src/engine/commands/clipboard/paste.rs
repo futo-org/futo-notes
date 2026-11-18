@@ -4,8 +4,7 @@
 //! takes the caret line's spelling (a lone `\r` is an ordinary character,
 //! as everywhere in a note). Then:
 //!
-//! - In code the text goes in verbatim. When a pasted line would close the
-//!   fence, the fence grows longer than it, so the text stays code.
+//! - In code the text goes in verbatim (`code_paste.rs`).
 //! - Elsewhere, pasted lines after the first take the caret line's quote
 //!   markers. A pasted list also takes the caret line's indent, on every
 //!   line, so pasted items sit beside the caret's item and nested ones keep
@@ -31,9 +30,10 @@
 use super::super::super::command::{Command, Edit};
 use super::super::super::Engine;
 use super::super::blocks::Joined;
-use super::super::fences::{leading, line_after_closing, Touch};
+use super::super::fences::{leading, line_after_closing};
 use super::super::lists::parts;
 use super::super::marks::split;
+use super::code_paste::PastedCode;
 use crate::lines::block::OpenFence;
 use crate::lines::{block, line_spans, Carry, FenceRole, Kind, Line, SpanKind};
 use crate::{DisplayRange, EditorError, InputAction};
@@ -126,17 +126,6 @@ fn spaced(quote: &str) -> String {
     out
 }
 
-/// The length of the run of fence characters `ch` a line is made of,
-/// whitespace around it aside; 0 when it has anything else.
-fn fence_run(line: &str, ch: u8) -> usize {
-    let own = line.trim_matches([' ', '\t']);
-    if !own.is_empty() && own.bytes().all(|b| b == ch) {
-        own.len()
-    } else {
-        0
-    }
-}
-
 impl Engine {
     pub(super) fn paste_command(
         &self,
@@ -167,7 +156,11 @@ impl Engine {
         // A block selected as one object is replaced whole, as prose.
         let whole_block = self.block_selected && range == self.selection;
         if let Some(touch) = self.touch(range).filter(|_| !whole_block) {
-            let mut command = self.code_paste(range, touch, &text, &newline);
+            let pasted = PastedCode {
+                text: &text,
+                newline: &newline,
+            };
+            let mut command = self.code_paste(range, touch, pasted);
             command.typed = true;
             return Ok(Some(command));
         }
@@ -255,58 +248,6 @@ impl Engine {
             first.saturating_sub(1)..last + 1,
             plan.caret..plan.caret,
         )
-    }
-
-    /// Paste in code: the text verbatim, the fence lengthened (opening and
-    /// closing line alike) when a line would otherwise close it.
-    fn code_paste(&self, range: DisplayRange, touch: Touch, text: &str, newline: &str) -> Command {
-        let index = match &touch {
-            Touch::Code(lines) => lines.start,
-            Touch::Empty(open) => *open,
-        };
-        let fence = self.fence_around(index).expect("code is in a fence");
-        let plan = self.plan(range, text);
-        // The code lines as they will read: the pasted text with the rest
-        // of the lines it lands on.
-        let first = self.line_of(plan.range.start);
-        let last = self.line_of(plan.range.end);
-        let code = |line: usize| fence.code().contains(&line);
-        let before = if code(first) {
-            self.source_slice(self.line_start(first)..plan.range.start)
-        } else {
-            String::new()
-        };
-        let after = if code(last) {
-            let end = self.line_start(last) + self.line(last).body_len();
-            self.source_slice(plan.range.end..end.max(plan.range.end))
-        } else {
-            String::new()
-        };
-        let lines = format!("{before}{}{after}", plan.inserted);
-        let opening = self.line(fence.open).body();
-        let indent = opening.len() - opening.trim_start_matches([' ', '\t']).len();
-        let ch = opening.as_bytes()[indent];
-        let run = opening[indent..].bytes().take_while(|&b| b == ch).count();
-        let longest = lines
-            .split(newline)
-            .map(|line| fence_run(line, ch))
-            .max()
-            .unwrap_or(0);
-        let mut edits = vec![Edit::new(plan.range.clone(), plan.inserted.clone())];
-        let mut caret = plan.caret;
-        if longest >= run {
-            let extra = (ch as char).to_string().repeat(longest + 1 - run);
-            let open_at = self.line_start(fence.open) + indent + run;
-            edits.push(Edit::insert(open_at, extra.clone()));
-            caret += extra.len();
-            if fence.closed {
-                let closing = self.line(fence.end).body();
-                let lead = closing.len() - closing.trim_start_matches([' ', '\t']).len();
-                let close_at = self.line_start(fence.end) + lead;
-                edits.push(Edit::insert(close_at, extra));
-            }
-        }
-        Command::new(edits, fence.open..fence.last() + 1, caret..caret)
     }
 }
 

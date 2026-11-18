@@ -1,0 +1,197 @@
+[
+  {
+    "name": "under an item: typing at a code line's start lands after the fence's indent",
+    "before": "- a\n  ```\n  |x\n  ```",
+    "command": "type:y",
+    "after": "- a\n  ```\n  y|x\n  ```"
+  },
+  {
+    "name": "under an item: Enter gives the new code line the fence's indent",
+    "before": "- a\n  ```js\n  x|\n  ```",
+    "command": "Enter",
+    "after": "- a\n  ```js\n  x\n  |\n  ```"
+  },
+  {
+    "name": "under an item: Shift+Enter keeps the indent past the fence's as code",
+    "before": "- a\n  ```\n    x|\n  ```",
+    "command": "ShiftEnter",
+    "after": "- a\n  ```\n    x\n    |\n  ```"
+  },
+  {
+    "name": "under an item: Enter on a line with less indent gives the new line the fence's indent",
+    "before": "- a\n  ```\n  x\n|\n  ```",
+    "command": "Enter",
+    "after": "- a\n  ```\n  x\n\n  |\n  ```"
+  },
+  {
+    "name": "under an item: Enter on an empty block writes two lines at the fence's indent",
+    "before": "- a\n  ```js|\n  ```",
+    "command": "Enter",
+    "after": "- a\n  ```js\n  \n  |\n  ```"
+  },
+  {
+    "name": "under an item: typing on an empty block writes the code line at the fence's indent",
+    "before": "- a\n  ```|\n  ```",
+    "command": "type:x",
+    "after": "- a\n  ```\n  x|\n  ```"
+  },
+  {
+    "name": "under an item: pasted lines after the first take the fence's indent",
+    "before": "- a\n  ```\n  x|\n  ```",
+    "command": "paste:y\n  z",
+    "after": "- a\n  ```\n  xy\n    z|\n  ```"
+  },
+  {
+    "name": "under an item: a paste on a code line of only the fence's indent gives later lines that indent",
+    "before": "- a\n  ```\n  |\n  ```",
+    "command": "paste:y\nz",
+    "after": "- a\n  ```\n  y\n  z|\n  ```"
+  },
+  {
+    "name": "under an item: a paste into an empty block writes its lines at the fence's indent",
+    "before": "- a\n  ```|\n  ```",
+    "command": "paste:y\nz",
+    "after": "- a\n  ```\n  y\n  z|\n  ```"
+  },
+  {
+    "name": "under an item: Enter on a line with less indent keeps its shown spaces after the fence's indent",
+    "before": "- a\n  ```\n x|\n  ```",
+    "command": "Enter",
+    "after": "- a\n  ```\n x\n   |\n  ```"
+  },
+  {
+    "name": "under an item: Delete at a code line's end joins the next, its indent too",
+    "before": "- a\n  ```\n  x|\n  y\n  ```",
+    "command": "Delete",
+    "after": "- a\n  ```\n  x|y\n  ```"
+  },
+  {
+    "name": "an indented fence: pasted lines take its indent, and one that would close it lengthens it",
+    "before": "  ```js\n  a|b\n  ```",
+    "command": "paste:x\n```\ny",
+    "after": "  ````js\n  ax\n  ```\n  y|b\n  ````"
+  },
+  {
+    "name": "under an item: Tab over lines writes after the fence's indent",
+    "before": "- a\n  ```\n  [x\n  y]\n  ```",
+    "command": "Tab",
+    "after": "- a\n  ```\n    [x\n    y]\n  ```"
+  },
+  {
+    "name": "under an item: Indent writes a tab after the fence's indent",
+    "before": "- a\n  ```\n  x|\n  ```",
+    "command": "Indent",
+    "after": "- a\n  ```\n  \tx|\n  ```"
+  },
+  {
+    "name": "under an item: Shift+Tab takes only indent past the fence's",
+    "before": "- a\n  ```\n  [x\n      y]\n  ```",
+    "command": "ShiftTab",
+    "after": "- a\n  ```\n  [x\n    y]\n  ```"
+  },
+  {
+    "name": "under an item: Tab on an empty block writes its line at the fence's indent",
+    "before": "- a\n  ```|\n  ```",
+    "command": "Tab",
+    "after": "- a\n  ```\n    |\n  ```"
+  },
+  {
+    "name": "under an item: Backspace at the code's start does nothing",
+    "before": "- a\n  ```\n  |x\n  ```",
+    "command": "Backspace",
+    "after": "- a\n  ```\n  |x\n  ```"
+  },
+  {
+    "name": "under an item: Backspace at a later code line's start joins it, its indent too",
+    "before": "- a\n  ```\n  x\n  |y\n  ```",
+    "command": "Backspace",
+    "after": "- a\n  ```\n  x|y\n  ```"
+  },
+  {
+    "name": "under an item: Backspace on the one empty code line selects the block",
+    "before": "- a\n  ```\n  |\n  ```",
+    "command": "Backspace",
+    "after": "- a\n  ```\n  |\n  ```",
+    "selected": true
+  },
+  {
+    "name": "under an item: a heading joined into an empty block lands at the fence's indent",
+    "before": "- a\n  ```\n  ```\n# |h",
+    "command": "BackspaceJoiningHeading",
+    "after": "- a\n  ```\n  h|\n  ```"
+  },
+  {
+    "name": "under an item: open line before the block at the opening line's indent",
+    "before": "- a\n  ```\n  x|\n  ```",
+    "command": "OpenLineBeforeCodeBlock",
+    "after": "- a\n  |\n  ```\n  x\n  ```"
+  },
+  {
+    "name": "under an item: copying code drops the fence's indent with the first line's",
+    "before": "- a\n  ```\n  [x\n    y]\n  ```",
+    "command": "Select",
+    "after": "- a\n  ```\n  [x\n    y]\n  ```",
+    "copied": "x\n  y"
+  },
+  {
+    "name": "under an item: copying code from a line's middle drops the fence's indent",
+    "before": "- a\n  ```\n  a[x\n    y]\n  ```",
+    "command": "Select",
+    "after": "- a\n  ```\n  a[x\n    y]\n  ```",
+    "copied": "x\n  y"
+  },
+  {
+    "name": "under an item: copying the selected block copies its bytes",
+    "before": "- a\n  ```js\n  [x\n  y]\n  ```\nb",
+    "command": "Select",
+    "after": "- a\n  ```js\n  [x\n  y]\n  ```\nb",
+    "block": true,
+    "selected": true,
+    "copied": "  ```js\n  x\n  y\n  ```"
+  },
+  {
+    "name": "under an item: cutting code leaves the fence's indent",
+    "before": "- a\n  ```\n  [x\n  y]\n  ```",
+    "command": "Cut",
+    "after": "- a\n  ```\n  |\n  ```",
+    "copied": "x\ny"
+  },
+  {
+    "name": "under an item: cutting the selected block takes its lines whole",
+    "before": "- a\n  ```\n  [x]\n  ```\nb",
+    "command": "Cut",
+    "after": "- a\n|\nb",
+    "block": true,
+    "copied": "  ```\n  x\n  ```"
+  },
+  {
+    "name": "under an item: code off keeps each line's bytes",
+    "before": "- a\n  ```\n  [x\n    y]\n  ```",
+    "command": "CodeBlock",
+    "after": "- a\n  [x\n    y]"
+  },
+  {
+    "name": "in a quote: Code block puts the quoted lines into a fence as text",
+    "before": "> [a\n> b]",
+    "command": "CodeBlock",
+    "after": "```\n> [a\n> b]\n```"
+  },
+  {
+    "name": "in a quote: typing a third backtick keeps the line quoted text",
+    "before": "> ``|",
+    "command": "type:`",
+    "after": "> ```|"
+  },
+  {
+    "name": "in a quote: Enter on quoted backticks continues the quote",
+    "before": "> ```js|",
+    "command": "Enter",
+    "after": "> ```js\n> |"
+  },
+  {
+    "name": "in a quote: a pasted block is quoted text",
+    "before": "> q|",
+    "command": "paste:```\nx\n```",
+    "after": "> q\n> ```\n> x\n> ```|"
+  }
+]

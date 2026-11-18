@@ -46,6 +46,21 @@ pub(super) fn is_opening_fence(entry: &Entry) -> bool {
     )
 }
 
+/// The opening fence's leading whitespace for line `entry`, which shows as
+/// code (`is_code_line`): a code line starting with it hides it, and every
+/// code line the engine writes starts with it.
+pub(super) fn fence_indent(entry: &Entry) -> &str {
+    if is_opening_fence(entry) {
+        return leading(entry.body());
+    }
+    entry.carry.fence.as_ref().map_or("", |fence| &fence.indent)
+}
+
+/// Leading spaces and tabs.
+pub(super) fn leading(text: &str) -> &str {
+    &text[..text.len() - text.trim_start_matches([' ', '\t']).len()]
+}
+
 /// Whether line-relative offset `column` of line `entry` is its opening
 /// fence's hidden end, where a caret writes the block's language.
 pub(super) fn is_opening_fence_end(entry: &Entry, column: usize) -> bool {

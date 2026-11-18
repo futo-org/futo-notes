@@ -148,8 +148,8 @@ let x = 1
 
 - Inside a fence nothing is read as markdown.
 - The code keeps its own whitespace.
-- The opening fence may be indented, for example under a bullet.
-- A fence is not recognised after `>`.
+- The opening fence may be indented, for example under a bullet. It is still a code block, at the top level of the note and not part of the item, drawn at the left margin. A code line that starts with the opening fence's leading whitespace shows without it, so indent past the fence's shows as code; a line with less or other leading whitespace shows whole.
+- A fence is not recognised after `>`: inside a quote, backticks are quoted text.
 - A fence with no closing line runs to the end of the note.
 
 The info string, as in ` ```go name:api handlers.go hl:1,3-4 ll:2 `:
@@ -234,6 +234,7 @@ and neither is this**
 | `>text` with no space                     | Quote                                        | Plain line                                       |
 | Table row with no leading pipe            | Table row                                    | Plain line                                       |
 | `- - -`                                   | Divider                                      | Bullet                                           |
+| A fence after `>`                         | Code block inside the quote                  | Quoted lines of text                             |
 
 ## Not in version 1
 

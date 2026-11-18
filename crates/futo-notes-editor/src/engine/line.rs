@@ -11,9 +11,10 @@
 //!    fence or the note's end) shows as one empty line with no text behind
 //!    it. So does front matter closed on the note's last line, where the
 //!    empty line is the note's body.
-//! 3. Typing on such an empty line writes a line ending, then the text, at
-//!    the end of the line's hidden text, except immediately after typing an
-//!    opening fence, when the caret stays on its hidden language.
+//! 3. Typing on such an empty line writes a line ending (and on a code
+//!    block the opening fence's indent), then the text, at the end of the
+//!    line's hidden text, except immediately after typing an opening fence,
+//!    when the caret stays on its hidden language.
 //! 4. A divider shows as one U+FFFC, which renderers draw as a rule.
 //! 5. Typing at a divider's edge writes the text on a line of its own
 //!    beside the rule (`edit/plan.rs` `beside_divider`), in its quotes.
@@ -23,9 +24,10 @@
 //!    quote needs, then the text (`edit/plan.rs` `quote_space`).
 //!
 //! Front matter lines show their whole text; a table's delimiter row shows
-//! as typed. Everything else hides its marker (quote, list, heading markers
-//! and an indented line's leading whitespace, which renderers draw from the
-//! line's indent) and its inline syntax.
+//! as typed. Everything else hides its marker (quote, list, heading markers,
+//! an indented line's leading whitespace, which renderers draw from the
+//! line's indent, and the opening fence's indent on a code line) and its
+//! inline syntax.
 use super::store::Size;
 use crate::lines::{block, line_spans, Carry, FenceRole, FrontMatterRole, Kind, Line, Span};
 use crate::lines::{SpanKind, TableRole};

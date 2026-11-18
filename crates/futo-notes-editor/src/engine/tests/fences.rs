@@ -1,6 +1,7 @@
 //! Fenced code: the literal cases in `tests/fixtures/engine/fences.json`,
-//! `code-block-object.json` (a block selected as one object, its edges) and
-//! `hidden-line-edges.json` (input over a selection ending at a hidden line).
+//! `code-block-object.json` (a block selected as one object, its edges),
+//! `hidden-line-edges.json` (input over a selection ending at a hidden line)
+//! and `fences-under-items-and-quotes.json`.
 //!
 //! Each case marks the selection in its source with `|` (a caret) or `[`
 //! and `]` (`marks` names other characters when the note needs these), runs
@@ -75,6 +76,7 @@ fn run(engine: &mut Engine, command: &str, at: Option<usize>) -> Result<(), Edit
         "Tab" => Some(ParagraphKey::Tab),
         "ShiftTab" => Some(ParagraphKey::ShiftTab),
         "Backspace" => Some(ParagraphKey::Backspace),
+        "BackspaceJoiningHeading" => Some(ParagraphKey::BackspaceJoiningHeading),
         "Delete" => Some(ParagraphKey::Delete),
         _ => None,
     };
@@ -126,6 +128,7 @@ fn fence_cases() {
     for objects in [
         include_str!("../../../tests/fixtures/engine/code-block-object.json"),
         include_str!("../../../tests/fixtures/engine/hidden-line-edges.json"),
+        include_str!("../../../tests/fixtures/engine/fences-under-items-and-quotes.json"),
     ] {
         cases.extend(serde_json::from_str::<Vec<Case>>(objects).unwrap());
     }
