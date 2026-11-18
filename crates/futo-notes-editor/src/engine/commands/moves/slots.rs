@@ -9,7 +9,6 @@
 //! (an empty task) the boundary above it and the note's end share an offset.
 use super::super::super::command::trial::Dashes;
 use super::super::super::store;
-use super::held::Held;
 use super::{quoted, Lifted};
 use crate::engine::Engine;
 use crate::lines::{FenceRole, FrontMatterRole, Kind, TableRole};
@@ -109,7 +108,6 @@ impl Engine {
             }
             Lifted::Image { .. } => (true, None),
         };
-        let mut held = Held::default();
         let mut display = self.store.before(from).display;
         let mut out: Vec<(usize, BlockBoundary)> = Vec::new();
         for at in from..=count {
@@ -125,18 +123,13 @@ impl Engine {
                 display += self.line(at).size.display;
             }
             // Strictly inside a list: both lines around the boundary in one.
-            let in_list = |held: &mut Held, work: &mut EditWork| {
-                0 < at
-                    && at < count
-                    && self.holder(at, held, work).is_some()
-                    && self.holder(at - 1, held, work).is_some()
-            };
+            let in_list = || 0 < at && at < count && self.held(at) && self.held(at - 1);
             let ruled_out = own.as_ref().is_some_and(|(block, edges)| {
                 (block.start..=block.end).contains(&at) || edges.contains(&name)
             }) || self.inside_unit(at)
                 || (at == count && self.end_twins_last_line())
                 || out.last().is_some_and(|(_, last)| *last == name)
-                || (!joins_lists && in_list(&mut held, work));
+                || (!joins_lists && in_list());
             if !ruled_out {
                 out.push((at, name));
             }

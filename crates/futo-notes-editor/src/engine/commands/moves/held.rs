@@ -1,123 +1,74 @@
 //! Which lines a list holds, for the landing rule that only an item or one
 //! plain line lands strictly between two lines of a list. A line belongs to
 //! a list when it is an unquoted item, or an unquoted item holds it as
-//! Indent moves it (`list_subtree_end`). Each line is asked about near the
-//! lines asked before it, so a listing reads what is near its range, not the
-//! note from its top.
+//! Indent moves it (`list_subtree_end`); the reader carries the items that
+//! hold the next line (`Carry::holders`), so each line is answered alone.
 use crate::engine::Engine;
 use crate::lines::{FenceRole, Kind};
-use crate::EditWork;
-use std::collections::HashMap;
-
-/// The lines one listing has asked about: each one's holder.
-#[derive(Default)]
-pub(super) struct Held(HashMap<usize, Option<usize>>);
 
 impl Engine {
-    /// The indent of the innermost unquoted item holding line `index` (an
-    /// item holds itself), or `None` when no list holds it.
-    pub(super) fn holder(
-        &self,
-        index: usize,
-        held: &mut Held,
-        work: &mut EditWork,
-    ) -> Option<usize> {
-        if let Some(&found) = held.0.get(&index) {
-            return found;
-        }
-        work.link_metadata_items += 1;
-        let line = &self.line(index).line;
-        let above = index.checked_sub(1).and_then(|at| held.0.get(&at).copied());
-        let found = match line.kind {
-            _ if line.quote > 0 => None,
-            Kind::List { indent, .. } => Some(indent),
+    /// Whether a list holds line `index`.
+    pub(super) fn held(&self, index: usize) -> bool {
+        let entry = self.line(index);
+        let (line, carry) = (&entry.line, &entry.carry);
+        match line.kind {
+            Kind::Fence {
+                role: FenceRole::Code | FenceRole::Close,
+                ..
+            } => carry.held_fence,
+            _ if line.quote > 0 => false,
+            Kind::List { .. } => true,
             Kind::Plain { indent }
             | Kind::Fence {
                 role: FenceRole::Open,
                 indent,
                 ..
-            } if indent > 0 => match above {
-                // A line no list holds passes none down; one held by an item
-                // less indented than this line is held by it too.
-                Some(None) => None,
-                Some(Some(outer)) if indent > outer => Some(outer),
-                _ => self.holder_above(index, indent, work),
-            },
-            // A code or closing line is held as its opening fence is.
-            Kind::Fence {
-                role: FenceRole::Code | FenceRole::Close,
-                ..
-            } => match above {
-                Some(found) => found,
-                None => {
-                    let open = self.fence_opening(index, work);
-                    (open < index)
-                        .then(|| self.holder(open, held, work))
-                        .flatten()
+            } => carry.holders.first().is_some_and(|&outer| outer < indent),
+            _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::engine::Engine;
+    use crate::lines::Kind;
+
+    /// The lines a list holds as Indent reads them: from the top, each
+    /// unquoted item not already held starts a list through the lines it
+    /// moves with (`list_subtree_end`).
+    fn held_by_indent(engine: &Engine) -> Vec<bool> {
+        let mut end = 0;
+        (0..engine.line_count())
+            .map(|at| {
+                let line = &engine.line(at).line;
+                if at >= end && line.quote == 0 && matches!(line.kind, Kind::List { .. }) {
+                    end = engine.list_subtree_end(at);
                 }
-            },
-            _ => None,
-        };
-        held.0.insert(index, found);
-        found
+                at < end
+            })
+            .collect()
     }
 
-    /// Walk up from line `index`, indented `indent`, to the item holding it:
-    /// the first unquoted item less indented than every line between, past
-    /// lines that continue an item (indented plain lines and items, and
-    /// fences opened under one). Any other line, or an unindented one, ends
-    /// the walk with none.
-    fn holder_above(&self, index: usize, indent: usize, work: &mut EditWork) -> Option<usize> {
-        let mut least = indent;
-        let mut at = index;
-        while at > 0 {
-            at -= 1;
-            work.link_metadata_items += 1;
-            if matches!(
-                self.line(at).line.kind,
-                Kind::Fence {
-                    role: FenceRole::Code | FenceRole::Close,
-                    ..
-                }
-            ) {
-                at = self.fence_opening(at, work);
-            }
-            let line = &self.line(at).line;
-            let indent = match line.kind {
-                _ if line.quote > 0 => return None,
-                Kind::List { indent, .. } if indent < least => return Some(indent),
-                Kind::List { indent, .. }
-                | Kind::Plain { indent }
-                | Kind::Fence {
-                    role: FenceRole::Open,
-                    indent,
-                    ..
-                } => indent,
-                _ => return None,
+    #[test]
+    fn a_line_is_held_exactly_where_indent_moves_it_with_an_item() {
+        const LINES: &[&str] = &[
+            "- a", "  - b", "    - c", "  x", "    y", " z", "w", "", "  ", "> q", "> - r",
+            "  ```", "```", "code", "  code", "# h", "| t |", "|---|", "1. n", "- [ ] t", "---",
+        ];
+        let mut seed: u64 = 0x5eed_446;
+        for _ in 0..3000 {
+            let mut next = |below: usize| {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                (seed % below as u64) as usize
             };
-            if indent == 0 {
-                return None;
-            }
-            least = least.min(indent);
+            let count = 1 + next(14);
+            let note: Vec<_> = (0..count).map(|_| LINES[next(LINES.len())]).collect();
+            let engine = Engine::open(&note.join("\n"));
+            let held: Vec<_> = (0..engine.line_count()).map(|at| engine.held(at)).collect();
+            assert_eq!(held, held_by_indent(&engine), "{note:?}");
         }
-        None
-    }
-
-    /// The opening fence of the code or closing line `index`.
-    fn fence_opening(&self, index: usize, work: &mut EditWork) -> usize {
-        let mut at = index;
-        while at > 0
-            && matches!(
-                self.line(at).line.kind,
-                Kind::Fence {
-                    role: FenceRole::Code | FenceRole::Close,
-                    ..
-                }
-            )
-        {
-            at -= 1;
-            work.link_metadata_items += 1;
-        }
-        at
     }
 }
