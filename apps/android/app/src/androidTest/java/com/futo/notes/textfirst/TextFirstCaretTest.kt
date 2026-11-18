@@ -151,8 +151,10 @@ class TextFirstCaretTest {
                 delay(500L)
                 val layout = view.layout!!
                 val line = layout.getLineForOffset(view.selectionStart)
-                val top = layout.getLineTop(line) + view.totalPaddingTop
-                val bottom = layout.getLineBottom(line) + view.totalPaddingTop
+                // The text's own row: a code block's line box also holds its header and skirt (area 2: !300's line height).
+                val baseline = layout.getLineBaseline(line) + view.totalPaddingTop
+                val top = baseline - view.textSize.toInt()
+                val bottom = baseline
                 val caretX = view.totalPaddingLeft + layout.getPrimaryHorizontal(view.selectionStart).toInt()
                 var drawn = false
                 // The caret blinks: look across more than one blink period.

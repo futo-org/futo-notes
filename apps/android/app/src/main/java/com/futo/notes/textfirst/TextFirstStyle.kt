@@ -57,12 +57,24 @@ internal class TextFirstStyle(
     val codeHeaderTextSize = codeMetric(12f)
     val codeCorner = codeMetric(10f)
     val codeChipPad = codeMetric(7f)
+    /** Mason's spacing: each header control's fill stands 2 px from the card's top and side, 24 px tall (!300). */
+    val codeFieldInset = codeMetric(2f)
+    val codeFieldHeight = codeMetric(24f)
+    /** !300's space between the language label and the copy glyph. */
+    val codeGlyphGap = codeMetric(5.3f)
+    val codeGlyphLift = codeMetric(0.8f)
     val codeNameEndPad = codeMetric(4f)
     val codeSkirt = codeMetric(10f)
     val codeRadius = codeMetric(6f)
     val codeBlockGap = codeMetric(4f)
     val codeEdgeLabelSize = codeMetric(10f)
-    val codeTextSize = textSizePx * 0.88f
+    // !300's code: 15.84 px text on a 27.72 px line (0.88 and 1.75 of its 18 px body), its px at our default body.
+    val codeTextSize = codeMetric(15.84f)
+    val codeLineHeight = codeMetric(27.72f)
+    /** !300's gutter, from the card's text column: the numbers end, the rule, the code (cb 264-283, area 2 verifier). */
+    val codeNumbersEnd = codeMetric(21.9f)
+    val codeRuleGap = codeMetric(9f)
+    val codeTextGap = codeMetric(7.5f)
     /** How far a code card stands past the text column on each side. */
     val codeCardOutset get() = dp(6f)
     private val darkTheme get() = androidx.core.graphics.ColorUtils.calculateLuminance(textColor) > 0.5
@@ -75,7 +87,7 @@ internal class TextFirstStyle(
     /** !300's gutter ink: #737373, #A3A3A3 in dark, at 55%. */
     val codeNumberColor get() = if (darkTheme) 0x8CA3A3A3.toInt() else 0x8C737373.toInt()
     /** A number on a line the selection is on (!300 cb 267-276). */
-    val codeNumberActiveColor get() = (textColor and 0x00ffffff) or 0xB3000000.toInt()
+    val codeNumberActiveColor get() = codeChromeInk
     val selectionColor get() = (linkColor and 0x00ffffff) or 0x40000000
     /** The body's border over the header's fill would vanish (the same colour in dark): a step of the text colour over it. */
     val tableHeaderBorderColor get() = androidx.core.graphics.ColorUtils.compositeColors((textColor and 0x00ffffff) or 0x26000000, codeBackground)

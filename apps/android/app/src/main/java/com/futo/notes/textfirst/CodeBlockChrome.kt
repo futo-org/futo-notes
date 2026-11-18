@@ -78,8 +78,8 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         namePaint.textSize = look.codeHeaderTextSize
         namePaint.color = look.codeChromeInk
         val language = block.language?.takeIf { it.isNotEmpty() }
-        // !300 draws a language in Barlow 500 and its ghost as the mono field's placeholder.
-        languagePaint.typeface = if (language != null) look.medium else look.mono
+        // !300 draws a language in Barlow 500 and its ghost "language" in Barlow (area 2 verifier, P063).
+        languagePaint.typeface = if (language != null) look.medium else look.regular
         languagePaint.textSize = look.codeHeaderTextSize
         languagePaint.color = look.codeChromeInk
         val bottom = top + look.codeHeaderHeight
@@ -90,22 +90,24 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         val glyph = look.codeHeaderTextSize * 16f / 18f
         val glyphRight = right - look.codeCorner
         val glyphLeft = glyphRight - glyph
-        val glyphTop = top + (look.codeHeaderHeight - glyph) / 2f
+        // !300 sets the glyph 3 px above the header's middle (area 2 verifier).
+        val glyphTop = top + (look.codeHeaderHeight - glyph) / 2f - look.codeGlyphLift
         val editingLanguage = openField == (codeStart to CodeHeaderField.Kind.LANGUAGE)
         if (copiedBlock == codeStart) drawCheckmark(canvas, glyphLeft, glyphTop, glyph)
         else if (!editingLanguage) drawCopyGlyph(canvas, glyphLeft, glyphTop, glyph)
         val room = glyphLeft - look.codeChipPad - look.codeCorner
         // Shown as written in the fence, as the desktop editor shows it (Mason, 2026-11-17).
         val languageText = language ?: labels.languagePlaceholder
-        val shownLanguage = TextUtils.ellipsize(languageText, languagePaint, room / 2f, TextUtils.TruncateAt.END)
-        val languageRight = glyphLeft - look.codeChipPad
+        // !300 caps the language chip at 30% of the header (area 2 verifier, P025).
+        val shownLanguage = TextUtils.ellipsize(languageText, languagePaint, minOf(room, (right - left) * 0.3f), TextUtils.TruncateAt.END)
+        val languageRight = glyphLeft - look.codeGlyphGap
         val languageLeft = languageRight - languagePaint.measureText(shownLanguage, 0, shownLanguage.length)
         if ((language != null || header.revealFields) && !editingLanguage) {
             if (language == null) languagePaint.alpha = GHOST_ALPHA
             canvas.drawText(shownLanguage, 0, shownLanguage.length, languageLeft, baseline, languagePaint)
         }
         val nameRight = languageLeft - look.codeChipPad
-        val nameLeft = left + look.codeCorner
+        val nameLeft = left + look.codeFieldInset + look.codeChipPad
         var nameEnd = nameLeft
         // The ghost "name" tells a reader with no hover that the header is editable (cb 671-677).
         if (block.name.isNullOrEmpty() && header.revealFields && openField != (codeStart to CodeHeaderField.Kind.NAME)) {
@@ -217,9 +219,12 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
         glyphPaint.strokeWidth = size / 11f
         val square = size * 0.6f
         val corner = size * 0.12f
-        glyphBox.set(left, top, left + square, top + square)
-        canvas.drawRoundRect(glyphBox, corner, corner, glyphPaint)
+        // The front square hides the back one where they overlap, as !300's icon does (area 2 verifier, P057).
         glyphBox.set(left + size - square, top + size - square, left + size, top + size)
+        val save = canvas.save()
+        canvas.clipOutRect(glyphBox.left - glyphPaint.strokeWidth, glyphBox.top - glyphPaint.strokeWidth, glyphBox.right + glyphPaint.strokeWidth, glyphBox.bottom + glyphPaint.strokeWidth)
+        canvas.drawRoundRect(left, top, left + square, top + square, corner, corner, glyphPaint)
+        canvas.restoreToCount(save)
         canvas.drawRoundRect(glyphBox, corner, corner, glyphPaint)
     }
 

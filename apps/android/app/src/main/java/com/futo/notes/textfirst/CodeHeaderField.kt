@@ -132,14 +132,13 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         val pad = look.codeChipPad.roundToInt()
         val line = CentredLine(field.paint)
         val baseline = note.codeChrome.headerBaseline(0f, field.typeface).roundToInt()
-        // !300's chip is 88% of the header, centred on the highlight (the line's box): 11 px clear above and below it.
-        // Set before the padding, which a background replaces with its own.
-        val chip = look.codeHeaderHeight * 0.88f
-        val chipTop = (baseline + (line.ascent + line.descent) / 2f - chip / 2f).roundToInt()
+        // !300's fill: 2 px from the card's top, 24 px tall (Mason's spacing). Set before the padding, which a background
+        // replaces with its own.
+        val chipTop = look.codeFieldInset.roundToInt()
         field.background = InsetDrawable(GradientDrawable().apply {
             cornerRadius = look.codeRadius
             setColor((look.textColor and 0x00ffffff) or 0x14000000)
-        }, 0, chipTop, 0, (look.codeHeaderHeight - chipTop - chip).roundToInt())
+        }, 0, chipTop, 0, (look.codeHeaderHeight - chipTop - look.codeFieldHeight).roundToInt())
         field.setPadding(pad, baseline + line.ascent, pad, 0)
         field.gravity = Gravity.TOP or Gravity.START
         field.isSingleLine = true
@@ -236,11 +235,13 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         val shown = open.text.ifEmpty { open.hint ?: "" }.toString()
         // The collar, and the caret's own width so the text never scrolls under it (verifier run 6: 90 vs 80 px for one letter).
         val textWidth = open.paint.measureText(shown) + look.codeChipPad * 2 + look.dp(1f)
-        val widest = if (state.kind == Kind.NAME) note.codeChrome.nameChars(-look.codeCardOutset, note.width + look.codeCardOutset) * open.paint.measureText("0") + look.codeChipPad * 2 else note.width * 0.6f
+        // !300's name field is at most 45% of the header, its language chip 30% (area 2 verifier, P024).
+        val header = (note.layout?.width ?: note.width) + look.codeCardOutset * 2
+        val widest = header * if (state.kind == Kind.NAME) 0.45f else 0.6f
         val width = textWidth.coerceAtMost(widest)
         // The language field takes the chip's place, its glyph included, anchored to the card's right corner (cb 300-302).
         val chipRight = (note.codeChrome.areaOf(state.codeStart, CodeBlockAction.COPY_CODE)?.right ?: area.right) - look.codeCorner + look.codeChipPad
-        val left = if (state.kind == Kind.NAME) area.left + look.codeCorner - look.codeChipPad else chipRight - width
+        val left = if (state.kind == Kind.NAME) area.left + look.codeFieldInset else chipRight - width
         fieldLeft = left
         // The note's parent lays out only the note (TextFirstTableCellHost), so the field is placed here.
         val x = (note.left + note.totalPaddingLeft - note.scrollX + left).roundToInt()

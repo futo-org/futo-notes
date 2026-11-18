@@ -187,7 +187,7 @@ class TextFirstCodeBlockTest {
         withTimeout(5_000) { while (view.codeChrome.areaOf(0, CodeBlockAction.NAME_FIELD) == null) delay(20) }
         val area = view.codeChrome.areaOf(0, CodeBlockAction.NAME_FIELD)!!
         val glyph = android.text.TextPaint().apply { typeface = view.style.mono; textSize = view.style.codeHeaderTextSize }.measureText("0")
-        val shownGlyphs = (area.right - view.style.codeNameEndPad - (area.left + view.style.codeCorner)) / glyph
+        val shownGlyphs = (area.right - view.style.codeNameEndPad - (area.left + view.style.codeFieldInset + view.style.codeChipPad)) / glyph
         assertEquals("a-much-longer-file-…".length.toFloat(), shownGlyphs, 0.05f)
     }
 

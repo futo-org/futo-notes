@@ -24,10 +24,10 @@ internal class TfCodeBlock(private val look: TextFirstStyle, val line: CodeLineF
         textSize = look.codeTextSize
     }
     private val rulePaint = Paint()
-    /** Where the numbers end: two digits wide at least, one more per digit the block's count needs. */
-    val numberEnd = look.codeCorner + maxOf(2, line.block.lineCount.toString().length) * numberPaint.measureText("0")
-    val ruleX = numberEnd + look.codeChipPad
-    private val codeInset = ruleX + look.dp(1f) + look.codeChipPad
+    /** Where the numbers end: !300's two-digit column, one digit wider per digit past two the block's count needs. */
+    val numberEnd = look.codeNumbersEnd + maxOf(0, line.block.lineCount.toString().length - 2) * numberPaint.measureText("0")
+    val ruleX = numberEnd + look.codeRuleGap
+    private val codeInset = ruleX + look.codeTextGap
 
     override fun slice(head: Boolean): TfSpan = if (head) this else TfCodeBlock(look, line)
 
@@ -52,6 +52,14 @@ internal class TfCodeBlock(private val look: TextFirstStyle, val line: CodeLineF
 
     override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
         val spanned = text as Spanned
+        // !300's code line, its leading split above and below the text as CSS does; the TextView adds its body spacing
+        // below every line, so it is taken out here. Top and bottom follow, so a block on the note's first line is not
+        // given the font's padding (area 2 verifier: 6 px taller).
+        val leading = look.codeLineHeight.toInt() - (fm.descent - fm.ascent)
+        fm.ascent -= leading / 2
+        fm.descent += leading - leading / 2 - look.bodyLineSpacing
+        fm.top = fm.ascent
+        fm.bottom = fm.descent
         if (line.first && start == spanned.getSpanStart(this)) {
             val header = look.codeHeaderHeight.toInt()
             fm.ascent -= header
