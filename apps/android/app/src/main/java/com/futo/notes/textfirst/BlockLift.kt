@@ -184,6 +184,7 @@ internal class BlockLift(private val view: TextFirstEditText) {
         view.parent?.requestDisallowInterceptTouchEvent(true)
         drag = created
         haptics.lifted()
+        created.attach()
         created.enter()
         follow(fromFinger = false)
     }
@@ -194,7 +195,7 @@ internal class BlockLift(private val view: TextFirstEditText) {
         fetchSlots()
         autoscrollVelocity = BlockAutoscroll.velocity(fingerY, 0f, view.height.toFloat(), view.style.density)
         if (autoscrollVelocity != 0f) startAutoscroll()
-        view.invalidate()
+        d.invalidate()
     }
 
     /** Ask the engine for the slots of what newly came near the screen. */
@@ -223,7 +224,7 @@ internal class BlockLift(private val view: TextFirstEditText) {
         val engine = view.engine
         if (slot == null || engine == null) return finish(d, returning = true)
         d.landing = true
-        view.invalidate()
+        d.invalidate()
         engine.dropBlock(d.plan.press, slot, d.plan.revision, d.holdFor(slot)) { moved ->
             if (moved) haptics.landed()
             if (drag === d) finish(d, returning = !moved)
@@ -245,7 +246,7 @@ internal class BlockLift(private val view: TextFirstEditText) {
             view.invalidate()
             return
         }
-        d.returnHome { if (drag === d) { drag = null; view.invalidate() } }
+        d.returnHome { d.dispose(); if (drag === d) { drag = null; view.invalidate() } }
     }
 
     // ---- the edge autoscroll ----

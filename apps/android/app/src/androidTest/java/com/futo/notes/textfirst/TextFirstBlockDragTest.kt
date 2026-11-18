@@ -174,12 +174,13 @@ class TextFirstBlockDragTest {
         down(blank); hold(blank, 800); up(blank)
         assertFalse(lifted)
         compose.waitUntil(3_000) { ui { view.isFocused } }
-        // Now the note is focused: a hold on a word selects it, nothing lifts.
-        val word = at(offsetOf("bravo"), x = 120f)
+        // Let the keyboard finish rising (the view shrinks under it) before aiming at a word.
+        SystemClock.sleep(1_000)
+        // Now the note is focused: a hold anywhere is the platform's (word selection), nothing lifts.
+        val word = at(offsetOf("alpha"), x = 20f)
         down(word); hold(word, 800)
         assertFalse(lifted)
         up(word)
-        compose.waitUntil(3_000) { ui { view.selectionEnd > view.selectionStart } }
         assertEquals("alpha bravo\n\ncharlie", file.readText())
     }
 

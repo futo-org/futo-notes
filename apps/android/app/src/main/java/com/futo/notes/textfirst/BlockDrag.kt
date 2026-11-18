@@ -2,6 +2,9 @@ package com.futo.notes.textfirst
 
 import android.animation.ValueAnimator
 import android.graphics.Canvas
+import android.graphics.ColorFilter
+import android.graphics.PixelFormat
+import android.graphics.drawable.Drawable
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
@@ -103,7 +106,7 @@ internal class BlockDrag private constructor(
         animator = ValueAnimator.ofFloat(ENTER_SCALE, LIFTED_SCALE).apply {
             duration = ENTER_MS
             interpolator = PathInterpolator(0.2f, 0.9f, 0.3f, 1f)
-            addUpdateListener { scale = it.animatedValue as Float; view.invalidate() }
+            addUpdateListener { scale = it.animatedValue as Float; invalidate() }
             start()
         }
     }
@@ -116,7 +119,7 @@ internal class BlockDrag private constructor(
         val fromY = dy
         animator = ValueAnimator.ofFloat(1f, 0f).apply {
             duration = RETURN_MS
-            addUpdateListener { val f = it.animatedValue as Float; dx = fromX * f; dy = fromY * f; view.invalidate() }
+            addUpdateListener { val f = it.animatedValue as Float; dx = fromX * f; dy = fromY * f; invalidate() }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) { done() }
             })
@@ -124,7 +127,40 @@ internal class BlockDrag private constructor(
         }
     }
 
-    fun dispose() { animator?.cancel(); animator = null }
+    fun dispose() {
+        animator?.cancel()
+        animator = null
+        view.rootView.overlay.remove(floating)
+    }
+
+    /** Redraw the dim and the drop line in the note, and the card over the window. */
+    fun invalidate() {
+        view.invalidate()
+        floating.invalidateSelf()
+    }
+
+    /** The card floats over the whole window, as the web editor's did, so the note's edges never cut it. */
+    private val floating = object : Drawable() {
+        override fun draw(canvas: Canvas) {
+            val at = IntArray(2).also(view::getLocationInWindow)
+            val root = IntArray(2).also(view.rootView::getLocationInWindow)
+            val save = canvas.save()
+            canvas.translate((at[0] - root[0] - view.scrollX).toFloat(), (at[1] - root[1] - view.scrollY).toFloat())
+            drawCard(canvas, sourceRect())
+            drawDropLine(canvas)
+            canvas.restoreToCount(save)
+        }
+        override fun setAlpha(alpha: Int) = Unit
+        override fun setColorFilter(filter: ColorFilter?) = Unit
+        @Deprecated("Deprecated in Java") override fun getOpacity() = PixelFormat.TRANSLUCENT
+    }
+
+    /** Put the card up over the window. */
+    fun attach() {
+        val root = view.rootView
+        floating.setBounds(0, 0, root.width, root.height)
+        root.overlay.add(floating)
+    }
 
     // ---- drawing, after the text, in content coordinates ----
 
@@ -134,22 +170,21 @@ internal class BlockDrag private constructor(
     private val fade = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT) }
     private val path = Path()
 
+    /** In the note: the block's place, dimmed (35% shows through), until the move lands. The card and the drop line float over the window. */
     fun draw(canvas: Canvas) {
-        val look = view.style
         val source = sourceRect()
-        // The block's place, dimmed (35% shows through), until the move lands.
         if (source != null) {
-            fill.color = withAlpha(look.pageColor, 0.65f)
+            fill.color = withAlpha(view.style.pageColor, 0.65f)
             canvas.drawRect(source, fill)
         }
-        drawCard(canvas, source)
-        // Over the card, which is under the finger, so it never fades.
-        val at = slot?.takeIf { !landing }?.let { view.boundaryY(it) }
-        if (at != null) {
-            fill.color = look.linkColor
-            val h = DROP_LINE_DP * d
-            canvas.drawRoundRect(view.totalPaddingLeft - 6 * d, at - h / 2, view.width - view.totalPaddingRight + 6 * d, at + h / 2, h / 2, h / 2, fill)
-        }
+    }
+
+    /** The drop line, over the card (which is under the finger), so it never fades. */
+    private fun drawDropLine(canvas: Canvas) {
+        val at = slot?.takeIf { !landing }?.let { view.boundaryY(it) } ?: return
+        fill.color = view.style.linkColor
+        val h = DROP_LINE_DP * d
+        canvas.drawRoundRect(view.totalPaddingLeft - 6 * d, at - h / 2, view.width - view.totalPaddingRight + 6 * d, at + h / 2, h / 2, h / 2, fill)
     }
 
     private fun drawCard(canvas: Canvas, source: RectF?) {
