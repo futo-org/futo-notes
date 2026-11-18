@@ -52,4 +52,19 @@ class TextFirstDesktopRulesTest {
         chord(c, KeyEvent.KEYCODE_FORWARD_DEL, 0, "A [[Linked note]] here.")
         assertEquals("A  here.", c.sourceText())
     }
+
+    @Test fun aTypedAddressIsSavedAsAWebAddress() = textFirstSession("alpha beta") { c ->
+        ready(c, 6, 10)
+        val draft = c.linkDraft()!!
+        assertEquals(true, c.editLink(draft, "beta", "example.com"))
+        assertEquals("alpha [beta](https://example.com)", c.sourceText())
+    }
+
+    @Test fun ctrlKOpensTheLinkForm() = textFirstSession("alpha beta") { c ->
+        ready(c, 6, 10)
+        var opened = 0
+        c.view.onLinkShortcut = { opened++ }
+        assertEquals(true, c.view.onKeyDown(KeyEvent.KEYCODE_K, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_K, 0, KeyEvent.META_CTRL_ON)))
+        assertEquals(1, opened)
+    }
 }

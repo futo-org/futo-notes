@@ -19,6 +19,7 @@ internal fun TextFirstEditText.shortcutKey(engine: EditorEngine, keyCode: Int, e
             return true
         }
         KeyEvent.KEYCODE_E -> { engine.toggleFormat(EditorInlineFormat.CODE); return true }
+        KeyEvent.KEYCODE_K -> { onLinkShortcut?.invoke(); return onLinkShortcut != null }
         KeyEvent.KEYCODE_I -> { engine.toggleFormat(EditorInlineFormat.ITALIC); return true }
         KeyEvent.KEYCODE_A -> { engine.selectAll(); return true }
         KeyEvent.KEYCODE_C -> { onTextContextMenuItem(android.R.id.copy); return true }

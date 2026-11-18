@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +37,10 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
         if (opening || draft != null) return
         opening = true
         try { draft = controller.linkDraft() } finally { opening = false }
+    }
+    DisposableEffect(controller) {
+        controller.view.onLinkShortcut = { if (controller.opened) scope.launch { openLink() } }
+        onDispose { controller.view.onLinkShortcut = null }
     }
     PuppetVerbScope {
         if (!visible || !controller.opened || opening || draft != null) emptyList() else listOf(

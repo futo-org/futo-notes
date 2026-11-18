@@ -43,6 +43,7 @@ internal fun EditorEngine.removeLink(draft: LinkDraft, done: (Boolean) -> Unit) 
 
 internal fun EditorEngine.editLink(draft: LinkDraft, label: String, destination: String, done: (Boolean) -> Unit) = ackedCommand(done) {
     val current = draft.owner === this && draft.revision == rev && mirror.overlay == null
-    if (current) session?.editLink(rev, draft.range, label, destination)?.let(::accept)
+    // A typed address is saved as desktop saves it (`example.com` becomes `https://example.com`).
+    if (current) session?.let { it.editLink(rev, draft.range, label, it.normalizeLinkDestination(destination)) }?.let(::accept)
     current
 }

@@ -34,6 +34,7 @@ internal class TextFirstEditText(
         }
     internal val imePublisher = NativeImePublisher(this)
     var onOpenWikilink: ((WikilinkDestination) -> Unit)? = null
+    var onLinkShortcut: (() -> Unit)? = null
     var onOpenUrl: ((String) -> Boolean)? = null
     private val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
     private val imageTouch = ImageTouch(this)
