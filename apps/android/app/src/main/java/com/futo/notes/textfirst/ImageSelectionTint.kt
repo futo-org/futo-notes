@@ -1,28 +1,32 @@
 package com.futo.notes.textfirst
 
 import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.RectF
 
 /** Mason's desktop rule in its phone form: a selected image carries the selection colour over it, not only a band under it. */
 internal fun TextFirstEditText.drawSelectedImageTint(canvas: Canvas) {
-    val start = selectionStart
-    val end = selectionEnd
-    if (start >= end) return
+    if (selectionStart >= selectionEnd) return
     val l = layout ?: return
     val e = editableText ?: return
-    val images = e.getSpans(start, end, TfImage::class.java).filter { e.getSpanStart(it) >= start && e.getSpanEnd(it) <= end }
+    // Only the lines on screen: a whole-note selection is not scanned on every caret blink.
+    val top = scrollY - totalPaddingTop
+    val start = maxOf(selectionStart, l.getLineStart(l.getLineForVertical(maxOf(0, top))))
+    val end = minOf(selectionEnd, l.getLineEnd(l.getLineForVertical(maxOf(0, top + height))))
+    if (start >= end) return
+    val images = e.getSpans(start, end, TfImage::class.java)
     if (images.isEmpty()) return
     val tint = style.selectionColor
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = tint }
+    val paint = codeChrome.selectionPaint.apply { color = tint }
+    val rect = codeChrome.selectionRow
     val save = canvas.save()
     canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
     for (image in images) {
         val at = e.getSpanStart(image)
+        if (at < selectionStart || e.getSpanEnd(image) > selectionEnd) continue
         val (width, height) = image.drawSize()
         val x = l.getPrimaryHorizontal(at)
         val baseline = l.getLineBaseline(l.getLineForOffset(at)).toFloat()
-        canvas.drawRoundRect(RectF(x, baseline - height, x + width, baseline), style.dp(6f), style.dp(6f), paint)
+        rect.set(x, baseline - height, x + width, baseline)
+        canvas.drawRoundRect(rect, style.dp(6f), style.dp(6f), paint)
     }
     canvas.restoreToCount(save)
 }

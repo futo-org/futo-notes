@@ -46,7 +46,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     private val shownText = ShownTextCache()
     private val scratchMetrics = Paint.FontMetrics()
     val numberTexts = NumberTexts()
-    /** Drawing scratch, reused every frame: the card being drawn, and the paint of a selection's rows. */
+    /** Drawing scratch, reused every frame: the card being drawn, and the paint and rect of a selection (its code rows, a selected image). */
     val card = RectF()
     val selectionPaint = Paint()
     val selectionPath = android.graphics.Path()
