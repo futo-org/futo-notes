@@ -355,18 +355,7 @@ internal class TextFirstEditText(
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val engine = engine ?: return super.onKeyDown(keyCode, event)
         if (selectedBlockKey(keyCode, event) || codeLineKey(keyCode, event) || codeStartBackTab(keyCode, event) || downOutOfLastBlock(keyCode, event)) return true
-        if (shortcutKey(engine, keyCode, event)) return true
-        val paragraphKey = paragraphKeyFor(keyCode, event)
-        if (paragraphKey != null) {
-            engine.handler.post { engine.key(paragraphKey) }
-            return true
-        }
-        val char = event.unicodeChar
-        if (char != 0 && !event.isCtrlPressed && !event.isAltPressed) {
-            val typed = String(Character.toChars(char))
-            engine.handler.post { engine.imeCommit(typed) }
-            return true
-        }
+        if (shortcutKey(engine, keyCode, event) || engineKey(engine, keyCode, event)) return true
         return super.onKeyDown(keyCode, event) || keyCode in NOTE_MOVE_KEYS
     }
 
