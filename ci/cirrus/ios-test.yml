@@ -3,7 +3,7 @@
 test_ios_native_task:
   name: testFutoNotesIOSNative
   macos_instance:
-    image: ghcr.io/cirruslabs/macos-tahoe-xcode:27.2
+    image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
   env:
     # Incremental artifacts are per-machine scratch that a fresh VM can never
     # reuse, and they are ~0.6 GB of pure churn in every target/ cache upload.
@@ -170,7 +170,7 @@ test_ios_native_task:
 publish_ios_task:
   name: publishFutoNotesIOS
   macos_instance:
-    image: ghcr.io/cirruslabs/macos-tahoe-xcode:27.2
+    image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
   publishFutoNotesIOS_script:
     # Fetch the ASC API key from GitLab secure files
     - curl --silent "https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/download-secure-files/-/raw/main/installer" | bash
