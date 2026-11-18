@@ -1,21 +1,43 @@
 package com.futo.notes.textfirst
 
 import android.view.KeyEvent
+import uniffi.futo_notes_ffi.EditorBlockCommand
+import uniffi.futo_notes_ffi.EditorInlineFormat
 
-/** A hardware keyboard's Ctrl shortcuts: undo and redo, bold and italic, select all, copy, cut and paste. */
+/**
+ * A hardware keyboard's Ctrl shortcuts: undo and redo, the inline formats, select all, copy, cut and paste, and
+ * desktop's line chords (Ctrl+Alt+1-6 headings, +8 bullets, +7 numbers, Ctrl+Shift+B quote).
+ */
 internal fun TextFirstEditText.shortcutKey(engine: EditorEngine, keyCode: Int, event: KeyEvent): Boolean {
     if (!event.isCtrlPressed) return false
+    if (event.isAltPressed) return altChord(engine, keyCode)
     when (keyCode) {
         KeyEvent.KEYCODE_Z -> { if (event.isShiftPressed) engine.redo() else engine.undo(); return true }
         KeyEvent.KEYCODE_Y -> { engine.redo(); return true }
-        KeyEvent.KEYCODE_B -> { engine.toggleFormat(uniffi.futo_notes_ffi.EditorInlineFormat.BOLD); return true }
-        KeyEvent.KEYCODE_I -> { engine.toggleFormat(uniffi.futo_notes_ffi.EditorInlineFormat.ITALIC); return true }
+        KeyEvent.KEYCODE_B -> {
+            if (event.isShiftPressed) engine.blockCommand(EditorBlockCommand.Quote) else engine.toggleFormat(EditorInlineFormat.BOLD)
+            return true
+        }
+        KeyEvent.KEYCODE_E -> { engine.toggleFormat(EditorInlineFormat.CODE); return true }
+        KeyEvent.KEYCODE_I -> { engine.toggleFormat(EditorInlineFormat.ITALIC); return true }
         KeyEvent.KEYCODE_A -> { engine.selectAll(); return true }
         KeyEvent.KEYCODE_C -> { onTextContextMenuItem(android.R.id.copy); return true }
         KeyEvent.KEYCODE_X -> { onTextContextMenuItem(android.R.id.cut); return true }
         KeyEvent.KEYCODE_V -> { onTextContextMenuItem(android.R.id.paste); return true }
     }
     return false
+}
+
+/** Ctrl+Alt chords: X is strikethrough (it reached Cut before), 1-6 headings, 7 numbers, 8 bullets. */
+private fun altChord(engine: EditorEngine, keyCode: Int): Boolean {
+    when (keyCode) {
+        KeyEvent.KEYCODE_X -> engine.toggleFormat(EditorInlineFormat.STRIKE)
+        in KeyEvent.KEYCODE_1..KeyEvent.KEYCODE_6 -> engine.blockCommand(EditorBlockCommand.ToggleHeading((keyCode - KeyEvent.KEYCODE_0).toUByte()))
+        KeyEvent.KEYCODE_7 -> engine.blockCommand(EditorBlockCommand.OrderedList)
+        KeyEvent.KEYCODE_8 -> engine.blockCommand(EditorBlockCommand.BulletList)
+        else -> return false
+    }
+    return true
 }
 
 /**

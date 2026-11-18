@@ -4,6 +4,7 @@ import uniffi.futo_notes_ffi.EditorInlineFormat
 import uniffi.futo_notes_ffi.EditorInputAction
 import uniffi.futo_notes_ffi.EditorMarkedRun
 import uniffi.futo_notes_ffi.EditorParagraphKey
+import uniffi.futo_notes_ffi.EditorStyleSpan
 import uniffi.futo_notes_ffi.EditorUtf16Range
 import uniffi.futo_notes_ffi.EditorUtf16Replacement
 
@@ -129,11 +130,32 @@ internal fun EditorEngine.key(key: EditorParagraphKey) = input {
     if (mirror.overlay != null) commitComposition(null)
     if (editingCell && (key == EditorParagraphKey.TAB || key == EditorParagraphKey.SHIFT_TAB) &&
         tableTab(key == EditorParagraphKey.SHIFT_TAB)) return@input
+    wikilinkBesideCaret(key)?.let { (start, end) -> return@input replace(start, end, "", EditorInputAction.TYPING) }
     val intent = if (key == EditorParagraphKey.BACKSPACE) EditorParagraphKey.BACKSPACE_JOINING_HEADING else key
     val change = checkNotNull(fast).paragraphKey(rev, mirror.selStart, mirror.selEnd, intent)
     if (change != null) accept(change)
 }
 
+
+/**
+ * A wikilink is one unit (Mason's desktop rule; the engine leaves it to the renderer): Backspace right after it or
+ * Delete right before it takes it whole, one Undo step.
+ */
+private fun EditorEngine.wikilinkBesideCaret(key: EditorParagraphKey): Pair<Int, Int>? {
+    val caret = mirror.selStart
+    if (caret != mirror.selEnd || mirror.overlay != null) return null
+    val (from, to) = when (key) {
+        EditorParagraphKey.BACKSPACE -> caret - 1 to caret
+        EditorParagraphKey.DELETE -> caret to caret + 1
+        else -> return null
+    }
+    if (from < 0 || to > mirror.text.length) return null
+    return checkNotNull(session).stylePlan(rev, mirror.byteRange(from, to)).firstNotNullOfOrNull { span ->
+        val link = span as? EditorStyleSpan.Wikilink ?: return@firstNotNullOfOrNull null
+        val range = link.start.toInt() to link.end.toInt()
+        range.takeIf { if (key == EditorParagraphKey.BACKSPACE) it.second == caret else it.first == caret }
+    }
+}
 
 internal fun EditorEngine.commitComposition(value: String?) {
     val s = session ?: return
