@@ -7,6 +7,7 @@
 //! the pasted text as it is, behind the one guard (`paste.rs`). Drag-to-move
 //! is a cut and a paste joined into one undo step (`move_text.rs`).
 mod carried;
+mod code_paste;
 mod copy;
 mod move_text;
 mod paste;

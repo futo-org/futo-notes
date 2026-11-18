@@ -172,7 +172,7 @@ pub(super) fn type_step(
     if collapsed {
         let written = match (beside_divider, empty_line) {
             (Some(written), _) => written,
-            (None, Some(index)) => format!("{}{text}", engine_ending(&before.source, index)),
+            (None, Some(index)) => format!("{}{text}", empty_line_start(&before.source, index)),
             (None, None) if quote_space => format!(" {text}"),
             (None, None) => text.to_owned(),
         };
@@ -482,8 +482,9 @@ fn fence_lines(engine: &Engine, index: usize) -> Option<(usize, usize)> {
     Some((open, close.min(engine.line_count() - 1)))
 }
 
-/// The ending typing on an empty line at line `index` of `source` writes.
-pub(super) fn engine_ending(source: &str, index: usize) -> String {
+/// What typing on an empty line at line `index` of `source` writes before
+/// the text: its line ending, and an empty code block's fence indent.
+pub(super) fn empty_line_start(source: &str, index: usize) -> String {
     let engine = Engine::open(source);
-    engine.empty_line_ending(index)
+    engine.empty_line_start(index)
 }

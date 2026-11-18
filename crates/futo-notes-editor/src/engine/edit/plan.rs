@@ -1,5 +1,6 @@
 //! Planning a replacement: which source bytes typing over a display
 //! range writes, and where the caret lands.
+use super::super::code_block::{fence_indent, is_opening_fence};
 use super::super::line::Role;
 use super::super::{read, store, Engine};
 use super::runs::changed_stretch;
@@ -37,6 +38,19 @@ impl Engine {
             }
         }
         "\n".to_owned()
+    }
+
+    /// What typing on line `index`, an empty line with no text behind it,
+    /// writes before the text: the line ending, then on an empty code block
+    /// the opening fence's indent, which its first code line starts with.
+    pub(crate) fn empty_line_start(&self, index: usize) -> String {
+        let entry = self.store.get(index);
+        let indent = if is_opening_fence(entry) {
+            fence_indent(entry)
+        } else {
+            ""
+        };
+        format!("{}{indent}", self.empty_line_ending(index))
     }
 
     /// Whether display offset `at` is on a line that shows with no text
@@ -190,7 +204,7 @@ impl Engine {
         let mut inserted = String::new();
         if reach.is_none() && (s != e || !text.is_empty()) {
             if let Some(index) = self.empty_line(s) {
-                inserted.push_str(&self.empty_line_ending(index));
+                inserted.push_str(&self.empty_line_start(index));
             }
         }
         inserted.push_str(text);

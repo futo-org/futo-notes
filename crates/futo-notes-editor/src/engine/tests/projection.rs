@@ -325,6 +325,30 @@ fn code_facts(slice: &crate::ProjectionSlice) -> (Vec<String>, Vec<String>) {
     (lines, blocks)
 }
 
+/// A fence under a list item is a block at the left margin: its code lines
+/// hide the opening fence's indent and report no list facts.
+#[test]
+fn a_fence_under_an_item_hides_its_indent_on_code_lines() {
+    let slice = projected("- item\n  ```js\n  code\n    more\n less\n  ```");
+    assert_eq!(slice.text, "item\ncode\n  more\n less");
+    let hidden: Vec<_> = slice
+        .correspondence
+        .iter()
+        .filter(|piece| piece.kind == crate::CorrespondenceKind::Hidden)
+        .map(|piece| (piece.source.start.0, piece.source.end.0))
+        .collect();
+    assert!(hidden.contains(&(15, 17)), "{hidden:?}");
+    assert!(hidden.contains(&(22, 24)), "{hidden:?}");
+    assert!(hidden.iter().all(|&(start, _)| start != 31), "{hidden:?}");
+    let code: Vec<_> = slice
+        .blocks
+        .iter()
+        .filter(|block| block.code.is_some())
+        .map(|block| block.list.is_none())
+        .collect();
+    assert_eq!(code, [true, true, true]);
+}
+
 #[test]
 fn code_lines_know_their_block() {
     let cases: &[(&str, &[&str], &[&str])] = &[
@@ -351,7 +375,7 @@ fn code_lines_know_their_block() {
         (
             "- item\n  ```js\n  code\n  ```\n- next",
             &["1<>"],
-            &["5..11 js x1"],
+            &["5..9 js x1"],
         ),
         (
             "```go name:api handlers.go hl:1,3 ll:2-3\none\ntwo\nthree\nfour\n```",

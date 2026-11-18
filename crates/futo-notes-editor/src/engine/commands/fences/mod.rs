@@ -3,8 +3,8 @@
 //! `edges.rs`), lines opened beside one (`open_line.rs`) and its header
 //! (`header.rs`).
 //!
-//! Code text is the line's text, whitespace and all: nothing inside a fence
-//! is Markdown. Putting lines in a fence keeps their text exactly; taking
+//! Code text is the line's text past the opening fence's indent, whitespace
+//! and all: nothing inside a fence is Markdown. Putting lines in a fence keeps their text exactly; taking
 //! lines out of a fence keeps each one a plain line (`kept_line` writes a
 //! leading `\` where the text would read as another block), so the shown
 //! text does not move.
@@ -22,6 +22,7 @@ use crate::lines::{block, FenceRole, Kind};
 use crate::{BlockCommand, DisplayRange, EditorError};
 use std::ops::Range;
 
+pub(super) use super::super::code_block::leading;
 pub(super) use open_line::line_after_closing;
 
 /// A fence's lines: its opening line, and the line after its code (the
@@ -80,11 +81,6 @@ fn fence_role(kind: &Kind) -> Option<FenceRole> {
         Kind::Fence { role, .. } => Some(*role),
         _ => None,
     }
-}
-
-/// Leading spaces and tabs.
-pub(super) fn leading(text: &str) -> &str {
-    &text[..text.len() - text.trim_start_matches([' ', '\t']).len()]
 }
 
 /// The run of backticks a line of only backticks has (after its indent and

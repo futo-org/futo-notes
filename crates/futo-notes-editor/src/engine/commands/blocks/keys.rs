@@ -1,5 +1,6 @@
 //! Enter and Backspace on heading and quote lines, and Enter on a plain
 //! line inside inline marks.
+use super::super::super::code_block::fence_indent;
 use super::super::super::command::{Command, Edit};
 use super::super::super::Engine;
 use super::{as_heading, right_side, split, unquote, unquoted};
@@ -195,8 +196,8 @@ impl Engine {
     }
 
     /// A heading under a closing fence: its shown text lands at the end of
-    /// the code's last line (an empty block gains one), and the heading line
-    /// goes.
+    /// the code's last line (an empty block gains one, at the opening fence's
+    /// indent), and the heading line goes.
     fn heading_into_code(&self, index: usize) -> Command {
         let heading = self.line(index);
         let code = index - 2;
@@ -210,7 +211,7 @@ impl Engine {
                 ..
             }
         ) {
-            text.insert_str(0, entry.ending());
+            text.insert_str(0, &format!("{}{}", entry.ending(), fence_indent(entry)));
         }
         let close_end = self.line_start(index - 1) + self.line(index - 1).body_len();
         let heading_end = self.line_start(index) + heading.body_len();

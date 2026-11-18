@@ -35,6 +35,9 @@ impl Carry {
 pub(crate) struct OpenFence {
     pub ch: u8,
     pub len: usize,
+    /// The opening fence's leading whitespace, which a code line starting
+    /// with it hides: the block is drawn at the left margin.
+    pub indent: Arc<str>,
     /// The opening fence's info. Every line inside shows by it (language,
     /// name, line marks), so a change to it reads the whole block again.
     pub info: Arc<FenceInfo>,
@@ -86,8 +89,8 @@ pub(crate) enum Kind {
     FrontMatter(FrontMatterRole),
     Fence {
         role: FenceRole,
-        /// Columns of a fence line's own leading whitespace; code lines keep
-        /// their whitespace as code and report 0.
+        /// Columns of a fence line's own leading whitespace; code lines
+        /// report 0 (`OpenFence::indent`).
         indent: usize,
         /// The info string, on an opening fence only.
         info: Option<Arc<FenceInfo>>,
@@ -110,7 +113,8 @@ pub(crate) struct Line {
     /// Display nesting; independent of the source indent and block class.
     pub list_level: usize,
     /// Syntax before the content: quote markers, a list or heading marker and
-    /// the space after it, the leading whitespace of a list or indented plain line.
+    /// the space after it, the leading whitespace of a list or indented plain
+    /// line, and on a code line the opening fence's leading whitespace.
     pub marker: Range<usize>,
     /// What inline reading applies to. Empty for blank, divider, fence,
     /// front matter and delimiter lines.
@@ -289,10 +293,14 @@ fn fenced(carry: &mut Carry, open: OpenFence, place: &Place, text: &str) -> Line
         info: None,
     };
     if closes {
-        place.syntax(kind)
-    } else {
-        place.line(kind, 0, 0..0, 0..place.len)
+        return place.syntax(kind);
     }
+    let hidden = if text.starts_with(&*open.indent) {
+        open.indent.len()
+    } else {
+        0
+    };
+    place.line(kind, 0, 0..hidden, hidden..place.len)
 }
 
 /// A line outside fences and front matter, read by its own text and the
@@ -323,8 +331,8 @@ fn read_block(carry: &mut Carry, place: &Place, text: &str, header_above: Option
     }
 
     if quote == 0 {
-        if let Some((ch, run)) = fence_open(own) {
-            return fence_opener(carry, place, own, width, ch, run);
+        if let Some(opener) = fence_open(&text[..at], own) {
+            return fence_opener(carry, place, opener);
         }
     }
 
@@ -375,24 +383,27 @@ fn read_block(carry: &mut Carry, place: &Place, text: &str, header_above: Option
     line(Kind::Plain { indent: width }, quote, 0..at, at..len)
 }
 
-/// An opening fence, at its own indent.
-fn fence_opener(
-    carry: &mut Carry,
-    place: &Place,
-    own: &str,
-    width: usize,
+/// An opening fence's parts: its leading whitespace, the text after it,
+/// and its run of fence characters.
+struct Opener<'a> {
+    indent: &'a str,
+    own: &'a str,
     ch: u8,
     run: usize,
-) -> Line {
-    let info = Arc::new(read_fence_info(&own[run..]));
+}
+
+/// An opening fence, at its own indent.
+fn fence_opener(carry: &mut Carry, place: &Place, opener: Opener) -> Line {
+    let info = Arc::new(read_fence_info(&opener.own[opener.run..]));
     carry.fence = Some(OpenFence {
-        ch,
-        len: run,
+        ch: opener.ch,
+        len: opener.run,
+        indent: Arc::from(opener.indent),
         info: Arc::clone(&info),
     });
     place.syntax(Kind::Fence {
         role: FenceRole::Open,
-        indent: width,
+        indent: width(opener.indent),
         info: Some(info),
     })
 }
@@ -435,13 +446,20 @@ pub(crate) fn width(whitespace: &str) -> usize {
         .sum()
 }
 
-fn fence_open(own: &str) -> Option<(u8, usize)> {
+/// An opening fence: `own`, the text after the leading whitespace `indent`,
+/// starts with three or more backticks or tildes.
+fn fence_open<'a>(indent: &'a str, own: &'a str) -> Option<Opener<'a>> {
     let ch = *own.as_bytes().first()?;
     if ch != b'`' && ch != b'~' {
         return None;
     }
     let run = own.bytes().take_while(|&b| b == ch).count();
-    (run >= 3).then_some((ch, run))
+    (run >= 3).then_some(Opener {
+        indent,
+        own,
+        ch,
+        run,
+    })
 }
 
 fn divider(own: &str) -> bool {

@@ -12,8 +12,9 @@
 //!    it lands as plain typing does. (Amended 2026-11-12: markers stay
 //!    hidden at all times outranks pinning one end of the hidden marks.)
 //!    The typing rules 3, 5 and 6 of `engine/line.rs` write their own bytes
-//!    besides: a line ending on an empty code block, a line of its own at a
-//!    divider's edge, the space an empty `>` quote line needs.
+//!    besides: a line ending and the opening fence's indent on an empty
+//!    code block, a line of its own at a divider's edge, the space an empty
+//!    `>` quote line needs.
 //! 3. Undo restores the exact bytes and selection; redo restores the edit.
 //! 4. The reading and display after any edit equal those read from scratch.
 //! 5. A position converted from text to display and back is unchanged, for
@@ -23,12 +24,13 @@
 //! Besides, a host that applies each change's projection holds what a fresh
 //! projection reports (`block_mirror.rs`; on fence-dense notes, `fences.rs`),
 //! and a paste, Enter, Shift+Enter or the divider removes no byte outside
-//! its reach (`command_step.rs`).
+//! its reach, besides what Enter rewrites in a list (`command_step.rs`).
 //!
 //! `TYPING_CASES` and `TYPING_SEED` set the number of notes and the seed.
 mod block_mirror;
 mod checks;
 mod command_step;
+mod enter_rewrites;
 mod fences;
 mod generate;
 mod inline;

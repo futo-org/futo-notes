@@ -1,16 +1,19 @@
 //! Keys inside a fence, and the Indent and Outdent buttons on code.
+use super::super::super::code_block::{fence_indent, is_opening_fence};
 use super::super::super::command::{Command, Edit};
+use super::super::super::line::Entry;
 use super::super::super::Engine;
 use super::{leading, Touch};
 use crate::{DisplayRange, EditorError, ParagraphKey};
 
-/// What Outdent and Shift+Tab take off the start of a code line: a tab, else
-/// up to two spaces.
-fn outdent_width(text: &str) -> usize {
-    if text.starts_with('\t') {
+/// What Outdent and Shift+Tab take off the start of code line `entry`'s
+/// shown text: a tab, else up to two spaces.
+fn outdent_width(entry: &Entry) -> usize {
+    let code = &entry.body()[entry.line.marker.end..];
+    if code.starts_with('\t') {
         1
     } else {
-        text.bytes().take(2).take_while(|&b| b == b' ').count()
+        code.bytes().take(2).take_while(|&b| b == b' ').count()
     }
 }
 
@@ -35,7 +38,8 @@ impl Engine {
                     self.emptied_block(range)
                         .unwrap_or_else(|| self.code_break(range, lines.start)),
                 ),
-                _ => None,
+                Some(Touch::Empty(open)) => Some(self.code_break(range, open)),
+                None => None,
             }),
             ParagraphKey::Tab | ParagraphKey::ShiftTab => Ok(self
                 .touch(range)
@@ -70,20 +74,28 @@ impl Engine {
                 true,
                 lines
                     .into_iter()
-                    .any(|index| outdent_width(self.line(index).body()) > 0),
+                    .any(|index| outdent_width(self.line(index)) > 0),
             ),
         })
     }
 
-    /// Enter in code: a line break in the line's own spelling, then the
-    /// code line's leading whitespace up to the caret. It lands as typing
-    /// does (no guard): the text is code.
+    /// Enter in code: a line break in the line's own spelling, the opening
+    /// fence's indent, then the shown code's leading whitespace up to the
+    /// caret (none on an empty block's line). It lands as typing does (no
+    /// guard): the text is code.
     fn code_break(&self, range: DisplayRange, line: usize) -> Command {
         let selection = self.source_selection(range);
-        let start = self.line_start(line);
-        let indent = leading(self.line(line).body());
-        let indent = &indent[..indent.len().min(selection.start - start)];
-        let text = format!("{}{indent}", self.new_ending(line));
+        let entry = self.line(line);
+        let shown = if is_opening_fence(entry) {
+            ""
+        } else {
+            let code = &entry.body()[entry.line.marker.end..];
+            let caret =
+                (selection.start - self.line_start(line)).saturating_sub(entry.line.marker.end);
+            let shown = leading(code);
+            &shown[..shown.len().min(caret)]
+        };
+        let text = format!("{}{}{shown}", self.new_ending(line), fence_indent(entry));
         let plan = self.plan(range, &text);
         let first = self.line_of(plan.range.start);
         let last = self.line_of(plan.range.end);
@@ -97,9 +109,9 @@ impl Engine {
     }
 
     /// Tab and Shift+Tab (`key`), Indent and Outdent on code. Tab writes two
-    /// spaces at a caret, or at the start of each selected line; Indent
-    /// writes a tab at the start of each touched line. Shift+Tab and Outdent
-    /// take a tab, else up to two spaces, off each touched line.
+    /// spaces at a caret, or at the start of each selected line's shown code;
+    /// Indent writes a tab there on each touched line. Shift+Tab and Outdent
+    /// take a tab, else up to two spaces, off it.
     fn code_indent(&self, range: DisplayRange, touch: Touch, outdent: bool, key: bool) -> Command {
         let unit = if key { "  " } else { "\t" };
         let lines = match &touch {
@@ -109,9 +121,10 @@ impl Engine {
         let collapsed = range.start == range.end;
         if let (Touch::Empty(open), false) = (&touch, outdent) {
             // An empty block's line, even selected as one object: written.
-            let at = self.line_start(*open) + self.line(*open).body_len();
-            let caret = at + self.new_ending(*open).len() + unit.len();
-            let text = format!("{}{unit}", self.new_ending(*open));
+            let entry = self.line(*open);
+            let at = self.line_start(*open) + entry.body_len();
+            let text = format!("{}{}{unit}", self.new_ending(*open), fence_indent(entry));
+            let caret = at + text.len();
             return Command::new(vec![Edit::insert(at, text)], *open..open + 1, caret..caret);
         }
         if !outdent && collapsed && key {
@@ -127,9 +140,9 @@ impl Engine {
         let mut edits = Vec::new();
         if !matches!(touch, Touch::Empty(_)) {
             for index in lines.clone() {
-                let start = self.line_start(index);
+                let start = self.line_start(index) + self.line(index).line.marker.end;
                 if outdent {
-                    let width = outdent_width(self.line(index).body());
+                    let width = outdent_width(self.line(index));
                     if width > 0 {
                         edits.push(Edit::new(start..start + width, ""));
                     }
