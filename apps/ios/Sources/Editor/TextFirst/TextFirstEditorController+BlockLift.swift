@@ -39,12 +39,8 @@ extension TextFirstEditorController {
         guard let laidOut = laidOutRange() else {
             return TextFirstDropTargets(slots: [], own: nil, source: nil)
         }
-        let (asks, covering) = book.missing(from: laidOut)
-        if !asks.isEmpty {
-            var found: [TextFirstBlockSlot] = []
-            for ask in asks { found += try blockSlots(at: book.offset, within: ask) }
-            book.add(found, covering: covering)
-        }
+        let press = book.offset
+        try book.reach(laidOut) { try blockSlots(at: press, within: $0) }
         let insets = textView.adjustedContentInset
         let shown = textView.bounds.inset(
             by: UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0))

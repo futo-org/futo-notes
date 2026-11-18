@@ -69,6 +69,37 @@
             }
         }
 
+        @Test func theSlotBookAsksOnlyForWhatIsNewAndKeepsWhatIsNear() {
+            // A stand-in engine: a slot every 10 units, both ends of an ask included.
+            var asked: [NSRange] = []
+            func fetch(_ range: NSRange) -> [TextFirstBlockSlot] {
+                asked.append(range)
+                return stride(
+                    from: (range.location + 9) / 10 * 10, through: NSMaxRange(range), by: 10
+                )
+                .map { TextFirstBlockSlot(offset: $0, end: false) }
+            }
+            var book = TextFirstSlotBook(
+                offset: 0,
+                block: TextFirstLiftedBlock(range: NSRange(location: 0, length: 5), toEnd: false),
+                alonePhoto: false, revision: 1)
+            book.reach(NSRange(location: 100, length: 100), fetch: fetch)
+            // Scrolling down a little asks for the new stretch only, and nothing twice.
+            book.reach(NSRange(location: 120, length: 100), fetch: fetch)
+            #expect(asked.last == NSRange(location: 200, length: 20))
+            #expect(book.slots.map(\.offset) == Array(stride(from: 100, through: 220, by: 10)))
+            // Far down, the gap is never asked for, and what is far from the screen is let go.
+            book.reach(NSRange(location: 5_000, length: 100), fetch: fetch)
+            #expect(asked.last == NSRange(location: 5_000, length: 100))
+            #expect(book.slots.first?.offset == 5_000)
+            // A long scroll keeps a bounded stretch around the screen.
+            for start in stride(from: 5_010, to: 9_000, by: 10) {
+                book.reach(NSRange(location: start, length: 100), fetch: fetch)
+            }
+            #expect(book.slots.count <= 51)
+            #expect(book.slots(in: NSRange(location: 8_990, length: 100)).count == 11)
+        }
+
         @Test func aPhotoDecodingMidDragMovesTheDropLineWithTheText() async throws {
             let h = TextFirstHarness(
                 "first\n![](pic.png)\nthird\nfourth",

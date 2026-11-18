@@ -106,10 +106,11 @@ struct TextFirstDropTargets {
     }
 }
 
-/// One lifted block's slots, kept by slot: the engine's answers so far and the UTF-16 stretch
-/// of note they cover. As the note scrolls only what newly comes near the screen is asked for,
-/// so a long drag costs what the scrolled stretch costs, never the whole note. The reflow
-/// preview keys its slices by the same slots.
+/// One lifted block's slots, kept by slot: the engine's answers for one unbroken stretch of the
+/// note (UTF-16) around the screen. As the note scrolls only what newly comes near is asked
+/// for and joined on at its end, and what has gone far from the screen is let go, so a long
+/// drag costs what each scrolled stretch costs, never the whole note or the whole drag. The
+/// reflow preview keys its slices by the same slots.
 struct TextFirstSlotBook {
     /// The press, by which the engine names the block, and the block it names.
     let offset: Int
@@ -126,31 +127,41 @@ struct TextFirstSlotBook {
             (offset, block, alonePhoto, revision)
     }
 
-    /// The stretches of `range` not asked for yet (both ends included, as the engine reads a
-    /// range), and the stretch covered once they are: kept in one piece, so a jump past what
-    /// was covered asks for the gap too.
-    func missing(from range: NSRange) -> (asks: [NSRange], covering: NSRange) {
-        guard let covered else { return ([range], range) }
-        var asks: [NSRange] = []
-        if range.location < covered.location {
-            asks.append(
-                NSRange(location: range.location, length: covered.location - range.location))
+    /// Have the slots of `near` (both ends included, as the engine reads a range), asking
+    /// `fetch` only for the part not held. A stretch that does not touch what is held replaces
+    /// it (the gap between is never asked for); anything further than twice `near`'s length
+    /// from it is let go.
+    mutating func reach(_ near: NSRange, fetch: (NSRange) throws -> [TextFirstBlockSlot]) rethrows {
+        if let held = covered, near.location <= NSMaxRange(held), held.location <= NSMaxRange(near)
+        {
+            var covering = held
+            if near.location < held.location {
+                let found = try fetch(
+                    NSRange(location: near.location, length: held.location - near.location))
+                let edge = slots.prefix { $0.offset == held.location }
+                slots.insert(contentsOf: found.filter { !edge.contains($0) }, at: 0)
+                covering = NSUnionRange(covering, near)
+            }
+            if NSMaxRange(near) > NSMaxRange(held) {
+                let found = try fetch(
+                    NSRange(location: NSMaxRange(held), length: NSMaxRange(near) - NSMaxRange(held))
+                )
+                let edge = slots.reversed().prefix { $0.offset == NSMaxRange(held) }
+                slots.append(contentsOf: found.filter { !edge.contains($0) })
+                covering = NSUnionRange(covering, near)
+            }
+            covered = covering
+        } else {
+            slots = try fetch(near)
+            covered = near
         }
-        if NSMaxRange(range) > NSMaxRange(covered) {
-            asks.append(
-                NSRange(
-                    location: NSMaxRange(covered),
-                    length: NSMaxRange(range) - NSMaxRange(covered)))
-        }
-        return (asks, NSUnionRange(covered, range))
-    }
-
-    /// Take the engine's answers for `asked`, now covering `covering`.
-    mutating func add(_ found: [TextFirstBlockSlot], covering: NSRange) {
-        covered = covering
-        let known = Set(slots)
-        slots = (slots + found.filter { !known.contains($0) }).sorted {
-            ($0.offset, $0.end ? 1 : 0) < ($1.offset, $1.end ? 1 : 0)
+        // Let go of what is far from the screen.
+        guard let held = covered else { return }
+        let from = max(held.location, near.location - 2 * near.length)
+        let to = min(NSMaxRange(held), NSMaxRange(near) + 2 * near.length)
+        if from > held.location || to < NSMaxRange(held) {
+            slots = Array(slots(in: NSRange(location: from, length: to - from)))
+            covered = NSRange(location: from, length: to - from)
         }
     }
 
