@@ -67,6 +67,12 @@ pub enum BlockCommand {
     /// An empty line after the code block the range starts in, closing it
     /// first when nothing closes it.
     OpenLineAfterCodeBlock,
+    /// A new code line below the code line the range ends on, the caret on
+    /// it, at the indent Enter at that line's end writes.
+    OpenCodeLineBelow,
+    /// A new code line above the code line the range starts on, the caret
+    /// on it, at that line's indent.
+    OpenCodeLineAbove,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

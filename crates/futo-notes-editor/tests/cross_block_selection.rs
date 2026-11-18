@@ -19,12 +19,13 @@ fn replaced(note: &str, a: usize, b: usize, input: Input) -> String {
 
 #[test]
 fn every_input_replaces_a_selection_from_a_paragraph_into_a_code_block() {
-    // `[71,176)`: from `note]].` in the intro to `let ` in the code block.
+    // `[71,176)`: from `note]].` in the intro, which takes the wikilink
+    // whole, to `let ` in the code block.
     for input in Input::ALL {
         replaced(NOTE, 71, 176, input);
     }
     let source = replaced(NOTE, 71, 176, Input::Type("d"));
-    assert!(source.contains("[[Other d\n\n| A | B |"), "{source:?}");
+    assert!(source.contains(" and d\n\n| A | B |"), "{source:?}");
 }
 
 #[test]

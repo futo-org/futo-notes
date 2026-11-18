@@ -109,8 +109,9 @@ pub(super) fn type_step(
     let text = random.pick(TYPED);
     let selection = engine.selection();
     let collapsed = selection.start == selection.end;
-    // Carets snap to an image edge; a nonempty range includes any image it touches.
-    let stop = engine.outside_images(selection);
+    // Carets snap to an image edge; a nonempty range includes any image it
+    // touches, and any wikilink it reaches across the edge of.
+    let stop = engine.outside_atoms(selection);
     let at = if stop == selection {
         engine.caret_source()
     } else {

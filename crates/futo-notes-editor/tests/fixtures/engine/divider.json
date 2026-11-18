@@ -1,0 +1,20 @@
+[
+  {
+    "name": "divider over a selection keeps the spaces after it",
+    "before": "[x]  ",
+    "command": "Divider",
+    "after": "---\n|  "
+  },
+  {
+    "name": "divider over a quoted selection keeps the spaces after it in the quote",
+    "before": "> [x]  \nz",
+    "command": "Divider",
+    "after": "---\n> |  \nz"
+  },
+  {
+    "name": "divider at a caret on a blank line keeps the spaces after the caret",
+    "before": "a\n |  \nb",
+    "command": "Divider",
+    "after": "a\n---\n|  \nb"
+  }
+]

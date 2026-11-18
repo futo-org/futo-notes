@@ -9,7 +9,8 @@ use crate::DisplayRange;
 impl Engine {
     /// Put a divider at the caret, the selection removed first. Text before
     /// the caret stays on its line above the divider; text after it goes to
-    /// a plain line below at the same quote depth, where the caret lands.
+    /// a plain line below at the same quote depth, where the caret lands
+    /// (on a blank line, the spaces and tabs after the caret go there).
     /// With no text after it, the caret lands on a new empty line below (in
     /// the line's quote). A divider is never quoted: it sits at column 0
     /// between the quoted lines. Nothing is written in code, front matter
@@ -46,7 +47,8 @@ impl Engine {
             if line.kind == Kind::Blank {
                 let below = spaced(quote);
                 let caret = below.len();
-                (None, below, caret)
+                let rest = &text[joined.caret.max(quote.len())..];
+                (None, format!("{below}{rest}"), caret)
             } else if at <= line.content.start {
                 (None, text.to_owned(), joined.caret.max(line.content.start))
             } else {

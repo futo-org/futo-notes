@@ -1,0 +1,396 @@
+[
+  {
+    "name": "(a) three backticks on an empty line make a code block; letters write its language",
+    "before": "|",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "`|`",
+        "display": "``"
+      },
+      {
+        "do": "pair:`",
+        "after": "``|",
+        "display": "``"
+      },
+      {
+        "do": "pair:`",
+        "after": "```|\n```",
+        "display": "",
+        "language": true
+      },
+      {
+        "do": "type:j",
+        "after": "```j|\n```",
+        "display": "",
+        "language": true
+      },
+      {
+        "do": "type:s",
+        "after": "```js|\n```",
+        "display": "",
+        "language": true
+      },
+      {
+        "do": "Enter",
+        "after": "```js\n|\n```",
+        "display": "",
+        "language": false
+      },
+      {
+        "do": "type:x",
+        "after": "```js\nx|\n```",
+        "display": "x"
+      }
+    ]
+  },
+  {
+    "name": "(f) in a code block a backtick is typed as it is",
+    "before": "```\nco|de\n```",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "```\nco`|de\n```",
+        "display": "co`de"
+      },
+      {
+        "do": "pair:`",
+        "after": "```\nco``|de\n```",
+        "display": "co``de"
+      }
+    ]
+  },
+  {
+    "name": "(g) three-line selection becomes a code block",
+    "before": "[a\nb\nc]",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "```\n[a\nb\nc]\n```",
+        "display": "a\nb\nc"
+      },
+      {
+        "do": "Undo",
+        "after": "[a\nb\nc]"
+      },
+      {
+        "do": "Redo",
+        "after": "```\n[a\nb\nc]\n```"
+      }
+    ]
+  },
+  {
+    "name": "(h) Undo and Redo of a code block from a lone pair",
+    "before": "``|",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "```|\n```",
+        "language": true
+      },
+      {
+        "do": "Undo",
+        "after": "``|",
+        "language": false
+      },
+      {
+        "do": "Redo",
+        "after": "```|\n```",
+        "language": true
+      },
+      {
+        "do": "type:p",
+        "after": "```p|\n```",
+        "language": true
+      }
+    ]
+  },
+  {
+    "name": "P1: a lone backtick takes one more, then makes a block",
+    "before": "`|",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "``|"
+      },
+      {
+        "do": "pair:`",
+        "after": "```|\n```"
+      }
+    ]
+  },
+  {
+    "name": "P3: an indented lone pair becomes a fence at its indent",
+    "before": "- item\n  ``|",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "- item\n  ```|\n  ```"
+      }
+    ]
+  },
+  {
+    "name": "P3: the line's own CRLF",
+    "before": "``|\r\nnext",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "```|\r\n```\r\nnext"
+      }
+    ]
+  },
+  {
+    "name": "P3: a tab indent",
+    "before": "\t``|",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "\t```|\n\t```"
+      }
+    ]
+  },
+  {
+    "name": "P4: a selection over lines of one code block is typed over",
+    "before": "```\n[a\nb]\n```",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "```\n`|\n```"
+      }
+    ]
+  },
+  {
+    "name": "P4: a selection reaching into a code block takes it in",
+    "before": "[x\n```\ny]\n```",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "```\n[x\ny]\n```"
+      }
+    ]
+  },
+  {
+    "name": "P5: at the language of a typed fence",
+    "before": "|",
+    "steps": [
+      {
+        "do": "type:```",
+        "after": "```|",
+        "language": true
+      },
+      {
+        "do": "pair:`",
+        "after": "````|"
+      }
+    ]
+  },
+  {
+    "name": "language: an echo keeps the language caret; placing it ends it, so letters write code",
+    "before": "a\n|",
+    "steps": [
+      {
+        "do": "type:```",
+        "after": "a\n```|",
+        "language": true
+      },
+      {
+        "do": "Select",
+        "after": "a\n```|",
+        "language": true
+      },
+      {
+        "do": "Place",
+        "after": "a\n```|",
+        "language": false
+      },
+      {
+        "do": "type:x",
+        "after": "a\n```\nx|",
+        "language": false
+      }
+    ]
+  },
+  {
+    "name": "language: placing the caret above a block's code puts it on the first code line",
+    "before": "|\nx",
+    "steps": [
+      {
+        "do": "type:```",
+        "after": "```|\nx",
+        "language": true
+      },
+      {
+        "do": "Place",
+        "after": "```\n|x",
+        "language": false
+      },
+      {
+        "do": "type:y",
+        "after": "```\ny|x",
+        "language": false
+      },
+      {
+        "do": "Undo",
+        "after": "```\n|x",
+        "language": false
+      },
+      {
+        "do": "Undo",
+        "after": "|\nx",
+        "language": false
+      },
+      {
+        "do": "Redo",
+        "after": "```|\nx",
+        "language": true
+      }
+    ]
+  },
+  {
+    "name": "(p) paired Backspace in a code block removes one",
+    "before": "```\n`|`\n```",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "```\n|`\n```"
+      }
+    ]
+  },
+  {
+    "name": "a typed closing fence ends the block there; the old closing line goes, so the text below stays text",
+    "before": "```\ncode|\n```\nprose after\n",
+    "steps": [
+      {
+        "do": "Enter",
+        "after": "```\ncode\n|\n```\nprose after\n"
+      },
+      {
+        "do": "pair:`",
+        "after": "```\ncode\n`|\n```\nprose after\n"
+      },
+      {
+        "do": "pair:`",
+        "after": "```\ncode\n``|\n```\nprose after\n"
+      },
+      {
+        "do": "pair:`",
+        "after": "```\ncode\n```\n|prose after\n",
+        "display": "code\nprose after\n"
+      },
+      {
+        "do": "Undo",
+        "after": "```\ncode\n``|\n```\nprose after\n"
+      },
+      {
+        "do": "Redo",
+        "after": "```\ncode\n```\n|prose after\n"
+      }
+    ]
+  },
+  {
+    "name": "a closing fence typed mid-block: the code below it becomes text, nothing below opens a block",
+    "before": "~~~\na\n~~|\nb\n~~~",
+    "steps": [
+      {
+        "do": "pair:~",
+        "after": "~~~\na\n~~~\n|b",
+        "display": "a\nb"
+      },
+      {
+        "do": "Undo",
+        "after": "~~~\na\n~~|\nb\n~~~"
+      }
+    ]
+  },
+  {
+    "name": "a typed fence too short to close is code",
+    "before": "````\na\n``|\n````\nz",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "````\na\n```|\n````\nz",
+        "display": "a\n```\nz"
+      }
+    ]
+  },
+  {
+    "name": "three typed backticks: the pair's Undo step, then the block's, which shows one empty code line",
+    "before": "ab\n|",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "ab\n`|`"
+      },
+      {
+        "do": "pair:`",
+        "after": "ab\n``|"
+      },
+      {
+        "do": "pair:`",
+        "after": "ab\n```|\n```",
+        "display": "ab\n",
+        "language": true
+      },
+      {
+        "do": "Undo",
+        "after": "ab\n``|",
+        "display": "ab\n``"
+      },
+      {
+        "do": "Undo",
+        "after": "ab\n|"
+      },
+      {
+        "do": "Redo",
+        "after": "ab\n`|`"
+      },
+      {
+        "do": "Redo",
+        "after": "ab\n```|\n```",
+        "display": "ab\n"
+      }
+    ]
+  },
+  {
+    "name": "a closing fence typed right above an old closing line that ends the note: the caret at the code's end",
+    "before": "```\ncode\n``|\n```",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "```\ncode|\n```"
+      },
+      {
+        "do": "Undo",
+        "after": "```\ncode\n``|\n```"
+      }
+    ]
+  },
+  {
+    "name": "a closing fence typed above the last line, in CRLF",
+    "before": "```\r\ncode\r\n``|\r\n```",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "```\r\ncode|\r\n```"
+      }
+    ]
+  },
+  {
+    "name": "paired Backspace on an empty first line above a block removes the line",
+    "before": "|\n```\ncode\n```",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "```\n|code\n```"
+      },
+      {
+        "do": "Undo",
+        "after": "|\n```\ncode\n```"
+      },
+      {
+        "do": "Redo",
+        "after": "```\n|code\n```"
+      }
+    ]
+  }
+]

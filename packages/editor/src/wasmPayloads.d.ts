@@ -45,7 +45,9 @@ export type BlockCommand =
   | 'TaskList'
   | 'CodeBlock'
   | 'OpenLineBeforeCodeBlock'
-  | 'OpenLineAfterCodeBlock';
+  | 'OpenLineAfterCodeBlock'
+  | 'OpenCodeLineBelow'
+  | 'OpenCodeLineAbove';
 export type TableKey = 'Tab' | 'ShiftTab' | 'Enter' | 'ModEnter' | 'ShiftEnter';
 export type TableCommand =
   | 'InsertRowAbove'

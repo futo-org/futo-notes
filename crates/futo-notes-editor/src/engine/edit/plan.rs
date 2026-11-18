@@ -122,7 +122,7 @@ impl Engine {
     /// text lands where the selection starts, inside spans that start there.
     /// A code block it reaches into or out of goes whole (`block_reach`).
     /// Every plan, so every input, key and command, first takes `range`'s
-    /// ends out of images (`plan_writing`).
+    /// ends out of images and wikilinks (`plan_writing`).
     pub(crate) fn plan(&self, range: DisplayRange, text: &str) -> Plan {
         self.plan_writing(range, text, !text.is_empty())
     }
@@ -136,10 +136,10 @@ impl Engine {
         self.plan_writing(range, "", true)
     }
 
-    /// An image is one atom: an end of `range` inside one moves to its edge
-    /// (`outside_images`), so no plan keeps part of an image's spelling.
+    /// Images and wikilinks are atoms: an end of `range` inside one moves to
+    /// its edge (`outside_atoms`), so no plan keeps part of one's spelling.
     fn plan_writing(&self, range: DisplayRange, text: &str, writes: bool) -> Plan {
-        let plan = self.replacement(self.outside_images(range), text, writes);
+        let plan = self.replacement(self.outside_atoms(range), text, writes);
         // A deletion keeps a span's format when it leaves a space at its
         // edge (inline family, `commands/inline/typing.rs`).
         match self.kept_formats(&plan.range, &plan.inserted) {
@@ -299,13 +299,13 @@ impl Engine {
     /// shares keep their source spelling and formats, and the caret ends
     /// after the whole of `text`. A text service's line break inside a table
     /// cell, a committed composition's included, becomes a space
-    /// (`cell_service_text`). Input never lands inside an image
-    /// (`outside_images`).
+    /// (`cell_service_text`). Input never lands inside an image, nor
+    /// partly in a wikilink (`outside_atoms`).
     pub(crate) fn plan_input(&self, range: DisplayRange, text: &str, action: InputAction) -> Plan {
         if self.block_selected && range == self.selection {
             return self.plan(range, text);
         }
-        let range = self.outside_images(range);
+        let range = self.outside_atoms(range);
         let flat = matches!(
             action,
             InputAction::Isolated | InputAction::CompositionCommit

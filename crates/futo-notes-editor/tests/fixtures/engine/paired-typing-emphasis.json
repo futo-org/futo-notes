@@ -784,5 +784,181 @@
         "after": "x ~~~|~~ y"
       }
     ]
+  },
+  {
+    "name": "a deletion past an emptied italic span ends the italic it left the caret: Backspace",
+    "before": "end|",
+    "steps": [
+      {
+        "do": "pair: ",
+        "after": "end |"
+      },
+      {
+        "do": "pair:a",
+        "after": "end a|"
+      },
+      {
+        "do": "pair:*",
+        "after": "end a*|"
+      },
+      {
+        "do": "pair:2",
+        "after": "end a*2|"
+      },
+      {
+        "do": "pair:*",
+        "after": "end a*2*|"
+      },
+      {
+        "do": "pair:3",
+        "after": "end a*2*3|"
+      },
+      {
+        "do": "Backspace",
+        "after": "end a*2*|"
+      },
+      {
+        "do": "Backspace",
+        "after": "end a|"
+      },
+      {
+        "do": "Backspace",
+        "after": "end |"
+      },
+      {
+        "do": "Backspace",
+        "after": "end|"
+      },
+      {
+        "do": "Backspace",
+        "after": "en|"
+      },
+      {
+        "do": "pair:d",
+        "after": "end|"
+      },
+      {
+        "do": "Undo",
+        "after": "en|"
+      },
+      {
+        "do": "Redo",
+        "after": "end|"
+      }
+    ]
+  },
+  {
+    "name": "a deletion past an emptied italic span ends the italic it left the caret: PairedBackspace",
+    "before": "end|",
+    "steps": [
+      {
+        "do": "pair: ",
+        "after": "end |"
+      },
+      {
+        "do": "pair:a",
+        "after": "end a|"
+      },
+      {
+        "do": "pair:*",
+        "after": "end a*|"
+      },
+      {
+        "do": "pair:2",
+        "after": "end a*2|"
+      },
+      {
+        "do": "pair:*",
+        "after": "end a*2*|"
+      },
+      {
+        "do": "pair:3",
+        "after": "end a*2*3|"
+      },
+      {
+        "do": "PairedBackspace",
+        "after": "end a*2*|"
+      },
+      {
+        "do": "PairedBackspace",
+        "after": "end a|"
+      },
+      {
+        "do": "PairedBackspace",
+        "after": "end |"
+      },
+      {
+        "do": "PairedBackspace",
+        "after": "end|"
+      },
+      {
+        "do": "PairedBackspace",
+        "after": "en|"
+      },
+      {
+        "do": "pair:d",
+        "after": "end|"
+      },
+      {
+        "do": "Undo",
+        "after": "en|"
+      },
+      {
+        "do": "Redo",
+        "after": "end|"
+      }
+    ]
+  },
+  {
+    "name": "a space typed after italic and deleted keeps the italic for what is typed next",
+    "before": "*it|*",
+    "steps": [
+      {
+        "do": "pair: ",
+        "after": "*it* |"
+      },
+      {
+        "do": "Backspace",
+        "after": "*it*|"
+      },
+      {
+        "do": "pair:x",
+        "after": "*itx|*"
+      }
+    ]
+  },
+  {
+    "name": "a toolbar format turned on at a caret ends with a Backspace over a letter, not over a space",
+    "before": "a b|",
+    "steps": [
+      {
+        "do": "Bold",
+        "after": "a b|"
+      },
+      {
+        "do": "Backspace",
+        "after": "a |"
+      },
+      {
+        "do": "pair:x",
+        "after": "a x|"
+      },
+      {
+        "do": "Bold",
+        "after": "a x|"
+      },
+      {
+        "do": "pair: ",
+        "after": "a x |"
+      },
+      {
+        "do": "Backspace",
+        "after": "a x|"
+      },
+      {
+        "do": "pair:y",
+        "after": "a x**y|**"
+      }
+    ]
   }
 ]

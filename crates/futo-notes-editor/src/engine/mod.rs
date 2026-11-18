@@ -28,6 +28,7 @@ mod tests;
 mod utf16;
 mod words;
 
+pub use commands::is_paired_typing_key;
 pub(crate) use edit::Marked;
 pub(crate) use external::Adoption;
 

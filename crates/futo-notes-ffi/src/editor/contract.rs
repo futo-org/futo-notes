@@ -155,6 +155,8 @@ pub enum EditorBlockCommand {
     ToggleHeading { level: u8 },
     OpenLineBeforeCodeBlock,
     OpenLineAfterCodeBlock,
+    OpenCodeLineBelow,
+    OpenCodeLineAbove,
 }
 impl From<EditorBlockCommand> for editor::BlockCommand {
     fn from(value: EditorBlockCommand) -> Self {
@@ -173,6 +175,8 @@ impl From<EditorBlockCommand> for editor::BlockCommand {
             EditorBlockCommand::ToggleHeading { level } => Self::ToggleHeading(level),
             EditorBlockCommand::OpenLineBeforeCodeBlock => Self::OpenLineBeforeCodeBlock,
             EditorBlockCommand::OpenLineAfterCodeBlock => Self::OpenLineAfterCodeBlock,
+            EditorBlockCommand::OpenCodeLineBelow => Self::OpenCodeLineBelow,
+            EditorBlockCommand::OpenCodeLineAbove => Self::OpenCodeLineAbove,
         }
     }
 }

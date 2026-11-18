@@ -268,5 +268,263 @@
         "after": "# a [^]\n- b\n> c"
       }
     ]
+  },
+  {
+    "name": "wikilink: every Backspace after a link removes it whole, one Undo step each",
+    "before": "a [[note]]^ b",
+    "marks": "^{}",
+    "steps": [
+      {
+        "do": "Backspace",
+        "after": "a ^ b"
+      },
+      {
+        "do": "Undo",
+        "after": "a [[note]]^ b"
+      },
+      {
+        "do": "Redo",
+        "after": "a ^ b"
+      },
+      {
+        "do": "Undo",
+        "after": "a [[note]]^ b"
+      },
+      {
+        "do": "PairedBackspace",
+        "after": "a ^ b"
+      },
+      {
+        "do": "Undo",
+        "after": "a [[note]]^ b"
+      },
+      {
+        "do": "BackspaceJoiningHeading",
+        "after": "a ^ b"
+      },
+      {
+        "do": "Undo",
+        "after": "a [[note]]^ b"
+      }
+    ]
+  },
+  {
+    "name": "wikilink: Delete before a link removes it whole",
+    "before": "a ^[[note]] b",
+    "marks": "^{}",
+    "steps": [
+      {
+        "do": "Delete",
+        "after": "a ^ b"
+      },
+      {
+        "do": "Undo",
+        "after": "a ^[[note]] b"
+      },
+      {
+        "do": "Redo",
+        "after": "a ^ b"
+      }
+    ]
+  },
+  {
+    "name": "wikilink: at a caret inside the brackets the keys edit text",
+    "before": "[[no^te]]",
+    "marks": "^{}",
+    "steps": [
+      {
+        "do": "Backspace",
+        "after": "[[n^te]]"
+      },
+      {
+        "do": "Delete",
+        "after": "[[n^e]]"
+      },
+      {
+        "do": "PairedBackspace",
+        "after": "[[^e]]"
+      },
+      {
+        "do": "Backspace",
+        "after": "[^e]]"
+      }
+    ]
+  },
+  {
+    "name": "wikilink: a caret between its brackets edits them as text",
+    "before": "[[note]^]",
+    "marks": "^{}",
+    "steps": [
+      {
+        "do": "Backspace",
+        "after": "[[note^]"
+      },
+      {
+        "do": "Undo",
+        "after": "[[note]^]"
+      },
+      {
+        "do": "Delete",
+        "after": "[[note]^"
+      },
+      {
+        "do": "Undo",
+        "after": "[[note]^]"
+      }
+    ]
+  },
+  {
+    "name": "wikilink: typed with pairs, it is text until the caret leaves it; then Backspace takes it whole",
+    "before": "^",
+    "marks": "^{}",
+    "steps": [
+      {
+        "do": "pair:[",
+        "after": "[^]"
+      },
+      {
+        "do": "pair:[",
+        "after": "[[^]]"
+      },
+      {
+        "do": "type:n",
+        "after": "[[n^]]"
+      },
+      {
+        "do": "Backspace",
+        "after": "[[^]]"
+      },
+      {
+        "do": "type:m",
+        "after": "[[m^]]"
+      },
+      {
+        "do": "pair:]",
+        "after": "[[m]^]"
+      },
+      {
+        "do": "pair:]",
+        "after": "[[m]]^"
+      },
+      {
+        "do": "Backspace",
+        "after": "^"
+      },
+      {
+        "do": "Undo",
+        "after": "[[m]]^"
+      }
+    ]
+  },
+  {
+    "name": "wikilink: in a list item and beside another link",
+    "before": "- [[a]][[b]]^",
+    "marks": "^{}",
+    "steps": [
+      {
+        "do": "Backspace",
+        "after": "- [[a]]^"
+      },
+      {
+        "do": "Backspace",
+        "after": "- ^"
+      },
+      {
+        "do": "Undo",
+        "after": "- [[a]]^"
+      }
+    ]
+  },
+  {
+    "name": "wikilink: a selection reaching across its edge takes it whole",
+    "before": "x {y [[no}te]] z",
+    "marks": "^{}",
+    "steps": [
+      {
+        "do": "type:w",
+        "after": "x w^ z"
+      },
+      {
+        "do": "Undo",
+        "after": "x {y [[no}te]] z"
+      },
+      {
+        "do": "Backspace",
+        "after": "x ^ z"
+      },
+      {
+        "do": "Undo",
+        "after": "x {y [[no}te]] z"
+      }
+    ]
+  },
+  {
+    "name": "wikilink: a selection inside the brackets is text, typed or replaced",
+    "before": "[[{no}te]]",
+    "marks": "^{}",
+    "steps": [
+      {
+        "do": "type:w",
+        "after": "[[w^te]]"
+      },
+      {
+        "do": "Undo",
+        "after": "[[{no}te]]"
+      },
+      {
+        "do": "service:wo",
+        "after": "[[wo^te]]"
+      },
+      {
+        "do": "Undo",
+        "after": "[[{no}te]]"
+      },
+      {
+        "do": "Delete",
+        "after": "[[^te]]"
+      }
+    ]
+  },
+  {
+    "name": "wikilink: a selection from inside to its edge takes it whole",
+    "before": "a [[my {note]]} b",
+    "marks": "^{}",
+    "steps": [
+      {
+        "do": "Backspace",
+        "after": "a ^ b"
+      },
+      {
+        "do": "Undo",
+        "after": "a [[my {note]]} b"
+      },
+      {
+        "do": "service:x",
+        "after": "a x^ b"
+      },
+      {
+        "do": "Undo",
+        "after": "a [[my {note]]} b"
+      }
+    ]
+  },
+  {
+    "name": "wikilink: a selection from its edge to inside takes it whole",
+    "before": "a {[[my} note]] b",
+    "marks": "^{}",
+    "steps": [
+      {
+        "do": "Delete",
+        "after": "a ^ b"
+      },
+      {
+        "do": "Undo",
+        "after": "a {[[my} note]] b"
+      },
+      {
+        "do": "type:x",
+        "after": "a x^ b"
+      }
+    ]
   }
 ]

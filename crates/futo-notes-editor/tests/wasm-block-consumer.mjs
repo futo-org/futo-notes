@@ -9,6 +9,7 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 export async function runBlockRegressions() {
   for (const file of [
     'blocks.json',
+    'divider.json',
     'fences.json',
     'code-block-object.json',
     'hidden-line-edges.json',

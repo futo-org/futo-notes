@@ -65,6 +65,8 @@ fn run(engine: &mut Engine, command: &str, at: Option<usize>) -> Result<(), Edit
         "WrapCodeBlock" => Some(BlockCommand::WrapCodeBlock),
         "OpenLineBeforeCodeBlock" => Some(BlockCommand::OpenLineBeforeCodeBlock),
         "OpenLineAfterCodeBlock" => Some(BlockCommand::OpenLineAfterCodeBlock),
+        "OpenCodeLineBelow" => Some(BlockCommand::OpenCodeLineBelow),
+        "OpenCodeLineAbove" => Some(BlockCommand::OpenCodeLineAbove),
         "Indent" => Some(BlockCommand::Indent),
         "Outdent" => Some(BlockCommand::Outdent),
         "Divider" => Some(BlockCommand::Divider),

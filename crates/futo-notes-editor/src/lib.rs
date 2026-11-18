@@ -32,6 +32,7 @@ pub use types::{
     TableLineRole, ViewChange, WikilinkCandidate, WikilinkCompletion, WikilinkDescription,
 };
 
+pub use engine::is_paired_typing_key;
 pub use link_target::external_link_url;
 
 pub use quick_open::{quick_open, quick_open_cut, shown_projection, QuickOpen, QUICK_OPEN_BYTES};

@@ -101,8 +101,8 @@ fn edits_at_link_boundaries_save_exact_bytes_and_read_again() {
     );
     let cases: Vec<Edit> = vec![
         ("a [[Roadmap", (11, 11), "]]", "a [[Roadmap]]", roadmap()),
-        ("a [[Roadmap]] b", (12, 13), "", "a [[Roadmap] b", vec![]),
-        ("a [[Roadmap]] b", (2, 3), "", "a [Roadmap]] b", vec![]),
+        ("a [[Roadmap]] b", (11, 12), "", "a [[Roadmap] b", vec![]),
+        ("a [[Roadmap]] b", (3, 4), "", "a [Roadmap]] b", vec![]),
         (
             "[[Notes]]",
             (2, 2),
@@ -118,7 +118,7 @@ fn edits_at_link_boundaries_save_exact_bytes_and_read_again() {
         ("[[Roadmap]]", (11, 11), "x", "[[Roadmap]]x", roadmap()),
         ("[[Roadmap]]", (0, 0), "`", "`[[Roadmap]]", roadmap()),
         ("`[[Roadmap]]", (12, 12), "`", "`[[Roadmap]]`", vec![]),
-        ("x [[Roadmap]] y", (1, 4), "z", "xzRoadmap]] y", vec![]),
+        ("x [[Roadmap]] y", (1, 4), "z", "xz y", vec![]),
     ];
     for (source, (start, end), inserted, saved, expected) in cases {
         let mut engine = with_ids(source, LINKED);

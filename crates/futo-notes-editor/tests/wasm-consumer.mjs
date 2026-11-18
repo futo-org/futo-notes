@@ -13,7 +13,11 @@ import console from 'node:console';
 import { setTimeout, clearTimeout } from 'node:timers';
 import { runMergeRegressions } from './wasm-merge-consumer.mjs';
 import { runBlockRegressions } from './wasm-block-consumer.mjs';
-const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
+const { WasmSession, is_paired_typing_key } = await import(pathToFileURL(process.argv[2]).href);
+
+// A host reads which characters pair from the engine's own table.
+for (const text of ['`', '*', '~', '[', ']']) assert.equal(is_paired_typing_key(text), true);
+for (const text of ['(', '_', '**', 'a', '']) assert.equal(is_paired_typing_key(text), false);
 
 // Input that changes no source returns null, sends nothing, collapses the selection to the
 // end of its text and leaves the session taking input.

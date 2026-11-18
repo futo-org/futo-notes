@@ -14,6 +14,13 @@ use crate::{
 #[wasm_bindgen]
 pub struct WasmSession(PortableSession);
 
+/// Whether `text` is one character paired typing acts on (a backtick, `*`,
+/// `~`, `[` or `]`), from the engine's own table.
+#[wasm_bindgen]
+pub fn is_paired_typing_key(text: &str) -> bool {
+    crate::is_paired_typing_key(text)
+}
+
 fn error(error: impl std::fmt::Debug) -> JsValue {
     JsValue::from_str(&format!("{error:?}"))
 }

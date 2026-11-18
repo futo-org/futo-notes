@@ -24,6 +24,8 @@ const BLOCK = new Set([
   'WrapCodeBlock',
   'OpenLineBeforeCodeBlock',
   'OpenLineAfterCodeBlock',
+  'OpenCodeLineBelow',
+  'OpenCodeLineAbove',
 ]);
 const KEYS = new Set([
   'Enter',
