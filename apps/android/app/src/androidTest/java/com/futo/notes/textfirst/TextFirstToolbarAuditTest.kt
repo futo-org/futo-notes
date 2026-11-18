@@ -72,6 +72,10 @@ class TextFirstToolbarAuditTest {
             c.view.engine!!.selectCodeBlock(at)
             withTimeout(5_000) { while (c.view.selectedCodeBlock == null) delay(20) }
         }
+        audit("a block and a line outside it selected") { c ->
+            val e = c.view.editableText
+            selectRange(c, e.indexOf("item"), e.indexOf("code") + "code".length)
+        }
         audit("image selected") { c ->
             val e = c.view.editableText
             val image = e.getSpans(0, e.length, TfImage::class.java).single()
