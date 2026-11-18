@@ -71,4 +71,17 @@ class TextFirstCodeHeaderFieldFollowTest {
         view.layout(0, 0, view.measuredWidth, 2000)
         view.draw(Canvas(Bitmap.createBitmap(view.measuredWidth, 2000, Bitmap.Config.ARGB_8888)))
     }
+
+    /** Review bug 5: a field that cannot find its host leaves nothing half open (labels, blur and caret reveal stay normal). */
+    @Test fun aFieldWithNoHostOpensNothing() = textFirstSession("```js name:a.js\nconst a = 1\n```\n\nafter") { c ->
+        val view = c.view
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        val host = view.parent as android.view.ViewGroup
+        val column = android.widget.LinearLayout(view.context)
+        host.removeView(view)
+        column.addView(view)
+        host.addView(column)
+        view.codeTouch.headerField.open(view.editableText.indexOf("const"), CodeHeaderField.Kind.NAME, "js", "a.js", selectAll = false)
+        assertEquals(null, view.codeTouch.headerField.openField)
+    }
 }

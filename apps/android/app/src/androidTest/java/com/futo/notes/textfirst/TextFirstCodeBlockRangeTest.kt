@@ -61,4 +61,31 @@ class TextFirstCodeBlockRangeTest {
         withTimeout(5_000) { while (!fieldOpen() && c.view.selectedCodeBlock == null) delay(20) }
         assertEquals("the name tap selected the block instead of editing", null, c.view.selectedCodeBlock)
     }
+
+    /**
+     * In a long block the header line is not restyled by an edit far below it, so its cached block end lags (2598 for
+     * 2601 after three letters on line 280 of 300): the copy glyph must not read it.
+     */
+    @Test fun copyAfterTypingFarDownALongBlockTakesTheWholeCode() = textFirstSession("intro\n\n```txt\n" + (1..300).joinToString("\n") { "line $it" } + "\n```\n\nend") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(10_000) { while (view.layout == null) delay(20) }
+        val at = view.editableText.indexOf("line 280") + 8
+        c.select(at)
+        withTimeout(5_000) { while (view.selectionStart != at) delay(20) }
+        textFirstIme(c) { commitText("xyz", 1) }
+        withTimeout(5_000) { while (!c.sourceText()!!.contains("line 280xyz")) delay(20) }
+        view.scrollTo(0, 0)
+        val clipboard = view.context.getSystemService(ClipboardManager::class.java)
+        clipboard.setText("")
+        val start = view.editableText.indexOf("line 1\n")
+        withTimeout(5_000) { while (view.codeChrome.areaOf(start, CodeBlockAction.COPY_CODE) == null) delay(20) }
+        val area = view.codeChrome.areaOf(start, CodeBlockAction.COPY_CODE)!!
+        tapNoteAt(view, view.totalPaddingLeft + area.centerX(), view.totalPaddingTop - view.scrollY + area.centerY())
+        withTimeout(5_000) { while (clipboard.primaryClip?.getItemAt(0)?.text?.toString().isNullOrEmpty()) delay(50) }
+        val copied = clipboard.primaryClip!!.getItemAt(0).text.toString()
+        assertEquals("line 300", copied.lines().last())
+        assertEquals(true, copied.contains("line 280xyz"))
+    }
 }
