@@ -23,22 +23,29 @@ struct TextFirstSlicePainter {
     }
 
     /// `rect` (text view coordinates) as the text view draws it: every layout fragment that
-    /// meets it, laid out where it is not yet, at its pixel row. `from` is the UTF-16 start of
-    /// the line at or above the rect's top (drawing starts a line above it, since fragments
-    /// spill a little past their frames); without it, the line drawn at the top. Over the surface colour when `opaque`, else over nothing (the card's text over its
-    /// see-through background). `erasing` (text view coordinates) is left blank: a photo drawn
-    /// apart. Rows are cut on the pixel grid, from `rect`'s top rounded down.
+    /// meets it, laid out where it is not yet, at its pixel row. Drawing starts a line above
+    /// the one drawn at the rect's top (fragments spill a little past their frames), or, where
+    /// nothing is laid out there yet, a line above `from` (a UTF-16 line start at or above the
+    /// rect's top); never further back, where it would lay out text far off screen. Over the
+    /// surface colour when `opaque`, else over nothing (the card's text over its see-through
+    /// background). `erasing` (text view coordinates) is left blank: a photo drawn apart. Rows
+    /// are cut on the pixel grid, from `rect`'s top rounded down.
     func paint(
         _ rect: CGRect, from: Int? = nil, opaque: Bool = true, erasing: CGRect? = nil
     ) -> CGImage? {
         guard let manager = textView.textLayoutManager,
             let content = manager.textContentManager
         else { return nil }
+        let above = manager.textLayoutFragment(
+            for: CGPoint(x: 1, y: max(0, rect.minY - textView.textContainerInset.top - 1)))
         let start =
-            from.map { content.location(manager.documentRange.location, offsetBy: max(0, $0 - 1)) }
-            ?? manager.textLayoutFragment(
-                for: CGPoint(x: 1, y: max(0, rect.minY - textView.textContainerInset.top - 1))
-            )?.rangeInElement.location
+            above.flatMap { f in
+                content.location(f.rangeInElement.location, offsetBy: -1)
+                    ?? f.rangeInElement.location
+            }
+            ?? from.flatMap {
+                content.location(manager.documentRange.location, offsetBy: max(0, $0 - 1))
+            }
         let first = start.flatMap { manager.textLayoutFragment(for: $0) }?.rangeInElement.location
         return draw(
             rect, opaque: opaque, erasing: erasing,

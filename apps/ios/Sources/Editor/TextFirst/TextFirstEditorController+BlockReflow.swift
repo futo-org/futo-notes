@@ -289,6 +289,10 @@ extension TextFirstEditorController {
         if let bottom = boundaryY(end, in: laidOut), y >= bottom {
             return Cut(y: y, anchor: end, inset: y - bottom)
         }
-        return Cut(y: y, anchor: TextFirstBlockSlot(offset: 0, end: false), inset: y - inset.top)
+        // Above what is laid out: measured from its first line, never from the note's start
+        // (drawing from there would lay out the whole note above the screen).
+        let first = TextFirstBlockSlot(offset: laidOut.location, end: false)
+        let top = boundaryY(first, in: laidOut) ?? y
+        return Cut(y: y, anchor: first, inset: y - top)
     }
 }
