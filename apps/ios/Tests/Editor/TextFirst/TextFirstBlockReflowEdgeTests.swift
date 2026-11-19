@@ -100,32 +100,6 @@
             h.controller.endBlockDrag(dropping: false)
         }
 
-        @Test func theDropLineWaitsForWhatIsSlidingHome() async throws {
-            // A paragraph of several rows, then `lifted`, then many lines; scrolled a little so
-            // the note can scroll up under a finger in the top edge zone.
-            let words = Array(repeating: "wrapping words", count: 10).joined(separator: " ")
-            let lines = (0..<300).map { "line \($0)" }.joined(separator: "\n")
-            let h = TextFirstHarness("\(words)\nlifted\n\(lines)", focused: false)
-            h.tv.contentOffset.y = 40
-            h.tv.layoutIfNeeded()
-            let lifted = h.point(line: 1)
-            #expect(lifted.y > h.tv.bounds.minY + TextFirstAutoscroll.zone, "lifted clear of it")
-            let drag = try begin(h, at: lifted)
-            h.controller.followBlockDrag(to: h.point(line: 5))
-            let preview = try #require(drag.preview)
-            #expect(preview.isOpen && drag.slot != nil)
-            try await Task.sleep(nanoseconds: 300_000_000)
-            // One move takes the finger into the top zone, short of the paragraph's middle: the
-            // gap goes home, everything starts sliding back, and the autoscroll would start.
-            let zone = h.tv.bounds.minY + TextFirstAutoscroll.zone - 4
-            #expect(zone > h.point(line: 0, fraction: 0.5).y)
-            h.controller.followBlockDrag(to: CGPoint(x: 60, y: zone))
-            #expect(drag.slot == nil)
-            #expect(drag.preview === preview && preview.curtain.superview != nil, "still sliding")
-            #expect(await h.until(1) { drag.preview == nil })
-            h.controller.endBlockDrag(dropping: false)
-        }
-
         @Test func aCappedCardShowsItsBlock() throws {
             let tall = Array(repeating: "a paragraph taller than the screen", count: 60)
                 .joined(separator: " ")

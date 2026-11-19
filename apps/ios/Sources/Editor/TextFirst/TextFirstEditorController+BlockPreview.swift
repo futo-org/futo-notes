@@ -1,9 +1,8 @@
 import UIKit
 
 // The block drag's live preview as a drag runs it (#448): started at the lift unless Reduce
-// Motion is on or it cannot be built (logged, and the drag shows the drop line), measured again
-// with every layout change, and handed to the drop line as the note starts to autoscroll
-// (#449 carries the preview through the scroll).
+// Motion is on or it cannot be built (logged, and the drag shows the drop line), and measured
+// again with every layout change and every frame the note autoscrolls (#449).
 
 extension TextFirstEditorController {
     /// With Reduce Motion on the drag shows the drop line and nothing slides.
@@ -64,7 +63,7 @@ extension TextFirstEditorController {
         guard !preview.retreating else { return }
         do {
             let (plan, closedLine) = try reflowPlan(
-                drag.book, drag.targets, reusing: preview.closedLine)
+                drag.book, drag.targets, reusing: preview.closedLine, known: preview.known)
             preview.remeasure(plan, closedLine: closedLine, finger: drag.fingerY)
         } catch  where !retried {
             DispatchQueue.main.async { [weak self, weak drag] in
@@ -79,23 +78,6 @@ extension TextFirstEditorController {
             drag.preview = nil
         }
         drag.place()
-    }
-
-    /// The note is about to autoscroll under a previewed drag: the preview slides back to the
-    /// note as it is, comes down, and the drag carries on with the drop line, which then
-    /// starts the scroll.
-    func handOver(_ drag: TextFirstBlockDrag, from preview: TextFirstReflow) {
-        guard !preview.retreating else { return }
-        defer { drag.place() }
-        preview.retreat { [weak self, weak drag] in
-            guard let self, let drag, self.blockDrag === drag, drag.preview === preview else {
-                return
-            }
-            preview.remove()
-            drag.preview = nil
-            drag.place()
-            self.steerAutoscroll()
-        }
     }
 
     private func previewUnavailable(_ error: Error, _ drag: TextFirstBlockDrag) {

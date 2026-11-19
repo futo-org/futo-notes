@@ -180,15 +180,18 @@ final class TextFirstBlockReflowUITests: XCTestCase {
         return count
     }
 
-    /// Pixels of a screenshot inside `frame` (points) darker than mid grey.
-    static func dark(_ image: UIImage, in frame: CGRect) -> Int {
+    /// Pixels of a screenshot inside `frame` (points) darker than mid grey (whose channels sum
+    /// to less than `below`: 600 counts dimmed text too).
+    static func dark(_ image: UIImage, in frame: CGRect, below: Int = 300) -> Int {
         let p = rgba(image)
         let scale = image.scale
         var count = 0
         for row in max(0, Int(frame.minY * scale))..<min(p.height, Int(frame.maxY * scale)) {
             for col in max(0, Int(frame.minX * scale))..<min(p.width, Int(frame.maxX * scale)) {
                 let i = (row * p.width + col) * 4
-                if Int(p.bytes[i]) + Int(p.bytes[i + 1]) + Int(p.bytes[i + 2]) < 300 { count += 1 }
+                if Int(p.bytes[i]) + Int(p.bytes[i + 1]) + Int(p.bytes[i + 2]) < below {
+                    count += 1
+                }
             }
         }
         return count

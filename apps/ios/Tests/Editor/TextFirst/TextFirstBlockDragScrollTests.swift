@@ -244,6 +244,8 @@
             // rotation, a bar coming in) until it is 30 pt from the bottom edge.
             let from = h.tv.contentOffset.y
             let middle = CGPoint(x: 60, y: h.tv.bounds.midY)
+            // The first drag's preview, open since the scroll moved its gap, goes back first.
+            #expect(await h.until(1) { h.controller.liftShouldBegin(at: middle) })
             _ = try begin(h, at: middle)
             try await Task.sleep(nanoseconds: 200_000_000)
             #expect(h.tv.contentOffset.y == from)

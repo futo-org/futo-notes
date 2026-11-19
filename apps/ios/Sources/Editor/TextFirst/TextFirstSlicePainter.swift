@@ -29,9 +29,11 @@ struct TextFirstSlicePainter {
     /// rect's top); never further back, where it would lay out text far off screen. Over the
     /// surface colour when `opaque`, else over nothing (the card's text over its see-through
     /// background). `erasing` (text view coordinates) is left blank: a photo drawn apart. Rows
-    /// are cut on the pixel grid, from `rect`'s top rounded down.
+    /// are cut on the pixel grid, from `rect`'s top rounded down. Not `layingOut`, only what is
+    /// laid out is drawn: laying out more can move what is.
     func paint(
-        _ rect: CGRect, from: Int? = nil, opaque: Bool = true, erasing: CGRect? = nil
+        _ rect: CGRect, from: Int? = nil, opaque: Bool = true, erasing: CGRect? = nil,
+        layingOut: Bool = true
     ) -> CGImage? {
         guard let manager = textView.textLayoutManager,
             let content = manager.textContentManager
@@ -51,8 +53,9 @@ struct TextFirstSlicePainter {
             rect, opaque: opaque, erasing: erasing,
             fragments: { visit in
                 manager.enumerateTextLayoutFragments(
-                    from: first ?? manager.documentRange.location, options: [.ensuresLayout]
-                ) { visit($0) }
+                    from: first ?? manager.documentRange.location,
+                    options: layingOut ? [.ensuresLayout] : []
+                ) { layingOut || $0.state == .layoutAvailable ? visit($0) : true }
             })
     }
 

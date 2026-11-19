@@ -1,17 +1,7 @@
 import UIKit
 
 // The block drag's live preview read from TextKit's layout (#448): the runs of the visible note
-// between the engine's slots and the block's edges, where each is laid out, and, after the move
-// is committed under the preview, where each is laid out now.
-
-/// The display lines a landing finds the runs by (`TextFirstEditorController.landingLines`).
-struct TextFirstLandingLines {
-    let base: Int
-    let runs: [Int?]
-    let block: Range<Int>
-    let slot: Int
-    let photo: Bool
-}
+// between the engine's slots and the block's edges, and where each is laid out.
 
 /// Why a drag's live preview could not be built: the drag shows the drop line instead.
 struct TextFirstReflowUnavailable: Error, CustomStringConvertible {
@@ -32,10 +22,14 @@ extension TextFirstEditorController {
 
     /// The preview of a drag of `book`'s block over the note as it is drawn now, `targets`
     /// being where its slots are drawn; for a photo lifted out of a line, that line laid out
-    /// without it too (`reusing` the one laid out before when the width is the same).
+    /// without it too (`reusing` the one laid out before when it still draws the same). Runs
+    /// cover the lines that show, from the start of the line at the screen's top to the end of
+    /// the line at its foot, so a run starts at a line start and keeps it as the note scrolls.
+    /// When the block is no longer near the screen (#449), what it takes out of its place and
+    /// needs in a gap are `known` from when it was.
     func reflowPlan(
         _ book: TextFirstSlotBook, _ targets: TextFirstDropTargets,
-        reusing: TextFirstClosedLine? = nil
+        reusing: TextFirstClosedLine? = nil, known: (room: CGFloat, left: CGFloat)? = nil
     ) throws -> (plan: TextFirstReflowPlan, closedLine: TextFirstClosedLine?) {
         guard let laidOut = laidOutRange(), storage.length > 0 else {
             throw TextFirstReflowUnavailable("the note is not laid out")
@@ -43,14 +37,18 @@ extension TextFirstEditorController {
         let visible = textView.bounds
         let block = book.block
         var cuts = targets.slots.map { Cut(y: $0.y, anchor: $0.slot, inset: 0, slot: $0.slot) }
+        let window = (top: cut(at: visible.minY, laidOut), bottom: lineEnd(at: visible.maxY))
         let source: CGRect
         let away: CGRect
         let room: CGFloat
-        let drawing = drawingSignature(laidOut)
+        var left: CGFloat
+        var drawing = 0
         var closing: TextFirstReflowPlan.Closing?
         var closedLine: TextFirstClosedLine?
-        var spans: [(CGFloat, CGFloat)]
+        var spans: [(CGFloat, CGFloat)] = [(window.top.y, window.bottom)]
         let anchor: Int
+        // Which side of what shows the block is on when it does not show.
+        let above = block.range.location < laidOut.location
         if book.alonePhoto {
             let line = (storage.string as NSString).lineRange(
                 for: NSRange(location: block.range.location, length: 0))
@@ -60,58 +58,82 @@ extension TextFirstEditorController {
             let ends = storage.string.utf16.last != 0x0A
             let end = TextFirstBlockSlot(
                 offset: NSMaxRange(line), end: NSMaxRange(line) == storage.length && ends)
-            guard let photo = drawnImage(block.range, in: laidOut),
-                let row = imageRow(block.range.location),
-                let top = edgeY(start, laidOut), let bottom = edgeY(end, laidOut)
-            else { throw TextFirstReflowUnavailable("the photo's line is not laid out") }
+            drawing = drawingSignature(line)
             let width = textView.textContainer.size.width
-            guard
-                let closed = reusing.flatMap({
-                    $0.width == width && $0.drawing == drawing ? $0 : nil
-                })
-                    ?? TextFirstClosedLine(
-                        storage, line: line, removing: block.range, width: width,
-                        drawing: drawing)
-            else { throw TextFirstReflowUnavailable("the photo's line did not lay out without it") }
-            closedLine = closed
-            // Home cuts the line at the photo's middle, or where the photo shows.
-            let middle = min(max(photo.midY, visible.minY + 1), visible.maxY - 1)
-            closing = TextFirstReflowPlan.Closing(
-                top: top, bottom: bottom, anchor: line.location, photoTop: row.minY - top,
-                rowBottom: row.maxY - top, home: middle - top, closed: closed.height)
-            (source, room, anchor) = (photo, closed.photoHeight, line.location)
-            away = CGRect(x: visible.minX, y: 0, width: visible.width, height: closed.photoHeight)
-            cuts += [
-                Cut(y: top, anchor: start, inset: 0), Cut(y: bottom, anchor: end, inset: 0),
-                Cut(y: middle, anchor: start, inset: middle - top, home: true),
-            ]
-            spans = [(visible.minY, visible.maxY)]
+            if let photo = drawnImage(block.range, in: laidOut),
+                let row = imageRow(block.range.location),
+                let top = boundaryY(start, in: laidOut), let bottom = boundaryY(end, in: laidOut)
+            {
+                guard
+                    let closed = reusing.flatMap({
+                        $0.width == width && $0.drawing == drawing ? $0 : nil
+                    })
+                        ?? TextFirstClosedLine(
+                            storage, line: line, removing: block.range, width: width,
+                            drawing: drawing)
+                else {
+                    throw TextFirstReflowUnavailable("the photo's line did not lay out without it")
+                }
+                closedLine = closed
+                // Home cuts the line at the photo's middle, or where the photo shows.
+                let middle = min(max(photo.midY, visible.minY + 1), visible.maxY - 1)
+                closing = TextFirstReflowPlan.Closing(
+                    top: top, bottom: bottom, anchor: line.location, photoTop: row.minY - top,
+                    rowBottom: row.maxY - top, home: middle - top, closed: closed.height)
+                (source, room, left, anchor) = (photo, closed.photoHeight, 0, line.location)
+                cuts += [
+                    Cut(y: top, anchor: start, inset: 0), Cut(y: bottom, anchor: end, inset: 0),
+                    Cut(y: middle, anchor: start, inset: middle - top, home: true),
+                ]
+            } else {
+                // Its line has scrolled away: it closed up by what it was known to.
+                guard let known, let before = reusing else {
+                    throw TextFirstReflowUnavailable("the photo's line is not laid out")
+                }
+                closedLine = before
+                (room, left, anchor) = (known.room, known.left, line.location)
+                source = CGRect(
+                    x: visible.minX, y: above ? window.top.y - room : window.bottom,
+                    width: visible.width, height: room)
+            }
+            away = CGRect(x: visible.minX, y: 0, width: visible.width, height: room)
         } else {
             let start = TextFirstBlockSlot(offset: block.range.location, end: false)
             let end = TextFirstBlockSlot(offset: NSMaxRange(block.range), end: block.toEnd)
-            // Only what is near the screen is laid out: an edge beyond it is taken to be at
-            // least a screen away (nothing there shows; the drop reads the real one).
+            // Only what is near the screen is laid out: an edge beyond it is where the block's
+            // known height puts it, else at least a screen away (nothing there shows; the drop
+            // reads the real one).
             ensureLayout(NSIntersectionRange(block.range, laidOut))
-            let top = boundaryY(start, in: laidOut) ?? visible.minY - visible.height
-            let bottom = boundaryY(end, in: laidOut) ?? visible.maxY + visible.height
+            let measuredTop = boundaryY(start, in: laidOut)
+            let measuredBottom = boundaryY(end, in: laidOut)
+            let height = known?.left
+            let top =
+                measuredTop ?? measuredBottom.flatMap { b in height.map { b - $0 } }
+                ?? (above ? window.top.y - (height ?? visible.height) : window.bottom)
+            let bottom = measuredBottom ?? top + (height ?? visible.height)
             guard bottom > top
             else { throw TextFirstReflowUnavailable("the block's edges are not laid out") }
             source = CGRect(x: visible.minX, y: top, width: visible.width, height: bottom - top)
-            (room, anchor) = (bottom - top, block.range.location)
+            (room, left, anchor) = (bottom - top, bottom - top, block.range.location)
             away = CGRect(x: source.minX, y: 0, width: source.width, height: source.height)
             cuts.removeAll { $0.y > top + 0.5 && $0.y < bottom - 0.5 }
-            cuts.append(Cut(y: bottom, anchor: end, inset: 0))
+            // An edge that is not laid out is no line start a run can be measured from.
+            if measuredBottom != nil { cuts.append(Cut(y: bottom, anchor: end, inset: 0)) }
             spans = [
-                (visible.minY, min(top, visible.maxY)), (max(bottom, visible.minY), visible.maxY),
+                (window.top.y, min(top, window.bottom)), (max(bottom, window.top.y), window.bottom),
             ]
         }
         var runs: [TextFirstReflowPlan.Run] = []
         var slots: [Int: TextFirstBlockSlot] = [:]
         var home: Int?
+        let lifted = closing != nil || !book.alonePhoto
         for (from, to) in spans where to - from > 0.5 {
-            if !book.alonePhoto, from >= source.maxY - 0.5 { home = runs.count }
+            if !book.alonePhoto, from >= source.maxY - 0.5, home == nil { home = runs.count }
             let at = cuts.filter { abs($0.y - from) < 0.5 }
-            var edges = [at.first { $0.slot != nil } ?? at.first ?? cut(at: from, laidOut)]
+            var edges = [
+                at.first { $0.slot != nil } ?? at.first
+                    ?? (abs(from - window.top.y) < 0.5 ? window.top : cut(at: from, laidOut))
+            ]
             for cut in cuts.sorted(by: { $0.y < $1.y }) where cut.y > from + 0.5 && cut.y < to - 0.5
             {
                 if let last = edges.last, cut.y - last.y < 0.5 {
@@ -132,105 +154,30 @@ extension TextFirstEditorController {
                 runs.append(
                     TextFirstReflowPlan.Run(
                         anchor: edge.anchor, inset: edge.inset, top: edge.y, height: height,
-                        closed: closed))
+                        closed: closed, drawing: 0))
             }
             if let last = cuts.first(where: { abs($0.y - to) < 0.5 && $0.slot != nil }),
-                to >= visible.maxY - 0.5
+                to >= window.bottom - 0.5
             {
                 slots[runs.count] = last.slot
             }
         }
-        if !book.alonePhoto, home == nil { home = runs.count }
+        if home == nil, !lifted || !book.alonePhoto {
+            home = above ? 0 : runs.count
+        }
         guard let home else { throw TextFirstReflowUnavailable("the photo's place is off screen") }
+        // What each run draws, so a run is drawn again when an image in it changes.
+        for j in runs.indices {
+            let from = runs[j].anchor.offset
+            let to = j + 1 < runs.count ? runs[j + 1].anchor.offset : NSMaxRange(laidOut)
+            runs[j].drawing = drawingSignature(
+                NSRange(location: from, length: max(0, min(to, storage.length) - from)))
+        }
         let plan = TextFirstReflowPlan(
-            runs: runs, home: home, slots: slots, source: source, room: room,
-            left: book.alonePhoto ? 0 : room, away: away, drawing: drawing, sourceAnchor: anchor,
-            closing: closing)
+            runs: runs, home: home, homeShown: source.intersects(visible) && lifted,
+            slots: slots, source: source, room: room, left: left, away: away,
+            drawing: drawing, sourceAnchor: anchor, closing: closing)
         return (plan, closedLine)
-    }
-
-    /// What the landing finds each run by once the block has moved to `slot`, read before the
-    /// move: the display line each run is measured from (nil for the note's end), the block's
-    /// lines and the slot's, counted from the line start `base` above them all.
-    func landingLines(
-        _ plan: TextFirstReflowPlan, _ book: TextFirstSlotBook, to slot: TextFirstBlockSlot
-    ) -> TextFirstLandingLines {
-        let block = book.block.range
-        // The block's end too: a block running below the screen ends beyond every run.
-        let offsets =
-            plan.runs.map(\.anchor.offset) + [block.location, NSMaxRange(block), slot.offset]
-        let text = storage.string as NSString
-        let base = text.lineRange(
-            for: NSRange(location: min(offsets.min() ?? 0, text.length), length: 0)
-        ).location
-        // Down to the note's end only when the block or the slot is there.
-        let reachesEnd = book.block.toEnd || slot.end || plan.runs.contains { $0.anchor.end }
-        let starts = lineStarts(
-            from: base, through: reachesEnd ? storage.length : (offsets.max() ?? 0) + 1)
-        // The line holding `offset`; one past the last line for the note's end.
-        func line(_ offset: Int, end: Bool = false) -> Int {
-            if end { return starts.count }
-            return starts.lastIndex { $0 <= offset } ?? 0
-        }
-        let first = line(block.location)
-        let lines =
-            book.alonePhoto
-            ? first..<(first + 1)
-            : first..<(book.block.toEnd ? starts.count : line(NSMaxRange(block)))
-        return TextFirstLandingLines(
-            base: base, runs: plan.runs.map { $0.anchor.end ? nil : line($0.anchor.offset) },
-            block: lines, slot: line(slot.offset, end: slot.end), photo: book.alonePhoto)
-    }
-
-    /// Where each run of `plan`, and the block, are laid out now that the block has moved
-    /// (text view coordinates), `lines` read before the move. A run's top is where the line it
-    /// is measured from is now; it ends where the next run, or the block, starts. A line that is
-    /// not laid out is far off screen: nothing is laid out to read it (TextKit would answer with
-    /// an empty frame), the run keeps the place the preview gave it, and the block's foot is
-    /// taken from the copy's height.
-    func landedFrames(_ plan: TextFirstReflowPlan, gap: Int, _ lines: TextFirstLandingLines)
-        -> (runs: [CGRect], block: CGRect?)
-    {
-        let width = textView.bounds.width
-        let all = NSRange(location: 0, length: storage.length)
-        let laidOut = laidOutRange() ?? all
-        let last = (lines.runs.compactMap { $0 } + [lines.block.upperBound, lines.slot]).max() ?? 0
-        let starts = lineStarts(from: lines.base, through: storage.length, lines: last + 2)
-        let end = TextFirstBlockSlot(offset: storage.length, end: true)
-        func top(ofLine k: Int) -> CGFloat? {
-            boundaryY(
-                k < starts.count ? TextFirstBlockSlot(offset: starts[k], end: false) : end,
-                in: laidOut)
-        }
-        // The block's lines are where the move put them (a photo's, the line it became).
-        var moved: CGRect?
-        let first = TextFirstMoveMap.blockLine(lines.block, to: lines.slot, photo: lines.photo)
-        if let upper = top(ofLine: first) {
-            let lower =
-                top(ofLine: first + (lines.photo ? 1 : lines.block.count))
-                ?? upper + plan.away.height
-            moved = CGRect(x: 0, y: upper, width: width, height: lower - upper)
-        }
-        let n = plan.runs.count
-        var tops = plan.runs.indices.map { j -> CGFloat in
-            let k = lines.runs[j].map {
-                TextFirstMoveMap.line($0, block: lines.block, to: lines.slot, photo: lines.photo)
-            }
-            let y = k.map { top(ofLine: $0) } ?? boundaryY(end, in: laidOut)
-            return y.map { $0 + plan.runs[j].inset } ?? plan.top(j, gap: gap)
-        }
-        // A run measured from inside a line that closed up ends no lower than the next run.
-        for j in stride(from: n - 2, through: 0, by: -1) where gap != j + 1 {
-            tops[j] = min(tops[j], tops[j + 1])
-        }
-        let runs = (0..<n).map { j -> CGRect in
-            let bottom =
-                j + 1 == gap
-                ? moved?.minY ?? tops[j] + plan.height(j, gap: gap)
-                : j + 1 < n ? tops[j + 1] : tops[j] + plan.height(j, gap: gap)
-            return CGRect(x: 0, y: tops[j], width: width, height: max(0, bottom - tops[j]))
-        }
-        return (runs, moved)
     }
 
     /// What the images in UTF-16 `range` draw: each one's place, its size, and whether it has
@@ -248,9 +195,16 @@ extension TextFirstEditorController {
         return hasher.finalize()
     }
 
+    /// The UTF-16 start of display line `k`, counting from the line start `base`; nil past the
+    /// text's end.
+    func lineStart(_ k: Int, from base: Int) -> Int? {
+        let starts = lineStarts(from: base, through: storage.length, lines: k + 1)
+        return k < starts.count ? starts[k] : nil
+    }
+
     /// The UTF-16 starts of the display lines from the line start `base` to `through`, at most
     /// `lines` of them.
-    private func lineStarts(from base: Int, through: Int, lines: Int = .max) -> [Int] {
+    func lineStarts(from base: Int, through: Int, lines: Int = .max) -> [Int] {
         let text = storage.string as NSString
         var starts = [base]
         var at = base
@@ -312,7 +266,8 @@ extension TextFirstEditorController {
             dx: inset.left + f.layoutFragmentFrame.minX, dy: inset.top + f.layoutFragmentFrame.minY)
     }
 
-    /// A cut at `y` that is no boundary (the screen's edge): measured from the line drawn there.
+    /// The window's top: the start of the line drawn at `y` (the screen's top edge), or, below
+    /// the text, its end; above what is laid out, its first line.
     private func cut(at y: CGFloat, _ laidOut: NSRange) -> Cut {
         if let manager = textView.textLayoutManager,
             let f = manager.textLayoutFragment(for: CGPoint(x: 1, y: y - inset.top))
@@ -320,17 +275,23 @@ extension TextFirstEditorController {
             let start = manager.offset(
                 from: manager.documentRange.location, to: f.rangeInElement.location)
             return Cut(
-                y: y, anchor: TextFirstBlockSlot(offset: start, end: false),
-                inset: y - inset.top - f.layoutFragmentFrame.minY)
+                y: inset.top + f.layoutFragmentFrame.minY,
+                anchor: TextFirstBlockSlot(offset: start, end: false), inset: 0)
         }
         let end = TextFirstBlockSlot(offset: storage.length, end: true)
         if let bottom = boundaryY(end, in: laidOut), y >= bottom {
             return Cut(y: y, anchor: end, inset: y - bottom)
         }
-        // Above what is laid out: measured from its first line, never from the note's start
-        // (drawing from there would lay out the whole note above the screen).
         let first = TextFirstBlockSlot(offset: laidOut.location, end: false)
-        let top = boundaryY(first, in: laidOut) ?? y
-        return Cut(y: y, anchor: first, inset: y - top)
+        return Cut(y: boundaryY(first, in: laidOut) ?? y, anchor: first, inset: 0)
+    }
+
+    /// The window's foot: the end of the line drawn at `y` (the screen's foot), or `y` itself
+    /// below the text.
+    private func lineEnd(at y: CGFloat) -> CGFloat {
+        guard let manager = textView.textLayoutManager,
+            let f = manager.textLayoutFragment(for: CGPoint(x: 1, y: y - inset.top))
+        else { return y }
+        return max(y, inset.top + f.layoutFragmentFrame.maxY)
     }
 }

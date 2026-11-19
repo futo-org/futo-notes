@@ -243,23 +243,21 @@
             #expect(differing == 0, "\(differing) pixels differ \(Self.keep(settled, real, name))")
         }
 
-        @Test func anAutoscrollHandsTheDragToTheDropLineOnceWhatSlidIsBack() async throws {
+        @Test func theNoteScrollingUnderAStillFingerMovesTheGapWithoutATick() async throws {
             let h = TextFirstHarness(
                 (0..<300).map { "line \($0)" }.joined(separator: "\n"), focused: false)
             let from = h.tv.contentOffset.y
             let drag = try begin(h, at: h.point(line: 3))
             h.controller.followBlockDrag(to: h.point(line: 8))
             let preview = try #require(drag.preview)
-            #expect(preview.isOpen && drag.slot != nil)
-            // Into the bottom edge zone: nothing scrolls while what slid slides back home.
+            // Into the bottom edge zone and still: the note scrolls under the preview.
             h.controller.followBlockDrag(to: CGPoint(x: 60, y: h.tv.bounds.maxY - 30))
-            #expect(drag.preview === preview && drag.slot == nil && h.tv.contentOffset.y == from)
-            #expect(await h.until(1) { drag.preview == nil })
-            #expect(preview.curtain.superview == nil && drag.dimmedSource.superview != nil)
-            #expect(await h.until(2) { h.tv.contentOffset.y > from + 100 })
-            // From here on it is the drop line's drag.
-            h.controller.followBlockDrag(to: CGPoint(x: 60, y: h.tv.bounds.midY))
-            #expect(drag.preview == nil && !drag.dropLine.isHidden && drag.slot != nil)
+            let ticks = h.controller.dragHaptics.ticks
+            let slot = try #require(drag.slot)
+            #expect(await h.until(3) { h.tv.contentOffset.y > from + 600 })
+            #expect(drag.preview === preview && preview.isOpen && drag.dropLine.isHidden)
+            #expect(try #require(drag.slot).offset > slot.offset + 150, "the gap moved on")
+            #expect(h.controller.dragHaptics.ticks == ticks, "and never ticked")
             h.controller.endBlockDrag(dropping: false)
         }
 

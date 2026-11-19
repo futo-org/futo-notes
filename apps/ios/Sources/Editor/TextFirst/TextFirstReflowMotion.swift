@@ -34,6 +34,49 @@ enum TextFirstReflowMotion {
     static let signposts = OSSignposter(logger: log)
 }
 
+/// The slides of a preview's layers, worked out from the slides themselves, so where a layer is
+/// drawn is known before the screen has drawn a frame.
+@MainActor
+final class TextFirstSlides {
+    /// Each sliding layer's slide: where it started, where it goes, and when it began.
+    private var motions: [ObjectIdentifier: (from: CGPoint, to: CGPoint, begun: CFTimeInterval)] =
+        [:]
+
+    /// Where `layer` is drawn now (its top-left corner, curtain coordinates): along its slide,
+    /// worked out from the slide itself, so it is known before the screen has drawn a frame.
+    func drawn(_ layer: CALayer) -> CGPoint {
+        guard let motion = motions[ObjectIdentifier(layer)] else { return layer.position }
+        let t = (CACurrentMediaTime() - motion.begun) / TextFirstReflowMotion.slide
+        guard t < 1 else { return layer.position }
+        let eased = CGFloat(TextFirstReflowMotion.eased(max(0, t)))
+        return CGPoint(
+            x: motion.from.x + (motion.to.x - motion.from.x) * eased,
+            y: motion.from.y + (motion.to.y - motion.from.y) * eased)
+    }
+
+    /// Move `layer` to `to` (its top-left corner, curtain coordinates), sliding from where it
+    /// is drawn now.
+    func slide(_ layer: CALayer, to: CGPoint, over duration: CFTimeInterval) {
+        let from = drawn(layer)
+        layer.position = to
+        motions[ObjectIdentifier(layer)] = nil
+        guard duration > 0, layer.superlayer != nil,
+            abs(from.y - to.y) > 0.01 || abs(from.x - to.x) > 0.01
+        else { return }
+        if duration == TextFirstReflowMotion.slide {
+            motions[ObjectIdentifier(layer)] = (from, to, CACurrentMediaTime())
+        }
+        let animation = CABasicAnimation(keyPath: "position")
+        (animation.fromValue, animation.toValue) = (NSValue(cgPoint: from), NSValue(cgPoint: to))
+        animation.duration = duration
+        animation.timingFunction = TextFirstReflowMotion.easing
+        layer.add(animation, forKey: "slide")
+    }
+
+    /// `layer` is let go: its slide goes with it, as a new layer may come to have its identity.
+    func forget(_ layer: CALayer) { motions[ObjectIdentifier(layer)] = nil }
+}
+
 /// Runs `step` once per display frame until it returns false or this object goes away.
 @MainActor
 final class TextFirstIdleBuilder {

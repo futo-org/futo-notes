@@ -24,7 +24,10 @@ final class TextFirstDragHaptics {
         tick.prepare()
         drop.prepare()
     }
+    /// The ticks given so far (a debug build reports them).
+    private(set) var ticks = 0
     func reachedSlot() {
+        ticks += 1
         tick.selectionChanged()
         tick.prepare()
     }

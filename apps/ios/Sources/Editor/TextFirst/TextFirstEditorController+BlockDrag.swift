@@ -266,23 +266,13 @@ extension TextFirstEditorController {
 
     /// Set the autoscroll's speed from where the finger is in what shows of the note: at the
     /// lift, as the finger moves, and as the visible area changes under a still finger.
-    /// The preview does not scroll (#449): an autoscroll that would move the note hands the
-    /// drag to the drop line first (one held against an end of the note it cannot scroll past
-    /// keeps the preview).
+    /// The live preview scrolls with the note (#449).
     func steerAutoscroll() {
         guard let drag = blockDrag else { return }
         let insets = textView.adjustedContentInset
         let bounds = textView.bounds
         let velocity = TextFirstAutoscroll.velocity(
             at: drag.fingerY, in: (bounds.minY + insets.top)...(bounds.maxY - insets.bottom))
-        if let preview = drag.preview {
-            let ends = scrollEnds
-            let at = textView.contentOffset.y
-            if (velocity < 0 && at > ends.top) || (velocity > 0 && at < ends.bottom) {
-                handOver(drag, from: preview)
-            }
-            return
-        }
         drag.autoscroller.velocity = velocity
         drag.autoscroller.resume()
     }
@@ -302,11 +292,17 @@ extension TextFirstEditorController {
         return true
     }
 
-    /// The lowest and highest scroll offsets the note has.
+    /// The lowest and highest scroll offsets the note has, its foot as far down as the preview
+    /// draws it (a block can take more room in a gap than it leaves: a photo lifted out of a
+    /// row it shared), so the note's end stays within reach.
     private var scrollEnds: (top: CGFloat, bottom: CGFloat) {
         let insets = textView.adjustedContentInset
         let top = -insets.top
-        return (top, max(top, textView.contentSize.height + insets.bottom - textView.bounds.height))
+        let grows = blockDrag?.preview.map { $0.plan.grows($0.gap) } ?? 0
+        return (
+            top,
+            max(top, textView.contentSize.height + grows + insets.bottom - textView.bounds.height)
+        )
     }
 
     /// The note was laid out again (a scroll, a photo that decoded, a rotation): the drag's
