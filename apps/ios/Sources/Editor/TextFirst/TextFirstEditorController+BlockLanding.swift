@@ -36,7 +36,7 @@ extension TextFirstEditorController {
             moved = commitUnderPreview(drag, preview, to: slot)
             TextFirstReflowMotion.signposts.endInterval("land", interval)
             TextFirstReflowMotion.log.debug(
-                "block drop committed in \((CACurrentMediaTime() - released) * 1000, privacy: .public) ms"
+                "drop committed and settling in \((CACurrentMediaTime() - released) * 1000, format: .fixed(precision: 1), privacy: .public) ms"
             )
         }
         let landing = TextFirstReflowLanding(

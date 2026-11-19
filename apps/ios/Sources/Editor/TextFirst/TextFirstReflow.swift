@@ -48,6 +48,8 @@ final class TextFirstReflow {
     /// The copy's drawing and the stretch of the block (its own coordinates) it covers.
     private var copyImage: (image: CGImage, window: ClosedRange<CGFloat>)?
     private var builder: TextFirstIdleBuilder?
+    /// Debug timing of the idle drawing.
+    private var building = (spent: CFTimeInterval(0), frames: 0, logged: false)
 
     init(
         _ plan: TextFirstReflowPlan, closedLine: TextFirstClosedLine?,
@@ -86,9 +88,13 @@ final class TextFirstReflow {
         guard moved != gap else { return false }
         if !isOpen { open(under: card) }
         let interval = TextFirstReflowMotion.signposts.beginInterval("gap")
+        let started = CACurrentMediaTime()
         gap = moved
         place(animated: true)
         TextFirstReflowMotion.signposts.endInterval("gap", interval)
+        TextFirstReflowMotion.log.debug(
+            "gap moved in \((CACurrentMediaTime() - started) * 1000, format: .fixed(precision: 2), privacy: .public) ms"
+        )
         return moved != plan.home
     }
 
@@ -238,7 +244,11 @@ final class TextFirstReflow {
     @discardableResult private func build(all: Bool) -> Bool {
         let started = CACurrentMediaTime()
         let interval = TextFirstReflowMotion.signposts.beginInterval("slices")
-        defer { TextFirstReflowMotion.signposts.endInterval("slices", interval) }
+        defer {
+            TextFirstReflowMotion.signposts.endInterval("slices", interval)
+            building.spent += CACurrentMediaTime() - started
+            building.frames += 1
+        }
         for j in slices.indices {
             if !all, CACurrentMediaTime() - started > TextFirstReflowMotion.budget { return true }
             let run = plan.runs[j]
@@ -252,6 +262,13 @@ final class TextFirstReflow {
         }
         if !all, CACurrentMediaTime() - started > TextFirstReflowMotion.budget { return true }
         drawCopy(for: gap)
+        if builder != nil || all, !building.logged {
+            building.logged = true
+            let spent = (building.spent + CACurrentMediaTime() - started) * 1000
+            TextFirstReflowMotion.log.debug(
+                "slices built: \(self.slices.count, privacy: .public) runs, \(spent, format: .fixed(precision: 1), privacy: .public) ms over \(self.building.frames + 1, privacy: .public) frames\(all ? " (at the first gap change)" : "", privacy: .public)"
+            )
+        }
         builder = nil
         return false
     }
