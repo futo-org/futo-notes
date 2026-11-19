@@ -64,3 +64,8 @@ private fun appContextOnDisplayOf(context: Context): Context {
     val display = runCatching { context.display }.getOrNull() ?: return app
     return app.createDisplayContext(display)
 }
+
+/** A copy's confirmation: Android 13 and later confirm every clipboard copy themselves, so a toast would be a second one. */
+fun showCopiedToast(context: Context, text: String) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) showToast(context, text)
+}

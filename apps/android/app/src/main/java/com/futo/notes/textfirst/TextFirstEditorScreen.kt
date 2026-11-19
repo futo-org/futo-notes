@@ -56,6 +56,7 @@ import com.futo.notes.ui.commitEditorTitleSnapshot
 import com.futo.notes.ui.editorTitleTarget
 import com.futo.notes.ui.titleWarningFor
 import com.futo.notes.ui.isPlaceholderTitle
+import com.futo.notes.ui.showCopiedToast
 import com.futo.notes.ui.showToast
 import com.futo.notes.ui.theme.FutoPalette
 import com.futo.notes.ui.theme.FutoTheme
@@ -168,7 +169,7 @@ internal fun TextFirstEditorScreen(
         localization.localizedText("editor.codeBlock.namePlaceholder"),
         localization.localizedText("editor.codeBlock.languagePlaceholder"),
     )
-    controller.view.clipboard.onCodeCopied = { showToast(context, localization.localizedText("editor.codeBlock.copied")) }
+    controller.view.clipboard.onCodeCopied = { showCopiedToast(context, localization.localizedText("editor.codeBlock.copied")) }
 
     // Open after any leave of this same note has released its attachment.
     LaunchedEffect(initialNoteId) {
@@ -377,7 +378,7 @@ internal fun TextFirstEditorScreen(
                 onMove = { showMoveSheet = true },
                 onCopyPath = {
                     clipboard.setText(AnnotatedString("${store.rootPath}/$noteId.md"))
-                    showToast(context, localization.localizedText("notes.pathCopied"))
+                    showCopiedToast(context, localization.localizedText("notes.pathCopied"))
                 },
                 onDelete = { confirmDelete = true },
             )
