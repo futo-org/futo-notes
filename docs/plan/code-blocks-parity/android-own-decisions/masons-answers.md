@@ -53,3 +53,5 @@ Code blocks (bugs):
 
 - **64** a wikilink whose target holds characters a file name cannot (`[[a:b?c]]`): 64A leave (a tap makes `abc`, the link still shows missing, a later tap makes `abc-2`), 64B a tap does nothing, 64C the link resolves through the title rule (shared note rules).
 - **T1** the phone's form of the desktop's row and column grips. **T2** how a table is made on the phone.
+- **T3** (all hosts, from the Desktop Editor chat) where a caret may rest in a row such as `| milk | 2 |`: T3A only in a cell's text on every host (its recommendation; the desktop changes too), T3B every character for arrows and only placed carets fitted, T3C a per-session setting (desktop yes, phones no).
+- **T4** (all hosts) a press on a column the row lacks: T4A it fills in the row and enters that cell, through a new engine call `enter_table_cell` (the desktop today puts the caret at the end of the row's last cell), T4B as today.
