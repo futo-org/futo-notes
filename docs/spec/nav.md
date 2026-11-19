@@ -81,3 +81,4 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 
 - [Desktop shell _(desktop)_](nav/desktop-shell.md)
 - [Native app icon sheet](nav/native-app-icon-sheet.md)
+- [Foldable iPhone _(iOS)_](nav/foldable-iphone.md)

@@ -58,8 +58,6 @@ func scrollToRowVerb(
 struct NoteListView: View {
     @EnvironmentObject private var store: NotesStore
     @EnvironmentObject private var sync: SyncManager
-    /// Only to hand on to the Settings sheet, which owns the License row.
-    @EnvironmentObject private var license: LicenseModel
     @Environment(\.localization) private var localization
     /// Path, presented sheet and search query live here, not in `@State`, so
     /// the debug puppet listener reads and drives the same values (AppNavigation).
@@ -69,15 +67,6 @@ struct NoteListView: View {
     @State private var showSearchDelete = false
     /// Results returned by the Rust-owned local-note store.
     @State private var searchHits: [NoteItem] = []
-
-    /// Whether any UIKit-level modal (a sheet or cover from this list, a
-    /// folder row, the crash report) is already over the root. SwiftUI drops a
-    /// presentation made while another is up, so the landing asks first.
-    private static var modalIsPresented: Bool {
-        UIApplication.shared.connectedScenes
-            .compactMap { ($0 as? UIWindowScene)?.keyWindow }
-            .contains { $0.rootViewController?.presentedViewController != nil }
-    }
 
     private var filtered: [NoteItem] {
         guard !navigation.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -137,36 +126,7 @@ struct NoteListView: View {
                     .accessibilityIdentifier("nav-sync")
                 }
             }
-            .sheet(isPresented: navigation.isPresenting(.sync)) {
-                SyncView()
-                    .environmentObject(sync)
-                    .environmentObject(store)
-            }
-            // An activation that includes the app icon lands on the picker over
-            // Settings. The landing is decided at activation time and never
-            // kept: SettingsView takes it when it is already up; otherwise it is
-            // presented here only if nothing else covers the list (a stray
-            // flag would pop the picker, header and all, on a later manual
-            // open). Skipped when the OS cannot change icons.
-            .onChange(of: license.pendingLanding, initial: true) { _, pending in
-                guard pending, !navigation.isPresenting(.settings).wrappedValue else { return }
-                guard UIApplication.shared.supportsAlternateIcons, !Self.modalIsPresented else {
-                    license.consumeLanding()
-                    return
-                }
-                navigation.sheet = .settings
-            }
-            // Backstop: whatever happened, closing Settings leaves no landing behind.
-            .onChange(of: navigation.sheet) {
-                if !navigation.isPresenting(.settings).wrappedValue { license.consumeLanding() }
-            }
-            .sheet(isPresented: navigation.isPresenting(.settings)) {
-                SettingsView()
-                    .environmentObject(sync)
-                    .environmentObject(store)
-                    .environmentObject(license)
-                    .environmentObject(navigation)
-            }
+            .appSheets()
             // Centered fullScreenCover, not a .confirmationDialog — see
             // DestructiveConfirmDialog for why (arrow-popover misanchoring).
             .fullScreenCover(isPresented: $showSearchDelete) {

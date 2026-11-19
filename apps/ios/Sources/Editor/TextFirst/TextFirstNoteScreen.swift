@@ -9,6 +9,8 @@ struct TextFirstNoteScreen: View {
     @EnvironmentObject var store: NotesStore
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.localization) private var localization
+    @Environment(\.reportVisibleNote) private var reportVisibleNote
+    @Environment(\.shellHandoff) private var shellHandoff
 
     @State private var noteId: String
     @State var titleField: String
@@ -17,6 +19,10 @@ struct TextFirstNoteScreen: View {
     @State var ownerToken: UInt64 = 0
     @State var renameTask: Task<Void, Never>?
     @State var leaving = false
+    /// How deep in the navigation path this screen sat when it last appeared (it is the top
+    /// then). With its route alone a screen covered by a push of a note opened under the
+    /// same id would think it was still on top and never leave.
+    @State private var depth = 0
     /// Bumped whenever this screen leaves, so an open that was still waiting for a claim can
     /// tell the screen it started on is gone.
     @State private var openTicket = 0
@@ -183,6 +189,7 @@ struct TextFirstNoteScreen: View {
             .puppetVerbs { nativePuppetVerbs }
         #endif
         .onAppear {
+            depth = navPath.count
             // Back from a pushed note: the leave closed this editor, so attach it again.
             if leaving, controller == nil {
                 leaving = false
@@ -193,6 +200,7 @@ struct TextFirstNoteScreen: View {
                 PuppetVerbs.shared.openNote = noteId
             #endif
             if ownerToken == 0 { ownerToken = store.claimDraftOwnership() }
+            reportVisibleNote?(originalId, noteId)
         }
         #if FUTO_DEBUG_BUILD
             .onChange(of: noteId) { _, id in PuppetVerbs.shared.openNote = id }
@@ -228,9 +236,10 @@ struct TextFirstNoteScreen: View {
         .onDisappear {
             // A full-screen camera covers this view without navigating away. Retiring the
             // session there invalidates its image claim and races the re-open on dismissal.
-            if navPath.last != .note(originalId) && navPath.last != .newNote(originalId) {
-                leave()
-            }
+            let stillTop =
+                navPath.count == depth
+                && (navPath.last == .note(originalId) || navPath.last == .newNote(originalId))
+            if !stillTop { leave() }
         }
     }
 
@@ -349,6 +358,7 @@ struct TextFirstNoteScreen: View {
         guard id != noteId else { return }
         titleField = TextFirstTitle.fieldText(titleField, from: noteId, to: id)
         noteId = id
+        reportVisibleNote?(originalId, id)
     }
 
     private func leave() {
@@ -367,8 +377,10 @@ struct TextFirstNoteScreen: View {
         #if DEBUG
             PuppetNativeEditor.shared.clear(controller)
         #endif
+        // A fold hands the note to the other shell's screen, which reopens it as new.
         let untouched =
-            autoFocus && titleField == splitId(id: originalId).title && !controller.dirty
+            autoFocus && !shellHandoff.active && titleField == splitId(id: originalId).title
+            && !controller.dirty
         let token = ownerToken
         // A title typed within the rename's debounce commits with the leave.
         let pending = titleField != splitId(id: controller.noteId).title ? titleField : nil
