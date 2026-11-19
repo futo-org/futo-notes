@@ -122,14 +122,16 @@ impl Engine {
         let b_start = self.line_start(last);
         let left = left_part(a, selected.start - start);
         let end = selected.end - b_start;
-        // The line keeps its hidden marker and its list marker unit; on a
-        // line with no text (a blank line, a divider) the bytes after the
-        // selection stay as typed.
+        // The line keeps its hidden marker and its list marker unit, whole
+        // even when the selection ends before the unit, where the caret
+        // stays; on a line with no text (a blank line, a divider) the bytes
+        // after the selection stay as typed.
         let hidden = match b.view.cuts.first() {
             Some((marker, Cut::Marker)) => marker.end,
             _ => 0,
         };
-        let kept = b.marker_unit().map_or(hidden, |unit| unit.end).min(end);
+        let unit = b.marker_unit();
+        let kept = unit.as_ref().map_or(hidden.min(end), |unit| unit.end);
         let (right, opens) = if b.line.content.is_empty() {
             (b.body()[end.max(kept)..].to_owned(), 0)
         } else {
@@ -137,7 +139,11 @@ impl Engine {
         };
         let text = format!("{left}{}{}{right}", a.ending(), &b.body()[..kept]);
         let old = self.source_slice(start..b_start + b.body_len());
-        let caret = start + left.len() + a.ending().len() + kept + opens;
+        let before_unit = unit.filter(|unit| end <= unit.start);
+        let caret = start
+            + left.len()
+            + a.ending().len()
+            + before_unit.map_or(kept + opens, |unit| unit.start);
         let edits: Vec<Edit> = diff(start, &old, &text).into_iter().collect();
         // A command with no edits sets the selection (`surface.rs` `key`):
         // when nothing changes, the selection stays.

@@ -246,6 +246,18 @@
   "after": "- a\r\n\r\n\t‸- b\r\nc"
  },
  {
+  "name": "Enter over lines ending before an item's marker keeps the marker, the caret before it",
+  "before": "«a\n»- b",
+  "command": "Enter",
+  "after": "\n‸- b"
+ },
+ {
+  "name": "Shift+Enter over lines ending before a quoted marker keeps quote and marker",
+  "before": "«a\n> »- [ ] b",
+  "command": "ShiftEnter",
+  "after": "\n> ‸- [ ] b"
+ },
+ {
   "name": "Enter before the last line's quoted marker takes the line ending above",
   "before": "x\r\n> ‸* y",
   "command": "Enter",
