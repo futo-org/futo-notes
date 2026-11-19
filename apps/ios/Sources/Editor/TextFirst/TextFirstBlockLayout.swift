@@ -29,13 +29,16 @@ final class TextFirstBlockLayout {
     private var stretch: (lines: TextFirstLaidOutLines, top: CGFloat)?
     private let storage: NSTextStorage
     private let context: TextFirstLaidOutLines.Context
+    private let toEnd: Bool
 
     /// `block` of `storage` laid out `width` wide, drawn as the editor `host` draws it: a table
     /// scrolled as it is there, the note's empty last line's block (and nothing that reads the
     /// editor's selection or Find, whose offsets are the note's).
+    /// A block running to the note's end (`toEnd`, as the engine says) takes the note's empty
+    /// last line (an empty task) with it, its row and its box; one ending above it does not.
     init?(
         _ storage: NSTextStorage, block: NSRange, width: CGFloat, drawing: Int,
-        host: TextFirstEditorController
+        host: TextFirstEditorController, toEnd: Bool = false
     ) {
         let text = storage.string as NSString
         context = (
@@ -46,7 +49,11 @@ final class TextFirstBlockLayout {
             let end = NSMaxRange(text.noteLine(at: block.location + Self.whole))
             first.length = min(end, NSMaxRange(block)) - block.location
         }
-        guard let head = TextFirstLaidOutLines(storage, first, width: width, context) else {
+        self.toEnd = toEnd
+        guard
+            let head = TextFirstLaidOutLines(
+                storage, first, width: width, context, toEnd: toEnd && first == block)
+        else {
             return nil
         }
         (self.head, self.storage) = (head, storage)
@@ -94,7 +101,8 @@ final class TextFirstBlockLayout {
             let to = min(NSMaxRange(text.noteLine(at: min(units(reach), end - 1))), end)
             guard to > from,
                 let lines = TextFirstLaidOutLines(
-                    storage, NSRange(location: from, length: to - from), width: width, context)
+                    storage, NSRange(location: from, length: to - from), width: width, context,
+                    toEnd: toEnd && to == end)
             else { return nil }
             let top = estimate(from)
             if top + lines.height >= band.upperBound || to == end {
@@ -131,7 +139,11 @@ final class TextFirstLaidOutLines {
     private let layoutDelegate = TextFirstLayoutDelegate()
     private let breakDelegate = TextFirstImageBreakDelegate()
 
-    init?(_ storage: NSTextStorage, _ range: NSRange, width: CGFloat, _ context: Context) {
+    /// `toEnd`: the lines run to the note's end, its empty last line (an empty task) included.
+    init?(
+        _ storage: NSTextStorage, _ range: NSRange, width: CGFloat, _ context: Context,
+        toEnd: Bool = false
+    ) {
         let text = storage.string as NSString
         var above =
             range.location > 0
@@ -158,11 +170,10 @@ final class TextFirstLaidOutLines {
         content = NSTextContentStorage()
         content.delegate = breakDelegate
         manager = NSTextLayoutManager()
-        // The note's empty last line (an empty task) is drawn only as itself: a block that
-        // ends above it ends at its top, as the note's boundary there does.
-        layoutDelegate.detached = (
-            context.tableScroll, range.length == 0 ? context.trailing : nil
-        )
+        // The note's empty last line (an empty task) is drawn with lines that run to the
+        // note's end; lines that end above it end at its top, as the note's boundary does.
+        let trailing = range.length == 0 || toEnd
+        layoutDelegate.detached = (context.tableScroll, trailing ? context.trailing : nil)
         manager.delegate = layoutDelegate
         content.addTextLayoutManager(manager)
         let container = NSTextContainer(size: CGSize(width: width, height: 0))
@@ -193,7 +204,7 @@ final class TextFirstLaidOutLines {
             manager.enumerateTextLayoutFragments(from: first.rangeInElement.location) {
                 last = max(last, $0.layoutFragmentFrame.maxY)
                 if let row = ($0 as? TextFirstLayoutFragment)?.trailingRowFrame {
-                    last = $0.layoutFragmentFrame.minY + row.top
+                    last = $0.layoutFragmentFrame.minY + row.top + (trailing ? row.height : 0)
                 }
                 return true
             }

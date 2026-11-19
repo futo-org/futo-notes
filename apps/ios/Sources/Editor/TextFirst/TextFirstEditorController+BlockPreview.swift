@@ -49,9 +49,10 @@ extension TextFirstEditorController {
             let painter = slicePainter
             let preview = TextFirstReflow(
                 plan, closedLine: closedLine, painter: painter, under: drag.card)
-            let block = drag.book.block.range
+            let block = drag.book.block
             preview.drawBlock = { [weak self] rect, top in
-                self?.blockLayout(block)?.paint(rect, blockTop: top, with: painter)
+                self?.blockLayout(block.range, toEnd: block.toEnd)?.paint(
+                    rect, blockTop: top, with: painter)
             }
             drag.preview = preview
             preview.buildInIdleTime()

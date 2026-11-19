@@ -140,7 +140,7 @@ extension TextFirstEditorController {
                 // Its height measured (laid out whole, or read from both edges once, at this
                 // width and with its images as they draw now) before one estimated from its
                 // first stretch.
-                let own = blockLayout(block.range)
+                let own = blockLayout(block.range, toEnd: block.toEnd)
                 let measured = measured.flatMap {
                     $0.width == visible.width && $0.drawing == drawingSignature(block.range)
                         ? $0.height : nil
@@ -248,14 +248,14 @@ extension TextFirstEditorController {
 
     /// `block` laid out on its own, once for the drag, and again when it draws otherwise
     /// (an image in it loaded, a new width).
-    func blockLayout(_ block: NSRange) -> TextFirstBlockLayout? {
+    func blockLayout(_ block: NSRange, toEnd: Bool = false) -> TextFirstBlockLayout? {
         let width = textView.textContainer.size.width
         let drawing = drawingSignature(block)
         if let own = liftedLayout, own.range == block, own.width == width, own.drawing == drawing {
             return own
         }
         liftedLayout = TextFirstBlockLayout(
-            storage, block: block, width: width, drawing: drawing, host: self)
+            storage, block: block, width: width, drawing: drawing, host: self, toEnd: toEnd)
         return liftedLayout
     }
 
