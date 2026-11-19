@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -100,11 +101,13 @@ fun EditorToolbar(
     disabledFormats: Set<String> = emptySet(),
     /** Items this editor does not offer (the text-first editor drops "paragraph"). */
     hiddenItems: Set<String> = emptySet(),
+    scrollState: ScrollState = rememberScrollState(),
+    /** False disables every button, which also cancels a press in progress. */
+    enabled: Boolean = true,
 ) {
     val containerVisible = inContainer ?: onListLine
     val c = FutoTheme.colors
     val density = LocalDensity.current
-    val scrollState = rememberScrollState()
 
     // Measured layout. Button x is taken relative to the viewport Box (window x
     // minus the Box's window x); at rest (scroll 0) that equals the content
@@ -180,7 +183,7 @@ fun EditorToolbar(
                                     item,
                                     tint = c.textPrimary,
                                     active = item.id in activeFormats,
-                                    enabled = item.id !in disabledFormats,
+                                    enabled = enabled && item.id !in disabledFormats,
                                     perform = perform,
                                     // Only a real change counts: the rising keyboard moves the bar every
                                     // frame, and a count per call recomposed it on each of those frames.
@@ -210,7 +213,7 @@ fun EditorToolbar(
                 }
             }
             VerticalDivider(thickness = 0.5.dp, color = c.border, modifier = Modifier.height(44.dp))
-            ToolbarButton(ToolbarSpec.dismiss, tint = c.textSecondary, perform = perform)
+            ToolbarButton(ToolbarSpec.dismiss, tint = c.textSecondary, perform = perform, enabled = enabled)
         }
     }
 }
