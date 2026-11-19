@@ -64,17 +64,32 @@ pub(crate) struct Dashes {
     found: usize,
     /// The first line not yet counted.
     next: usize,
-    /// For each run of shifted lines a candidate has asked about, the lines
-    /// in it a shift could make or unmake a `---` of, found once for the
-    /// listing: every candidate shifts the same run.
-    shifted: Vec<(Range<usize>, Vec<usize>)>,
+    /// Each run of shifted lines a candidate has asked about: every
+    /// candidate shifts the same run.
+    shifted: Vec<ShiftedDashes>,
+}
+
+/// The lines in a run a shift could make or unmake a `---` of, found once
+/// for the listing, and for each shift asked about how many it makes and
+/// unmakes: candidates that shift by the same whitespace get one answer.
+struct ShiftedDashes {
+    run: Range<usize>,
+    lines: Vec<usize>,
+    counts: Vec<(Shift, (usize, usize))>,
 }
 
 impl Dashes {
-    /// The lines of `run` whose text, but for spaces and tabs, is `---`: a
-    /// shift only swaps whitespace, so no other line changes whether it is one.
-    fn shiftable(&mut self, engine: &Engine, run: &Range<usize>, work: &mut EditWork) -> &[usize] {
-        let at = match self.shifted.iter().position(|(seen, _)| seen == run) {
+    /// How many lines of `run` shifting them by `shift` makes a `---` line,
+    /// and how many it stops being one. Only lines whose text, but for
+    /// spaces and tabs, is `---` can change: a shift only swaps whitespace.
+    fn shifted(
+        &mut self,
+        engine: &Engine,
+        run: &Range<usize>,
+        shift: &Shift,
+        work: &mut EditWork,
+    ) -> (usize, usize) {
+        let at = match self.shifted.iter().position(|seen| seen.run == *run) {
             Some(at) => at,
             None => {
                 let mut lines = Vec::new();
@@ -89,11 +104,30 @@ impl Dashes {
                         lines.push(index);
                     }
                 }
-                self.shifted.push((run.clone(), lines));
+                self.shifted.push(ShiftedDashes {
+                    run: run.clone(),
+                    lines,
+                    counts: Vec::new(),
+                });
                 self.shifted.len() - 1
             }
         };
-        &self.shifted[at].1
+        let seen = &mut self.shifted[at];
+        if let Some((_, counts)) = seen.counts.iter().find(|(s, _)| s == shift) {
+            return *counts;
+        }
+        let (mut added, mut removed) = (0, 0);
+        for &index in &seen.lines {
+            work.link_metadata_items += 1;
+            let entry = engine.line(index);
+            match (is_dash(&entry.text), is_dash(&shift.text(entry))) {
+                (false, true) => added += 1,
+                (true, false) => removed += 1,
+                _ => {}
+            }
+        }
+        seen.counts.push((shift.clone(), (added, removed)));
+        (added, removed)
     }
 }
 
@@ -284,24 +318,23 @@ impl Engine {
         work: &mut EditWork,
     ) -> (usize, usize) {
         let (mut added, mut removed) = (0, 0);
-        let mut count = |was: bool, now: bool| match (was, now) {
-            (false, true) => added += 1,
-            (true, false) => removed += 1,
-            _ => {}
-        };
         for piece in &trial.pieces {
             match piece {
                 Piece::Run(_) => {}
-                Piece::Line(old, text) => count(
-                    old.is_some_and(|i| is_dash(&self.line(i).text)),
-                    is_dash(text),
-                ),
-                Piece::Shifted(run, _) => {
-                    for &index in dashes.shiftable(self, run, work) {
-                        work.link_metadata_items += 1;
-                        let text = piece.text(self, index);
-                        count(is_dash(&self.line(index).text), is_dash(&text));
+                Piece::Line(old, text) => {
+                    match (
+                        old.is_some_and(|i| is_dash(&self.line(i).text)),
+                        is_dash(text),
+                    ) {
+                        (false, true) => added += 1,
+                        (true, false) => removed += 1,
+                        _ => {}
                     }
+                }
+                Piece::Shifted(run, shift) => {
+                    let (more, fewer) = dashes.shifted(self, run, shift, work);
+                    added += more;
+                    removed += fewer;
                 }
             }
         }
