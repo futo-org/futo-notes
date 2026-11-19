@@ -16,8 +16,15 @@ class TextFirstToolbarAuditTest {
     private val note = "---\ntitle: x\n---\n\nalpha beta\n\n- item\n\n```js\ncode\n```\n\n---\n\n| a | b |\n| - | - |\n| c | d |\n\n![i](missing.png)\n\nend"
     private val items = listOf(
         "undo", "redo", "bold", "italic", "strikethrough", "paragraph", "heading-1", "heading-2", "heading-3", "quote",
-        "code-block", "bullet-list", "ordered-list", "task-list", "outdent", "indent",
+        "code-block", "bullet-list", "ordered-list", "task-list", "outdent", "indent", "camera", "image",
     )
+
+    /** Camera and Image open a picker; what they would do is the insertion the picker makes after a pick. */
+    private suspend fun runItem(c: TextFirstController, item: String) {
+        if (item != "camera" && item != "image") return runToolbar(c, item)
+        val claim = c.imageClaim() ?: return
+        c.insertImage(claim, "audit.png")
+    }
 
     private suspend fun settle(c: TextFirstController) { c.sourceText(); delay(250) }
 
@@ -33,7 +40,7 @@ class TextFirstToolbarAuditTest {
             val source = c.sourceText()
             val selection = view.selectionStart to view.selectionEnd
             val formats = c.caret.formats
-            runToolbar(c, item)
+            runItem(c, item)
             settle(c)
             val what = buildString {
                 if (c.sourceText() != source) append("b")
@@ -44,7 +51,7 @@ class TextFirstToolbarAuditTest {
             if (c.sourceText() != source && item != "undo" && item != "redo") { c.undo(); settle(c) }
             if (item == "undo" && c.sourceText() != source) { c.redo(); settle(c) }
             if (item == "redo" && c.sourceText() != source) { c.undo(); settle(c) }
-            if (c.caret.formats != formats && c.sourceText() == source) { runToolbar(c, item); settle(c) }
+            if (c.caret.formats != formats && c.sourceText() == source) { runItem(c, item); settle(c) }
             val shown = if (item in disabled) "disabled" else "enabled"
             "$item=$shown/${if (changed) "acts($what)" else "nothing"}"
         }

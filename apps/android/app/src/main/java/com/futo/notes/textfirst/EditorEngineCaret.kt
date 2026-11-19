@@ -16,6 +16,7 @@ private val TOOLBAR_ITEMS = listOf(
     EditorToolbarCommand.ORDERED_LIST to listOf("ordered-list"),
     EditorToolbarCommand.TASK_LIST to listOf("task-list"),
     EditorToolbarCommand.CODE_BLOCK to listOf("code-block"),
+    EditorToolbarCommand.IMAGE to listOf("camera", "image"),
 )
 
 /** One canonical selection query; Kotlin only maps engine facts to toolbar identifiers. */
