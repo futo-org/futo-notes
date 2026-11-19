@@ -92,6 +92,8 @@
             let h = TextFirstHarness(
                 "![](pic.png)\nalpha\nbravo", files: ["pic.png": TextFirstHarness.png(900, 900)],
                 focused: false)
+            // The drop line's drag (as with Reduce Motion on).
+            h.controller.debugReducesMotion = true
             // `alpha` lifts before the photo above it has its height, which then pushes it down.
             #expect(h.lineHeights(at: 0).allSatisfy { $0 < 100 })
             let drag = try begin(h, at: h.point(line: 1))
@@ -138,6 +140,8 @@
             let h = TextFirstHarness(
                 "first\n![](pic.png)\nthird\nfourth",
                 files: ["pic.png": TextFirstHarness.png(900, 900)], focused: false)
+            // The drop line's drag (as with Reduce Motion on).
+            h.controller.debugReducesMotion = true
             // `first` lifts before the photo has its height; the finger is above `third`.
             #expect(h.lineHeights(at: h.lineStarts[1]).allSatisfy { $0 < 100 })
             let drag = try begin(h, at: h.point(line: 0))
@@ -158,6 +162,8 @@
         @Test func aRotationMidDragMeasuresTheTargetsAgain() throws {
             let words = Array(repeating: "wrapping words", count: 24).joined(separator: " ")
             let h = TextFirstHarness("A \(words)\nB \(words)\nC \(words)\nD", focused: false)
+            // The drop line's drag (as with Reduce Motion on).
+            h.controller.debugReducesMotion = true
             let drag = try begin(h, at: h.point(line: 0))
             let portrait = h.point(line: 2, fraction: 0).y
             h.controller.followBlockDrag(to: CGPoint(x: 60, y: portrait))

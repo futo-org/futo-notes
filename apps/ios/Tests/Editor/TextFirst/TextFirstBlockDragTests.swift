@@ -191,7 +191,7 @@
             let h = TextFirstHarness("one\ntwo\nthree\nfour", focused: false)
             let start = h.point(line: 0)
             let lift = try #require(h.controller.liftPlan(at: start))
-            let drag = TextFirstBlockDrag(lift, at: start, snapshot: UIView(), on: h.tv)
+            let drag = TextFirstBlockDrag(lift, at: start, card: UIView(), on: h.tv)
             defer { drag.finish(returning: false) }
             let ticks = [
                 h.point(line: 0),  // over itself: no drop line

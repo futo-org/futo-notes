@@ -1,7 +1,8 @@
 import UIKit
 
-// The release of a block drag (#311, #443): the block lands on the slot the drop line shows, as
-// one Undo step, and a block that left from above the screen does not pull the screen up with it.
+// The release of a block drag shown with the drop line (#311, #443): the block lands on the slot
+// the drop line shows, as one Undo step, and a block that left from above the screen does not
+// pull the screen up with it. A previewed drag lands in +BlockLanding.
 
 extension TextFirstEditorController {
     /// The finger lifted (`dropping`) or iOS cancelled the touch: move the block to the slot
@@ -9,6 +10,7 @@ extension TextFirstEditorController {
     func endBlockDrag(dropping: Bool) {
         pendingLift = nil
         guard let drag = takeBlockDrag() else { return }
+        if let preview = drag.preview { return landPreview(drag, preview, dropping: dropping) }
         var moved = false
         if dropping, outsideChangesPending == 0, let slot = drag.slot, drag.lift.revision == rev {
             let held = heldLine(drag, to: slot)

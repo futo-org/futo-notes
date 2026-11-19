@@ -175,7 +175,7 @@ extension TextFirstEditorController {
 
     /// Where the image at UTF-16 `range` is drawn (text view coordinates), when TextKit has laid
     /// it out.
-    private func drawnImage(_ range: NSRange, in laidOut: NSRange) -> CGRect? {
+    func drawnImage(_ range: NSRange, in laidOut: NSRange) -> CGRect? {
         guard NSLocationInRange(range.location, laidOut), let manager = textView.textLayoutManager,
             let location = manager.textContentManager?.location(
                 manager.documentRange.location, offsetBy: range.location),

@@ -142,6 +142,16 @@ final class TextFirstEditorController: NSObject {
     /// Outside writes heard of and not yet taken in by their checkpoint (+BlockDrag).
     var outsideChangesPending = 0
     let dragHaptics = TextFirstDragHaptics()
+    /// A drop whose preview is still settling over the moved note (+BlockLanding).
+    var reflowLanding: TextFirstReflowLanding?
+    /// Debug builds: drag as with Reduce Motion on (`-FUTODebugReduceMotion`), which a UI test
+    /// cannot switch on in the simulator's settings.
+    #if FUTO_DEBUG_BUILD
+        var debugReducesMotion = ProcessInfo.processInfo.arguments.contains(
+            "-FUTODebugReduceMotion")
+    #else
+        let debugReducesMotion = false
+    #endif
 
     let io = DispatchQueue(label: "futo.textfirst.io", qos: .userInitiated)
     var saveTimer: Timer?
