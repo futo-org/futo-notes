@@ -16,11 +16,15 @@ final class TextFirstReflowLanding {
     let preview: TextFirstReflow
     let dimmedSource: UIView
     let revision: UInt64
+    let released: CFTimeInterval
     private let bounds: CGRect
     private let contentSize: CGSize
-    init(_ preview: TextFirstReflow, dimmedSource: UIView, revision: UInt64, on view: UIScrollView)
-    {
+    init(
+        _ preview: TextFirstReflow, dimmedSource: UIView, revision: UInt64,
+        released: CFTimeInterval, on view: UIScrollView
+    ) {
         (self.preview, self.dimmedSource, self.revision) = (preview, dimmedSource, revision)
+        self.released = released
         (bounds, contentSize) = (view.bounds, view.contentSize)
     }
 
@@ -56,7 +60,8 @@ extension TextFirstEditorController {
             )
         }
         let landing = TextFirstReflowLanding(
-            preview, dimmedSource: drag.dimmedSource, revision: rev, on: textView)
+            preview, dimmedSource: drag.dimmedSource, revision: rev, released: released,
+            on: textView)
         reflowLanding = landing
         if moved {
             dragHaptics.landed()
@@ -76,6 +81,7 @@ extension TextFirstEditorController {
     func finishLanding() {
         guard let landing = reflowLanding else { return }
         reflowLanding = nil
+        lastLanding = CACurrentMediaTime() - landing.released
         landing.preview.remove()
         landing.dimmedSource.removeFromSuperview()
     }

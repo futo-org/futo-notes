@@ -121,6 +121,7 @@ final class TextFirstBlockDragAutoscrollUITests: XCTestCase {
                 let below = puppet.post("/show", ["text": lines[before - 1]])?["rect"]
                 drawn.append([
                     "before": before, "y": y, "above": above ?? NSNull(),
+                    "slotY": state.blockDrag?["landsY"] ?? NSNull(),
                     "below": below ?? NSNull(),
                 ])
             })
@@ -132,8 +133,12 @@ final class TextFirstBlockDragAutoscrollUITests: XCTestCase {
         let above = try XCTUnwrap(seen["above"] as? [String: Int])
         let below = try XCTUnwrap(seen["below"] as? [String: Int])
         let y = try XCTUnwrap(seen["y"] as? Double)
+        // The drop line is on its slot's boundary as the note is laid out now: both read in one
+        // request (`/show`'s text rects are separate requests, rounded to whole points).
+        let slotY = try XCTUnwrap(seen["slotY"] as? Double)
+        XCTAssertEqual(y, slotY, accuracy: 0.5, "the drop line is on its boundary as laid out")
         XCTAssertTrue(
-            Double(above["y"]! + above["h"]! - 1) <= y && y <= Double(below["y"]! + 1),
+            Double(above["y"]!) < y && y <= Double(below["y"]!) + 1,
             "the drop line (\(y)) is drawn between \(above) and \(below)")
         XCTAssertTrue(
             note.saved(moving(line, before: before, in: lines)), "it lands at the drop line")

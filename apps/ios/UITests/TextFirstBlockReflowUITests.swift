@@ -33,17 +33,18 @@ final class TextFirstBlockReflowUITests: XCTestCase {
             XCTAssertNil(held.dropLineY, "no drop line with the preview: \(text)")
             let copy = try XCTUnwrap(held.copyRect, text)
             XCTAssertTrue(note.saved(after), "it lands where the gap was: \(text)")
-            // The lifted line is now drawn where the copy was.
+            // The lifted line is now drawn where the copy was (both rounded to whole points).
             let lifted = text.components(separatedBy: "\n")[line]
                 .replacingOccurrences(of: "- ", with: "")
             let landed = try XCTUnwrap(
                 note.puppet.post("/show", ["text": lifted])?["rect"] as? [String: Int], text)
             XCTAssertLessThanOrEqual(
                 abs(landed["y"]! - copy["y"]!), 4, "\(text): drawn at \(landed), copy \(copy)")
-            // The preview is down within 0.4 s of the release (polled every 50 ms).
-            let released = try XCTUnwrap(states.last?["t"] as? Double)
-            XCTAssertFalse(
-                states.contains { ($0["t"] as? Double ?? 0) > released + 0.45 && $0.dragPreview })
+            // The drop settled under the preview, which came down within 0.4 s of the release
+            // (as the app timed it, from the release to the curtain's removal).
+            let landing = Self.lastLanding(note)
+            XCTAssertNotNil(landing, "\(text): a landing was made")
+            XCTAssertLessThanOrEqual(landing ?? 1, 0.41, "\(text)")
             note.app.terminate()
         }
     }
@@ -107,17 +108,27 @@ final class TextFirstBlockReflowUITests: XCTestCase {
         let tall = Array(repeating: "a paragraph taller than the screen", count: 40)
             .joined(separator: " ")
         let note = try TextFirstDragNote.open("first\n\(tall)\nlast")
-        let finger = TextFirstTouch(down: note.screen(dy: note.editor.frame.height / 2)).hold(1)
+        let finger = TextFirstTouch(down: note.screen(dy: note.editor.frame.height / 2)).hold(1.6)
             .lift()
-        let states = try note.puppet.watch { try TextFirstTouch.perform([finger]) }
-        let card = try XCTUnwrap(
-            states.last { $0.blockDrag != nil }?.blockDrag?["card"] as? [String: Int])
+        var held: [String: Any]?
+        var shot: UIImage?
+        try TextFirstTouch.perform([finger]) {
+            Thread.sleep(forTimeInterval: 1.0)
+            held = note.puppet.editor()
+            shot = XCUIScreen.main.screenshot().image
+        }
+        let card = try XCTUnwrap(held?.blockDrag?["card"] as? [String: Int])
         let screen = note.app.frame
         XCTAssertLessThanOrEqual(CGFloat(card["h"]!), screen.height * 0.4 * 1.04 + 2, "\(card)")
         XCTAssertGreaterThanOrEqual(card["x"]!, 7, "\(card)")
         XCTAssertLessThanOrEqual(CGFloat(card["x"]! + card["w"]!), screen.width - 7, "\(card)")
         let y = note.editor.frame.minY + note.editor.frame.height / 2
         XCTAssertTrue(CGFloat(card["y"]!) < y && y < CGFloat(card["y"]! + card["h"]!), "\(card)")
+        // The card shows the block's words, not only its background: dark text in its top half.
+        let top = CGRect(
+            x: CGFloat(card["x"]! + 20), y: CGFloat(card["y"]! + 20),
+            width: CGFloat(card["w"]! - 40), height: CGFloat(card["h"]! / 2 - 20))
+        XCTAssertGreaterThan(Self.dark(try XCTUnwrap(shot), in: top), 200, "\(card)")
     }
 
     /// With Reduce Motion on (here the debug build's stand-in for the setting) the drag shows
@@ -138,6 +149,17 @@ final class TextFirstBlockReflowUITests: XCTestCase {
         XCTAssertTrue(note.saved("bravo\ncharlie\nalpha\ndelta"))
     }
 
+    /// How long the last drop's preview covered the note after the release, once it has come
+    /// down (within a second); nil when none did.
+    static func lastLanding(_ note: TextFirstDragNote) -> Double? {
+        let start = Date()
+        while Date().timeIntervalSince(start) < 1 {
+            if let seconds = note.puppet.editor()?["lastLanding"] as? Double { return seconds }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return nil
+    }
+
     /// Pixels of `a` and `b` (screenshots) inside `frame` (points) that differ by more than
     /// 24 in a channel.
     static func differing(_ a: UIImage, _ b: UIImage, in frame: CGRect) -> Int {
@@ -153,6 +175,20 @@ final class TextFirstBlockReflowUITests: XCTestCase {
                 }) {
                     count += 1
                 }
+            }
+        }
+        return count
+    }
+
+    /// Pixels of a screenshot inside `frame` (points) darker than mid grey.
+    static func dark(_ image: UIImage, in frame: CGRect) -> Int {
+        let p = rgba(image)
+        let scale = image.scale
+        var count = 0
+        for row in max(0, Int(frame.minY * scale))..<min(p.height, Int(frame.maxY * scale)) {
+            for col in max(0, Int(frame.minX * scale))..<min(p.width, Int(frame.maxX * scale)) {
+                let i = (row * p.width + col) * 4
+                if Int(p.bytes[i]) + Int(p.bytes[i + 1]) + Int(p.bytes[i + 2]) < 300 { count += 1 }
             }
         }
         return count

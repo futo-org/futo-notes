@@ -103,6 +103,8 @@
                 "blockDrag": blockDrag(c, document) ?? NSNull(),
                 // A drag's live preview (or a drop settling under it) covers the note.
                 "dragPreview": c.blockDrag?.preview?.isOpen == true || c.reflowLanding != nil,
+                // How long the last drop's preview covered the note after the release.
+                "lastLanding": c.lastLanding ?? NSNull(),
             ]
         }
 
@@ -122,6 +124,12 @@
                     slot.end ? ["end": true] : ["before": document.line(at: slot.offset).number]
                 } ?? NSNull()
             let screen = window.screen.coordinateSpace
+            // Where the slot a release lands on is laid out now, read in this same request.
+            let landsY: Any =
+                drag.slot.flatMap { slot in
+                    c.laidOutRange().flatMap { c.boundaryY(slot, in: $0) }
+                }.map { Double(c.textView.convert(CGPoint(x: 0, y: $0), to: screen).y) }
+                ?? NSNull()
             let reflow: Any =
                 drag.preview.map { preview -> [String: Any] in
                     [
@@ -137,6 +145,7 @@
                     ? NSNull() : Double(c.textView.convert(drag.dropLine.center, to: screen).y),
                 "card": Document.box(c.textView.convert(drag.card.frame, to: screen)),
                 "scrollY": Double(c.textView.contentOffset.y), "reflow": reflow,
+                "landsY": landsY,
                 "previewUnavailable": drag.previewUnavailable ?? NSNull(),
             ]
         }
