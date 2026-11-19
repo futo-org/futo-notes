@@ -1,8 +1,8 @@
 //! Keys in a table. Tab, Shift+Tab and Enter move between cells (a move is
 //! a selection change with no edit); entering a cell a short row lacks gives
 //! the row the cells up to it, and leaving the last row appends one.
-//! Backspace and Delete never remove a pipe, the line break between two of
-//! a table's lines or the one after its delimiter row.
+//! Backspace and Delete at a caret never remove a pipe, the line break
+//! between two of a table's lines or the one after its delimiter row.
 use super::super::super::command::{Command, Edit};
 use super::super::super::Engine;
 use super::delimiter_row::is_delimiter_row;

@@ -377,14 +377,16 @@ pub(super) fn source_step(
 }
 
 /// `spanned` widened over a code block it reaches into or out of, which
-/// goes whole, from its opening line through its closing line.
+/// goes whole, from its opening line through its closing line, and over a
+/// table an end lies in, which goes whole when the range covers every cell.
 fn whole_blocks(engine: &Engine, spanned: &std::ops::Range<usize>) -> std::ops::Range<usize> {
     let first = engine.line_of(spanned.start);
     let last = engine.line_of(spanned.end);
-    let start = fence_lines(engine, first).map_or(spanned.start, |(open, _)| {
+    let whole = |index: usize| fence_lines(engine, index).or_else(|| table_lines(engine, index));
+    let start = whole(first).map_or(spanned.start, |(open, _)| {
         engine.line_start(open).min(spanned.start)
     });
-    let end = fence_lines(engine, last).map_or(spanned.end, |(_, close)| {
+    let end = whole(last).map_or(spanned.end, |(_, close)| {
         (engine.line_start(close) + engine.line(close).text.len()).max(spanned.end)
     });
     start..end
@@ -418,6 +420,27 @@ fn fence_lines(engine: &Engine, index: usize) -> Option<(usize, usize)> {
         close += 1;
     }
     Some((open, close.min(engine.line_count() - 1)))
+}
+
+/// The header and last line of the table holding line `index`, found by
+/// walking: an oracle independent of `TableBlock`.
+fn table_lines(engine: &Engine, index: usize) -> Option<(usize, usize)> {
+    let role = |index: usize| match engine.line(index).line.kind {
+        Kind::Table { role, .. } => Some(role),
+        _ => None,
+    };
+    role(index)?;
+    let mut header = index;
+    while role(header) != Some(TableRole::Header) {
+        header -= 1;
+    }
+    let mut last = header + 1;
+    while last + 1 < engine.line_count()
+        && matches!(role(last + 1), Some(TableRole::Delimiter | TableRole::Row))
+    {
+        last += 1;
+    }
+    Some((header, last))
 }
 
 /// What typing on an empty line at line `index` of `source` writes before

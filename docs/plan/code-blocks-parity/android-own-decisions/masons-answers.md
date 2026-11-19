@@ -35,3 +35,23 @@ Reported with block 1 (bugs, not picks):
 - "tapping a photo shouldn't show a caret. the photo should just be selected, like code blocks". This replaces the mobile spec's "a plain tap on an image puts a caret right after it".
 
 Owed on iOS later: image select-first on Backspace, a tap selecting the image with no caret, disabled toolbar buttons.
+
+### Reported on the S23, build `a409ea1cb` (2026-11-19)
+
+Tables (a change of the mobile spec's design, Android):
+
+- "What's up with this table stuff? It's such a strange implementation. you've got this undo done bar instead of the normal one with the stuff you can't do taken away. I hate it. I can't click on empty cells either. It should basically be the same as the new desktop's"
+- Cause of the dead taps in his note: the last row is `| lon![](…)`, one cell under a three-column header, and a tap on a column the row lacks does nothing.
+
+Code blocks (bugs):
+
+- "we can't usually hold down to cut/copy/paste the entire code blocks. I was able to get it once, but it was kinda busted."
+- "when we tap on a block to select it, the view doesn't get scrolled to show it with the keyboard coming up."
+- "the highlight seems too far down for the name and language for code blocks as well. (not centered on text or in their containers)"
+
+### Asked 2026-11-19, unanswered
+
+- **64** a wikilink whose target holds characters a file name cannot (`[[a:b?c]]`): 64A leave (a tap makes `abc`, the link still shows missing, a later tap makes `abc-2`), 64B a tap does nothing, 64C the link resolves through the title rule (shared note rules).
+- **T1** the phone's form of the desktop's row and column grips. **T2** how a table is made on the phone.
+- **T3** (all hosts, from the Desktop Editor chat) where a caret may rest in a row such as `| milk | 2 |`: T3A only in a cell's text on every host (its recommendation; the desktop changes too), T3B every character for arrows and only placed carets fitted, T3C a per-session setting (desktop yes, phones no).
+- **T4** (all hosts) a press on a column the row lacks: T4A it fills in the row and enters that cell, through a new engine call `enter_table_cell` (the desktop today puts the caret at the end of the row's last cell), T4B as today.
