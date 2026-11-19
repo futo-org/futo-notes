@@ -3,6 +3,7 @@ package com.futo.notes.textfirst
 import android.graphics.Color
 import android.os.SystemClock
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.core.content.res.ResourcesCompat
@@ -66,8 +67,13 @@ class TextFirstLinkTapTest {
                 val inside = left + view.paint.textSize * 2
                 val followed = mutableListOf<WikilinkDestination>()
                 view.onOpenWikilink = { followed.add(it) }
+                // Taps this close in time and place are a double-tap: the platform selects the word, and its
+                // selection can land long after the tap (hundreds of ms on a loaded CI emulator). Stamp each tap
+                // past the double-tap window so every one is a single tap (main, 0751ad118).
+                var clock = SystemClock.uptimeMillis()
                 fun tap(x: Float, fraction: Float) {
-                    val down = SystemClock.uptimeMillis()
+                    clock += ViewConfiguration.getDoubleTapTimeout() + 100
+                    val down = clock
                     val y = top + tall * fraction
                     for ((action, at) in listOf(MotionEvent.ACTION_DOWN to down, MotionEvent.ACTION_UP to down + 20)) {
                         val e = MotionEvent.obtain(down, at, action, x, y, 0)
