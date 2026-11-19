@@ -7,13 +7,19 @@
 //! the lines around them are read forward until the reader's carry settles.
 //! If a line the command did not name now reads as a different kind of
 //! block (a fence or front matter opened or closed, a table header gained or
-//! lost), the command is cancelled: no edit, no history entry. Typing never
+//! lost), the command is cancelled: no edit, no history entry. A command can
+//! also hold named lines to their kind (`Command::same_kind`). Typing never
 //! goes through the guard.
+mod kept_line;
+pub(crate) mod trial;
+
+pub(crate) use kept_line::kept_line;
+
 use super::edit::{Batch, Change};
 use super::history::Group;
 use super::line::Entry;
 use super::{read, store, Engine};
-use crate::lines::{block, Carry, FenceRole, FrontMatterRole, Kind, Line, TableRole};
+use crate::lines::{block, Carry, FenceRole, FrontMatterRole, Kind, TableRole};
 use crate::{
     Affinity, DisplayOffset, DisplayRange, EditorError, InlineFormat, InputAction, Revision,
     SourceEdit,
@@ -51,13 +57,30 @@ pub(crate) struct Command {
     pub lines: Vec<Range<usize>>,
     /// The selection after the edits, in source offsets of the new text.
     pub selection: Range<usize>,
-    /// The affinity of a collapsed caret; `None` keeps what landing there picks.
+    /// A collapsed caret's affinity; `None` keeps what landing there picks.
     pub affinity: Option<Affinity>,
     /// Typing: a key's plain text edit, which always lands (no guard).
     pub typed: bool,
     /// A deletion's formats the caret keeps where it no longer reads them
     /// (`Engine::carry_deleted`).
     pub carry: Option<Vec<InlineFormat>>,
+    /// Named lines that must still read as the same kind of block after the
+    /// edits, as (index before, index after): a block move's lines change
+    /// place, never kind.
+    pub same_kind: Vec<(usize, usize)>,
+    /// An image the command writes, which must read back, with the whole
+    /// note read after the edits, as exactly that image; else the command
+    /// fails with `InvalidText` and nothing changes.
+    pub image: Option<Written>,
+}
+
+/// An image a command writes: its source range after the edits, its
+/// destination and its alt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Written {
+    pub range: Range<usize>,
+    pub destination: String,
+    pub alt: String,
 }
 
 impl Command {
@@ -71,6 +94,8 @@ impl Command {
             affinity: None,
             typed: false,
             carry: None,
+            same_kind: Vec::new(),
+            image: None,
         }
     }
 
@@ -403,7 +428,8 @@ impl Engine {
     }
 
     /// Apply `command`'s edits to `batch`, then the guard. `false` when the
-    /// guard fails (the edits stay in `batch` for the caller to revert).
+    /// guard fails, `InvalidText` when the image it writes does not read
+    /// back (the edits stay in `batch` for the caller to revert).
     fn apply(&mut self, batch: &mut Batch, command: &Command) -> Result<bool, EditorError> {
         let mut edits = command.edits.clone();
         edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
@@ -425,8 +451,22 @@ impl Engine {
         } else {
             Some(self.before_command(command, &edits)?)
         };
+        let same_kind: Vec<_> = command
+            .same_kind
+            .iter()
+            .map(|&(old, new)| (class(&self.store.get(old).line.kind), new))
+            .collect();
         self.raw_edits(batch, &edits);
-        Ok(before.is_none_or(|before| self.guard_holds(&before)))
+        if let Some(image) = &command.image {
+            if !self.reads_as_image(image) {
+                return Err(EditorError::InvalidText);
+            }
+        }
+        let count = self.store.len();
+        let kinds_kept = same_kind
+            .iter()
+            .all(|&(was, new)| new < count && class(&self.store.get(new).line.kind) == was);
+        Ok(kinds_kept && before.is_none_or(|before| self.guard_holds(&before)))
     }
 
     /// Put the selection at source `range` of the current text.
@@ -461,6 +501,19 @@ impl Engine {
         self.store.len()
     }
 
+    /// The line ending a line of its own made from line `index` takes: that
+    /// line's, else the line's above (the note's last line has none), else
+    /// `\n`.
+    pub(crate) fn line_ending_near(&self, index: usize) -> String {
+        [Some(index), index.checked_sub(1)]
+            .into_iter()
+            .flatten()
+            .map(|index| self.line(index).ending())
+            .find(|ending| !ending.is_empty())
+            .unwrap_or("\n")
+            .to_owned()
+    }
+
     /// Source offset where line `index` starts.
     pub(crate) fn line_start(&self, index: usize) -> usize {
         self.store.before(index).source
@@ -485,42 +538,4 @@ impl Engine {
         }
         first..last.max(first) + 1
     }
-}
-
-/// `prefix` then `text`, with a `\` written into `text` when without it the
-/// line would not read as `keeps` wants, after `carry`. Removing the bullet
-/// from `- # todo` keeps a plain line by writing `\# todo`. Nothing is
-/// escaped when the line already reads as wanted, or when no `\` helps.
-pub(crate) fn kept_line(
-    carry: &Carry,
-    prefix: &str,
-    text: &str,
-    keeps: impl Fn(&Line) -> bool,
-) -> String {
-    let read = |line: &str| {
-        let mut carry = carry.clone();
-        carry.first = false;
-        block::read_line(&mut carry, line, 0)
-    };
-    let plain = format!("{prefix}{text}");
-    if keeps(&read(&plain)) {
-        return plain;
-    }
-    let lead = text.len() - text.trim_start_matches([' ', '\t']).len();
-    let rest = &text[lead..];
-    let at = match rest.bytes().next() {
-        Some(b) if b.is_ascii_punctuation() => Some(lead),
-        Some(b) if b.is_ascii_digit() => {
-            let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
-            matches!(rest.as_bytes().get(digits), Some(b'.' | b')')).then_some(lead + digits)
-        }
-        _ => None,
-    };
-    if let Some(at) = at {
-        let escaped = format!("{prefix}{}\\{}", &text[..at], &text[at..]);
-        if keeps(&read(&escaped)) {
-            return escaped;
-        }
-    }
-    plain
 }

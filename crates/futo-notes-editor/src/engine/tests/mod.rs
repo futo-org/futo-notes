@@ -10,6 +10,7 @@ mod images;
 mod inline;
 mod input;
 mod lists;
+mod moves;
 mod projection;
 mod properties;
 mod quick_open;

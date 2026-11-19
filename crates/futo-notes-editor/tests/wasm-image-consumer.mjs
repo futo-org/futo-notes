@@ -24,7 +24,7 @@ page.select_with_affinity(0n, 21, 21, '"Forward"');
 assert.throws(() => page.insert_image(0n, claim + 1n, 'image-2.png', ''));
 assert.throws(() => page.insert_image(0n, claim, 'https://x.test/a.png', ''));
 const { request } = JSON.parse(page.insert_image(0n, claim, 'image-2.png', ''));
-assert.equal(request.operation.Append.inserted, '![](image-2.png)');
+assert.equal(request.operation.Append.inserted, '\n![](image-2.png)\n');
 assert.throws(() => page.insert_image(0n, claim, 'image-3.png', ''));
 page.free();
 console.log('Compiled WASM images: atom roles and claimed insertion passed.');

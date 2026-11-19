@@ -10,8 +10,11 @@ mod images;
 mod inline;
 mod lists;
 mod marks;
+pub(super) mod moves;
 mod tables;
 mod wikilinks;
+
+pub(crate) use lists::Shift;
 
 use super::command::{Command, Edit};
 use super::Engine;

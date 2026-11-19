@@ -113,6 +113,50 @@ fn image_cases() {
     }
 }
 
+/// An accepted insertion shows the photo as an image, read with the whole
+/// note: `---x---` split around `x` would read as front matter, which no
+/// one line read alone shows. Otherwise it is refused with nothing changed.
+#[test]
+fn an_accepted_insertion_always_shows_its_image() {
+    for (source, selection) in [
+        ("---x---", 3..4),
+        ("---x---", 3..3),
+        ("---x\n---", 3..3),
+        ("a\n---x\n---", 5..5),
+    ] {
+        let mut engine = Engine::open(source);
+        engine.land(selection.clone(), None);
+        let before = engine.selection();
+        match engine.insert_image(engine.revision(), "p.png", "", &mut ok) {
+            Ok(Some(_)) => {
+                let end = engine.display_text().len();
+                let slice = engine.project(engine.revision(), range(0, end)).unwrap();
+                let images = slice
+                    .atoms
+                    .iter()
+                    .filter(|atom| {
+                        atom.image
+                            .as_ref()
+                            .is_some_and(|image| image.destination == "p.png")
+                    })
+                    .count();
+                assert_eq!(
+                    images,
+                    1,
+                    "{source:?} {selection:?} gave {:?}",
+                    engine.source_text()
+                );
+            }
+            Ok(None) | Err(EditorError::InvalidText) => {
+                assert_eq!(engine.source_text(), source, "{source:?}");
+                assert_eq!(engine.selection(), before, "{source:?}");
+                assert!(!engine.can_undo(), "{source:?}");
+            }
+            Err(error) => panic!("{source:?}: {error:?}"),
+        }
+    }
+}
+
 #[test]
 fn an_inserted_image_keeps_its_line_the_block_it_was() {
     for (source, at) in [
@@ -145,9 +189,11 @@ fn an_insertion_is_an_isolated_undo_step_after_typing() {
         .insert_image(engine.revision(), "image-1.png", "", &mut ok)
         .unwrap()
         .unwrap();
+    // After text on a plain line the image takes a line of its own, and
+    // typing goes on the line after it.
     super::typed(&mut engine, "c");
-    assert_eq!(engine.source_text(), "ab![](image-1.png)c");
-    for expected in ["ab![](image-1.png)", "ab", ""] {
+    assert_eq!(engine.source_text(), "ab\n![](image-1.png)\nc");
+    for expected in ["ab\n![](image-1.png)\n", "ab", ""] {
         engine.undo(engine.revision(), &mut ok).unwrap().unwrap();
         assert_eq!(engine.source_text(), expected);
     }
@@ -155,8 +201,9 @@ fn an_insertion_is_an_isolated_undo_step_after_typing() {
 
 #[test]
 fn an_inserted_image_is_an_atom_with_the_caret_after_it() {
-    let mut engine = Engine::open("a  b");
-    engine.land(2..2, None);
+    // In a list item it stays inline; the marker is hidden.
+    let mut engine = Engine::open("- a  b");
+    engine.land(4..4, None);
     let change = engine
         .insert_image(engine.revision(), "pics/my pic.png", "x", &mut ok)
         .unwrap()
@@ -218,7 +265,7 @@ fn a_claim_names_its_session_and_survives_ordinary_edits() {
         .unwrap();
     editor.select(Revision(1), range(1, 1)).unwrap();
     insert(&mut editor, claim).unwrap().unwrap();
-    assert_eq!(editor.source_text(), "a![](image-1.png)bc");
+    assert_eq!(editor.source_text(), "a\n![](image-1.png)\nbc");
 
     let mut other = EditorSession::open("ab");
     let reopened = EditorSession::open(&editor.source_text());

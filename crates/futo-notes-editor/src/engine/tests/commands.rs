@@ -258,6 +258,8 @@ fn the_guard_follows_every_unnamed_line_between_many_named_ones() {
             affinity: None,
             typed: false,
             carry: None,
+            same_kind: Vec::new(),
+            image: None,
         }
     };
     let mut engine = Engine::open(&source);
