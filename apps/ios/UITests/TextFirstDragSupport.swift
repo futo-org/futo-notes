@@ -11,9 +11,12 @@ struct TextFirstDragNote {
 
     static let lineStep = UIFont.systemFont(ofSize: 17).lineHeight + 4
 
-    /// Open `text` as `drag.md` in a fresh vault holding `files` beside it.
+    /// Open `text` as `drag.md` in a fresh vault holding `files` beside it, the app launched
+    /// with `arguments` too.
     @MainActor
-    static func open(_ text: String, files: [String: Data] = [:]) throws -> TextFirstDragNote {
+    static func open(
+        _ text: String, files: [String: Data] = [:], arguments: [String] = []
+    ) throws -> TextFirstDragNote {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("text-first-block-drag-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -24,7 +27,7 @@ struct TextFirstDragNote {
         app.launchEnvironment["FUTO_NOTES_DATA_DIR"] = root.path
         let puppet = TextFirstPuppetProbe()
         app.launchEnvironment["FUTO_PUPPET_PORT"] = String(puppet.port)
-        app.launchArguments += ["-AppleLanguages", "(en)"]
+        app.launchArguments += ["-AppleLanguages", "(en)"] + arguments
         app.launch()
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "drag"))
             .firstMatch
@@ -151,6 +154,26 @@ final class TextFirstTouch {
     }
 }
 
+extension TextFirstTouch {
+    /// Play `touches` on a background thread while `during` runs on this one (a screenshot
+    /// cannot be taken from inside the playing); returns when both are done.
+    static func perform(_ touches: [TextFirstTouch], during: () throws -> Void) throws {
+        let played = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var failure: Error?
+        nonisolated(unsafe) let touches = touches
+        DispatchQueue.global().async {
+            do { try perform(touches) } catch { failure = error }
+            played.signal()
+        }
+        do { try during() } catch {
+            played.wait()
+            throw error
+        }
+        played.wait()
+        if let failure { throw failure }
+    }
+}
+
 /// The app's debug puppet listener, read and driven over loopback HTTP from a background
 /// thread, so a test can see the editor's state (the drag's drop line among it) and change the
 /// note while a synthesized finger is still held.
@@ -221,10 +244,24 @@ extension Dictionary where Key == String, Value == Any {
     /// The drag's report in an editor state (`blockDrag`), nil with no drag.
     var blockDrag: [String: Any]? { self["blockDrag"] as? [String: Any] }
     /// The line the drop line shows a release would land above; 0 for the note's end.
-    var dropLineBefore: Int? {
-        guard let shows = blockDrag?["dropLine"] as? [String: Any] else { return nil }
+    var dropLineBefore: Int? { before(blockDrag?["dropLine"]) }
+    /// The line a release would land above, as the drop line or the live preview shows it; 0
+    /// for the note's end.
+    var landsBefore: Int? { before(blockDrag?["lands"]) }
+    private func before(_ shows: Any?) -> Int? {
+        guard let shows = shows as? [String: Any] else { return nil }
         return shows["end"] != nil ? 0 : shows["before"] as? Int
     }
+    /// How the drag shows the move: "reflow" (the live preview) or "dropLine".
+    var preview: String? { blockDrag?["preview"] as? String }
+    /// The live preview's curtain shows (its gap has moved at least once).
+    var reflowOpen: Bool { (blockDrag?["reflow"] as? [String: Any])?["open"] as? Bool ?? false }
+    /// Where the preview draws the copy of the block (screen points).
+    var copyRect: [String: Int]? {
+        (blockDrag?["reflow"] as? [String: Any])?["copy"] as? [String: Int]
+    }
+    /// A preview, or a drop settling under one, covers the note.
+    var dragPreview: Bool { self["dragPreview"] as? Bool ?? false }
     var firstLineOnScreen: Int? { (self["onScreen"] as? [String: Any])?["first"] as? Int }
     /// Where the drag's drop line is drawn (screen y), nil while hidden or with no drag.
     var dropLineY: Double? { blockDrag?["dropLineY"] as? Double }
@@ -234,7 +271,9 @@ extension Dictionary where Key == String, Value == Any {
             "\($0["x"]!),\($0["y"]!) \($0["w"]!)x\($0["h"]!)"
         }
         let selection = self["selection"] as? [String: Any]
-        return "card \(card ?? "-") line \(dropLineBefore ?? -1) at \(dropLineY ?? -1)"
+        let copy = copyRect.map { "\($0["y"]!) \($0["h"]!)" } ?? "-"
+        return
+            "card \(card ?? "-") lands \(landsBefore ?? -1) line at \(dropLineY ?? -1) copy \(copy)"
             + " scroll \(blockDrag?["scrollY"] as? Double ?? -1)"
             + " selection \(selection?["from"] as? Int ?? -1)-\(selection?["to"] as? Int ?? -1)"
     }

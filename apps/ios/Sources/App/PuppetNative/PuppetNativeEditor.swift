@@ -101,28 +101,43 @@
                 "clipboard": clipboard.map { String($0.prefix(80)) } ?? NSNull(),
                 "canUndo": !disabled.contains("undo"), "canRedo": !disabled.contains("redo"),
                 "blockDrag": blockDrag(c, document) ?? NSNull(),
+                // A drag's live preview (or a drop settling under it) covers the note.
+                "dragPreview": c.blockDrag?.preview?.isOpen == true || c.reflowLanding != nil,
             ]
         }
 
         /// The block drag in progress, so a test can hold a real finger and still see where a
-        /// release would land: the display line it lifted, what its drop line shows (the line it
-        /// would land above, or the note's end; null with no drop line), and what is drawn, in
-        /// screen points: the drop line's y (null while hidden), the card, and the scroll.
+        /// release would land: the display line it lifted, how it shows the move (`preview`:
+        /// "reflow" or "dropLine"), the slot a release lands on (`lands`: the line it would land
+        /// above, or the note's end; null for none), and what is drawn, in screen points: the
+        /// drop line's y (null while hidden, and always with the preview), the card, the
+        /// scroll, and the preview's gap (`reflow`: whether its curtain shows and where the
+        /// copy of the block is drawn).
         private func blockDrag(_ c: TextFirstEditorController, _ document: Document)
             -> [String: Any]?
         {
             guard let drag = c.blockDrag, let window = c.textView.window else { return nil }
-            let shows: Any =
+            let lands: Any =
                 drag.slot.map { slot -> [String: Any] in
                     slot.end ? ["end": true] : ["before": document.line(at: slot.offset).number]
                 } ?? NSNull()
             let screen = window.screen.coordinateSpace
+            let reflow: Any =
+                drag.preview.map { preview -> [String: Any] in
+                    [
+                        "open": preview.isOpen,
+                        "copy": Document.box(c.textView.convert(preview.copyFrame, to: screen)),
+                    ]
+                } ?? NSNull()
             return [
-                "line": document.line(at: drag.lift.block.location).number, "dropLine": shows,
+                "line": document.line(at: drag.lift.block.location).number,
+                "preview": drag.preview == nil ? "dropLine" : "reflow", "lands": lands,
+                "dropLine": drag.preview == nil ? lands : NSNull(),
                 "dropLineY": drag.dropLine.isHidden
                     ? NSNull() : Double(c.textView.convert(drag.dropLine.center, to: screen).y),
                 "card": Document.box(c.textView.convert(drag.card.frame, to: screen)),
-                "scrollY": Double(c.textView.contentOffset.y),
+                "scrollY": Double(c.textView.contentOffset.y), "reflow": reflow,
+                "previewUnavailable": drag.previewUnavailable ?? NSNull(),
             ]
         }
 
