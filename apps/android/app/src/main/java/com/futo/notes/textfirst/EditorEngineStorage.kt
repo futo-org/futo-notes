@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.futo.notes.storage.GateAccess
 import uniffi.futo_notes_ffi.EditorSessionException
+import uniffi.futo_notes_ffi.EditorUtf16Range
 import uniffi.futo_notes_ffi.FlushDraftResult
 import uniffi.futo_notes_ffi.NativeEditorSession
 
@@ -98,6 +99,11 @@ private fun EditorEngine.install(opened: NativeEditorSession): Throwable? = try 
     val quick = quickDisplay
     quickDisplay = null
     mirror.reset(display)
+    if (quick == null || !display.startsWith(quick)) { mirror.selStart = 0; mirror.selEnd = 0 }
+    // The session keeps a caret out of what cannot hold one (a note's front matter): the view starts where the session
+    // has it, or the first command would move it there, a caret move the view then revealed (Mason: a checkbox tap
+    // put the note at its top).
+    applySelectionChange(opened.selectUtf16(rev, EditorUtf16Range(mirror.selStart.toULong(), mirror.selEnd.toULong())))
     if (quick != null && display.startsWith(quick)) {
         // The view already shows these screens with these styles; it keeps
         // them, and its caret, and the rest follows in slices.
@@ -109,7 +115,6 @@ private fun EditorEngine.install(opened: NativeEditorSession): Throwable? = try 
         // The first screens now, the rest in slices (EditorEngineStream.kt).
         val shown = OpenSlices.sliceEnd(mirror.text, 0, OpenSlices.FIRST_CHARS + openThrough.coerceIn(0, OpenSlices.REACH_BACK_CHARS))
         tailLength = mirror.text.length - shown
-        mirror.selStart = 0; mirror.selEnd = 0
         postUpdate(reset = display.substring(0, shown), edits = emptyList(), windows = listOf(planStyleWindow(0, shown)), paced = true)
     }
     Log.i(EditorEngine.TAG, "installed ${display.length} chars in ${(SystemClock.elapsedRealtimeNanos() - began) / 1000} us")

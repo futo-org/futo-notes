@@ -72,7 +72,9 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
                 android.util.Log.i("TextFirstApply", "replace=${(t1 - t0) / 1000}us restyle+batch=${(t2 - t1) / 1000}us windows=${update.windows.map { it.end - it.start }}")
             }
         }
-        reveal.edited()
+        // Only an edit at the caret (typing, a deletion there) reveals it again; a checkbox toggled or a format applied
+        // elsewhere leaves the reader where they are (Mason: a checkbox tap put the note at its top, at the caret).
+        if (update.edits.any { touchesCaret(it, update.selStart, update.selEnd) }) reveal.edited()
         val e = editableText
         // Not BaseInputConnection.removeComposingSpans: it lists every span in the note.
         composing?.let(e::removeSpan)
@@ -118,3 +120,7 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
 
 
 private class ComposingUnderline : UnderlineSpan()
+
+/** Whether [edit]'s new text, or the place it deleted, meets the selection [selStart, selEnd] after the update. */
+private fun touchesCaret(edit: TextEdit, selStart: Int, selEnd: Int): Boolean =
+    minOf(selStart, selEnd) <= edit.start + edit.text.length && maxOf(selStart, selEnd) >= edit.start
