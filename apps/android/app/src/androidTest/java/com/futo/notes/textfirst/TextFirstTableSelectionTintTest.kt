@@ -73,4 +73,32 @@ class TextFirstTableSelectionTintTest {
     @Test fun fromTheParagraphAboveIntoTheTable() = check({ it.indexOf("line") }, lineEnd("c1"), listOf("h1", "c1"))
 
     @Test fun aTableScrolledSideways() = check(lineOf("h1"), lineEnd("d1"), listOf("h1", "c1", "d1"), scroll = 200f)
+
+    /** Verifier: a tap on a cell selects that cell's text for its field; the row's other cells stay as they were. */
+    @Test fun aSelectionInsideOneCellTintsNoRow() = textFirstSession(note) { c ->
+        val view = c.view
+        withContext(Dispatchers.Main) { view.style.codeBackground = Color.rgb(230, 222, 205); view.isCursorVisible = false; view.isFocusableInTouchMode = true; view.requestFocus() }
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        val e = view.editableText
+        c.select(0)
+        c.sourceText()
+        delay(300)
+        val plain = render(view)
+        val start = e.indexOf("c1")
+        c.select(start, start + 2)
+        withTimeout(5_000) { while (view.selectionEnd != start + 2) delay(20) }
+        delay(300)
+        val selected = render(view)
+        val other = withContext(Dispatchers.Main) {
+            val l = view.layout
+            val row = e.getSpans(0, e.length, TfTableRow::class.java).single { e.substring(e.getSpanStart(it), e.getSpanEnd(it)).contains("c1") }
+            val line = l.getLineForOffset(e.getSpanStart(row))
+            val left = view.totalPaddingLeft + row.cellWidth.toInt() + 4
+            Rect(left, view.totalPaddingTop + l.getLineTop(line) + 4, view.width, view.totalPaddingTop + l.getLineBottom(line) - 4)
+        }
+        var changedPixels = 0
+        for (y in other.top until other.bottom) for (x in other.left until other.right) if (changed(plain.getPixel(x, y), selected.getPixel(x, y))) changedPixels++
+        assertEquals("the row's other cells were tinted", 0, changedPixels)
+    }
 }
+

@@ -12,7 +12,11 @@ internal fun TextFirstEditText.selectedTableRows(): List<TfTableRow> {
     val start = minOf(selectionStart, selectionEnd)
     val end = maxOf(selectionStart, selectionEnd)
     if (start < 0 || start >= end) return emptyList()
-    return e.getSpans(start, end, TfTableRow::class.java).filter { e.getSpanStart(it) < end && e.getSpanEnd(it) > start }
+    return e.getSpans(start, end, TfTableRow::class.java).filter { span ->
+        val shift = e.getSpanStart(span) - span.displayStart
+        // A selection inside one cell is that cell's own (its field shows it), not a selection over the row.
+        e.getSpanStart(span) < end && e.getSpanEnd(span) > start && span.row.cells.none { start >= it.start + shift && end <= it.end + shift }
+    }
 }
 
 /** The selection's part on screen: a whole-note selection is not walked line by line on every frame. */
