@@ -77,3 +77,15 @@ Answered through the Desktop Editor chat (2026-11-19): **2B**, the engine MR car
 
 Asked, unanswered: **L1** when the marker units reach Android: L1A now, under the code-blocks work; L1B later with the desktop stack, as 2B has it.
 - "Also seems like tapping and having the keyboard come up is a bit laggy. Just doesn't feel great. Definitely want an agent looking into that on desktop". Its own agent on the desktop, branch `perf/android-keyboard-open`.
+
+Relayed by the Desktop Editor chat (2026-11-19), on M1: "We can have more for the Android editor". The desktop stack is three MRs on the engine MR; that count does not limit Android's. How many Android MRs, and which, is still open with Mason.
+
+### Scope for the MR (2026-11-19, afternoon)
+
+Asked how long until an MR, I proposed keeping four things out to reach the next day: tables stay as they are (S2; T1–T4 wait for the table deep dive), marker highlighting lands with the desktop stack (L1B), block drag stays on the scratch branch until !716 merges (the caret edge-scroll ramp with it), and blocks 2–9 are skimmed once with only must-change items done before the MR. Mason: "Okay, sounds good. I'm really shooting for tomorrow. Really hoping we can nail the dragging blocks by tomorrow too"
+
+So: **S2**, **L1B**, T1–T4 deferred; block drag is made solid on `play/android-code-blocks-block-drag`. H1 runs on its default (H1A) until he says otherwise.
+
+- "Also, the / menu isn't there" (2026-11-19). The `/` menu is a desktop-only line in the spec (interactive-elements.md) and was never in the native Android or iOS editor. Asked: **Z1** build it on the phone after this MR (Z1A) or inside it (Z1B).
+- "took a screenshot of the caret dragging off screen with a picture above not allowing the scrolling up. This goes with the speed thing I talked abotu earlier." (build `f26b323a6`, 16:09). The screenshot: the insertion handle at the top-left corner of a tall photo at the top edge of the note, the note not scrolling further; an empty white menu pill over the back arrow.
+- "When I cycle to the first result in the find in note, the keyboard drops" (build `f26b323a6`).
