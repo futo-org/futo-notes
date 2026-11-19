@@ -296,3 +296,32 @@ fn the_work_to_find_the_slots_near_a_block_does_not_grow_with_the_note() {
         assert_eq!(short, long, "{name}");
     }
 }
+
+/// With front matter, every candidate asks whether the lines it shifts make
+/// or break a `---` there. The lifted lines are read once for the whole
+/// query, not once per candidate: the work grows by a visit per lifted line
+/// at most, where one visit per candidate made it ten times that.
+#[test]
+fn front_matter_reads_the_shifted_lines_once_per_query() {
+    let work = |n: usize| {
+        let note = format!(
+            "---\ntags: a\n---\n{}- big\n{}after",
+            "- p\n    - q\n".repeat(10),
+            "  - c\n".repeat(n)
+        );
+        let session = EditorSession::open(&note);
+        let within = crate::DisplayRange {
+            start: line(&session, 3),
+            end: line(&session, 24),
+        };
+        let at = line(&session, 23);
+        let found = session.block_slots(session.revision(), at, within).unwrap();
+        assert!(found.slots.len() > 10, "{} slots", found.slots.len());
+        total(&found.work)
+    };
+    let (short, long) = (work(500), work(10_000));
+    assert!(
+        long - short <= 10_000 - 500,
+        "{short} at 500 lines, {long} at 10,000"
+    );
+}
