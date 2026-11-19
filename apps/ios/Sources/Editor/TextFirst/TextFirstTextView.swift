@@ -37,6 +37,13 @@ final class TextFirstTextView: UITextView {
         controller?.images.widthChanged()
         controller?.tablesWidthChanged()
         controller?.cellEditor?.reposition()
+        controller?.remeasureBlockDrag()
+    }
+
+    /// Off screen (the note closed or another took its place) a block drag ends.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { controller?.cancelBlockDrag() }
     }
 
     // MARK: long notes

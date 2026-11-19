@@ -19,7 +19,7 @@ final class TextFirstEditorController: NSObject {
     var noteId: String
 
     /// The engine's revision; every call carries it and every accepted change advances it.
-    var rev: UInt64
+    var rev: UInt64 { didSet { if rev != oldValue { noteRevisionChanged() } } }
     /// The engine's selection in view units (the view's may differ while composing).
     var engineSelection = NSRange(location: 0, length: 0)
     /// The revision `engineSelection` was set at (its units are that display's).
@@ -36,7 +36,7 @@ final class TextFirstEditorController: NSObject {
     /// The committed-display range the live composition replaces.
     var compositionRange = NSRange(location: 0, length: 0)
     var lastMarked = ""
-    var closed = false
+    var closed = false { didSet { if closed { cancelBlockDrag() } } }
     /// Typed since the last save the engine confirmed.
     var dirty = false
     /// The screen left: the leave registry runs this draft's saves (no timer, no checkpoint of
@@ -139,7 +139,23 @@ final class TextFirstEditorController: NSObject {
     var stockTextDrag = false
     var pendingLift: TextFirstLift?
     var blockDrag: TextFirstBlockDrag?
+    /// Outside writes heard of and not yet taken in by their checkpoint (+BlockDrag).
+    var outsideChangesPending = 0
     let dragHaptics = TextFirstDragHaptics()
+    /// A drop whose preview is still settling over the moved note (+BlockLanding), and how long
+    /// the last one covered the note from its release (debug readout).
+    var reflowLanding: TextFirstReflowLanding?
+    var lastLanding: CFTimeInterval?
+    /// The block being dragged laid out on its own, once the preview needs it (+BlockReflow).
+    var liftedLayout: TextFirstBlockLayout?
+    /// Debug builds: drag as with Reduce Motion on (`-FUTODebugReduceMotion`), which a UI test
+    /// cannot switch on in the simulator's settings.
+    #if FUTO_DEBUG_BUILD
+        var debugReducesMotion = ProcessInfo.processInfo.arguments.contains(
+            "-FUTODebugReduceMotion")
+    #else
+        let debugReducesMotion = false
+    #endif
 
     let io = DispatchQueue(label: "futo.textfirst.io", qos: .userInitiated)
     var saveTimer: Timer?

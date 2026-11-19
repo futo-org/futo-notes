@@ -5,53 +5,9 @@ import XCTest
 /// line and raises no keyboard; while the note is being edited every long-press is the
 /// platform's, and a double-tap still selects a word.
 final class TextFirstBlockDragUITests: XCTestCase {
-    /// A note open in the editor, with the keyboard down, and its file on disk.
-    private struct Opened {
-        let app: XCUIApplication
-        let editor: XCUIElement
-        let file: URL
-
-        /// A point on plain body line `index`: a 4 pt inset, then the body font's line plus
-        /// 4 pt spacing each.
-        func line(_ index: Int, x: CGFloat = 60) -> XCUICoordinate {
-            let y = 4 + (CGFloat(index) + 0.5) * Self.lineStep
-            return editor.coordinate(withNormalizedOffset: .zero)
-                .withOffset(CGVector(dx: x, dy: y))
-        }
-
-        static let lineStep = UIFont.systemFont(ofSize: 17).lineHeight + 4
-
-        func saved(_ matches: @escaping (String) -> Bool) -> Bool {
-            let landed = XCTNSPredicateExpectation(
-                predicate: NSPredicate { _, _ in
-                    (try? String(contentsOf: file, encoding: .utf8)).map(matches) ?? false
-                }, object: nil)
-            return XCTWaiter.wait(for: [landed], timeout: 5) == .completed
-        }
-
-        func saved(_ text: String) -> Bool { saved { $0 == text } }
-    }
-
-    /// Open `text` as `drag.md` in a fresh vault holding `files` beside it.
     @MainActor
-    private func open(_ text: String, files: [String: Data] = [:]) throws -> Opened {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("text-first-block-drag-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let file = root.appendingPathComponent("drag.md")
-        try text.write(to: file, atomically: true, encoding: .utf8)
-        for (name, data) in files { try data.write(to: root.appendingPathComponent(name)) }
-        let app = makeIsolatedApplication()
-        app.launchEnvironment["FUTO_NOTES_DATA_DIR"] = root.path
-        app.launchArguments += ["-AppleLanguages", "(en)"]
-        app.launch()
-        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "drag"))
-            .firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 15))
-        row.tap()
-        let editor = app.textViews["text-first-editor"]
-        XCTAssertTrue(editor.waitForExistence(timeout: 15))
-        return Opened(app: app, editor: editor, file: file)
+    private func open(_ text: String, files: [String: Data] = [:]) throws -> TextFirstDragNote {
+        try TextFirstDragNote.open(text, files: files)
     }
 
     @MainActor
@@ -116,7 +72,7 @@ final class TextFirstBlockDragUITests: XCTestCase {
         let text = "first\nsecond\n![](pic.png)"
         let note = try open(text, files: ["pic.png": photo])
         // Wait for the photo to load and take its height.
-        let top = 4 + 2 * Opened.lineStep
+        let top = 4 + 2 * TextFirstDragNote.lineStep
         let onPhoto = note.editor.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: 120, dy: top + 14))
         Thread.sleep(forTimeInterval: 2)
@@ -140,7 +96,8 @@ final class TextFirstBlockDragUITests: XCTestCase {
         let after = try open("alpha\nbravo\n- [ ] ")
         after.line(0).press(
             forDuration: 0.8,
-            thenDragTo: after.line(2).withOffset(CGVector(dx: 0, dy: Opened.lineStep * 0.45)),
+            thenDragTo: after.line(2).withOffset(
+                CGVector(dx: 0, dy: TextFirstDragNote.lineStep * 0.45)),
             withVelocity: .slow, thenHoldForDuration: 0.3)
         XCTAssertTrue(after.saved("bravo\n- [ ] \nalpha"), "dropped below the task, after it")
         after.app.terminate()

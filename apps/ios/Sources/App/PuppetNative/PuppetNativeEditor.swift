@@ -100,6 +100,62 @@
                 ],
                 "clipboard": clipboard.map { String($0.prefix(80)) } ?? NSNull(),
                 "canUndo": !disabled.contains("undo"), "canRedo": !disabled.contains("redo"),
+                "blockDrag": blockDrag(c, document) ?? NSNull(),
+                // A drag's live preview (or a drop settling under it) covers the note.
+                "dragPreview": c.blockDrag?.preview?.isOpen == true || c.reflowLanding != nil,
+                // How long the last drop's preview covered the note after the release.
+                "lastLanding": c.lastLanding ?? NSNull(),
+                // The scroll offset and the offset of the note's foot (#449 review).
+                "scroll": [
+                    "y": Double(c.textView.contentOffset.y),
+                    "foot": Double(
+                        c.textView.contentSize.height + c.textView.adjustedContentInset.bottom
+                            - c.textView.bounds.height),
+                ],
+            ]
+        }
+
+        /// The block drag in progress, so a test can hold a real finger and still see where a
+        /// release would land: the display line it lifted, how it shows the move (`preview`:
+        /// "reflow" or "dropLine"), the slot a release lands on (`lands`: the line it would land
+        /// above, or the note's end; null for none), and what is drawn, in screen points: the
+        /// drop line's y (null while hidden, and always with the preview), the card, the
+        /// scroll, and the preview's gap (`reflow`: whether its curtain shows and where the
+        /// copy of the block is drawn); the slot ticks so far (`ticks`) and the autoscroll's
+        /// cost over its last second (`autoscroll`, `TextFirstDragMeter`).
+        private func blockDrag(_ c: TextFirstEditorController, _ document: Document)
+            -> [String: Any]?
+        {
+            guard let drag = c.blockDrag, let window = c.textView.window else { return nil }
+            let lands: Any =
+                drag.slot.map { slot -> [String: Any] in
+                    slot.end ? ["end": true] : ["before": document.line(at: slot.offset).number]
+                } ?? NSNull()
+            let screen = window.screen.coordinateSpace
+            // Where the slot a release lands on is laid out now, read in this same request.
+            let landsY: Any =
+                drag.slot.flatMap { slot in
+                    c.laidOutRange().flatMap { c.boundaryY(slot, in: $0) }
+                }.map { Double(c.textView.convert(CGPoint(x: 0, y: $0), to: screen).y) }
+                ?? NSNull()
+            let reflow: Any =
+                drag.preview.map { preview -> [String: Any] in
+                    [
+                        "open": preview.isOpen,
+                        "copy": Document.box(c.textView.convert(preview.copyFrame, to: screen)),
+                    ]
+                } ?? NSNull()
+            return [
+                "line": document.line(at: drag.lift.block.location).number,
+                "preview": drag.preview == nil ? "dropLine" : "reflow", "lands": lands,
+                "dropLine": drag.preview == nil ? lands : NSNull(),
+                "dropLineY": drag.dropLine.isHidden
+                    ? NSNull() : Double(c.textView.convert(drag.dropLine.center, to: screen).y),
+                "card": Document.box(c.textView.convert(drag.card.frame, to: screen)),
+                "scrollY": Double(c.textView.contentOffset.y), "reflow": reflow,
+                "landsY": landsY, "ticks": c.dragHaptics.ticks,
+                "autoscroll": drag.autoscroller.meter.report,
+                "previewUnavailable": drag.previewUnavailable ?? NSNull(),
             ]
         }
 

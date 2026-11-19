@@ -224,8 +224,11 @@ final class TextFirstLayoutFragment: NSTextLayoutFragment {
     private func decorationRect(at point: CGPoint, row: Row, x: CGFloat, width: CGFloat)
         -> CGRect
     {
+        // A fragment with no editor (a block drag's off-screen line) draws at the scale of the
+        // traits it is drawn under.
         let scale =
-            MainActor.assumeIsolated { host?.textView.traitCollection.displayScale } ?? 2
+            MainActor.assumeIsolated { host?.textView.traitCollection.displayScale }
+            ?? UITraitCollection.current.displayScale
         let top = ((point.y + row.top) * scale).rounded(.down) / scale
         let bottom = ((point.y + row.top + row.height) * scale).rounded(.up) / scale
         return CGRect(x: x, y: top, width: width, height: bottom - top)

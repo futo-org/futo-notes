@@ -7,6 +7,11 @@ func makeIsolatedApplication() -> XCUIApplication {
     let runID = UUID().uuidString
     app.launchEnvironment[AppLaunchEnvironment.dataDirectory] = "ui-tests/\(runID)"
     app.launchEnvironment[AppLaunchEnvironment.runID] = runID
+    // The CI iOS test job's VM cannot draw the RealityKit coin (see `CoinRendering`);
+    // its xcodebuild sets TEST_RUNNER_FUTO_STILL_COIN=1, which reaches this process.
+    if ProcessInfo.processInfo.environment["FUTO_STILL_COIN"] == "1" {
+        app.launchEnvironment["FUTO_STILL_COIN"] = "1"
+    }
     return app
 }
 

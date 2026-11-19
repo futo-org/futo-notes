@@ -11,7 +11,11 @@ extension FolderContentsView {
         guard let id = await store.createNote(title: "Untitled", folder: folder) else {
             return nil
         }
-        navPath.append(.newNote(id))
+        if let pane {
+            pane.open(.newNote(id))
+        } else {
+            navPath.append(.newNote(id))
+        }
         return id
     }
 

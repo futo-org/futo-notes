@@ -99,6 +99,26 @@
             return fragment.textLineFragments.map { $0.typographicBounds.height }
         }
 
+        /// The display's line starts (UTF-16), one per line, the empty last line included.
+        var lineStarts: [Int] {
+            let text = (tv.text ?? "") as NSString
+            var starts = [0]
+            for i in 0..<text.length where text.character(at: i) == 0x0A { starts.append(i + 1) }
+            return starts
+        }
+
+        /// A point on display line `line` (text view coordinates), `x` from the text view's left
+        /// edge, `fraction` of the way down the line's paragraph as TextKit lays it out now.
+        func point(line: Int, x: CGFloat = 60, fraction: CGFloat = 0.5) -> CGPoint {
+            tv.layoutIfNeeded()
+            let manager = tv.textLayoutManager!
+            let location = manager.location(
+                manager.documentRange.location, offsetBy: lineStarts[line])!
+            let frame = manager.textLayoutFragment(for: location)!.layoutFragmentFrame
+            return CGPoint(
+                x: x, y: tv.textContainerInset.top + frame.minY + frame.height * fraction)
+        }
+
         /// The visual lines of the paragraph holding UTF-16 offset `i`: the display characters each
         /// holds (newline included) and its laid-out height. The empty line after a final newline is
         /// left out.
