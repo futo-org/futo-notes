@@ -18,6 +18,17 @@ class TextFirstCodeBlockCalloutTest {
         return (view.totalPaddingLeft + area.left + area.width() * 0.6f) to (view.totalPaddingTop - view.scrollY + area.centerY())
     }
 
+    /** In real time: the TextView's long press fires from a delayed callback, not from the events' times. */
+    private suspend fun holdInRealTime(view: TextFirstEditText, x: Float, y: Float) {
+        val down = android.os.SystemClock.uptimeMillis()
+        for (action in listOf(android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP)) {
+            if (action == android.view.MotionEvent.ACTION_UP) delay(android.view.ViewConfiguration.getLongPressTimeout() + 300L)
+            val event = android.view.MotionEvent.obtain(down, android.os.SystemClock.uptimeMillis(), action, x, y, 0)
+            event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+            try { view.dispatchTouchEvent(event) } finally { event.recycle() }
+        }
+    }
+
     private suspend fun awaitCallout(view: TextFirstEditText) {
         withTimeout(5_000) { while (view.selectedCodeBlock == null || !view.codeTouch.callout.isShowing) delay(20) }
     }
@@ -64,18 +75,26 @@ class TextFirstCodeBlockCalloutTest {
         val line = layout.getLineForOffset(code)
         val codeX = view.totalPaddingLeft + layout.getPrimaryHorizontal(code)
         val codeY = view.totalPaddingTop - view.scrollY + (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f
-        // In real time: the TextView's long press fires from a delayed callback, not from the events' times.
-        val down = android.os.SystemClock.uptimeMillis()
-        val press = android.view.MotionEvent.obtain(down, down, android.view.MotionEvent.ACTION_DOWN, codeX, codeY, 0)
-        press.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
-        view.dispatchTouchEvent(press)
-        press.recycle()
-        delay(android.view.ViewConfiguration.getLongPressTimeout() + 300L)
-        val lift = android.view.MotionEvent.obtain(down, android.os.SystemClock.uptimeMillis(), android.view.MotionEvent.ACTION_UP, codeX, codeY, 0)
-        lift.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
-        view.dispatchTouchEvent(lift)
-        lift.recycle()
+        holdInRealTime(view, codeX, codeY)
         awaitCallout(view)
         assertEquals(selected, view.selectedCodeBlock)
+    }
+
+    /** Verifier (job 12): a hold on prose under a selected block put the TextView's handles on the block instead of selecting the word there. */
+    @Test fun aHoldOnProseUnderASelectedBlockLeavesTheBlockForTheWordThere() = textFirstSession(note) { c ->
+        val view = c.view
+        val (x, y) = header(view)
+        tapNoteAt(view, x, y)
+        withTimeout(5_000) { while (view.selectedCodeBlock == null) delay(20) }
+        val word = view.editableText.indexOf("after")
+        val layout = view.layout
+        val line = layout.getLineForOffset(word)
+        val block = view.selectedCodeBlock!!
+        holdInRealTime(view, view.totalPaddingLeft + layout.getPrimaryHorizontal(word + 2), view.totalPaddingTop - view.scrollY + (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f)
+        // The platform's word selection from there does not run in this activity (it does on the emulator, job12/):
+        // what the block owns is that the hold leaves it, from the place the finger held.
+        withTimeout(5_000) { while (view.selectedCodeBlock != null) delay(20) }
+        assertTrue("the hold left the block's range selected", view.selectionStart to view.selectionEnd != block)
+        assertTrue("the hold's selection is not at the word", view.selectionStart in word..word + "after".length)
     }
 }

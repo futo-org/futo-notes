@@ -21,6 +21,7 @@ internal class RenderHold(private val view: TextFirstEditText) {
         private set
     private var touching = false
     private var menus = 0
+    private val openMenus = mutableListOf<ActionMode>()
     private var menuPending = false
     private val menuGaveUp = Runnable { menuPending = false; update() }
 
@@ -52,6 +53,7 @@ internal class RenderHold(private val view: TextFirstEditText) {
     /** Set as the view's selection and insertion action-mode callbacks; it only watches. */
     inner class MenuWatch : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+            openMenus.add(mode)
             menus++
             menuPending = false
             view.removeCallbacks(menuGaveUp)
@@ -61,12 +63,19 @@ internal class RenderHold(private val view: TextFirstEditText) {
         override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
         override fun onActionItemClicked(mode: ActionMode, item: MenuItem) = false
         override fun onDestroyActionMode(mode: ActionMode) {
+            openMenus.remove(mode)
             // TextView ends the range at its end next (Back, a blur); like a blur, that must not move the note.
             if (view.selectionStart != view.selectionEnd) view.reveal.hold(view.selectionEnd)
             menus = (menus - 1).coerceAtLeast(0)
             update()
         }
     }
+
+    /**
+     * Ends the TextView's open text menus. A gesture the TextView never sees (a header tap) leaves its menu open, and
+     * the platform ends it later, when another menu starts, by collapsing whatever is selected then to its end.
+     */
+    fun closeTextMenus() { openMenus.toList().forEach(ActionMode::finish) }
 
     companion object {
         /** How long a long press holds background slices for a text menu that has not opened yet. */

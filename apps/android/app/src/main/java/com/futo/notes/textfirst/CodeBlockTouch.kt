@@ -80,7 +80,13 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
      */
     fun longPress(): Boolean {
         val block = view.selectedCodeBlock ?: return false
-        if (view.getOffsetForPosition(downX, downY) !in block.first..block.second) return false
+        val offset = view.getOffsetForPosition(downX, downY)
+        if (offset !in block.first..block.second) {
+            // The TextView's long press keeps any selection it finds with no menu open: a hold on other text would
+            // only put handles on the block. From a caret there it selects the word under the finger.
+            view.setSelection(offset)
+            return false
+        }
         callout.showWhenSelected(block.first)
         heldInside = true
         return true
@@ -121,6 +127,7 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
             CodeBlockAction.NOTHING -> Unit
             CodeBlockAction.COPY_CODE, CodeBlockAction.LANGUAGE_LABEL -> copy(target)
             CodeBlockAction.SELECT_BLOCK, CodeBlockAction.NAME_FIELD -> {
+                view.renderHold.closeTextMenus()
                 view.showKeyboard()
                 if (held) callout.showWhenSelected(target.codeStart)
                 engine.selectCodeBlock(target.codeStart)
