@@ -103,10 +103,12 @@ internal class BlockReflowPreview private constructor(
         val from = if (index < 0) stops.home else if (index < stops.home) index else index + 1
         // A neighbour still sliding counts where it is painted: the run below a stop starts at that slot (home: the block's bottom).
         val now = SystemClock.uptimeMillis()
-        val to = stops.walk(from, finger) { stop ->
+        // A photo's line without it, still sliding, counts where it is painted too.
+        val rest = if (photo != null && !stale && !seed) restSlide.at(now) else null
+        val to = stops.walk(from, finger, { stop ->
             val key = if (stop == stops.home) bottomKey else list.getOrNull(if (stop < stops.home) stop else stop - 1)
             key?.takeIf { !stale }?.let { slides[it]?.at(now) }
-        }
+        }, rest)
         if (to == from) return false
         slot = if (to == stops.home) null else list[if (to < stops.home) to else to - 1]
         if (!opened) { opened = true; seed = true }
@@ -307,7 +309,8 @@ internal class BlockReflowPreview private constructor(
 
     /** How much taller the preview draws the note than it is laid out (a photo leaving a row a sibling keeps tall): autoscroll reaches that far. */
     fun extraHeight(): Int {
-        if (!opened || released) return 0
+        // Only while a gap is drawn: a photo back home in its line adds nothing.
+        if (!opened || released || slot == null) return 0
         val shape = shape() ?: return 0
         return kotlin.math.ceil(shape.copy - shape.closes).toInt().coerceAtLeast(0)
     }

@@ -48,10 +48,10 @@ internal class ReflowShape(val top: Float, val bottom: Float, val residue: Float
     }
 
     /** Where [y] is drawn: inside the block's place, the same fraction down what stays of it (the place itself at home). */
-    fun drawn(y: Float, inPlace: Boolean, gap: ReflowGap): Float = when {
+    fun drawn(y: Float, inPlace: Boolean, gap: ReflowGap, restTop: Float? = null): Float = when {
         !inPlace -> y + shift(y, gap)
         gap == ReflowGap.Home -> y
-        else -> residueTop(gap) + (y - top) * residue / maxOf(1f, bottom - top)
+        else -> (restTop ?: residueTop(gap)) + (y - top) * residue / maxOf(1f, bottom - top)
     }
 }
 
@@ -87,7 +87,7 @@ internal class ReflowStops(private val shape: ReflowShape, private val slots: Li
      * The middle of the run below [stop], as drawn with the gap at [at]. A photo at home in its
      * line leaves it only past the line's top or bottom, so nothing moves at the lift.
      */
-    private fun runMiddle(stop: Int, at: ReflowGap, painted: Float? = null): Float {
+    private fun runMiddle(stop: Int, at: ReflowGap, painted: Float? = null, restTop: Float? = null): Float {
         if (photo && at == ReflowGap.Home) {
             if (stop + 1 == home) return shape.top
             if (stop == home) return shape.bottom
@@ -95,7 +95,7 @@ internal class ReflowStops(private val shape: ReflowShape, private val slots: Li
         val a = lower(stop)
         val b = upper(stop + 1)
         val inPlace = photo && a >= shape.top && b <= shape.bottom
-        if (inPlace) return (shape.drawn(a, true, at) + shape.drawn(b, true, at)) / 2
+        if (inPlace) return (shape.drawn(a, true, at, restTop) + shape.drawn(b, true, at, restTop)) / 2
         val shift = painted ?: shape.shift(a, at)
         return (a + b) / 2 + shift
     }
@@ -106,13 +106,15 @@ internal class ReflowStops(private val shape: ReflowShape, private val slots: Li
      * (null: settled at its place for the open gap), so a neighbour still sliding counts where it
      * shows; runs past it are judged where the gap's next steps would put them.
      */
-    fun walk(from: Int, finger: Float, drawn: ((Int) -> Float?)? = null): Int {
+    fun walk(from: Int, finger: Float, drawn: ((Int) -> Float?)? = null, restTop: Float? = null): Int {
         val start = from.coerceIn(0, size - 1)
         var stop = start
         fun painted(run: Int) = if (stop == start) drawn?.invoke(run) else null
-        while (stop + 1 < size && finger > runMiddle(stop, gap(stop), painted(stop))) stop++
+        // [restTop]: where a photo's line without it is painted now, for the open gap only.
+        fun rest() = if (stop == start) restTop else null
+        while (stop + 1 < size && finger > runMiddle(stop, gap(stop), painted(stop), rest())) stop++
         if (stop != start) return stop
-        while (stop > 0 && finger < runMiddle(stop - 1, gap(stop), painted(stop - 1))) stop--
+        while (stop > 0 && finger < runMiddle(stop - 1, gap(stop), painted(stop - 1), rest())) stop--
         return stop
     }
 }
@@ -147,3 +149,11 @@ internal fun reflowParagraphs(text: CharSequence, a: Int, b: Int, last: Int, toE
     val lastLine = b == last && (if (b > a) text[b - 1] != '\n' || toEnd else toEnd)
     return if (lastLine) n + 1 else n
 }
+
+/**
+ * Whether a landing paragraph from [from] to [to] of [text] (last line ending at [last]) is
+ * bottomed by the note's end slot: only when it is the last line itself, never a paragraph that
+ * ends where an empty last line (an empty task) starts, whose bottom is that line's top.
+ */
+internal fun endsAtNoteEnd(text: CharSequence, from: Int, to: Int, last: Int): Boolean =
+    to >= last && !(from < last && last > 0 && text[last - 1] == '\n')

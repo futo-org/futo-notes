@@ -132,4 +132,25 @@ class BlockReflowTest {
         // `a` dropped after the task lands third.
         assertEquals(2, ReflowMove(photo = false, below = true, block = 1, between = reflowParagraphs(text, 2, 4, 4, toEnd = true)).moved)
     }
+
+    /** The photo's line without it, still sliding, counts where it is painted (review !716, inline photo). */
+    @Test
+    fun aPhotosRemainingLineIsJudgedWhereItIsPaintedWhileItSlides() {
+        val photo = ReflowShape(top = 100f, bottom = 400f, residue = 40f, copy = 304f)
+        val stops = ReflowStops(photo, listOf(40f, 100f, 400f, 440f), photo = true)
+        val above = 1
+        // Settled, the line without the photo is at 404-444: its upper half's middle is 414.
+        assertEquals(above, stops.walk(above, 320f))
+        // Still sliding down from 100, it is painted at 300-340: the finger at 320 has crossed it.
+        assertEquals("home again", stops.home, stops.walk(above, 320f, restTop = 300f))
+    }
+
+    /** `A\nB\n- [ ] `: B ends where the empty task starts, so B's bottom is the task's top, not the note's end (review !716). */
+    @Test
+    fun aParagraphBeforeAnEmptyLastTaskEndsAtTheTasksTop() {
+        val text = "A\nB\n"
+        assertEquals(false, endsAtNoteEnd(text, 2, 4, 4))
+        assertEquals("the empty task itself", true, endsAtNoteEnd(text, 4, 4, 4))
+        assertEquals("a last line with text", true, endsAtNoteEnd("A\nB", 2, 3, 3))
+    }
 }

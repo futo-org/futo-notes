@@ -42,7 +42,7 @@ internal class ReflowCapture(private val tiles: SliceTiles, private val stretch:
             val to = if (p.lands < 0) p.end else starts.getOrElse(p.lands + 1) { last }
             if (probe(e, from, last) != p.probe) return fail("a paragraph is not where the move should have put it")
             val top = view.boundaryY(BlockSlot(from, false)) ?: return fail("no layout at $from")
-            val bottom = view.boundaryY(if (to >= last) BlockSlot(last, true) else BlockSlot(to, false)) ?: return fail("no layout at $to")
+            val bottom = view.boundaryY(if (endsAtNoteEnd(e, from, to, last)) BlockSlot(last, true) else BlockSlot(minOf(to, last), false)) ?: return fail("no layout at $to")
             // From where the preview draws it this frame, to where it is laid out now.
             val shift = (p.drawnTop(now) - scrollY) - (top - view.scrollY)
             elements += LandingElement(from, top, bottom, shift, p.solid)
