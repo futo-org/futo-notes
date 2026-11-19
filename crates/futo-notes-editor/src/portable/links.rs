@@ -10,6 +10,14 @@ impl PortableSession {
         Ok(self.engine.inspect_link(expected, range)?)
     }
 
+    pub fn link_label(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<Option<String>, PortableError> {
+        Ok(self.engine.link_label(expected, range)?)
+    }
+
     pub fn set_link(
         &mut self,
         expected: Revision,

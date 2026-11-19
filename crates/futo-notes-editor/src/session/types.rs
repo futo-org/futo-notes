@@ -107,6 +107,8 @@ pub enum ToolbarCommand {
     CodeBlock,
     Divider,
     Table,
+    /// `insert_image` at the selection.
+    Image,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

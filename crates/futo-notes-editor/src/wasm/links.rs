@@ -25,6 +25,20 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
+    pub fn link_label(&self, revision: u64, start: usize, end: usize) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .link_label(
+                    Revision(revision),
+                    DisplayRange {
+                        start: DisplayOffset(start),
+                        end: DisplayOffset(end),
+                    },
+                )
+                .map_err(error)?,
+        )
+    }
     pub fn set_link(
         &mut self,
         revision: u64,

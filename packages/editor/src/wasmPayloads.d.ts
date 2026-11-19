@@ -357,7 +357,8 @@ export type ToolbarCommand =
   | 'TaskList'
   | 'CodeBlock'
   | 'Divider'
-  | 'Table';
+  | 'Table'
+  | 'Image';
 
 /** `toolbar_state`: what the toolbar lights for the selection, by the engine's own rules. */
 export interface ToolbarState {

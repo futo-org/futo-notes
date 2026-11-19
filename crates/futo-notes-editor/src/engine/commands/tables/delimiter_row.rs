@@ -84,25 +84,32 @@ impl Engine {
         })
     }
 
-    /// `range` off delimiter rows, as the user places it: a caret on one goes
-    /// to the edge away from where the caret came from (a keyboard's cursor
-    /// swipe up from the row below goes on to the header), or its nearer
-    /// edge (after, on a tie) when the selection was on the row or a range;
-    /// a range's end on one moves off it toward the range's inside, so a
-    /// range never takes part of the row, and one left with nothing between
-    /// its ends is a caret where its start goes.
-    pub(crate) fn off_delimiter_rows(&self, range: DisplayRange) -> DisplayRange {
+    /// `range` off delimiter rows and out of rows' spelling, as the user
+    /// places it: a caret on a delimiter row goes to the edge away from
+    /// where the caret came from (a keyboard's cursor swipe up from the row
+    /// below goes on to the header), or its nearer edge (after, on a tie)
+    /// when the selection was on the row or a range; a caret inside another
+    /// row's spelling goes to a cell (`cell_stop`). A range's end on a
+    /// delimiter row moves off it toward the range's inside, so a range
+    /// never takes part of the row, and one left with nothing between its
+    /// ends is a caret where its start goes; a range's end on another row's
+    /// spelling stays, as a selection across cells.
+    pub(crate) fn placed_in_tables(&self, range: DisplayRange) -> DisplayRange {
         let start = self.delimiter_row_edges(range.start.0);
         if range.start == range.end {
             let from = self.selection;
-            return start.map_or(range, |edges| caret(edges.away_from(from, range.start.0)));
+            let at = range.start.0;
+            return caret(start.map_or_else(
+                || self.cell_stop(at, from),
+                |edges| edges.away_from(from, at),
+            ));
         }
         let from = start.map_or(range.start.0, |edges| edges.after.unwrap_or(edges.before));
         let to = self
             .delimiter_row_edges(range.end.0)
             .map_or(range.end.0, |edges| edges.before);
         if from >= to {
-            return self.off_delimiter_rows(caret(range.start.0));
+            return self.placed_in_tables(caret(range.start.0));
         }
         DisplayRange {
             start: DisplayOffset(from),

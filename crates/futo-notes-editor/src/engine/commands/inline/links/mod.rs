@@ -158,6 +158,29 @@ impl Engine {
         }))
     }
 
+    /// The label a Link form starts with for display `range`: the text of
+    /// the link holding it, else the range's display text. `None` where the
+    /// link command writes no label (`link_command`): a range touching a
+    /// table line outside one cell, whose link goes on each cell's text or
+    /// on the lines outside the table, so a form asks only a destination.
+    pub(crate) fn link_label(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<Option<String>, EditorError> {
+        self.check_revision(expected)?;
+        self.check_display_range(range)?;
+        if let Some(found) = self.link_at(range) {
+            return Ok(Some(
+                self.display_slice(found.label.start.0..found.label.end.0),
+            ));
+        }
+        if self.outside_one_cell(range) {
+            return Ok(None);
+        }
+        Ok(Some(self.display_slice(range.start.0..range.end.0)))
+    }
+
     /// Whether `set_link_view` at the selection would act with a destination
     /// its link there does not have; `bodies` are the selected lines.
     pub(super) fn link_acts(&self, bodies: &[Body]) -> bool {

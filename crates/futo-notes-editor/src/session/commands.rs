@@ -112,6 +112,16 @@ impl EditorSession {
         self.engine.inspect_link(expected, range)
     }
 
+    /// The label a Link form starts with; `None` when the link goes on each
+    /// table cell's text and the form asks only a destination (`set_link`).
+    pub fn link_label(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<Option<String>, EditorError> {
+        self.engine.link_label(expected, range)
+    }
+
     /// Set the selected link destination, expanding an interior selection to
     /// that complete contiguous run. Empty destinations unlink. An unchanged
     /// destination accepts no record and adds no history.

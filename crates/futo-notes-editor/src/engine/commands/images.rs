@@ -67,6 +67,17 @@ impl Engine {
         Ok(change.map(|change| self.view(change)))
     }
 
+    /// Whether `insert_image` at the selection would act, tried with an
+    /// ordinary vault reference: a reference that reads back differently
+    /// (one holding a `|` in a table cell) is still refused when inserted.
+    pub(crate) fn image_acts(&self) -> bool {
+        let (reference, alt) = ("image.png", "");
+        let Some(text) = image_text(reference, alt) else {
+            return false;
+        };
+        self.composition.is_none() && self.changes_source(self.image_command(&text, reference, alt))
+    }
+
     fn image_command(
         &self,
         text: &str,
@@ -104,6 +115,7 @@ impl Engine {
             .flatten();
         let mut carry = self.line(first).carry.clone();
         let mut start = 0;
+        let mut read_back = false;
         let pieces: Vec<&str> = after.split_inclusive('\n').collect();
         for (k, piece) in pieces.iter().enumerate() {
             let range = start..start + piece.len();
@@ -125,12 +137,35 @@ impl Engine {
             if !is_image(&line_spans(piece, &line), piece, &local, reference, alt) {
                 return Err(EditorError::InvalidText);
             }
-            return Ok(Some(Command::new(
-                vec![Edit::new(plan.range.clone(), plan.inserted.clone())],
-                first..last + 1,
-                plan.caret..plan.caret,
-            )));
+            read_back = true;
         }
-        Err(EditorError::InvalidText)
+        if !read_back {
+            return Err(EditorError::InvalidText);
+        }
+        // The command guard cancels an image that makes or unmakes a table
+        // header, which only a delimiter row next to it shows; answering
+        // here keeps `image_acts` exact.
+        let delimiter = |kind: &Kind| {
+            matches!(
+                kind,
+                Kind::Table {
+                    role: TableRole::Delimiter,
+                    ..
+                }
+            )
+        };
+        let on_delimiter_row = (first..=last).any(|index| delimiter(&self.line(index).line.kind));
+        let below_changes = last + 1 < self.line_count() && {
+            let below = block::read_line(&mut carry, &self.line(last + 1).text, 0);
+            delimiter(&below.kind) != delimiter(&self.line(last + 1).line.kind)
+        };
+        if on_delimiter_row || below_changes {
+            return Ok(None);
+        }
+        Ok(Some(Command::new(
+            vec![Edit::new(plan.range.clone(), plan.inserted.clone())],
+            first..last + 1,
+            plan.caret..plan.caret,
+        )))
     }
 }

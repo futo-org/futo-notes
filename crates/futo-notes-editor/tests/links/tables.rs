@@ -182,6 +182,9 @@ fn unlinking_across_cells_removes_each_cell_link() {
     assert_eq!(session.source_text(), ONE, "from {linked:?}");
 }
 
+/// A label edit across cells changes nothing, so a Link form there gets no
+/// label to edit (`link_label`), never the rows' spelling; in one cell, in a
+/// link or outside tables it gets the text there.
 #[test]
 fn a_label_edit_across_cells_changes_nothing() {
     let mut session = EditorSession::open(ONE);
@@ -191,6 +194,29 @@ fn a_label_edit_across_cells_changes_nothing() {
         .unwrap();
     assert!(changed.is_none());
     assert_eq!(session.source_text(), ONE);
+
+    let label = |source: &str, at: (usize, usize)| {
+        EditorSession::open(source)
+            .link_label(Revision(0), range(at.0, at.1))
+            .unwrap()
+    };
+    for at in [(0, 17), (2, 15), (0, 5), (0, 0), (6, 11)] {
+        assert_eq!(label(ONE, at), None, "{at:?}");
+    }
+    assert_eq!(label(NOTE, (0, 31)), None, "table lines among others");
+    assert_eq!(label(ONE, (2, 3)), Some("a".to_owned()));
+    assert_eq!(label(ONE, (2, 2)), Some(String::new()));
+    assert_eq!(label(NOTE, (0, 7)), Some("intro\n\n".to_owned()));
+    // Where there is a label, editing it writes one link there.
+    let mut plain = EditorSession::open("ab\ncd");
+    plain.select(Revision(0), range(0, 5)).unwrap();
+    plain
+        .edit_link(Revision(0), range(0, 5), "zz", URL, &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(plain.source_text(), "[zz](https://x.y)");
+    let linked = "| [ab](u) |\n| - |";
+    assert_eq!(label(linked, (3, 3)), Some("ab".to_owned()), "in a link");
 }
 
 /// The command changes nothing or leaves every table's cells as they were

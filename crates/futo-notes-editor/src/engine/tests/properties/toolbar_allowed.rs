@@ -5,7 +5,7 @@
 use super::*;
 use crate::{BlockCommand, InlineFormat, ToolbarCommand};
 
-const COMMANDS: [ToolbarCommand; 13] = [
+const COMMANDS: [ToolbarCommand; 14] = [
     ToolbarCommand::Bold,
     ToolbarCommand::Italic,
     ToolbarCommand::Strike,
@@ -19,6 +19,7 @@ const COMMANDS: [ToolbarCommand; 13] = [
     ToolbarCommand::CodeBlock,
     ToolbarCommand::Divider,
     ToolbarCommand::Table,
+    ToolbarCommand::Image,
 ];
 
 const FORMATS: [InlineFormat; 4] = [
@@ -90,6 +91,10 @@ fn press(engine: &mut Engine, command: ToolbarCommand, level: u8) {
     let (revision, selection) = (engine.revision(), engine.selection());
     if let Some(block) = block_of(command, level) {
         let _ = engine.block(revision, selection, block, &mut ok);
+        return;
+    }
+    if command == ToolbarCommand::Image {
+        let _ = engine.insert_image(revision, "image.png", "", &mut ok);
         return;
     }
     if command == ToolbarCommand::Link {
@@ -210,8 +215,8 @@ fn a_toolbar_command_is_allowed_exactly_when_it_would_act() {
 
 /// The states hosts showed buttons in that did nothing: a caret in code and
 /// a code block selected allow only the code block command (which takes
-/// the code out of its block); a selected divider no heading, quote, list
-/// or format; table lines alone only the formats and link (each cell's
+/// the code out of its block), so no image; a selected divider no heading,
+/// quote, list or format, but an image in its place; table lines alone only the formats and link (each cell's
 /// text); a code block with a line outside it no code block command.
 #[test]
 fn only_the_commands_that_act_are_allowed_in_code_dividers_and_tables() {
@@ -224,7 +229,7 @@ fn only_the_commands_that_act_are_allowed_in_code_dividers_and_tables() {
         (
             "a\n---\nb",
             Setup::Select(2, 5, forward),
-            vec![CodeBlock, Divider, Table],
+            vec![CodeBlock, Divider, Table, Image],
         ),
         (
             "| a |\n|---|\n| b |",
@@ -252,5 +257,14 @@ fn only_the_commands_that_act_are_allowed_in_code_dividers_and_tables() {
         assert_eq!(toolbar.allowed, want, "{note:?} {setup:?}");
         let heading = toolbar.allowed.contains(&Heading);
         assert_eq!(toolbar.heading_allowed, heading, "{note:?} {setup:?}");
+    }
+    // Image insertion: refused in inline code, taken in a cell or on text.
+    for (note, at, want) in [
+        ("a `code` b", 4, false),
+        ("| a |\n|---|\n| b |", 2, true),
+        ("a b", 1, true),
+    ] {
+        let toolbar = prepared(note, Setup::Select(at, at, forward)).toolbar();
+        assert_eq!(toolbar.allowed.contains(&Image), want, "{note:?} at {at}");
     }
 }

@@ -43,6 +43,9 @@ impl Engine {
         if table {
             allowed.push(ToolbarCommand::Table);
         }
+        if self.image_acts() {
+            allowed.push(ToolbarCommand::Image);
+        }
         ToolbarFacts {
             formats,
             heading,
