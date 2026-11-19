@@ -312,7 +312,12 @@ struct TextFirstFindBar: View {
     let controller: TextFirstEditorController
 
     var body: some View {
-        if model.visible { bar }
+        // Always present (empty while closed) so the keyboard clearance tracks the keyboard
+        // before the bar opens; see KeyboardClearance for the iOS 26 case it corrects.
+        VStack(spacing: 0) {
+            if model.visible { bar }
+        }
+        .clearsKeyboard(active: model.visible)
     }
 
     private var bar: some View {

@@ -210,10 +210,16 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         suppressFocus = false
         let offset = manager.offset(
             from: manager.documentRange.location, to: f.rangeInElement.location)
-        toggleTask(atLineOffset: offset)
         // The text view moved its caret to the tap; the engine never heard about it.
+        toggleTask(atLineOffset: offset, keeping: selectionBeforeTouch)
+    }
+
+    /// Toggle the task on the line at `offset`, leaving the view's selection at `kept` (what
+    /// it was before the touch, or before puppet's `ToggleTask`).
+    func toggleTask(atLineOffset offset: Int, keeping kept: NSRange) {
+        toggleTask(atLineOffset: offset)
         applying += 1
-        textView.selectedRange = selectionBeforeTouch
+        textView.selectedRange = kept
         applying -= 1
     }
 

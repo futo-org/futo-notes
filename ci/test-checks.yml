@@ -93,10 +93,12 @@ test:audit:
   allow_failure: true
   variables:
     CARGO_AUDIT_VERSION: '0.22.2'
+    TRIVY_VERSION: '0.76.2'
+    TRIVY_SHA256: 'bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf'
   # Keyed on the tool VERSION with no `files:` — keying on Cargo.lock would discard the
   # binary on every dependency change.
   cache:
-    key: cargo-audit-bin-$CARGO_AUDIT_VERSION
+    key: audit-bin-$CARGO_AUDIT_VERSION-$TRIVY_VERSION
     paths:
       - .cargo-home/bin/
     when: always
@@ -122,6 +124,21 @@ test:audit:
       if ! cargo-audit --version; then
         rm -f "$CARGO_HOME/bin/cargo-audit"
         echo "AUDIT-DID-NOT-RUN: cargo-audit could not be installed; the Rust half was not scanned."
+      fi
+    # Trivy scans the Android lockfile. A cached binary counts only if it runs and reports the
+    # pinned version; anything else is removed and reinstalled from the checksum-verified
+    # release, then checked again. A failed install leaves no trivy, which audit.mjs reports as
+    # AUDIT-DID-NOT-RUN, and nothing broken stays in the cached bin dir.
+    - |
+      trivy_ok() { "$CARGO_HOME/bin/trivy" --version 2>/dev/null | grep -x "Version: ${TRIVY_VERSION}" >/dev/null; }
+      if ! trivy_ok; then
+        rm -f "$CARGO_HOME/bin/trivy"
+        mkdir -p "$CARGO_HOME/bin"
+        curl -L --proto '=https' --tlsv1.2 -sSf --retry 3 -o /tmp/trivy.tgz \
+          "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+          && echo "${TRIVY_SHA256}  /tmp/trivy.tgz" | sha256sum -c - \
+          && tar xzf /tmp/trivy.tgz -C "$CARGO_HOME/bin" trivy
+        trivy_ok || rm -f "$CARGO_HOME/bin/trivy"
       fi
     # node scripts/audit.mjs is the shared entry point for both CI and a local run.
     - node "$CI_PROJECT_DIR/scripts/audit.mjs"

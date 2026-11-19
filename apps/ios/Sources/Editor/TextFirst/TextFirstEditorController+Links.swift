@@ -59,7 +59,7 @@ extension TextFirstEditorController {
     /// What a link's destination opens, by the engine's rule: an explicit scheme is external, a
     /// schemeless destination is a note path (a note that exists opens, anything else does
     /// nothing). The engine is skipped while it is busy; a note path then opens nothing.
-    private func linkTarget(forDestination raw: String) -> TextFirstLinkTarget? {
+    func linkTarget(forDestination raw: String) -> TextFirstLinkTarget? {
         if editorExternalLinkUrl(destination: raw) != nil { return .url(raw) }
         guard !closed, !engineBusy,
             let id = try? session.resolveNoteLink(destination: raw)

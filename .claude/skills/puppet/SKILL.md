@@ -69,9 +69,9 @@ document the refused step never changed.
   its own list (`folder:<path>`). Opening a note **replaces the whole screen** with that note
   (`editor:<noteId>`): no list, no other notes, so the list's verbs are not there. To reach
   another note from inside one, `GoBack` to the list, then open it. Settings, Search and Sync
-  are screens of their own, left with `GoBack`. The editor's page sits among native
-  controls (the top bar, the title field, the keyboard's toolbar); `elements` lists both as
-  one screen, native ones as `n1`, `n2`, …, the page's as `e1`, `e2`, ….
+  are screens of their own, left with `GoBack`. iOS edits in a native editor, with no web
+  view; `elements` lists the top bar, title field, note body's tasks and links, and the
+  keyboard's toolbar as one screen, refs `n1`, `n2`, ….
 - **Text from another note** travels as a person carries it: open that note, `Select` it,
   `Copy` (which copies only what is selected), go to the target, place the caret, `Paste`.
 - **A note you create and leave empty is discarded** when you go back from it (its body
@@ -80,6 +80,7 @@ document the refused step never changed.
 - **A note is read where it shows**, as a person reads it: `doc`, receipts and
   `show {"text"}` see the lines on screen; `state` says which note (`note`, its path), which
   lines show (`onScreen`), `loading`, the selection. A change off screen reads `doc L40–42 changed off screen`.
+  (iOS `doc` also lists every line, off-screen ones marked, and the whole text and source.)
   Unseen text is reached with `ScrollToLine {"line"}` (or Find, `OpenFind` and `SetFindQuery`,
   to search for it); a verb aimed off screen is refused with the `ScrollToLine` batch.
 
@@ -116,8 +117,8 @@ just puppet file '{"noteId":"…"}'    # the note's markdown on disk, the open n
                                      #   "save":false saves nothing: the disk as it is
 just puppet show '{"text":"…"}'      # where text on screen is: its positions, line and box
 just puppet at '{"x":…,"y":…}'       # what is under a point: hit stack, owners, cursor, editor position
-just puppet show '{"ref":"e3"}'      # one element: box, stacking, clipping, cursor
-just puppet events '{"since":N}'     # the input events the page saw, each handler that ran, what it prevented
+just puppet show '{"ref":"e3"}'      # one element (desktop e-refs: box, stacking, clipping, cursor; phone n-refs)
+just puppet events '{"since":N}'     # desktop: the input events the page saw, each handler that ran, what it prevented
 just puppet screenshot               # the screen as a PNG (path printed): open it with Read for a colour or a layout
 ```
 
@@ -156,9 +157,10 @@ vault +note "work/retro"
   touch the app never received is refused instead of reading as `no change`. `type` and `press`
   go to whatever has focus, so tap the field first; the receipt opens with what took the keys
   (`type "lease" → n189 field "Find in note"`). `press Back` is Android's system Back,
-  `do GoBack` the app's. They are for testing real input; `do Type` and `do Press` write into
-  the editor on every platform, any text, and go in a batch. Either one refused for what the
-  other does prints the call that works.
+  `do GoBack` the app's. Real input and editor verbs differ: top-level `type`, `press` and
+  `tap` are the OS keyboard and touch; the editor verbs under `do` are direct edits that stand
+  in for no typing (`do Type`/`do Press` exist on desktop and Android, and iOS answers 501
+  naming `type`/`press`). `references/commands/editor-verbs.md` has the verb table.
 - `{"json":true}` in a step's args prints the raw receipts instead.
 
 **Run each action bare and read its receipt whole; never pipe or redirect one.** Every line is
@@ -200,18 +202,17 @@ just puppet press '{"key":"Mod-b"}'                     #   one key (desktop: an
 ```
 
 Coordinates are the numbers `elements` reports, never a screenshot's: CSS pixels on desktop,
-and on a phone the screen's points (iOS) or dp (Android) everywhere, the editor's page
-included (`show`, `at` and `events` speak them too). `{"ref":"e12"}` or `{"ref":"n4"}` in
-place of `x`,`y` aims where a click reaches that element; `tap`, `click` and `drag` take
-`{"text":"…"}` too: that text on screen. A touch inside the editor that the
-page never received is refused, not reported as `no change`. Every receipt is appended to
+and on a phone the screen's points (iOS) or dp (Android). `{"ref":"e12"}` (desktop) or
+`{"ref":"n4"}` (phone) in place of `x`,`y` aims where a click reaches that element; `tap`,
+`click` and `drag` take `{"text":"…"}` too: that text on screen. A touch the app never
+received is refused, not reported as `no change`. Every receipt is appended to
 `.puppet/trace.jsonl`.
 
 Full command surface, verb map per platform, receipts and exit codes:
 `references/commands.md`. Traps that have cost real runs: `references/gotchas.md`.
 
 Scrolling, fast or real: `references/scrolling.md`.
-Writing text, fast or real, and the argument names agents guess wrong most: `references/commands/editor-verbs.md`.
+Editor verbs per platform, writing text (direct edit or real input), iOS's `doc` and receipts, and the argument names agents guess wrong most: `references/commands/editor-verbs.md`. `just test-ios-editor-stories` runs iOS's puppet-only editing story.
 
 ## The rules
 
@@ -262,8 +263,8 @@ Writing text, fast or real, and the argument names agents guess wrong most: `ref
 7. **No screenshot to read state.** The editor renders markdown away, so pixels cannot
    say what is selected or saved. A screenshot is the only thing that can say a colour is wrong:
    `just puppet screenshot`, then Read the PNG it names; on desktop it captures a hidden window too.
-8. **Verbs are literal.** `Insert` is one transaction: no keymap or input rule runs, Enter
-   does not continue a list. Keystroke behaviour is a real-input question.
+8. **Verbs are literal.** `Insert` is one direct edit: no keymap or input rule runs, Enter
+   does not continue a list. Keystroke behaviour is a real-input question (`type`, `press`).
 9. **Name the object, not the pixel.** `OpenNote {noteId}`, `ToggleFolder {path}` once
    the row is on screen. Use `at`/`show` and real input only when the question is
    geometric or about the input itself.

@@ -7,7 +7,7 @@
 
     @Suite("native editor puppet adapter", .serialized) @MainActor
     struct PuppetNativeEditorTests {
-        private func mount(_ h: TextFirstHarness) -> () -> Void {
+        func mount(_ h: TextFirstHarness) -> () -> Void {
             let previous = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
                 .flatMap(\.windows).first(where: \.isKeyWindow)
             if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
@@ -21,7 +21,7 @@
                 previous?.makeKey()
             }
         }
-        private func object(_ reply: PuppetReply) throws -> [String: Any] {
+        func object(_ reply: PuppetReply) throws -> [String: Any] {
             try #require(JSONSerialization.jsonObject(with: reply.body) as? [String: Any])
         }
 
@@ -44,7 +44,7 @@
             #expect(adapter.controller == nil)
         }
 
-        @Test func unicodeSelectionTypingAndTraceUseNativeDisplayOffsets() async throws {
+        @Test func unicodeSelectionReplaceAndTraceUseNativeDisplayOffsets() async throws {
             let h = TextFirstHarness("a 😀 tail")
             let unmount = mount(h)
             defer { unmount() }
@@ -56,7 +56,7 @@
             #expect(selected.status == 200)
             #expect(h.controller.effectiveSelection == NSRange(location: 2, length: 2))
             _ = try adapter.query("trace", arguments: ["begin": true])
-            let typed = await adapter.perform("Type", arguments: ["text": "Q"])
+            let typed = await adapter.perform("Replace", arguments: ["find": "😀", "text": "Q"])
             #expect(typed.status == 200)
             #expect(h.source == "a Q tail")
             let trace = try adapter.query("trace", arguments: ["end": true])
@@ -132,9 +132,11 @@
             let adapter = PuppetNativeEditor()
             adapter.attach(h.controller, title: { "note" })
             let stale = PuppetNativeEditor.version(h.controller)
-            let hidden = adapter.reply("doc", arguments: ["line": 290])
-            #expect(hidden.status == 409)
-            let typed = await adapter.perform("Type", arguments: ["text": "Q"])
+            let hidden = try adapter.query("doc", arguments: ["line": 290])
+            #expect(hidden["text"] as? String == "row 289")
+            #expect(hidden["offscreen"] as? Bool == true)
+            #expect(adapter.reply("show", arguments: ["text": "row 289"]).status == 409)
+            let typed = await adapter.perform("Insert", arguments: ["at": 0, "text": "Q"])
             #expect(typed.status == 200)
             let before = h.source
             let rejected = await adapter.perform(
@@ -145,7 +147,7 @@
             #expect(split.status == 400)
         }
 
-        @Test func insertIsOneLiteralTransactionAndTypeRunsEnter() async throws {
+        @Test func insertIsOneLiteralTransaction() async throws {
             let inserted = TextFirstHarness("- item")
             let unmount = mount(inserted)
             defer { unmount() }
@@ -156,9 +158,6 @@
             #expect(inserted.source == "- item\nnext")
             inserted.controller.undo()
             #expect(inserted.source == "- item")
-            _ = await adapter.perform("PlaceCaret", arguments: ["at": 4])
-            _ = await adapter.perform("Type", arguments: ["text": "\nnext"])
-            #expect(inserted.source == "- item\n- next")
         }
 
         @Test func clipboardCommandsKeepTheirOwnBuffer() async throws {
@@ -194,18 +193,17 @@
             defer { unmount() }
             let adapter = PuppetNativeEditor()
             adapter.attach(h.controller, title: { "note" })
-            #expect((await adapter.perform("Press", arguments: ["key": "Mod-a"])).status == 200)
+            #expect((await adapter.perform("SelectAll", arguments: [:])).status == 200)
             #expect((await adapter.perform("Copy", arguments: [:])).status == 200)
             #expect(adapter.clipboard == source)
             #expect((await adapter.perform("Cut", arguments: [:])).status == 200)
             #expect(h.source.isEmpty)
             #expect((await adapter.perform("Paste", arguments: [:])).status == 200)
             #expect(h.source == source)
-            // A keyboard shortcut can still run with an existing offscreen selection.
-            h.select(0, (h.tv.text as NSString).length)
-            #expect((await adapter.perform("Press", arguments: ["key": "Mod-a"])).status == 200)
-            #expect(
-                (await adapter.perform("Type", arguments: ["text": "replacement"])).status == 200)
+            // Paste replaces an existing selection that runs off screen.
+            adapter.clipboard = "replacement"
+            #expect((await adapter.perform("SelectAll", arguments: [:])).status == 200)
+            #expect((await adapter.perform("Paste", arguments: [:])).status == 200)
             #expect(h.source == "replacement")
         }
 
@@ -257,7 +255,8 @@
             defer { unmount() }
             let adapter = PuppetNativeEditor()
             adapter.attach(h.controller, title: { "note" })
-            _ = await adapter.perform("Type", arguments: ["text": "alpha beta\ngamma delta"])
+            _ = await adapter.perform(
+                "Insert", arguments: ["at": 0, "text": "alpha beta\ngamma delta"])
             let state = adapter.state(note: "note")
             #expect((state["onScreen"] as? [String: Int]) == ["first": 1, "last": 2])
             let selected = try object(await adapter.perform("Select", arguments: ["find": "beta"]))
@@ -265,7 +264,7 @@
             #expect((editor["selection"] as? [String: Any])?["text"] as? String == "beta")
         }
 
-        @Test func wrappedParagraphDoesNotExposeOrSelectItsHiddenTail() async throws {
+        @Test func docHoldsTheWholeNoteWhileShowAndSelectStayOnScreen() async throws {
             let h = TextFirstHarness(
                 String(repeating: "visible word ", count: 1500) + "HIDDEN-TAIL")
             let unmount = mount(h)
@@ -275,7 +274,11 @@
             let doc = try adapter.query("doc", arguments: [:])
             let json = String(
                 decoding: try JSONSerialization.data(withJSONObject: doc), as: UTF8.self)
-            #expect(!json.contains("HIDDEN-TAIL"))
+            #expect((doc["text"] as? String)?.hasSuffix("HIDDEN-TAIL") == true)
+            #expect((doc["source"] as? String)?.hasSuffix("HIDDEN-TAIL") == true)
+            #expect(json.contains("HIDDEN-TAIL"))
+            let visible = try #require(doc["visible"] as? [String: Any])
+            #expect((visible["to"] as? Int ?? .max) < (h.tv.text as NSString).length)
             #expect(adapter.reply("show", arguments: ["text": "HIDDEN-TAIL"]).status == 409)
             let end = (h.tv.text as NSString).length
             let rejected = await adapter.perform(
@@ -336,6 +339,5 @@
             #expect(rig.disk("note") == "base tail")
             _ = await rig.controller.close()
         }
-
     }
 #endif

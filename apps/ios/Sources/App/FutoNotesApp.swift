@@ -28,7 +28,7 @@ struct FutoNotesApp: App {
 
     var body: some Scene {
         WindowGroup {
-            NoteListView()
+            RootShell()
                 .environmentObject(store)
                 .environmentObject(navigation)
                 .environmentObject(sync)

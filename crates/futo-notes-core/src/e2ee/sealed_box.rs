@@ -1,10 +1,10 @@
-use aes_gcm::aead::OsRng;
 use hkdf::Hkdf;
-use rand::RngCore;
 use sha2::Sha256;
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use super::cipher::{aes_gcm_decrypt, aes_gcm_encrypt, IV_BYTES, KEY_BYTES, TAG_BYTES};
+use super::cipher::{
+    aes_gcm_decrypt, aes_gcm_encrypt, os_random_bytes, IV_BYTES, KEY_BYTES, TAG_BYTES,
+};
 use super::E2eeError;
 
 pub const PAIRING_KEY_BYTES: usize = 32;
@@ -24,9 +24,7 @@ pub struct PairingKeyPair {
 
 impl PairingKeyPair {
     pub fn generate() -> Self {
-        let mut secret = [0u8; PAIRING_KEY_BYTES];
-        OsRng.fill_bytes(&mut secret);
-        Self::from_secret(secret)
+        Self::from_secret(os_random_bytes())
     }
 
     pub fn from_secret(secret: [u8; PAIRING_KEY_BYTES]) -> Self {
@@ -235,5 +233,74 @@ mod tests {
         let pair = PairingKeyPair::generate();
         let debug = format!("{pair:?}");
         assert!(!debug.contains(&hex::encode(pair.secret)));
+    }
+
+    // RFC 7748 §6.1 X25519 test vectors (Alice and Bob).
+    const RFC7748_ALICE_SECRET: &str =
+        "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a";
+    const RFC7748_ALICE_PUBLIC: &str =
+        "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a";
+    const RFC7748_BOB_SECRET: &str =
+        "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb";
+    const RFC7748_BOB_PUBLIC: &str =
+        "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f";
+
+    fn key32(hex_str: &str) -> [u8; PAIRING_KEY_BYTES] {
+        hex::decode(hex_str).unwrap().try_into().unwrap()
+    }
+
+    #[test]
+    fn public_keys_match_rfc7748() {
+        assert_eq!(
+            PairingKeyPair::from_secret(key32(RFC7748_ALICE_SECRET)).public,
+            key32(RFC7748_ALICE_PUBLIC),
+        );
+        assert_eq!(
+            PairingKeyPair::from_secret(key32(RFC7748_BOB_SECRET)).public,
+            key32(RFC7748_BOB_PUBLIC),
+        );
+    }
+
+    /// The box key is X25519 (RFC 7748 shared secret) fed to HKDF-SHA256 with
+    /// the pairing info; the expected bytes come from Python `cryptography` 46.
+    #[test]
+    fn sealed_box_key_matches_an_independent_implementation() {
+        let expected = "4f68afecf95b707168720348c423269ebba769e3f7bfd2f7389b8b76560de865";
+        let alice_public = key32(RFC7748_ALICE_PUBLIC);
+        let bob_public = key32(RFC7748_BOB_PUBLIC);
+        // Both ends of the exchange derive the same key.
+        let sender = sealed_box_key(
+            &key32(RFC7748_ALICE_SECRET),
+            &bob_public,
+            &alice_public,
+            &bob_public,
+        )
+        .unwrap();
+        let recipient = sealed_box_key(
+            &key32(RFC7748_BOB_SECRET),
+            &alice_public,
+            &alice_public,
+            &bob_public,
+        )
+        .unwrap();
+        assert_eq!(hex::encode(sender), expected);
+        assert_eq!(hex::encode(recipient), expected);
+    }
+
+    /// A sealed box built outside this crate (Python `cryptography` 46) with
+    /// Alice as the ephemeral sender and Bob as the recipient.
+    #[test]
+    fn opens_a_pinned_sealed_box() {
+        let sealed = hex::decode(concat!(
+            "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+            "333333333333333333333333",
+            "8bfd9a401a4eecfd52e721c41a95582f87c8456e439394f96399845565d1419e",
+            "9c7c01aaac4e4fa9ff27d53ee2b45ee4",
+        ))
+        .unwrap();
+        assert_eq!(
+            open_sealed_vault_key(&key32(RFC7748_BOB_SECRET), &sealed).unwrap(),
+            [0x5Au8; KEY_BYTES],
+        );
     }
 }

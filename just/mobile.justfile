@@ -89,6 +89,14 @@ build-android-native: _preflight-android android-env-check (build-rust-android "
   cd apps/android
   ./gradlew :app:assembleDirectDebug :app:assemblePlayDebug
 
+# Rewrite apps/android/app/gradle.lockfile after changing an Android dependency.
+android-lock: _preflight-android android-env-check
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd apps/android
+  ./gradlew :app:lockShippedDependencies --write-locks --quiet
+  git -C ../.. status --short -- apps/android/app/gradle.lockfile
+
 [private]
 _preflight-ios: editor-deps
   @bash scripts/dev-env.sh node scripts/setup-worktree.mjs ios --check
@@ -246,6 +254,14 @@ test-android-storage:
 # Native iOS editor stories: input, find, selection and safe leave on the claimed simulator.
 test-ios-stories:
   just test-ios-native-ui TextFirstLeaveUITests TextFirstFindUITests TextFirstSelectionUITests TextFirstBottomEdgeUITests
+
+# Puppet-only native editor loop on the claimed $SIM: builds, launches, then real keys and taps.
+test-ios-editor-stories *args:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  : "${SIM:?claim a simulator first: eval \"\$(just qa-claim ios)\"}"
+  just ios-native
+  node tests/ios-editor-stories.mjs "$@"
 
 # Build a RELEASE-signed Android build of one flavor and install it (com.futo.notes).
 # Defaults to `direct` (GitLab/Obtainium/F-Droid); `just deploy-android play` installs

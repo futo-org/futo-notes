@@ -178,11 +178,25 @@ const THIRD_VAULT_PASSWORD: &str = "the third vault password";
 /// clears it.
 const A_SELF_HOSTED_PASSWORD: &str = "the password for my own server";
 
+/// A test client builder. reqwest is built without a crypto provider of its own
+/// (`rustls-no-provider`), so building without a preconfigured TLS config would
+/// panic; these clients only speak http:// to local servers, and any https://
+/// they meet is checked against the bundled Mozilla roots.
+pub(crate) fn test_http_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder().tls_backend_preconfigured(
+        futo_notes_sync::bundled_roots_client_config().expect("test TLS config"),
+    )
+}
+
+pub(crate) fn test_http() -> reqwest::Client {
+    test_http_builder().build().expect("test HTTP client")
+}
+
 /// Stands in for the platform auth sheet: a browser-shaped client that follows
 /// redirects and keeps cookies. The real server's login chain hands back an
 /// `oidc_flow` cookie at the callback, so a client that drops it never signs in.
 async fn browser_visit(url: &str) {
-    let client = reqwest::Client::builder()
+    let client = test_http_builder()
         .cookie_store(true)
         .build()
         .expect("browser-shaped client");
@@ -246,7 +260,7 @@ async fn sign_in(setup: &HostedSetup) {
 /// control both the stub and a stand-in server mount.
 async fn lapse(setup: &HostedSetup) -> BillingStatus {
     let token = setup.session().expect("session").token;
-    let response = reqwest::Client::new()
+    let response = crate::hosted_scenarios::test_http()
         .post(format!("{}/standin/lapse", setup.server_url()))
         .bearer_auth(token)
         .send()
@@ -275,7 +289,7 @@ async fn unentitled(setup: &HostedSetup) -> BillingStatus {
 /// account controls a test needs and a shell never has.
 async fn as_account(setup: &HostedSetup, method: reqwest::Method, path: &str) -> reqwest::Response {
     let token = setup.session().expect("session").token;
-    reqwest::Client::new()
+    crate::hosted_scenarios::test_http()
         .request(method.clone(), format!("{}{path}", setup.server_url()))
         .bearer_auth(token)
         .send()

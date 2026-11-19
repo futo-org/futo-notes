@@ -1,11 +1,9 @@
-use aes_gcm::aead::OsRng;
 use argon2::{Algorithm, Argon2, Params, Version};
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
-use rand::RngCore;
 use sha2::Sha256;
 
-use super::cipher::KEY_BYTES;
+use super::cipher::{os_random_bytes, KEY_BYTES};
 use super::E2eeError;
 
 pub const PBKDF2_ITERATIONS: u32 = 100_000;
@@ -20,9 +18,7 @@ pub const ARGON2ID_PASSES: u32 = 3;
 pub const ARGON2ID_LANES: u32 = 1;
 
 pub fn generate_salt() -> [u8; SALT_BYTES] {
-    let mut out = [0u8; SALT_BYTES];
-    OsRng.fill_bytes(&mut out);
-    out
+    os_random_bytes()
 }
 
 pub fn derive_password_key(password: &str, salt: &[u8], iterations: u32) -> [u8; KEY_BYTES] {

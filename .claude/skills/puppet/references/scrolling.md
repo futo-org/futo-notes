@@ -10,3 +10,5 @@ list, is refused with the batch that opens the way. Use them to get somewhere.
 When the behaviour is about **scrolling itself** (wheel handlers, scroll-linked UI, a bug
 that needs a real scroll), use the real gesture: `scroll` on desktop (about 0.25 s), `drag`
 on a phone.
+
+On a phone, `ScrollToLine {"line"}` brings an editor line on screen in one call (also convenience); 409 when it still does not show.

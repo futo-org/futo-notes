@@ -43,7 +43,7 @@ async fn pull(state: &ConnectedState, vault: &Path) -> ConnectedState {
 }
 
 async fn dev_login(server: &str) -> String {
-    let client = reqwest::Client::new();
+    let client = crate::hosted_scenarios::test_http();
     let res = client
         .post(format!("{server}/api/auth/dev/login"))
         .json(&serde_json::json!({"email":"local@futo-notes.local","name":"FUTO Notes"}))
@@ -55,7 +55,7 @@ async fn dev_login(server: &str) -> String {
 }
 
 async fn create_collection_raw(server: &str, token: &str) -> String {
-    let res = reqwest::Client::new()
+    let res = crate::hosted_scenarios::test_http()
         .post(format!("{server}/api/collections"))
         .bearer_auth(token)
         .send()
@@ -69,7 +69,7 @@ async fn create_collection_raw(server: &str, token: &str) -> String {
 }
 
 async fn post_blob_object_raw(server: &str, token: &str, cid: &str, body: &[u8]) {
-    let res = reqwest::Client::new()
+    let res = crate::hosted_scenarios::test_http()
         .post(format!("{server}/api/collections/{cid}/blob-objects"))
         .bearer_auth(token)
         .header("content-type", "application/octet-stream")
@@ -87,7 +87,7 @@ async fn post_blob_object_raw(server: &str, token: &str, cid: &str, body: &[u8])
 /// Delete every collection the token's user owns (test cleanup so a keyless or
 /// stale vault doesn't leak into the shared singleton dev user's next test).
 async fn delete_all_collections_raw(server: &str, token: &str) {
-    let http = reqwest::Client::new();
+    let http = crate::hosted_scenarios::test_http();
     let res = http
         .get(format!("{server}/api/collections"))
         .bearer_auth(token)

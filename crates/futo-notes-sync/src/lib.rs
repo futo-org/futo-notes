@@ -34,6 +34,7 @@ pub use sync::{
     ConnectInfo, FailureKind, PreWrite, Progress, RenamePair, SyncErrorKind, SyncFailure,
     SyncProgress, SyncSummary, WriteRefusal,
 };
+pub use tls::bundled_roots_client_config;
 #[cfg(target_os = "android")]
 pub use tls::install_android_trust;
 

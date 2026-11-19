@@ -250,7 +250,9 @@
           "emptyActionHint": "轻点 + 添加笔记。"
         },
         "ios": {
-          "emptyActionHint": "轻点撰写按钮添加笔记。"
+          "emptyActionHint": "轻点撰写按钮添加笔记。",
+          "noNoteSelected": "未选择笔记",
+          "noNoteSelectedHint": "从列表中选择一条笔记，或新建一条。"
         },
         "desktopEmptyHint": "还没有笔记。轻点 + 新建一篇。"
       },

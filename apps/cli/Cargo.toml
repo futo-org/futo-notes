@@ -15,7 +15,7 @@ futo-notes-store = { path = "../../crates/futo-notes-store" }
 futo-notes-sync = { path = "../../crates/futo-notes-sync" }
 # `string` lets every help line come from the language catalog at runtime.
 clap = { version = "4", default-features = false, features = ["std", "help", "usage", "error-context", "string"] }
-dirs = "6"
+dirs = "7"
 hex = "0.4"
 libc = "0.2"
 # Reads the password from the controlling terminal without echo, leaving stdin
@@ -23,8 +23,8 @@ libc = "0.2"
 rpassword = "7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
-shlex = "1"
+sha2 = "0.11"
+shlex = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
 
 [dev-dependencies]

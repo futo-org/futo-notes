@@ -29,7 +29,10 @@ impl ActivationTransport for Pay2Transport {
             .build()
             .map_err(|error| TransportError::new(error.to_string()))?;
         runtime.block_on(async {
+            let tls = futo_notes_sync::bundled_roots_client_config()
+                .map_err(|error| TransportError::new(error.to_string()))?;
             let client = reqwest::Client::builder()
+                .tls_backend_preconfigured(tls)
                 .connect_timeout(CONNECT_TIMEOUT)
                 .timeout(REQUEST_TIMEOUT)
                 // A 3xx becomes a non-200 status, which the crate reads as
