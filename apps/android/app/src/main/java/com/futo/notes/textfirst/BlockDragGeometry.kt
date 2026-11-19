@@ -40,6 +40,16 @@ internal fun TextFirstEditText.boundaryY(slot: BlockSlot): Float? {
 }
 
 /**
+ * The line spacing a block landing at [slot] puts above itself that the layout does not show there yet: the TextView
+ * adds its spacing (setLineHeight) below every line but the note's last, which gains it once a block lands below it.
+ */
+internal fun TextFirstEditText.spacingGainedAt(slot: BlockSlot): Float {
+    val l = layout ?: return 0f
+    if (!slot.end || slot.offset < 0 || l.getLineForOffset(slot.offset) != l.lineCount - 1) return 0f
+    return lineSpacingExtra
+}
+
+/**
  * The photo [image] draws, in content coordinates: as tall as its bitmap above the row's
  * baseline, and in a right-to-left run to the left of its leading caret position.
  */

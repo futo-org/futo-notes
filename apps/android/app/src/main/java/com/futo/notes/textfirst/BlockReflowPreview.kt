@@ -90,7 +90,7 @@ internal class BlockReflowPreview private constructor(
         override fun get(index: Int) = view.boundaryY(list[index]) ?: Float.POSITIVE_INFINITY
     }
 
-    fun gap(): ReflowGap = slot?.let { s -> view.boundaryY(s)?.let { ReflowGap.At(it, below = s >= bottomKey) } } ?: ReflowGap.Home
+    fun gap(): ReflowGap = slot?.let { s -> view.boundaryY(s)?.let { ReflowGap.At(it + view.spacingGainedAt(s), below = s >= bottomKey) } } ?: ReflowGap.Home
 
     /** The finger is at content y [finger]: move the gap by the rule. True when it reached a new slot (not home). */
     fun follow(finger: Float): Boolean {
