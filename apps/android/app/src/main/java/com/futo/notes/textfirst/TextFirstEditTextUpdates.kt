@@ -77,6 +77,7 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
         // Only an edit at the caret (typing, a deletion there) reveals it again; a checkbox toggled or a format applied
         // elsewhere leaves the reader where they are (Mason: a checkbox tap put the note at its top, at the caret).
         if (update.edits.any { touchesCaret(it, update.selStart, update.selEnd) }) reveal.edited()
+        if (!restyleOnly) codeTouch.forgetCopied()
         val e = editableText
         // Not BaseInputConnection.removeComposingSpans: it lists every span in the note.
         composing?.let(e::removeSpan)

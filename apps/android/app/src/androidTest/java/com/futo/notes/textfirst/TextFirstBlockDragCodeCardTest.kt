@@ -68,4 +68,18 @@ class TextFirstBlockDragCodeCardTest {
         up(android.graphics.PointF(from.x, from.y + 40f))
         compose.waitUntil(2_000) { !lifted }
     }
+
+    /** Sol review of the merge (9): a copied block moved away leaves no checkmark on the block that takes its place. */
+    @Test
+    fun aMovedCopiedBlockLeavesNoCheckmarkBehind() = compose.openDragScreen("```js\nx\n```\n```py\ny\n```\nend") {
+        val code = offsetOf("x")
+        val copy = ui { RectF(checkNotNull(view.codeChrome.areaOf(code, CodeBlockAction.COPY_CODE))) }
+        val at = ui { IntArray(2).also(view::getLocationOnScreen) }
+        val glyph = android.graphics.PointF(at[0] + view.totalPaddingLeft + copy.centerX(), at[1] + view.totalPaddingTop - ui { view.scrollY } + copy.centerY())
+        down(glyph); up(glyph)
+        compose.waitUntil(2_000) { ui { view.codeTouch.copiedBlock } == code }
+        ui { val e = view.engine!!; e.handler.post { e.moveBlock(code, BlockSlot(view.length() - 1, true)) } }
+        compose.waitUntil(3_000) { file.readText().startsWith("```py") }
+        assertEquals("the copy glyph's checkmark after the move", -1, ui { view.codeTouch.copiedBlock })
+    }
 }

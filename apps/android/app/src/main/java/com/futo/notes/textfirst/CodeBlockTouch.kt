@@ -170,6 +170,15 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
     private val clearCopied = Runnable {
         copiedBlock = -1
         view.invalidate()
+        // A lifted code card draws its own copy of the header, apart from the note.
+        view.blockLift.drag?.invalidate()
+    }
+
+    /** The text changed: the copied block's offset may now be another block's (a drop moved it). */
+    fun forgetCopied() {
+        if (copiedBlock < 0) return
+        view.removeCallbacks(clearCopied)
+        clearCopied.run()
     }
 
     private companion object {
