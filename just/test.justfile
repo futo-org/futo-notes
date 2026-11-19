@@ -55,6 +55,10 @@ test-rust:
 test-rust-focused +args:
   cargo test "$@"
 
+# The desktop editor's stories: real input via `just puppet` into this worktree's running `just tauri-dev`.
+test-desktop-editor-stories *filter:
+  node tests/desktop-editor-stories.mjs {{filter}}
+
 # Compile and execute the portable WASM editor against a real background Rust store.
 test-editor-wasm:
   node scripts/test-editor-wasm.mjs

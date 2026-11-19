@@ -23,6 +23,7 @@ describe('the receipt hook', () => {
       `FUTO_PUPPET_TARGET=ios just puppet type '{"text":"x"}' 2>&1 | tail -5`,
       `just puppet state; just puppet do '[["A"],["B"]]' &>/dev/null; just puppet elements`,
       `target/debug/futo-puppet press '{"key":"Enter"}' | cat`,
+      `just puppet hover '{"text":"milk"}' | tail -3`,
       `FUTO_PUPPET_TARGET=android just puppet relaunch | tail -20`,
       `just puppet look | head -40`,
       `(just puppet do GoBack) | tail -3`,

@@ -145,16 +145,17 @@ const openModals: object[] = [];
 /** The shell names its screen; an embedded editor with no shell is just `editor`. */
 export function currentScreen(): string {
   if (puppetProviders.shell) return puppetProviders.shell.screen();
-  return puppetProviders.editor?.getView() ? 'editor' : 'unknown';
+  return editorMounted() ? 'editor' : 'unknown';
+}
+
+function editorMounted(): boolean {
+  return Boolean(puppetProviders.editor?.getView() ?? puppetProviders.textEditor?.view());
 }
 
 /** The editor is mounted and on screen: the shell's `editor:<id>`, or the phones' shell-less `editor`. */
 export function editorOnScreen(): boolean {
   const screen = currentScreen();
-  return (
-    Boolean(puppetProviders.editor?.getView()) &&
-    (screen === 'editor' || screen.startsWith('editor:'))
-  );
+  return editorMounted() && (screen === 'editor' || screen.startsWith('editor:'));
 }
 
 export type Args = Record<string, unknown>;

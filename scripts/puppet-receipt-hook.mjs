@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 // In a subshell `(…)` too, and through `cargo run -p futo-puppet -- do …`.
 const ACTION =
-  /(^|[\s(])(just\s+puppet|(\S*\/)?futo-puppet)\s+(--\s+)?(do|tap|click|drag|scroll|type|press|relaunch|look)(\s|$)/;
+  /(^|[\s(])(just\s+puppet|(\S*\/)?futo-puppet)\s+(--\s+)?(do|tap|click|drag|scroll|hover|type|press|relaunch|look)(\s|$)/;
 
 /**
  * The commands of a shell line, each with its pipes and stdout redirects found outside quotes:

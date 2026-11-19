@@ -15,6 +15,7 @@ import { linesOnScreen, noteLines, shownLines } from './puppetNoteLines';
 import { listenersOf } from './puppetListeners';
 import { puppetProviders, registeredVerbs } from './puppetRegistry';
 import { aimPoint, sectionOf } from './puppetSections';
+import { textOnScreen } from './puppetTextLines';
 
 export interface Rect {
   x: number;
@@ -185,7 +186,8 @@ function roleOf(element: Element): string {
 }
 
 function collapse(text: string | null | undefined): string {
-  const collapsed = (text ?? '').replace(/\s+/g, ' ').trim();
+  // U+FFFC is the desktop editor's unit for an object it draws (a list marker, a divider).
+  const collapsed = (text ?? '').replace(/[\s\uFFFC]+/g, ' ').trim();
   return collapsed.length > TEXT_LIMIT ? `${collapsed.slice(0, TEXT_LIMIT - 1)}…` : collapsed;
 }
 
@@ -259,6 +261,10 @@ function textOf(element: Element): string {
           .join(' ');
       }),
     );
+  }
+  const textView = puppetProviders.textEditor?.view();
+  if (textView && element.contains(textView.dom)) {
+    return collapse(textAroundEditor(element, textView.dom, () => textOnScreen(textView)));
   }
   return collapse(element.textContent);
 }

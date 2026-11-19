@@ -58,10 +58,15 @@ pub(super) fn send_event(
     } else {
         gdk::ModifierType::BUTTON1_MASK
     };
+    let shift = if step.shift {
+        gdk::ModifierType::SHIFT_MASK
+    } else {
+        gdk::ModifierType::empty()
+    };
     let kind = match step.phase {
         Phase::Down => gdk::EventType::ButtonPress,
         Phase::Up => gdk::EventType::ButtonRelease,
-        Phase::Dragged => gdk::EventType::MotionNotify,
+        Phase::Dragged | Phase::Moved => gdk::EventType::MotionNotify,
         Phase::Wheel => gdk::EventType::Scroll,
     };
     let mut event = gdk::Event::new(kind);
@@ -85,15 +90,20 @@ pub(super) fn send_event(
                     held.bits()
                 } else {
                     0
-                };
+                } | shift.bits();
                 button.device = device;
             }
-            Phase::Dragged => {
+            Phase::Dragged | Phase::Moved => {
                 let motion = &mut (*raw).motion;
                 motion.window = window.to_glib_full();
                 motion.time = gdk_time();
                 (motion.x, motion.y, motion.x_root, motion.y_root) = (x, y, root_x, root_y);
-                motion.state = held.bits();
+                // A hover's motion holds no button; a drag's holds the one it pressed.
+                motion.state = if step.phase == Phase::Moved {
+                    shift.bits()
+                } else {
+                    held.bits() | shift.bits()
+                };
                 motion.device = device;
             }
             Phase::Wheel => {

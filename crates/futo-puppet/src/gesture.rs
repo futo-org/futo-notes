@@ -5,10 +5,11 @@
 use super::*;
 
 /// A gesture has settled when this long passes with no new event, or the ceiling hits, read
-/// every poll. On desktop the input is handed to the web view before `puppet_pointer` returns,
-/// so only its dispatch is left: 120 ms of quiet caught every event in 60 measured gestures,
-/// where 400 ms cost ~0.3 s a gesture for nothing. The phones' `axe` and `adb` inject touches
-/// on their own schedule, so they keep 400 ms until measured the same way.
+/// every poll. On desktop the quiet counts from the input's first event: 120 ms of quiet after
+/// it caught every event in 60 measured gestures, where 400 ms cost ~0.3 s a gesture for
+/// nothing; before it, a hidden WebKitGTK window holds a move back until its next frame, up to
+/// a second on a niri workspace not shown. The phones' `axe` and `adb` inject touches on their
+/// own schedule, and a native tap has no page events, so they keep 400 ms from the start.
 pub(crate) const SETTLE_QUIET_DESKTOP: Duration = Duration::from_millis(120);
 
 pub(crate) const SETTLE_POLL_DESKTOP: Duration = Duration::from_millis(25);
@@ -65,6 +66,7 @@ pub(crate) fn wait_for_settle(target: &Target, mut cursor: u64) -> Result<(), St
     };
     let started = Instant::now();
     let mut last_change = Instant::now();
+    let mut heard = matches!(target, Target::Native(..));
     while started.elapsed() < SETTLE_CEILING {
         std::thread::sleep(poll);
         // Once, not `call`: a touch that left the editor (Back) leaves no page to ask, and
@@ -77,7 +79,8 @@ pub(crate) fn wait_for_settle(target: &Target, mut cursor: u64) -> Result<(), St
         if last != cursor {
             cursor = last;
             last_change = Instant::now();
-        } else if last_change.elapsed() >= quiet {
+            heard = true;
+        } else if heard && last_change.elapsed() >= quiet {
             return Ok(());
         }
     }
@@ -87,7 +90,8 @@ pub(crate) fn wait_for_settle(target: &Target, mut cursor: u64) -> Result<(), St
 /// begin → real touch → settle → end. The page brackets; this process only aims.
 /// A mouse and a touch screen are different input models, and the gesture
 /// names say which one is meant: `click` has a button and a click count, `tap`
-/// has a hold, `scroll` is a wheel and a phone scrolls by swiping (`drag`).
+/// has a hold, `scroll` is a wheel and a phone scrolls by swiping (`drag`), and only a mouse
+/// hovers.
 /// Refuse the wrong one instead of translating it silently.
 pub(crate) fn wrong_input_model(target: &Target, name: &str) -> Option<String> {
     match (target, name) {
@@ -99,6 +103,11 @@ pub(crate) fn wrong_input_model(target: &Target, name: &str) -> Option<String> {
         (Target::Desktop(_), "tap") => Some(
             "desktop has a mouse, not a touch screen: use `click` \
              '{\"x\":N,\"y\":N[,\"button\":\"right\"][,\"count\":2]}'"
+                .into(),
+        ),
+        (Target::Native(..), "hover") => Some(
+            "a phone has a touch screen, no pointer to hover: a finger shows what a tap shows, \
+             use `tap` '{\"x\":N,\"y\":N}'"
                 .into(),
         ),
         (Target::Native(..), "click") => Some(
@@ -179,15 +188,16 @@ pub(crate) fn centre_of(rect: &Value) -> Option<(f64, f64)> {
     Some(((x + w / 2.0).round(), (y + h / 2.0).round()))
 }
 
-/// `{"text":"…"}` on a tap, click or drag, the text this gesture aims at; `type` takes `text`
+/// `{"text":"…"}` on a tap, click, hover or drag, the text this gesture aims at; `type` takes `text`
 /// as what it types, so it is never aimed.
 pub(crate) fn aimed_text(name: &str, args: &Value) -> Option<String> {
-    matches!(name, "tap" | "click" | "drag")
+    matches!(name, "tap" | "click" | "hover" | "drag")
         .then(|| args["text"].as_str().map(str::to_owned))
         .flatten()
 }
 
-/// Aim a gesture at the text that shows in `rect`: a tap or click on its middle, a drag across.
+/// Aim a gesture at the text that shows in `rect`: a tap, click or hover on its middle, a drag
+/// across.
 pub(crate) fn aim_across(name: &str, args: &mut Value, rect: &Value) -> Result<(), String> {
     let side = |key: &str| rect[key].as_f64().unwrap_or(0.0);
     let (x, y, w, h) = (side("x"), side("y"), side("w"), side("h"));

@@ -15,6 +15,9 @@ fn the_wrong_input_model_for_the_target_is_refused_by_name() {
     assert!(wrong_input_model(&phone, "scroll")
         .unwrap()
         .contains("use `drag`"));
+    assert!(wrong_input_model(&phone, "hover")
+        .unwrap()
+        .contains("no pointer to hover"));
     // Desktop has a keyboard: its keys are real key presses (puppet_keys.rs).
     assert!(wrong_input_model(&desktop, "type").is_none());
     assert_eq!(
@@ -29,6 +32,7 @@ fn the_wrong_input_model_for_the_target_is_refused_by_name() {
         (&desktop, "click"),
         (&desktop, "drag"),
         (&desktop, "scroll"),
+        (&desktop, "hover"),
         (&phone, "tap"),
         (&phone, "drag"),
     ] {
@@ -51,6 +55,10 @@ fn a_desktop_pointer_carries_the_gesture_as_kind_and_checks_the_coordinates_firs
     assert_eq!(
         desktop_pointer("scroll", &json!({"x": 1, "y": 2, "dy": 300})).unwrap(),
         json!({"kind": "scroll", "x": 1, "y": 2, "dy": 300})
+    );
+    assert_eq!(
+        desktop_pointer("hover", &json!({"x": 1, "y": 2})).unwrap(),
+        json!({"kind": "hover", "x": 1, "y": 2})
     );
     assert!(desktop_pointer("scroll", &json!({"x": 1, "y": 2}))
         .unwrap_err()
@@ -123,6 +131,29 @@ fn a_failed_settle_read_still_ends_the_trace() {
     assert!(error.contains("the page navigated"), "{error}");
     let scripts = scripts.lock().unwrap();
     assert!(scripts.last().unwrap().contains("end"), "{scripts:?}");
+}
+
+/// A hidden WebKitGTK window holds a pointer move back until its next frame, up to a second
+/// on a niri workspace not shown: the desktop's settle waits for the input's first event.
+#[test]
+fn a_desktop_settle_waits_for_an_input_the_page_has_not_seen_yet() {
+    static EVENT_READS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let (port, _) = fake_bridge(|script| {
+        let page = |body: Value| {
+            json!({"id": "futo-puppet", "success": true,
+                   "data": json!({"status": 200, "body": body}).to_string()})
+        };
+        if script.contains("\"events\"") {
+            let reads = EVENT_READS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            page(json!({"last": if reads < 12 { 3 } else { 4 }}))
+        } else if script.contains("begin") {
+            page(json!({"eventCursor": 3}))
+        } else {
+            page(json!({"ok": true}))
+        }
+    });
+    traced(&Target::Desktop(port), || Ok(())).unwrap();
+    assert!(EVENT_READS.load(std::sync::atomic::Ordering::SeqCst) > 12);
 }
 
 /// An Android screen showing `rows`, with the editor's web view at `webview` when it is up.

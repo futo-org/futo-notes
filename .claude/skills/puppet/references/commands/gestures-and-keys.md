@@ -1,6 +1,6 @@
 ## Gestures, scrolling and keys
 
-**Gestures aim by ref.** `click`/`tap`/`drag`/`scroll` take `{"ref":"e12"}` (or a native
+**Gestures aim by ref.** `click`/`tap`/`drag`/`scroll`/`hover` take `{"ref":"e12"}` (or a native
 screen's `{"ref":"n4"}`) in place of `x`,`y` and land on that element's centre. A rect's `x,y` is its corner, which is
 padding, and a click there reports `no change`. `{"text":"…"}` aims at that text on screen:
 in the editor its words, on a phone the one row or words that show it (text two places show
@@ -14,6 +14,11 @@ scrolls under the point scrolls, and the receipt shows every row that moved. On 
 phone, scrolling is a swipe: `drag` from where the finger lands to where it lifts
 (up to scroll down). `scroll` there refuses and says so. A real scroll answers in about
 0.25 s at any distance on desktop (at most 25 wheel notches; a long scroll spins faster).
+
+**Hovering (desktop).** `hover {"x","y"}` (or `ref`, `text`) moves the mouse over that point
+with no button held: the page gets a trusted `mousemove`, so what shows on hover (a table's
+grips, a `:hover` style) shows, and moving off it hides it again. The window is not raised.
+A phone has no pointer: `hover` there refuses and says so.
 
 **Keys (phones).** `type {"text":"…"}` is real key presses into whatever has focus, through
 the OS keyboard: tap the field first (`elements` flags the focused row). It reaches native
