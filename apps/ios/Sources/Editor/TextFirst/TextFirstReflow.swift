@@ -290,7 +290,7 @@ final class TextFirstReflow {
                 slices[j].offset = painter.pixel(from) - painter.pixel(run.top)
             }
             if slices[j].closed == nil, run.closed != run.height || closedLine != nil {
-                (slices[j].closed, slices[j].closedOffset) = closedDrawing(j)
+                (slices[j].closed, slices[j].closedOffset) = closedDrawing(j, at: closedAt(j))
             }
         }
         if !all, CACurrentMediaTime() - started > TextFirstReflowMotion.budget { return true }
@@ -306,25 +306,6 @@ final class TextFirstReflow {
         #endif
         builder = nil
         return false
-    }
-
-    /// The part of a photo's line run `j` is once the photo has left; its home drawing, as
-    /// far below its top as that drawing starts, for a run outside that line.
-    private func closedDrawing(_ j: Int) -> (CGImage?, CGFloat) {
-        let run = plan.runs[j]
-        guard let closedLine, let line = plan.closing,
-            run.top >= line.top - 0.5, run.bottom <= line.bottom + 0.5
-        else { return (slices[j].home, slices[j].offset) }
-        // Only the stretch of it that can show where the run is drawn once the line has closed
-        // (a row beside a photo far taller than the screen stays as tall), as far below its top.
-        let from = line.closedY(run.top - line.top)
-        let top = plan.closedTop(j)
-        let shown = max(0, visible.minY - visible.height - plan.room - top)
-        let to = min(run.closed, visible.maxY + visible.height + plan.room - top)
-        guard to > shown else { return (nil, 0) }
-        let image = closedLine.paint(
-            (from + shown)...(from + to), at: line.top, with: painter)
-        return (image, painter.pixel(line.top + from + shown) - painter.pixel(line.top + from))
     }
 
     /// A lifted photo is drawn by the copy, so the runs leave its place blank.
@@ -383,6 +364,7 @@ final class TextFirstReflow {
         CATransaction.setDisableActions(true)
         let duration = animated ? TextFirstReflowMotion.slide : 0
         var slid = false
+        for j in slices.indices where gap != plan.home { closedFits(j) }
         for (j, slice) in slices.enumerated() {
             let closed = gap != plan.home
             let shut = closed ? slices[j].closed : nil
