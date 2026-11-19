@@ -1,0 +1,117 @@
+package com.futo.notes.textfirst
+
+// The reflow preview's geometry (#450), pure: where the gap is as the finger moves, and where
+// each part of the note is drawn for it. Content y (the layout's plus the top padding). The view
+// side (BlockReflowPreview.kt) reads the layout and draws; nothing here knows a View.
+
+/** Where the gap is: the block's own place (nothing moved), or the boundary laid out at [y], after the block's place when [below]. */
+internal sealed class ReflowGap {
+    object Home : ReflowGap() { override fun toString() = "Home" }
+    data class At(val y: Float, val below: Boolean) : ReflowGap()
+}
+
+/**
+ * The note as the preview draws it for a block laid out from [top] to [bottom]. Its place keeps
+ * [residue] of that height (none for whole lines; for a photo lifted out of its line, the line
+ * laid out without it) and the gap is [copy] tall. Everything else is drawn as laid out, moved
+ * by [shift]: between the block and the gap up (or down) by what closes, past both by the
+ * difference between the gap and what closed.
+ */
+internal class ReflowShape(val top: Float, val bottom: Float, val residue: Float, val copy: Float) {
+    /** How far the block's place closes. */
+    val closes get() = bottom - top - residue
+
+    /** How far content laid out from [y] down (outside the block's place) is drawn from there. */
+    fun shift(y: Float, gap: ReflowGap): Float = when (gap) {
+        ReflowGap.Home -> 0f
+        is ReflowGap.At -> if (gap.below) when {
+            y < top -> 0f
+            y < gap.y -> -closes
+            else -> copy - closes
+        } else when {
+            y < gap.y -> 0f
+            y < top -> copy
+            else -> copy - closes
+        }
+    }
+
+    /** Where the copy's top is drawn: at home, the block's own place. */
+    fun copyTop(gap: ReflowGap): Float = when (gap) {
+        ReflowGap.Home -> top
+        is ReflowGap.At -> if (gap.below) gap.y - closes else gap.y
+    }
+
+    /** Where what stays of the block's place (its line without the photo) is drawn. */
+    fun residueTop(gap: ReflowGap): Float = when (gap) {
+        ReflowGap.Home -> top
+        is ReflowGap.At -> if (gap.below) top else top + copy
+    }
+
+    /** Where [y] is drawn: inside the block's place, the same fraction down what stays of it (the place itself at home). */
+    fun drawn(y: Float, inPlace: Boolean, gap: ReflowGap): Float = when {
+        !inPlace -> y + shift(y, gap)
+        gap == ReflowGap.Home -> y
+        else -> residueTop(gap) + (y - top) * residue / maxOf(1f, bottom - top)
+    }
+}
+
+/**
+ * The places the gap may be, in order: each slot offered near the screen, laid out at [slots]
+ * (ascending, the block's own edges left out), and the block's own place (index [home]). The
+ * content between two neighbouring stops is a run: the gap moves past a run when the finger
+ * passes its middle as drawn for the gap open now, so a run passed is drawn on the far side of
+ * the gap and the gap cannot flick back. A stretch with no slot (a quote, code, a table) is one
+ * run. A photo lifted out of its line has both edges of its line as slots, and its own place is
+ * the middle of that line: the line's halves are the runs either side of home.
+ */
+internal class ReflowStops(private val shape: ReflowShape, private val slots: List<Float>, private val photo: Boolean) {
+    val home: Int = slots.count { it <= shape.top }
+    val size get() = slots.size + 1
+
+    fun gap(stop: Int): ReflowGap = if (stop == home) ReflowGap.Home else ReflowGap.At(y(stop), below = stop > home)
+
+    private fun y(stop: Int) = slots[if (stop < home) stop else stop - 1]
+
+    /** A stop's upper and lower edges, as laid out. */
+    private fun upper(stop: Int) = if (stop != home) y(stop) else if (photo) middle else shape.top
+    private fun lower(stop: Int) = if (stop != home) y(stop) else if (photo) middle else shape.bottom
+    private val middle get() = (shape.top + shape.bottom) / 2
+
+    /** The middle of the run below [stop], as drawn with the gap at [at]. */
+    private fun runMiddle(stop: Int, at: ReflowGap): Float {
+        val a = lower(stop)
+        val b = upper(stop + 1)
+        val inPlace = photo && a >= shape.top && b <= shape.bottom
+        if (inPlace) return (shape.drawn(a, true, at) + shape.drawn(b, true, at)) / 2
+        val shift = shape.shift(a, at)
+        return (a + b) / 2 + shift
+    }
+
+    /** Where the gap goes from [from] for a finger at [finger]: past each run whose middle the finger passed, one way. */
+    fun walk(from: Int, finger: Float): Int {
+        var stop = from.coerceIn(0, size - 1)
+        while (stop + 1 < size && finger > runMiddle(stop, gap(stop))) stop++
+        if (stop != from) return stop
+        while (stop > 0 && finger < runMiddle(stop - 1, gap(stop))) stop--
+        return stop
+    }
+}
+
+/**
+ * Where each paragraph of the stretch a move rewrites lands, counted from the stretch's first
+ * paragraph (the block's or the gap's, whichever is higher): the [block]'s paragraphs (for a
+ * photo, its line) and the [between] paragraphs trade places, or a photo leaves its line and
+ * becomes a line of its own. A move writes whole lines and never adds a blank one
+ * (block-movement.md), so a paragraph is followed by its index.
+ */
+internal class ReflowMove(private val photo: Boolean, private val below: Boolean, private val block: Int, private val between: Int) {
+    /** Where the block's first paragraph (a photo's own line) lands. */
+    val moved get() = if (below) between + (if (photo) 1 else 0) else 0
+
+    fun lands(k: Int): Int = when {
+        photo && below -> if (k < 1 + between) k else k + 1
+        photo -> k + 1
+        below -> if (k < block) between + k else if (k < block + between) k - block else k
+        else -> if (k < between) k + block else if (k < block + between) k - between else k
+    }
+}
