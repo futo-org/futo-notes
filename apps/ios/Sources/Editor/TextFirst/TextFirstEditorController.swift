@@ -146,6 +146,8 @@ final class TextFirstEditorController: NSObject {
     /// the last one covered the note from its release (debug readout).
     var reflowLanding: TextFirstReflowLanding?
     var lastLanding: CFTimeInterval?
+    /// The block being dragged laid out on its own, once the preview needs it (+BlockReflow).
+    var liftedLayout: TextFirstBlockLayout?
     /// Debug builds: drag as with Reduce Motion on (`-FUTODebugReduceMotion`), which a UI test
     /// cannot switch on in the simulator's settings.
     #if FUTO_DEBUG_BUILD

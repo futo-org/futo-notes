@@ -72,7 +72,9 @@ final class TextFirstBlockDrag {
             textView.addSubview(view)
         }
         liftedCenter = card.center
-        autoscroller.meter.runs = { [weak self] in self?.preview?.plan.runs.count ?? 0 }
+        #if DEBUG
+            autoscroller.meter.runs = { [weak self] in self?.preview?.plan.runs.count ?? 0 }
+        #endif
     }
 
     /// The finger moved to `p` (text view coordinates): the card follows it, and the preview's
@@ -253,6 +255,7 @@ extension TextFirstEditorController {
             lift, at: p, card: card, on: textView,
             autoscroll: { [weak self] step in self?.autoscrollBlockDrag(by: step) ?? false })
         blockDrag = drag
+        liftedLayout = nil
         TextFirstBlockCard.lift(card)
         startPreview(drag)
         dragHaptics.lifted()

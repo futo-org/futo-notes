@@ -1,8 +1,9 @@
 import UIKit
 
 // The block drag's live preview as a drag runs it (#448): started at the lift unless Reduce
-// Motion is on or it cannot be built (logged, and the drag shows the drop line), and measured
-// again with every layout change and every frame the note autoscrolls (#449).
+// Motion is on (checked at the lift) or it cannot be built (logged, and the drag shows the drop
+// line), and measured again with every layout change and every frame the note autoscrolls
+// (#449).
 
 extension TextFirstEditorController {
     /// With Reduce Motion on the drag shows the drop line and nothing slides.
@@ -45,8 +46,13 @@ extension TextFirstEditorController {
         guard !reducesMotion else { return }
         do {
             let (plan, closedLine) = try reflowPlan(drag.book, drag.targets)
+            let painter = slicePainter
             let preview = TextFirstReflow(
-                plan, closedLine: closedLine, painter: slicePainter, under: drag.card)
+                plan, closedLine: closedLine, painter: painter, under: drag.card)
+            let block = drag.book.block.range
+            preview.drawBlock = { [weak self] rect, top in
+                self?.blockLayout(block)?.paint(rect, blockTop: top, with: painter)
+            }
             drag.preview = preview
             preview.buildInIdleTime()
         } catch {

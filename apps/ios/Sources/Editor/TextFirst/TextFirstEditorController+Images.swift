@@ -155,6 +155,13 @@ final class TextFirstImages {
         dirty = []
         guard let controller, !controller.isClosed else { return }
         relayout(controller) { span in changed.contains(ObjectIdentifier(span.atom)) }
+        // A photo that decodes at its placeholder's height lays nothing out again: a drag's
+        // preview is measured again on the next layout pass all the same, to draw it as it is
+        // now (#449 review).
+        if controller.blockDrag != nil {
+            controller.textView.setNeedsLayout()
+            controller.textView.layoutIfNeeded()
+        }
     }
 
     /// The view's width changed: sizes follow it, and a wider view may want a larger decode.

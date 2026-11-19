@@ -31,8 +31,9 @@ struct TextFirstReflowPlan: Equatable {
     /// In display order, top to bottom, without the block.
     var runs: [Run]
     /// The boundary the block sits on: a gap there moves nothing. Boundary `i` is the top of
-    /// `runs[i]`, or the bottom of the last run for `runs.count`. When the block has scrolled
-    /// away (`homeShown` false) home is the edge on its side and no place the gap may open.
+    /// `runs[i]`, or the bottom of the last run for `runs.count`. When the block's place does
+    /// not show (`homeShown` false) home is beyond the runs on its side (-1, or one past
+    /// `runs.count`): no boundary, and no place the gap may open.
     let home: Int
     let homeShown: Bool
     /// The engine's slot at each boundary the block may land on.
@@ -49,8 +50,13 @@ struct TextFirstReflowPlan: Equatable {
     /// What the images of a photo's line draw (each one's place, size and whether it has
     /// decoded): a change lays the line out again without the photo. Zero for other blocks.
     let drawing: Int
+    /// What the images of the block itself draw: a change draws its copy again.
+    let blockDrawing: Int
     /// The UTF-16 start of the line the block's drawing starts on.
     let sourceAnchor: Int
+    /// The part of `source` TextKit has laid out (text view coordinates), where the copy can
+    /// be drawn from the note itself; nil when none is.
+    let sourceLaidOut: ClosedRange<CGFloat>?
     /// The line a photo is lifted out of, which closes up without it; nil for any other block.
     let closing: Closing?
 
@@ -81,12 +87,16 @@ struct TextFirstReflowPlan: Equatable {
     /// The boundaries the gap may open on, in order: the slots and home.
     var positions: [Int] { (Array(slots.keys) + (homeShown ? [home] : [])).sorted() }
 
+    /// All the block's leaving takes out of the note: its place, or what the line a photo is
+    /// lifted out of closes up by.
+    var leaves: CGFloat { left + (closing.map { $0.bottom - $0.top - $0.closed } ?? 0) }
+
     /// How much taller than the note the preview draws it with the gap at `gap`: the block's
-    /// room in the gap beyond what its place closes by (a photo lifted out of a row it shared
-    /// takes a line of its own). The note may scroll that far past its end.
+    /// room in the gap beyond what its leaving takes out (a photo lifted out of a row it
+    /// shared takes a line of its own). The note may scroll that far past its end.
     func grows(_ gap: Int) -> CGFloat {
         guard gap != home else { return 0 }
-        return max(0, room - left - runs.reduce(0) { $0 + $1.height - $1.closed })
+        return max(0, room - leaves)
     }
 
     /// The slot a release with the gap at `gap` lands on; nil at home.

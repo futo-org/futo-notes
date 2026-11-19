@@ -194,10 +194,11 @@
             h.controller.followBlockDrag(to: h.point(line: 5, fraction: 0.6))
             #expect(drag.slot?.offset == h.lineStarts[6])
             #expect(await h.until { h.lineHeights(at: h.lineStarts[4]).contains { $0 > 100 } })
-            // The photo pushed everything down: the still finger is now over the photo's upper
-            // half, beside the block's own place, and the gap is judged home again, without
-            // a tick. The drag goes on; carried to `third` as drawn now, it opens there.
-            #expect(h.controller.blockDrag === drag && drag.slot == nil)
+            // The photo pushes everything down, the runs sliding there from where they were
+            // drawn: the gap is judged against them as drawn, as the finger's own moves are, and
+            // stays without a tick. The drag goes on; carried to `third` as drawn now, it opens
+            // there.
+            #expect(h.controller.blockDrag === drag && drag.slot?.offset == h.lineStarts[6])
             #expect(drag.previewUnavailable == nil, "\(drag.previewUnavailable ?? "")")
             try await Task.sleep(nanoseconds: 250_000_000)
             h.controller.followBlockDrag(to: h.point(line: 5, fraction: 0.6))

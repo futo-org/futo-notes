@@ -5,7 +5,8 @@ import UIKit
 // step; then the runs and the copy slide the few points left to where the moved note draws them
 // (a box or indent the block gained on arrival fades in) and the curtain comes down when the
 // slides end, at most 0.4 s after the release, uncovering the same picture. What shows does not
-// move. No block lifts until the curtain is down.
+// move where the note's scroll allows; where it does not (the note came out shorter at its
+// foot), it slides to the nearest offset the note has. No block lifts until the curtain is down.
 
 /// The display lines a landing finds the runs by (`TextFirstEditorController.landingLines`).
 struct TextFirstLandingLines {
@@ -68,6 +69,7 @@ extension TextFirstEditorController {
                 "drop committed and settling in \((CACurrentMediaTime() - released) * 1000, format: .fixed(precision: 1), privacy: .public) ms"
             )
         }
+        if !moved { withinScroll(preview) }
         let landing = TextFirstReflowLanding(
             preview, dimmedSource: drag.dimmedSource, revision: rev, released: released,
             on: textView)
@@ -119,39 +121,101 @@ extension TextFirstEditorController {
         // The screen holds still: the line beside the gap that shows (above it if it does) is
         // drawn after the move where the preview drew it. The block may have left from far
         // above the screen, taking its height out above it, or TextKit may have settled its
-        // estimate of the text above the screen.
-        let visible = textView.bounds
+        // estimate of the text above the screen, even under the curtain before the release:
+        // where the preview drew is read against the curtain, not the screen.
+        let visible = preview.visible
         let gap = preview.gap
         let beside = [gap - 1, gap].first { j in
             j >= 0 && j < plan.runs.count && !plan.runs[j].anchor.end && plan.runs[j].inset == 0
                 && visible.contains(CGPoint(x: 1, y: plan.top(j, gap: gap)))
         }
-        var shift: CGFloat = 0
+        // The curtain follows the screen, what it draws staying where it is.
+        preview.follow(boundsBy: textView.contentOffset.y - preview.visible.minY)
+        var held = true
+        var anchor = slot.offset
         if let j = beside, let line = lines.runs[j],
             let start = lineStart(
                 TextFirstMoveMap.line(line, block: lines.block, to: lines.slot, photo: lines.photo),
                 from: lines.base)
         {
             // Scrolling lays out what comes into view, which may settle TextKit's estimates
-            // again: measure until the line holds.
-            for _ in 0..<4 {
-                guard let laidOut = laidOutRange(),
-                    let top = edgeY(TextFirstBlockSlot(offset: start, end: false), laidOut)
-                else { break }
+            // again: measure until the line holds, four times at most; still off after that,
+            // the drop lands without the slide (and says so in the log).
+            let edge = TextFirstBlockSlot(offset: start, end: false)
+            anchor = start
+            for pass in 0..<4 {
+                // A long move can leave nothing laid out where the screen is: the line is laid
+                // out on its own.
+                let laidOut =
+                    laidOutRange()
+                    ?? (storage.string as NSString).lineRange(
+                        for: NSRange(location: start, length: 0))
+                if laidOutRange() == nil { ensureLayout(laidOut) }
+                guard let top = edgeY(edge, laidOut) else { break }
                 // Never above the note's top: blank there would spring back at the next touch.
-                let held = top - (plan.top(j, gap: gap) + shift) + textView.contentOffset.y
-                let dy = max(held, -textView.adjustedContentInset.top) - textView.contentOffset.y
-                guard abs(dy) > 0.25 else { break }
-                textView.contentOffset.y += dy
+                let offset = max(
+                    top - plan.top(j, gap: gap) + visible.minY, -textView.adjustedContentInset.top)
+                guard abs(offset - textView.contentOffset.y) > 0.25 else { break }
+                held = pass < 3
+                textView.contentOffset.y = offset
                 textView.layoutIfNeeded()
                 layOutViewport()
-                preview.follow(boundsBy: dy)
-                shift += dy
+                preview.follow(boundsBy: textView.contentOffset.y - preview.visible.minY)
             }
         }
-        let landed = landedFrames(plan, gap: preview.gap, lines, shift: shift)
-        preview.settle(runs: landed.runs, block: landed.block, over: TextFirstReflowMotion.slide)
+        // Below the note's foot (it came out shorter) the screen slides up to it with the runs.
+        withinScroll(preview)
+        // What shows is laid out before it is read and drawn, around the held line when TextKit
+        // has left it so.
+        if laidOutRange() == nil { ensureLayout(linesAround(anchor, count: 80)) }
+        let landed = landedFrames(
+            plan, gap: preview.gap, lines, shift: preview.visible.minY - visible.minY)
+        if !held {
+            TextFirstReflowMotion.log.error(
+                "block drop: the screen did not hold still, landing without the slide")
+        }
+        preview.settle(
+            runs: landed.runs, block: landed.block, drawable: laidOutBand() ?? .infinite,
+            over: held ? TextFirstReflowMotion.slide : 0)
         return true
+    }
+
+    /// Scroll a note left beyond its foot (it came out shorter, or the preview drew it taller
+    /// than it is) back to it, `preview` keeping what it draws where it is on screen: its
+    /// slides then take it to where the note is drawn.
+    private func withinScroll(_ preview: TextFirstReflow) {
+        textView.layoutIfNeeded()
+        preview.follow(boundsBy: textView.contentOffset.y - preview.visible.minY)
+        // Only once the note's end is laid out is its foot known: TextKit's estimate of a
+        // long stretch it has not laid out again can fall short of it.
+        guard let manager = textView.textLayoutManager,
+            let end = manager.textContentManager?.location(
+                manager.documentRange.endLocation, offsetBy: -1),
+            manager.textLayoutFragment(for: end)?.state == .layoutAvailable
+        else { return }
+        let insets = textView.adjustedContentInset
+        let foot = max(
+            -insets.top, textView.contentSize.height + insets.bottom - textView.bounds.height)
+        let dy = foot - textView.contentOffset.y
+        guard dy < -0.25 else { return }
+        textView.contentOffset.y = foot
+        textView.layoutIfNeeded()
+        layOutViewport()
+        preview.follow(boundsBy: dy)
+    }
+
+    /// The UTF-16 range of the `count` lines either side of the line holding `offset`.
+    private func linesAround(_ offset: Int, count: Int) -> NSRange {
+        let text = storage.string as NSString
+        var from = min(offset, text.length)
+        var to = from
+        for _ in 0..<count where from > 0 {
+            from = text.lineRange(for: NSRange(location: from - 1, length: 0)).location
+        }
+        for _ in 0..<count where to < text.length {
+            to = NSMaxRange(text.lineRange(for: NSRange(location: to, length: 0)))
+        }
+        return NSRange(location: from, length: to - from)
     }
 
     /// What the landing finds each run by once the block has moved to `slot`, read before the
@@ -237,22 +301,7 @@ extension TextFirstEditorController {
                 : j + 1 < n ? tops[j + 1] : tops[j] + plan.height(j, gap: gap)
             return CGRect(x: 0, y: tops[j], width: width, height: max(0, bottom - tops[j]))
         }
-        // Only what is laid out is drawn: drawing more would lay it out and move what shows.
-        guard let band = laidOutBand() else { return (runs, moved) }
-        return (runs.map { $0.intersection(band) }, moved?.intersection(band))
-    }
-
-    /// The stretch of the note TextKit has laid out (text view coordinates).
-    private func laidOutBand() -> CGRect? {
-        guard let manager = textView.textLayoutManager,
-            let viewport = manager.textViewportLayoutController.viewportRange,
-            let first = manager.textLayoutFragment(for: viewport.location),
-            let end = manager.textContentManager?.location(viewport.endLocation, offsetBy: -1),
-            let last = manager.textLayoutFragment(for: end)
-        else { return nil }
-        let top = inset.top + first.layoutFragmentFrame.minY
-        let bottom = inset.top + max(last.layoutFragmentFrame.maxY, first.layoutFragmentFrame.maxY)
-        return CGRect(x: 0, y: top, width: textView.bounds.width, height: bottom - top)
+        return (runs, moved)
     }
 
     /// Lay out what shows now, as the next display pass would.

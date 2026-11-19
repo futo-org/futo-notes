@@ -14,16 +14,17 @@ final class TextFirstReflow {
     private(set) var gap: Int
     private(set) var closedLine: TextFirstClosedLine?
     let painter: TextFirstSlicePainter
-    /// The text view bounds the curtain covers; it follows the note's scroll (#449).
-    private(set) var visible: CGRect
+    /// The text view bounds the curtain covers; it follows the note's scroll (#449). Set here
+    /// and by the landing (+Landing), as are the members below without `private`.
+    var visible: CGRect
     let curtain = UIView()
     private(set) var isOpen = false
     /// Going back to the note as it is, for the drop line to take over.
     private(set) var retreating = false
     /// When the slides last started end.
-    private(set) var slidesEnd: CFTimeInterval = 0
+    var slidesEnd: CFTimeInterval = 0
 
-    @MainActor private struct Slice {
+    @MainActor struct Slice {
         let layer = TextFirstReflow.prepare(CALayer())
         /// The run's drawing, from `offset` below its top (only the part near the screen of a
         /// run far taller than it is drawn), and once a photo's line has closed up.
@@ -35,21 +36,26 @@ final class TextFirstReflow {
     }
     /// The slices and the copy, in the text view's content coordinates: a scroll moves this
     /// layer alone, so slides in flight and the gap rule's reading of them stay true.
-    private let content = CALayer()
-    /// What the block is known to take in a gap and out of its place, kept for when it has
-    /// scrolled away (#449).
+    let content = CALayer()
+    /// What the block is known to take in a gap and out of the note (`TextFirstReflowPlan
+    /// .leaves`), kept for when it has scrolled away (#449).
     private(set) var known: (room: CGFloat, left: CGFloat)
-    private var slices: [Slice]
-    private let copy = CALayer()
+    /// Draws `rect` (text view coordinates) of the block laid out on its own, its top at the
+    /// given y: the copy once the block's own text is not laid out.
+    var drawBlock: ((CGRect, CGFloat) -> CGImage?)?
+    var slices: [Slice]
+    let copy = CALayer()
     /// The copy's drawing, the stretch of the block (its own coordinates) it covers, and how far
     /// below the block's top (on the pixel grid) the drawing starts.
-    private var copyImage: (image: CGImage, window: ClosedRange<CGFloat>, offset: CGFloat)?
+    private(set) var copyImage: (image: CGImage, window: ClosedRange<CGFloat>, offset: CGFloat)?
+    /// How far below the copy's frame its drawing starts now.
+    var copyShown: CGFloat = 0
     /// A photo lifted out of a line, drawn as the line of its own it becomes, for a gap.
     private var awayImage: CGImage?
     /// The card the curtain goes under.
     private weak var card: UIView?
-    private let slides = TextFirstSlides()
-    private var builder: TextFirstIdleBuilder?
+    let slides = TextFirstSlides()
+    var builder: TextFirstIdleBuilder?
     /// Debug timing of the idle drawing.
     private var building = (spent: CFTimeInterval(0), frames: 0, logged: false)
 
@@ -59,7 +65,7 @@ final class TextFirstReflow {
     ) {
         (self.plan, self.closedLine, self.painter, self.card) = (plan, closedLine, painter, card)
         gap = plan.home
-        known = (plan.room, plan.left)
+        known = (plan.room, plan.leaves)
         visible = painter.textView.bounds
         slices = plan.runs.map { _ in Slice() }
         curtain.isUserInteractionEnabled = false
@@ -104,47 +110,57 @@ final class TextFirstReflow {
         return moved != plan.home
     }
 
-    /// The layout changed under the drag (a photo decoded, a rotation): `plan` is read from it.
-    /// The gap stays on its slot, or goes home when that slot is gone, and is judged again under
-    /// the still finger; a gap that opens so is shown at once, curtain and all, so a release
-    /// never lands where nothing showed. Slices whose run and drawing are unchanged keep their
-    /// drawing; replaced ones start from where the old ones were drawn and slide to their places.
+    /// The layout changed or the note scrolled under the drag: `plan` is read from it. The gap
+    /// stays on its slot, or goes home when that slot is gone, and is judged again under the
+    /// still finger as a finger move judges it, against the runs where they are drawn now; a
+    /// gap that opens so is shown at once, curtain and all, so a release never lands where
+    /// nothing showed. A run that goes on keeps its layer and the slide it is on, and its
+    /// drawing while it still draws the run as it is, around what shows; one that newly shows
+    /// is drawn in its place at once.
     func remeasure(
         _ plan: TextFirstReflowPlan, closedLine: TextFirstClosedLine?, finger y: CGFloat
     ) {
         let bounds = painter.textView.bounds
         guard plan != self.plan || bounds != visible else { return }
         let old = self.plan
-        let drawn = slices.map { slides.drawn($0.layer) }
-        var next = plan.runs.map { _ in Slice() }
-        var appearing: [Int] = []
+        let start = old.slot(gap).flatMap { plan.boundary(of: $0) } ?? plan.home
         let resized = bounds.size != visible.size
+        var next: [Slice] = []
+        var drawn: [CGFloat] = []
+        var kept = Set<Int>()
         for (j, run) in plan.runs.enumerated() {
             guard
-                let i = old.runs.firstIndex(where: {
-                    $0.anchor == run.anchor && abs($0.inset - run.inset) < 0.5
+                let i = old.runs.indices.first(where: {
+                    !kept.contains($0) && old.runs[$0].anchor == run.anchor
+                        && abs(old.runs[$0].inset - run.inset) < 0.5
                 })
             else {
-                appearing.append(j)
+                next.append(Slice())
+                drawn.append(plan.top(j, gap: start))
                 continue
             }
-            if !resized, old.runs[i].height == run.height, old.runs[i].closed == run.closed,
-                old.runs[i].drawing == run.drawing, old.drawing == plan.drawing
+            kept.insert(i)
+            var slice = slices[i]
+            let was = old.runs[i]
+            if resized || was.height != run.height || was.closed != run.closed
+                || was.drawing != run.drawing || old.drawing != plan.drawing
+                || !covers(slice, run, around: bounds)
             {
-                (next[j].home, next[j].offset) = (slices[i].home, slices[i].offset)
-                next[j].closed = slices[i].closed
+                (slice.home, slice.closed, slice.offset) = (nil, nil, 0)
             }
-            next[j].layer.position = drawn[i]
-            next[j].shown = slices[i].shown
+            next.append(slice)
+            drawn.append(slides.drawn(slice.layer).y - slice.shown)
         }
-        if resized || old.source.size != plan.source.size { copyImage = nil }
-        if resized || old.away != plan.away || old.drawing != plan.drawing { awayImage = nil }
-        if plan.homeShown { known = (plan.room, plan.left) }
-        for slice in slices {
+        for (i, slice) in slices.enumerated() where !kept.contains(i) {
             slides.forget(slice.layer)
             slice.layer.removeFromSuperlayer()
         }
-        let slot = old.slot(gap)
+        let redrawn = old.blockDrawing != plan.blockDrawing
+        if resized || old.source.size != plan.source.size || redrawn { copyImage = nil }
+        if resized || old.away != plan.away || old.drawing != plan.drawing || redrawn {
+            awayImage = nil
+        }
+        if plan.homeShown { known = (plan.room, plan.leaves) }
         (self.plan, self.closedLine, visible, slices) = (plan, closedLine, bounds, next)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -152,12 +168,9 @@ final class TextFirstReflow {
         content.frame = curtain.bounds
         content.bounds.origin = visible.origin
         CATransaction.commit()
-        gap = slot.flatMap { plan.boundary(of: $0) } ?? plan.home
-        gap = plan.gap(from: gap, finger: min(max(y, visible.minY), visible.maxY))
-        // What newly shows is drawn in its place at once.
-        for j in appearing {
-            slices[j].layer.position = CGPoint(x: 0, y: painter.pixel(plan.top(j, gap: gap)))
-        }
+        gap = plan.gap(
+            from: start, finger: min(max(y, visible.minY), visible.maxY),
+            drawn: isOpen ? drawn : nil)
         guard isOpen else {
             if gap != plan.home {
                 let shown = gap
@@ -169,11 +182,26 @@ final class TextFirstReflow {
             return
         }
         build(all: true)
-        for slice in slices {
-            slice.layer.anchorPoint = .zero
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (j, slice) in slices.enumerated() where slice.layer.superlayer == nil {
+            slice.layer.position = CGPoint(x: 0, y: painter.pixel(plan.top(j, gap: gap)))
             content.insertSublayer(slice.layer, below: copy)
         }
+        CATransaction.commit()
         place(animated: true)
+    }
+
+    /// Whether `slice` holds `run`'s drawing for all of it that may show around `bounds`.
+    private func covers(_ slice: Slice, _ run: TextFirstReflowPlan.Run, around bounds: CGRect)
+        -> Bool
+    {
+        guard let image = slice.home else { return false }
+        let from = run.top + slice.offset
+        let to = from + CGFloat(image.height) / painter.scale
+        let margin = bounds.height / 2
+        return from <= max(run.top, bounds.minY - margin) + 1
+            && to >= min(run.bottom, bounds.maxY + margin) - 1
     }
 
     /// Take the preview back to the note as it is (the gap home, everything in place), then
@@ -190,68 +218,6 @@ final class TextFirstReflow {
         let left = slidesEnd - CACurrentMediaTime()
         guard left > 0 else { return done() }
         DispatchQueue.main.asyncAfter(deadline: .now() + left) { done() }
-    }
-
-    /// The release: the copy is drawn solid at once.
-    func solidify() {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        copy.opacity = 1
-        CATransaction.commit()
-    }
-
-    /// The move is in the note under the curtain: slide each run, and the copy, from where it
-    /// is drawn to where the note now draws it (`runs`, `block`: text view coordinates, nil for
-    /// a run no longer on screen), drawn from the note itself. The copy's drawing fades into the
-    /// block's as it arrives (a box or indent it gained on arrival comes in, not pops).
-    func settle(runs: [CGRect], block: CGRect?, over duration: CFTimeInterval) {
-        builder = nil
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        // What is drawn beyond a margin around the screen cannot slide into view.
-        let reach = visible.insetBy(dx: 0, dy: -visible.height / 4)
-        for (j, frame) in runs.enumerated() where j < slices.count {
-            let layer = slices[j].layer
-            let shown = frame.intersection(reach)
-            guard !shown.isNull, shown.height > 0 else {
-                layer.isHidden = true
-                continue
-            }
-            show(draw(shown, layingOut: false), in: layer)
-            slides.slide(layer, to: inCurtain(shown), over: duration)
-        }
-        if let block = block?.intersection(reach), !block.isNull {
-            let before = copy.contents
-            show(draw(block, layingOut: false), in: copy)
-            slides.slide(copy, to: inCurtain(block), over: duration)
-            let fade = CABasicAnimation(keyPath: "contents")
-            (fade.fromValue, fade.toValue, fade.duration) = (before, copy.contents, duration)
-            copy.add(fade, forKey: "arrive")
-        }
-        CATransaction.commit()
-        slidesEnd = CACurrentMediaTime() + duration
-    }
-
-    func remove() {
-        builder = nil
-        curtain.removeFromSuperview()
-    }
-
-    /// The text view's bounds moved by `dy` with nothing on screen moving (the move was
-    /// committed and the screen held still): the curtain stays where it is on screen.
-    func follow(boundsBy dy: CGFloat) {
-        guard dy != 0 else { return }
-        visible.origin.y += dy
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        curtain.frame = visible
-        content.bounds.origin = visible.origin
-        CATransaction.commit()
-    }
-
-    /// Where a frame's top-left corner (text view coordinates) is drawn, on the pixel grid.
-    private func inCurtain(_ frame: CGRect) -> CGPoint {
-        CGPoint(x: frame.minX, y: painter.pixel(frame.minY))
     }
 
     // MARK: drawing
@@ -349,7 +315,7 @@ final class TextFirstReflow {
     }
 
     /// `frame` (text view coordinates) drawn from the note as it is now.
-    private func draw(_ frame: CGRect, layingOut: Bool = true) -> CGImage? {
+    func draw(_ frame: CGRect, layingOut: Bool = true) -> CGImage? {
         let top = painter.pixel(frame.minY)
         return painter.paint(
             CGRect(x: frame.minX, y: top, width: frame.width, height: pixelHeight(frame)),
@@ -366,7 +332,11 @@ final class TextFirstReflow {
         return from...max(from, to)
     }
 
+    /// Draw the copy's stretch for `gap`: from the note while that part of the block is laid
+    /// out, else from the block laid out on its own. A photo lifted out of a line is drawn as
+    /// its own line instead (`awayImage`), never from where its line was.
     private func drawCopy(for gap: Int) {
+        if closedLine != nil, plan.closing == nil { return }
         let needed = window(for: gap)
         if let drawn = copyImage?.window, drawn.contains(needed.lowerBound),
             drawn.contains(needed.upperBound)
@@ -379,14 +349,16 @@ final class TextFirstReflow {
             x: source.minX, y: top, width: source.width,
             height: painter.pixel(source.minY + needed.upperBound) - top)
         let anchor = plan.closing?.anchor ?? plan.sourceAnchor
-        guard let image = painter.paint(rect, from: anchor) else { return }
+        let inNote = plan.sourceLaidOut.map { $0 ~= rect.minY && $0 ~= rect.maxY - 0.5 } ?? false
+        let drawn = inNote ? painter.paint(rect, from: anchor) : drawBlock?(rect, source.minY)
+        guard let image = drawn else { return }
         copyImage = (image, needed, top - painter.pixel(source.minY))
         copy.contents = image
     }
 
     /// `image` in `layer`, the layer exactly the image's size, so it is never scaled or cropped
     /// (a layer's content gravity is upside down on iOS: `.topLeft` pins the bottom edge).
-    private func show(_ image: CGImage?, in layer: CALayer) {
+    func show(_ image: CGImage?, in layer: CALayer) {
         layer.contentsScale = painter.scale
         layer.contents = image
         layer.bounds.size =
@@ -410,33 +382,44 @@ final class TextFirstReflow {
         layer.contentsScale = painter.scale
     }
 
-    /// Put every slice and the copy where the plan draws them for the gap.
+    /// Put every slice and the copy where the plan draws them for the gap. A layer whose
+    /// drawing now starts elsewhere in its run is moved by as much, so what it shows stays put
+    /// until it slides.
     private func place(animated: Bool) {
         drawCopy(for: gap)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let duration = animated ? TextFirstReflowMotion.slide : 0
+        var slid = false
         for (j, slice) in slices.enumerated() {
             let closed = gap != plan.home
             let shut = closed ? slices[j].closed : nil
             show(shut ?? slice.home, in: slice.layer)
-            slices[j].shown = shut == nil ? slice.offset : 0
+            let shown = shut == nil ? slice.offset : 0
+            if shown != slice.shown { slides.shift(slice.layer, by: shown - slice.shown) }
+            slices[j].shown = shown
             let top = painter.pixel(plan.top(j, gap: gap))
-            slides.slide(slice.layer, to: CGPoint(x: 0, y: top + slices[j].shown), over: duration)
+            slid =
+                slides.slide(slice.layer, to: CGPoint(x: 0, y: top + shown), over: duration)
+                || slid
         }
-        if plan.closing != nil, gap != plan.home, let awayImage {
-            let frame = copyFrame
+        var copyAt: (CGRect, CGFloat)?
+        if closedLine != nil, gap != plan.home, let awayImage {
             show(awayImage, in: copy)
-            slides.slide(copy, to: inCurtain(frame), over: duration)
+            copyAt = (copyFrame, 0)
         } else if let drawn = copyImage {
-            let frame = copyFrame
             show(drawn.image, in: copy)
-            slides.slide(
-                copy,
-                to: CGPoint(x: frame.minX, y: frame.minY + drawn.offset),
-                over: duration)
+            copyAt = (copyFrame, drawn.offset)
+        }
+        if let (frame, shown) = copyAt {
+            if shown != copyShown { slides.shift(copy, by: shown - copyShown) }
+            copyShown = shown
+            slid =
+                slides.slide(
+                    copy, to: CGPoint(x: frame.minX, y: frame.minY + shown), over: duration)
+                || slid
         }
         CATransaction.commit()
-        if animated { slidesEnd = CACurrentMediaTime() + TextFirstReflowMotion.slide }
+        if slid { slidesEnd = CACurrentMediaTime() + TextFirstReflowMotion.slide }
     }
 }

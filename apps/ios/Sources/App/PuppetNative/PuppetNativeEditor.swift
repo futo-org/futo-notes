@@ -105,6 +105,13 @@
                 "dragPreview": c.blockDrag?.preview?.isOpen == true || c.reflowLanding != nil,
                 // How long the last drop's preview covered the note after the release.
                 "lastLanding": c.lastLanding ?? NSNull(),
+                // The scroll offset and the offset of the note's foot (#449 review).
+                "scroll": [
+                    "y": Double(c.textView.contentOffset.y),
+                    "foot": Double(
+                        c.textView.contentSize.height + c.textView.adjustedContentInset.bottom
+                            - c.textView.bounds.height),
+                ],
             ]
         }
 

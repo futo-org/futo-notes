@@ -43,7 +43,9 @@ final class TextFirstAutoscroller {
     private var link: CADisplayLink?
     private var last: CFTimeInterval?
     private let scroll: (CGFloat) -> Bool
-    let meter = TextFirstDragMeter()
+    #if DEBUG
+        let meter = TextFirstDragMeter()
+    #endif
 
     /// `scroll` moves the note by a frame's step, false when it could not move at all (at an
     /// end of the note): the frames then rest until `resume`.
@@ -84,11 +86,13 @@ final class TextFirstAutoscroller {
         defer { last = link.timestamp }
         guard let last else { return }
         let elapsed = link.timestamp - last
-        if !meter.frame(
-            gap: elapsed, { scroll(TextFirstAutoscroll.step(velocity, elapsed: elapsed)) })
-        {
-            link.isPaused = true
-        }
+        let step = { self.scroll(TextFirstAutoscroll.step(self.velocity, elapsed: elapsed)) }
+        #if DEBUG
+            let moved = meter.frame(gap: elapsed, step)
+        #else
+            let moved = step()
+        #endif
+        if !moved { link.isPaused = true }
     }
 }
 

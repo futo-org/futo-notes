@@ -100,6 +100,15 @@
             h.controller.endBlockDrag(dropping: false)
         }
 
+        @Test func aLandingAboveTwoEmptyTasksAtTheEndDrawsTheLastBox() async throws {
+            // The last task's box is drawn below the fragment TextKit lays it out in.
+            let h = TextFirstHarness("alpha\nbravo\ncharlie\n- [ ] \n- [ ] ", focused: false)
+            let drag = try begin(h, at: h.point(line: 0))
+            drag.follow(h.point(line: 1, fraction: 0.6))
+            #expect(drag.slot?.offset == h.lineStarts[2])
+            try await land(h, drag, after: "bravo\nalpha\ncharlie\n- [ ] \n- [ ] ", "tasks")
+        }
+
         @Test func aCappedCardShowsItsBlock() throws {
             let tall = Array(repeating: "a paragraph taller than the screen", count: 60)
                 .joined(separator: " ")
