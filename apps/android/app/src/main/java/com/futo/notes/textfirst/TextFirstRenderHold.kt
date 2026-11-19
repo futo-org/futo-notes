@@ -62,6 +62,8 @@ internal class RenderHold(private val view: TextFirstEditText) {
     inner class MenuWatch : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
             openMenus.add(mode)
+            // A selection's handles show with its menu.
+            view.post { view.handleWatch.look() }
             menus++
             menuPending = false
             view.removeCallbacks(menuGaveUp)

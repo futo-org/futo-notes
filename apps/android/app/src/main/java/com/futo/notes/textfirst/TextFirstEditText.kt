@@ -94,6 +94,8 @@ internal class TextFirstEditText(
     internal val renderHold = RenderHold(this)
     /** The long-press block drag (BlockDrag.kt); it sees every touch first. */
     internal val blockLift = BlockLift(this)
+    internal val caretEdge = CaretEdgeScroll(this)
+    internal val handleWatch = HandleWatch(this, caretEdge)
     /** Whether the note's screen lets a press lift a block: the note is open and no other field of the screen holds focus. */
     var liftAllowed: () -> Boolean = { false }
 
@@ -201,6 +203,7 @@ internal class TextFirstEditText(
 
     override fun onDetachedFromWindow() {
         blockLift.interrupt()
+        handleWatch.detach()
         super.onDetachedFromWindow()
     }
 
