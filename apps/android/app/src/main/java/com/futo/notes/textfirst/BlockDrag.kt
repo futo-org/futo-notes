@@ -27,11 +27,8 @@ internal class BlockDrag private constructor(
     val plan: LiftPlan,
     /** A photo lifted out of its line: its card is the photo, and it has no edges of its own. */
     private val photo: TfImage?,
-    /** Where the card's content starts below the block's top, its height, and its sides. */
+    /** Where the card's content starts below the block's top: the part that showed at the lift. */
     private val cardFromTop: Float,
-    private val contentHeight: Float,
-    private val left: Float,
-    private val right: Float,
     /** The finger at the lift, and the card's top-left then, in view coordinates. */
     private val liftX: Float,
     private val liftY: Float,
@@ -48,10 +45,25 @@ internal class BlockDrag private constructor(
     private var dy = 0f
     private var scale = ENTER_SCALE
     private var animator: ValueAnimator? = null
-    private val capped get() = contentHeight < sourceHeight()
     private val d = view.style.density
+    private val padY = if (photo != null) 0f else CARD_PAD_Y_DP * d
 
-    private fun sourceHeight(): Float = sourceRect()?.height() ?: contentHeight
+    /** The card's sides, the content y it shows from, how much it shows and whether that is cut short. */
+    private class Card(val left: Float, val right: Float, val from: Float, val height: Float, val capped: Boolean)
+    private var lastCard: Card? = null
+
+    init { card() }
+
+    /** The card as the block is laid out now (a photo decoding, a new width), at most 40% of the screen tall. */
+    private fun card(source: RectF? = sourceRect()): Card {
+        if (source == null) return checkNotNull(lastCard)
+        val cap = view.resources.displayMetrics.heightPixels * MAX_SCREEN_FRACTION
+        val shows = maxOf(1f, if (photo != null) source.height() else source.height() - cardFromTop)
+        val left = if (photo != null) source.left else view.totalPaddingLeft - CARD_PAD_X_DP * d
+        val right = if (photo != null) source.right else view.width - view.totalPaddingRight + CARD_PAD_X_DP * d
+        val from = if (photo != null) source.top else source.top + cardFromTop
+        return Card(left, right, from, minOf(shows, cap), shows > cap).also { lastCard = it }
+    }
 
     /** The block's top and bottom as laid out now (a photo's own box), content coordinates. */
     private fun sourceRect(): RectF? {
@@ -111,7 +123,7 @@ internal class BlockDrag private constructor(
         }
     }
 
-    /** A card that did not land slides back to where it was lifted, then goes. */
+    /** A card that did not land slides back over its block, where it is drawn now (the note may have scrolled), then goes. */
     fun returnHome(done: () -> Unit) {
         animator?.cancel()
         slot = null
@@ -119,7 +131,13 @@ internal class BlockDrag private constructor(
         val fromY = dy
         animator = ValueAnimator.ofFloat(1f, 0f).apply {
             duration = RETURN_MS
-            addUpdateListener { val f = it.animatedValue as Float; dx = fromX * f; dy = fromY * f; invalidate() }
+            addUpdateListener {
+                val f = it.animatedValue as Float
+                val home = card().from - padY - view.scrollY - cardY
+                dx = fromX * f
+                dy = fromY * f + home * (1 - f)
+                invalidate()
+            }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) { done() }
             })
@@ -130,8 +148,12 @@ internal class BlockDrag private constructor(
     fun dispose() {
         animator?.cancel()
         animator = null
-        view.rootView.overlay.remove(floating)
+        // From the overlay it was put on: once the note has left its window, rootView is another.
+        overlay?.remove(floating)
+        overlay = null
     }
+
+    private var overlay: android.view.ViewOverlay? = null
 
     /** Redraw the dim and the drop line in the note, and the card over the window. */
     fun invalidate() {
@@ -155,11 +177,32 @@ internal class BlockDrag private constructor(
         @Deprecated("Deprecated in Java") override fun getOpacity() = PixelFormat.TRANSLUCENT
     }
 
+    /** Where the card is drawn now, unscaled, in window coordinates. */
+    internal fun cardInWindow(): RectF {
+        val at = IntArray(2).also(view::getLocationInWindow)
+        val card = card()
+        val x = at[0] + cardX + dx
+        val y = at[1] + cardY + dy
+        return RectF(x, y, x + card.right - card.left, y + card.height + 2 * padY)
+    }
+
+    /** The y of the drop line drawn now, in window coordinates; null when none is drawn. */
+    internal fun dropLineInWindow(): Float? {
+        val at = slot?.takeIf { !landing }?.let { view.boundaryY(it) } ?: return null
+        return IntArray(2).also(view::getLocationInWindow)[1] + at - view.scrollY
+    }
+
+    /** The block's place in window coordinates, as dimmed now. */
+    internal fun sourceInWindow(): RectF? = sourceRect()?.apply {
+        val at = IntArray(2).also(view::getLocationInWindow)
+        offset(at[0].toFloat() - view.scrollX, at[1].toFloat() - view.scrollY)
+    }
+
     /** Put the card up over the window. */
     fun attach() {
         val root = view.rootView
         floating.setBounds(0, 0, root.width, root.height)
-        root.overlay.add(floating)
+        overlay = root.overlay.also { it.add(floating) }
     }
 
     // ---- drawing, after the text, in content coordinates ----
@@ -189,8 +232,9 @@ internal class BlockDrag private constructor(
 
     private fun drawCard(canvas: Canvas, source: RectF?) {
         val look = view.style
-        val padY = if (photo != null) 0f else CARD_PAD_Y_DP * d
-        val w = right - left
+        val card = if (source != null || lastCard != null) card(source) else return
+        val w = card.right - card.left
+        val contentHeight = card.height
         val h = contentHeight + 2 * padY
         val save = canvas.save()
         canvas.translate(cardX + dx + view.scrollX, cardY + dy + view.scrollY)
@@ -215,10 +259,10 @@ internal class BlockDrag private constructor(
         canvas.drawPath(path, border)
         if (source != null) {
             canvas.clipPath(path)
-            val layer = if (capped) canvas.saveLayer(0f, padY, w, padY + contentHeight, null) else -1
+            val layer = if (card.capped) canvas.saveLayer(0f, padY, w, padY + contentHeight, null) else -1
             canvas.save()
             canvas.clipRect(0f, padY, w, padY + contentHeight)
-            canvas.translate(-left, padY - (source.top + cardFromTop))
+            canvas.translate(-card.left, padY - card.from)
             view.drawLayoutRegion(canvas, plan.block.start, plan.block.end)
             canvas.restore()
             if (layer >= 0) {
@@ -261,19 +305,13 @@ internal class BlockDrag private constructor(
                 val bottom = view.boundaryY(BlockSlot(plan.block.end, plan.block.toEnd))
                 if (top == null || bottom == null) null else RectF(0f, top, view.width.toFloat(), bottom)
             } ?: return null
-            // The part that shows, at most 40% of the screen's height.
+            // The part that shows: the card starts there.
             val top = maxOf(source.top, shownTop)
             val bottom = minOf(source.bottom, shownBottom)
             if (bottom <= top) return null
-            val cap = view.resources.displayMetrics.heightPixels * MAX_SCREEN_FRACTION
-            val height = minOf(bottom - top, cap)
             val left = if (photo != null) source.left else view.totalPaddingLeft - CARD_PAD_X_DP * d
-            val right = if (photo != null) source.right else view.width - view.totalPaddingRight + CARD_PAD_X_DP * d
             val padY = if (photo != null) 0f else CARD_PAD_Y_DP * d
-            return BlockDrag(
-                view, plan, photo, top - source.top, height, left, right, x, y,
-                cardX = left, cardY = top - padY - view.scrollY,
-            )
+            return BlockDrag(view, plan, photo, if (photo != null) 0f else top - source.top, x, y, cardX = left, cardY = top - padY - view.scrollY)
         }
 
         /** Whether [block] runs from a line's start to the start of a line after it (or the end): what lifts with its lines. */

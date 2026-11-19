@@ -39,7 +39,10 @@ internal fun TextFirstEditText.boundaryY(slot: BlockSlot): Float? {
     return totalPaddingTop + (if (slot.end) l.getLineBottom(line) else l.getLineTop(line)).toFloat()
 }
 
-/** The photo [image] draws, in content coordinates. */
+/**
+ * The photo [image] draws, in content coordinates: as tall as its bitmap above the row's
+ * baseline, and in a right-to-left run to the left of its leading caret position.
+ */
 internal fun TextFirstEditText.imageRect(image: TfImage): RectF? {
     val l = layout ?: return null
     val e = editableText ?: return null
@@ -48,25 +51,24 @@ internal fun TextFirstEditText.imageRect(image: TfImage): RectF? {
     val line = l.getLineForOffset(start)
     val fm = android.graphics.Paint.FontMetricsInt()
     val width = image.getSize(paint, e, start, e.getSpanEnd(image), fm)
-    val left = totalPaddingLeft + l.getPrimaryHorizontal(start)
+    val caret = totalPaddingLeft + l.getPrimaryHorizontal(start)
+    val left = if (l.isRtlCharAt(start)) caret - width else caret
     val baseline = (totalPaddingTop + l.getLineBaseline(line)).toFloat()
     return RectF(left, baseline + fm.ascent, left + width, baseline)
 }
 
-/** The photo under ([x], [y]) in view coordinates. */
+/** The photo drawn under ([x], [y]) in view coordinates: inside its own box, not merely on its row. */
 internal fun TextFirstEditText.imageAt(x: Float, y: Float): TfImage? {
     val l = layout ?: return null
     val e = editableText ?: return null
-    val localX = x - totalPaddingLeft + scrollX
-    val localY = y - totalPaddingTop + scrollY
+    val cx = x + scrollX
+    val cy = y + scrollY
+    val localY = cy - totalPaddingTop
     if (localY < 0 || localY >= l.height) return null
     val line = l.getLineForVertical(localY.toInt())
     for (image in e.getSpans(l.getLineStart(line), l.getLineEnd(line), TfImage::class.java)) {
-        val start = e.getSpanStart(image)
-        if (l.getLineForOffset(start) != line) continue
-        val left = l.getPrimaryHorizontal(start)
-        val width = image.getSize(paint, e, start, e.getSpanEnd(image), null)
-        if (localX >= left && localX < left + width) return image
+        if (l.getLineForOffset(e.getSpanStart(image)) != line) continue
+        if (imageRect(image)?.contains(cx, cy) == true) return image
     }
     return null
 }
