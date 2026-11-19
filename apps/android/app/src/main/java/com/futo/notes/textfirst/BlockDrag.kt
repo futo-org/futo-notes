@@ -309,6 +309,8 @@ internal class BlockDrag private constructor(
             canvas.save()
             canvas.clipRect(0f, padY, w, padY + contentHeight)
             canvas.translate(-card.left, padY - card.from)
+            val layoutTop = (card.from - view.totalPaddingTop).toInt()
+            view.drawCodeBlocksForDrag(canvas, layoutTop, layoutTop + kotlin.math.ceil(card.height).toInt())
             view.drawLayoutRegion(canvas, plan.block.start, plan.block.end)
             canvas.restore()
             if (layer >= 0) {

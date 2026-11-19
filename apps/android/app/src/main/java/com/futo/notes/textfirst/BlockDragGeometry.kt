@@ -104,7 +104,7 @@ internal fun TextFirstEditText.drawNoteRegion(canvas: Canvas, top: Float, bottom
     val save = canvas.save()
     try {
         canvas.clipRect(0f, top, (width + scrollX).toFloat(), bottom)
-        drawCodeBlocks(canvas, from, to)
+        drawCodeBlocksForDrag(canvas, from, to)
         drawFindMarks(canvas, from, to)
         val e = editableText as? ChunkedEditable
         e?.drawWindow = l.getLineStart(l.getLineForVertical(maxOf(0, from)))..l.getLineEnd(l.getLineForVertical(maxOf(0, to)))

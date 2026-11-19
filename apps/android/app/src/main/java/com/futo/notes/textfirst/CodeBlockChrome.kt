@@ -58,13 +58,18 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     var belowLabelBox: RectF? = null
         private set
 
+    /** Off while a block drag draws cards for its preview: the live view's taps still hit the parts drawn on screen. */
+    var recordsTargets = true
+
     fun clearTargets() {
+        if (!recordsTargets) return
         drawnTargets = 0
         belowLabelBox = null
     }
 
     /** A drawn part, reusing last frame's target objects: the chrome draws every frame. */
     private fun addTarget(action: CodeBlockAction, codeStart: Int, block: CodeBlockFacts?, left: Float, top: Float, right: Float, bottom: Float) {
+        if (!recordsTargets) return
         if (drawnTargets == targets.size) targets.add(CodeBlockTarget(RectF(), action, codeStart))
         targets[drawnTargets++].apply {
             area.set(left, top, right, bottom)
@@ -181,7 +186,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     fun drawLineBelow(canvas: Canvas, codeStart: Int, width: Float, labelTop: Float, pressBottom: Float) {
         val label = edgeLabel(labels.addLineBelow, width - look.codeCorner * 2)
         val box = RectF(0f, labelTop, width, labelTop + look.codeSkirt)
-        belowLabelBox = box
+        if (recordsTargets) belowLabelBox = box
         if (label.isNotEmpty()) drawEdgeLabel(canvas, label, width / 2f, box.top, box.bottom)
         addTarget(CodeBlockAction.OPEN_LINE_BELOW, codeStart, null, 0f, labelTop, width, maxOf(pressBottom, box.bottom))
     }

@@ -11,6 +11,16 @@ import android.graphics.RectF
  * ahead of the TextView's own drawing, because the TextView draws the caret before the layout's
  * line backgrounds: a LineBackgroundSpan would cover the caret.
  */
+/** Code cards drawn for a block drag, between content y [top] and [bottom]: the taps keep the targets the view drew. */
+internal fun TextFirstEditText.drawCodeBlocksForDrag(canvas: Canvas, top: Int, bottom: Int) {
+    codeChrome.recordsTargets = false
+    try {
+        drawCodeBlocks(canvas, top, bottom)
+    } finally {
+        codeChrome.recordsTargets = true
+    }
+}
+
 internal fun TextFirstEditText.drawCodeBlocks(canvas: Canvas, top: Int = scrollY - totalPaddingTop, bottom: Int = top + height) {
     codeChrome.clearTargets()
     val l = layout ?: return
