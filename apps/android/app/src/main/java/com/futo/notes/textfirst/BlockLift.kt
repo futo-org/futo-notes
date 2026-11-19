@@ -60,6 +60,9 @@ internal class BlockLift(private val view: TextFirstEditText) {
     private val hold = Runnable { ask() }
     private val tolerance get() = LiftPolicy.TOLERANCE_DP * view.style.density
 
+    /** Whether the edge autoscroll is asking for frames. */
+    internal val autoscrollRunning get() = autoscrolling
+
     /** The drag on screen, until its card is gone. */
     internal var drag: BlockDrag? = null
         private set
@@ -97,9 +100,12 @@ internal class BlockLift(private val view: TextFirstEditText) {
             }
             // A second finger before the lift is no long press; during a drag it is ignored.
             MotionEvent.ACTION_POINTER_DOWN -> if (phase == Phase.Holding || phase == Phase.Asking) decline(platform = false)
-            MotionEvent.ACTION_POINTER_UP -> if (phase == Phase.Dragging && e.getPointerId(e.actionIndex) == pointer) release(drop = true)
+            // The lifting finger leaving drops the block, unless Android withdrew that contact (a palm).
+            MotionEvent.ACTION_POINTER_UP -> if (phase == Phase.Dragging && e.getPointerId(e.actionIndex) == pointer) release(drop = !e.canceled())
             MotionEvent.ACTION_UP -> {
-                if (phase == Phase.Dragging) release(drop = true)
+                if (phase == Phase.Dragging) release(drop = !e.canceled())
+                // Released while the engine is still answering: the platform's long press it held for comes now, before its lift.
+                if (phase == Phase.Holding || phase == Phase.Asking) platformLongPress?.let { platformLongPress = null; it() }
                 val owned = phase == Phase.Spent
                 clear()
                 return owned
@@ -124,10 +130,13 @@ internal class BlockLift(private val view: TextFirstEditText) {
         else -> false
     }
 
-    /** The note's text changed: a drag (or a lift being asked for) ends at once with nothing moved. */
-    fun noteChanged() {
-        if (phase == Phase.Asking) decline(platform = false)
-        if (phase == Phase.Dragging) cancel()
+    /**
+     * The view applied an update made at engine [revision]: any change to the note (an edit,
+     * another block's move, a reload) ends a drag lifted at another revision at once, with
+     * nothing moved, as its drop would be refused.
+     */
+    fun revisionSeen(revision: ULong) {
+        if (phase == Phase.Dragging && drag?.plan?.revision != revision) cancel()
     }
 
     /** The system took the touch, the window lost focus or the note is closing: end with nothing moved. */
@@ -137,6 +146,8 @@ internal class BlockLift(private val view: TextFirstEditText) {
             Phase.Dragging -> cancel()
             else -> Unit
         }
+        // A card still sliding home or landing goes with it.
+        drag?.let { finish(it, returning = false) }
     }
 
     /** The text or its layout moved under the drag: measure again. */
@@ -183,6 +194,8 @@ internal class BlockLift(private val view: TextFirstEditText) {
         try { view.routeTouch(cancel) } finally { cancel.recycle() }
         view.parent?.requestDisallowInterceptTouchEvent(true)
         drag = created
+        // No text menu can open during a drag: the rest of a note still streaming in keeps coming, in its bounded slices.
+        view.renderHold.dragging(true)
         haptics.lifted()
         created.attach()
         created.enter()
@@ -239,6 +252,7 @@ internal class BlockLift(private val view: TextFirstEditText) {
     }
 
     private fun finish(d: BlockDrag, returning: Boolean) {
+        view.renderHold.dragging(false)
         d.landing = false
         if (!returning) {
             d.dispose()
@@ -258,7 +272,8 @@ internal class BlockLift(private val view: TextFirstEditText) {
     private val frame = Choreographer.FrameCallback { now -> autoscrollFrame(now) }
 
     private fun startAutoscroll() {
-        if (autoscrolling) return
+        // At the note's end in that direction there is nothing to scroll: no frames.
+        if (autoscrolling || !canScroll(autoscrollVelocity)) return
         autoscrolling = true
         lastFrame = 0L
         remainder = 0f
@@ -272,6 +287,8 @@ internal class BlockLift(private val view: TextFirstEditText) {
         Choreographer.getInstance().removeFrameCallback(frame)
     }
 
+    private fun canScroll(velocity: Float) = if (velocity < 0) view.scrollY > 0 else view.scrollY < view.maxScrollY()
+
     private fun autoscrollFrame(now: Long) {
         if (!autoscrolling || phase != Phase.Dragging || autoscrollVelocity == 0f) { autoscrolling = false; return }
         if (lastFrame != 0L) {
@@ -282,8 +299,12 @@ internal class BlockLift(private val view: TextFirstEditText) {
             if (dy != 0) view.scroll.dragBy(dy)
             // The note moved under a still finger: the drop line follows the slot now nearest it, without a tick.
             if (view.scrollY != before) follow(fromFinger = false)
+            // Stopped at an end: no more frames until the finger or the layout makes room to scroll.
+            else if (dy != 0) { autoscrolling = false; return }
         }
         lastFrame = now
         if (autoscrolling) Choreographer.getInstance().postFrameCallback(frame)
     }
 }
+
+private fun MotionEvent.canceled() = flags and MotionEvent.FLAG_CANCELED != 0

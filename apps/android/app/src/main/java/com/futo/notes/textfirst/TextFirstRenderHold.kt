@@ -20,6 +20,8 @@ internal class RenderHold(private val view: TextFirstEditText) {
     var held = false
         private set
     private var touching = false
+    /** A block drag owns the touch: no text menu can open, so the touch holds nothing back. */
+    private var dragging = false
     private var menus = 0
     private var menuPending = false
     private val menuGaveUp = Runnable { menuPending = false; update() }
@@ -35,6 +37,12 @@ internal class RenderHold(private val view: TextFirstEditText) {
         }
     }
 
+    fun dragging(on: Boolean) {
+        if (dragging == on) return
+        dragging = on
+        update()
+    }
+
     fun longPressed() {
         menuPending = true
         view.removeCallbacks(menuGaveUp)
@@ -43,7 +51,7 @@ internal class RenderHold(private val view: TextFirstEditText) {
     }
 
     private fun update() {
-        val now = touching || menuPending || menus > 0
+        val now = (touching && !dragging) || menuPending || menus > 0
         if (now == held) return
         held = now
         view.engine?.holdRender(now)

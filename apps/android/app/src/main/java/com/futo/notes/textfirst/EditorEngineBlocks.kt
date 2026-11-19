@@ -46,15 +46,15 @@ internal fun EditorEngine.moveBlock(offset: Int, slot: BlockSlot, drop: DropHold
 }
 
 /**
- * A long-press lifts at [press] (view coordinates at update [viewSeq]): finish loading a note
- * still streaming in, settle a composition, and say what lifts and its slots within [near].
+ * A long-press lifts at [press] (view coordinates at update [viewSeq]): settle a composition and
+ * say what lifts and its slots within [near], which the view already holds. A note still
+ * streaming in is not waited for: its rest keeps coming during the drag (RenderHold.dragging).
  * [done] runs on the UI thread with null when nothing lifts or the editor cannot answer.
  */
 internal fun EditorEngine.planLift(viewSeq: Int, press: Int, near: IntRange, done: (LiftPlan?) -> Unit) = handler.post {
     var plan: LiftPlan? = null
     if (!closed && session != null && storageGate?.isMigrationStarted != true) try {
         if (mirror.overlay != null) commitComposition(null)
-        if (streaming) finishStreaming()
         val mapped = viewEdits.map(viewSeq, press, press)
         val range = viewEdits.map(viewSeq, near.first, near.last)
         if (mapped != null && range != null) {

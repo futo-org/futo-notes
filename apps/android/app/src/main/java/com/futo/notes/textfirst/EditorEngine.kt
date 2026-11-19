@@ -393,6 +393,7 @@ internal class EditorEngine(
             sourceChanged = sourceChanged, preserveScroll = preserveScroll,
             marked = marked,
             drop = pendingDrop.also { pendingDrop = null },
+            revision = rev,
         )
         publishSelection()
         publishCell()

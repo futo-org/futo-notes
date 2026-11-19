@@ -72,6 +72,8 @@ internal class UiUpdate(
     val marked: List<SpanSpec.Inline>? = null,
     /** This update is a dropped block landing: how the view keeps its place (EditorEngineBlocks.kt). */
     val drop: DropHold? = null,
+    /** The engine revision the view holds once this is applied: a drag lifted at another ends (BlockLift.kt). */
+    val revision: ULong = 0u,
 )
 
 /**

@@ -14,8 +14,8 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
         awaitingRelayout = false
     }
     contentComplete = update.complete
-    // The note's text changed under a drag: it ends at once with nothing moved.
-    if (!update.append && !update.styleOnly && update.drop == null && (update.edits.isNotEmpty() || update.sourceChanged)) blockLift.noteChanged()
+    // The note changed under a drag (its revision moved): it ends at once with nothing moved.
+    blockLift.revisionSeen(update.revision)
     if (update.append) { applyAppend(update); scheduleRestore(); return }
     if (update.styleOnly) { applyStyleSlice(update); return }
     if (update.reset != null && update.preserveScroll) {
