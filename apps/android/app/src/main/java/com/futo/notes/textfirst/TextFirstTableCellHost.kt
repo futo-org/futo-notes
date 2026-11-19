@@ -70,8 +70,22 @@ internal class TextFirstTableCellHost(
     }
 
     override fun onDetachedFromWindow() {
+        endFields()
         stopObserving()
         super.onDetachedFromWindow()
+    }
+
+    /**
+     * Leaving the note, or the editor losing its window: no field keeps focus or the keyboard it raised. A code
+     * block's header field has lost focus to the screen's back arrow by now, but stays open with its keyboard up,
+     * which then stood over the notes list.
+     */
+    private fun endFields() {
+        val headerField = note.codeTouch.headerField
+        if (findFocus() == null && headerField.openField == null) return
+        context.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(windowToken, 0)
+        headerField.close()
+        findFocus()?.clearFocus()
     }
 
     private fun stopObserving() {
