@@ -42,13 +42,12 @@ internal fun TextFirstEditText.revealRange(start: Int, end: Int) {
     invalidate()
 }
 
-internal fun TextFirstEditText.drawFindMarks(canvas: Canvas) {
+internal fun TextFirstEditText.drawFindMarks(canvas: Canvas, top: Int = scrollY - totalPaddingTop, bottom: Int = top + height) {
     if (marks.isEmpty) return
     val l = layout ?: return
     val e = editableText ?: return
-    val top = scrollY - totalPaddingTop
     val from = l.getLineStart(l.getLineForVertical(maxOf(0, top)))
-    val to = l.getLineEnd(l.getLineForVertical(maxOf(0, top + height)))
+    val to = l.getLineEnd(l.getLineForVertical(maxOf(0, bottom)))
     val markPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
     val markPath = android.graphics.Path()
     val save = canvas.save()

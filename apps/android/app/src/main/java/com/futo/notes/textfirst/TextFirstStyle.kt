@@ -32,6 +32,8 @@ internal class TextFirstStyle(
     val mediumItalic: Typeface = Typeface.create(italic, 500, true),
     val extraBold: Typeface = Typeface.create(bold, 800, false),
     val extraBoldItalic: Typeface = Typeface.create(boldItalic, 800, true),
+    /** The page under the note: a lifted block's card and its dimmed place are painted with it. */
+    var pageColor: Int = android.graphics.Color.WHITE,
 ) {
     fun dp(value: Float) = value * density
     val bodyLineHeight = (textSizePx * 1.55f).toInt()

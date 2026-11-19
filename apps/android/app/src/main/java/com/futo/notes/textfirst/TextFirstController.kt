@@ -56,6 +56,8 @@ internal class TextFirstController(
     var focused by mutableStateOf(false); private set
     /** The last find result, or null before find is first used in this open note. */
     var find by mutableStateOf<FindSnapshot?>(null); private set
+    /** Whether another text field of the note's screen (the title, Find) holds focus: then no press lifts a block. */
+    var screenFieldFocused: () -> Boolean = { false }
 
     var onAttachmentChanged: (String) -> Unit = {}
     var onCheckpointed: (FlushDraftResult, String) -> Unit = { _, _ -> }
@@ -74,6 +76,8 @@ internal class TextFirstController(
         ))
         view.onTableCell = { start, end, seq -> engine?.selectDisplayRange(start, end, seq) {} }
         view.clipboard.onCopyRefused = { onClipboardRefused() }
+        // A field of the note holding the keyboard (a cell, a code block's name or language) keeps a hold its own.
+        view.liftAllowed = { opened && cellView == null && view.codeTouch.headerField.openField == null && !screenFieldFocused() }
         MainThreadWatchdog.start()
         view.setOnFocusChangeListener { _, hasFocus ->
             // A code block's header field is part of the note: the editor toolbar keeps the state it had
@@ -213,7 +217,8 @@ internal class TextFirstController(
     // ---- commands ----
 
     /** Recolor the existing view and spans without reopening the note or losing its selection. */
-    fun updateColors(text: Int, muted: Int, link: Int, border: Int, code: Int, surface: Int) {
+    fun updateColors(text: Int, muted: Int, link: Int, border: Int, code: Int, surface: Int, page: Int = style.pageColor) {
+        style.pageColor = page
         style.textColor = text
         style.mutedColor = muted
         style.linkColor = link

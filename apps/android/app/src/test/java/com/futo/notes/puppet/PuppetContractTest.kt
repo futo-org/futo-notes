@@ -266,6 +266,21 @@ class PuppetContractTest {
     }
 
     @Test
+    fun moveBlockTakesALineOneSideAndOnlyANonNegativeWholeColumn() {
+        fun status(json: String) = try { moveBlockRequest(JSONObject(json)); 200 } catch (refusal: PuppetVerbRefusal) { refusal.status }
+        val request = moveBlockRequest(JSONObject("""{"line":1,"column":4,"after":2}"""))
+        assertEquals(listOf(1, 4, null, 2), listOf(request.line, request.column, request.before, request.after))
+        assertNull(moveBlockRequest(JSONObject("""{"line":3,"before":1}""")).column)
+        // As JSON hands them over: a string, a fraction, a boolean, null, a negative number.
+        for (column in listOf("\"4\"", "1.5", "true", "null", "-1")) {
+            assertEquals("column $column", 400, status("""{"line":1,"column":$column,"after":2}"""))
+        }
+        assertEquals("a direction is required", 400, status("""{"line":3}"""))
+        assertEquals("only one direction", 400, status("""{"line":3,"before":1,"after":2}"""))
+        assertEquals(400, status("""{"before":1}"""))
+    }
+
+    @Test
     fun nativeEditorActionsAdvertiseTextAndDisplayCoordinates() {
         val actions = nativeEditorActions()
         val schemas = (0 until actions.length()).associate { index ->

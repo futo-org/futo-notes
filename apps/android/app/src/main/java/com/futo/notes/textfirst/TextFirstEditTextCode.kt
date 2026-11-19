@@ -11,13 +11,12 @@ import android.graphics.RectF
  * ahead of the TextView's own drawing, because the TextView draws the caret before the layout's
  * line backgrounds: a LineBackgroundSpan would cover the caret.
  */
-internal fun TextFirstEditText.drawCodeBlocks(canvas: Canvas) {
+internal fun TextFirstEditText.drawCodeBlocks(canvas: Canvas, top: Int = scrollY - totalPaddingTop, bottom: Int = top + height) {
     codeChrome.clearTargets()
     val l = layout ?: return
     val e = editableText ?: return
-    val top = scrollY - totalPaddingTop
     val firstLine = l.getLineForVertical(maxOf(0, top))
-    val lastLine = l.getLineForVertical(maxOf(0, top + height))
+    val lastLine = l.getLineForVertical(maxOf(0, bottom))
     val lines = e.getSpans(l.getLineStart(firstLine), l.getLineEnd(lastLine), TfCodeBlock::class.java)
     if (lines.isEmpty()) return
     lines.sortBy { e.getSpanStart(it) }

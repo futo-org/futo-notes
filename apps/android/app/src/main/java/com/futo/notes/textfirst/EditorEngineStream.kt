@@ -72,7 +72,7 @@ internal fun EditorEngine.showNextRenderSlice() {
             postRenderUpdate(UiUpdate(
                 seq, null, emptyList(), mirror.selStart, mirror.selEnd,
                 mirror.composingStart, mirror.composingEnd, listOf(window), 0L,
-                complete = !streaming && !renderWork.stylesPending, styleOnly = true,
+                complete = !streaming && !renderWork.stylesPending, styleOnly = true, revision = rev,
             ))
         } else showNextSlice()
     } catch (error: EditorSessionException) {
@@ -128,7 +128,7 @@ internal fun EditorEngine.postAppend(edits: List<TextEdit>, windows: List<StyleW
     postRenderUpdate(UiUpdate(
         seq, null, edits, mirror.selStart, mirror.selEnd,
         mirror.composingStart, mirror.composingEnd, windows, 0L,
-        append = true, complete = !streaming && !renderWork.stylesPending,
+        append = true, complete = !streaming && !renderWork.stylesPending, revision = rev,
     ))
 }
 

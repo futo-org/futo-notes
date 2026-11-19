@@ -121,18 +121,10 @@ internal fun TextFirstEditorScreen(
         val style = textFirstStyleFromTheme(context, c, darkTheme)
         TextFirstController(context, { store.core }, java.io.File(store.rootPath), style, store)
     }
-    LaunchedEffect(controller, c, darkTheme) {
-        controller.updateColors(
-            text = c.textPrimary.toArgb(),
-            muted = c.textMuted.toArgb(),
-            link = c.accent.toArgb(),
-            border = c.border.toArgb(),
-            code = (if (darkTheme) FutoPalette.InkHairline else FutoPalette.N200).toArgb(),
-            surface = c.surfaceSunken.toArgb(),
-        )
-    }
+    TextFirstColors(controller, c, darkTheme)
 
     val find = rememberTextFirstFind(controller, initialNoteId)
+    controller.screenFieldFocused = { titleField.isFocused || (find.visible && find.focused) }
     val images = rememberTextFirstImages(controller, store, noteId, leaving, imagePicker)
 
     val titleWarning = remember(initialNoteId) { TitleWarning(scope) }

@@ -14,6 +14,8 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
         awaitingRelayout = false
     }
     contentComplete = update.complete
+    // The note changed under a drag (its revision moved): it ends at once with nothing moved.
+    blockLift.revisionSeen(update.revision)
     if (update.append) { applyAppend(update); scheduleRestore(); return }
     if (update.styleOnly) { applyStyleSlice(update); return }
     if (update.reset != null && update.preserveScroll) {
@@ -111,6 +113,12 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
         applying = wasApplying
     }
     anchor?.let { anchorY(it)?.let { y -> if (y != scrollY) scrollTo(scrollX, y) } }
+    update.drop?.let { hold ->
+        // A dropped block landed: the caret it carried is not revealed, and the note holds its place.
+        reveal.hold(selectionEnd, selectionStart)
+        if (hold.offset >= 0) holdDropLine(hold)
+        blockLift.landed(update.revision)
+    }
     onApplyMeasured?.invoke(KeyTimings(
         update.inputUptimeNanos, update.postedNanos, update.engineNanos,
         applyStart, editsEnd, android.os.SystemClock.elapsedRealtimeNanos(),

@@ -80,7 +80,20 @@ internal class UiUpdate(
     val selectedBlock: Pair<Int, Int>? = null,
     /** A block was made whose opening fence takes the next letters as its language: its language field opens. */
     val writesLanguage: Boolean = false,
+    /** This update is a dropped block landing: how the view keeps its place (EditorEngineBlocks.kt). */
+    val drop: DropHold? = null,
+    /** The engine revision the view holds once this is applied: a drag lifted at another ends (BlockLift.kt). */
+    val revision: ULong = 0u,
 )
+
+/**
+ * How the view keeps its place when a dropped block lands. [KEEP] keeps the scroll; otherwise
+ * the line holding display offset [offset] (as the move leaves the text) is put back with its
+ * top [top] px below the view's top. Either way the caret the move carries is not revealed.
+ */
+internal class DropHold(val offset: Int, val top: Int) {
+    companion object { val KEEP = DropHold(-1, 0) }
+}
 
 /**
  * Where one key's time went, all in elapsedRealtimeNanos: the editor thread

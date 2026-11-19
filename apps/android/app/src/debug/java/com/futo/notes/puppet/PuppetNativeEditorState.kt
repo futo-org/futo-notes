@@ -20,6 +20,7 @@ internal suspend fun nativeEditorState(root: View): JSONObject? {
         .put("truncated", (editable?.length ?: 0) > 8192)
         .put("from", view.selectionStart).put("to", view.selectionEnd)
         .put("appliedSeq", view.appliedSeq)
+        .put("drag", blockDragState(view))
         .put("runs", JSONArray().apply {
             editable?.getSpans(0, minOf(editable.length, 8192), TfInline::class.java)?.forEach { span ->
                 put(JSONObject().put("from", editable.getSpanStart(span)).put("to", editable.getSpanEnd(span))
@@ -74,4 +75,23 @@ internal fun findNativeEditor(view: View): TextFirstEditText? {
         findNativeEditor(view.getChildAt(index))?.let { return it }
     }
     return null
+}
+
+/**
+ * The block drag on screen (#444, #450), or null: whether it reflows or shows a drop line, the
+ * slot its gap is at (null at home: nothing would move) and where the dimmed copy is drawn, in
+ * window px, so a test can show the drop lands where the preview drew it.
+ */
+private fun blockDragState(view: TextFirstEditText): Any {
+    val drag = view.blockLift.drag ?: return JSONObject.NULL
+    val text = view.text ?: ""
+    fun slot(s: com.futo.notes.textfirst.BlockSlot?): Any = s?.let {
+        JSONObject().put("offset", it.offset).put("end", it.end)
+            .put("line", 1 + (0 until minOf(it.offset, text.length)).count { i -> text[i] == '\n' } + if (it.end) 1 else 0)
+    } ?: JSONObject.NULL
+    val state = JSONObject().put("mode", if (drag.reflow != null) "reflow" else "dropLine")
+    val reflow = drag.reflow?.report()
+    if (reflow == null) return state.put("slot", slot(drag.slot)).put("dropLineY", drag.dropLineInWindow() ?: JSONObject.NULL)
+    return state.put("gap", slot(reflow.gap)).put("opened", reflow.opened).put("landing", reflow.landing)
+        .put("copy", reflow.copy?.let { JSONObject().put("left", it.left).put("top", it.top).put("right", it.right).put("bottom", it.bottom) } ?: JSONObject.NULL)
 }
