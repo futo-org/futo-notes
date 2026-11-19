@@ -87,7 +87,7 @@ internal class ReflowStops(private val shape: ReflowShape, private val slots: Li
      * The middle of the run below [stop], as drawn with the gap at [at]. A photo at home in its
      * line leaves it only past the line's top or bottom, so nothing moves at the lift.
      */
-    private fun runMiddle(stop: Int, at: ReflowGap): Float {
+    private fun runMiddle(stop: Int, at: ReflowGap, painted: Float? = null): Float {
         if (photo && at == ReflowGap.Home) {
             if (stop + 1 == home) return shape.top
             if (stop == home) return shape.bottom
@@ -96,16 +96,23 @@ internal class ReflowStops(private val shape: ReflowShape, private val slots: Li
         val b = upper(stop + 1)
         val inPlace = photo && a >= shape.top && b <= shape.bottom
         if (inPlace) return (shape.drawn(a, true, at) + shape.drawn(b, true, at)) / 2
-        val shift = shape.shift(a, at)
+        val shift = painted ?: shape.shift(a, at)
         return (a + b) / 2 + shift
     }
 
-    /** Where the gap goes from [from] for a finger at [finger]: past each run whose middle the finger passed, one way. */
-    fun walk(from: Int, finger: Float): Int {
-        var stop = from.coerceIn(0, size - 1)
-        while (stop + 1 < size && finger > runMiddle(stop, gap(stop))) stop++
-        if (stop != from) return stop
-        while (stop > 0 && finger < runMiddle(stop - 1, gap(stop))) stop--
+    /**
+     * Where the gap goes from [from] for a finger at [finger]: past each run whose middle the
+     * finger passed, one way. [drawn] gives the shift the run below a stop is painted with now
+     * (null: settled at its place for the open gap), so a neighbour still sliding counts where it
+     * shows; runs past it are judged where the gap's next steps would put them.
+     */
+    fun walk(from: Int, finger: Float, drawn: ((Int) -> Float?)? = null): Int {
+        val start = from.coerceIn(0, size - 1)
+        var stop = start
+        fun painted(run: Int) = if (stop == start) drawn?.invoke(run) else null
+        while (stop + 1 < size && finger > runMiddle(stop, gap(stop), painted(stop))) stop++
+        if (stop != start) return stop
+        while (stop > 0 && finger < runMiddle(stop - 1, gap(stop), painted(stop - 1))) stop--
         return stop
     }
 }
@@ -127,4 +134,16 @@ internal class ReflowMove(private val photo: Boolean, private val below: Boolean
         below -> if (k < block) between + k else if (k < block + between) k - block else k
         else -> if (k < between) k + block else if (k < block + between) k - between else k
     }
+}
+
+/**
+ * Paragraphs in display range [a, b) of [text] whose last line ends at [last]. [toEnd] when [b]
+ * is the note's end slot: the last line counts then even when it shows no characters (an empty
+ * task), whose top boundary shares its offset.
+ */
+internal fun reflowParagraphs(text: CharSequence, a: Int, b: Int, last: Int, toEnd: Boolean): Int {
+    var n = 0
+    for (i in a until b) if (text[i] == '\n') n++
+    val lastLine = b == last && (if (b > a) text[b - 1] != '\n' || toEnd else toEnd)
+    return if (lastLine) n + 1 else n
 }

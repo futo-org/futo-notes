@@ -108,4 +108,28 @@ class BlockReflowTest {
         assertEquals(listOf(1, 2, 3, 4), (0..3).map(photoUp::lands))
         assertEquals(0, photoUp.moved)
     }
+
+    /** A neighbour still sliding counts where it is painted (review finding 3). */
+    @Test
+    fun theGapRuleJudgesASlidingNeighbourWhereItIsPaintedNow() {
+        val home = all.home
+        val below = all.walk(home, 165f)
+        // 140-180 slides from 0 toward -40: painted 15 px up, its middle at 145, not 120.
+        val sliding = { stop: Int -> if (stop == home) -15f else null }
+        assertEquals("the finger crossed the neighbour as painted", home, all.walk(below, 135f, sliding))
+        assertEquals(below, all.walk(below, 150f, sliding))
+        assertEquals("settled, the painted middle is the target's", below, all.walk(below, 135f))
+    }
+
+    /** `a\nb\n` with an empty task last: its row is a paragraph of its own (review finding 4). */
+    @Test
+    fun anEmptyLastTaskCountsAsAParagraphAtTheEndSlot() {
+        val text = "a\nb\n"
+        assertEquals("above the task", 1, reflowParagraphs(text, 2, 4, 4, toEnd = false))
+        assertEquals("after the task", 2, reflowParagraphs(text, 2, 4, 4, toEnd = true))
+        assertEquals("the task itself, lifted", 1, reflowParagraphs(text, 4, 4, 4, toEnd = true))
+        assertEquals("a last line with text", 2, reflowParagraphs("a\nb", 0, 3, 3, toEnd = true))
+        // `a` dropped after the task lands third.
+        assertEquals(2, ReflowMove(photo = false, below = true, block = 1, between = reflowParagraphs(text, 2, 4, 4, toEnd = true)).moved)
+    }
 }
