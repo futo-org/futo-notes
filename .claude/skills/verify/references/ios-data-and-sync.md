@@ -55,9 +55,9 @@ autocapitalize/predictive-text rewrite things like `para-1-ios` → `Para-1-iOS`
 Sync settings fields suppress this; note fields don't), and typing into a prefilled
 field appends to it (clear it with `press {"key":"Backspace","count":N}`). `type` is
 the simulator's HID keys, which on iOS 27 can deliver nothing while reporting success.
-For exact text use the verbs, which no keyboard rewrites (`do Type`, `SetTitle`,
-`SetSearchQuery`), or markers autocorrect can't rewrite (digits/hyphens), and verify
-byte-for-byte on disk.
+For exact text use the verbs, which no keyboard rewrites (in the editor `do Insert` or
+`do Replace`, direct edits rather than typing; `SetTitle`, `SetSearchQuery`), or markers
+autocorrect can't rewrite (digits/hyphens), and verify byte-for-byte on disk.
 
 ### The editor toolbar is verbs, not taps
 

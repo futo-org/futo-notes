@@ -2,6 +2,8 @@ import SwiftUI
 
 struct NoteRow: View {
     @Environment(\.localization) private var localization
+    @Environment(\.compactNoteRows) private var compact
+    @Environment(\.dropRepeatedPreviewTitle) private var dropRepeatedTitle
     let note: NoteItem
     /// Whether to show the folder label (true in flat search results).
     var showFolder: Bool = false
@@ -39,14 +41,21 @@ struct NoteRow: View {
                     .font(.caption2)
                     .foregroundStyle(Theme.primary)
             }
-            if !note.richPreview.isEmpty {
+            if !previewSource.isEmpty {
                 Text(richPreview)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(3)
+                    // Duo surfaces are short or narrow: two preview lines.
+                    .lineLimit(compact ? 2 : 3)
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// The preview text (see ``NotePreviewText``).
+    private var previewSource: String {
+        NotePreviewText.display(
+            preview: note.richPreview, title: note.title, dropRepeatedTitle: dropRepeatedTitle)
     }
 
     /// The rich preview rendered as an `AttributedString`: inline `**bold**` /
@@ -63,8 +72,8 @@ struct NoteRow: View {
             interpretedSyntax: .inlineOnlyPreservingWhitespace,
             failurePolicy: .returnPartiallyParsedIfPossible)
         let parsed =
-            (try? AttributedString(markdown: note.richPreview, options: options))
-            ?? AttributedString(note.richPreview)
+            (try? AttributedString(markdown: previewSource, options: options))
+            ?? AttributedString(previewSource)
         return NoteRow.stripLinkAttributes(from: parsed)
     }
 

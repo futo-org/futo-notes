@@ -10,10 +10,20 @@
             case .tree:
                 var tree = PuppetScreenReader.tree()
                 tree["controls"] = controlLabels()
+                // The editor's own touch targets (task checkboxes, links) are drawn text, not
+                // accessibility elements, so the editor reports them.
+                if navigation.sheet == nil, editorNote != nil, !PuppetVerbs.shared.modalUp {
+                    tree["nodes"] =
+                        (tree["nodes"] as? [[String: Any]] ?? [])
+                        + PuppetNativeEditor.shared.controls()
+                }
                 tree.merge(PuppetServerContract.aim(webview: nil)) { _, aim in aim }
                 return (200, PuppetServerContract.json(tree))
             case .verb(let name):
                 let registered = PuppetVerbs.shared.verb(named: name)
+                if registered == nil, let refusal = PuppetServerContract.unsupportedRefusal(name) {
+                    return refusal
+                }
                 // A modal sheet covers the app: only its own verbs reach anything.
                 if PuppetVerbs.shared.modalUp, registered == nil {
                     return PuppetServerContract.refusal(

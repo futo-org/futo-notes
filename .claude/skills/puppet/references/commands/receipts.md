@@ -10,17 +10,17 @@ or a phone's first screen against its last. Should that be unavailable (the page
 holds the first snapshot), every step prints in full instead. Read it whole; never pipe it
 into `head`, `tail` or `grep`.
 `{"json":true}` in a step's args prints the receipts raw instead, one element per step:
-`verb`, `status`, `result`. A successful in-page verb also carries `action` (the record id — `diff {"action":N}` replays
-it), `diff`, `editor` (state after), and `events` (how many DOM events fired).
+`verb`, `status`, `result`. A successful desktop in-page verb also carries `action` (the record id — `diff {"action":N}` replays
+it), `diff`, `editor` (state after), and `events` (how many DOM events fired). An iOS editor verb carries
+`docVersion {before, after}`, `selection`, `changed`, `editor`, `diff` and no `events` (editor-verbs.md).
 `diff` covers what changed between the snapshots either side: a `doc` hunk,
 `selection` before/after, `elements` added/removed/changed, `screen`, and — on every
 target, verbs and gestures alike — `state` and `vault`. `state` is each changed key path
 of `state`; `screen`, `selection` and every `state` entry are `[before, after]` pairs —
 `"settings.theme_mode": ["AUTO", "DARK"]` reads "was, is now" (an object that appeared is its
 whole value; a large one that went is `"{…}"`; the text form of a list that gained or lost
-members names just those, `+"ideas"`). `pending` is the moment the receipt closed: on a
-phone an edit reaches the native store a beat after the page has it, so `Type`'s own
-receipt can show nothing unsaved and the next one the save it is waiting on. `vault` is `notes` `added`/`removed`/
+members names just those, `+"ideas"`). `pending` is the moment the receipt closed: saves are
+debounced, so an edit's own receipt can show nothing unsaved and the next one the save it is waiting on. `vault` is `notes` `added`/`removed`/
 `written` and `folders` `added`/`removed`; `written` leaves out the open note, whose text
 is the `doc` hunk and which saves on its own schedule.
 It is absent when nothing changed. `changedSinceLast` means the page moved after the previous receipt with no input in between (a timer, a load, a late render): its diff is what that receipt did not see.
@@ -32,7 +32,8 @@ It is absent when nothing changed. `changedSinceLast` means the page moved after
 | 400    | bad argument, checked against `actions` before it is sent — the message ends with what this verb does accept, or the call a lone misnamed argument meant; a note or folder the vault lacks names the ones it has in another case, or of the same name in another folder | `unknown argument "position" — takes {index?: integer, noteId?: string}` · `unknown argument "with"; did you mean "text"? do Replace '{"find":"a","text":"b"}'` · `no such folder: Work; did you mean "work"? do OpenFolder '{"path":"work"}'` |
 | 404    | no such verb **on this screen**, followed by the verbs it has                                                                                                                            | `no such verb on this screen: Frobnicate` ⏎ `list has: OpenNote, OpenFolder, …`                                                                                                        |
 | 409    | the app is not in that state                                                                                                                                                             | `text at 0-27 is …, expected …` · `2 occurrences of "a" (at 0, 4)` · `nothing to undo` · `the clipboard is empty: Copy first` · `no editor on this screen (home)`                      |
-| 501    | this shell cannot answer that query yet                                                                                                                                                  | `this shell does not report the vault`                                                                                                                                                 |
+| 501    | this shell cannot answer that query yet, or (iOS) a verb another platform has that this one lacks: `{"ok":false,"unsupported":true,"platform":"ios","verb":…,"error":"<Verb> is not supported on this platform (iOS): <what to use instead>"}`, distinct from 404 for an unknown name | `this shell does not report the vault` · `Type is not supported on this platform (iOS): real typing is type '{"text":"…"}' …` |
+| 500    | (iOS editor verbs) a failure after the verb already changed the note: `{"ok":false,"changed":true,"retryable":false,"docVersion":<new>,"error":"… do not retry; read doc and go on from there"}`; a command still running after 5 s (a toolbar command over a huge selection), which lands on its own: `{"ok":false,"pending":true,"retryable":false,"docVersion":…}` | `do not retry; read doc and go on from there`                                                                                                                                          |
 | 503    | not ready                                                                                                                                                                                | `the editor is still loading` · `an editor is open; GoBack before navigating elsewhere`                                                                                                |
 
 Any refusal exits 2 and stops the rest of a batch, a gesture's too (`REFUSED <status> tap: …`:

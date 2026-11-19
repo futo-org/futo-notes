@@ -114,22 +114,25 @@ class TextFirstTableSceneTest {
         scene.assertWrapped()
         val label = "natural words ".repeat(7).trimEnd()
         scene.assertPlacement(label)
-        val before = view.text.toString()
+        val before = scene.noteText()
         val connection = scene.connection()
         val finishFrameCheck = scene.watchPlacementFrames()
+        // The cell field and the note are separate views, each updated by its own post: wait for the pair to agree
+        // (the field's placement target names the note frame it was published against) before reading either.
+        fun cellShows(text: String) = scene.field()?.let { it.text.toString() == text && it.placementTarget(view) != null } == true
         connection.handler!!.post { connection.setSelection(label.length, label.length); connection.commitText(" ending", 1) }
-        compose.waitUntil(10_000) { scene.field()?.text.toString() == label + " ending" }
+        compose.waitUntil(10_000) { cellShows(label + " ending") }
         compose.waitForIdle()
         scene.assertPlacement(label + " ending")
         scene.assertCaretVisible()
         compose.runOnUiThread { view.engine!!.undo() }
-        compose.waitUntil(10_000) { scene.field()?.text.toString() == label }
-        assertEquals(before, view.text.toString())
+        compose.waitUntil(10_000) { cellShows(label) }
+        assertEquals(before, scene.noteText())
         compose.runOnUiThread { view.engine!!.redo() }
-        compose.waitUntil(10_000) { scene.field()?.text.toString() == label + " ending" }
-        assertEquals(before.replaceFirst(label, label + " ending"), view.text.toString())
+        compose.waitUntil(10_000) { cellShows(label + " ending") }
+        assertEquals(before.replaceFirst(label, label + " ending"), scene.noteText())
         compose.waitForIdle()
-        scene.assertCaretVisible()
+        scene.assertCaretVisible(endsAfterText = false)
         finishFrameCheck()
     }
     @Test

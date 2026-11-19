@@ -11,6 +11,21 @@ private enum CoinAsset {
     static let environment = (name: "studio-env", extension: "hdr")
 }
 
+/// Debug builds only: `FUTO_STILL_COIN=1` in the environment shows the still coin
+/// instead of the RealityKit one. For the CI iOS test job, whose virtual Mac has a
+/// paravirtual GPU on which RealityKit's Metal work aborts the whole simulator process
+/// (the app crashes with a lost SimMetalHost connection the moment a coin is drawn).
+/// Everything else, a real GPU included, renders the coin.
+enum CoinRendering {
+    static func stillOnly(environment: [String: String]) -> Bool {
+        #if FUTO_DEBUG_BUILD
+            return environment["FUTO_STILL_COIN"] == "1"
+        #else
+            return false
+        #endif
+    }
+}
+
 /// Slow enough to read as an object rather than a spinner: one turn every ~5s.
 /// The same number desktop and Android use, in the same units.
 private let baseSpin: Float = 1.25
@@ -170,7 +185,8 @@ struct SupporterCoin: View {
     @EnvironmentObject private var navigation: AppNavigation
 
     @State private var turn = CoinTurn()
-    @State private var loadFailed = false
+    @State private var loadFailed = CoinRendering.stillOnly(
+        environment: ProcessInfo.processInfo.environment)
     /// Cumulative drag translation at the last change, so each event contributes
     /// the distance the thumb moved rather than the distance it has moved in total.
     @State private var lastDragX: CGFloat = 0

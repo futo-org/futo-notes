@@ -270,6 +270,9 @@ tasks.configureEach {
     }
 }
 
+// Lockfile + vulnerability pins for what ships.
+apply(from = "dependency-pins.gradle.kts")
+
 dependencies {
     // Keep the BOM on the Compose train that activity-compose pulls in
     // transitively, so material3/foundation/ui stay consistent (a stale BOM

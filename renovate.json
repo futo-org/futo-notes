@@ -1,0 +1,18 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["local>futo-notes/renovate"],
+  "packageRules": [
+    {
+      "description": "specta and specta-typescript are pinned to exact release candidates (apps/tauri/src-tauri/Cargo.toml) for the sync frontend-contract test, which exports u64 fields as TS numbers to match Tauri's wire shape. rc.27 and later refuse to export u64. They move together, by hand.",
+      "matchDatasources": ["crate"],
+      "matchPackageNames": ["specta", "specta-typescript"],
+      "enabled": false
+    },
+    {
+      "description": "Filament must match scripts/coin-ibl-pin.json: a cubemap baked by a different Filament's cmgen renders the supporter coin with wrong lighting instead of failing. Bump both with scripts/build-coin-ibl.mjs --refresh.",
+      "matchDatasources": ["maven"],
+      "matchPackageNames": ["com.google.android.filament:**"],
+      "enabled": false
+    }
+  ]
+}

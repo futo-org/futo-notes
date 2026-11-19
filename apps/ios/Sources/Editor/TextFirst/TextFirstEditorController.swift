@@ -28,6 +28,9 @@ final class TextFirstEditorController: NSObject {
     var mirrorLength: Int
     /// > 0 while this class mutates the view, so its own callbacks are ignored.
     var applying = 0
+    /// Every selection change UIKit reports, in the note or a cell: whoever recorded a
+    /// selection can tell whether anything has moved it since.
+    var selectionChanges = 0
     var pendingEdit: (range: NSRange, text: String)?
     var engineComposing = false
     /// The committed-display range the live composition replaces.

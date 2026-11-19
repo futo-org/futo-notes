@@ -137,7 +137,10 @@ struct HttpActivationTransport;
 
 impl ActivationTransport for HttpActivationTransport {
     fn get(&self, url: &str) -> Result<HttpResponse, TransportError> {
+        let tls = futo_notes_sync::bundled_roots_client_config()
+            .map_err(|error| TransportError::new(error.to_string()))?;
         let client = reqwest::blocking::Client::builder()
+            .tls_backend_preconfigured(tls)
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(REQUEST_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())

@@ -10,6 +10,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 mod account;
 mod batch_download;
 mod batch_upload;
+#[cfg(test)]
+mod failed_trust_tests;
 mod hosted;
 mod objects;
 #[cfg(test)]
@@ -240,20 +242,18 @@ impl Connections {
         generation: u64,
     ) -> Result<Self, HttpError> {
         let verifier = trust.map(|trust| Arc::new(RememberingVerifier::new(trust.clone())));
-        let tls = verifier
-            .clone()
-            .map(|verifier| crate::tls::client_config_with(verifier))
-            .transpose()
-            .map_err(|error| HttpError {
-                status: None,
-                message: crate::tls::trust_store_error(error),
-            })?;
+        let tls = match verifier.clone() {
+            Some(verifier) => crate::tls::client_config_with(verifier),
+            None => crate::tls::client_config_without_trust(),
+        }
+        .map_err(|error| HttpError {
+            status: None,
+            message: crate::tls::trust_store_error(error),
+        })?;
         let builder = || {
-            let builder = reqwest::Client::builder().connect_timeout(CONNECT_TIMEOUT);
-            match &tls {
-                Some(tls) => builder.use_preconfigured_tls((**tls).clone()),
-                None => builder,
-            }
+            reqwest::Client::builder()
+                .connect_timeout(CONNECT_TIMEOUT)
+                .tls_backend_preconfigured((*tls).clone())
         };
         Ok(Self {
             verifier,

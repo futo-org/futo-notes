@@ -23,6 +23,10 @@ just test-android-perf         # editor perf budgets on the low-end reference ph
 `just test-android-ui com.futo.notes.textfirst.TextFirstTypingBenchmarkTest` measures
 native input and rendering. See `docs/agents/android-device-tests.md` for benchmark options.
 
+**Changed an Android dependency? Run `just android-lock` and commit `app/gradle.lockfile`.**
+The release classpaths are locked so FUTO's weekly Trivy scan can see every shipped library;
+a release build fails on a library missing from the lockfile.
+
 For app-only Kotlin iteration, `./gradlew :app:installDirectDebug` from here is
 enough **in a warm checkout**. In a FRESH worktree it is not, and the failures look
 unrelated to what you changed:
@@ -178,7 +182,7 @@ Never edit them — regenerate (M8).
 
 
 - **`app/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt` is vendored** from
-  upstream tag v/0.6.2, matching the `rustls-platform-verifier` version `Cargo.lock` pins. It is
+  upstream tag v/0.7.1, matching the `rustls-platform-verifier` version `Cargo.lock` pins. It is
   the JVM half of the TLS verifier the Rust core calls into by class name. It carries two local
   changes; when that pin moves, re-copy the file and re-apply them (`git log -p` on the file shows
   them): `reloadSystemTrustIfChanged()` rebuilds the trust manager, which upstream snapshots once

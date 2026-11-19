@@ -83,6 +83,40 @@ enum TextFirstLeaves {
     /// Leaves still saving or still failing.
     static var unsettled: Int { entries.count }
 
+    /// Whether a leave of `id` is still saving or still failing.
+    static func isLeaving(_ id: String) -> Bool {
+        entries.contains { $0.controller.noteId == id }
+    }
+
+    /// The notes whose leaves are still saving or still failing, by their current ids.
+    static var leavingIds: [String] { entries.map(\.controller.noteId) }
+
+    /// Where each note's last leave ended, by the id its screen opened it with, when that
+    /// differs (a rename or move under the editor, or one its pending title committed).
+    private static var endedAs: [String: String] = [:]
+
+    /// Waits up to `limit` for the leaves of notes opened as `ids` to settle, then says
+    /// where each note is now: a leave still running names its attachment's current id
+    /// (what `claim` matches). A shell handoff reopens the notes there.
+    static func whereNow(opened ids: [String], within limit: Duration) async -> [String: String] {
+        let deadline = ContinuousClock.now.advanced(by: limit)
+        while ContinuousClock.now < deadline,
+            entries.contains(where: { ids.contains($0.originalId) })
+        {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        var places: [String: String] = [:]
+        for id in ids {
+            if let entry = entries.last(where: { $0.originalId == id }) {
+                await entry.controller.refreshIdentity()
+                places[id] = entry.controller.noteId
+            } else {
+                places[id] = endedAs[id] ?? id
+            }
+        }
+        return places
+    }
+
     /// The pause after `failures` failed attempts: 2 s, 4 s, 8 s ... capped.
     static func delay(afterFailures failures: Int) -> UInt64 {
         let doublings = UInt64(min(max(failures - 1, 0), 20))
@@ -135,6 +169,7 @@ enum TextFirstLeaves {
         discardIfEmpty: Bool, originalId: String, pendingTitle: String? = nil,
         renaming: Task<Void, Never>? = nil
     ) {
+        endedAs[originalId] = nil
         controller.yieldSaving()
         // The screen is gone: nothing about this draft is reported through it again.
         controller.onFailure = nil
@@ -244,6 +279,8 @@ enum TextFirstLeaves {
     }
 
     private static func release(_ entry: Entry) {
+        let now = entry.controller.noteId
+        endedAs[entry.originalId] = now == entry.originalId ? nil : now
         entry.endLease()
         entries.removeAll { $0 === entry }
         entry.store.releaseDraftOwnership(token: entry.ownerToken)

@@ -311,7 +311,7 @@ async fn f_batch_create_replays_through_classic_fallback() {
     frame.extend_from_slice(&0_u32.to_be_bytes());
     frame.extend_from_slice(&(ciphertext.len() as u32).to_be_bytes());
     frame.extend_from_slice(ciphertext);
-    let http = reqwest::Client::new();
+    let http = crate::hosted_scenarios::test_http();
 
     let batch = http
         .post(format!(
