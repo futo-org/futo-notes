@@ -5,7 +5,7 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.text.style.LeadingMarginSpan
 
-/** Native selection fills middle rows; its first and last visual rows can omit list gutters. */
+/** A list row the selection covers whole has its marker gutter tinted too (lists.md); the rows' text is TextSelectionPaint's. */
 internal fun TextFirstEditText.drawListSelection(canvas: Canvas) {
     val start = minOf(selectionStart, selectionEnd)
     val end = maxOf(selectionStart, selectionEnd)
@@ -14,10 +14,9 @@ internal fun TextFirstEditText.drawListSelection(canvas: Canvas) {
     val e = editableText ?: return
     val first = l.getLineForOffset(start)
     val last = l.getLineForOffset(end)
-    val lines = if (first == last) intArrayOf(first) else intArrayOf(first, last)
     val save = canvas.save()
     canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
-    for (line in lines) {
+    for (line in first..last) {
         val top = l.getLineTop(line)
         var bottom = l.getLineBottom(line).toFloat()
         if (bottom < scrollY - totalPaddingTop || top > scrollY + height - totalPaddingTop) continue

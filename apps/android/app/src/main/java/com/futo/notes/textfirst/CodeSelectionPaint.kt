@@ -107,10 +107,11 @@ internal fun TextFirstEditText.paintCodeSelection(start: Int, end: Int, settled:
 
 /**
  * The TextView's own highlight shows only while no block owns the selection's paint, no object (an image) is selected
- * whole and no table row is selected (TableSelectionPaint).
+ * whole, no table row is selected (TableSelectionPaint) and the selection stays on one visual row (TextSelectionPaint).
  */
 internal fun TextFirstEditText.refreshCodeHighlight() {
-    val hidden = selectedCodeBlock != null || codeSelectionTracker.painted != null || selectedObject != null || selectedTableRows().isNotEmpty()
+    val hidden = selectedCodeBlock != null || codeSelectionTracker.painted != null || selectedObject != null ||
+        selectedTableRows().isNotEmpty() || isTextSelectionPainted()
     val color = if (hidden) 0 else style.selectionColor
     if (highlightColor != color) highlightColor = color
 }

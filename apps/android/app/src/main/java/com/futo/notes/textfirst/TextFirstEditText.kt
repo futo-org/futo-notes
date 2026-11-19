@@ -243,6 +243,7 @@ internal class TextFirstEditText(
         drawCodeBlocks(canvas)
         lineBelowHandle.afterDraw()
         drawCodeSelection(canvas)
+        drawTextSelection(canvas)
         drawTableSelectionUnder(canvas)
         drawListSelection(canvas)
         drawFindMarks(canvas)
