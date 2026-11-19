@@ -56,6 +56,7 @@ internal class TextFirstEditText(
             // Undo selects a block after its edits painted the same range as a band; the card alone shows it (12.5).
             if (value != null) codeSelectionTracker.painted = null
             refreshCodeHighlight()
+            codeTouch.callout.onSelectedBlockChanged(value)
             invalidate()
         }
     /** The first draw after a keyed update, with where that key's time went. */
@@ -178,7 +179,7 @@ internal class TextFirstEditText(
 
     override fun performLongClick(): Boolean {
         renderHold.longPressed()
-        return imageTouch.longPress() || super.performLongClick()
+        return codeTouch.longPress() || imageTouch.longPress() || super.performLongClick()
     }
 
     // ---- engine → view ----

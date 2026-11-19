@@ -83,7 +83,10 @@ internal class TextFirstController(
             // The cell field takes focus with its content selected in the note.
             if (!hasFocus && cellView == null) view.endSelectionOnBlur()
         }
-        view.setOnScrollChangeListener { _, _, _, _, _ -> engine?.screenStart = view.scrollAnchor()?.offset ?: 0 }
+        view.setOnScrollChangeListener { _, _, _, _, _ ->
+            engine?.screenStart = view.scrollAnchor()?.offset ?: 0
+            view.codeTouch.callout.onNoteScrolled()
+        }
         view.onFrameDrawn = { timings ->
             latencyWindow.add(timings)?.let { Log.i("TextFirstLatency", it.toString()) }
             view.removeCallbacks(latencyFlush)

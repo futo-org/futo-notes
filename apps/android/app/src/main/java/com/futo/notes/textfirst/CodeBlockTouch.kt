@@ -16,6 +16,7 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
     private var downX = 0f
     private var downY = 0f
     val headerField = CodeHeaderField(view)
+    val callout = CodeBlockCallout(view)
     /** The code start of the block whose copy glyph shows a checkmark, -1 for none. */
     var copiedBlock = -1
         private set
@@ -63,6 +64,17 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
     }
 
     /**
+     * A hold inside a block selected as one object keeps it and shows its callout, not the TextView's text menu and
+     * handles: a selected block has no handles (!300 cb 544-548).
+     */
+    fun longPress(): Boolean {
+        val block = view.selectedCodeBlock ?: return false
+        if (view.getOffsetForPosition(downX, downY) !in block.first..block.second) return false
+        callout.showWhenSelected(block.first)
+        return true
+    }
+
+    /**
      * A tap in an empty block selected as one object leaves the view's caret where it was, so the
      * view reports no selection: tell the engine the user placed it there, or the next letter
      * would replace the block (!300 cb 172-185).
@@ -96,7 +108,11 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
         when (target.action) {
             CodeBlockAction.NOTHING -> Unit
             CodeBlockAction.COPY_CODE, CodeBlockAction.LANGUAGE_LABEL -> copy(target)
-            CodeBlockAction.SELECT_BLOCK, CodeBlockAction.NAME_FIELD -> { view.showKeyboard(); engine.selectCodeBlock(target.codeStart) }
+            CodeBlockAction.SELECT_BLOCK, CodeBlockAction.NAME_FIELD -> {
+                view.showKeyboard()
+                if (held) callout.showWhenSelected(target.codeStart)
+                engine.selectCodeBlock(target.codeStart)
+            }
             CodeBlockAction.OPEN_LINE_ABOVE -> { view.showKeyboard(); engine.openCodeBlockLine(target.codeStart, EditorBlockCommand.OpenLineBeforeCodeBlock) }
             CodeBlockAction.OPEN_LINE_BELOW -> { view.showKeyboard(); engine.openCodeBlockLine(target.codeStart, EditorBlockCommand.OpenLineAfterCodeBlock) }
         }
