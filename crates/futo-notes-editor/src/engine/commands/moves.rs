@@ -19,6 +19,7 @@ use crate::{
     BlockBoundary, BlockSlots, DisplayOffset, DisplayRange, EditWork, EditorError, LiftedBlock,
     Revision, SourceEdit,
 };
+use std::cell::RefCell;
 use std::ops::Range;
 
 mod command;
@@ -39,6 +40,7 @@ fn quoted(line: &Line) -> bool {
 }
 
 /// What a press lifts: whole lines, or one image out of its line.
+#[derive(Clone)]
 enum Lifted {
     Lines(Range<usize>),
     /// The image at line-relative source `span` of line `line`.
@@ -46,6 +48,19 @@ enum Lifted {
         line: usize,
         span: Range<usize>,
     },
+}
+
+/// What the last press resolved, with the revision and position it was
+/// asked at. A renderer asks for the slots again at each scroll step for
+/// the same press, and finding a table or item's lines reads all of them;
+/// any edit to the lines (`Engine::raw`) clears it.
+#[derive(Default)]
+pub(crate) struct Resolved(RefCell<Option<(Revision, DisplayOffset, Option<Lifted>)>>);
+
+impl Resolved {
+    pub(crate) fn clear(&self) {
+        self.0.take();
+    }
 }
 
 impl Engine {
@@ -131,12 +146,24 @@ impl Engine {
         &self,
         expected: Revision,
         at: DisplayOffset,
+        work: &mut EditWork,
     ) -> Result<Option<Lifted>, EditorError> {
         let index = self.line_shown_at(expected, at)?;
-        Ok(match self.image_lifted(index, at) {
+        if let Some((revision, pressed, lifted)) = &*self.resolved.0.borrow() {
+            if (*revision, *pressed) == (expected, at) {
+                return Ok(lifted.clone());
+            }
+        }
+        let lifted = match self.image_lifted(index, at) {
             Some(span) => Some(Lifted::Image { line: index, span }),
-            None => self.block_lines(index).map(Lifted::Lines),
-        })
+            None => self.block_lines(index).map(|lines| {
+                // Finding the block reads every line of it.
+                work.link_metadata_items += lines.len();
+                Lifted::Lines(lines)
+            }),
+        };
+        *self.resolved.0.borrow_mut() = Some((expected, at, lifted.clone()));
+        Ok(lifted)
     }
 
     /// The move a drop of `lifted` on boundary `slot` makes: the command a
@@ -164,28 +191,30 @@ impl Engine {
         expected: Revision,
         at: DisplayOffset,
     ) -> Result<Option<LiftedBlock>, EditorError> {
-        Ok(self.lifted_at(expected, at)?.map(|lifted| match lifted {
-            Lifted::Lines(lines) => {
-                let end = self.boundary(lines.end);
-                LiftedBlock {
-                    range: DisplayRange {
-                        start: self.boundary(lines.start).at,
-                        end: end.at,
-                    },
-                    to_end: end.end,
+        Ok(self
+            .lifted_at(expected, at, &mut EditWork::default())?
+            .map(|lifted| match lifted {
+                Lifted::Lines(lines) => {
+                    let end = self.boundary(lines.end);
+                    LiftedBlock {
+                        range: DisplayRange {
+                            start: self.boundary(lines.start).at,
+                            end: end.at,
+                        },
+                        to_end: end.end,
+                    }
                 }
-            }
-            Lifted::Image { line, span } => {
-                let (entry, before) = (self.line(line), self.store.before(line).display);
-                LiftedBlock {
-                    range: DisplayRange {
-                        start: DisplayOffset(before + entry.to_display(span.start)),
-                        end: DisplayOffset(before + entry.to_display(span.end)),
-                    },
-                    to_end: false,
+                Lifted::Image { line, span } => {
+                    let (entry, before) = (self.line(line), self.store.before(line).display);
+                    LiftedBlock {
+                        range: DisplayRange {
+                            start: DisplayOffset(before + entry.to_display(span.start)),
+                            end: DisplayOffset(before + entry.to_display(span.end)),
+                        },
+                        to_end: false,
+                    }
                 }
-            }
-        }))
+            }))
     }
 
     /// Where what a press at `at` lifts may land inside display range
@@ -197,12 +226,12 @@ impl Engine {
         at: DisplayOffset,
         within: DisplayRange,
     ) -> Result<BlockSlots, EditorError> {
-        let lifted = self.lifted_at(expected, at)?;
+        let mut work = EditWork::default();
+        let lifted = self.lifted_at(expected, at, &mut work)?;
         self.check_display_range(within)?;
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);
         }
-        let mut work = EditWork::default();
         let slots = match lifted {
             Some(lifted) => self.slots_within(&lifted, within, &mut work),
             None => Vec::new(),
@@ -221,7 +250,7 @@ impl Engine {
         to: BlockBoundary,
         accept: Accept,
     ) -> Result<Option<Change>, EditorError> {
-        let lifted = self.lifted_at(expected, at)?;
+        let lifted = self.lifted_at(expected, at, &mut EditWork::default())?;
         self.check_display(to.at.0)?;
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);

@@ -206,6 +206,20 @@ fn numbered_lists_renumber_where_the_item_left_and_where_it_landed() {
             1,
             "- p\n  1. x\n  1. a\n  1. b",
         ),
+        // Counting on from the item above, it leaves the item below and the
+        // next one alone when those two are numbered alike.
+        (
+            "1. a\n2. b\n2. c\n\nx",
+            Line(4),
+            1,
+            "1. a\n2. x\n2. b\n2. c\n",
+        ),
+        (
+            "1. a\n2. b\n3. c\n3. d\n\nx",
+            Line(5),
+            2,
+            "1. a\n2. b\n3. x\n3. c\n3. d\n",
+        ),
         // Moved down into a child list, the list it left still closes up.
         (
             "1. a\n2. b\n  - child\n3. c",

@@ -64,6 +64,37 @@ pub(crate) struct Dashes {
     found: usize,
     /// The first line not yet counted.
     next: usize,
+    /// For each run of shifted lines a candidate has asked about, the lines
+    /// in it a shift could make or unmake a `---` of, found once for the
+    /// listing: every candidate shifts the same run.
+    shifted: Vec<(Range<usize>, Vec<usize>)>,
+}
+
+impl Dashes {
+    /// The lines of `run` whose text, but for spaces and tabs, is `---`: a
+    /// shift only swaps whitespace, so no other line changes whether it is one.
+    fn shiftable(&mut self, engine: &Engine, run: &Range<usize>, work: &mut EditWork) -> &[usize] {
+        let at = match self.shifted.iter().position(|(seen, _)| seen == run) {
+            Some(at) => at,
+            None => {
+                let mut lines = Vec::new();
+                for index in run.clone() {
+                    work.link_metadata_items += 1;
+                    let text = trimmed(&engine.line(index).text);
+                    if text
+                        .chars()
+                        .filter(|c| !matches!(c, ' ' | '\t'))
+                        .eq("---".chars())
+                    {
+                        lines.push(index);
+                    }
+                }
+                self.shifted.push((run.clone(), lines));
+                self.shifted.len() - 1
+            }
+        };
+        &self.shifted[at].1
+    }
 }
 
 fn is_dash(text: &str) -> bool {
@@ -217,7 +248,9 @@ impl Engine {
         let rest_closes = carry.first
             && dash
             && match old {
-                Some(0) if position == 0 && self.dash_lines_written(trial, work) == (0, 0) => {
+                Some(0)
+                    if position == 0 && self.dash_lines_written(trial, dashes, work) == (0, 0) =>
+                {
                     matches!(
                         self.line(0).line.kind,
                         Kind::FrontMatter(FrontMatterRole::Open)
@@ -235,7 +268,7 @@ impl Engine {
     /// take away.
     fn first_line_kept(&self, trial: &Trial, dashes: &mut Dashes, work: &mut EditWork) -> bool {
         let first = self.line(0);
-        if !is_dash(&first.text) || self.dash_lines_written(trial, work) == (0, 0) {
+        if !is_dash(&first.text) || self.dash_lines_written(trial, dashes, work) == (0, 0) {
             return true;
         }
         let opened = matches!(first.line.kind, Kind::FrontMatter(FrontMatterRole::Open));
@@ -244,7 +277,12 @@ impl Engine {
 
     /// The lines the move writes that become a `---` line, and that stop
     /// being one (a line under an item shifted into or out of `---`).
-    fn dash_lines_written(&self, trial: &Trial, work: &mut EditWork) -> (usize, usize) {
+    fn dash_lines_written(
+        &self,
+        trial: &Trial,
+        dashes: &mut Dashes,
+        work: &mut EditWork,
+    ) -> (usize, usize) {
         let (mut added, mut removed) = (0, 0);
         let mut count = |was: bool, now: bool| match (was, now) {
             (false, true) => added += 1,
@@ -259,7 +297,7 @@ impl Engine {
                     is_dash(text),
                 ),
                 Piece::Shifted(run, _) => {
-                    for index in run.clone() {
+                    for &index in dashes.shiftable(self, run, work) {
                         work.link_metadata_items += 1;
                         let text = piece.text(self, index);
                         count(is_dash(&self.line(index).text), is_dash(&text));
@@ -273,7 +311,7 @@ impl Engine {
     /// Whether the new order has two `---` lines or more: the note's, as
     /// far as they are needed, with the ones the move writes.
     fn two_dashes(&self, trial: &Trial, dashes: &mut Dashes, work: &mut EditWork) -> bool {
-        let (added, removed) = self.dash_lines_written(trial, work);
+        let (added, removed) = self.dash_lines_written(trial, dashes, work);
         let need = (2 + removed).saturating_sub(added);
         if dashes.found < need {
             for entry in self.store.iter_from(dashes.next) {

@@ -214,14 +214,16 @@ impl Engine {
             .sibling_beside(slot, level, moved, true)
             .filter(|&(_, _, d)| d == delimiter)
             .map(|(index, n, _)| (n, n + changes.get(&index).map_or(0, |&(_, by)| by)));
+        // Whether the sibling after the item below is numbered as it is.
+        let alike = |b: i128| {
+            self.sibling_beside(slot + 1, level, moved, false)
+                .is_some_and(|(_, n, d)| (n, d) == (b, delimiter))
+        };
         let (number, counts_up) = match (above, counted) {
             (Some((was, now)), Some((b, _))) if b == was => (now, false),
-            (Some((was, now)), Some((b, _))) => (now + 1, b == was + 1),
+            (Some((was, now)), Some((b, _))) => (now + 1, b == was + 1 && !alike(b)),
             (Some((_, now)), None) => (now + 1, false),
-            (None, Some((b, _))) => {
-                let next = self.sibling_beside(slot + 1, level, moved, false);
-                (b, next.is_none_or(|(_, n, d)| (n, d) != (b, delimiter)))
-            }
+            (None, Some((b, _))) => (b, !alike(b)),
             (None, None) => (1, false),
         };
         if counts_up {
