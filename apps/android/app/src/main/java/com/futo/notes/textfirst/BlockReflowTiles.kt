@@ -22,6 +22,8 @@ internal class SliceTiles(private val view: TextFirstEditText) {
     private var height = -1
     private var width = -1
     private var seq = -1
+    /** The copy glyph's checkmark is drawn into the tiles: its timeout must reach them. */
+    private var copied = -1
 
     /** Draw the note laid out from [from] to [to], [shift] lower, where it shows between [top] and [bottom]. */
     fun draw(canvas: Canvas, from: Float, to: Float, shift: Float, top: Float, bottom: Float) {
@@ -74,12 +76,13 @@ internal class SliceTiles(private val view: TextFirstEditText) {
     /** The note laid out or written differently since the tiles were recorded: record them again. */
     private fun current() {
         val l = view.layout
-        if (l === layout && l?.height == height && view.width == width && view.appliedSeq == seq) return
+        if (l === layout && l?.height == height && view.width == width && view.appliedSeq == seq && view.codeTouch.copiedBlock == copied) return
         clear()
         layout = l
         height = l?.height ?: -1
         width = view.width
         seq = view.appliedSeq
+        copied = view.codeTouch.copiedBlock
     }
 
     @androidx.annotation.RequiresApi(29)
