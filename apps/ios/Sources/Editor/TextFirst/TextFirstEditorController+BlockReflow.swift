@@ -80,8 +80,12 @@ extension TextFirstEditorController {
         } else {
             let start = TextFirstBlockSlot(offset: block.range.location, end: false)
             let end = TextFirstBlockSlot(offset: NSMaxRange(block.range), end: block.toEnd)
-            ensureLayout(block.range)
-            guard let top = edgeY(start, laidOut), let bottom = edgeY(end, laidOut), bottom > top
+            // Only what is near the screen is laid out: an edge beyond it is taken to be at
+            // least a screen away (nothing there shows; the drop reads the real one).
+            ensureLayout(NSIntersectionRange(block.range, laidOut))
+            let top = boundaryY(start, in: laidOut) ?? visible.minY - visible.height
+            let bottom = boundaryY(end, in: laidOut) ?? visible.maxY + visible.height
+            guard bottom > top
             else { throw TextFirstReflowUnavailable("the block's edges are not laid out") }
             source = CGRect(x: visible.minX, y: top, width: visible.width, height: bottom - top)
             (room, anchor) = (bottom - top, block.range.location)

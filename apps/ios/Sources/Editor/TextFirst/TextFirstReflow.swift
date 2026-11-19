@@ -45,8 +45,9 @@ final class TextFirstReflow {
     }
     private var slices: [Slice]
     private let copy = CALayer()
-    /// The copy's drawing and the stretch of the block (its own coordinates) it covers.
-    private var copyImage: (image: CGImage, window: ClosedRange<CGFloat>)?
+    /// The copy's drawing, the stretch of the block (its own coordinates) it covers, and how far
+    /// below the block's top (on the pixel grid) the drawing starts.
+    private var copyImage: (image: CGImage, window: ClosedRange<CGFloat>, offset: CGFloat)?
     private var builder: TextFirstIdleBuilder?
     /// Debug timing of the idle drawing.
     private var building = (spent: CFTimeInterval(0), frames: 0, logged: false)
@@ -304,14 +305,14 @@ final class TextFirstReflow {
             CGRect(x: frame.minX, y: top, width: frame.width, height: pixelHeight(frame)))
     }
 
-    /// The stretch of the block the copy shows with the gap at `gap`: all of it, or for a block
-    /// taller than two screens the part that shows there.
+    /// The stretch of the block the copy shows with the gap at `gap`: the part that shows there
+    /// and a quarter screen around it (all of a block that fits), so nothing far off screen is
+    /// laid out to draw it.
     private func window(for gap: Int) -> ClosedRange<CGFloat> {
-        let source = plan.source
-        guard source.height > 2 * visible.height else { return 0...source.height }
         let top = plan.copy(gap).minY
-        let from = max(0, visible.minY - top - visible.height / 2)
-        return from...min(source.height, from + 2 * visible.height)
+        let from = min(max(0, visible.minY - visible.height / 4 - top), plan.source.height)
+        let to = min(plan.source.height, visible.maxY + visible.height / 4 - top)
+        return from...max(from, to)
     }
 
     private func drawCopy(for gap: Int) {
@@ -322,14 +323,13 @@ final class TextFirstReflow {
             return
         }
         let source = plan.source
-        let top = painter.pixel(source.minY)
+        let top = painter.pixel(source.minY + needed.lowerBound)
         let rect = CGRect(
-            x: source.minX, y: top + needed.lowerBound, width: source.width,
-            height: painter.pixel(source.maxY) - top - needed.lowerBound
-                - (source.height - needed.upperBound))
+            x: source.minX, y: top, width: source.width,
+            height: painter.pixel(source.minY + needed.upperBound) - top)
         let anchor = plan.closing?.anchor ?? plan.sourceAnchor
         guard let image = painter.paint(rect, from: anchor) else { return }
-        copyImage = (image, needed)
+        copyImage = (image, needed, top - painter.pixel(source.minY))
         copy.contents = image
     }
 
@@ -371,13 +371,13 @@ final class TextFirstReflow {
             let top = painter.pixel(plan.top(j, gap: gap))
             slide(slice.layer, to: CGPoint(x: 0, y: top - visible.minY), over: duration)
         }
-        if let window = copyImage?.window {
+        if let drawn = copyImage {
             let frame = copyFrame
-            show(copyImage?.image, in: copy)
+            show(drawn.image, in: copy)
             slide(
                 copy,
                 to: CGPoint(
-                    x: frame.minX - visible.minX, y: frame.minY + window.lowerBound - visible.minY),
+                    x: frame.minX - visible.minX, y: frame.minY + drawn.offset - visible.minY),
                 over: duration)
         }
         CATransaction.commit()
