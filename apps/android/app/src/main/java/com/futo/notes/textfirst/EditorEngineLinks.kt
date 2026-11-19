@@ -7,7 +7,8 @@ internal data class LinkDraft(
     val owner: EditorEngine,
     val revision: ULong,
     val range: EditorByteRange,
-    val label: String,
+    /** The engine's `link_label`; null where a label edit would write nothing (across table cells): destination only. */
+    val label: String?,
     val destination: String,
     val existing: Boolean,
 )
@@ -20,9 +21,7 @@ internal fun EditorEngine.linkDraft(deliver: (LinkDraft?) -> Unit) = command(onU
         val range = mirror.byteRange(minOf(selStart, selEnd), maxOf(selStart, selEnd))
         val link = session?.inspectLink(rev, range)
         val target = link?.range ?: range
-        draft = LinkDraft(this, rev, target,
-            text.subSequence(mirror.toUtf16(target.start.toInt()), mirror.toUtf16(target.end.toInt())).toString(),
-            link?.destination ?: "", link != null)
+        draft = LinkDraft(this, rev, target, session?.linkLabel(rev, range), link?.destination ?: "", link != null)
     } finally {
         val result = draft
         ui.post { deliver(result) }
@@ -44,7 +43,10 @@ internal fun EditorEngine.removeLink(draft: LinkDraft, done: (Boolean) -> Unit) 
 internal fun EditorEngine.editLink(draft: LinkDraft, label: String, destination: String, done: (Boolean) -> Unit) = ackedCommand(done) {
     val current = draft.owner === this && draft.revision == rev && mirror.overlay == null
     // A typed address is saved as desktop saves it (`example.com` becomes `https://example.com`).
-    if (current) session?.let { it.editLink(rev, draft.range, label, it.normalizeLinkDestination(destination)) }?.let(::accept)
+    if (current) session?.let {
+        val normalized = it.normalizeLinkDestination(destination)
+        if (draft.label == null) it.setLink(rev, draft.range, normalized) else it.editLink(rev, draft.range, label, normalized)
+    }?.let(::accept)
     current
 }
 

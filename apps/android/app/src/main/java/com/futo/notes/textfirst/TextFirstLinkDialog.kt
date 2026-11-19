@@ -37,17 +37,18 @@ internal fun TextFirstLinkDialog(
     val localization = LocalLocalization.current
     val c = FutoTheme.colors
     val scope = rememberCoroutineScope()
-    var label by remember(draft) { mutableStateOf(draft.label) }
+    var label by remember(draft) { mutableStateOf(draft.label.orEmpty()) }
+    val asksLabel = draft.label != null
     var destination by remember(draft) { mutableStateOf(draft.destination) }
     val labelFocus = remember { FocusRequester() }
     val destinationFocus = remember { FocusRequester() }
     LaunchedEffect(draft) {
-        if (draft.label.isEmpty()) labelFocus.requestFocus() else destinationFocus.requestFocus()
+        if (asksLabel && label.isEmpty()) labelFocus.requestFocus() else destinationFocus.requestFocus()
     }
     var busy by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
     suspend fun apply(remove: Boolean = false) {
-        if (busy || (!remove && (label.isEmpty() || destination.isEmpty()))) return
+        if (busy || (!remove && ((asksLabel && label.isEmpty()) || destination.isEmpty()))) return
         busy = true
         val accepted = try {
             if (remove) onRemove() else onSubmit(label, destination)
@@ -56,13 +57,13 @@ internal fun TextFirstLinkDialog(
     }
     PuppetVerbScope(modal = true) {
         buildList {
-            add(PuppetVerb("SetLinkLabel", required = listOf("label"), controls = listOf("editor.linkPrompt.label")) {
+            if (asksLabel) add(PuppetVerb("SetLinkLabel", required = listOf("label"), controls = listOf("editor.linkPrompt.label")) {
                 if (!busy) label = it.getString("label")
             })
             add(PuppetVerb("SetLinkDestination", required = listOf("destination"), controls = listOf("editor.linkPrompt.urlAccessibilityLabel")) {
                 if (!busy) destination = it.getString("destination")
             })
-            if (!busy && label.isNotEmpty() && destination.isNotEmpty()) {
+            if (!busy && (!asksLabel || label.isNotEmpty()) && destination.isNotEmpty()) {
                 add(PuppetVerb("SubmitLink", controls = listOf("editor.linkPrompt.add", "editor.linkPrompt.update")) { apply() })
             }
             if (draft.existing && !busy) add(PuppetVerb("RemoveLink", controls = listOf("editor.linkPrompt.remove")) { apply(remove = true) })
@@ -75,7 +76,7 @@ internal fun TextFirstLinkDialog(
         title = { Text(localization.localizedText(if (draft.existing) "editor.selectionToolbar.editLink" else "editor.toolbar.link"), color = c.textPrimary) },
         text = {
             Column {
-                OutlinedTextField(modifier = Modifier.focusRequester(labelFocus), value = label, onValueChange = { label = it }, enabled = !busy,
+                if (asksLabel) OutlinedTextField(modifier = Modifier.focusRequester(labelFocus), value = label, onValueChange = { label = it }, enabled = !busy,
                     singleLine = true, label = { Text(localization.localizedText("editor.linkPrompt.label")) })
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(modifier = Modifier.focusRequester(destinationFocus), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), value = destination, onValueChange = { destination = it }, enabled = !busy,
@@ -87,7 +88,7 @@ internal fun TextFirstLinkDialog(
             }
         },
         confirmButton = {
-            TextButton(enabled = !busy && label.isNotEmpty() && destination.isNotEmpty(), onClick = { scope.launch { apply() } }) {
+            TextButton(enabled = !busy && (!asksLabel || label.isNotEmpty()) && destination.isNotEmpty(), onClick = { scope.launch { apply() } }) {
                 Text(if (draft.existing) localization.localizedText("editor.linkPrompt.update") else localization.localizedText("editor.linkPrompt.add"), color = c.accent)
             }
         },
