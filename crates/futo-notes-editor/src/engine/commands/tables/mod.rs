@@ -6,7 +6,6 @@
 //! its widest row; a shorter row is padded, and a cell past the header is a
 //! column like any other. Cells project onto the note's own display, so one
 //! selection serves the note and a cell view.
-mod cell_stops;
 mod delimiter_row;
 mod keys;
 mod paste;
