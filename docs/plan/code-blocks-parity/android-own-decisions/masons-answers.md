@@ -85,3 +85,5 @@ Relayed by the Desktop Editor chat (2026-11-19), on M1: "We can have more for th
 Asked how long until an MR, I proposed keeping four things out to reach the next day: tables stay as they are (S2; T1–T4 wait for the table deep dive), marker highlighting lands with the desktop stack (L1B), block drag stays on the scratch branch until !716 merges (the caret edge-scroll ramp with it), and blocks 2–9 are skimmed once with only must-change items done before the MR. Mason: "Okay, sounds good. I'm really shooting for tomorrow. Really hoping we can nail the dragging blocks by tomorrow too"
 
 So: **S2**, **L1B**, T1–T4 deferred; block drag is made solid on `play/android-code-blocks-block-drag`. H1 runs on its default (H1A) until he says otherwise.
+
+- "Also, the / menu isn't there" (2026-11-19). The `/` menu is a desktop-only line in the spec (interactive-elements.md) and was never in the native Android or iOS editor. Asked: **Z1** build it on the phone after this MR (Z1A) or inside it (Z1B).
