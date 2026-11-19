@@ -7,15 +7,17 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import kotlin.math.hypot
 
-// Long-press block drag (#444; #311 holds the design, the iOS build is the reference). With no
-// text field of the note's screen focused, a press that holds still lifts what the engine says
-// a press at the position under the finger lifts (a photo sharing its line alone, else the
-// line's block): a card of it follows the finger, the source dims in place, a drop line marks
-// the engine's slot nearest the finger, and releasing moves it there as one Undo step
-// (EditorEngineBlocks.kt). While a field is focused every long-press is the platform's. The view
-// decides only which position is under the finger and which slot is nearest. UI thread.
+// Long-press block drag (#444, reflow #450; #311 holds the design, the iOS build is the
+// reference). With no text field of the note's screen focused, a press that holds still lifts
+// what the engine says a press at the position under the finger lifts (a photo sharing its line
+// alone, else the line's block): a card of it follows the finger and the note reflows around a
+// gap at the slot the finger chose (BlockReflowPreview.kt), or, with animations off, the source
+// dims in place and a drop line marks the slot nearest the finger. Releasing moves it there as
+// one Undo step (EditorEngineBlocks.kt). While a field is focused every long-press is the
+// platform's. The view decides only which position is under the finger and which slot it
+// chose. UI thread.
 
-/** The drag's feel: an impact at the lift, a tick each time the finger brings the drop line to a new slot, a lighter one when the block lands. */
+/** The drag's feel: an impact at the lift, a tick each time the finger brings the gap (or drop line) to a new slot, a lighter one when the block lands. */
 internal interface DragHaptics {
     fun lifted()
     fun reachedSlot()
@@ -77,8 +79,10 @@ internal class BlockLift(private val view: TextFirstEditText) {
             MotionEvent.ACTION_DOWN -> {
                 clear()
                 touch++
-                if (drag != null) drag?.let { finish(it, returning = false) }
-                if (mayLift()) {
+                // A reflow landing is not cut short, and no block lifts until it has (#450).
+                val landing = drag?.reflow != null
+                if (!landing) drag?.let { finish(it, returning = false) }
+                if (!landing && mayLift()) {
                     phase = Phase.Holding
                     pointer = e.getPointerId(0)
                     downX = e.x; downY = e.y; fingerX = e.x; fingerY = e.y
@@ -137,6 +141,8 @@ internal class BlockLift(private val view: TextFirstEditText) {
      */
     fun revisionSeen(revision: ULong) {
         if (phase == Phase.Dragging && drag?.plan?.revision != revision) cancel()
+        // Another change while the moved block slides home: the preview ends at once.
+        drag?.let { d -> if (d.landedAt != null && d.landedAt != revision) finish(d, returning = false) }
     }
 
     /** The system took the touch, the window lost focus or the note is closing: end with nothing moved. */
@@ -153,8 +159,19 @@ internal class BlockLift(private val view: TextFirstEditText) {
     /** The text or its layout moved under the drag: measure again. */
     fun relayout() { if (phase == Phase.Dragging) follow(fromFinger = false) }
 
-    /** The dropped block's update landed in this frame: the card and the dim go with it. */
-    fun landed() { drag?.let { if (it.landing) finish(it, returning = false) } }
+    /**
+     * The dropped block's update (engine [revision]) landed in this frame: the card and the dim
+     * go with it, or the reflow preview is drawn from the moved note and slides home first.
+     */
+    fun landed(revision: ULong) {
+        val d = drag?.takeIf { it.landing } ?: return
+        val reflow = d.reflow
+        val landing = d.capture?.land(view) { if (drag === d) finish(d, returning = false) }
+        if (reflow == null || landing == null) return finish(d, returning = false)
+        d.landedAt = revision
+        reflow.landing = landing
+        view.invalidate()
+    }
 
     private fun clear() {
         view.removeCallbacks(hold)
@@ -235,6 +252,19 @@ internal class BlockLift(private val view: TextFirstEditText) {
         phase = Phase.Spent
         val slot = d.slot?.takeIf { drop }
         val engine = view.engine
+        d.reflow?.let { reflow ->
+            // The card goes at once; the copy turns solid and the move is made under the preview.
+            d.dropCard()
+            if (slot == null || engine == null) return reflow.settleHome { if (drag === d) finish(d, returning = false) }
+            d.capture = reflow.release()
+            d.landing = true
+            engine.dropBlock(d.plan.press, slot, d.plan.revision, DropHold.KEEP) { moved ->
+                if (moved) haptics.landed() else if (drag === d) reflow.settleHome { if (drag === d) finish(d, returning = false) }
+                // Moved, but no update reached the view (it was cut short for a new width): end here.
+                if (moved && drag === d && d.landedAt == null) finish(d, returning = false)
+            }
+            return
+        }
         if (slot == null || engine == null) return finish(d, returning = true)
         d.landing = true
         d.invalidate()

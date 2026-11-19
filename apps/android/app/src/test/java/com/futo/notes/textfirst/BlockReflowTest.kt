@@ -68,22 +68,25 @@ class BlockReflowTest {
         val stops = ReflowStops(photo, listOf(40f, 100f, 400f, 440f), photo = true)
         val home = stops.home
         assertEquals(2, home)
-        assertEquals("held on the photo nothing moves", home, stops.walk(home, 200f))
-        assertEquals(home, stops.walk(home, 300f))
-        val above = stops.walk(home, 160f)
+        // At the lift nothing moves while the finger stays on the photo's line, however tall.
+        assertEquals("held on the photo nothing moves", home, stops.walk(home, 110f))
+        assertEquals(home, stops.walk(home, 390f))
+        val above = stops.walk(home, 90f)
         assertEquals(ReflowGap.At(100f, below = false), stops.gap(above))
         assertEquals(100f, photo.copyTop(stops.gap(above)))
         assertEquals("the line without it under the copy", 404f, photo.residueTop(stops.gap(above)))
         assertEquals("what follows moves by the difference", 44f, photo.shift(400f, stops.gap(above)))
         assertEquals(above, stops.walk(above, 160f))
-        val below = stops.walk(home, 380f)
+        val below = stops.walk(home, 410f)
         assertEquals(ReflowGap.At(400f, below = true), stops.gap(below))
         assertEquals(100f, photo.residueTop(stops.gap(below)))
         assertEquals("the copy under the line without it", 140f, photo.copyTop(stops.gap(below)))
         assertEquals(44f, photo.shift(440f, stops.gap(below)))
-        // Back up over the line without it (drawn 100-140): past its lower quarter it comes home, then above.
+        // Back up over the line without it (drawn 100-140): past the middle of its lower half the
+        // photo is home in its line again, and above the line's top it goes above it.
         assertEquals(below, stops.walk(below, 135f))
-        assertEquals(ReflowGap.At(100f, below = false), stops.gap(stops.walk(below, 110f)))
+        assertEquals(home, stops.walk(below, 110f))
+        assertEquals(above, stops.walk(home, 90f))
     }
 
     @Test

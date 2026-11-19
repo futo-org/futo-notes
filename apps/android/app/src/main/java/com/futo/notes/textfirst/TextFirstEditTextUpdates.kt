@@ -106,7 +106,7 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
         // A dropped block landed: the caret it carried is not revealed, and the note holds its place.
         reveal.hold(selectionEnd, selectionStart)
         if (hold.offset >= 0) holdDropLine(hold)
-        blockLift.landed()
+        blockLift.landed(update.revision)
     }
     onApplyMeasured?.invoke(KeyTimings(
         update.inputUptimeNanos, update.postedNanos, update.engineNanos,

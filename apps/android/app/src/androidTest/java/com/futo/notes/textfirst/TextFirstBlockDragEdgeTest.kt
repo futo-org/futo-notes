@@ -25,7 +25,7 @@ class TextFirstBlockDragEdgeTest {
     }
 
     @Test
-    fun heldStillAtTheBottomEdgeTheNoteScrollsWithoutTicksAndTheDropLandsAtTheLineDrawn() = compose.openDragScreen(rows.joinToString("\n")) {
+    fun withAnimationsOffHeldStillAtTheBottomEdgeTheNoteScrollsWithoutTicksAndTheDropLandsAtTheLineDrawn() = compose.openDragScreen(rows.joinToString("\n")) { withAnimationsOff {
         val from = at(0)
         down(from); hold(600)
         assertTrue(lifted)
@@ -45,7 +45,7 @@ class TextFirstBlockDragEdgeTest {
         val moved = rows.drop(1).toMutableList().apply { add(indexOf(below), rows[0]) }
         saved(moved.joinToString("\n"))
         assertTrue("dropped far below the first screen", moved.indexOf("row 1") > 20)
-    }
+    } }
 
     @Test
     fun atTheEndOfTheNoteTheAutoscrollStopsAskingForFrames() = compose.openDragScreen("alpha\nbravo\ncharlie") {
@@ -58,31 +58,26 @@ class TextFirstBlockDragEdgeTest {
         up(bottomEdge())
     }
 
+    /** Carried away and back while the note autoscrolled, a block released over its own place moves nothing and the preview ends. */
     @Test
-    fun aRefusedDropAfterAutoscrollReturnsTheCardToWhereItsBlockIsNow() = compose.openDragScreen(rows.joinToString("\n")) {
+    fun aReleaseOverItsOwnPlaceAfterAutoscrollMovesNothing() = compose.openDragScreen(rows.joinToString("\n")) {
         val from = at(offsetOf("row 22"))
         down(from); hold(600)
         assertTrue(lifted)
         val edge = bottomEdge()
         moveTo(from, edge, steps = 3); hold(100)
+        assertTrue("the gap left home", report?.gap != null)
         // Out of the zone (the scroll stops), then back over the block's own place, which has moved up with the note.
         val middle = PointF(edge.x, edge.y - 500f)
         moveTo(edge, middle, steps = 3); hold(200)
         assertTrue("the note scrolled", ui { view.scrollY } > 100)
         val home = at(offsetOf("row 22"), 0.45f)
         moveTo(middle, home, steps = 6); hold(200)
-        assertNull("over its own place there is no drop line", ui { view.blockLift.drag!!.slot })
+        assertNull("over its own place the gap is home", report!!.gap)
         up(home)
-        var last: Pair<android.graphics.RectF, android.graphics.RectF?>? = null
-        val until = SystemClock.uptimeMillis() + 1_000
-        while (SystemClock.uptimeMillis() < until) {
-            val now = ui { view.blockLift.drag?.let { it.cardInWindow() to it.sourceInWindow() } } ?: break
-            last = now
-            SystemClock.sleep(8)
-        }
-        val (card, source) = checkNotNull(last)
-        assertEquals("the card ends over its block", source!!.top - 10f * ui { view.style.density }, card.top, 12f)
+        compose.waitUntil(1_000) { !lifted }
         assertEquals(rows.joinToString("\n"), file.readText())
+        assertEquals(0, haptics.lands)
     }
 
     @Test
@@ -92,7 +87,8 @@ class TextFirstBlockDragEdgeTest {
         assertTrue(lifted)
         val to = at(offsetOf("charlie"), 0.9f)
         moveTo(from, to)
-        // An edit lands from elsewhere (as a sync would), while the finger is still down.
+        assertTrue("the reflow preview is open", report!!.opened)
+        // An edit lands from elsewhere (as a sync would), while the finger is still down: the preview goes at once.
         ui { view.engine!!.hostSelect(0, 0) }
         ui { view.engine!!.paste("Z") }
         compose.waitUntil(3_000) { !lifted }
@@ -114,14 +110,14 @@ class TextFirstBlockDragEdgeTest {
     }
 
     @Test
-    fun theNoteClosingDuringTheReturnTakesTheCardDownWithIt() = compose.openDragScreen("alpha\nbravo\ncharlie") {
+    fun withAnimationsOffTheNoteClosingDuringTheReturnTakesTheCardDownWithIt() = compose.openDragScreen("alpha\nbravo\ncharlie") { withAnimationsOff {
         val from = at(offsetOf("bravo"))
         down(from); hold(600)
         up(from)
         // The card slides home over 200 ms; the editor leaves the window meanwhile.
         ui { (view.parent as ViewGroup).removeView(view) }
         assertNull("no card outlives its editor", ui { view.blockLift.drag })
-    }
+    } }
 
     @Test
     fun aWidthChangeMidDragMeasuresTheCardAgain() = compose.openDragScreen("alpha is a line long enough to wrap when the note gets narrow enough\nbravo") {

@@ -89,6 +89,59 @@ internal fun TextFirstEditText.drawLayoutRegion(canvas: Canvas, start: Int, end:
     }
 }
 
+/**
+ * Draw the note laid out from content y [top] to [bottom], as the view draws it there: code
+ * backgrounds, find marks, then the layout's lines (their line backgrounds, list markers, quote
+ * bars, photos and tables). The reflow preview (BlockReflowPreview.kt) draws each slice with it
+ * under its own clip and translation; unlike TextView.onDraw it is not clipped to where the view
+ * is scrolled, so content laid out off screen can be drawn where the preview moves it.
+ */
+internal fun TextFirstEditText.drawNoteRegion(canvas: Canvas, top: Float, bottom: Float) {
+    val l = layout ?: return
+    if (bottom <= top) return
+    val from = (top - totalPaddingTop).toInt()
+    val to = kotlin.math.ceil(bottom - totalPaddingTop).toInt()
+    val save = canvas.save()
+    try {
+        canvas.clipRect(0f, top, (width + scrollX).toFloat(), bottom)
+        drawCodeBackgrounds(canvas, from, to)
+        drawFindMarks(canvas, from, to)
+        val e = editableText as? ChunkedEditable
+        e?.drawWindow = l.getLineStart(l.getLineForVertical(maxOf(0, from)))..l.getLineEnd(l.getLineForVertical(maxOf(0, to)))
+        try {
+            canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
+            paint.color = currentTextColor
+            l.draw(canvas)
+        } finally {
+            e?.drawWindow = null
+        }
+    } finally {
+        canvas.restoreToCount(save)
+    }
+}
+
+/** The note laid out from content y [from] to [to], drawn [shift] lower, where it shows between [top] and [bottom]. */
+internal fun TextFirstEditText.drawSlice(canvas: Canvas, from: Float, to: Float, shift: Float, top: Float, bottom: Float) {
+    val a = maxOf(from + shift, top)
+    val b = minOf(to + shift, bottom)
+    if (b <= a) return
+    val save = canvas.save()
+    canvas.clipRect(scrollX.toFloat(), a, (scrollX + width).toFloat(), b)
+    canvas.translate(0f, shift)
+    drawNoteRegion(canvas, a - shift, b - shift)
+    canvas.restoreToCount(save)
+}
+
+private val coverPaint = android.graphics.Paint()
+
+/** The page's colour from content y [from] to [to], where it shows between [top] and [bottom]: behind a part that may slide over its neighbours. */
+internal fun TextFirstEditText.coverSlice(canvas: Canvas, from: Float, to: Float, top: Float, bottom: Float) {
+    coverPaint.color = style.pageColor
+    val a = maxOf(from, top)
+    val b = minOf(to, bottom)
+    if (b > a) canvas.drawRect(scrollX.toFloat(), a, (scrollX + width).toFloat(), b, coverPaint)
+}
+
 /** Put the line holding [hold]'s offset back with its top where it was on screen. */
 internal fun TextFirstEditText.holdDropLine(hold: DropHold) {
     val l = layout ?: return

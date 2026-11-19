@@ -9,12 +9,11 @@ import android.graphics.Path
  * the TextView's own drawing, because the TextView draws the caret before the
  * layout's line backgrounds: a LineBackgroundSpan would cover the caret.
  */
-internal fun TextFirstEditText.drawCodeBackgrounds(canvas: Canvas) {
+internal fun TextFirstEditText.drawCodeBackgrounds(canvas: Canvas, top: Int = scrollY - totalPaddingTop, bottom: Int = top + height) {
     val l = layout ?: return
     val e = editableText ?: return
-    val top = scrollY - totalPaddingTop
     val firstLine = l.getLineForVertical(maxOf(0, top))
-    val lastLine = l.getLineForVertical(maxOf(0, top + height))
+    val lastLine = l.getLineForVertical(maxOf(0, bottom))
     val blocks = e.getSpans(l.getLineStart(firstLine), l.getLineEnd(lastLine), TfCodeBlock::class.java)
     if (blocks.isEmpty()) return
     val paint = Paint().apply { color = this@drawCodeBackgrounds.style.surfaceColor }

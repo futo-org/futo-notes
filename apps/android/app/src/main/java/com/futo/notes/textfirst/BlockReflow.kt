@@ -62,10 +62,16 @@ internal class ReflowShape(val top: Float, val bottom: Float, val residue: Float
  * passes its middle as drawn for the gap open now, so a run passed is drawn on the far side of
  * the gap and the gap cannot flick back. A stretch with no slot (a quote, code, a table) is one
  * run. A photo lifted out of its line has both edges of its line as slots, and its own place is
- * the middle of that line: the line's halves are the runs either side of home.
+ * the middle of that line: what stays of the line (drawn without it) is split in two around home.
  */
 internal class ReflowStops(private val shape: ReflowShape, private val slots: List<Float>, private val photo: Boolean) {
-    val home: Int = slots.count { it <= shape.top }
+    /** The slots at or above the block's top come before its place (read lazily: a long drag's book is long). */
+    val home: Int = run {
+        var lo = 0
+        var hi = slots.size
+        while (lo < hi) { val mid = (lo + hi) ushr 1; if (slots[mid] <= shape.top) lo = mid + 1 else hi = mid }
+        lo
+    }
     val size get() = slots.size + 1
 
     fun gap(stop: Int): ReflowGap = if (stop == home) ReflowGap.Home else ReflowGap.At(y(stop), below = stop > home)
@@ -77,8 +83,15 @@ internal class ReflowStops(private val shape: ReflowShape, private val slots: Li
     private fun lower(stop: Int) = if (stop != home) y(stop) else if (photo) middle else shape.bottom
     private val middle get() = (shape.top + shape.bottom) / 2
 
-    /** The middle of the run below [stop], as drawn with the gap at [at]. */
+    /**
+     * The middle of the run below [stop], as drawn with the gap at [at]. A photo at home in its
+     * line leaves it only past the line's top or bottom, so nothing moves at the lift.
+     */
     private fun runMiddle(stop: Int, at: ReflowGap): Float {
+        if (photo && at == ReflowGap.Home) {
+            if (stop + 1 == home) return shape.top
+            if (stop == home) return shape.bottom
+        }
         val a = lower(stop)
         val b = upper(stop + 1)
         val inPlace = photo && a >= shape.top && b <= shape.bottom

@@ -14,7 +14,9 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.view.animation.PathInterpolator
 
-// One lifted block on screen: its card, its dimmed place and the drop line (BlockLift.kt starts it).
+// One lifted block on screen: its card, and either the reflow preview (BlockReflowPreview.kt,
+// #450) or, when animations are off or the preview cannot be built, its dimmed place and the
+// drop line (#444). BlockLift.kt starts it.
 
 /**
  * One drag on screen: what was lifted, its slots, where the finger holds it and what is drawn
@@ -38,6 +40,12 @@ internal class BlockDrag private constructor(
     val book = SlotBook().apply { add(plan.slots, plan.covered) }
     var slot: BlockSlot? = null
         private set
+    /** The reflow preview; null when the drag uses the drop line. */
+    val reflow: BlockReflowPreview? = reflowFor(view, plan, book, photo)
+    /** What the preview showed at the release, to find again once the move lands. */
+    var capture: ReflowCapture? = null
+    /** The engine revision the move landed at, while the landing slides. */
+    var landedAt: ULong? = null
     var fetching = false
     /** Released over a slot, waiting for the move to land. */
     var landing = false
@@ -94,6 +102,7 @@ internal class BlockDrag private constructor(
     fun follow(x: Float, y: Float): Boolean {
         dx = x - liftX
         dy = y - liftY
+        reflow?.let { r -> return r.follow(y + view.scrollY).also { slot = r.slot } }
         val previous = slot
         slot = targets().nearest(y + view.scrollY)?.first
         return slot != null && slot != previous
@@ -145,7 +154,19 @@ internal class BlockDrag private constructor(
         }
     }
 
+    /** The card goes at once (the release, with reflow): the preview stays until the block lands. */
+    fun dropCard() {
+        animator?.cancel()
+        animator = null
+        overlay?.remove(floating)
+        overlay = null
+    }
+
+    /** Draw the note as the reflow preview has it; false when the view draws it itself. */
+    fun drawNote(canvas: Canvas): Boolean = reflow?.takeIf { it.drawing }?.draw(canvas) ?: false
+
     fun dispose() {
+        reflow?.landing?.cancel()
         animator?.cancel()
         animator = null
         // From the overlay it was put on: once the note has left its window, rootView is another.
@@ -169,7 +190,7 @@ internal class BlockDrag private constructor(
             val save = canvas.save()
             canvas.translate((at[0] - root[0] - view.scrollX).toFloat(), (at[1] - root[1] - view.scrollY).toFloat())
             drawCard(canvas, sourceRect())
-            drawDropLine(canvas)
+            if (reflow == null) drawDropLine(canvas)
             canvas.restoreToCount(save)
         }
         override fun setAlpha(alpha: Int) = Unit
@@ -188,6 +209,7 @@ internal class BlockDrag private constructor(
 
     /** The y of the drop line drawn now, in window coordinates; null when none is drawn. */
     internal fun dropLineInWindow(): Float? {
+        if (reflow != null) return null
         val at = slot?.takeIf { !landing }?.let { view.boundaryY(it) } ?: return null
         return IntArray(2).also(view::getLocationInWindow)[1] + at - view.scrollY
     }
@@ -215,6 +237,8 @@ internal class BlockDrag private constructor(
 
     /** In the note: the block's place, dimmed (35% shows through), until the move lands. The card and the drop line float over the window. */
     fun draw(canvas: Canvas) {
+        // Once the reflow's gap has moved, the copy in the gap is the dimmed block.
+        if (reflow?.opened == true) return
         val source = sourceRect()
         if (source != null) {
             fill.color = withAlpha(view.style.pageColor, 0.65f)
@@ -288,6 +312,17 @@ internal class BlockDrag private constructor(
         private const val DROP_LINE_DP = 3f
         private const val MAX_SCREEN_FRACTION = 0.4f
         private val SHADOWS = listOf(Triple(1f, 2f, 0.12f), Triple(6f, 14f, 0.16f), Triple(20f, 44f, 0.24f))
+
+        /** The reflow preview, unless animations are off (system settings) or it cannot be built: the drag then uses the drop line, and says why. */
+        private fun reflowFor(view: TextFirstEditText, plan: LiftPlan, book: SlotBook, photo: TfImage?): BlockReflowPreview? {
+            if (!ValueAnimator.areAnimatorsEnabled()) {
+                android.util.Log.i(ReflowCapture.TAG, "animations are off: the block drag uses the drop line")
+                return null
+            }
+            val (preview, why) = BlockReflowPreview.build(view, plan.block, book, photo)
+            if (preview == null) android.util.Log.w(ReflowCapture.TAG, "no reflow preview, the block drag uses the drop line: $why")
+            return preview
+        }
 
         private fun withAlpha(color: Int, alpha: Float) = (color and 0x00ffffff) or ((alpha * 255).toInt() shl 24)
 

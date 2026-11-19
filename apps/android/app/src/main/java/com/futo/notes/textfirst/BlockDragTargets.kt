@@ -32,6 +32,8 @@ internal class SlotBook {
         private set
     private val known = sortedSetOf<BlockSlot>()
     val slots: List<BlockSlot> get() = known.toList()
+    /** How many slots are known: it changes only when new ones arrive. */
+    val count get() = known.size
 
     /**
      * The stretches of [range] not asked for yet, and the stretch covered once they are:

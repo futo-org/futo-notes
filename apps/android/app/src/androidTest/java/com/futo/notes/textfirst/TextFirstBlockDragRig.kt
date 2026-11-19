@@ -146,6 +146,81 @@ internal class BlockDragRig(val compose: DragRule, val view: TextFirstEditText, 
 
     fun screenshot(): Bitmap = automation.takeScreenshot()
 
+    /** What the reflow preview reports now (#450): the gap's slot and the dimmed copy's place; null with no preview. */
+    val report get() = ui { view.blockLift.drag?.reflow?.report() }
+
+    /** The view's top in window coordinates, and the window's on screen. */
+    fun viewInWindow(): Int = ui { IntArray(2).also(view::getLocationInWindow)[1] }
+
+    /**
+     * Carry the held finger from [from] [step] px at a time (16 ms apart), drifting it to [x] so
+     * the card leaves the gap's left side uncovered, until [reached]; returns where it is.
+     */
+    fun carryUntil(from: PointF, step: Float, x: Float = from.x, limit: Int = 300, reached: () -> Boolean): PointF {
+        var at = from
+        for (i in 1..limit) {
+            if (reached()) return at
+            at = PointF(at.x + (x - at.x) / 6f, at.y + step)
+            send(MotionEvent.ACTION_MOVE, at)
+            SystemClock.sleep(16)
+        }
+        check(reached()) { "the gap never got there (report ${report?.gap})" }
+        return at
+    }
+
+    /** Ink in a window rect of [shot]: how many pixels are darker than the page, and the darkest luminance. */
+    fun ink(shot: Bitmap, r: android.graphics.RectF): Pair<Int, Int> {
+        val window = ui { windowOnScreen() }
+        var count = 0
+        var darkest = 255
+        val x0 = (window[0] + r.left).toInt().coerceIn(0, shot.width)
+        val x1 = (window[0] + r.right).toInt().coerceIn(0, shot.width)
+        val y0 = (window[1] + r.top).toInt().coerceIn(0, shot.height)
+        val y1 = (window[1] + r.bottom).toInt().coerceIn(0, shot.height)
+        for (x in x0 until x1 step 2) for (y in y0 until y1 step 2) {
+            val p = shot.getPixel(x, y)
+            val l = (Color.red(p) * 299 + Color.green(p) * 587 + Color.blue(p) * 114) / 1000
+            if (l < 235) count++
+            darkest = minOf(darkest, l)
+        }
+        return count to darkest
+    }
+
+    /**
+     * The dimmed copy is drawn where the preview reports it: in the part of its rect the card
+     * leaves uncovered there is text, and none of it is darker than a 35% copy of text on the page.
+     */
+    fun assertCopyDrawn() {
+        SystemClock.sleep(Slide.SLIDE_MS + 120)
+        val shot = screenshot()
+        val copy = checkNotNull(report?.copy) { "no copy reported" }
+        val card = ui { view.blockLift.drag!!.cardInWindow() }
+        val left = ui { view.totalPaddingLeft.toFloat() }
+        val visible = android.graphics.RectF(left, copy.top + 2, minOf(copy.right, card.left - 4), copy.bottom - 2)
+        check(visible.width() > 60) { "the card covers the copy ($card over $copy)" }
+        val (count, darkest) = ink(shot, visible)
+        check(count > 10) { "no text drawn in the copy at $visible" }
+        check(darkest > 120) { "the copy at $visible is not dimmed: luminance $darkest" }
+    }
+
+    /** Run [block] with animations turned off in the system's settings, as a person would turn them off. */
+    fun <T> withAnimationsOff(block: () -> T): T {
+        val before = shell("settings get global animator_duration_scale").trim()
+        shell("settings put global animator_duration_scale 0")
+        try {
+            compose.waitUntil(5_000) { ui { !android.animation.ValueAnimator.areAnimatorsEnabled() } }
+            return block()
+        } finally {
+            // Deleting the setting does not reach a running app; its default is 1.
+            shell("settings put global animator_duration_scale ${before.toFloatOrNull() ?: 1f}")
+            // Best effort: a timeout here must not hide the test's own failure.
+            runCatching { compose.waitUntil(5_000) { ui { android.animation.ValueAnimator.areAnimatorsEnabled() } } }
+        }
+    }
+
+    private fun shell(command: String): String =
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command)).bufferedReader().use { it.readText() }
+
     private fun close(a: Int, b: Int) =
         abs(Color.red(a) - Color.red(b)) < 40 && abs(Color.green(a) - Color.green(b)) < 40 && abs(Color.blue(a) - Color.blue(b)) < 40
 }

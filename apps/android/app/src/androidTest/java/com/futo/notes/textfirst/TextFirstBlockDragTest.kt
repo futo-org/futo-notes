@@ -14,14 +14,15 @@ import org.junit.Test
 
 /**
  * The long-press block drag with real touches through the window (#444): with the keyboard
- * down a hold lifts the block under the finger, a card follows it and the drop lands at the
- * drop line drawn, as one move of the saved file; the exceptions keep the platform's long press.
+ * down a hold lifts the block under the finger, a card follows it and the drop lands where
+ * shown, as one move of the saved file; the exceptions keep the platform's long press. With
+ * animations off it shows a drop line (here); otherwise the note reflows (TextFirstBlockReflowTest).
  */
 class TextFirstBlockDragTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun aHoldLiftsALineWithTheKeyboardDownAndDropsItAtTheDropLineDrawn() = compose.openDragScreen("alpha\nbravo\ncharlie\ndelta") {
+    fun withAnimationsOffAHoldLiftsALineWithTheKeyboardDownAndDropsItAtTheDropLineDrawn() = compose.openDragScreen("alpha\nbravo\ncharlie\ndelta") { withAnimationsOff {
         val from = at(0)
         val before = screenshot()
         down(from)
@@ -40,7 +41,8 @@ class TextFirstBlockDragTest {
         assertEquals("a tick for each new slot: above charlie, above delta, the end", 3, haptics.ticks)
         assertFalse("a lift starts no editing", ui { view.isFocused })
         assertFalse(lifted)
-    }
+        assertEquals("no reflow preview", null, report)
+    } }
 
     @Test
     fun aReleaseOverItsOwnPlaceMovesNothingSilently() = compose.openDragScreen("alpha\nbravo\ncharlie") {
@@ -79,15 +81,15 @@ class TextFirstBlockDragTest {
     }
 
     @Test
-    fun aPhotoSharingItsLineLiftsAloneAndATableLiftsWhole() =
-        compose.openDragScreen("Nice!![](p.png)\nnext\n| a | b |\n|---|---|\n| 1 | 2 |\n\nend", mapOf("p.png" to png(300, 200))) {
+    fun withAnimationsOffAPhotoSharingItsLineLiftsAloneAndATableLiftsWhole() =
+        compose.openDragScreen("Nice!![](p.png)\nnext\n| a | b |\n|---|---|\n| 1 | 2 |\n\nend", mapOf("p.png" to png(300, 200))) { withAnimationsOff {
             compose.waitUntil(5_000) { ui { view.text!!.getSpans(0, view.length(), TfImage::class.java).first().bitmap != null } }
             drag(photoCentre(0), at(offsetOf("next"), 0.9f))
             saved("Nice!\nnext\n![](p.png)\n| a | b |\n|---|---|\n| 1 | 2 |\n\nend")
             assertNotNull("the press is on the grid", ui { view.tableRowAt(at(offsetOf("1")).y - IntArray(2).also(view::getLocationOnScreen)[1]) })
             drag(at(offsetOf("1"), x = 30f), at(offsetOf("end"), 0.9f))
             saved("Nice!\nnext\n![](p.png)\n\nend\n| a | b |\n|---|---|\n| 1 | 2 |")
-        }
+        } }
 
     /** Above a short photo beside a tall one is the row, not the photo: the whole line lifts. */
     @Test
