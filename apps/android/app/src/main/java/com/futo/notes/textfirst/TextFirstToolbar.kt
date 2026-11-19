@@ -1,5 +1,6 @@
 package com.futo.notes.textfirst
 
+import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
@@ -7,12 +8,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -50,17 +51,20 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
     val visible = controller.cellView == null && controller.focused && WindowInsets.isImeVisible
     var composed by remember(controller) { mutableStateOf(false) }
     LaunchedEffect(controller.opened, controller.focused) { if (controller.opened || controller.focused) composed = true }
-    // A hidden bar is never told a finger lifted: one on a button as the keyboard hides would leave it pressed.
-    // Its buttons are disabled for that one composition, which ends the press; any other touch recomposes nothing.
-    val shown by rememberUpdatedState(visible)
+    // A hidden bar is never told a finger lifted, so a press or drag it hid under stayed live in it: a button drawn
+    // pressed, a bar that no longer scrolled. Hidden under a touch, it is composed anew, as every bar once was.
     var touched by remember { mutableStateOf(false) }
-    val enabled by remember { derivedStateOf { shown || !touched } }
-    // Each opening starts at the leading items, as when the bar was composed anew; this also stops a fling left running.
+    var generation by remember { mutableIntStateOf(0) }
+    // Each opening starts at the leading items. Above user input, so it also ends a fling or a drag the hiding
+    // interrupted (a drag outranks a plain scrollTo, which it would refuse).
     val scroll = rememberScrollState()
     LaunchedEffect(visible) {
         if (visible) return@LaunchedEffect
-        touched = false
-        scroll.scrollTo(0)
+        if (touched) {
+            touched = false
+            generation++
+        }
+        scroll.scroll(MutatePriority.PreventUserInput) { scrollBy(-scroll.value.toFloat()) }
     }
     suspend fun openLink() {
         if (opening || draft != null) return
@@ -78,12 +82,11 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
     }
     val caret = controller.caret
     if (controller.cellView != null) TextFirstTableCellControls(controller)
-    if (composed || visible) EditorToolbar(
+    if (composed || visible) key(generation) { EditorToolbar(
         modifier = (if (visible) Modifier else measuredWithoutSpace).pointerInput(Unit) {
             awaitPointerEventScope { while (true) touched = awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed } }
         },
         scrollState = scroll,
-        enabled = enabled,
         onListLine = caret.list != null,
         inContainer = true,
         // Until the whole open lands the note shows read-only: nothing edits it.
@@ -97,7 +100,7 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
                 ToolbarItemAction.Dismiss -> controller.view.hideKeyboard()
             }
         },
-    )
+    ) }
     draft?.let { claim ->
         TextFirstLinkDialog(
             draft = claim,

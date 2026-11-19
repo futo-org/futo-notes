@@ -102,8 +102,6 @@ fun EditorToolbar(
     /** Items this editor does not offer (the text-first editor drops "paragraph"). */
     hiddenItems: Set<String> = emptySet(),
     scrollState: ScrollState = rememberScrollState(),
-    /** False disables every button, which also cancels a press in progress. */
-    enabled: Boolean = true,
 ) {
     val containerVisible = inContainer ?: onListLine
     val c = FutoTheme.colors
@@ -183,7 +181,7 @@ fun EditorToolbar(
                                     item,
                                     tint = c.textPrimary,
                                     active = item.id in activeFormats,
-                                    enabled = enabled && item.id !in disabledFormats,
+                                    enabled = item.id !in disabledFormats,
                                     perform = perform,
                                     // Only a real change counts: the rising keyboard moves the bar every
                                     // frame, and a count per call recomposed it on each of those frames.
@@ -213,7 +211,7 @@ fun EditorToolbar(
                 }
             }
             VerticalDivider(thickness = 0.5.dp, color = c.border, modifier = Modifier.height(44.dp))
-            ToolbarButton(ToolbarSpec.dismiss, tint = c.textSecondary, perform = perform, enabled = enabled)
+            ToolbarButton(ToolbarSpec.dismiss, tint = c.textSecondary, perform = perform)
         }
     }
 }
