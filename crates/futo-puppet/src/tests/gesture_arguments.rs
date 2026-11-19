@@ -222,3 +222,32 @@ fn desktop_refuses_a_typing_pace() {
         .unwrap_err()
         .contains("delay"));
 }
+
+/// iOS's `press` sends only the keys its editor handles, and neither gesture points an
+/// agent at `do Type` or `do Press`, which the iOS editor does not have.
+#[test]
+fn ios_press_takes_the_editors_keys_and_hints_at_a_direct_edit() {
+    let frame = Frame {
+        scale: 1.0,
+        width: 402.0,
+        height: 874.0,
+    };
+    for key in ["Enter", "Backspace", "Delete", "Tab", "ArrowLeft"] {
+        assert!(axe_arguments("press", &json!({ "key": key }), frame, "U").is_ok());
+    }
+    for key in ["Escape", "Home", "End", "PageDown"] {
+        let error = axe_arguments("press", &json!({ "key": key }), frame, "U").unwrap_err();
+        assert!(error.contains("handles no"), "{error}");
+    }
+    let unknown = axe_arguments("press", &json!({"key": "F1"}), frame, "U").unwrap_err();
+    assert!(
+        !unknown.contains("do Press") && unknown.contains("do Insert"),
+        "{unknown}"
+    );
+    let accented = axe_arguments("type", &json!({"text": "caf\u{e9}"}), frame, "U").unwrap_err();
+    assert!(!accented.contains("do Type"), "{accented}");
+    assert!(
+        accented.contains(r#"do Insert '{"after":"<the text before it>","text":"café"}'"#),
+        "{accented}"
+    );
+}

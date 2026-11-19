@@ -17,23 +17,26 @@ phone, scrolling is a swipe: `drag` from where the finger lands to where it lift
 
 **Keys (phones).** `type {"text":"…"}` is real key presses into whatever has focus, through
 the OS keyboard: tap the field first (`elements` flags the focused row). It reaches native
-fields no verb covers, and in the editor it is the IME path `do Type` skips. The keyboard's
-own rules apply as to a person's typing (iOS capitalizes `milk` in search to `Milk`).
+fields no verb covers, and in the editor it is the real input path no `do` verb stands in
+for. The keyboard's own rules apply as to a person's typing (iOS capitalizes `milk` in
+search to `Milk`).
 `"delay":ms` (1–1000, phones only: desktop refuses it) sends one key at a time, that far
 apart, as a person types — for a bug that only shows at human speed; the receipt says the pace it got (`a key every 201 ms`). A key
 costs about 130 ms on iOS and 25 ms on Android, so a shorter delay goes that fast instead. Only
 US-keyboard characters, and on Android no `%s`, which its input types as a space; a line break
 is `press {"key":"Enter"}`. `press` also takes
-`Backspace`, `Delete`, `Tab`, `Escape`, `Home`, `End`, `PageUp`, `PageDown` and the arrows
-(the editor `Press` verb's names), and `"count":N` sends the key N times as one action.
+`Backspace`, `Delete`, `Tab`, `Escape`, `Home`, `End`, `PageUp`, `PageDown` and the arrows,
+and `"count":N` sends the key N times as one action. **iOS** `press` takes only the keys the
+editor handles: Enter, Backspace, Delete, Tab, the arrows and a `Shift` modifier press;
+Escape, Home, End, PageUp and PageDown are refused, and there are no modifier chords.
 `press {"key":"Back"}` is **Android's system Back**, not
 the app's: it closes the keyboard, the find bar, a dialog or menu before it leaves a screen,
 and at the root it leaves the app (`foreground` → false; once the activity is gone `state`
 says `screen "none"` and everything else refuses until the app is launched again). The app's
 own Back — the top bar's button, and on iOS the edge swipe — is `do GoBack`; iOS has no
 system Back and refuses it. A `type` that changed nothing fails: nothing had focus. What
-they cannot send (another keyboard's characters, a key they lack) is refused with the
-`do Type` or `do Press` call that writes it into the editor.
+they cannot send (another keyboard's characters, a key they lack) is refused naming what
+works.
 
 **Keys (desktop).** `type {"text":"…"}` and `press {"key":"…"}` are the keyboard's own
 events, handed to this window's web view (the window is never activated, so the human keeps

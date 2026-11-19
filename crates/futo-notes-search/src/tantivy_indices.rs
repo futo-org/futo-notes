@@ -405,4 +405,6 @@ fn read_stored_i64(doc: &TantivyDocument, field: Field) -> Option<i64> {
 }
 
 #[cfg(test)]
+mod old_index_tests;
+#[cfg(test)]
 mod tests;

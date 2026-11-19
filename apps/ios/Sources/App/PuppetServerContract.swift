@@ -230,6 +230,7 @@
             case 404: return "Not Found"
             case 409: return "Conflict"
             case 413: return "Payload Too Large"
+            case 501: return "Not Implemented"
             case 502: return "Bad Gateway"
             case 503: return "Service Unavailable"
             default: return "Internal Server Error"

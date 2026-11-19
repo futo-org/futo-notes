@@ -106,7 +106,12 @@ infrastructure owner.
   stash rule at runtime, so follow them by hand: never `git stash` outside the primary checkout —
   refs/stash is shared by every worktree of this repo, so a pop can restore a parallel lane's
   work-in-progress over yours. Sessions open with `just orient`; agent worktrees come from `just wt new
-  <name>` and go via `just wt gc`.
+  <name>`. When its MR merges, remove that worktree in the same session: release its devices
+  (`just qa-release`), then from the primary checkout `git worktree remove <path>` (no `--force`:
+  git refuses a dirty tree) and `git branch -D <branch>` once `git merge-base --is-ancestor <branch>
+  origin/main` holds.
+  `just wt gc` only sweeps what was forgotten; never `--apply` it to clean up your own, since it
+  also removes other sessions' merged worktrees.
 
 ## 6. Named mistakes — and the rule that prevents each
 

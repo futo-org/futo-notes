@@ -36,6 +36,13 @@ enum Theme {
         dark: Color(hex: 0x171717)
     )
 
+    /// The open note's row in a list beside its editor: a soft orange wash in light; a
+    /// neutral lift in dark, where an orange wash over #1A1A1A mixes to muddy brown.
+    static let selectionFill = Color.adaptive(
+        light: Color(hex: 0xF26B1F, alpha: 0.16),
+        dark: Color(white: 1, opacity: 0.11)
+    )
+
     /// The License plate's one remaining color of its own.
     ///
     /// Everything else it used to carry — a gunmetal gradient, its own ink,

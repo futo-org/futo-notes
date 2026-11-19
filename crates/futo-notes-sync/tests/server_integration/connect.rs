@@ -141,7 +141,7 @@ async fn resume_after_vault_deleted_signals_collection_gone_then_reconnects() {
         .expect("connect");
 
     // Delete the vault server-side to exercise a stale persisted collection id.
-    let res = reqwest::Client::new()
+    let res = crate::hosted_scenarios::test_http()
         .delete(format!("{server}/api/collections/{}", info.collection_id))
         .bearer_auth(&info.token)
         .send()
@@ -243,7 +243,7 @@ async fn run_sync_after_vault_deleted_signals_collection_gone() {
         .expect("connect");
 
     // Delete the vault while the session is live.
-    let res = reqwest::Client::new()
+    let res = crate::hosted_scenarios::test_http()
         .delete(format!("{server}/api/collections/{}", info.collection_id))
         .bearer_auth(&info.token)
         .send()

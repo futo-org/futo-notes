@@ -140,7 +140,7 @@ pub(crate) fn axe_arguments(
                 "--udid".into(),
                 udid.into(),
                 "--".into(),
-                typed_text(args)?,
+                typed_text(args, NativePlatform::Ios)?,
             ])
         }
         "press" => {
@@ -161,18 +161,20 @@ pub(crate) fn axe_arguments(
 }
 
 /// The keys `press` sends, by the names the editor's `Press` verb takes: the HID usage `axe
-/// key` sends on iOS and the keycode `input keyevent` sends on Android. `Back` is Android's
-/// system Back, which iOS does not have.
+/// key` sends on iOS and the keycode `input keyevent` sends on Android. iOS takes only the keys
+/// its editor handles (TextFirstTextView.pressesBegan takes Tab and forward Delete; Enter,
+/// Backspace and the arrows are UIKit's text input): the rest do nothing in the app, so a press
+/// of one would read as a bug that is not there. `Back` is Android's system Back.
 const KEYS: [(&str, Option<u16>, u16); 15] = [
     ("Enter", Some(40), 66),
     ("Backspace", Some(42), 67),
     ("Delete", Some(76), 112),
     ("Tab", Some(43), 61),
-    ("Escape", Some(41), 111),
-    ("Home", Some(74), 122),
-    ("End", Some(77), 123),
-    ("PageUp", Some(75), 92),
-    ("PageDown", Some(78), 93),
+    ("Escape", None, 111),
+    ("Home", None, 122),
+    ("End", None, 123),
+    ("PageUp", None, 92),
+    ("PageDown", None, 93),
     ("ArrowUp", Some(82), 19),
     ("ArrowDown", Some(81), 20),
     ("ArrowLeft", Some(80), 21),
@@ -185,6 +187,19 @@ const KEYS: [(&str, Option<u16>, u16); 15] = [
 /// never inserted automatically around typing or advertised on Android.
 const IOS_MODIFIERS: [(&str, u16); 1] = [("Shift", 225)];
 
+/// The keys `press` takes on `platform`, as a refusal lists them.
+fn key_names(platform: NativePlatform) -> Vec<&'static str> {
+    match platform {
+        NativePlatform::Ios => KEYS
+            .iter()
+            .filter(|(_, ios, _)| ios.is_some())
+            .map(|(key, ..)| *key)
+            .chain(IOS_MODIFIERS.iter().map(|(key, _)| *key))
+            .collect(),
+        NativePlatform::Android => KEYS.iter().map(|(key, ..)| *key).collect(),
+    }
+}
+
 fn key_code(args: &Value, platform: NativePlatform) -> Result<u16, String> {
     let name = args["key"]
         .as_str()
@@ -195,10 +210,7 @@ fn key_code(args: &Value, platform: NativePlatform) -> Result<u16, String> {
         }
     }
     let Some((_, ios, android)) = KEYS.iter().find(|(key, ..)| *key == name) else {
-        let mut names: Vec<&str> = KEYS.iter().map(|(key, ..)| *key).collect();
-        if platform == NativePlatform::Ios {
-            names.extend(IOS_MODIFIERS.iter().map(|(key, _)| *key));
-        }
+        let names = key_names(platform);
         let character = if matches!(name.as_bytes(), [b' '..=b'~']) {
             format!(
                 " A character is typed: type {}.",
@@ -210,7 +222,7 @@ fn key_code(args: &Value, platform: NativePlatform) -> Result<u16, String> {
         return Err(format!(
             "no key named {name:?}; press knows {}.{character} In the editor: {}",
             names.join(", "),
-            editor_call("press", args)
+            editor_call_on(platform, "press", args)
         ));
     };
     match platform {
@@ -219,8 +231,13 @@ fn key_code(args: &Value, platform: NativePlatform) -> Result<u16, String> {
                 "iOS has no system Back key. The app's own Back is `do GoBack`: its top bar's back \
                  button, which the edge swipe also triggers"
                     .to_string()
-            } else {
+            } else if name == "Camera" {
                 format!("{name} is an Android-only key.")
+            } else {
+                format!(
+                    "the iOS app handles no {name} key: press there takes {}",
+                    key_names(platform).join(", ")
+                )
             }
         }),
         NativePlatform::Android => Ok(*android),
@@ -270,10 +287,10 @@ pub(crate) fn text_arg(args: &Value) -> Result<&str, String> {
 
 /// The text `type` sends as key presses. `axe` and `adb input` type what a US keyboard has
 /// and nothing else, so anything outside printable ASCII is refused rather than dropped.
-fn typed_text(args: &Value) -> Result<String, String> {
+fn typed_text(args: &Value, platform: NativePlatform) -> Result<String, String> {
     let text = text_arg(args)?;
     if let Some(other) = text.chars().find(|c| !(' '..='~').contains(c)) {
-        let editor = editor_call("type", args);
+        let editor = editor_call_on(platform, "type", args);
         return Err(if other == '\n' {
             format!(
                 "type sends real key presses, and a line break is the Enter key: \
@@ -329,7 +346,7 @@ pub(crate) fn adb_arguments(
             ]);
         }
         "type" => {
-            let text = typed_text(args)?;
+            let text = typed_text(args, NativePlatform::Android)?;
             // `input text` reads `%s` as a space and has no way to type it as written.
             if text.contains("%s") {
                 return Err(format!(

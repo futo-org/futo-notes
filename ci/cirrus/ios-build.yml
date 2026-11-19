@@ -5,32 +5,35 @@
 build_ios_native_task:
   name: buildFutoNotesIOSNative
   macos_instance:
-    image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
+    image: ghcr.io/cirruslabs/macos-tahoe-xcode:27.2
   env:
     # Incremental artifacts are per-machine scratch that a fresh VM can never
     # reuse, and they are ~0.6 GB of pure churn in every target/ cache upload.
     CARGO_INCREMENTAL: "0"
   cargo_registry_cache:
     folder: $HOME/.cargo/registry
-    fingerprint_key: futo-notes-cargo-registry-$CIRRUS_OS-v1
+    fingerprint_key: futo-notes-cargo-registry-xcode27-$CIRRUS_OS-v1
     reupload_on_changes: true
   cargo_git_cache:
     # Empty today (Cargo.lock has no git dependencies) — the agent then just
     # logs "All cache folders are empty! Skipping uploading". Declared anyway so
     # a future git dependency does not silently re-clone in every task.
     folder: $HOME/.cargo/git
-    fingerprint_key: futo-notes-cargo-git-$CIRRUS_OS-v1
+    fingerprint_key: futo-notes-cargo-git-xcode27-$CIRRUS_OS-v1
     reupload_on_changes: true
   cargo_target_cache:
-    # Same blob as testFutoNotesIOSNative — identical build-rust-ios.sh
-    # output. See that task for the reasoning.
+    # Not shared with testFutoNotesIOSNative, which has its own (smaller) blob;
+    # see that task for why.
     folder: target
-    fingerprint_key: futo-notes-target-ios-$CIRRUS_OS-v1
+    fingerprint_key: futo-notes-target-ios-xcode27-$CIRRUS_OS-v1
     reupload_on_changes: true
   build_ios_native_script:
     - brew install fnm xcodegen
     - eval "$(fnm env --shell bash)"
     - fnm use --install-if-missing
+    # Apple stops accepting last year's SDK each April (ITMS-90725); this
+    # fails from January if the image above has not moved to the new Xcode.
+    - node scripts/ios-sdk-floor.mjs "$(xcodebuild -version -sdk iphoneos SDKVersion)"
     - corepack enable
     - corepack prepare pnpm@12.15.0 --activate
     - curl https://sh.rustup.rs -sSf | sh -s -- -y

@@ -117,11 +117,13 @@ either caller.
 
 ## Not here: the dependency vulnerability scan
 
-`node scripts/audit.mjs` runs `cargo audit` and `pnpm audit --prod`. It stays out of `arch-gate`
-because it needs the network — the RUSTSEC database and the npm registry — while every gate above is
-an offline source scan.
+`node scripts/audit.mjs` runs `cargo audit`, `pnpm audit --prod`, and Trivy over the Android release
+lockfile (`apps/android/app/gradle.lockfile`). It stays out of `arch-gate` because it needs the
+network — the RUSTSEC database, the npm registry, Trivy's database — while every gate above is an
+offline source scan.
 
-**It fails only on a vulnerability in code that ships.** On npm that is `--prod`. On Rust it is a
+**It fails only on a vulnerability in code that ships.** On npm that is `--prod`. On Android it is
+every library in the lockfile, which locks only the release runtime classpaths. On Rust it is a
 crate `cargo tree -e normal --target all` reaches from `futo-notes-tauri` or `futo-notes-ffi`; a
 vulnerability in a dev- or build-only crate is listed as `unshipped`, and unmaintained/unsound
 warnings are listed too, but neither fails the run. The app is offline-first, not offline: sync,

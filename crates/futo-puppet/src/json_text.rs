@@ -43,7 +43,26 @@ pub(crate) fn batch_call(steps: &[Value]) -> String {
 }
 
 /// The editor's own typing for what a `type` or `press` was given: `do Type` takes any text
-/// and a newline as Enter, `do Press` any one character too, on every platform.
+/// and a newline as Enter, `do Press` any one character too, on desktop and Android. The iOS
+/// editor has no stand-in for typing (verb-map.md): there the way round is a direct edit.
+pub(crate) fn editor_call_on(platform: NativePlatform, gesture: &str, args: &Value) -> String {
+    if platform == NativePlatform::Ios {
+        let text = if gesture == "type" {
+            args.get("text").cloned().unwrap_or(json!("…"))
+        } else {
+            json!("…")
+        };
+        return format!(
+            "a direct edit, which is not typing: {}",
+            verb_call(
+                "Insert",
+                &json!({ "after": "<the text before it>", "text": text })
+            )
+        );
+    }
+    editor_call(gesture, args)
+}
+
 pub(crate) fn editor_call(gesture: &str, args: &Value) -> String {
     let (verb, keys): (&str, &[&str]) = if gesture == "type" {
         ("Type", &["text"])
