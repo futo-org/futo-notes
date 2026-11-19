@@ -26,7 +26,6 @@
                 "Press": realKey,
                 "AppendLine": insert,
                 "InsertLine": insert,
-                "MoveBlock": "the iOS editor has no block drag handle",
                 "InsertImage": "`tap` the toolbar's image button, which opens the system picker",
                 "LinkSelection": "the iOS editor has no floating selection toolbar: `do Link`",
                 "PickSlashItem": "the iOS editor has no slash menu",

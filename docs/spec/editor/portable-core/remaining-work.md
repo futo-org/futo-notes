@@ -7,7 +7,7 @@ client's current status, projection changes and required binding rebuilds.
 
 ## Deferred capabilities
 
-- Rich HTML paste (#303) and rendered block movement (#311) remain deferred by the maintainer's 2026-10-30 decision. Plain Markdown clipboard support and ordinary single-cell table paste are implemented. → docs/spec/editor/portable-core/clipboard.md
+- Rich HTML paste (#303) remains deferred by the maintainer's 2026-10-30 decision. Plain Markdown clipboard support and ordinary single-cell table paste are implemented. → docs/spec/editor/portable-core/clipboard.md
 - Table alignment changes, row/column reordering and multi-cell/grid paste remain deferred. Basic row/column insertion and deletion, cell editing/navigation and single-cell paste are implemented; existing alignment and untouched bytes are preserved. Linedown recognizes tables only at the top level; container-table recognition and HTML `<br>` interpretation are not part of its current dialect. → docs/spec/editor/portable-core/tables.md, docs/spec/editor/portable-core/linedown.md
 - Progressive background reinterpretation (#313) remains deferred. The current synchronous reader continues through changed lines until its carry settles; it does not expose a frontier of stale rows for renderers to consume. → crates/futo-notes-editor/src/engine/read.rs, docs/spec/editor/portable-core/long-regions.md
 - Engine cleanup is tracked under `linedown-followups`: explicit front-matter closure input (#427), removal of old shims/dead-code exemptions with an export audit (#428), and comments/production-size reporting (#429). Separate tag defects are #425 and #426. These are not stored-note migration tasks. → docs/architecture/editor-engine-adoption.md

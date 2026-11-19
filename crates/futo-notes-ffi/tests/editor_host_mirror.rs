@@ -112,3 +112,23 @@ fn slices_end_on_blank_lines_and_prefixes_match_byte_for_byte() {
         None
     );
 }
+
+// A renderer converts many offsets at once (a lift's slots) in one call: the
+// same answers as one at a time, and one bad offset refuses them all.
+#[test]
+fn mirror_converts_a_list_of_display_bytes_in_one_call() {
+    let mirror = EditorDisplayMirror::new("a\n日本\n\u{1F600}\nb".into());
+    assert_eq!(
+        mirror.bytes_to_utf16(vec![0, 2, 8, 9, 13, 14, 15]).unwrap(),
+        vec![0, 2, 4, 5, 7, 8, 9]
+    );
+    assert!(mirror.bytes_to_utf16(vec![]).unwrap().is_empty());
+    assert!(matches!(
+        mirror.bytes_to_utf16(vec![0, 3]),
+        Err(EditorMirrorError::SplitCharacter)
+    ));
+    assert!(matches!(
+        mirror.bytes_to_utf16(vec![16]),
+        Err(EditorMirrorError::OutOfRange)
+    ));
+}

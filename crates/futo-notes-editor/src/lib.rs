@@ -23,12 +23,13 @@ pub use table::{
     TableOutcome,
 };
 pub use types::{
-    Affinity, AtomDescription, AtomKind, BlockDescription, CaretDirection, CodeBlockDescription,
-    CodeBlockHeader, CodeLineDescription, CodeLineMark, Correspondence, CorrespondenceKind,
-    DisplayOffset, DisplayRange, DisplayUtf16Offset, DisplayUtf16Range, EditWork, EditorError,
-    ImageClaim, ImageDescription, InlineFormat, LinkDescription, ListDescription, NoteIdChange,
-    NoteIdWork, ProjectionSlice, Revision, SelectionChange, SemanticRun, SourceEdit, SourceOffset,
-    SourceRange, SourceUtf16Offset, SourceUtf16Range, TableBlockDescription, TableLineDescription,
+    Affinity, AtomDescription, AtomKind, BlockBoundary, BlockDescription, BlockSlots,
+    CaretDirection, CodeBlockDescription, CodeBlockHeader, CodeLineDescription, CodeLineMark,
+    Correspondence, CorrespondenceKind, DisplayOffset, DisplayRange, DisplayUtf16Offset,
+    DisplayUtf16Range, EditWork, EditorError, ImageClaim, ImageDescription, InlineFormat,
+    LiftedBlock, LinkDescription, ListDescription, NoteIdChange, NoteIdWork, ProjectionSlice,
+    Revision, SelectionChange, SemanticRun, SourceEdit, SourceOffset, SourceRange,
+    SourceUtf16Offset, SourceUtf16Range, TableBlockDescription, TableLineDescription,
     TableLineRole, ViewChange, WikilinkCandidate, WikilinkCompletion, WikilinkDescription,
 };
 

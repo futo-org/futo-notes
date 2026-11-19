@@ -10,7 +10,7 @@ use std::ops::Range;
 impl Engine {
     /// The code block whose code shows at display offset `at`, from its
     /// first code line's start through its last code line's end.
-    pub(in crate::engine) fn block_at(&self, at: usize) -> Option<CodeBlock> {
+    pub(in crate::engine) fn code_block_at(&self, at: usize) -> Option<CodeBlock> {
         let (index, _) = self.line_at_display(store::display, at);
         is_code_line(self.line(index)).then(|| CodeBlock::holding(&self.store, index))
     }
@@ -35,15 +35,15 @@ impl Engine {
     pub(crate) fn block_reach(&self, range: DisplayRange) -> Option<Range<usize>> {
         if self.block_selected && range == self.selection {
             return self
-                .block_at(range.start.0)
+                .code_block_at(range.start.0)
                 .map(|block| self.block_source(&block));
         }
         let (mut start, end) = (range.start.0, range.end.0);
         if start == end {
             return None;
         }
-        let mut inside = self.block_at(start);
-        let reached = self.block_at(end);
+        let mut inside = self.code_block_at(start);
+        let reached = self.code_block_at(end);
         if inside.is_none() && reached.is_none() {
             return None;
         }
@@ -59,7 +59,7 @@ impl Engine {
             if start == block.description.range.end.0 && end >= below {
                 start = below;
                 from = self.source_bounds(start).1;
-                inside = self.block_at(start);
+                inside = self.code_block_at(start);
                 changed = true;
             }
         }
@@ -126,11 +126,11 @@ impl Engine {
         suffix: usize,
     ) -> (usize, usize) {
         let (start, end) = (range.start.0, range.end.0);
-        let inside = self.block_at(start);
+        let inside = self.code_block_at(start);
         let prefix = if inside.is_some() { 0 } else { prefix };
         let falls_back =
             inside.is_some_and(|block| end - suffix <= self.store.before(block.last + 1).display);
-        let suffix = if falls_back || self.block_at(end).is_some() {
+        let suffix = if falls_back || self.code_block_at(end).is_some() {
             0
         } else {
             suffix

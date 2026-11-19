@@ -467,3 +467,32 @@ pub struct NoteIdWork {
     /// Links re-resolved in those rows, including leaf-hash false positives.
     pub links_examined: usize,
 }
+
+/// A boundary between lines, as a renderer places it: above the line shown
+/// from display offset `at`, or, when `end`, below the note's last line (`at`
+/// is then the display's end). Around a last line that shows no characters
+/// (an empty task) the boundary above it and the note's end share `at`;
+/// `end` keeps them apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockBoundary {
+    pub at: DisplayOffset,
+    pub end: bool,
+}
+
+/// What a press lifts for a block move: its display extent, and whether its
+/// bottom edge is the note's end (below the last line) rather than the start
+/// of the line after it. An image lifted out of its line never is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiftedBlock {
+    pub range: DisplayRange,
+    pub to_end: bool,
+}
+
+/// The slots a lifted block may land on inside a display range, in order,
+/// each one a move the engine accepts, and the work finding them took: the
+/// trial moves' re-reads, and in `link_metadata_items` the lines read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockSlots {
+    pub slots: Vec<BlockBoundary>,
+    pub work: EditWork,
+}

@@ -18,6 +18,7 @@ mod identity;
 mod input;
 mod lease;
 mod links;
+mod moves;
 mod portable;
 mod quick_open;
 mod save;

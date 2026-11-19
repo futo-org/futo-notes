@@ -182,6 +182,8 @@ impl<'a> Draft<'a> {
             typed: false,
             carry: None,
             selects_block: false,
+            same_kind: Vec::new(),
+            image: None,
         })
     }
 }

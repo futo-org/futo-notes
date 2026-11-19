@@ -27,8 +27,12 @@ UTF-16 offset without walking the note. Every change is text edits plus one
 host acceptance; undo replays reverse edits with selection, affinity and
 carried formats. Commands (`src/engine/commands/<family>/`) all take the lines
 they are pointed at and the selection and return edits plus a selection, behind
-one guard (`src/engine/command.rs`) that cancels a command when a line it did
-not name would read as another kind of block. Their literal cases are
+one guard (`src/engine/command/mod.rs`) that cancels a command when a line it did
+not name would read as another kind of block. `src/engine/command/trial.rs`
+decides that guard for a block move without making it, by reading the lines
+at the seams the move creates: block slots are offered only where the move
+would land, and `src/engine/tests/moves/trial.rs` holds the two to the same
+answer. Their literal cases are
 `tests/fixtures/engine/`. `src/engine/tests/properties/` holds the five
 properties (unchanged bytes on open, exact typing, exact undo, incremental
 equals fresh, round-trip positions); `TYPING_CASES`/`TYPING_SEED` widen it and

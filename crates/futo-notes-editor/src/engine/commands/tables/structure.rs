@@ -57,6 +57,8 @@ impl Engine {
             typed: false,
             carry: None,
             selects_block: false,
+            same_kind: Vec::new(),
+            image: None,
         };
         // A cell keeps a caret or selection it holds when the command keeps
         // the cell; otherwise the caret goes to the start of the cell the

@@ -21,7 +21,7 @@ fn image_insertion_is_one_edit_and_a_reopened_session_rejects_old_claims() {
     drop(session);
 
     let mut recovered = store.open_editor("pics").unwrap();
-    assert_eq!(recovered.source_text(), "![](image-1.png)ab");
+    assert_eq!(recovered.source_text(), "![](image-1.png)\nab");
     assert!(matches!(
         recovered.insert_image(recovered.revision(), claim, "image-2.png", ""),
         Err(EditorStoreError::Editor(

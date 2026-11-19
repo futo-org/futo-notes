@@ -32,7 +32,7 @@ impl Engine {
     /// line, so the block opens the note.
     fn backspace_at_block(&self, range: DisplayRange) -> Option<Command> {
         let at = range.start.0;
-        if let Some(block) = self.block_at(at) {
+        if let Some(block) = self.code_block_at(at) {
             if block.first == block.last && self.line(block.first).shown_len() == 0 {
                 return Some(self.block_selecting(&block, Vec::new()));
             }
@@ -71,7 +71,7 @@ impl Engine {
     /// there is removed instead, and the caret goes into the code.
     fn delete_at_block(&self, range: DisplayRange) -> Option<Command> {
         let at = range.start.0;
-        if let Some(block) = self.block_at(at) {
+        if let Some(block) = self.code_block_at(at) {
             return (at == block.description.range.end.0).then(|| self.staying(range));
         }
         let (index, before) = self.line_at_display(store::display, at);
