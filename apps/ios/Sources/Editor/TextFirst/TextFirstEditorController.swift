@@ -19,7 +19,7 @@ final class TextFirstEditorController: NSObject {
     var noteId: String
 
     /// The engine's revision; every call carries it and every accepted change advances it.
-    var rev: UInt64
+    var rev: UInt64 { didSet { if rev != oldValue { noteRevisionChanged() } } }
     /// The engine's selection in view units (the view's may differ while composing).
     var engineSelection = NSRange(location: 0, length: 0)
     /// The revision `engineSelection` was set at (its units are that display's).
@@ -36,7 +36,7 @@ final class TextFirstEditorController: NSObject {
     /// The committed-display range the live composition replaces.
     var compositionRange = NSRange(location: 0, length: 0)
     var lastMarked = ""
-    var closed = false
+    var closed = false { didSet { if closed { cancelBlockDrag() } } }
     /// Typed since the last save the engine confirmed.
     var dirty = false
     /// The screen left: the leave registry runs this draft's saves (no timer, no checkpoint of
@@ -131,6 +131,35 @@ final class TextFirstEditorController: NSObject {
     /// Our own tap recogniser, the only one allowed to act on a checkbox touch.
     var checkboxTap: UITapGestureRecognizer?
     var selectionBeforeTouch = NSRange(location: 0, length: 0)
+    /// The long-press that lifts a block, whether the touch under way may lift, the lift it
+    /// planned as it began, the drag it is running and its haptics (+BlockDrag).
+    var liftRecognizer: UILongPressGestureRecognizer?
+    var liftArmed = false
+    /// Whether UIKit's text drag was on before the lift first turned it off.
+    var stockTextDrag = false
+    var pendingLift: TextFirstLift?
+    var blockDrag: TextFirstBlockDrag?
+    /// Outside writes heard of and not yet taken in by their checkpoint (+BlockDrag).
+    var outsideChangesPending = 0
+    let dragHaptics = TextFirstDragHaptics()
+    /// A drop whose preview is still settling over the moved note (+BlockLanding), and how long
+    /// the last one covered the note from its release (debug readout).
+    var reflowLanding: TextFirstReflowLanding?
+    #if DEBUG
+        var lastLanding: CFTimeInterval?
+        /// A test's shorter landing for this editor alone.
+        var debugLandingCap: CFTimeInterval?
+    #endif
+    /// The block being dragged laid out on its own, once the preview needs it (+BlockReflow).
+    var liftedLayout: TextFirstBlockLayout?
+    /// Debug builds: drag as with Reduce Motion on (`-FUTODebugReduceMotion`), which a UI test
+    /// cannot switch on in the simulator's settings.
+    #if FUTO_DEBUG_BUILD
+        var debugReducesMotion = ProcessInfo.processInfo.arguments.contains(
+            "-FUTODebugReduceMotion")
+    #else
+        let debugReducesMotion = false
+    #endif
 
     let io = DispatchQueue(label: "futo.textfirst.io", qos: .userInitiated)
     var saveTimer: Timer?
@@ -280,7 +309,7 @@ final class TextFirstEditorController: NSObject {
         if let p {
             // The common case: UIKit made exactly the edit the engine accepted.
             if edit != nil, es == p.range.location, ee == p.range.location + p.range.length,
-                inserted == p.text
+                inserted.isSameUtf16(as: p.text)
             {
                 return
             }
@@ -294,7 +323,9 @@ final class TextFirstEditorController: NSObject {
         guard NSMaxRange(region) <= storage.length else {
             throw ReconcileMismatch()
         }
-        if (storage.string as NSString).substring(with: region) == target { return }
+        if (storage.string as NSString).substring(with: region).isSameUtf16(as: target) {
+            return
+        }
         applying += 1
         storage.replaceCharacters(
             in: region,
@@ -327,11 +358,13 @@ final class TextFirstEditorController: NSObject {
     func checkDivergence() {
         guard verifyDivergence else { return }
         let engine = mirror.text()
-        if engine != storage.string, !engineComposing, textView.markedTextRange == nil {
+        if !engine.isSameUtf16(as: storage.string), !engineComposing,
+            textView.markedTextRange == nil
+        {
             divergences.append(
                 "view differs from the engine's display (\(storage.length) vs \(mirrorLength))")
         }
-        if let engineText = try? session.displayText(), engineText != engine {
+        if let engineText = try? session.displayText(), !engineText.isSameUtf16(as: engine) {
             divergences.append("mirror differs from the session's display")
         }
     }
@@ -389,4 +422,12 @@ final class TextFirstEditorController: NSObject {
     static func range(_ r: NSRange) -> EditorUtf16Range {
         EditorUtf16Range(start: UInt64(r.location), end: UInt64(NSMaxRange(r)))
     }
+}
+
+extension String {
+    /// Whether both strings are the same UTF-16 code units. Swift's `==` is canonical
+    /// equivalence (precomposed `é` equals `e` plus U+0301), but the engine, the mirror and
+    /// the view address text in exact UTF-16 units, so any text they must agree on is
+    /// compared with this.
+    func isSameUtf16(as other: String) -> Bool { utf16.elementsEqual(other.utf16) }
 }

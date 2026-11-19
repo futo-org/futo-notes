@@ -132,7 +132,7 @@ enum TextFirstStyler {
             guard let r = range(start, end, length) else { return }
             block(storage, r).code = true
             storage.addAttribute(.font, value: mono, range: r)
-        case .codeBlock:
+        case .codeBlock, .table:
             break
         case .divider(let start, let end):
             guard let r = range(start, end, length) else { return }
@@ -145,7 +145,7 @@ enum TextFirstStyler {
             guard let r = range(start, end, length) else { return }
             images.style(
                 storage, r, destination: destination, alt: alt, vault: vault, remote: remote)
-        case .tableRow(let start, let end, let columns, let header, let tableStart, let cells):
+        case .tableRow(let start, let end, let columns, let header, _, let tableStart, let cells, _):
             guard let r = range(start, end, length) else { return }
             images.controller?.styleTableRow(
                 storage, r, columns: Int(columns), header: header, tableStart: Int(tableStart),

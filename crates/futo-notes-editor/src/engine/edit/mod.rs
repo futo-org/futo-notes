@@ -85,6 +85,7 @@ fn grow(footprint: &mut Option<(usize, usize, usize)>, range: Range<usize>, inse
 impl Engine {
     /// Apply one text edit to the lines, with no acceptance or history.
     pub(crate) fn raw(&mut self, batch: &mut Batch, range: Range<usize>, inserted: &str) {
+        self.resolved.clear();
         let removed = self.source_slice(range.clone());
         let Shown {
             range: shown,

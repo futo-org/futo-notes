@@ -63,7 +63,7 @@ pub(super) fn spell(number: i128, like: &str) -> String {
 }
 
 /// What a line is to a walk along a level.
-enum Step {
+pub(super) enum Step {
     /// An item at the level.
     Sibling,
     /// Under an item of the level: passed over.
@@ -72,7 +72,7 @@ enum Step {
     End,
 }
 
-fn step(line: &Line, level: Level) -> Step {
+pub(super) fn step(line: &Line, level: Level) -> Step {
     if line.quote != level.quote {
         return Step::End;
     }

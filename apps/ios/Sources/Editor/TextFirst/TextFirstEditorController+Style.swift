@@ -120,7 +120,7 @@ extension TextFirstEditorController {
         let atLineStart =
             text.paragraphRange(for: NSRange(location: to, length: 0)).location == to
         let planned = specs.contains {
-            if case .tableRow(let start, _, _, _, _, _) = $0 { return Int(start) == to }
+            if case .tableRow(let start, _, _, _, _, _, _, _) = $0 { return Int(start) == to }
             return false
         }
         let last = text.paragraphRange(

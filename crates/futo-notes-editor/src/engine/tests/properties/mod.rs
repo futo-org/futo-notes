@@ -29,7 +29,7 @@
 //!
 //! `TYPING_CASES` and `TYPING_SEED` set the number of notes and the seed.
 mod block_mirror;
-mod checks;
+pub(super) mod checks;
 mod command_step;
 mod enter_rewrites;
 mod fences;

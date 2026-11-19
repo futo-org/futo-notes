@@ -35,7 +35,7 @@ impl Engine {
             return Err(EditorError::CompositionActive);
         }
         let block = self
-            .block_at(header.at.0)
+            .code_block_at(header.at.0)
             .ok_or(EditorError::InvalidRange)?;
         let language = header_value(header.language.trim_end());
         let name = header_value(&header.name);

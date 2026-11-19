@@ -152,9 +152,21 @@ fn insert(
 fn insertion_is_one_history_action_with_the_caret_after_the_image() {
     for (source, selection, saved, glyphs) in [
         ("", (0, 0), "![](image-9.png)", "![](image-9.png)"),
-        ("ab cd", (2, 2), "ab![](image-9.png) cd", "![](image-9.png)"),
+        // In a list item the image stays inline (a plain line gives it a
+        // line of its own, `fixtures/engine/images.json`).
+        (
+            "- ab cd",
+            (2, 2),
+            "- ab![](image-9.png) cd",
+            "![](image-9.png)",
+        ),
         // A selection is replaced by the image.
-        ("ab cd", (1, 4), "a![](image-9.png)d", "![](image-9.png)"),
+        (
+            "- ab cd",
+            (1, 4),
+            "- a![](image-9.png)d",
+            "![](image-9.png)",
+        ),
         // A hidden-marker boundary follows the caret's affinity.
         (
             "**ab** cd",
@@ -226,7 +238,7 @@ fn stale_claims_and_unwritable_inserts_change_nothing() {
     insert(&mut editor, claim, "image-1.png", "")
         .unwrap()
         .unwrap();
-    assert_eq!(editor.source_text(), "a![](image-1.png)bc");
+    assert_eq!(editor.source_text(), "a\n![](image-1.png)\nbc");
 
     // Another note's session, or the same note reopened, cannot use the claim.
     let mut other = EditorSession::open("ab");

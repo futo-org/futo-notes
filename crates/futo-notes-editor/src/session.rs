@@ -4,6 +4,7 @@
 mod commands;
 mod external;
 mod find;
+mod moves;
 mod types;
 
 pub use external::ExternalSourceAdoption;

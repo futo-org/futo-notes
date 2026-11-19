@@ -12,10 +12,13 @@ mod images;
 mod inline;
 mod lists;
 mod marks;
+pub(super) mod moves;
 mod paired_typing;
 pub(super) mod tables;
 mod transpose;
 mod wikilinks;
+
+pub(crate) use lists::Shift;
 
 use super::command::{Command, Edit};
 use super::Engine;

@@ -323,8 +323,9 @@
             #expect(
                 await h.controller.insertImage(
                     data: TextFirstHarness.png(8, 8), ext: "png", claim: claim))
-            #expect(h.source.hasPrefix("one ![](image-"))
-            #expect(h.source.contains(".png)two"))
+            // Mid-line on a plain line, the photo goes on a line of its own between the halves.
+            #expect(h.source.hasPrefix("one \n![](image-"))
+            #expect(h.source.contains(".png)\ntwo"))
             let vault = try FileManager.default.contentsOfDirectory(atPath: h.root.path)
             #expect(vault.filter { $0.hasPrefix("image-") }.count == 1)
             // A claim from another session is stale: nothing inserted, the file removed.
@@ -360,7 +361,7 @@
             #expect(UIPasteboard.general.hasImages)
             #expect(h.controller.pasteImageFromPasteboard())
             #expect(await h.until { h.source.contains("![](image-") })
-            #expect(h.source.hasPrefix("one ![](image-"))
+            #expect(h.source.hasPrefix("one \n![](image-"))
             UIPasteboard.general.string = "plain"
             #expect(!h.controller.pasteImageFromPasteboard())
         }

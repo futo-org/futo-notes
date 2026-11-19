@@ -22,5 +22,6 @@ The section files under `mobile/` are added as lines move.
 - [Images](mobile/images.md)
 - [Tables](mobile/tables.md)
 - [Code block header fields](mobile/code-blocks.md)
+- [Block drag](mobile/block-drag.md)
 - [Find in note](mobile/find.md)
 - [Long notes](mobile/long-notes.md)

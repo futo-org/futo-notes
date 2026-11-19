@@ -23,7 +23,7 @@
             let server = PuppetServer(
                 navigation: AppNavigation(), store: NotesStore(notesRoot: root),
                 sync: SyncManager(), port: 1)
-            for verb in ["Type", "Press", "MoveBlock", "Code", "FocusEditor"] {
+            for verb in ["Type", "Press", "Code", "FocusEditor"] {
                 let reply = await server.perform(.verb(verb), body: Data("{}".utf8))
                 #expect(reply.status == 501)
                 let body = try object(reply)
@@ -40,6 +40,11 @@
             let names = adapter.actions(h.controller).compactMap { $0["name"] as? String }
             #expect(!names.contains("Type") && !names.contains("Press"))
             #expect(names.contains("ToggleTask") && names.contains("OpenLink"))
+            #expect(names.contains("MoveBlock"))
+            let move = adapter.actions(h.controller).first { $0["name"] as? String == "MoveBlock" }
+            let schema = move?["schema"] as? [String: Any]
+            #expect(
+                (schema?["properties"] as? [String: Any])?["column"] != nil, "column advertised")
         }
 
         @Test func aReceiptSaysTheVersionsTheSelectionAndWhetherTheNoteChanged() async throws {
@@ -186,6 +191,102 @@
             #expect(await adapter.perform("ToggleTask", arguments: ["line": 1]).status == 409)
             h.controller.undo()
             #expect(h.source == "intro\n- [x] alpha\n- [x] beta")
+        }
+
+        @Test func moveBlockDropsALinesBlockBeforeOrAfterAnotherLine() async throws {
+            // Display lines: 1 intro, 2 a, 3 b, 4 end. Line 2 lifts its item with `b`.
+            let h = TextFirstHarness("intro\n- a\n  - b\nend")
+            let unmount = mount(h)
+            defer { unmount() }
+            let adapter = attached(h)
+            let moved = await adapter.perform("MoveBlock", arguments: ["line": 2, "after": 4])
+            #expect(moved.status == 200)
+            #expect(h.source == "intro\nend\n- a\n  - b")
+            #expect(
+                await adapter.perform("MoveBlock", arguments: ["line": 3, "before": 1]).status
+                    == 200)
+            #expect(h.source == "- a\n  - b\nintro\nend")
+            // Its own edge is no slot; a direction is required.
+            #expect(
+                await adapter.perform("MoveBlock", arguments: ["line": 3, "before": 3]).status
+                    == 409)
+            #expect(await adapter.perform("MoveBlock", arguments: ["line": 3]).status == 400)
+            h.controller.undo()
+            #expect(h.source == "intro\nend\n- a\n  - b")
+        }
+
+        @Test func moveBlockWithABoundaryThatIsNoLineNumberIsRefused() async throws {
+            let h = TextFirstHarness("A\nB\nC")
+            let unmount = mount(h)
+            defer { unmount() }
+            let adapter = attached(h)
+            for bad in ["oops", true, 2.5] as [Any] {
+                let moved = await adapter.perform(
+                    "MoveBlock", arguments: ["line": 1, "before": bad, "after": 3])
+                #expect(moved.status == 400, "\(bad)")
+            }
+            #expect(h.source == "A\nB\nC")
+        }
+
+        @Test func moveBlockDuringMarkedTextIsRefusedWithTheNoteUnchanged() async throws {
+            let h = TextFirstHarness("a\nb\nc")
+            let unmount = mount(h)
+            defer { unmount() }
+            let adapter = attached(h)
+            h.select(5, 5)
+            h.tv.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0))
+            let moved = await adapter.perform("MoveBlock", arguments: ["line": 1, "after": 2])
+            #expect(moved.status == 409)
+            #expect(h.source == "a\nb\nc")
+            #expect(h.tv.markedTextRange != nil)
+        }
+
+        @Test func moveBlockTellsAboveAnEmptyLastTaskFromAfterIt() async throws {
+            // Display lines: 1 a, 2 b, 3 the task, which shows no characters.
+            let h = TextFirstHarness("a\nb\n- [ ] ")
+            let unmount = mount(h)
+            defer { unmount() }
+            let adapter = attached(h)
+            let after = await adapter.perform("MoveBlock", arguments: ["line": 1, "after": 3])
+            #expect(after.status == 200)
+            #expect(h.source == "b\n- [ ] \na")
+            h.controller.undo()
+            let before = await adapter.perform("MoveBlock", arguments: ["line": 1, "before": 3])
+            #expect(before.status == 200)
+            #expect(h.source == "b\na\n- [ ] ")
+            h.controller.undo()
+            // The task itself lifts.
+            #expect(
+                await adapter.perform("MoveBlock", arguments: ["line": 3, "before": 1]).status
+                    == 200)
+            #expect(h.source == "- [ ] \na\nb")
+        }
+
+        @Test func moveBlockTakesOnlyANonNegativeIntegerColumn() async throws {
+            // Display lines: 1 the text and photo, 2 next. Column 4 is the photo.
+            let note = "text![](p.png)\nnext"
+            let h = TextFirstHarness(note)
+            let unmount = mount(h)
+            defer { unmount() }
+            let adapter = attached(h)
+            // As JSON hands them over: a string, a fraction, a boolean, null, a negative number.
+            for column: Any in ["4", NSNumber(value: 1.5), NSNumber(value: true), NSNull(), -1] {
+                let moved = await adapter.perform(
+                    "MoveBlock", arguments: ["line": 1, "column": column, "after": 2])
+                #expect(moved.status == 400, "column \(column)")
+                #expect(h.source == note, "column \(column)")
+            }
+            #expect(
+                await adapter.perform(
+                    "MoveBlock", arguments: ["line": 1, "column": NSNumber(value: 4), "after": 2]
+                ).status == 200)
+            #expect(h.source == "text\nnext\n![](p.png)")
+            h.controller.undo()
+            // Only an omitted column is the line's start: the line lifts whole.
+            #expect(
+                await adapter.perform("MoveBlock", arguments: ["line": 1, "after": 2]).status
+                    == 200)
+            #expect(h.source == "next\ntext![](p.png)")
         }
 
         @Test func openLinkAndAcceptSuggestionAreTheTapsPaths() async throws {

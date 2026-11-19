@@ -178,7 +178,9 @@ extension TextFirstEditorController: UITextViewDelegate {
         let platform = storage.string as NSString
         let newLength = platform.length
         // No hint, no equal-length shortcut: a same-length replacement is only found by comparing.
-        if hint == nil, newLength == mirrorLength, mirror.text() == (platform as String) {
+        if hint == nil, newLength == mirrorLength,
+            mirror.text().isSameUtf16(as: platform as String)
+        {
             return
         }
         let radius = 32

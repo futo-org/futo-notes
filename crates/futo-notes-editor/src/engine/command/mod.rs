@@ -8,10 +8,12 @@
 //! reader's carry settles.
 //! If a line the command did not name now reads as a different kind of
 //! block (a fence or front matter opened or closed, a table header gained or
-//! lost), the command is cancelled: no edit, no history entry. Typing never
+//! lost), the command is cancelled: no edit, no history entry. A command can
+//! also hold named lines to their kind (`Command::same_kind`). Typing never
 //! goes through the guard.
 mod kept_line;
 mod run;
+pub(crate) mod trial;
 
 use super::line::Entry;
 use super::{read, store, Engine};
@@ -52,7 +54,7 @@ pub(crate) struct Command {
     pub lines: Vec<Range<usize>>,
     /// The selection after the edits, in source offsets of the new text.
     pub selection: Range<usize>,
-    /// The affinity of a collapsed caret; `None` keeps what landing there picks.
+    /// A collapsed caret's affinity; `None` keeps what landing there picks.
     pub affinity: Option<Affinity>,
     /// Typing: a key's plain text edit, which always lands (no guard).
     pub typed: bool,
@@ -62,6 +64,23 @@ pub(crate) struct Command {
     /// The selection lands on the code block holding its start, selected as
     /// one object.
     pub selects_block: bool,
+    /// Named lines that must still read as the same kind of block after the
+    /// edits, as (index before, index after): a block move's lines change
+    /// place, never kind.
+    pub same_kind: Vec<(usize, usize)>,
+    /// An image the command writes, which must read back, with the whole
+    /// note read after the edits, as exactly that image; else the command
+    /// fails with `InvalidText` and nothing changes.
+    pub image: Option<Written>,
+}
+
+/// An image a command writes: its source range after the edits, its
+/// destination and its alt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Written {
+    pub range: Range<usize>,
+    pub destination: String,
+    pub alt: String,
 }
 
 impl Command {
@@ -76,6 +95,8 @@ impl Command {
             typed: false,
             carry: None,
             selects_block: false,
+            same_kind: Vec::new(),
+            image: None,
         }
     }
 
@@ -325,6 +346,19 @@ impl Engine {
 
     pub(crate) fn line_count(&self) -> usize {
         self.store.len()
+    }
+
+    /// The line ending a line of its own made from line `index` takes: that
+    /// line's, else the line's above (the note's last line has none), else
+    /// `\n`.
+    pub(crate) fn line_ending_near(&self, index: usize) -> String {
+        [Some(index), index.checked_sub(1)]
+            .into_iter()
+            .flatten()
+            .map(|index| self.line(index).ending())
+            .find(|ending| !ending.is_empty())
+            .unwrap_or("\n")
+            .to_owned()
     }
 
     /// Source offset where line `index` starts.
