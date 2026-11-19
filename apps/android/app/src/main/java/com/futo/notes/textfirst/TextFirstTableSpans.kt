@@ -87,7 +87,8 @@ internal class TfTableRow(
 
     override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
         fm?.apply { ascent = -(rowHeight - look.bodyLineSpacing); top = ascent; descent = 0; bottom = 0 }
-        return width()
+        // As wide as the table, the note's width at most: a row's end (a selection handle there) is the table's edge.
+        return minOf(width(), kotlin.math.ceil(row.columns * cellWidth).toInt())
     }
     override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
         val save = canvas.save()

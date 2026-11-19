@@ -34,4 +34,17 @@ class TextFirstTableHeaderWidthTest {
         val border = c.view.style.dp(1f)
         assertTrue("the header's fill ends at $fillRight, the table at $tableRight", fillRight <= tableRight && fillRight >= tableRight - border)
     }
+
+    /** A selection ending on a row has its end (and its handle) at the row's end: the table's right edge, not the note's. */
+    @Test fun aNarrowTablesRowEndsAtItsLastColumn() = textFirstSession("intro\n\n| a | b |\n| - | - |\n| c | d |\n\nafter") { c ->
+        val view = c.view
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        c.sourceText()
+        val (rowEnd, tableRight) = withContext(Dispatchers.Main) {
+            val e = view.editableText
+            val header = e.getSpans(0, e.length, TfTableRow::class.java).single { it.row.header }
+            view.layout.getPrimaryHorizontal(e.getSpanEnd(header)) to header.row.columns * header.cellWidth
+        }
+        assertTrue("the row ends at $rowEnd, the table at $tableRight", Math.abs(rowEnd - tableRight) <= 1f)
+    }
 }
