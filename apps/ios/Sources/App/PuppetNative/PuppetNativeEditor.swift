@@ -114,7 +114,8 @@
         /// above, or the note's end; null for none), and what is drawn, in screen points: the
         /// drop line's y (null while hidden, and always with the preview), the card, the
         /// scroll, and the preview's gap (`reflow`: whether its curtain shows and where the
-        /// copy of the block is drawn); and the slot ticks so far (`ticks`).
+        /// copy of the block is drawn); the slot ticks so far (`ticks`) and the autoscroll's
+        /// cost over its last second (`autoscroll`, `TextFirstDragMeter`).
         private func blockDrag(_ c: TextFirstEditorController, _ document: Document)
             -> [String: Any]?
         {
@@ -146,6 +147,7 @@
                 "card": Document.box(c.textView.convert(drag.card.frame, to: screen)),
                 "scrollY": Double(c.textView.contentOffset.y), "reflow": reflow,
                 "landsY": landsY, "ticks": c.dragHaptics.ticks,
+                "autoscroll": drag.autoscroller.meter.report,
                 "previewUnavailable": drag.previewUnavailable ?? NSNull(),
             ]
         }

@@ -1,3 +1,4 @@
+import Darwin
 import UIKit
 import os
 
@@ -75,6 +76,65 @@ final class TextFirstSlides {
 
     /// `layer` is let go: its slide goes with it, as a new layer may come to have its identity.
     func forget(_ layer: CALayer) { motions[ObjectIdentifier(layer)] = nil }
+}
+
+/// A long drag's cost (#449): each autoscroll frame's work in a signpost, and once a second a
+/// log line of the frames' work and gaps, the runs the preview holds and the app's memory, also
+/// kept for the debug report (`autoscroll`), so they can be seen staying flat.
+@MainActor
+final class TextFirstDragMeter {
+    /// The runs the live preview holds now, for the log.
+    var runs: () -> Int = { 0 }
+    private(set) var report: [String: Double] = [:]
+    private var work: [CFTimeInterval] = []
+    private var gaps: [CFTimeInterval] = []
+    private var since = CACurrentMediaTime()
+    private var frames = 0
+
+    /// Run one frame's `step`, `gap` after the frame before it.
+    func frame<T>(gap: CFTimeInterval, _ step: () -> T) -> T {
+        let interval = TextFirstReflowMotion.signposts.beginInterval("autoscroll frame")
+        let began = CACurrentMediaTime()
+        if frames == 0 { since = began }
+        defer {
+            TextFirstReflowMotion.signposts.endInterval("autoscroll frame", interval)
+            work.append(CACurrentMediaTime() - began)
+            gaps.append(gap)
+            frames += 1
+            if began - since >= 1 { flush(began) }
+        }
+        return step()
+    }
+
+    private func flush(_ now: CFTimeInterval) {
+        let ms = { (values: [CFTimeInterval], at: Double) in
+            values.sorted()[Int(Double(values.count - 1) * at)] * 1000
+        }
+        report = [
+            "frames": Double(frames), "workMedianMs": ms(work, 0.5), "workMaxMs": ms(work, 1),
+            "gapMaxMs": ms(gaps, 1), "runs": Double(runs()), "footprintMB": Self.footprint(),
+        ]
+        let line = String(
+            format:
+                "%d frames so far; work median %.2f ms max %.2f ms, longest gap %.1f ms, %d runs, "
+                + "footprint %.1f MB", frames, ms(work, 0.5), ms(work, 1), ms(gaps, 1), runs(),
+            report["footprintMB"] ?? 0)
+        TextFirstReflowMotion.log.info("block drag autoscroll: \(line, privacy: .public)")
+        (work, gaps, since) = ([], [], now)
+    }
+
+    /// The app's memory footprint, in MB, as the system counts it against its limit.
+    static func footprint() -> Double {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let status = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return status == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : 0
+    }
 }
 
 /// Runs `step` once per display frame until it returns false or this object goes away.

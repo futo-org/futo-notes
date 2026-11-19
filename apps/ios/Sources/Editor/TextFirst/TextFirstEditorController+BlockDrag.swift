@@ -72,6 +72,7 @@ final class TextFirstBlockDrag {
             textView.addSubview(view)
         }
         liftedCenter = card.center
+        autoscroller.meter.runs = { [weak self] in self?.preview?.plan.runs.count ?? 0 }
     }
 
     /// The finger moved to `p` (text view coordinates): the card follows it, and the preview's
