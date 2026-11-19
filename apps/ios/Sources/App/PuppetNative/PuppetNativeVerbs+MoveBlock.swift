@@ -20,8 +20,18 @@
                 throw PuppetVerbRefusal(
                     409, "text is being composed: commit or cancel it before moving a block")
             }
-            let before = args["before"] as? Int
-            let after = args["after"] as? Int
+            // A boundary given must be a whole line number: anything else is refused, never
+            // dropped (dropping it could leave the other one to move the block).
+            func boundary(_ key: String) throws -> Int? {
+                guard let raw = args[key] else { return nil }
+                let boolean = CFGetTypeID(raw as CFTypeRef) == CFBooleanGetTypeID()
+                guard let value = raw as? Int, !boolean else {
+                    throw PuppetVerbRefusal(400, "\(key) \(raw) is not a line number")
+                }
+                return value
+            }
+            let before = try boundary("before")
+            let after = try boundary("after")
             guard (before == nil) != (after == nil) else {
                 throw PuppetVerbRefusal(
                     400, #"MoveBlock needs one of {"before":<line>} or {"after":<line>}"#)

@@ -47,7 +47,9 @@
                     "ToggleTask", [], ["find", "line", "docVersion"], ["line", "docVersion"],
                     convenience: true),
                 entry("OpenLink", ["find"], convenience: true),
-                entry("MoveBlock", ["line"], ["before", "after"], ["line", "before", "after"]),
+                entry(
+                    "MoveBlock", ["line"], ["column", "before", "after"],
+                    ["line", "column", "before", "after"]),
             ]
             if c.completionModel.completion?.candidates.isEmpty == false {
                 all.append(

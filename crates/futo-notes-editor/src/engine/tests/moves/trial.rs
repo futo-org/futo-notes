@@ -12,6 +12,7 @@ use super::{line, slots};
 use crate::engine::store;
 use crate::lines::Kind;
 use crate::{BlockBoundary, DisplayOffset, EditorSession};
+use std::ops::Range;
 
 /// Every boundary of `session`'s note as a renderer names it.
 fn names(session: &EditorSession) -> Vec<BlockBoundary> {
@@ -180,4 +181,92 @@ fn a_slot_is_offered_exactly_where_the_move_is_accepted_in_seeded_notes() {
         tried += check(&note);
     }
     assert!(tried > 60_000, "only {tried} moves tried");
+}
+
+/// A numbered line's digits, and the line without them.
+fn digits(line: &str) -> (&str, String) {
+    let lead = line.len() - line.trim_start_matches([' ', '\t']).len();
+    let end = lead + line[lead..].bytes().take_while(u8::is_ascii_digit).count();
+    (
+        &line[lead..end],
+        format!("{}{}", &line[..lead], &line[end..]),
+    )
+}
+
+/// Whether moving lines `block` of `before` to boundary `slot`, giving
+/// `after`, changed nothing but the numbers it rewrote: each line reads as
+/// the one that was in its place, but for digits that differ from the
+/// digits it came with. (A line that keeps its own number where another
+/// number was is a change, as `1. a\n5. a` trading places is.)
+fn numbers_only(before: &str, after: &str, block: &Range<usize>, slot: usize) -> bool {
+    let (was, now): (Vec<_>, Vec<_>) = (before.split('\n').collect(), after.split('\n').collect());
+    let (s, e) = (block.start, block.end);
+    let came_from = |p: usize| match p {
+        p if p < s.min(slot) || p >= e.max(slot) => p,
+        p if slot < s && p < slot + (e - s) => s + p - slot,
+        p if slot < s => p - (e - s),
+        p if p < slot - (e - s) => p + (e - s),
+        p => s + p - (slot - (e - s)),
+    };
+    was.len() == now.len()
+        && was.iter().zip(&now).enumerate().all(|(p, (w, n))| {
+            let ((_, w_rest), (n_digits, n_rest)) = (digits(w), digits(n));
+            w == n || (w_rest == n_rest && n_digits != digits(was[came_from(p)]).0)
+        })
+}
+
+/// Lines a short numbered-list note is made of: numbers counting, alike
+/// and out of sequence, both delimiters, leading zeros, nesting, a bullet,
+/// a plain line and a blank one, over few texts so moves can trade alike
+/// lines.
+const NUMBERED: &[&str] = &[
+    "1. a", "2. a", "2. b", "3. a", "5. b", "1) a", "2) a", "  1. a", "  2. b", "01. a", "02. a",
+    "- a", "a", "",
+];
+
+#[test]
+fn in_short_numbered_lists_every_offered_slot_is_accepted_and_changes_more_than_numbers() {
+    let mut seed: u64 = 0x442_1234;
+    let mut next = |below: usize| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed % below as u64) as usize
+    };
+    let mut tried = 0;
+    for _ in 0..3000 {
+        let count = 1 + next(5);
+        let note: Vec<&str> = (0..count).map(|_| NUMBERED[next(NUMBERED.len())]).collect();
+        let note = note.join("\n");
+        let mut session = EditorSession::open(&note);
+        assert_eq!(session.engine().line_count(), count, "{note:?}");
+        for index in 0..count {
+            let Some(block) = session.engine().block_lines(index) else {
+                continue;
+            };
+            let at = line(&session, index);
+            let offered = slots(&mut session, at);
+            for slot in 0..=count {
+                let to = super::slot(&session, slot);
+                let revision = session.revision();
+                let moved = session.move_block(revision, at, to, &mut ok).unwrap();
+                assert_eq!(
+                    moved.is_some(),
+                    offered.contains(&to),
+                    "{note:?}: {index} to {slot}"
+                );
+                if moved.is_some() {
+                    let after = session.source_text();
+                    assert!(
+                        !numbers_only(&note, &after, &block, slot),
+                        "{note:?}: {index} to {slot} changed only numbers: {after:?}"
+                    );
+                    session.undo(session.revision(), &mut ok).unwrap().unwrap();
+                    assert_eq!(session.source_text(), note);
+                }
+                tried += 1;
+            }
+        }
+    }
+    assert!(tried > 30_000, "only {tried} moves tried");
 }

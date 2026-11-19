@@ -69,7 +69,8 @@ extension TextFirstEditorController {
         guard !preview.retreating else { return }
         do {
             let (plan, closedLine) = try reflowPlan(
-                drag.book, drag.targets, reusing: preview.closedLine, known: preview.known)
+                drag.book, drag.targets, reusing: preview.closedLine, known: preview.known,
+                measured: preview.measured)
             preview.remeasure(plan, closedLine: closedLine, finger: drag.fingerY)
         } catch  where !retried {
             DispatchQueue.main.async { [weak self, weak drag] in
@@ -80,6 +81,9 @@ extension TextFirstEditorController {
             }
         } catch {
             previewUnavailable(error, drag)
+            // The drop line takes over within the note's scroll (the preview may have taken
+            // it past the end).
+            withinScroll(preview)
             preview.remove()
             drag.preview = nil
         }

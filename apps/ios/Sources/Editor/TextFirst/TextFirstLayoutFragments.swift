@@ -56,8 +56,14 @@ enum TextFirstMetrics {
 final class TextFirstLayoutFragment: NSTextLayoutFragment {
     let block: TextFirstBlockAttribute
     var accent: UIColor = UIColor(Theme.primary)
-    /// The controller whose selection decides whether the marker is highlighted.
+    /// The controller whose selection decides whether the marker is highlighted. A block
+    /// laid out apart for a drag (#449) has none: its offsets are not the note's, so it reads
+    /// only a table's sideways scroll and the note's empty last line, given here.
     weak var host: TextFirstEditorController?
+    var detached: (tableScroll: @MainActor (Int) -> CGFloat, trailing: TextFirstBlockAttribute?)?
+    private var trailingBlock: TextFirstBlockAttribute? {
+        MainActor.assumeIsolated { host?.trailingBlock } ?? detached?.trailing
+    }
     /// The images of this paragraph: where their glyphs start in it, and the span.
     let imageRuns: [(range: NSRange, span: TextFirstImageSpan)]
     /// The table rows of this paragraph (one, for a row line).
@@ -93,7 +99,7 @@ final class TextFirstLayoutFragment: NSTextLayoutFragment {
         let label =
             block.codeLanguage
             ?? ((textElement as? NSTextParagraph)?.attributedString.length == 0
-                ? MainActor.assumeIsolated { host?.trailingBlock?.codeLanguage } : nil)
+                ? trailingBlock?.codeLanguage : nil)
         return super.topMargin + (label?.isEmpty == false ? 16 : 0)
     }
 
@@ -102,7 +108,7 @@ final class TextFirstLayoutFragment: NSTextLayoutFragment {
         // empty last line's art may run a line's spacing past the frame TextKit measured, or
         // a whole line when TextKit put that line inside the paragraph's own.
         let spill: CGFloat =
-            MainActor.assumeIsolated { host?.trailingBlock } == nil
+            trailingBlock == nil
             ? 0 : max(8, (misplacedTrailingLine?.height ?? 0) + 8)
         return super.renderingSurfaceBounds.union(
             CGRect(
@@ -210,7 +216,7 @@ final class TextFirstLayoutFragment: NSTextLayoutFragment {
         guard let line = textLineFragments.last, line.characterRange.length == 0 else {
             return nil
         }
-        if let trailing = MainActor.assumeIsolated({ host?.trailingBlock }),
+        if let trailing = trailingBlock,
             let row = trailingRow(of: trailing)
         {
             return (row.top, row.height)
@@ -258,7 +264,7 @@ final class TextFirstLayoutFragment: NSTextLayoutFragment {
             context.fill(marker.offsetBy(dx: point.x, dy: point.y))
         }
         // The empty last line's own block, which no paragraph carries.
-        if let trailing = MainActor.assumeIsolated({ host?.trailingBlock }),
+        if let trailing = trailingBlock,
             let row = trailingRow(of: trailing)
         {
             drawBlockArt(trailing, row: row, at: point, in: context)
@@ -322,6 +328,8 @@ final class TextFirstLayoutFragment: NSTextLayoutFragment {
 /// Hands TextKit a `TextFirstLayoutFragment` for every paragraph that draws something.
 final class TextFirstLayoutDelegate: NSObject, NSTextLayoutManagerDelegate {
     weak var host: TextFirstEditorController?
+    /// What a stack laid out apart from the editor reads instead (`TextFirstLayoutFragment`).
+    var detached: (tableScroll: @MainActor (Int) -> CGFloat, trailing: TextFirstBlockAttribute?)?
 
     func textLayoutManager(
         _ textLayoutManager: NSTextLayoutManager,
@@ -338,9 +346,11 @@ final class TextFirstLayoutDelegate: NSObject, NSTextLayoutManagerDelegate {
                 : nil
             // Every paragraph: a find mark can land on any of them, and a fragment already laid
             // out is not rebuilt when the first mark arrives.
-            return TextFirstLayoutFragment(
+            let fragment = TextFirstLayoutFragment(
                 block: block ?? TextFirstBlockAttribute(), element: textElement,
                 range: textElement.elementRange, host: host)
+            fragment.detached = detached
+            return fragment
         }
         return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
     }

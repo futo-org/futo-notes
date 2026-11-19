@@ -41,6 +41,10 @@
             #expect(!names.contains("Type") && !names.contains("Press"))
             #expect(names.contains("ToggleTask") && names.contains("OpenLink"))
             #expect(names.contains("MoveBlock"))
+            let move = adapter.actions(h.controller).first { $0["name"] as? String == "MoveBlock" }
+            let schema = move?["schema"] as? [String: Any]
+            #expect(
+                (schema?["properties"] as? [String: Any])?["column"] != nil, "column advertised")
         }
 
         @Test func aReceiptSaysTheVersionsTheSelectionAndWhetherTheNoteChanged() async throws {
@@ -209,6 +213,19 @@
             #expect(await adapter.perform("MoveBlock", arguments: ["line": 3]).status == 400)
             h.controller.undo()
             #expect(h.source == "intro\nend\n- a\n  - b")
+        }
+
+        @Test func moveBlockWithABoundaryThatIsNoLineNumberIsRefused() async throws {
+            let h = TextFirstHarness("A\nB\nC")
+            let unmount = mount(h)
+            defer { unmount() }
+            let adapter = attached(h)
+            for bad in ["oops", true, 2.5] as [Any] {
+                let moved = await adapter.perform(
+                    "MoveBlock", arguments: ["line": 1, "before": bad, "after": 3])
+                #expect(moved.status == 400, "\(bad)")
+            }
+            #expect(h.source == "A\nB\nC")
         }
 
         @Test func moveBlockDuringMarkedTextIsRefusedWithTheNoteUnchanged() async throws {

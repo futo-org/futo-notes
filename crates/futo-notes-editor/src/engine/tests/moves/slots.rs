@@ -191,7 +191,7 @@ fn the_work_to_find_the_slots_near_a_block_does_not_grow_with_the_note() {
         let count = note.split('\n').count();
         (note, count - 1 - lifted, count - 31 - lifted..count)
     }
-    let shapes: [(&str, Shape); 16] = [
+    let shapes: [(&str, Shape); 17] = [
         // The note above grows.
         ("a heading under mixed blocks", |n| {
             near_end(MIXED.repeat(n) + TAIL, 7)
@@ -251,6 +251,14 @@ fn the_work_to_find_the_slots_near_a_block_does_not_grow_with_the_note() {
             let note = format!("{}```\n{}```\nafter", "p\n".repeat(20), "x\n".repeat(n));
             (note, 20, 0..21)
         }),
+        ("a long table", |n| {
+            let note = format!(
+                "{}| h |\n|---|\n{}after",
+                "p\n".repeat(20),
+                "| 1 |\n".repeat(n)
+            );
+            (note, 20, 0..21)
+        }),
         // An item whose lines shift as it lands in a nested list.
         ("an item with many lines under it", |n| {
             let note = format!(
@@ -287,6 +295,8 @@ fn the_work_to_find_the_slots_near_a_block_does_not_grow_with_the_note() {
                 end: line(&session, lines.end),
             };
             let at = line(&session, lifted);
+            // The press that lifts the block, as a renderer's first call.
+            session.block_at(session.revision(), at).unwrap();
             let found = session.block_slots(session.revision(), at, within).unwrap();
             assert!(!found.slots.is_empty(), "{name}");
             found.work
@@ -295,4 +305,66 @@ fn the_work_to_find_the_slots_near_a_block_does_not_grow_with_the_note() {
         assert!(total(&short) > 0, "{name}");
         assert_eq!(short, long, "{name}");
     }
+}
+
+/// With front matter, every candidate asks whether the lines it shifts make
+/// or break a `---` there. The lifted lines are read once for the whole
+/// query, not once per candidate: the work grows by a visit per lifted line
+/// at most, where one visit per candidate made it ten times that. Lines a
+/// shift could make or break a `---` of (`  ---`, `  - - -`) are shifted
+/// once per whitespace the candidates shift them by, not once per
+/// candidate: here once, for the slots among `    - q`, where one shift
+/// per candidate made it eleven visits.
+#[test]
+fn front_matter_reads_the_shifted_lines_once_per_query() {
+    let work = |n: usize, child: &str| {
+        let note = format!(
+            "---\ntags: a\n---\n{}- big\n{}after",
+            "- p\n    - q\n".repeat(10),
+            child.repeat(n)
+        );
+        let session = EditorSession::open(&note);
+        let within = crate::DisplayRange {
+            start: line(&session, 3),
+            end: line(&session, 24),
+        };
+        let at = line(&session, 23);
+        session.block_at(session.revision(), at).unwrap();
+        let found = session.block_slots(session.revision(), at, within).unwrap();
+        assert!(found.slots.len() > 10, "{} slots", found.slots.len());
+        total(&found.work)
+    };
+    for (child, visits) in [("  - c\n", 1), ("  ---\n", 2), ("  - - -\n", 2)] {
+        let (short, long) = (work(500, child), work(10_000, child));
+        assert!(
+            long - short <= visits * (10_000 - 500),
+            "{child:?}: {short} at 500 lines, {long} at 10,000"
+        );
+    }
+}
+
+/// What a press resolved is kept only for the text it was read from: after
+/// an edit the same position lifts what the note now has there.
+#[test]
+fn a_press_is_resolved_again_after_any_edit() {
+    let mut session = EditorSession::open("| h |\n|---|\n| 1 |\nx\ny");
+    let at = line(&session, 0);
+    let table = session.block_at(session.revision(), at).unwrap().unwrap();
+    assert_eq!(table.range.end, line(&session, 3));
+    // The same press again is answered from what it found.
+    assert_eq!(session.block_at(session.revision(), at), Ok(Some(table)));
+    let revision = session.revision();
+    let to = slot(&session, 5);
+    let at = line(&session, 0);
+    session
+        .move_block(revision, at, to, &mut ok)
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text(), "x\ny\n| h |\n|---|\n| 1 |");
+    let now = session.block_at(session.revision(), at).unwrap().unwrap();
+    assert_eq!(
+        now.range.end,
+        line(&session, 1),
+        "the first line, not the table"
+    );
 }

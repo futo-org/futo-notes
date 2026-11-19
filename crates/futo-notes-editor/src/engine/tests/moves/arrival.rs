@@ -206,6 +206,20 @@ fn numbered_lists_renumber_where_the_item_left_and_where_it_landed() {
             1,
             "- p\n  1. x\n  1. a\n  1. b",
         ),
+        // Counting on from the item above, it leaves the item below and the
+        // next one alone when those two are numbered alike.
+        (
+            "1. a\n2. b\n2. c\n\nx",
+            Line(4),
+            1,
+            "1. a\n2. x\n2. b\n2. c\n",
+        ),
+        (
+            "1. a\n2. b\n3. c\n3. d\n\nx",
+            Line(5),
+            2,
+            "1. a\n2. b\n3. x\n3. c\n3. d\n",
+        ),
         // Moved down into a child list, the list it left still closes up.
         (
             "1. a\n2. b\n  - child\n3. c",
@@ -227,6 +241,111 @@ fn numbered_lists_renumber_where_the_item_left_and_where_it_landed() {
             Line(2),
             1,
             "1. a\n2. x\n9999999999999999999999999999999999999. b",
+        ),
+    ]);
+}
+
+#[test]
+fn the_item_below_and_the_next_one_are_read_as_the_note_was() {
+    check(&[
+        // Whether the item below and the next one are numbered alike is
+        // read from the note as it was: `cut` ended the list, so `2. d`
+        // was never `b`'s next one ...
+        (
+            "1. a\n2. b\ncut\n2. d",
+            Line(2),
+            1,
+            "1. a\n2. cut\n3. b\n2. d",
+        ),
+        // ... and the moved `2. c` was (`3. d`, counting on from `c`,
+        // closes up).
+        (
+            "1. a\n2. b\n2. c\n3. d",
+            Line(2),
+            1,
+            "1. a\n2. c\n2. b\n2. d",
+        ),
+        // With no sibling above, the moved line was the next one.
+        ("- p\n  1. a\n  1. b", Line(2), 1, "- p\n  1. b\n  1. a"),
+        ("- p\n  1. a\n  2. b", Line(2), 1, "- p\n  1. b\n  2. a"),
+        // A moved line that ended the list, at a deeper level, with the
+        // other delimiter and with leading zeros: no list it joins counts.
+        (
+            "- p\n  1. a\n  2. b\n  cut\n  2. d",
+            Line(3),
+            2,
+            "- p\n  1. a\n  2. cut\n  3. b\n  2. d",
+        ),
+        (
+            "1) a\n2) b\ncut\n2) d",
+            Line(2),
+            1,
+            "1) a\n2) cut\n3) b\n2) d",
+        ),
+        (
+            "01. a\n02. b\ncut\n02. d",
+            Line(2),
+            1,
+            "01. a\n02. cut\n03. b\n02. d",
+        ),
+        // A bullet or another delimiter between two lists ends the first.
+        (
+            "1. a\n2. b\n- m\n2. c",
+            Line(2),
+            1,
+            "1. a\n2. m\n3. b\n2. c",
+        ),
+        (
+            "1. a\n2. b\n2) m\n2. c",
+            Line(2),
+            1,
+            "1. a\n2. m\n3. b\n2. c",
+        ),
+        // The moved next one numbered alike, with the other delimiter, with
+        // leading zeros, at a deeper level, and with a line under it.
+        (
+            "1) a\n2) b\n2) c\n3) d",
+            Line(2),
+            1,
+            "1) a\n2) c\n2) b\n2) d",
+        ),
+        (
+            "01. a\n02. b\n02. c\n03. d",
+            Line(2),
+            1,
+            "01. a\n02. c\n02. b\n02. d",
+        ),
+        (
+            "1. p\n   1. a\n   2. b\n   2. c\n   3. d",
+            Line(3),
+            2,
+            "1. p\n   1. a\n   2. c\n   2. b\n   2. d",
+        ),
+        (
+            "1. a\n2. b\n2. c\n   - u\n3. d",
+            Line(2),
+            1,
+            "1. a\n2. c\n   - u\n2. b\n2. d",
+        ),
+        // A moved next one not numbered alike leaves the count to the rest.
+        (
+            "1. a\n2. b\n3. c\n3. d",
+            Line(2),
+            1,
+            "1. a\n2. c\n3. b\n3. d",
+        ),
+        (
+            "1. a\n2. b\n2) c\n2. d",
+            Line(2),
+            1,
+            "1. a\n2. c\n3. b\n2. d",
+        ),
+        // Moved down past the line that ended the list it joins.
+        (
+            "1. a\n2. b\ncut\n2. c\n3. d",
+            Line(2),
+            4,
+            "1. a\n2. b\n2. c\n3. cut\n4. d",
         ),
     ]);
 }

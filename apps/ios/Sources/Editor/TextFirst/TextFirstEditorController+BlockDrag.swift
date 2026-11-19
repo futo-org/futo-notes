@@ -132,7 +132,11 @@ final class TextFirstBlockDrag {
     isolated deinit {
         guard !finished else { return }
         for view in [card, dimmedSource, dropLine] { view.removeFromSuperview() }
-        preview?.remove()
+        if let preview {
+            preview.remove()
+            // The preview may have scrolled the note past its end.
+            textView?.backWithinFoot()
+        }
         textView?.panGestureRecognizer.isEnabled = true
     }
 
@@ -334,6 +338,10 @@ extension TextFirstEditorController {
     func cancelBlockDrag() {
         finishLanding()
         guard let drag = takeBlockDrag() else { return }
+        // However the drag ends, the note is left within its scroll (the preview may have
+        // scrolled it past its end) and the block laid out on its own goes.
+        if let preview = drag.preview { withinScroll(preview) }
+        liftedLayout = nil
         drag.finish(returning: false)
         liftRecognizer?.isEnabled = false
         liftRecognizer?.isEnabled = true

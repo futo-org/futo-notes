@@ -33,6 +33,7 @@ extension TextFirstEditorController {
             }
         }
         if moved { dragHaptics.landed() }
+        liftedLayout = nil
         drag.finish(returning: !moved)
     }
 
@@ -58,7 +59,7 @@ extension TextFirstEditorController {
         // ends inside that line), and not above the screen.
         var start = NSMaxRange(block)
         if start > 0, start < text.length, text.character(at: start - 1) != 0x0A {
-            start = NSMaxRange(text.lineRange(for: NSRange(location: start, length: 0)))
+            start = NSMaxRange(text.noteLine(at: start))
         }
         start = max(
             start,
@@ -68,11 +69,11 @@ extension TextFirstEditorController {
         // line that shows. A line cut by the screen's top edge is where TextKit joins its
         // estimate of the text above the screen to what it lays out, and holding it held the
         // estimate, not the screen (the screen moved by 8 pt).
-        let above = text.lineRange(for: NSRange(location: max(start, slot.offset - 1), length: 0))
+        let above = text.noteLine(at: max(start, slot.offset - 1))
         let held = above.location >= start ? above.location : start
         guard let top = boundaryY(TextFirstBlockSlot(offset: held, end: false), in: laidOut)
         else { return nil }
-        let line = text.lineRange(for: NSRange(location: held, length: 0))
+        let line = text.noteLine(at: held)
         return (line.location + line.length / 2 - block.length, top - textView.contentOffset.y)
     }
 
@@ -84,8 +85,7 @@ extension TextFirstEditorController {
         guard text.length > 0, let manager = textView.textLayoutManager,
             let content = manager.textContentManager
         else { return }
-        let line = text.lineRange(
-            for: NSRange(location: min(max(held.middle, 0), text.length - 1), length: 0))
+        let line = text.noteLine(at: min(max(held.middle, 0), text.length - 1))
         guard
             let location = content.location(
                 manager.documentRange.location, offsetBy: line.location),

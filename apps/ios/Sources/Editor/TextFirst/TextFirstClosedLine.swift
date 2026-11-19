@@ -17,10 +17,12 @@ final class TextFirstClosedLine {
     let photoHeight: CGFloat
     let width: CGFloat
     let drawing: Int
-    private let photoFragment: NSTextLayoutFragment
+    private let photoFragments: [NSTextLayoutFragment]
     private let manager: NSTextLayoutManager
     private let content: NSTextContentStorage
-    private let fragment: NSTextLayoutFragment
+    /// The fragments of the line without the photo: TextKit starts a paragraph inside a
+    /// note's line at a lone return or U+2029, so one line can be several.
+    private let fragments: [NSTextLayoutFragment]
     /// Retained: the stack holds its delegates weakly.
     private let layoutDelegate = TextFirstLayoutDelegate()
     private let breakDelegate = TextFirstImageBreakDelegate()
@@ -32,11 +34,19 @@ final class TextFirstClosedLine {
         _ storage: NSTextStorage, line: NSRange, removing photo: NSRange, width: CGFloat,
         drawing: Int
     ) {
+        // The photo must lie inside the line: a mismatch (lines counted another way) gives
+        // no closed line, and the drag shows the drop line, rather than an out-of-range edit.
+        guard photo.location >= line.location, NSMaxRange(photo) <= NSMaxRange(line),
+            NSMaxRange(line) <= storage.length
+        else { return nil }
         let text = NSMutableAttributedString(
             attributedString: storage.attributedSubstring(from: line))
         text.deleteCharacters(
             in: NSRange(location: photo.location - line.location, length: photo.length))
-        if !text.string.hasSuffix("\n") {
+        // Compared as UTF-16: a CRLF ending is one Character, so `hasSuffix("\n")` misses it.
+        if (text.string as NSString).length == 0
+            || (text.string as NSString).character(at: text.length - 1) != 0x0A
+        {
             text.append(NSAttributedString(string: "\n", attributes: Self.plain))
         }
         // A line above and below it, so it is laid out as a line in the middle of a note: with
@@ -56,15 +66,30 @@ final class TextFirstClosedLine {
         manager.textContainer = container
         content.textStorage?.setAttributedString(whole)
         manager.ensureLayout(for: manager.documentRange)
-        guard let at = content.location(content.documentRange.location, offsetBy: 2),
-            let fragment = manager.textLayoutFragment(for: at),
-            let photoAt = content.location(content.documentRange.location, offsetBy: alone),
-            let photoFragment = manager.textLayoutFragment(for: photoAt)
+        // Each is measured from its first fragment's top to the next one's first.
+        let (laid, stack) = (manager, content)
+        func fragments(_ from: Int, _ to: Int) -> [NSTextLayoutFragment] {
+            let begin = stack.documentRange.location
+            guard let at = stack.location(begin, offsetBy: from) else { return [] }
+            var found: [NSTextLayoutFragment] = []
+            laid.enumerateTextLayoutFragments(from: at) { f in
+                guard laid.offset(from: begin, to: f.rangeInElement.location) < to else {
+                    return false
+                }
+                found.append(f)
+                return true
+            }
+            return found
+        }
+        let sentinel = whole.length - 1
+        let closed = fragments(2, alone)
+        let photo = fragments(alone, sentinel)
+        guard let first = closed.first, let photoFirst = photo.first,
+            let foot = fragments(sentinel, whole.length).first
         else { return nil }
-        (self.fragment, self.photoFragment) = (fragment, photoFragment)
-        (height, photoHeight) = (
-            fragment.layoutFragmentFrame.height, photoFragment.layoutFragmentFrame.height
-        )
+        (self.fragments, photoFragments) = (closed, photo)
+        height = photoFirst.layoutFragmentFrame.minY - first.layoutFragmentFrame.minY
+        photoHeight = foot.layoutFragmentFrame.minY - photoFirst.layoutFragmentFrame.minY
         (self.width, self.drawing) = (width, drawing)
     }
 
@@ -78,21 +103,29 @@ final class TextFirstClosedLine {
     func paint(
         _ band: ClosedRange<CGFloat>, at top: CGFloat, with painter: TextFirstSlicePainter
     ) -> CGImage? {
-        let laidOut = painter.textView.textContainerInset.top + fragment.layoutFragmentFrame.minY
+        let laidOut =
+            painter.textView.textContainerInset.top + fragments[0].layoutFragmentFrame.minY
         return painter.draw(
             CGRect(
                 x: 0, y: top + band.lowerBound, width: painter.textView.bounds.width,
                 height: band.upperBound - band.lowerBound),
-            shift: top - laidOut, fragments: { visit in _ = visit(fragment) })
+            shift: top - laidOut,
+            fragments: { visit in for f in fragments where !visit(f) { break } })
     }
 
-    /// The photo's own line, its top at `top` (text view coordinates), as `painter` draws the
-    /// note, over the surface colour.
-    func paintPhoto(at top: CGFloat, with painter: TextFirstSlicePainter) -> CGImage? {
+    /// The stretch `band` (its own coordinates, 0 at its top) of the photo's own line, its top
+    /// at `top` (text view coordinates), as `painter` draws the note, over the surface colour.
+    func paintPhoto(
+        _ band: ClosedRange<CGFloat>, at top: CGFloat, with painter: TextFirstSlicePainter
+    ) -> CGImage? {
         let laidOut =
-            painter.textView.textContainerInset.top + photoFragment.layoutFragmentFrame.minY
+            painter.textView.textContainerInset.top + photoFragments[0].layoutFragmentFrame.minY
+        let from = painter.pixel(top + band.lowerBound)
         return painter.draw(
-            CGRect(x: 0, y: top, width: painter.textView.bounds.width, height: photoHeight),
-            shift: top - laidOut, fragments: { visit in _ = visit(photoFragment) })
+            CGRect(
+                x: 0, y: from, width: painter.textView.bounds.width,
+                height: painter.pixel(top + band.upperBound) - from),
+            shift: top - laidOut,
+            fragments: { visit in for f in photoFragments where !visit(f) { break } })
     }
 }

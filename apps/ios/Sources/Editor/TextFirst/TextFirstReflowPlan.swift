@@ -52,6 +52,9 @@ struct TextFirstReflowPlan: Equatable {
     let drawing: Int
     /// What the images of the block itself draw: a change draws its copy again.
     let blockDrawing: Int
+    /// Whether `room` is the block's measured height (both its edges read, or it laid out
+    /// whole apart), not an estimate.
+    let exact: Bool
     /// The UTF-16 start of the line the block's drawing starts on.
     let sourceAnchor: Int
     /// The part of `source` TextKit has laid out (text view coordinates), where the copy can
@@ -116,6 +119,14 @@ struct TextFirstReflowPlan: Equatable {
     func top(_ j: Int, gap: Int) -> CGFloat {
         guard gap != home else { return runs[j].top }
         var y = runs[j].top + (j >= gap ? room : 0) - (j >= home ? left : 0)
+        for i in 0..<j { y += runs[i].closed - runs[i].height }
+        return y
+    }
+
+    /// Where run `j`'s top is drawn with any gap open but above it (as `top(_:gap:)`): every
+    /// gap draws it there, or a block's room lower.
+    func closedTop(_ j: Int) -> CGFloat {
+        var y = runs[j].top - (j >= home ? left : 0)
         for i in 0..<j { y += runs[i].closed - runs[i].height }
         return y
     }

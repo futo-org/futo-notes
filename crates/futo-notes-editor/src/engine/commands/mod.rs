@@ -10,7 +10,7 @@ mod images;
 mod inline;
 mod lists;
 mod marks;
-mod moves;
+pub(super) mod moves;
 mod tables;
 mod wikilinks;
 

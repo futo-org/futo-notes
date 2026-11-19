@@ -31,6 +31,8 @@ final class TextFirstReflow {
         var home: CGImage?
         var offset: CGFloat = 0
         var closed: CGImage?
+        /// How far below the run's top `closed` starts (it is `home` outside a photo's line).
+        var closedOffset: CGFloat = 0
         /// How far below the run's top the layer's drawing starts now.
         var shown: CGFloat = 0
     }
@@ -40,6 +42,9 @@ final class TextFirstReflow {
     /// What the block is known to take in a gap and out of the note (`TextFirstReflowPlan
     /// .leaves`), kept for when it has scrolled away (#449).
     private(set) var known: (room: CGFloat, left: CGFloat)
+    /// The block's height last measured, and the width and drawing of its images it was
+    /// measured at: an estimate never replaces it while those hold.
+    private(set) var measured: (height: CGFloat, width: CGFloat, drawing: Int)?
     /// Draws `rect` (text view coordinates) of the block laid out on its own, its top at the
     /// given y: the copy once the block's own text is not laid out.
     var drawBlock: ((CGRect, CGFloat) -> CGImage?)?
@@ -47,17 +52,20 @@ final class TextFirstReflow {
     let copy = CALayer()
     /// The copy's drawing, the stretch of the block (its own coordinates) it covers, and how far
     /// below the block's top (on the pixel grid) the drawing starts.
-    private(set) var copyImage: (image: CGImage, window: ClosedRange<CGFloat>, offset: CGFloat)?
+    var copyImage: (image: CGImage, window: ClosedRange<CGFloat>, offset: CGFloat)?
     /// How far below the copy's frame its drawing starts now.
     var copyShown: CGFloat = 0
-    /// A photo lifted out of a line, drawn as the line of its own it becomes, for a gap.
-    private var awayImage: CGImage?
+    /// A photo lifted out of a line, drawn as the line of its own it becomes, for a gap: the
+    /// stretch of it that can show, as `copyImage`.
+    var awayImage: (image: CGImage, window: ClosedRange<CGFloat>, offset: CGFloat)?
     /// The card the curtain goes under.
     private weak var card: UIView?
     let slides = TextFirstSlides()
     var builder: TextFirstIdleBuilder?
-    /// Debug timing of the idle drawing.
-    private var building = (spent: CFTimeInterval(0), frames: 0, logged: false)
+    #if DEBUG
+        /// Debug timing of the idle drawing.
+        private var building = (spent: CFTimeInterval(0), frames: 0, logged: false)
+    #endif
 
     init(
         _ plan: TextFirstReflowPlan, closedLine: TextFirstClosedLine?,
@@ -66,6 +74,9 @@ final class TextFirstReflow {
         (self.plan, self.closedLine, self.painter, self.card) = (plan, closedLine, painter, card)
         gap = plan.home
         known = (plan.room, plan.leaves)
+        if plan.exact, closedLine == nil {
+            measured = (plan.room, plan.away.width, plan.blockDrawing)
+        }
         visible = painter.textView.bounds
         slices = plan.runs.map { _ in Slice() }
         curtain.isUserInteractionEnabled = false
@@ -160,7 +171,13 @@ final class TextFirstReflow {
         if resized || old.away != plan.away || old.drawing != plan.drawing || redrawn {
             awayImage = nil
         }
-        if plan.homeShown { known = (plan.room, plan.leaves) }
+        // Known from where the block shows, or from its photo's line laid out again apart.
+        if plan.homeShown || (closedLine != nil && closedLine !== self.closedLine) {
+            known = (plan.room, plan.leaves)
+        }
+        if plan.exact, plan.closing == nil, closedLine == nil {
+            measured = (plan.room, plan.away.width, plan.blockDrawing)
+        }
         (self.plan, self.closedLine, visible, slices) = (plan, closedLine, bounds, next)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -256,8 +273,10 @@ final class TextFirstReflow {
         let interval = TextFirstReflowMotion.signposts.beginInterval("slices")
         defer {
             TextFirstReflowMotion.signposts.endInterval("slices", interval)
-            building.spent += CACurrentMediaTime() - started
-            building.frames += 1
+            #if DEBUG
+                building.spent += CACurrentMediaTime() - started
+                building.frames += 1
+            #endif
         }
         for j in slices.indices {
             if !all, CACurrentMediaTime() - started > TextFirstReflowMotion.budget { return true }
@@ -271,34 +290,41 @@ final class TextFirstReflow {
                 slices[j].offset = painter.pixel(from) - painter.pixel(run.top)
             }
             if slices[j].closed == nil, run.closed != run.height || closedLine != nil {
-                slices[j].closed = closedDrawing(j)
+                (slices[j].closed, slices[j].closedOffset) = closedDrawing(j)
             }
         }
         if !all, CACurrentMediaTime() - started > TextFirstReflowMotion.budget { return true }
         drawCopy(for: gap)
-        if awayImage == nil, let closedLine {
-            awayImage = closedLine.paintPhoto(at: plan.source.minY, with: painter)
-        }
-        if builder != nil || all, !building.logged {
-            building.logged = true
-            let spent = (building.spent + CACurrentMediaTime() - started) * 1000
-            TextFirstReflowMotion.log.debug(
-                "slices built: \(self.slices.count, privacy: .public) runs, \(spent, format: .fixed(precision: 1), privacy: .public) ms over \(self.building.frames + 1, privacy: .public) frames\(all ? " (at the first gap change)" : "", privacy: .public)"
-            )
-        }
+        #if DEBUG
+            if builder != nil || all, !building.logged {
+                building.logged = true
+                let spent = (building.spent + CACurrentMediaTime() - started) * 1000
+                TextFirstReflowMotion.log.debug(
+                    "slices built: \(self.slices.count, privacy: .public) runs, \(spent, format: .fixed(precision: 1), privacy: .public) ms over \(self.building.frames + 1, privacy: .public) frames\(all ? " (at the first gap change)" : "", privacy: .public)"
+                )
+            }
+        #endif
         builder = nil
         return false
     }
 
-    /// The part of a photo's line run `j` is once the photo has left; its home drawing for a
-    /// run outside that line.
-    private func closedDrawing(_ j: Int) -> CGImage? {
+    /// The part of a photo's line run `j` is once the photo has left; its home drawing, as
+    /// far below its top as that drawing starts, for a run outside that line.
+    private func closedDrawing(_ j: Int) -> (CGImage?, CGFloat) {
         let run = plan.runs[j]
         guard let closedLine, let line = plan.closing,
             run.top >= line.top - 0.5, run.bottom <= line.bottom + 0.5
-        else { return slices[j].home }
+        else { return (slices[j].home, slices[j].offset) }
+        // Only the stretch of it that can show where the run is drawn once the line has closed
+        // (a row beside a photo far taller than the screen stays as tall), as far below its top.
         let from = line.closedY(run.top - line.top)
-        return closedLine.paint(from...(from + run.closed), at: line.top, with: painter)
+        let top = plan.closedTop(j)
+        let shown = max(0, visible.minY - visible.height - plan.room - top)
+        let to = min(run.closed, visible.maxY + visible.height + plan.room - top)
+        guard to > shown else { return (nil, 0) }
+        let image = closedLine.paint(
+            (from + shown)...(from + to), at: line.top, with: painter)
+        return (image, painter.pixel(line.top + from + shown) - painter.pixel(line.top + from))
     }
 
     /// A lifted photo is drawn by the copy, so the runs leave its place blank.
@@ -320,40 +346,6 @@ final class TextFirstReflow {
         return painter.paint(
             CGRect(x: frame.minX, y: top, width: frame.width, height: pixelHeight(frame)),
             layingOut: layingOut)
-    }
-
-    /// The stretch of the block the copy shows with the gap at `gap`: the part that shows there
-    /// and a quarter screen around it (all of a block that fits), so nothing far off screen is
-    /// laid out to draw it.
-    private func window(for gap: Int) -> ClosedRange<CGFloat> {
-        let top = plan.copy(gap).minY
-        let from = min(max(0, visible.minY - visible.height / 4 - top), plan.source.height)
-        let to = min(plan.source.height, visible.maxY + visible.height / 4 - top)
-        return from...max(from, to)
-    }
-
-    /// Draw the copy's stretch for `gap`: from the note while that part of the block is laid
-    /// out, else from the block laid out on its own. A photo lifted out of a line is drawn as
-    /// its own line instead (`awayImage`), never from where its line was.
-    private func drawCopy(for gap: Int) {
-        if closedLine != nil, plan.closing == nil { return }
-        let needed = window(for: gap)
-        if let drawn = copyImage?.window, drawn.contains(needed.lowerBound),
-            drawn.contains(needed.upperBound)
-        {
-            return
-        }
-        let source = plan.source
-        let top = painter.pixel(source.minY + needed.lowerBound)
-        let rect = CGRect(
-            x: source.minX, y: top, width: source.width,
-            height: painter.pixel(source.minY + needed.upperBound) - top)
-        let anchor = plan.closing?.anchor ?? plan.sourceAnchor
-        let inNote = plan.sourceLaidOut.map { $0 ~= rect.minY && $0 ~= rect.maxY - 0.5 } ?? false
-        let drawn = inNote ? painter.paint(rect, from: anchor) : drawBlock?(rect, source.minY)
-        guard let image = drawn else { return }
-        copyImage = (image, needed, top - painter.pixel(source.minY))
-        copy.contents = image
     }
 
     /// `image` in `layer`, the layer exactly the image's size, so it is never scaled or cropped
@@ -395,7 +387,7 @@ final class TextFirstReflow {
             let closed = gap != plan.home
             let shut = closed ? slices[j].closed : nil
             show(shut ?? slice.home, in: slice.layer)
-            let shown = shut == nil ? slice.offset : 0
+            let shown = shut == nil ? slice.offset : slice.closedOffset
             if shown != slice.shown { slides.shift(slice.layer, by: shown - slice.shown) }
             slices[j].shown = shown
             let top = painter.pixel(plan.top(j, gap: gap))
@@ -404,9 +396,9 @@ final class TextFirstReflow {
                 || slid
         }
         var copyAt: (CGRect, CGFloat)?
-        if closedLine != nil, gap != plan.home, let awayImage {
-            show(awayImage, in: copy)
-            copyAt = (copyFrame, 0)
+        if closedLine != nil, gap != plan.home, let away = drawAway(for: gap) {
+            show(away.image, in: copy)
+            copyAt = (copyFrame, away.offset)
         } else if let drawn = copyImage {
             show(drawn.image, in: copy)
             copyAt = (copyFrame, drawn.offset)
