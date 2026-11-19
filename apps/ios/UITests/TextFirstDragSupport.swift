@@ -279,3 +279,15 @@ extension Dictionary where Key == String, Value == Any {
     }
     var lastLineOnScreen: Int? { (self["onScreen"] as? [String: Any])?["last"] as? Int }
 }
+
+extension Array where Element == String {
+    /// These lines with display line `from` (1-based) moved above line `before` (0: the note's
+    /// end), `arriving` as it arrives, joined as a note.
+    func moving(_ from: Int, before: Int, arriving: String? = nil) -> String {
+        var moved = self
+        let block = moved.remove(at: from - 1)
+        let to = before == 0 ? moved.count : (before > from ? before - 2 : before - 1)
+        moved.insert(arriving ?? block, at: to)
+        return moved.joined(separator: "\n")
+    }
+}

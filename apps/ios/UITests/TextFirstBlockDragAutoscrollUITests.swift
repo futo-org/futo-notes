@@ -9,18 +9,6 @@ import XCTest
 final class TextFirstBlockDragAutoscrollUITests: XCTestCase {
     private let lines = (1...150).map { String(format: "line %03d", $0) }
 
-    /// `lines` with display line `from` (1-based) moved above line `before` (0: the note's end),
-    /// `arriving` as it arrives.
-    private func moving(
-        _ from: Int, before: Int, in lines: [String], arriving: String? = nil
-    ) -> String {
-        var moved = lines
-        let block = moved.remove(at: from - 1)
-        let to = before == 0 ? moved.count : (before > from ? before - 2 : before - 1)
-        moved.insert(arriving ?? block, at: to)
-        return moved.joined(separator: "\n")
-    }
-
     @MainActor
     func testHeldAtTheBottomTheNoteScrollsAndTheBlockLandsWhereThePreviewShowed() throws {
         let note = try TextFirstDragNote.open(lines.joined(separator: "\n"))
@@ -37,6 +25,9 @@ final class TextFirstBlockDragAutoscrollUITests: XCTestCase {
     /// and the line above it are drawn. The drop lands where the preview showed it.
     @MainActor
     func testCarriedMoreThanTwoScreensThePreviewHoldsAndTheDropLandsWhereItShowed() throws {
+        // The lifted line draws far right of where any other line's words end.
+        var lines = self.lines
+        lines[0] = "lifted ██████████"
         let note = try TextFirstDragNote.open(lines.joined(separator: "\n"))
         let height = note.editor.frame.height
         // Off to the right, so the card rides clear of the copy's words.
@@ -53,7 +44,7 @@ final class TextFirstBlockDragAutoscrollUITests: XCTestCase {
                 shot = XCUIScreen.main.screenshot()
             }
         }
-        let held = try landed(states, in: note)
+        let held = try landed(states, in: note, lines: lines)
         XCTAssertEqual(held.line, 1)
         let dragging = states.filter { $0.blockDrag != nil }
         XCTAssertTrue(dragging.allSatisfy { $0.preview == "reflow" && $0.dropLineY == nil })
@@ -63,7 +54,8 @@ final class TextFirstBlockDragAutoscrollUITests: XCTestCase {
         XCTAssertGreaterThan(Set(still.compactMap(\.landsBefore)).count, 10, "the gap moved on")
         let ticks = Set(still.compactMap { $0.blockDrag?["ticks"] as? Int })
         XCTAssertEqual(ticks.count, 1, "no tick while the note scrolls: \(ticks)")
-        // Drawn in the gap: the copy's words, dimmed, clear of the card, and the line above.
+        // Drawn in the gap, clear of the card: the lifted line's own words, dimmed, out to where
+        // no other line's reach; and the line above it.
         let image = try XCTUnwrap(shot).image
         let add = XCTAttachment(screenshot: try XCTUnwrap(shot))
         (add.name, add.lifetime) = ("long-drag-held", .keepAlways)
@@ -71,29 +63,40 @@ final class TextFirstBlockDragAutoscrollUITests: XCTestCase {
         let copy = try XCTUnwrap(look.copyRect)
         let card = try XCTUnwrap(look.blockDrag?["card"] as? [String: Int])
         let left = note.editor.frame.minX + 8
-        let width = CGFloat(card["x"]! - 20) - left
-        let words = CGRect(
-            x: left, y: CGFloat(copy["y"]!), width: width, height: CGFloat(copy["h"]!))
-        XCTAssertGreaterThan(TextFirstBlockReflowUITests.dark(image, in: words, below: 600), 30)
-        let above = words.offsetBy(dx: 0, dy: -TextFirstDragNote.lineStep)
+        let row = CGRect(
+            x: left, y: CGFloat(copy["y"]!), width: CGFloat(card["x"]! - 20) - left,
+            height: CGFloat(copy["h"]!))
+        let beyond = row.divided(atDistance: 120, from: .minXEdge)
+        let dimmed = TextFirstBlockReflowUITests.dark(image, in: beyond.remainder, below: 600)
+        XCTAssertGreaterThan(dimmed, 200, "the lifted line's blocks, out past other words")
+        XCTAssertEqual(TextFirstBlockReflowUITests.dark(image, in: row), 0, "dimmed, not solid")
+        let above = row.offsetBy(dx: 0, dy: -TextFirstDragNote.lineStep)
         XCTAssertGreaterThan(TextFirstBlockReflowUITests.dark(image, in: above), 30)
     }
 
-    /// A nested item carried to the note's foot and dropped outside its list arrives at the
-    /// margin, fewer rows tall: the note comes out shorter, and nothing above the gap moves.
+    /// A nested item carried to the note's foot and dropped there, outside its list, arrives at
+    /// the margin, fewer rows tall: the note comes out shorter, and the screen settles at its
+    /// new foot, with nothing blank below it to spring back.
     @MainActor
-    func testCarriedToTheFootANoteLeftShorterHoldsStill() throws {
+    func testCarriedToTheFootANoteLeftShorterSettlesAtItsFoot() throws {
         let long = Array(repeating: "a nested item", count: 9).joined(separator: " ")
         let lines = ["- top", "  - \(long)"] + self.lines
         let note = try TextFirstDragNote.open(lines.joined(separator: "\n"))
         let height = note.editor.frame.height
+        // Held in the zone until the foot shows, the gap at the note's end, and let go there.
         let finger = TextFirstTouch(down: note.screen(line: 1)).hold(0.6)
-            .move(to: note.screen(dy: height - 30), over: 0.5).hold(5.5)
-            .move(to: note.screen(dy: height - 120), over: 0.4).hold(1).lift()
+            .move(to: note.screen(dy: height - 30), over: 0.5).hold(6).lift()
         let states = try note.puppet.watch { try TextFirstTouch.perform([finger]) }
-        let held = try landed(states, in: note, lines: lines, arriving: "- \(long)")
+        let held = try landed(
+            states, in: note, lines: lines, arriving: "- \(long)", holds: false)
         XCTAssertEqual(held.line, 2)
-        XCTAssertTrue(held.before == 0 || held.before > 140, "carried to the foot")
+        XCTAssertEqual(held.before, 0, "it lands at the note's end")
+        // Shorter, the note's foot came up: the screen is at it, not past it.
+        let dragged = try XCTUnwrap(
+            states.last { $0.blockDrag != nil }?["scroll"] as? [String: Double])
+        let scroll = try XCTUnwrap(note.puppet.editor()?["scroll"] as? [String: Double])
+        XCTAssertLessThan(scroll["foot"]!, dragged["foot"]! - 10, "the note is shorter")
+        XCTAssertEqual(scroll["y"]!, scroll["foot"]!, accuracy: 0.5, "at its foot")
     }
 
     @MainActor
@@ -146,12 +149,12 @@ final class TextFirstBlockDragAutoscrollUITests: XCTestCase {
     /// The drop seen in `states` landed where the preview showed it as the finger was last held
     /// (no drop line): the note saved with the block, `arriving` as it does, above the line
     /// the gap was above, the block drawn where the copy was, and the line drawn just above the
-    /// gap where the preview drew it: nothing jumped. The line lifted and the line it landed
-    /// above (1-based; 0 for the note's end).
+    /// gap where the preview drew it: nothing jumped (unless the screen cannot have `holds`
+    /// still). The line lifted and the line it landed above (1-based; 0 for the note's end).
     @MainActor
     private func landed(
         _ states: [[String: Any]], in note: TextFirstDragNote, lines: [String]? = nil,
-        arriving: String? = nil
+        arriving: String? = nil, holds: Bool = true
     ) throws -> (line: Int, before: Int) {
         let lines = lines ?? self.lines
         let held = try XCTUnwrap(states.last { $0.blockDrag != nil })
@@ -161,7 +164,7 @@ final class TextFirstBlockDragAutoscrollUITests: XCTestCase {
         let before = try XCTUnwrap(held.landsBefore)
         let copy = try XCTUnwrap(held.copyRect)
         XCTAssertTrue(
-            note.saved(moving(line, before: before, in: lines, arriving: arriving)),
+            note.saved(lines.moving(line, before: before, arriving: arriving)),
             "it lands where the gap was")
         // A body line's words start 4 pt below its top, a list item's at it (all rounded to
         // whole points); the copy's top is the gap's.
@@ -174,6 +177,7 @@ final class TextFirstBlockDragAutoscrollUITests: XCTestCase {
         func words(_ text: String) -> Int? { (show(text)?["rect"] as? [String: Int])?["y"] }
         let gap = copy["y"]!
         let moved = arriving ?? lines[line - 1]
+        guard holds else { return (line, before) }
         if let block = words(moved) {
             XCTAssertTrue((gap - 2...gap + 6) ~= block, "drawn at \(block), copy \(copy)")
         } else {
@@ -204,7 +208,7 @@ final class TextFirstBlockDragAutoscrollUITests: XCTestCase {
         XCTAssertTrue(ends.allSatisfy { $0 == 150 }, "\(ends)")
         XCTAssertEqual(Set(last.map { $0.firstLineOnScreen ?? -1 }).count, 1, "it stopped")
         let before = try XCTUnwrap(last.last?.landsBefore)
-        XCTAssertTrue(note.saved(moving(1, before: before, in: lines)), "it lands at the gap")
+        XCTAssertTrue(note.saved(lines.moving(1, before: before)), "it lands at the gap")
     }
 
     @MainActor
@@ -281,7 +285,7 @@ final class TextFirstBlockDragAutoscrollUITests: XCTestCase {
         let looks = Set(still.map(\.dragLook))
         XCTAssertEqual(looks.count, 1, "\(looks)")
         let before = try XCTUnwrap(still.last?.landsBefore)
-        XCTAssertTrue(note.saved(moving(1, before: before, in: lines)))
+        XCTAssertTrue(note.saved(lines.moving(1, before: before)))
         XCTAssertFalse(note.app.keyboards.firstMatch.exists, "the second finger placed no caret")
     }
 }
