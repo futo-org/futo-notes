@@ -1,5 +1,6 @@
 //! Taking in a change made outside the editor: no typed text and no outside
 //! change is lost, and undo still restores exact bytes.
+mod neighbouring_lines;
 mod property;
 
 use super::super::Engine;

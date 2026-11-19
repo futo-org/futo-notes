@@ -325,14 +325,26 @@ fn typed_text_refuses_control_characters_and_function_key_code_points() {
     // Ctrl+Q Ctrl+Q, Ctrl+Option+A, Delete, a quoted Return, C1 NEL, a quoted arrow.
     for text in [0x11, 0x01, 0x7F, 0x0D, 0x85, 0xF700, 0xF7FF] {
         assert_eq!(
-            session.replace_utf16(Revision(0), utf16(1, 1), &[0x61, text], &mut unexpected),
+            session.replace_utf16(Revision(0), utf16(1, 1), &[text], &mut unexpected),
             Err(EditorError::InvalidText),
             "{text:#x}"
         );
     }
     assert_eq!(session.source_text(), "ab");
-    // A tab, a line feed and the Apple logo (Option+Shift+K) are text.
+    // Typed with other text, they are dropped and the rest lands.
     let mut accepted = |_: &futo_notes_editor::SourceEdit| Ok(());
+    session
+        .replace_utf16(
+            Revision(0),
+            utf16(1, 1),
+            &[0x11, 0x61, 0xF700],
+            &mut accepted,
+        )
+        .unwrap();
+    assert_eq!(session.source_text(), "aab");
+    assert_eq!(session.selection().end.0, 2);
+    let mut session = EditorSession::open("ab");
+    // A tab, a line feed and the Apple logo (Option+Shift+K) are text.
     session
         .replace_utf16(
             Revision(0),
@@ -350,12 +362,16 @@ fn typed_text_refuses_control_characters_and_function_key_code_points() {
         .replace_utf16_action(Revision(0), utf16(0, 4), &echo, isolated, &mut accepted)
         .unwrap();
     assert_eq!(session.source_text(), "xb\r\n");
-    // A NUL is a control character: typed after a flag it is refused, and a
-    // paste lands it.
+    // A keyboard's committed text (Android: the flag 🇯🇵 then a NUL, with no
+    // composition open) is typing: the flag lands and the NUL does not. A
+    // paste lands the NUL too.
     let mut nul = EditorSession::open("a😀\u{0}z\r\n");
     let flag_nul: Vec<u16> = "🇯🇵\u{0}".encode_utf16().collect();
-    let typed = nul.replace_utf16(Revision(0), utf16(1, 3), &flag_nul, &mut unexpected);
-    assert_eq!(typed, Err(EditorError::InvalidText));
+    let mut typed = EditorSession::open("a😀\u{0}z\r\n");
+    typed
+        .replace_utf16(Revision(0), utf16(1, 3), &flag_nul, &mut accepted)
+        .unwrap();
+    assert_eq!(typed.source_text(), "a🇯🇵\u{0}z\r\n");
     nul.replace_utf16_action(Revision(0), utf16(1, 3), &flag_nul, isolated, &mut accepted)
         .unwrap();
     assert_eq!(nul.source_text(), "a🇯🇵\u{0}\u{0}z\r\n");

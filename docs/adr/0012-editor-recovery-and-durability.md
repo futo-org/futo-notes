@@ -79,3 +79,13 @@ baseline, draft, selection, composition and history. Checkpoint then merges or p
 id; a failed save keeps the retargeted draft available for retry. Destination attachment/read failure
 leaves identities untouched. Shells apply returned mutations and never infer identity or collision
 placement from filename patterns. Portable page requests keep their existing sequence/token contract.
+
+## Amendment: portable saves merge (2026-11-18)
+
+The portable worker's automatic saves and checkpoints now merge three ways like native saves, and
+no longer wait for the renderer to opt in (`checkpoint_merged` is removed). The page owns history,
+so the store writes the merge, keeps the draft it merged as the saved baseline and reports the
+merge as an offer (`PortableSave.offered`); the offer becomes the baseline when the page's adoption
+Append replays. A clean portable draft reads disk on checkpoint and offers an outside source
+without writing it. Overlap still parks. A page that cannot adopt re-opens the note on the file.
+Native sessions are unchanged.

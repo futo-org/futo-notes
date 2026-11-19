@@ -1,14 +1,15 @@
-//! The property: random local edits, a random outside change to lines they
-//! never touched, a three-way merge, adoption; then both contributions are
-//! there, undo and redo restore exact bytes at the selections they promise,
-//! and the reading equals a fresh read.
+//! The property: random local edits, a random outside change to lines and
+//! line breaks they never touched (next to them included), adoption of both;
+//! then nothing but front matter refuses, both contributions are there, undo
+//! and redo restore exact bytes at the selections they promise, and the
+//! reading equals a fresh read.
 use super::super::super::Engine;
 use super::super::properties::{
     apply_view, cases, check_fresh, note, step, BlockMirror, Model, Random, View,
 };
 use super::{ok, redo, undo};
 use crate::{Affinity, EditorError};
-use futo_notes_merge::{three_way_merge, MergeResult};
+use similar::{capture_diff_slices, Algorithm, DiffOp};
 
 /// The outside contribution: lines `[start, end)` of the original replaced
 /// with lines carrying a character no generated note holds, so neither a
@@ -36,27 +37,26 @@ fn line_starts(text: &str) -> Vec<usize> {
     starts
 }
 
-/// The outside change: whole lines at least two lines away from the bytes
-/// any local state changed (`touched`, in the original's offsets).
+/// The outside change: whole lines, or new lines at a line break, apart
+/// from every line and line break any local state changed (`touched`, as
+/// slots: line `i` is slot `2i + 1`, the line break before it slot `2i`).
 fn outside(
     original: &str,
     touched: Option<(usize, usize)>,
     random: &mut Random,
 ) -> Option<Outside> {
     let starts = line_starts(original);
-    let line_of = |at: usize| starts.partition_point(|&start| start <= at) - 1;
-    let allowed = |line: usize| match touched {
-        None => true,
-        Some((lo, hi)) => line + 2 < line_of(lo) || line > line_of(hi) + 2,
-    };
-    let candidates: Vec<usize> = (0..starts.len()).filter(|&line| allowed(line)).collect();
+    let apart = |lo: usize, hi: usize| touched.is_none_or(|(first, last)| hi < first || lo > last);
+    let candidates: Vec<usize> = (0..starts.len())
+        .filter(|&line| apart(2 * line, 2 * line + 1))
+        .collect();
     if candidates.is_empty() {
         return None;
     }
     let first = candidates[random.below(candidates.len())];
     let mut last = first;
     for _ in 0..random.below(3) {
-        if last + 1 < starts.len() && allowed(last + 1) {
+        if last + 1 < starts.len() && apart(2 * last + 2, 2 * last + 3) {
             last += 1;
         }
     }
@@ -210,12 +210,22 @@ fn local_edits(case: usize, random: &mut Random) -> Local {
     }
 }
 
-/// The bytes of `original` any of `visited` changed.
+/// The slots of `original` (see `outside`) any of `visited` changed, read
+/// both from the bytes it shares at its start and end and from a line diff,
+/// so a line either reading could place an edit on counts as touched.
 fn touched(original: &str, visited: &[String]) -> Option<(usize, usize)> {
+    let starts = line_starts(original);
+    let line_of = |at: usize| starts.partition_point(|&start| start <= at) - 1;
+    let lines = |text: &str| {
+        text.split_inclusive('\n')
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let old_lines = lines(original);
     visited
         .iter()
         .filter(|text| **text != original)
-        .map(|text| {
+        .flat_map(|text| {
             let prefix = original
                 .bytes()
                 .zip(text.bytes())
@@ -226,29 +236,52 @@ fn touched(original: &str, visited: &[String]) -> Option<(usize, usize)> {
                 .rev()
                 .zip(text.bytes().rev())
                 .take_while(|(a, b)| a == b)
-                .count()
-                .min(original.len() - prefix);
-            (prefix, original.len() - suffix)
+                .count();
+            // Shared bytes read first from the start, then first from the
+            // end: an edit among repeated bytes may stand anywhere between.
+            let shorter = original.len().min(text.len());
+            let lo = prefix.min(shorter - suffix);
+            let hi = original.len() - suffix.min(shorter - prefix);
+            let lo_slot = 2 * line_of(lo) + usize::from(!starts.contains(&lo));
+            let by_bytes = (lo_slot, 2 * line_of(hi) + 1);
+            let by_lines = capture_diff_slices(Algorithm::Myers, &old_lines, &lines(text))
+                .into_iter()
+                .filter(|change| !matches!(change, DiffOp::Equal { .. }))
+                .map(|change| {
+                    // Lines that only change keep the line breaks around them;
+                    // lines written or removed stand on them.
+                    let (before, after) = (change.old_range(), change.new_range());
+                    match before.len() == after.len() {
+                        true => (2 * before.start + 1, 2 * before.end - 1),
+                        false => (2 * before.start, 2 * before.end),
+                    }
+                });
+            std::iter::once(by_bytes)
+                .chain(by_lines)
+                .collect::<Vec<_>>()
         })
         .reduce(|(a, b), (c, d)| (a.min(c), b.max(d)))
 }
 
-/// A refusal is explained by front matter or by an ambiguous merge of a
-/// historical text, and changes nothing; dropping history still adopts.
-fn check_refusal(local: &mut Local, remote: &str, merged: &str, context: &str) {
+/// A change on lines no local edit touched is refused only for front
+/// matter, or right next to the edits where repeated bytes let one edit be
+/// read at either place; the refusal changes nothing, and dropping history
+/// still adopts. Whether front matter explains it.
+fn check_refusal(
+    local: &mut Local,
+    next_to: bool,
+    remote: &str,
+    merged: &str,
+    context: &str,
+) -> bool {
     let engine = &mut local.engine;
     let text = local.now.source.clone();
-    let ambiguous = local
-        .undone
-        .iter()
-        .chain(&local.redone)
-        .any(|state| three_way_merge(&text, merged, &state.source) == MergeResult::Conflict);
     let front_matter = [local.original.as_str(), remote, &text, merged]
         .iter()
         .any(|text| text.starts_with("---"));
     assert!(
-        ambiguous || front_matter,
-        "refused with no ambiguity: {context}"
+        front_matter || next_to,
+        "refused apart from the edits: {context}"
     );
     assert_eq!(engine.source_text(), text, "{context}");
     assert_eq!(engine.selection(), local.now.selection, "{context}");
@@ -259,12 +292,13 @@ fn check_refusal(local: &mut Local, remote: &str, merged: &str, context: &str) {
     assert_eq!(engine.source_text(), merged, "{context}");
     assert!(!engine.can_undo() && !engine.can_redo(), "{context}");
     check_fresh(engine, context);
+    front_matter
 }
 
 #[test]
 fn random_outside_changes_keep_every_contribution_and_exact_undo() {
     let mut random = Random::from_env();
-    let (mut adopted, mut refused, mut skipped) = (0, 0, 0);
+    let (mut adopted, mut refused, mut refused_next_to, mut skipped) = (0, 0, 0, 0);
     for case in 0..cases() {
         let mut local = local_edits(case, &mut random);
         let original = local.original.clone();
@@ -274,29 +308,35 @@ fn random_outside_changes_keep_every_contribution_and_exact_undo() {
             skipped += 1;
             continue;
         };
-        let after = touched.is_some_and(|(_, hi)| outside.start > hi);
-        let remote = outside.applied(&original, 0);
-        // Repeated lines can make even a merge of disjoint lines ambiguous;
-        // the store parks those before any adoption.
-        let MergeResult::Clean(merged) = three_way_merge(&original, &remote, &text) else {
-            skipped += 1;
-            continue;
+        let starts = line_starts(&original);
+        let line_of = |at: usize| starts.partition_point(|&start| start <= at) - 1;
+        let (lo, hi) = match outside.start == outside.end {
+            true => (2 * line_of(outside.start), 2 * line_of(outside.start)),
+            false => (
+                2 * line_of(outside.start) + 1,
+                2 * line_of(outside.end - 1) + 1,
+            ),
         };
+        let after = touched.is_some_and(|(_, last)| lo > last);
+        let next_to = touched.is_some_and(|(first, last)| lo == last + 1 || hi + 1 == first);
+        let remote = outside.applied(&original, 0);
         let shift = if after {
             text.len() as isize - original.len() as isize
         } else {
             0
         };
+        let merged = outside.applied(&text, shift);
         let context = format!("{} with {remote:?}", local.context);
-        // (a) The merge holds both contributions.
-        assert_eq!(merged, outside.applied(&text, shift), "merged {context}");
         let engine = &mut local.engine;
         let plan = match engine.prepare_external(engine.revision(), &merged, true) {
             Ok(plan) => plan,
             Err(error) => {
                 assert_eq!(error, EditorError::UnrepresentableFormat, "{context}");
-                check_refusal(&mut local, &remote, &merged, &context);
+                if !check_refusal(&mut local, next_to, &remote, &merged, &context) {
+                    refused_next_to += 1;
+                }
                 refused += 1;
+
                 continue;
             }
         };
@@ -310,9 +350,9 @@ fn random_outside_changes_keep_every_contribution_and_exact_undo() {
         let check = |engine: &Engine, want: &Seen, what: String| {
             check_seen(engine, want, &outside, after, original.len(), &what);
         };
-        // (d) The reading equals a fresh read; the selection is at the same text.
+        // (c) The reading equals a fresh read; the selection is at the same text.
         check(engine, &local.now, format!("adopted {context}"));
-        // (b) Undoing everything reaches the outside version without the
+        // (a) Undoing everything reaches the outside version without the
         // local edits, byte for byte, each step at the selection it promises.
         for (index, want) in local.undone.iter().enumerate() {
             assert!(undo(engine), "undo {index} {context}");
@@ -320,7 +360,7 @@ fn random_outside_changes_keep_every_contribution_and_exact_undo() {
         }
         assert!(!undo(engine), "{context}");
         assert_eq!(engine.source_text(), remote, "undone {context}");
-        // (c) Redo replays to the merged source, then on through the redo
+        // (b) Redo replays to the merged source, then on through the redo
         // steps that were waiting.
         for (index, want) in local.redone.iter().enumerate() {
             assert!(redo(engine), "redo {index} {context}");
@@ -332,9 +372,12 @@ fn random_outside_changes_keep_every_contribution_and_exact_undo() {
         assert!(!redo(engine), "{context}");
         adopted += 1;
     }
-    eprintln!("adopted {adopted}, refused {refused}, skipped {skipped}");
+    let counts = format!(
+        "adopted {adopted}, refused {refused} ({refused_next_to} next to the edits), skipped {skipped}"
+    );
+    eprintln!("{counts}");
     assert!(
-        adopted > cases() / 2 && refused < cases() / 20,
-        "adopted {adopted}, refused {refused}, skipped {skipped}"
+        adopted > cases() / 2 && refused < cases() / 20 && refused_next_to <= adopted / 100,
+        "{counts}"
     );
 }

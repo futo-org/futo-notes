@@ -43,18 +43,22 @@ impl<'store> StoreEditorSession<'store> {
     }
 }
 
-impl StoreEditorHost<'_> {
-    pub fn checkpoint(&mut self) -> Result<crate::FlushDraftResult, EditorStoreError> {
-        self.session.checkpoint()
-    }
+/// A portable save and the source its page must adopt: `offered` is what the
+/// note holds when that is not the draft at the revision saved (an outside
+/// change merged in, or a clean draft's outside source). The page adopts it at
+/// that revision with `adopt_merged_source` and sends the Append it returns;
+/// a page that cannot re-opens the note, which already holds both sides.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PortableSave {
+    pub flush: crate::FlushDraftResult,
+    pub offered: Option<String>,
+}
 
-    /// Save with the opt-in three-way merge and record the committed source as
-    /// the saved baseline. Call with every page request acknowledged, then pass
-    /// `source` to the page's `adopt_merged_source` and send the Append it
-    /// returns. Never pair `LocalNoteStore::flush_draft_merged` with an
-    /// attached host: that leaves this baseline stale.
-    pub fn checkpoint_merged(&mut self) -> Result<crate::MergedDraftResult, EditorStoreError> {
-        self.session.checkpoint_merged()
+impl StoreEditorHost<'_> {
+    pub fn checkpoint(&mut self) -> Result<PortableSave, EditorStoreError> {
+        let flush = self.session.checkpoint()?;
+        Ok(self.offering(flush))
     }
 
     pub fn id(&self) -> String {
@@ -66,8 +70,16 @@ impl StoreEditorHost<'_> {
         self.session.save_delay()
     }
 
-    pub fn save_if_due(&mut self) -> Result<Option<crate::FlushDraftResult>, EditorStoreError> {
-        self.session.save_if_due()
+    pub fn save_if_due(&mut self) -> Result<Option<PortableSave>, EditorStoreError> {
+        let saved = self.session.save_if_due()?;
+        Ok(saved.map(|flush| self.offering(flush)))
+    }
+
+    fn offering(&self, flush: crate::FlushDraftResult) -> PortableSave {
+        PortableSave {
+            flush,
+            offered: self.session.read(|state| state.offered.clone()),
+        }
     }
 
     /// Save and release the attachment; a failed save leaves it attached.
@@ -188,7 +200,7 @@ impl StoreEditorHost<'_> {
         if state.engine.revision() != before {
             state.note_edit();
         }
-        state.adopt_delivered_merge();
+        state.adopt_delivered_offer();
         result
     }
 

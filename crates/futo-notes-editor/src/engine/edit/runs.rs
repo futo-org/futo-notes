@@ -1,11 +1,81 @@
 //! A text service's replacement planned stretch by stretch, so the source
 //! between the words it corrects stays as it was.
+use super::super::command::{Command, Edit};
 use super::super::Engine;
 use super::plan::Plan;
-use crate::{DisplayOffset, DisplayRange};
+use super::Change;
+use crate::{
+    DisplayOffset, DisplayRange, DisplayReplacement, EditorError, InputAction, Revision, SourceEdit,
+};
 use std::ops::Range;
 
 impl Engine {
+    /// Replace several display ranges as one action (a text service
+    /// correcting separate words). The ranges ascend and do not overlap and
+    /// address the display with any marked text in place, which commits
+    /// first as its own undo step. Each replacement keeps what it shares
+    /// with the text it replaces; the caret ends after the last one.
+    pub fn replace_runs(
+        &mut self,
+        expected: Revision,
+        runs: &[DisplayReplacement],
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<Change>, EditorError> {
+        self.check_revision(expected)?;
+        let ordered = runs.iter().all(|run| run.range.start.0 <= run.range.end.0)
+            && runs.windows(2).all(|pair| {
+                pair[0].range.end.0 <= pair[1].range.start.0
+                    && pair[0].range.start != pair[1].range.start
+            });
+        match runs {
+            [] => return Err(EditorError::InvalidRange),
+            [one] => {
+                return self.replace_input(
+                    expected,
+                    one.range,
+                    &one.inserted,
+                    InputAction::Isolated,
+                    true,
+                    accept,
+                )
+            }
+            _ if !ordered => return Err(EditorError::InvalidRange),
+            _ => {}
+        }
+        self.run(
+            expected,
+            |engine| {
+                let mut plans = Vec::new();
+                for run in runs {
+                    engine.check_display_range(run.range)?;
+                    let range = engine.outside_crlf(run.range);
+                    if engine.touches_metadata(range) {
+                        return Err(EditorError::InvalidRange);
+                    }
+                    plans.push(engine.plan_input(range, &run.inserted, InputAction::Isolated));
+                }
+                let (last, earlier) = plans.split_last().expect("two or more runs");
+                let growth: isize = earlier
+                    .iter()
+                    .map(|plan| plan.inserted.len() as isize - plan.range.len() as isize)
+                    .sum();
+                let caret = (last.caret as isize + growth) as usize;
+                let lines =
+                    engine.line_of(plans[0].range.start)..engine.line_of(last.range.end) + 1;
+                let edits = plans
+                    .iter()
+                    .map(|plan| Edit::new(plan.range.clone(), plan.inserted.clone()))
+                    .collect();
+                let mut command = Command::new(edits, lines, caret..caret);
+                command.typed = true;
+                let last = &runs[runs.len() - 1];
+                command.carry = engine.deleted_formats(last.range, &last.inserted);
+                Ok(Some(command))
+            },
+            accept,
+        )
+    }
+
     /// A text service's replacement of display `range` (showing `old`)
     /// with `text`: each separate stretch that differs is replaced on its
     /// own, so the source between corrected words (hidden marks included)

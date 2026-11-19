@@ -5,47 +5,43 @@ use crate::{FlushDisposition, FlushDraftResult, MergedDraftResult};
 use futo_notes_editor::EditorError;
 
 impl Attachment {
-    /// The merged source this portable worker is waiting for its page to adopt.
-    /// Once the worker's draft equals it, the merge is the saved baseline.
-    pub(super) fn adopt_delivered_merge(&mut self) {
+    /// The portable page's adoption of the last offer replayed here: the draft
+    /// is the note's source again, so it is the saved baseline.
+    pub(super) fn adopt_delivered_offer(&mut self) {
         if self
-            .pending_merge
+            .offered
             .as_deref()
-            .is_some_and(|merged| self.engine.source_text() == merged)
+            .is_some_and(|offered| self.engine.source_text() == offered)
         {
-            self.base = self.pending_merge.take().unwrap_or_default();
+            let offered = self.offered.take().unwrap_or_default();
+            self.set_base(offered);
         }
     }
 
+    /// The file holds `base` (read, written or merged there under the gate)
+    /// and the draft equals it. Any offer made against the old baseline is void.
+    pub(super) fn set_base(&mut self, base: String) {
+        self.base = base;
+        self.offered = None;
+    }
+
     /// Write the draft to markdown now. Unchanged drafts write nothing. A save
-    /// that parks the draft retargets this attachment to the parked note.
+    /// that parks the draft retargets this attachment to the parked note. A
+    /// portable save leaves in `offered` what its page must adopt.
     pub fn checkpoint(
         &mut self,
         store: &LocalNoteStore,
     ) -> Result<FlushDraftResult, EditorStoreError> {
-        self.checkpoint_merged(store, false)
-            .map(|result| result.flush)
-    }
-
-    /// Portable hosts opt into merging: the page, not this engine, adopts the
-    /// returned source, but the saved baseline moves here atomically with the
-    /// write so a later Undo saves in place instead of parking.
-    pub fn checkpoint_merged(
-        &mut self,
-        store: &LocalNoteStore,
-        portable_merge: bool,
-    ) -> Result<MergedDraftResult, EditorStoreError> {
-        let result = self.checkpoint_inner(store, portable_merge);
+        let result = self.checkpoint_inner(store);
         if result.is_err() {
             self.schedule_retry();
         }
-        result
+        result.map(|result| result.flush)
     }
 
     fn checkpoint_inner(
         &mut self,
         store: &LocalNoteStore,
-        portable_merge: bool,
     ) -> Result<MergedDraftResult, EditorStoreError> {
         // Ordinary autosaves leave IME marked text provisional. Only an
         // actual outside write needs settlement before attempted adoption.
@@ -67,10 +63,12 @@ impl Attachment {
         // rewrote links under this still-unrewritten draft: nothing to save.
         // A native clean attachment (nothing unsaved) whose existing note
         // changed outside follows that source: it is never a draft, so it is
-        // never parked. A missing clean note has no draft to persist: never
-        // feed it to the edit-wins recreate arm.
-        let clean = source == self.base && self.pending_merge.is_none();
-        let outside = if clean && !self.portable && self.relink_offer.is_none() {
+        // never parked. A portable clean attachment offers that source to its
+        // page through the merge below, which writes nothing. A missing clean
+        // note has no draft to persist: never feed it to the edit-wins
+        // recreate arm.
+        let clean = source == self.base;
+        let outside = if clean && self.relink_offer.is_none() {
             store
                 .read_existing(&self.id)
                 .map_err(EditorStoreError::Checkpoint)?
@@ -78,26 +76,26 @@ impl Attachment {
         } else {
             None
         };
-        if let Some(disk) = outside {
-            return self.follow_outside_source(disk);
+        match outside {
+            Some(disk) if !self.portable => return self.follow_outside_source(disk),
+            None if clean || self.relink_offer.is_some() => {
+                self.offered = None;
+                self.mark_saved();
+                return Ok(MergedDraftResult {
+                    source: self.base.clone(),
+                    flush: FlushDraftResult {
+                        disposition: FlushDisposition::Converged,
+                        mutation: None,
+                    },
+                });
+            }
+            _ => {}
         }
-        if clean || self.relink_offer.is_some() {
-            self.mark_saved();
-            return Ok(MergedDraftResult {
-                source: self.base.clone(),
-                flush: FlushDraftResult {
-                    disposition: FlushDisposition::Converged,
-                    mutation: None,
-                },
-            });
-        }
-        // The portable page owns its history and provisional input. Existing
-        // hosts retain parking until their page explicitly opts into adoption.
-        let merge = !self.portable || portable_merge;
         let mut adoption = None;
         let result = store
-            .flush_draft_decision_locked(&self.id, &self.base, &source, merge, &mut |merged| {
-                // The portable page adopts and its Append replays here.
+            .flush_draft_decision_locked(&self.id, &self.base, &source, true, &mut |merged| {
+                // The portable page adopts after the write (or re-opens on
+                // the file when it cannot), and its Append replays here.
                 if self.portable {
                     return Ok(true);
                 }
@@ -164,15 +162,15 @@ impl Attachment {
             self.lease = lease;
             self.id = parked_id.clone();
         }
-        // A portable merge is delivered only when the page's adoption Append
-        // replays here (`adopt_delivered_merge`). Until then the worker still
-        // holds the unmerged draft, so the baseline stays put and any later
-        // save parks that draft instead of overwriting the merged disk.
-        self.pending_merge = None;
-        if portable_merge && result.source != source {
-            self.pending_merge = Some(result.source.clone());
+        // A portable draft is the baseline even when the note now holds a
+        // merge: the next save merges again against it, so typing past an
+        // offer the page has not adopted never overwrites the outside change.
+        if self.portable {
+            let offered = (result.source != source).then(|| result.source.clone());
+            self.set_base(source);
+            self.offered = offered;
         } else {
-            self.base = result.source.clone();
+            self.set_base(result.source.clone());
         }
         self.mark_saved();
         Ok(result)
@@ -198,7 +196,7 @@ impl Attachment {
             .apply_external_source(adoption)
             .map_err(EditorStoreError::Editor)?;
         self.coordinated.push(change);
-        self.base = disk.clone();
+        self.set_base(disk.clone());
         self.mark_saved();
         Ok(MergedDraftResult {
             source: disk,

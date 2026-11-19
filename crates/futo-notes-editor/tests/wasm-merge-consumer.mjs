@@ -1,4 +1,4 @@
-// Explicit merge flush adoption through compiled WASM and the public store host.
+// Merge offer adoption through compiled WASM and the public store host.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -58,15 +58,15 @@ async function runMergeCase(WasmSession, executable, scenario) {
     const merged = await exchange({
       merge: { remote: scenario.remote },
     });
-    assert.equal(merged.source, scenario.merged);
-    const adoption = JSON.parse(page.adopt_merged_source(1n, merged.source));
+    assert.equal(merged.offered, scenario.merged);
+    const adoption = JSON.parse(page.adopt_merged_source(1n, merged.offered));
     assert.equal(adoption.change.selection.end, scenario.selection);
     await send(adoption);
     const undo = JSON.parse(page.undo(2n));
     await send(undo);
     assert.equal(page.draft_text(), scenario.remote);
-    // Undo persisted before the redo: the saved baseline moved with the merge,
-    // so this saves in place instead of parking a conflict copy.
+    // Undo persisted before the redo: the adoption made the merge the saved
+    // baseline, so this saves in place instead of parking a conflict copy.
     assert.equal((await exchange({ checkpoint: true })).id, 'authoritative final (2)');
     assert.equal(readFileSync(join(vault, 'authoritative final (2).md'), 'utf8'), scenario.remote);
     assert.deepEqual(

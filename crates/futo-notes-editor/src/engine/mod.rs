@@ -41,6 +41,19 @@ use line::{Entry, Role};
 use std::sync::Arc;
 use store::{Size, Store};
 
+/// A keystroke that took the caret off a delimiter row being typed (the one
+/// finishing it, or Enter or Tab on it), which a Backspace right after takes
+/// back (`commands/tables/delimiter_row.rs`): the revision and caret it
+/// left, the caret on the row before it, and whether it wrote (then it is
+/// the last Undo step).
+#[derive(Clone)]
+pub(crate) struct RowExit {
+    revision: Revision,
+    caret: DisplayRange,
+    before: history::Point,
+    wrote: bool,
+}
+
 pub(crate) struct Engine {
     store: Store,
     revision: Revision,
@@ -54,9 +67,7 @@ pub(crate) struct Engine {
     /// Whether the selection is the code block it covers, selected as one
     /// object (`commands/fences/selected.rs`).
     block_selected: bool,
-    /// The revision whose keystroke finished a table's delimiter row, which
-    /// a Backspace right after takes back (`commands/tables/delimiter_row.rs`).
-    typed_table: Option<Revision>,
+    typed_table: Option<RowExit>,
     /// The revision and caret typing left on a delimiter row
     /// (`writes_delimiter_row`).
     writing_row: Option<(Revision, DisplayRange)>,

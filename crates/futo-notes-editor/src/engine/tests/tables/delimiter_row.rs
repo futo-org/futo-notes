@@ -95,6 +95,40 @@ fn backspace_and_arrows_around_a_delimiter_row_being_typed() {
     assert_eq!(engine.source_text(), "| a |\n|--", "an ordinary Backspace");
     assert!(engine.writes_delimiter_row());
 
+    // Enter or Tab leaving the row is taken back the same way: the body row
+    // it wrote goes, and nothing typed does.
+    for key in [ParagraphKey::Enter, ParagraphKey::Tab] {
+        let (mut engine, _) = typed_under_header("| a |", &row[..4]);
+        press(&mut engine, key);
+        assert_eq!(engine.source_text(), "| a |\n|---\n|  |", "{key:?}");
+        press(&mut engine, ParagraphKey::Backspace);
+        assert_eq!(engine.source_text(), "| a |\n|---", "{key:?}");
+        assert_eq!(engine.selection(), caret("| a |\n|---".len()));
+        assert!(
+            engine.writes_delimiter_row(),
+            "{key:?} typing the row again"
+        );
+        type_each(&mut engine, &["|"]);
+        assert_eq!(engine.source_text(), "| a |\n|---|\n|  |");
+    }
+    // A table with a body row writes none: the move alone is taken back.
+    let mut engine = Engine::open("| a |\n\n| x |");
+    engine.select(Revision(0), caret("| a |\n".len())).unwrap();
+    type_each(&mut engine, &["|", "-", "-"]);
+    assert!(engine.writes_delimiter_row());
+    press(&mut engine, ParagraphKey::Enter);
+    assert_eq!(engine.selection(), caret("| a |\n|--\n| ".len()));
+    press(&mut engine, ParagraphKey::Backspace);
+    assert_eq!(engine.source_text(), "| a |\n|--\n| x |");
+    assert_eq!(engine.selection(), caret("| a |\n|--".len()));
+    assert!(engine.writes_delimiter_row());
+    press(&mut engine, ParagraphKey::Backspace);
+    assert_eq!(
+        engine.source_text(),
+        "| a |\n|-\n| x |",
+        "then an ordinary one"
+    );
+
     // An arrow away mid-row goes past the row, and no arrow comes back.
     let (mut engine, _) = typed_under_header("| a |", &row[..3]);
     let header_end = caret("| a |".len());
