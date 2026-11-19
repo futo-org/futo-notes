@@ -55,3 +55,15 @@ Code blocks (bugs):
 - **T1** the phone's form of the desktop's row and column grips. **T2** how a table is made on the phone.
 - **T3** (all hosts, from the Desktop Editor chat) where a caret may rest in a row such as `| milk | 2 |`: T3A only in a cell's text on every host (its recommendation; the desktop changes too), T3B every character for arrows and only placed carets fitted, T3C a per-session setting (desktop yes, phones no).
 - **T4** (all hosts) a press on a column the row lacks: T4A it fills in the row and enters that cell, through a new engine call `enter_table_cell` (the desktop today puts the caret at the end of the row's last cell), T4B as today.
+- **M1** one Android MR or two (polish onto main, code blocks stacked on the engine MR). **S1/S2** keep the table spike going, or cancel it until the table deep dive.
+- **H1** a hold with no field focused on a code block's header, its code, or a photo: the block drag of !716 lifts it; the code-block lines select the block with Cut, Copy and Paste.
+
+Answered through the Desktop Editor chat (2026-11-19): **2B**, the engine MR carries the code-blocks layer only and the list-marker layer opens the desktop stack later. "Sure, 2b is fine, we just want it to all be in main in the end and be reasonable to navigate the mrs"
+
+### Reported on the S23, build `a409ea1cb`, later on 2026-11-19
+
+- Links: "looks like the links are too large. I'm tapping the row beneath one, and it's just taking me to it. Specifically the 'Linked note' in the editor demo on my s23" and "I mean the link tapping area btw, not the link text iteself". Fixed in `d94bc3db3`.
+- "highlighting also looks messed up. You can check the last few screenshots on my s23 to see a few bugs I've seen". The screenshots (13:50, 10:07, 08:51) show: the selection tint on a wrapped nested task's second row running to the left margin; an empty white menu pill; the insertion handle drawn over the toolbar; a photo in a table cell drawn over the title bar.
+- "The scrolling with the caret when going off screen is way too fast and doesn't have that speed gradient thing we were talking about (at least we talked about it with desktop I think)"
+- "Sometimes when tapping around retapping or something i get an invisible or small caret (second screenshot there)". The 10:07 screenshot: a half-height caret on the note's empty last line.
+- "can you take the android work from here and bring it in for us to play around with?" of !716 (Justin's Android block drag). Built on a scratch branch, never merged into this one.
