@@ -20,7 +20,7 @@ import android.util.Log
 internal class LandingPiece(val start: Int, val end: Int, val count: Int, val drawnTop: Float, val lands: Int, val solid: Boolean, val probe: String)
 
 /** The release, as needed to find each part again in the moved note. */
-internal class ReflowCapture(private val stretch: Int, private val pieces: List<LandingPiece>, private val scrollY: Int, private val at: Long) {
+internal class ReflowCapture(private val tiles: SliceTiles, private val stretch: Int, private val pieces: List<LandingPiece>, private val scrollY: Int, private val at: Long) {
     /** The landing in the note as it is now (the move applied), or null when its parts cannot be found again: then it ends at once. */
     fun land(view: TextFirstEditText, done: () -> Unit): ReflowLanding? {
         val e = view.editableText ?: return null
@@ -49,7 +49,7 @@ internal class ReflowCapture(private val stretch: Int, private val pieces: List<
         val now = SystemClock.uptimeMillis()
         val ms = minOf(Slide.SLIDE_MS, LANDING_CAP_MS - (now - at))
         if (ms <= 0) return null
-        return ReflowLanding(view, elements, now, ms, done)
+        return ReflowLanding(view, tiles, elements, now, ms, done)
     }
 
     private fun fail(why: String): ReflowLanding? {
@@ -86,6 +86,7 @@ internal class LandingElement(val start: Int, val top: Float, val bottom: Float,
 
 internal class ReflowLanding(
     private val view: TextFirstEditText,
+    private val tiles: SliceTiles,
     private val elements: List<LandingElement>,
     private val start: Long,
     private val ms: Long,
@@ -112,14 +113,14 @@ internal class ReflowLanding(
         // What no part covers is where it is; then each part where it slides, a solid one over the page.
         var y = top
         for (el in elements) {
-            if (el.top > y) view.drawSlice(canvas, y, el.top, 0f, top, bottom)
+            if (el.top > y) tiles.draw(canvas, y, el.top, 0f, top, bottom)
             y = maxOf(y, el.bottom)
         }
-        if (y < bottom) view.drawSlice(canvas, y, bottom, 0f, top, bottom)
+        if (y < bottom) tiles.draw(canvas, y, bottom, 0f, top, bottom)
         for (el in elements.sortedBy { it.solid }) {
             val s = Slide(el.shift, 0f, start, ms).at(now)
             if (el.solid) view.coverSlice(canvas, el.top + s, el.bottom + s, top, bottom)
-            view.drawSlice(canvas, el.top, el.bottom, s, top, bottom)
+            tiles.draw(canvas, el.top, el.bottom, s, top, bottom)
         }
         view.drawScrollEdge(canvas)
         view.postInvalidateOnAnimation()

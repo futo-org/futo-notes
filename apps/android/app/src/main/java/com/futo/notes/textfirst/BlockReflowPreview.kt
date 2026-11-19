@@ -60,6 +60,8 @@ internal class BlockReflowPreview private constructor(
     private var copySlide = Slide.still(0f)
     private var restSlide = Slide.still(0f)
     private val fill = Paint()
+    /** The note's drawing, recorded in tiles that every slice reuses (BlockReflowTiles.kt). */
+    internal val tiles = SliceTiles(view)
     internal var landing: ReflowLanding? = null
     private var settled: (() -> Unit)? = null
 
@@ -180,17 +182,17 @@ internal class BlockReflowPreview private constructor(
         val shifts = place(shape, gap, runs, now)
         val top = view.scrollY.toFloat()
         val bottom = top + view.height
-        for ((i, run) in runs.withIndex()) view.drawSlice(canvas, run.top, run.bottom, shifts[i], top, bottom)
+        for ((i, run) in runs.withIndex()) tiles.draw(canvas, run.top, run.bottom, shifts[i], top, bottom)
         val look = view.style
         val c = copySlide.at(now)
         val copy = when {
             photo == null -> {
                 view.coverSlice(canvas, c, c + shape.copy, top, bottom)
-                view.drawSlice(canvas, shape.top, shape.bottom, c - shape.top, top, bottom)
+                tiles.draw(canvas, shape.top, shape.bottom, c - shape.top, top, bottom)
                 RectF(0f, c, view.width.toFloat(), c + shape.copy)
             }
             gap == ReflowGap.Home -> {
-                view.drawSlice(canvas, shape.top, shape.bottom, 0f, top, bottom)
+                tiles.draw(canvas, shape.top, shape.bottom, 0f, top, bottom)
                 view.imageRect(photo.image)
             }
             else -> {
@@ -207,6 +209,7 @@ internal class BlockReflowPreview private constructor(
             canvas.drawRect(copy.left, maxOf(copy.top, top), copy.right, minOf(copy.bottom, bottom), fill)
         }
         view.drawScrollEdge(canvas)
+        tiles.trim()
         if (moving) view.postInvalidateOnAnimation() else settled?.let { done -> settled = null; view.post(done) }
         return true
     }
@@ -263,7 +266,7 @@ internal class BlockReflowPreview private constructor(
             pieces += LandingPiece(-1, -1, 1, c, move.moved, true, ReflowCapture.probe(photo.text(e), 0, photo.text(e).length))
             pieces += LandingPiece(bandStart, bandEnd, 1, restSlide.at(now), move.lands(if (below) 0 else between), false, ReflowCapture.probe(photo.rest(e), 0, photo.rest(e).length))
         }
-        return ReflowCapture(stretch, pieces, view.scrollY, now)
+        return ReflowCapture(tiles, stretch, pieces, view.scrollY, now)
     }
 
     /** Nothing moves: what slid goes back to its place, then [done] (at once when nothing slid). */

@@ -124,6 +124,8 @@ internal class BlockDrag private constructor(
     }
 
     fun enter() {
+        // The preview's tiles are recorded after the lift's frame, before the gap first moves.
+        reflow?.let { view.post { if (!it.drawing) it.tiles.warm() } }
         animator = ValueAnimator.ofFloat(ENTER_SCALE, LIFTED_SCALE).apply {
             duration = ENTER_MS
             interpolator = PathInterpolator(0.2f, 0.9f, 0.3f, 1f)
@@ -167,6 +169,7 @@ internal class BlockDrag private constructor(
 
     fun dispose() {
         reflow?.landing?.cancel()
+        reflow?.tiles?.clear()
         animator?.cancel()
         animator = null
         // From the overlay it was put on: once the note has left its window, rootView is another.
