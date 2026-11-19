@@ -5,17 +5,16 @@
 //! its line leaves the caret there (`writes_delimiter_row`), and typing and
 //! Backspace on it are ordinary, until the keystroke that finishes the row,
 //! or Enter or Tab, takes the caret to the first body row (written when
-//! there is none). A Backspace right after the finishing keystroke takes it
-//! back. A caret a host's echo, a paste or Undo leaves on the row stays
+//! there is none). A Backspace right after any of those takes it back. A caret a host's echo, a paste or Undo leaves on the row stays
 //! until it moves.
 use super::super::super::command::{Command, Edit};
-use super::super::super::edit::{Batch, Change};
-use super::super::super::history::Group;
+use super::super::super::edit::Batch;
+use super::super::super::history::{Group, Point};
 use super::super::super::line::Entry;
-use super::super::super::{store, Engine};
+use super::super::super::{store, Engine, RowExit};
 use super::keys::append_row;
 use crate::lines::{Kind, TableRole};
-use crate::{CaretDirection, DisplayOffset, DisplayRange, EditorError, SourceEdit};
+use crate::{CaretDirection, DisplayOffset, DisplayRange, EditorError, SourceEdit, ViewChange};
 
 /// Whether line `entry` is a table's delimiter row.
 pub(crate) fn is_delimiter_row(entry: &Entry) -> bool {
@@ -196,23 +195,46 @@ impl Engine {
         ))
     }
 
-    /// Backspace right after the keystroke that finished a delimiter row
-    /// (`finished_row_exit`): that keystroke taken back as an edit of its
-    /// own, the body row it wrote included, so the caret is back where it
+    /// The caret left the delimiter row it was writing (Enter or Tab on it,
+    /// `delimiter_row_key`) from `before`; `wrote` when the move wrote the
+    /// first body row, its own Undo step.
+    pub(crate) fn left_row(&mut self, before: Point, wrote: bool) {
+        self.typed_table = Some(RowExit {
+            revision: self.revision,
+            caret: self.selection,
+            before,
+            wrote,
+        });
+    }
+
+    /// Backspace right after the keystroke that took the caret off a
+    /// delimiter row being typed (`finished_row_exit`, `left_row`): that
+    /// keystroke taken back, as an edit of its own when it wrote (its
+    /// character and the body row it wrote), so the caret is back where it
     /// was, typing the row. `None` at any other time.
     pub(crate) fn untyped_table_start(
         &mut self,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
-    ) -> Result<Option<Change>, EditorError> {
-        if self.typed_table != Some(self.revision) || self.composition.is_some() {
-            return Ok(None);
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let exit = match &self.typed_table {
+            Some(exit)
+                if exit.revision == self.revision
+                    && exit.caret == self.selection
+                    && self.composition.is_none() =>
+            {
+                exit.clone()
+            }
+            _ => return Ok(None),
+        };
+        self.typed_table = None;
+        if !exit.wrote {
+            self.restore(&exit.before);
+            self.writing_row = Some((self.revision, self.selection));
+            return Ok(Some(self.unchanged()));
         }
         let Some(group) = self.history.undo.last().cloned() else {
             return Ok(None);
         };
-        if group.after.selection != self.selection {
-            return Ok(None);
-        }
         let before = self.point();
         let mut batch = Batch::default();
         for record in group.records.iter().rev() {
@@ -222,7 +244,7 @@ impl Engine {
         let Some((edit, shown, records)) = self.accept(batch, accept)? else {
             return Ok(None);
         };
-        self.restore(&group.before);
+        self.restore(&exit.before);
         self.writing_row = Some((self.revision, self.selection));
         self.typing = None;
         self.history.redo.clear();
@@ -231,6 +253,7 @@ impl Engine {
             before,
             after: self.point(),
         });
-        Ok(Some(self.change(edit, shown)))
+        let change = self.change(edit, shown);
+        Ok(Some(self.view(change)))
     }
 }

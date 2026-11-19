@@ -87,9 +87,21 @@ impl Engine {
         accept: Accept,
     ) -> Result<ViewChange, EditorError> {
         let typed = matches!(action, InputAction::Typing | InputAction::PairedTyping);
-        if typed && !text.chars().all(typeable) {
-            return Err(EditorError::InvalidText);
-        }
+        // A key that types only such characters types nothing; among other
+        // text (a keyboard's committed text) they are dropped, the rest lands.
+        let kept: String;
+        let text = if typed && !text.chars().all(typeable) {
+            kept = text
+                .chars()
+                .filter(|&character| typeable(character))
+                .collect();
+            if kept.is_empty() {
+                return Err(EditorError::InvalidText);
+            }
+            kept.as_str()
+        } else {
+            text
+        };
         let change = if action == InputAction::PairedTyping {
             self.paired_input(expected, range, text, accept)?
         } else {
@@ -168,7 +180,7 @@ impl Engine {
         );
         if backspace && range == self.selection {
             if let Some(change) = self.untyped_table_start(accept)? {
-                return Ok(Some(self.view(change)));
+                return Ok(Some(change));
             }
         }
         let pair = backspace.then(|| self.empty_pair(range)).flatten();
@@ -195,6 +207,14 @@ impl Engine {
             return Ok(change.map(|change| self.view(change)));
         }
         self.check_display_range(range)?;
+        // Enter or Tab on the delimiter row being typed leave it, and a
+        // Backspace right after takes that back (`left_row`).
+        let leaving_row = (matches!(
+            key,
+            ParagraphKey::Enter | ParagraphKey::ShiftEnter | ParagraphKey::Tab
+        ) && range == self.selection
+            && self.writes_delimiter_row())
+        .then(|| self.point());
         if let Some(command) = self.key_command(range, key)? {
             // A command with no edits moves the selection (a table key); one
             // that leaves it where it is changes nothing.
@@ -209,9 +229,16 @@ impl Engine {
                     return Ok(None);
                 }
                 self.block_selected = false;
-                return self.moved_view(expected, command.selection).map(Some);
+                let moved = self.moved_view(expected, command.selection)?;
+                if let Some(before) = leaving_row {
+                    self.left_row(before, false);
+                }
+                return Ok(Some(moved));
             }
             let change = self.run(expected, |_| Ok(Some(command)), accept)?;
+            if let (Some(before), Some(_)) = (leaving_row, &change) {
+                self.left_row(before, true);
+            }
             return Ok(change.map(|change| self.view(change)));
         }
         let change = match key {

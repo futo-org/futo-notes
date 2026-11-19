@@ -206,9 +206,9 @@ fn native_input_errors_selection_and_history_match_the_direct_session() {
         Err(EditorSessionError::StaleRevision { .. })
     ));
     let bytes = "日本\0".encode_utf16().collect::<Vec<_>>();
-    // A typed NUL is refused; an isolated replacement (a paste) carries it intact.
+    // A typed NUL alone is refused; an isolated replacement (a paste) carries it intact.
     assert!(matches!(
-        native.replace_utf16(0, EditorUtf16Range { start: 1, end: 3 }, bytes.clone()),
+        native.replace_utf16(0, EditorUtf16Range { start: 1, end: 3 }, vec![0]),
         Err(EditorSessionError::InvalidText)
     ));
     let changed = native

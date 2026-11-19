@@ -30,7 +30,9 @@ before persistence fails. Ordinary autosaves keep provisional composition intact
 prepares source/history adoption before committing; prepared plans are bound to the editor
 incarnation, source revision, selection and affinity. A foreign or stale plan cannot replace another
 session's source/history. Write failure does not apply the prepared remote adoption. Both Undo and
-Redo preserve outside contributions. Ambiguous historical overlap,
+Redo preserve outside contributions. A history step on lines the outside change left whole moves by
+position, since a line break is a hard boundary; only a step that shares a line with it is merged.
+Ambiguous historical overlap,
 transient syntax correspondence or bounded preflight failure parks the complete draft while
 retaining its history; ADR-0012 states the exact bounds.
 

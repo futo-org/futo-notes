@@ -305,3 +305,43 @@ fn portable_close_after_an_unadopted_merge_writes_the_merge_once() {
     assert_eq!(closed.mutation, None);
     assert_eq!(note_sources(&store), ["REMOTE\n\nLOCAL\n"]);
 }
+
+#[test]
+fn portable_outside_edit_next_to_saved_typing_is_adopted_and_undo_saves_in_place() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let base = "alpha line\nbeta line\ngamma line\ndelta from shell";
+    store.create("", "plain", base).unwrap();
+    let (mut host, mut page) = portable(&store, "plain", 616);
+    for (index, character) in [" ", "w", "o", "r", "d"].into_iter().enumerate() {
+        let at = 15 + index;
+        let revision = page.status().local;
+        let edit = page
+            .replace(revision, range(at, at), character)
+            .unwrap()
+            .unwrap();
+        page.acknowledge(host.handle(edit.request)).unwrap();
+    }
+    assert_eq!(
+        host.checkpoint().unwrap().flush.disposition,
+        FlushDisposition::Wrote
+    );
+    let outside = "ALPHA LINE from shell\nbeta word line\ngamma line\ndelta from shell";
+    store.write("plain", outside, None).unwrap();
+    let offer = host.checkpoint().unwrap();
+    assert_eq!(offer.offered.as_deref(), Some(outside));
+    let typed = page.status().local.0;
+    adopt(&mut host, &mut page, typed, outside);
+    assert_eq!(page.selection(), range(31, 31));
+    let adopted = host.checkpoint().unwrap();
+    assert_eq!(adopted.flush.disposition, FlushDisposition::Converged);
+    assert_eq!(adopted.offered, None);
+    while let Some(undo) = page.undo(page.status().local).unwrap() {
+        page.acknowledge(host.handle(undo.request)).unwrap();
+    }
+    let undone = host.checkpoint().unwrap();
+    assert_eq!(undone.flush.disposition, FlushDisposition::Wrote);
+    assert_eq!(host.id(), "plain");
+    let shell_only = "ALPHA LINE from shell\nbeta line\ngamma line\ndelta from shell";
+    assert_eq!(note_sources(&store), [shell_only]);
+}
