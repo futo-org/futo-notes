@@ -36,7 +36,11 @@ extension TextFirstReflow {
         let anchor = plan.closing?.anchor ?? plan.sourceAnchor
         let inNote = plan.sourceLaidOut.map { $0 ~= rect.minY && $0 ~= rect.maxY - 0.5 } ?? false
         let drawn = inNote ? painter.paint(rect, from: anchor) : drawBlock?(rect, source.minY)
-        guard let image = drawn else { return }
+        // Drawing that gave up leaves no copy, never the last one where this one should be.
+        guard let image = drawn else {
+            (copyImage, copy.contents) = (nil, nil)
+            return
+        }
         copyImage = (image, needed, top - painter.pixel(source.minY))
         copy.contents = image
     }

@@ -192,11 +192,10 @@ extension TextFirstEditorController {
             TextFirstReflowMotion.log.error(
                 "block drop: the screen did not hold still, landing without the slide")
         }
-        // No slide outlasts the landing: one with too little time left is not started.
-        let time = min(TextFirstReflowMotion.slide, left())
+        // No slide outlasts the landing: its time is what is left once the drawing is done.
         preview.settle(
             runs: landed.runs, block: landed.block, drawable: laidOutBand() ?? .infinite,
-            over: held && time >= TextFirstReflowMotion.slide / 3 ? time : 0)
+            over: held ? TextFirstReflowMotion.slide : 0, by: released + landingCap)
         return true
     }
 

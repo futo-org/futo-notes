@@ -31,7 +31,7 @@ extension TextFirstEditorController {
     func reflowPlan(
         _ book: TextFirstSlotBook, _ targets: TextFirstDropTargets,
         reusing: TextFirstClosedLine? = nil, known: (room: CGFloat, left: CGFloat)? = nil,
-        measured: CGFloat? = nil
+        measured: (height: CGFloat, width: CGFloat, drawing: Int)? = nil
     ) throws -> (plan: TextFirstReflowPlan, closedLine: TextFirstClosedLine?) {
         guard let laidOut = laidOutRange(), storage.length > 0 else {
             throw TextFirstReflowUnavailable("the note is not laid out")
@@ -137,9 +137,14 @@ extension TextFirstEditorController {
             // beside what shows.
             exact = top != nil && bottom != nil
             if !exact {
-                // Its height measured (laid out whole, or read from both edges once) before
-                // one estimated from its first stretch.
+                // Its height measured (laid out whole, or read from both edges once, at this
+                // width and with its images as they draw now) before one estimated from its
+                // first stretch.
                 let own = blockLayout(block.range)
+                let measured = measured.flatMap {
+                    $0.width == visible.width && $0.drawing == drawingSignature(block.range)
+                        ? $0.height : nil
+                }
                 let height =
                     own.flatMap { $0.exact ? $0.height : nil } ?? measured ?? own?.height
                     ?? known?.left ?? visible.height

@@ -126,6 +126,124 @@
             h.controller.endBlockDrag(dropping: false)
         }
 
+        @Test func aPhotoLiftedFromACRLFLineLeavesItsCaptionOneLineTall() async throws {
+            let h = TextFirstHarness(
+                "first\r\ncaption ![](pic.png)\r\nafter\r\nmore",
+                files: ["pic.png": TextFirstHarness.png(600, 300)], focused: false)
+            let photo = (h.display as NSString).range(of: "![](pic.png)")
+            #expect(await h.until { h.lineHeights(at: photo.location).contains { $0 > 60 } })
+            let laidOut = try #require(h.controller.laidOutRange())
+            let rect = try #require(h.controller.drawnImage(photo, in: laidOut))
+            let drag = try begin(h, at: CGPoint(x: rect.midX, y: rect.midY))
+            drag.follow(h.point(line: 3))
+            let closing = try #require(drag.preview?.plan.closing)
+            let alone = TextFirstHarness("first\r\ncaption \r\nafter", focused: false)
+            let height = alone.point(line: 2, fraction: 0).y - alone.point(line: 1, fraction: 0).y
+            #expect(
+                abs(closing.closed - height) < 1, "closed \(closing.closed), the line \(height)")
+            h.controller.endBlockDrag(dropping: false)
+        }
+
+        @Test func aCRLFLineLaidOutApartIsAsTallAsInTheNote() throws {
+            let h = TextFirstHarness("first\r\nmiddle line\r\nlast\r\nend", focused: false)
+            let starts = h.lineStarts
+            let layout = try #require(
+                TextFirstBlockLayout(
+                    h.controller.storage,
+                    block: NSRange(location: starts[1], length: starts[2] - starts[1]),
+                    width: h.tv.textContainer.size.width, drawing: 0, host: h.controller))
+            let live = h.point(line: 2, fraction: 0).y - h.point(line: 1, fraction: 0).y
+            #expect(layout.exact && abs(layout.height - live) < 0.5, "\(layout.height) vs \(live)")
+        }
+
+        @Test func aCRLFNoteLandsAsThePreviewShowedIt() async throws {
+            let h = TextFirstHarness("one\r\ntwo\r\nthree\r\nfour", focused: false)
+            let drag = try begin(h, at: h.point(line: 0))
+            drag.follow(h.point(line: 2, fraction: 0.6))
+            let preview = try #require(drag.preview)
+            h.controller.endBlockDrag(dropping: true)
+            #expect(h.source == "two\r\nthree\r\none\r\nfour")
+            let settled = TextFirstBlockReflowTests.image(preview.curtain.layer, h)
+            #expect(await h.until(1) { preview.curtain.superview == nil })
+            let real = TextFirstBlockReflowTests.screen(h)
+            let differing = TextFirstBlockReflowTests.differing(settled, real)
+            #expect(
+                differing == 0,
+                "\(differing) pixels differ \(TextFirstBlockReflowTests.keep(settled, real, "crlf"))"
+            )
+        }
+
+        @Test func aBlockAboveAnEmptyLastTaskIsLaidOutApartWithoutItsRow() throws {
+            let h = TextFirstHarness("first\ncaption\n- [ ] ", focused: false)
+            let lift = try #require(h.controller.liftPlan(at: h.point(line: 1)))
+            let block = lift.block
+            #expect(NSMaxRange(block) == h.controller.storage.length, "it ends above the task")
+            let layout = try #require(
+                TextFirstBlockLayout(
+                    h.controller.storage, block: block, width: h.tv.textContainer.size.width,
+                    drawing: 0, host: h.controller))
+            let laidOut = try #require(h.controller.laidOutRange())
+            let top = try #require(
+                h.controller.boundaryY(
+                    TextFirstBlockSlot(offset: block.location, end: false), in: laidOut))
+            let foot = try #require(
+                h.controller.boundaryY(
+                    TextFirstBlockSlot(offset: NSMaxRange(block), end: false), in: laidOut))
+            #expect(abs(layout.height - (foot - top)) < 0.5, "\(layout.height) vs \(foot - top)")
+        }
+
+        @Test func aPhotoLeftBesideALiftedOneIsDrawnWhereItShows() async throws {
+            let h = TextFirstHarness(
+                "![](tall.png)![](icon.png)\nnext\nmore\n" + Self.lines,
+                files: [
+                    "tall.png": Self.bands(30, 6000), "icon.png": TextFirstHarness.png(300, 600),
+                ],
+                focused: false)
+            #expect(await h.until { h.lineHeights(at: 0).contains { $0 > 1500 } })
+            let icon = (h.display as NSString).range(of: "![](icon.png)")
+            let first = try #require(h.controller.laidOutRange())
+            var rect = try #require(h.controller.drawnImage(icon, in: first))
+            // At the photos' shared foot, the tall one's top far above the screen: below the
+            // lifted photo's middle the row is drawn closed, from the surviving photo's foot.
+            h.tv.contentOffset.y = rect.maxY - h.tv.bounds.height / 2
+            h.tv.layoutIfNeeded()
+            let second = try #require(h.controller.laidOutRange())
+            rect = try #require(h.controller.drawnImage(icon, in: second))
+            let drag = try begin(h, at: CGPoint(x: rect.midX, y: rect.midY))
+            drag.follow(CGPoint(x: 60, y: rect.maxY + 1.6 * 24.3))
+            let preview = try #require(drag.preview)
+            #expect(preview.plan.closing != nil && drag.slot != nil)
+            try await Task.sleep(nanoseconds: 300_000_000)
+            let held = TextFirstBlockReflowTests.image(preview.curtain.layer, h)
+            let foot = rect.maxY - h.tv.bounds.minY
+            h.controller.endBlockDrag(dropping: true)
+            #expect(await h.until(1) { preview.curtain.superview == nil })
+            // The tall photo's foot, above where the icon was: as the note draws it now.
+            let real = TextFirstBlockReflowTests.screen(h)
+            let rows = 0..<(foot - 30)
+            let differing = TextFirstBlockReflowTests.differing(held, real, rows: rows)
+            #expect(
+                differing == 0,
+                "\(differing) pixels differ \(TextFirstBlockReflowTests.keep(held, real, "bands"))")
+        }
+
+        /// A photo `width` x `height` pixels in bands of changing colour down its height.
+        private static func bands(_ width: Int, _ height: Int) -> Data {
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            return UIGraphicsImageRenderer(
+                size: CGSize(width: width, height: height), format: format
+            ).image { context in
+                for y in stride(from: 0, to: height, by: 25) {
+                    UIColor(
+                        hue: CGFloat(y) / CGFloat(height), saturation: 1, brightness: 1, alpha: 1
+                    )
+                    .setFill()
+                    context.fill(CGRect(x: 0, y: y, width: width, height: 25))
+                }
+            }.pngData()!
+        }
+
         // MARK: helpers
 
         private func begin(_ h: TextFirstHarness, at p: CGPoint) throws -> TextFirstBlockDrag {

@@ -123,6 +123,14 @@ struct TextFirstReflowPlan: Equatable {
         return y
     }
 
+    /// Where run `j`'s top is drawn with any gap open but above it (as `top(_:gap:)`): every
+    /// gap draws it there, or a block's room lower.
+    func closedTop(_ j: Int) -> CGFloat {
+        var y = runs[j].top - (j >= home ? left : 0)
+        for i in 0..<j { y += runs[i].closed - runs[i].height }
+        return y
+    }
+
     /// Where the copy of the block is drawn with the gap at `gap`: at home, in place; elsewhere
     /// the top of the gap, the room above the run below it, as wide and as far in as `away`.
     func copy(_ gap: Int) -> CGRect {

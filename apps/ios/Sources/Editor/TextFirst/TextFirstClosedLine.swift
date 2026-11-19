@@ -43,7 +43,10 @@ final class TextFirstClosedLine {
             attributedString: storage.attributedSubstring(from: line))
         text.deleteCharacters(
             in: NSRange(location: photo.location - line.location, length: photo.length))
-        if !text.string.hasSuffix("\n") {
+        // Compared as UTF-16: a CRLF ending is one Character, so `hasSuffix("\n")` misses it.
+        if (text.string as NSString).length == 0
+            || (text.string as NSString).character(at: text.length - 1) != 0x0A
+        {
             text.append(NSAttributedString(string: "\n", attributes: Self.plain))
         }
         // A line above and below it, so it is laid out as a line in the middle of a note: with

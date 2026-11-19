@@ -18,15 +18,19 @@ extension TextFirstReflow {
     /// from the note itself where it is `drawable` (laid out). A layer whose new drawing starts
     /// elsewhere in its run moves by as much first, so its text slides from where it is drawn.
     /// The copy's drawing fades into the block's as it arrives (a box or indent it gained on
-    /// arrival comes in, not pops).
+    /// arrival comes in, not pops). Everything is drawn first; the slides then take `duration`,
+    /// or what is left of it before `deadline` once the drawing is done, and none at all when
+    /// that is under a third of it.
     func settle(
-        runs: [CGRect], block: CGRect?, drawable: CGRect, over duration: CFTimeInterval
+        runs: [CGRect], block: CGRect?, drawable: CGRect, over duration: CFTimeInterval,
+        by deadline: CFTimeInterval = .infinity
     ) {
         builder = nil
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // What is drawn beyond a margin around the screen cannot slide into view.
         let reach = visible.insetBy(dx: 0, dy: -visible.height / 4).intersection(drawable)
+        var targets: [(CALayer, CGPoint)] = []
         for (j, frame) in runs.enumerated() where j < slices.count {
             let layer = slices[j].layer
             let shown = frame.intersection(reach)
@@ -37,21 +41,27 @@ extension TextFirstReflow {
             show(draw(shown, layingOut: false), in: layer)
             slides.shift(layer, by: shown.minY - frame.minY - slices[j].shown)
             slices[j].shown = shown.minY - frame.minY
-            slides.slide(layer, to: inCurtain(shown), over: duration)
+            targets.append((layer, inCurtain(shown)))
         }
+        var before: Any?
         if let frame = block, !frame.intersection(reach).isNull {
             let shown = frame.intersection(reach)
-            let before = copy.contents
+            before = copy.contents
             show(draw(shown, layingOut: false), in: copy)
             slides.shift(copy, by: shown.minY - frame.minY - copyShown)
             copyShown = shown.minY - frame.minY
-            slides.slide(copy, to: inCurtain(shown), over: duration)
+            targets.append((copy, inCurtain(shown)))
+        }
+        let left = min(duration, deadline - CACurrentMediaTime())
+        let time = left >= duration / 3 ? left : 0
+        for (layer, to) in targets { slides.slide(layer, to: to, over: time) }
+        if let before, time > 0 {
             let fade = CABasicAnimation(keyPath: "contents")
-            (fade.fromValue, fade.toValue, fade.duration) = (before, copy.contents, duration)
+            (fade.fromValue, fade.toValue, fade.duration) = (before, copy.contents, time)
             copy.add(fade, forKey: "arrive")
         }
         CATransaction.commit()
-        slidesEnd = CACurrentMediaTime() + duration
+        slidesEnd = CACurrentMediaTime() + time
     }
 
     func remove() {

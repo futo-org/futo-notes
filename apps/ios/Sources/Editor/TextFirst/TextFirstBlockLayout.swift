@@ -158,8 +158,10 @@ final class TextFirstLaidOutLines {
         content = NSTextContentStorage()
         content.delegate = breakDelegate
         manager = NSTextLayoutManager()
+        // The note's empty last line (an empty task) is drawn only as itself: a block that
+        // ends above it ends at its top, as the note's boundary there does.
         layoutDelegate.detached = (
-            context.tableScroll, NSMaxRange(below) == text.length ? context.trailing : nil
+            context.tableScroll, range.length == 0 ? context.trailing : nil
         )
         manager.delegate = layoutDelegate
         content.addTextLayoutManager(manager)
@@ -190,6 +192,9 @@ final class TextFirstLaidOutLines {
             var last = first.layoutFragmentFrame.maxY
             manager.enumerateTextLayoutFragments(from: first.rangeInElement.location) {
                 last = max(last, $0.layoutFragmentFrame.maxY)
+                if let row = ($0 as? TextFirstLayoutFragment)?.trailingRowFrame {
+                    last = $0.layoutFragmentFrame.minY + row.top
+                }
                 return true
             }
             height = last - top
