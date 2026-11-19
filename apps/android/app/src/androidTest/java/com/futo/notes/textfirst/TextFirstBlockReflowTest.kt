@@ -115,6 +115,45 @@ class TextFirstBlockReflowTest {
         }
     }
 
+    /** The text column narrows with the gap open (as a rotation would): the copy is measured again, the drag carries on and lands where shown. */
+    @Test
+    fun aLayoutChangeWithTheGapOpenMeasuresAgainAndTheDropLandsWhereShown() =
+        compose.openDragScreen("alpha is a line long enough to wrap when the note gets narrow enough\nbravo\ncharlie\ndelta") {
+            val from = at(0)
+            down(from); hold(600)
+            val at = carryUntil(from, 8f, right()) { report?.gap == BlockSlot(offsetOf("charlie"), false) }
+            val tall = report!!.copy!!.height()
+            ui { view.setPadding(view.paddingLeft, view.paddingTop, view.width / 2, view.paddingBottom) }
+            compose.waitUntil(3_000) { (report?.copy?.height() ?: 0f) > tall * 1.5f }
+            assertEquals("the gap stayed", BlockSlot(offsetOf("charlie"), false), report?.gap)
+            val source = ui { view.blockLift.drag!!.sourceInWindow()!! }
+            assertEquals("the copy is the block as laid out now", source.height(), report!!.copy!!.height(), 1f)
+            assertCopyDrawn()
+            val copyTop = report!!.copy!!.top
+            up(at)
+            saved("bravo\nalpha is a line long enough to wrap when the note gets narrow enough\ncharlie\ndelta")
+            compose.waitUntil(2_000) { !lifted }
+            val landed = ui { viewInWindow() + view.boundaryY(BlockSlot(offsetOf("alpha"), false))!! - view.scrollY }
+            assertEquals(copyTop, landed, ui { view.lineHeight / 4f })
+        }
+
+    /** While a dropped block slides into place nothing else lifts: a hold that starts then is the platform's. */
+    @Test
+    fun noBlockLiftsWhileTheDroppedOneLands() = compose.openDragScreen("alpha\nbravo\ncharlie\ndelta") {
+        val from = at(0)
+        down(from); hold(600)
+        val at = carryUntil(from, 8f, right()) { report?.gap == BlockSlot(offsetOf("charlie"), false) }
+        up(at)
+        val press = at(offsetOf("delta"))
+        down(press)
+        assertTrue("the drop is still landing", ui { view.blockLift.drag != null })
+        hold(600)
+        assertEquals("the landing drag ended and none lifted", null, ui { view.blockLift.drag })
+        up(press)
+        saved("bravo\nalpha\ncharlie\ndelta")
+        assertEquals(1, haptics.lifts)
+    }
+
     /** A photo lifted out of `Nice!![](p.png)`: its line closes to the text without it and it lands as a line of its own, where its copy was drawn. */
     @Test
     fun aPhotoLiftedOutOfItsLineLandsAsALineOfItsOwnWhereItsCopyWasDrawn() =
