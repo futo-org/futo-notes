@@ -203,3 +203,6 @@ flatpak/.builder-state/
 # Local block-drag benchmark variants, run logs and screenshots
 .perf-variants/
 apps/ios/UITests/BlockDragBenchProbe.js
+
+# The desktop editor engine (scripts/build-editor-wasm.mjs)
+src/features/editor/desktop/wasm/

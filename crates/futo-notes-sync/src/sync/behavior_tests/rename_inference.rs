@@ -50,6 +50,14 @@ fn rename_inference_requires_a_unique_hash_on_both_sides() {
     assert!(derive_renames(&ambiguous_before, &ambiguous_after).is_empty());
 }
 
+#[test]
+fn an_empty_note_deleted_and_another_created_is_not_a_rename() {
+    let empty = hash_sha256("");
+    let before = HashMap::from([("Untitled.md".into(), entry("o1", Some(&empty)))]);
+    let after = HashMap::from([("Groceries.md".into(), entry("o2", Some(&empty)))]);
+    assert!(derive_renames(&before, &after).is_empty());
+}
+
 /// The rename an open editor has to follow while its content ALSO moved: one
 /// server object surfaces under a new name carrying newer bytes (a peer moved
 /// the note in one cycle and edited it in the next, and this client pulls both

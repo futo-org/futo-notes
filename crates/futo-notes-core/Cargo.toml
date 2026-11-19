@@ -39,6 +39,8 @@ unicode-normalization = "0.1.25"
 caseless = "0.2.2"
 # Parallel parked-backup recovery scan across sibling directories.
 rayon = "1"
+# Whether a case variant of a note name is the same file on this volume.
+same-file = "1.0.6"
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs"] }

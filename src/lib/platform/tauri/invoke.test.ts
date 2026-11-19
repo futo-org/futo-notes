@@ -44,8 +44,5 @@ describe('invoke (RC-48: nothing ill-formed reaches the IPC parser)', () => {
     await tauriLocalNoteStore.save(null, 'Note', 'typed \ud83d half an emoji');
     const [, args] = core.invoke.mock.calls[0] as [string, { content: string }];
     expect(args.content).toBe('typed \uFFFD half an emoji');
-    await tauriLocalNoteStore.flushDraft('Note', 'base', 'draft \ude00');
-    const [, draft] = core.invoke.mock.calls[1] as [string, { content: string }];
-    expect(draft.content).toBe('draft \uFFFD');
   });
 });

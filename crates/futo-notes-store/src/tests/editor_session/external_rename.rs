@@ -85,9 +85,9 @@ fn failed_external_rename_keeps_attachment_source_and_history_for_retry() {
         to: "new".into(),
     };
     fs::remove_file(root.0.join("old.md")).unwrap();
-    assert!(store
+    store
         .refresh_external_changes(&[], &[], &[rename.clone()])
-        .is_err());
+        .unwrap();
     assert_eq!(editor.id(), "old");
     assert_eq!(editor.source_text(), "base draft");
     assert_eq!(editor.revision(), Revision(1));
@@ -220,8 +220,13 @@ fn collision_loser_follows_its_conflict_copy_and_never_merges_into_the_winner() 
     store.create("", "note", "first\n\nsecond\n").unwrap();
     let mut editor = store.open_editor("note").unwrap();
     editor.replace(Revision(0), range(7, 13), "LOCAL").unwrap();
-    // Sync moved the losing note aside, then wrote the unrelated winner at its id.
-    fs::rename(root.0.join("note.md"), root.0.join("note (conflict).md")).unwrap();
+    // Sync moved the losing note aside, reporting the move, then wrote the
+    // unrelated winner at its id.
+    {
+        let _vault = futo_notes_core::files::vault_mutation_guard().unwrap();
+        fs::rename(root.0.join("note.md"), root.0.join("note (conflict).md")).unwrap();
+        futo_notes_core::files::note_moved(&root.0, "note.md", "note (conflict).md");
+    }
     fs::write(root.0.join("note.md"), "first\n\nwinner\n").unwrap();
     let rename = NoteRename {
         from: "note".into(),

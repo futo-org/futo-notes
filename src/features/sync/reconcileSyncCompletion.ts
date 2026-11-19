@@ -1,4 +1,4 @@
-import { getNoteById, noteExists, refreshNotesAfterSync } from '$features/notes/notes.svelte';
+import { noteExists, refreshNotesAfterSync } from '$features/notes/notes.svelte';
 import type { NoteSession } from '$features/notes/noteSession.svelte';
 import { updateAppState } from '$shared/state/appState';
 
@@ -6,7 +6,6 @@ import type { SyncTrigger } from './autoSync';
 import type { createExternalChangeCoordinator } from './createExternalChangeCoordinator';
 import type { WriteRefusalOutput } from './syncContract.generated';
 import type { SyncSummary } from './syncServiceE2ee';
-import { idLeaf } from '$lib/platform/pathSafety';
 import type { WriteSuppressor } from '$lib/platform/writeSuppression';
 import type { LocalizedMessage } from '$shared/localization';
 import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
@@ -19,11 +18,9 @@ type ExternalChangeCoordinator = Pick<
 interface SyncCompletionDependencies {
   session: NoteSession;
   showToast: (message: ToastMessage) => void;
-  /** Applies one engine-reported rename completely — tab/route AND the open
-   * session while it is still bound to `fromId` (syncManager
-   * `applyReportedRename`). Retargeting only the route is what left the URL on
-   * the new title with the old one still in the title input. */
-  onRename: (fromId: string, toId: string, title: string) => void;
+  /** One engine-reported rename: the tabs showing the note follow. The open note's
+   * session follows its editor, never this, so route and title cannot disagree. */
+  onRename: (fromId: string, toId: string) => void;
   pruneTabsForDeletedIds: (goneIds: string[]) => void;
 }
 
@@ -43,11 +40,6 @@ interface SyncCompletionOptions {
   setCompletionStatus: (message: LocalizedMessage, durationMilliseconds: number) => void;
   setSyncStatusMessage: (message: LocalizedMessage | null) => void;
   writeSuppressor: WriteSuppressor;
-}
-
-interface OpenNoteSyncResult {
-  followedRenameFromIds: Set<string>;
-  keptDraftId: string | null;
 }
 
 export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
@@ -74,72 +66,46 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     await refreshNotesAfterSync(summary.updatedIds, summary.deletedIds, summary.renamed);
   }
 
-  // Every reported rename the open-note executor did not already follow —
-  // renames of other notes, and the open note's own rename when its
-  // classification never produced an applicable verdict (it failed, or the
-  // engine could not be asked at all). Applying them completely is what keeps
-  // route and title agreeing on which note is open.
-  function projectReportedRenames(summary: SyncSummary, followedRenameFromIds: Set<string>): void {
-    for (const rename of summary.renamed) {
-      if (followedRenameFromIds.has(rename.fromId)) continue;
-      const title = getNoteById(rename.toId)?.title ?? idLeaf(rename.toId);
-      dependencies.onRename(rename.fromId, rename.toId, title);
-    }
-  }
-
+  /** Classifies the open note against the cycle; the id of a draft it kept open. */
   async function reconcileOpenNote(
     summary: SyncSummary,
     syncStartEditVersion: number,
-  ): Promise<OpenNoteSyncResult> {
-    const openId = dependencies.session.originalId;
-    const syncResult: OpenNoteSyncResult = {
-      followedRenameFromIds: new Set(),
-      keptDraftId: null,
-    };
-    if (!openId) {
-      await projectSyncChanges(summary);
-      return syncResult;
-    }
+  ): Promise<string | null> {
+    // The store moved the editor's attachment with every relocation the cycle made (each
+    // reports its source deleted, a rename pair or not), and a checkpoint's reply brings
+    // the session where it went before it is classified.
+    const session = dependencies.session;
+    const left = (id: string | null) =>
+      id !== null &&
+      (summary.deletedIds.includes(id) || summary.renamed.some((pair) => pair.fromId === id));
+    if (left(session.originalId)) await session.checkpointEditor().catch(() => {});
+    const openId = session.originalId;
+    if (!openId) return null;
     const rename = summary.renamed.find((pair) => pair.fromId === openId);
     const isAffected =
       rename !== undefined ||
       summary.deletedIds.includes(openId) ||
       summary.updatedIds.includes(openId);
-    if (!isAffected) {
-      await projectSyncChanges(summary);
-      return syncResult;
-    }
+    if (!isAffected) return null;
 
-    // No flush here: the coordinator settles a pending save itself, outside its
-    // queue, and only once any reported rename has been followed — flushing
-    // first addressed the save to the id the note just left.
     let currentId = openId;
     const seenIds = new Set<string>();
     // A cycle can contribute at most one fresh source per reported rename,
     // followed by one final target classification.
     const maxPasses = summary.renamed.length + 1;
+    let keptDraftId: string | null = null;
     for (let pass = 0; pass < maxPasses && !seenIds.has(currentId); pass += 1) {
       seenIds.add(currentId);
       const currentRename = summary.renamed.find((pair) => pair.fromId === currentId);
-      const reconcile = async () => {
-        if (pass === 0) await projectSyncChanges(summary);
-        return externalChanges.reconcileOpenNote(currentId, {
-          editedDuringCycle: dependencies.session.editVersion !== syncStartEditVersion,
-          renamedTo: currentRename?.toId ?? null,
-        });
-      };
-      // A save timer can fire during either the projection IPC or classification.
-      // Keep both ahead of pending saves until the committed rename is followed.
-      // Release before the next pass, which may itself need to flush a save.
-      const result = currentRename
-        ? await dependencies.session.runBeforePendingSave(reconcile)
-        : await reconcile();
-      syncResult.keptDraftId = result.keptDraftId;
-      if (!result.followedRenameTo) return syncResult;
-      syncResult.followedRenameFromIds.add(currentId);
+      const result = await externalChanges.reconcileOpenNote(currentId, {
+        editedDuringCycle: dependencies.session.editVersion !== syncStartEditVersion,
+        renamedTo: currentRename?.toId ?? null,
+      });
+      keptDraftId = result.keptDraftId;
+      if (!result.followedRenameTo) return keptDraftId;
       currentId = result.followedRenameTo;
     }
-    return syncResult;
+    return keptDraftId;
   }
 
   async function reconcileSyncCompletion(
@@ -158,8 +124,10 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     });
 
     recordSyncedFiles(summary);
-    const openNoteResult = await reconcileOpenNote(summary, syncStartEditVersion);
-    projectReportedRenames(summary, openNoteResult.followedRenameFromIds);
+    await projectSyncChanges(summary);
+    const keptDraftId = await reconcileOpenNote(summary, syncStartEditVersion);
+    // The tabs showing a relocated note follow; the open note's follow its editor.
+    for (const rename of summary.renamed) dependencies.onRename(rename.fromId, rename.toId);
 
     // What happens to the OPEN note is the engine's verdict, never a background
     // prune: a note the executor was told to leave open (Leave/KeepDraft, or a
@@ -169,7 +137,7 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     // unbound the session, so the id is still pruned then.
     const stillOpenId = dependencies.session.originalId;
     const pruneCandidates = summary.deletedIds.filter(
-      (id) => id !== openNoteResult.keptDraftId && id !== stillOpenId,
+      (id) => id !== keptDraftId && id !== stillOpenId,
     );
     const pruneExistence = await Promise.all(
       pruneCandidates.map((id) => noteExists(id).catch(() => true)),

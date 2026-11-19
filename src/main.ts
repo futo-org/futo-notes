@@ -5,6 +5,7 @@ import { prefetchLocalNoteListing } from '$lib/localNoteStore';
 import { readPersistedNoteSortOrder } from '$features/notes/noteSortOrder';
 import App from './App.svelte';
 import './styles/app.css';
+import './styles/desktop-fonts.css';
 
 installGlobalHandlers();
 installPuppetInspector();

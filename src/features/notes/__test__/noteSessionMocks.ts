@@ -11,12 +11,14 @@ vi.mock('$features/sync/syncServiceE2ee', () => ({
 }));
 
 vi.mock('../notes.svelte', () => ({
-  updateNote: vi.fn(),
   // Missing reads as "" on every platform (Tauri notes_read, web.ts, nodeFS) —
   // read_note never throws for a missing file. The default mirrors that; tests
   // that need specific bytes queue them with mockResolvedValueOnce.
   readNote: vi.fn(async () => ''),
+  // Every note a test reads exists unless it says otherwise.
+  noteExists: vi.fn(async () => true),
   createNote: vi.fn(async (id: string) => ({ id, mtime: 0 })),
+  deleteNote: vi.fn(async () => {}),
   getNoteById: vi.fn(() => undefined),
   _applyLocalMutation: vi.fn(),
   recordSaveIdentityChange: vi.fn(),

@@ -1,7 +1,7 @@
 //! Translation from shared sync callbacks to stable Tauri events.
 
 use futo_notes_sync::SyncSessionListener;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 pub(crate) struct TauriSyncListener {
     pub(crate) app: AppHandle,
@@ -9,6 +9,10 @@ pub(crate) struct TauriSyncListener {
 
 impl SyncSessionListener for TauriSyncListener {
     fn on_synced(&self, summary: futo_notes_sync::SyncSummary) {
+        self.app
+            .state::<crate::application_state::AppState>()
+            .notes
+            .follow_sync_renames(&summary);
         let _ = self.app.emit(
             "sync:live-synced",
             super::frontend_contract::SyncSummary::from(&summary),

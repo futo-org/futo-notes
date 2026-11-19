@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const TAURI_CONF = resolve(ROOT, 'apps', 'tauri', 'src-tauri', 'tauri.conf.json');
 export const TAURI_CARGO_TOML = resolve(ROOT, 'apps', 'tauri', 'src-tauri', 'Cargo.toml');
+export const CARGO_LOCK = resolve(ROOT, 'Cargo.lock');
 
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
@@ -80,10 +81,29 @@ export function setTauriCargoVersion(version, cargoPath = TAURI_CARGO_TOML) {
   return true;
 }
 
+// The workspace lock records the app's own version: stamped with Cargo.toml, so a
+// `--locked` build (scripts/build-editor-wasm.mjs) finds the lock file current.
+const LOCK_ENTRY_RE = /^(name = "futo-notes-tauri"\r?\nversion = ")([^"]+)(")$/m;
+
+export function readTauriLockVersion(lockPath = CARGO_LOCK) {
+  const version = readFileSync(lockPath, 'utf8').match(LOCK_ENTRY_RE)?.[2];
+  if (!version) throw new Error(`could not find the futo-notes-tauri entry in ${lockPath}`);
+  return version;
+}
+
+export function setTauriLockVersion(version, lockPath = CARGO_LOCK) {
+  assertSemver(version);
+  if (readTauriLockVersion(lockPath) === version) return false;
+  const lock = readFileSync(lockPath, 'utf8');
+  writeFileSync(lockPath, lock.replace(LOCK_ENTRY_RE, `$1${version}$3`));
+  return true;
+}
+
 export function readDesktopVersions(paths = {}) {
   return {
     tauriConfig: readTauriConfigVersion(paths.confPath),
     cargoPackage: readTauriCargoVersion(paths.cargoPath),
+    cargoLock: readTauriLockVersion(paths.lockPath),
   };
 }
 
@@ -92,12 +112,14 @@ export function setDesktopVersion(version, paths = {}) {
   return {
     tauriConfig: setTauriConfigVersion(version, paths.confPath),
     cargoPackage: setTauriCargoVersion(version, paths.cargoPath),
+    cargoLock: setTauriLockVersion(version, paths.lockPath),
   };
 }
 
 export function restoreDesktopVersions(versions, paths = {}) {
   setTauriConfigVersion(versions.tauriConfig, paths.confPath);
   setTauriCargoVersion(versions.cargoPackage, paths.cargoPath);
+  setTauriLockVersion(versions.cargoLock, paths.lockPath);
 }
 
 function main(argv) {
@@ -111,7 +133,9 @@ function main(argv) {
     process.exit(1);
   }
   setDesktopVersion(version);
-  process.stdout.write(`stamped desktop version ${version} in tauri.conf.json and Cargo.toml\n`);
+  process.stdout.write(
+    `stamped desktop version ${version} in tauri.conf.json, Cargo.toml and Cargo.lock\n`,
+  );
 }
 
 if (import.meta.main) {

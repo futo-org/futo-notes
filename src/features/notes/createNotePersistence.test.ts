@@ -1,234 +1,99 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/platform', () => ({ hasFileSystem: true }));
-vi.mock('./notes.svelte', () => ({
-  updateNote: vi.fn(),
-  _applyLocalMutation: vi.fn(),
-  recordSaveIdentityChange: vi.fn(),
-}));
 
-import { _applyLocalMutation, updateNote } from './notes.svelte';
 import { createNotePersistence } from './createNotePersistence';
-import type { LocalNoteMutation } from '$lib/localNoteStore';
 
-function parkedSave(reconcileOpenNote: (state: { savedContent: string }) => void) {
-  const parkedMutation = {
-    warnings: [],
-    relinked: [],
-    upserted: [
-      { note: { id: 'Original (conflict 2026-07-29)', title: 'Original (conflict 2026-07-29)' } },
-    ],
-  } as unknown as LocalNoteMutation;
-  vi.mocked(updateNote).mockResolvedValue({
-    id: 'Original',
-    mtime: 123,
-    disposition: 'parked',
-    parkedId: 'Original (conflict 2026-07-29)',
-    unappliedMutation: parkedMutation,
-  });
-  const state = {
-    originalId: 'Original',
-    savedContent: 'original content',
-    savedTitle: 'Original',
-    title: ' Original ',
-  };
-  const onSaved = vi.fn();
-  const reconcile = vi.fn(async () => reconcileOpenNote(state));
-  const saveNote = createNotePersistence({
-    clearPendingFolder: vi.fn(),
-    getEditorContent: () => 'my draft',
-    getNoteId: () => 'Original',
-    getPendingFolder: () => null,
+function persistence(
+  state: { originalId: string; savedTitle: string; title: string },
+  overrides: {
+    hasDuplicateTitle?: () => boolean;
+    isLoading?: () => boolean;
+  } = {},
+) {
+  const saveBody = vi.fn(async () => {});
+  const renameNote = vi.fn(async (_newId: string) => {});
+  const onTitleSaved = vi.fn();
+  const showTitleWarning = vi.fn();
+  const save = createNotePersistence({
+    getEditorNoteId: () => state.originalId,
     getState: () => ({ ...state }),
-    hasDuplicateTitle: () => false,
-    isLoading: () => false,
-    onSaved,
-    reconcileOpenNote: reconcile,
-    showTitleWarning: vi.fn(),
+    hasDuplicateTitle: overrides.hasDuplicateTitle ?? (() => false),
+    isLoading: overrides.isLoading ?? (() => false),
+    onTitleSaved,
+    saveBody,
+    renameNote,
+    showTitleWarning,
   });
-  return { onSaved, parkedMutation, reconcile, saveNote };
+  return { save, saveBody, renameNote, onTitleSaved, showTitleWarning };
 }
 
+const original = {
+  originalId: 'Original',
+  savedTitle: 'Original',
+  title: 'Original',
+};
+
 describe('createNotePersistence', () => {
-  beforeEach(() => {
-    vi.mocked(updateNote).mockReset();
-    vi.mocked(_applyLocalMutation).mockClear();
-  });
-
-  it('refuses to save while the session is loading (F1 straddle guard)', async () => {
-    // A save that reaches here mid-note-switch would write the outgoing
-    // note's stale title/content under the incoming note's originalId — see
-    // IsLoading in createNotePersistence.ts.
-    const onSaved = vi.fn();
-    const saveNote = createNotePersistence({
-      clearPendingFolder: vi.fn(),
-      getEditorContent: () => 'edited content',
-      getNoteId: () => 'Incoming',
-      getPendingFolder: () => null,
-      getState: () => ({
-        originalId: 'Incoming',
-        savedContent: 'outgoing saved content',
-        savedTitle: 'Outgoing',
-        title: 'Outgoing',
-      }),
-      hasDuplicateTitle: () => false,
-      isLoading: () => true,
-      onSaved,
-      reconcileOpenNote: vi.fn(),
-      showTitleWarning: vi.fn(),
-    });
-
-    await expect(saveNote()).resolves.toBe(false);
-
-    expect(updateNote).not.toHaveBeenCalled();
-    expect(onSaved).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ['an existing note', 'Original', 'Original', 'Original'],
-    ['a note never saved', null, '', 'Untitled'],
-  ])(
-    'a duplicate title warns but still saves the body of %s under its current name',
-    async (_, originalId, savedTitle, savedAs) => {
-      vi.mocked(updateNote).mockResolvedValue({ id: savedAs, mtime: 123, disposition: 'wrote' });
-      const showTitleWarning = vi.fn();
-      const onSaved = vi.fn();
-      const saveNote = createNotePersistence({
-        clearPendingFolder: vi.fn(),
-        getEditorContent: () => 'edited content',
-        getNoteId: () => originalId ?? 'new',
-        getPendingFolder: () => null,
-        getState: () => ({
-          content: 'edited content',
-          originalId,
-          savedContent: originalId ? 'original content' : '',
-          savedTitle,
-          title: 'Duplicate',
-        }),
-        hasDuplicateTitle: () => true,
-        isLoading: () => false,
-        onSaved,
-        reconcileOpenNote: vi.fn(),
-        showTitleWarning,
-      });
-
-      await expect(saveNote()).resolves.toBe(true);
-
-      expect(showTitleWarning).toHaveBeenCalledExactlyOnceWith({ path: 'notes.title.duplicate' });
-      expect(updateNote).toHaveBeenCalledWith(savedAs, 'edited content', {
-        originalId: originalId ?? undefined,
-        base: originalId ? 'original content' : '',
-      });
-      // The field keeps the refused title: the save names no title it took.
-      expect(onSaved).toHaveBeenCalledWith(
-        expect.objectContaining({ id: savedAs, title: savedAs, requestedTitle: null }),
-      );
-    },
-  );
-
-  it.each(['wrote', 'recreated'] as const)(
-    'commits saved baselines and reports a disk write after %s',
-    async (disposition) => {
-      vi.mocked(updateNote).mockResolvedValue({
-        id: 'Original',
-        mtime: 123,
-        disposition,
-      });
-      const onSaved = vi.fn();
-      const reconcileOpenNote = vi.fn();
-      const saveNote = createNotePersistence({
-        clearPendingFolder: vi.fn(),
-        getEditorContent: () => 'edited content',
-        getNoteId: () => 'Original',
-        getPendingFolder: () => null,
-        getState: () => ({
-          originalId: 'Original',
-          savedContent: 'original content',
-          savedTitle: 'Original',
-          title: 'Original',
-        }),
-        hasDuplicateTitle: () => false,
-        isLoading: () => false,
-        onSaved,
-        reconcileOpenNote,
-        showTitleWarning: vi.fn(),
-      });
-
-      await expect(saveNote()).resolves.toBe(true);
-
-      expect(updateNote).toHaveBeenCalledWith('Original', 'edited content', {
-        originalId: 'Original',
-        base: 'original content',
-      });
-      expect(onSaved).toHaveBeenCalledOnce();
-      expect(reconcileOpenNote).not.toHaveBeenCalled();
-    },
-  );
-
-  it('commits the saved baseline without notifying sync when the draft converged', async () => {
-    vi.mocked(updateNote).mockResolvedValue({
-      id: 'Original',
-      mtime: 123,
-      disposition: 'converged',
-    });
-    const onSaved = vi.fn();
-    const saveNote = createNotePersistence({
-      clearPendingFolder: vi.fn(),
-      getEditorContent: () => 'edited content',
-      getNoteId: () => 'Original',
-      getPendingFolder: () => null,
-      getState: () => ({
-        originalId: 'Original',
-        savedContent: 'original content',
-        savedTitle: 'Original',
-        title: 'Original',
-      }),
-      hasDuplicateTitle: () => false,
-      isLoading: () => false,
-      onSaved,
-      reconcileOpenNote: vi.fn(),
-      showTitleWarning: vi.fn(),
-    });
-
-    await expect(saveNote()).resolves.toBe(false);
-    expect(onSaved).toHaveBeenCalledOnce();
-  });
-
-  it('reconciles a parked draft against the exact raw editor title snapshot', async () => {
-    // An unfocused editor adopts the peer's original: the baseline moves to it.
-    const { onSaved, parkedMutation, reconcile, saveNote } = parkedSave((state) => {
-      state.savedContent = 'peer content';
-    });
-
-    await expect(saveNote()).resolves.toBe(false);
-
-    expect(onSaved).not.toHaveBeenCalled();
-    expect(reconcile).toHaveBeenCalledExactlyOnceWith('Original', {
-      content: 'my draft',
-      title: ' Original ',
-    });
-    expect(_applyLocalMutation).toHaveBeenCalledExactlyOnceWith(parkedMutation);
-    expect(vi.mocked(_applyLocalMutation).mock.invocationCallOrder[0]).toBeLessThan(
-      reconcile.mock.invocationCallOrder[0],
+  it('saves nothing while a note switch is opening the next note', async () => {
+    const { save, saveBody, renameNote } = persistence(
+      { ...original, title: 'Outgoing' },
+      { isLoading: () => true },
     );
+
+    await save();
+
+    expect(saveBody).not.toHaveBeenCalled();
+    expect(renameNote).not.toHaveBeenCalled();
   });
 
-  it('follows the parked copy with the parked draft as its baseline when the adopt waits', async () => {
-    // A focused editor defers the adopt. Staying on the original id with the
-    // pre-park baseline parked a fresh copy on every later save.
-    const { onSaved, saveNote } = parkedSave(() => {});
+  it('a duplicate title warns but still saves the body under its current name', async () => {
+    const { save, saveBody, renameNote, onTitleSaved, showTitleWarning } = persistence(
+      { ...original, title: 'Duplicate' },
+      { hasDuplicateTitle: () => true },
+    );
 
-    await expect(saveNote()).resolves.toBe(false);
+    await save();
 
-    expect(onSaved).toHaveBeenCalledExactlyOnceWith({
-      id: 'Original (conflict 2026-07-29)',
-      title: 'Original (conflict 2026-07-29)',
-      requestedTitle: ' Original ',
-      content: 'my draft',
-      savedOriginalId: 'Original',
-      keepsOriginal: true,
+    expect(showTitleWarning).toHaveBeenCalledExactlyOnceWith({ path: 'notes.title.duplicate' });
+    expect(saveBody).toHaveBeenCalledOnce();
+    expect(renameNote).not.toHaveBeenCalled();
+    // The field keeps the refused title: the save took no title.
+    expect(onTitleSaved).not.toHaveBeenCalled();
+  });
+
+  it('saves a title edit as a rename; the editor names the destination in its folder', async () => {
+    const { save, saveBody, renameNote, onTitleSaved } = persistence({
+      ...original,
+      originalId: 'Work/Original',
+      title: 'Renamed',
     });
+
+    await save();
+
+    expect(renameNote).toHaveBeenCalledExactlyOnceWith('Renamed');
+    expect(saveBody).not.toHaveBeenCalled();
+    expect(onTitleSaved).toHaveBeenCalledExactlyOnceWith('Renamed');
+  });
+
+  it('asks the editor to write its draft when the title is unchanged', async () => {
+    // The editor knows what it has written; a draft disk already holds writes nothing.
+    const { save, saveBody, renameNote } = persistence(original);
+    await save();
+    expect(saveBody).toHaveBeenCalledOnce();
+    expect(renameNote).not.toHaveBeenCalled();
+  });
+
+  it('rejects when the save fails, taking no title', async () => {
+    const { save, renameNote, onTitleSaved } = persistence({ ...original, title: 'Renamed' });
+    renameNote.mockRejectedValueOnce(new Error('disk full'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(save()).rejects.toThrow('disk full');
+
+    warn.mockRestore();
+    expect(onTitleSaved).not.toHaveBeenCalled();
   });
 });

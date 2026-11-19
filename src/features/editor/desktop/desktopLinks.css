@@ -1,0 +1,112 @@
+/* Links and wikilinks in the desktop editor (lineLinks.ts, wikilinkElements.ts), the Link
+ * prompt (linkPrompt.ts) and the `[[` completion list (wikilinkCompletion.ts). The look is the
+ * Milkdown editor's (src/styles/markdown-links.css, milkdownEditor.css). */
+
+/* A line's font size as a length its wikilinks' labels can take: the wikilink's own text is
+ * drawn at no size, so its label cannot size itself from it. */
+@property --line-font-size {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 16px;
+}
+
+.desktop-editor .line {
+  --line-font-size: 1em;
+}
+
+.desktop-editor .link {
+  color: var(--color-primary, #f26b1f);
+  text-decoration: underline;
+  text-decoration-color: rgba(var(--primary-rgb), 0.35);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.desktop-editor .link:hover {
+  color: var(--color-primary-hover, var(--color-primary, #f26b1f));
+  text-decoration-color: rgba(var(--primary-rgb), 0.5);
+}
+
+/* A wikilink's text is its whole `[[target]]`, kept for the caret, the selection and the
+ * engine's offsets but drawn at (almost) no size: a glyph box of no height would give the caret
+ * nowhere to stand. Its label is drawn after it; the dashed underline tells it from a web link.
+ * That text never wraps, so a row break before the label takes it along, and the caret before
+ * the wikilink stands where its label starts; the label wraps as the line's text does. */
+.desktop-editor .wikilink {
+  white-space: nowrap;
+  font-size: 0.01px;
+  /* The row's line-height around a font of no size centres on the baseline and grows the row
+   * below it; the label is laid out on the row's own line box. */
+  line-height: 0;
+  color: var(--color-primary, #f26b1f);
+  cursor: pointer;
+}
+
+.desktop-editor .wikilink::after {
+  content: attr(data-label);
+  white-space: pre-wrap;
+  font-size: var(--line-font-size);
+  text-decoration: underline dashed;
+  text-decoration-color: rgba(var(--primary-rgb), 0.35);
+  text-underline-offset: 2px;
+}
+
+.desktop-editor .wikilink:hover::after {
+  text-decoration-color: rgba(var(--primary-rgb), 0.5);
+}
+
+.desktop-editor .wikilink.unresolved {
+  color: var(--color-muted, #737373);
+}
+
+.desktop-editor .wikilink.unresolved::after {
+  text-decoration-color: currentColor;
+}
+
+/* The Link prompt: the old desktop toolbar's URL field (milkdownEditor.css
+ * `.futo-selection-toolbar-url`, `.futo-link-prompt`), fixed on the viewport over the
+ * selection. */
+.desktop-link-prompt {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: calc(100vw - 16px);
+  padding: 4px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.desktop-link-prompt .futo-selection-toolbar-url {
+  width: 260px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  outline: none;
+}
+
+.desktop-link-prompt .futo-selection-toolbar-url:focus {
+  border-color: var(--color-primary);
+}
+
+.desktop-link-prompt .futo-selection-toolbar-apply {
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--color-primary);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}

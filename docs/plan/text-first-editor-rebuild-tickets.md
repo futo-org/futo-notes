@@ -25,6 +25,9 @@ from the current #283 milestone. Both issues stay open as future work and must n
 by agents or treated as completed. These two deferrals override the corresponding original
 parent stories; shipping editor behavior and defaults stay unchanged.
 
+Mason took rich HTML paste (#303) back up on 2026-11-05, for the desktop editor: it is no
+longer deferred (`docs/spec/editor/portable-core/clipboard.md`).
+
 Plain-text/Markdown copy, cut and paste (#302) remain required. Ordinary single-cell paste
 (#310) remains required for supported plain-text/Markdown forms; rich HTML conversion is
 deferred with #303. Consequently #310 depends on #302 and #309, and #315 no longer waits for

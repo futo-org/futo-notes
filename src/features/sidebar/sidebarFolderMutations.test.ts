@@ -52,7 +52,6 @@ function options(overrides: Partial<Options> = {}): Options {
     onNoteIdsDeleted: vi.fn(),
     onSelect: vi.fn(),
     onActiveNoteDeleted: vi.fn(),
-    onActiveNoteMoved: vi.fn(),
     ...overrides,
   };
 }
@@ -122,7 +121,7 @@ describe('sidebar note delete and move', () => {
     expect(mocks.showGlobalToast).toHaveBeenCalledWith({ path: 'notes.unavailable' });
   });
 
-  it('flushes and retargets the live session from the post-save id after an active note move', async () => {
+  it('flushes, then moves the open note from its post-save id and reports it', async () => {
     let activeId = 'Projects/Roadmap';
     const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => {
       activeId = 'Projects/Renamed roadmap';
@@ -136,7 +135,6 @@ describe('sidebar note delete and move', () => {
       id === 'Projects/Renamed roadmap' ? { id } : undefined,
     );
     mocks.moveNote.mockResolvedValue({ id: 'Archive/Renamed roadmap-2', mtime: 1 });
-    const onActiveNoteMoved = vi.fn();
     const onNoteIdsRenamed = vi.fn();
 
     await moveSidebarNote(
@@ -146,7 +144,6 @@ describe('sidebar note delete and move', () => {
         getActiveNoteId: () => activeId,
         runWithActiveNoteLock,
         onNoteIdsRenamed,
-        onActiveNoteMoved,
       }),
     );
 
@@ -156,11 +153,6 @@ describe('sidebar note delete and move', () => {
     );
     expect(runWithActiveNoteLock.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.moveNote.mock.invocationCallOrder[0],
-    );
-    expect(onActiveNoteMoved).toHaveBeenCalledWith(
-      'Projects/Renamed roadmap',
-      'Archive/Renamed roadmap-2',
-      'Renamed roadmap-2',
     );
     expect(onNoteIdsRenamed).toHaveBeenCalledWith([
       { from: 'Projects/Renamed roadmap', to: 'Archive/Renamed roadmap-2' },
@@ -217,10 +209,9 @@ describe('renameSidebarNote', () => {
     expect(mocks.moveNote).not.toHaveBeenCalled();
   });
 
-  it('flushes the live session first, then publishes and retargets the committed id', async () => {
+  it('flushes the live session first, then publishes the committed id', async () => {
     const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => operation());
     mocks.moveNote.mockResolvedValue({ id: 'Projects/Plan-2', mtime: 1 });
-    const onActiveNoteMoved = vi.fn();
     const onNoteIdsRenamed = vi.fn();
 
     const error = await renameSidebarNote(
@@ -229,7 +220,6 @@ describe('renameSidebarNote', () => {
       options({
         getActiveNoteId: () => 'Projects/Roadmap',
         runWithActiveNoteLock,
-        onActiveNoteMoved,
         onNoteIdsRenamed,
       }),
     );
@@ -243,7 +233,6 @@ describe('renameSidebarNote', () => {
     expect(onNoteIdsRenamed).toHaveBeenCalledWith([
       { from: 'Projects/Roadmap', to: 'Projects/Plan-2' },
     ]);
-    expect(onActiveNoteMoved).toHaveBeenCalledWith('Projects/Roadmap', 'Projects/Plan-2', 'Plan-2');
   });
 
   it('reports a store failure instead of losing the edit', async () => {

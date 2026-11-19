@@ -38,7 +38,8 @@
           "closeTab": "关闭标签页",
           "closeWindow": "关闭窗口",
           "quit": "退出 {appName}",
-          "toggleSidebar": "切换边栏"
+          "toggleSidebar": "切换边栏",
+          "pasteAndMatchStyle": "粘贴并匹配样式"
         }
       }
     },
@@ -472,6 +473,15 @@
       "newAccessibilityLabel": "新建标签页"
     },
     "editor": {
+      "codeBlock": {
+        "namePlaceholder": "名称",
+        "languagePlaceholder": "语言",
+        "copyTitle": "复制代码",
+        "copied": "已复制到剪贴板",
+        "copyFailed": "无法复制代码",
+        "addLineAbove": "在上方添加一行",
+        "addLineBelow": "在下方添加一行"
+      },
       "tags": {
         "removeAccessibilityLabel": "移除标签 {tagName}",
         "inputPlaceholder": "标签名称",

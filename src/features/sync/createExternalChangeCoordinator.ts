@@ -1,5 +1,5 @@
 import { handleExternalFileChange, refreshNotesFromStorage } from '$features/notes/notes.svelte';
-import type { NoteSession, ParkedDraftSnapshot } from '$features/notes/noteSession.svelte';
+import type { NoteSession } from '$features/notes/noteSession.svelte';
 import { hasFileSystem } from '$lib/platform';
 import type { FileChangeEvent } from '$lib/platform/types';
 import {
@@ -12,7 +12,6 @@ import type { WriteSuppressor } from '$lib/platform/writeSuppression';
 import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
 
 interface ExternalChangeDependencies {
-  followRename: (fromId: string, toId: string) => void;
   session: NoteSession;
   notifySaved: () => void;
   showToast: (message: ToastMessage) => void;
@@ -21,7 +20,6 @@ interface ExternalChangeDependencies {
 
 export interface ReconcileOpenNoteOptions {
   editedDuringCycle?: boolean;
-  parkedDraft?: ParkedDraftSnapshot;
   renamedTo?: string | null;
 }
 
@@ -92,22 +90,16 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     scheduleDeferredAdoptSettle();
   }
 
-  function captureEditor(id: string, options: ReconcileOpenNoteOptions): EditorSnapshot | null {
+  function captureEditor(id: string): EditorSnapshot | null {
     const session = dependencies.session;
     const draft = session.editorContent;
     if (session.originalId !== id || draft === undefined) return null;
-    const parkedDraftStillCurrent =
-      options.parkedDraft !== undefined &&
-      draft === options.parkedDraft.content &&
-      session.title === options.parkedDraft.title;
     return {
       id,
       draft,
-      // Once this exact draft was parked, it is safe to adopt the peer's
-      // original: the draft already survives at its conflict-copy id.
-      base: parkedDraftStillCurrent ? draft : session.savedContent,
+      base: session.savedContent,
       editVersion: session.editVersion,
-      focused: session.editorFocused || session.composing,
+      focused: session.composing,
       title: session.title,
     };
   }
@@ -120,8 +112,8 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
       session.editVersion === snapshot.editVersion &&
       session.editorContent === snapshot.draft &&
       session.title === snapshot.title &&
-      (session.editorFocused || session.composing) === snapshot.focused &&
-      (session.savedContent === snapshot.base || snapshot.base === snapshot.draft)
+      session.composing === snapshot.focused &&
+      session.savedContent === snapshot.base
     );
   }
 
@@ -161,14 +153,18 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
       case 'deferAdopt':
         deferReconcile(id, options);
         break;
+      // The store moved the editor's attachment with the note and the session follows
+      // the editor (`onnote`); the caller goes on to the note it went to.
       case 'followRename':
         pendingReconcile = null;
-        dependencies.followRename(id, disposition.toId);
         result.followedRenameTo = disposition.toId;
         break;
+      // The baseline is the editor host's own: its next save writes the draft, parks it
+      // against a changed note, or recreates a deleted one, and the session's baseline
+      // follows what it saved. `disposition.base` is that same baseline, or the draft
+      // when disk already holds it as saved (converged), which that save then records.
       case 'keepDraft':
         pendingReconcile = null;
-        dependencies.session.rebaseSavedContent(disposition.base);
         dependencies.session.resumeDraftPersistence();
         if (disposition.reason === 'peerDeleted') {
           dependencies.showToast({ path: 'notes.save.openNoteDeletedKeepingDraft' });
@@ -190,27 +186,17 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     saveSettled: boolean,
   ): Promise<OpenNoteReconcileResult | typeof SETTLE_SAVE_FIRST> {
     if (disposed || dependencies.session.originalId !== id) return NO_RECONCILIATION;
-    // A reported relocation is followed BEFORE any pending save persists: that
-    // save is addressed to the id the note just left, and the store would
-    // recreate the note there — a ghost that syncs to every device (sync.md,
-    // "the editor never stays bound to the deleted id"). Following touches only
-    // identity, never the buffer, so neither composition nor a pending save is
-    // a reason to wait; the save then lands at the new id.
-    const followsRename = Boolean(options.renamedTo);
-    if (!followsRename && dependencies.session.composing && dependencies.session.savePending) {
+    // A pending save settles first. It cannot recreate a note a relocation left: the
+    // store moved the editor's attachment with the note (a sync relocation, a rename
+    // the file watcher saw), so the save lands where the note went (sync.md, "the
+    // editor never stays bound to the deleted id").
+    if (dependencies.session.composing && dependencies.session.savePending) {
       deferReconcile(id, options);
       return NO_RECONCILIATION;
     }
-    if (
-      !followsRename &&
-      !saveSettled &&
-      dependencies.session.savePending &&
-      options.parkedDraft === undefined
-    ) {
-      return SETTLE_SAVE_FIRST;
-    }
+    if (!saveSettled && dependencies.session.savePending) return SETTLE_SAVE_FIRST;
 
-    const snapshot = captureEditor(id, options);
+    const snapshot = captureEditor(id);
     if (!snapshot) return NO_RECONCILIATION;
     let disposition: OpenNoteDispositionOutput;
     try {
@@ -220,13 +206,7 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
       console.warn('Open-note classification failed:', error);
       return { ...NO_RECONCILIATION, keptDraftId: id };
     }
-    // A rename verdict reads no editor fact, so typing during the IPC cannot
-    // stale it; deferring it would leave the next save addressed to the old id.
-    const stale =
-      disposition.kind === 'followRename'
-        ? disposed || dependencies.session.originalId !== id
-        : !editorStillMatches(snapshot);
-    if (stale) {
+    if (!editorStillMatches(snapshot)) {
       if (dependencies.session.originalId === id) {
         deferReconcile(id, options);
       }
@@ -235,12 +215,9 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     return applyDisposition(id, disposition, options);
   }
 
-  // A queued operation never awaits the save queue. A save that parks awaits
-  // its own post-park reconcile, which queues here; an operation that flushed
-  // from inside the queue would wait on that save while the save waited behind
-  // the operation — a deadlock that wedged every later save. So an operation
-  // that finds a save pending gives the queue up, settles the save outside it,
-  // then queues once more.
+  // A queued operation never awaits the save queue: one that finds a save
+  // pending gives the queue up, settles the save outside it, then queues once
+  // more, so no other reconciliation waits behind that save.
   function reconcileOpenNote(
     id: string,
     options: ReconcileOpenNoteOptions = {},
@@ -282,12 +259,9 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
       return;
     }
     compositionRetries = 0;
-    // A retained rename is followed first; its pending save lands at the new id.
-    if (!options.renamedTo) {
-      await dependencies.session.flushSave();
-      if (disposed) return;
-      if (dependencies.session.originalId !== id || dependencies.session.dirty) return;
-    }
+    await dependencies.session.flushSave();
+    if (disposed) return;
+    if (dependencies.session.originalId !== id || dependencies.session.dirty) return;
     pendingReconcile = null;
     await reconcileOpenNote(id, options);
   }
@@ -303,7 +277,7 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
   let compositionRetries = 0;
   function scheduleDeferredAdoptSettle(): void {
     if (settleTimer !== null || disposed) return;
-    if (dependencies.session.editorFocused || dependencies.session.composing) return;
+    if (dependencies.session.composing) return;
     settleTimer = setTimeout(() => {
       settleTimer = null;
       void settleDeferredAdopt();
@@ -352,9 +326,10 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
         await handleFileChange({ type: 'change', filename }, shouldNotifySaved);
         return;
       }
-      if (fromId === session.originalId) {
-        await reconcileOpenNote(fromId, { renamedTo: toId });
-      }
+      // The store moved the editor's attachment as the watcher reported this
+      // (`observe_external_change`) and the session follows the editor: there is
+      // nothing to ask, and a reconcile deferred for the old id is moot.
+      if (pendingReconcile?.id === fromId) pendingReconcile = null;
       await handleExternalFileChange(filename);
       if (shouldNotifySaved) dependencies.notifySaved();
       return;

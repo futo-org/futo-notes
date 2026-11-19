@@ -70,6 +70,7 @@
       closeWindow: localizedText('app.desktop.menu.closeWindow'),
       quit: localizedText('app.desktop.menu.quit', { appName: applicationTitle }),
       toggleSidebar: localizedText('app.desktop.menu.toggleSidebar'),
+      pasteAndMatchStyle: localizedText('app.desktop.menu.pasteAndMatchStyle'),
     });
   });
 

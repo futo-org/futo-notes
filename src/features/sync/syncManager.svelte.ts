@@ -1,16 +1,12 @@
 import { listen } from '@tauri-apps/api/event';
 import { isTauri } from '$lib/platform';
-import type { NoteSession, ParkedDraftSnapshot } from '$features/notes/noteSession.svelte';
-import { idLeaf } from '$lib/platform/pathSafety';
+import type { NoteSession } from '$features/notes/noteSession.svelte';
 import { writeSuppressor } from '$lib/platform/writeSuppression';
 import { createSyncCoordinator, type SyncCoordinator } from './syncCoordinator';
 import type { FileChangeEvent } from '$lib/platform/types';
 import type { SyncSummary } from './syncServiceE2ee';
 import { startAutoSync, stopAutoSync, notifySaved, type SyncTrigger } from './autoSync';
-import {
-  createExternalChangeCoordinator,
-  type OpenNoteReconcileResult,
-} from './createExternalChangeCoordinator';
+import { createExternalChangeCoordinator } from './createExternalChangeCoordinator';
 import {
   classifySyncError,
   isCertificateRejection,
@@ -26,7 +22,9 @@ import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
 export interface SyncManagerDeps {
   session: NoteSession;
   showToast: (message: ToastMessage) => void;
-  onRename: (fromId: string, toId: string, title: string) => void;
+  /** A note the cycle relocated: the tabs showing it follow. The open note's session
+   *  follows its editor instead, whose attachment the store moved with the note. */
+  onRename: (fromId: string, toId: string) => void;
   pruneTabsForDeletedIds: (goneIds: string[]) => void;
 }
 
@@ -43,11 +41,6 @@ export interface SyncManager {
 
   handleEditorFocusChange: (focused: boolean) => Promise<void>;
   handleEditorCompositionEnd: () => Promise<void>;
-
-  reconcileOpenNote: (
-    id: string,
-    parkedDraft: ParkedDraftSnapshot,
-  ) => Promise<OpenNoteReconcileResult>;
 
   notifySaved: () => void;
 
@@ -289,26 +282,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   let live = $state(false);
   const failureState = createSyncFailureState(deps.showToast);
 
-  // The one way an engine-reported rename reaches the UI, whichever path
-  // applies it: the executor's FollowRename verdict or sync completion's
-  // background projection. Tab/route and open session move together, so they
-  // can never disagree about which note is open — projecting only the tab
-  // retargeted the route to the new title while the title input kept the old
-  // one whenever the open note's classification could not answer (job 215292).
-  // Applying a reported rename without a verdict is not a shell decision: a
-  // reported rename outranks every other fact in the classifier and always
-  // yields FollowRename (futo-notes-sync open_note.rs).
-  function applyReportedRename(fromId: string, toId: string, title: string): void {
-    deps.onRename(fromId, toId, title);
-    if (deps.session.originalId === fromId) {
-      deps.session.applyRemoteRename(toId, title);
-    }
-  }
-
   const externalChanges = createExternalChangeCoordinator({
-    followRename: (fromId, toId) => {
-      applyReportedRename(fromId, toId, idLeaf(toId));
-    },
     session: deps.session,
     notifySaved,
     showToast: deps.showToast,
@@ -334,7 +308,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   }
 
   const reconcileCompletion = createSyncCompletionReconciler({
-    dependencies: { ...deps, onRename: applyReportedRename },
+    dependencies: deps,
     externalChanges,
     writeSuppressor,
     raiseSyncError: failureState.reportActionableSyncFailure,
@@ -454,8 +428,6 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     enqueueFileChange: (event: FileChangeEvent) => watcherBatch.enqueue(event),
     handleEditorFocusChange: externalChanges.handleEditorFocusChange,
     handleEditorCompositionEnd: externalChanges.handleCompositionEnd,
-    reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) =>
-      externalChanges.reconcileOpenNote(id, { parkedDraft }),
     notifySaved,
     clearSyncError: failureState.clearError,
 

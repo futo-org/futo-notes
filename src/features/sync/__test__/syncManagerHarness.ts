@@ -40,7 +40,6 @@ vi.mock('$lib/localNoteStore', () => ({
   getLocalNoteStoreSync: vi.fn(() => ({ rescan: rescanLocalNotes })),
 }));
 vi.mock('$features/notes/notes.svelte', () => ({
-  updateNote: vi.fn(async (id: string) => ({ id, mtime: 0, disposition: 'wrote' })),
   noteExists: vi.fn(async () => false),
   getNoteById: vi.fn(() => undefined),
   handleExternalFileChange: vi.fn(async () => {}),
@@ -49,12 +48,9 @@ vi.mock('$features/notes/notes.svelte', () => ({
 }));
 
 import { updateAppState } from '$shared/state/appState';
-import { noteExists, refreshNotesFromStorage, updateNote } from '$features/notes/notes.svelte';
-import {
-  createNoteSession,
-  type NoteSession,
-  type NoteSessionDeps,
-} from '$features/notes/noteSession.svelte';
+import { noteExists, refreshNotesFromStorage } from '$features/notes/notes.svelte';
+import type { NoteSession } from '$features/notes/noteSession.svelte';
+import { createFakeEditor, sessionOver } from '$features/notes/__test__/fakeEditor';
 import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
 import { createSyncManager, type SyncManagerDeps } from '../syncManager.svelte';
 import type { SyncSummary } from '../syncServiceE2ee';
@@ -86,6 +82,9 @@ type SessionState = {
   editVersion: number;
   lastEditTime: number;
   title: string;
+  /** The store moved the editor's attachment here during the cycle; the session follows
+   *  when the host next reports (any checkpoint's reply). */
+  relocatedTo: string | null;
 };
 
 export function makeSession(overrides: Partial<SessionState> = {}) {
@@ -100,6 +99,7 @@ export function makeSession(overrides: Partial<SessionState> = {}) {
     editVersion: 0,
     lastEditTime: 0,
     title: overrides.id ?? '',
+    relocatedTo: null,
     ...overrides,
   };
   if (overrides.savedContent === undefined) state.savedContent = state.content ?? '';
@@ -107,12 +107,12 @@ export function makeSession(overrides: Partial<SessionState> = {}) {
     state.content = content;
     state.savedContent = content;
   });
-  const rebaseSavedContent = vi.fn((content: string) => {
-    state.savedContent = content;
-  });
-  const applyRemoteRename = vi.fn((id: string) => {
-    state.id = id;
-  });
+  const hostReports = async () => {
+    if (state.relocatedTo === null) return;
+    state.id = state.relocatedTo;
+    state.relocatedTo = null;
+  };
+  const checkpointEditor = vi.fn(hostReports);
   const cancelAndClear = vi.fn(() => {
     state.id = null;
   });
@@ -147,20 +147,17 @@ export function makeSession(overrides: Partial<SessionState> = {}) {
     get lastEditTime() {
       return state.lastEditTime;
     },
-    runBeforePendingSave: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
-    flushSave: vi.fn(async () => {}),
+    flushSave: vi.fn(hostReports),
+    checkpointEditor,
     resumeDraftPersistence: vi.fn(),
     applyExternalContent,
-    rebaseSavedContent,
-    applyRemoteRename,
     cancelAndClear,
   } as unknown as NoteSession;
   return {
     state,
     session,
     applyExternalContent,
-    rebaseSavedContent,
-    applyRemoteRename,
+    checkpointEditor,
     cancelAndClear,
   };
 }
@@ -182,44 +179,21 @@ export function makeManager(
   return { manager, toasts, onRename, pruneTabsForDeletedIds, ...sessionBundle };
 }
 
+/** A real note session over a fake editor and its host (notes/__test__/fakeEditor.ts). */
 export function makeLiveNoteSession(id: string, body: string) {
-  let editorContent = body;
-  const setEditorContent = vi.fn((content: string) => {
-    editorContent = content;
-  });
-  const forgetEditorNote = vi.fn();
-  const openEditorNote = vi.fn((_noteId: string | null, content: string) => {
-    editorContent = content;
-  });
-  const deps = {
-    getEditorContent: () => editorContent,
-    setEditorContent,
-    openEditorNote,
-    forgetEditorNote,
-    focusEditor: vi.fn(),
-    isEditorFocused: () => false,
-    isComposing: () => false,
-    getNotes: () => [],
-    getNoteBody: () => undefined,
-    getTitleTextarea: () => undefined,
-    getNoteId: () => id,
-    setPrevNoteId: vi.fn(),
-    onNoteRenamed: vi.fn(),
-    reconcileOpenNote: vi.fn(async () => false),
-    navigate: vi.fn(),
-  } satisfies NoteSessionDeps;
-  const session = createNoteSession(deps);
-  session.seedOpenNote(id, body);
-  setEditorContent.mockClear();
+  const editor = createFakeEditor(new Map([[id, body]]));
+  const { session, deps } = sessionOver(editor);
+  session.seedOpenNote(id);
 
   return {
     session,
-    setEditorContent,
-    getEditorContent: () => editorContent,
-    editContent: (content: string) => {
-      editorContent = content;
-      session.debouncedSave(content);
-    },
+    disk: editor.disk,
+    reloadEditorNote: deps.reloadEditorNote,
+    takeOutsideEditorChange: deps.takeOutsideEditorChange,
+    saveEditorNote: deps.saveEditorNote,
+    getEditorContent: () => editor.draft,
+    editContent: editor.type,
+    relocate: editor.relocate,
   };
 }
 
@@ -251,12 +225,6 @@ export function resetSyncManagerHarness(): void {
   vi.mocked(noteExists).mockReset();
   vi.mocked(noteExists).mockResolvedValue(false);
   vi.mocked(refreshNotesFromStorage).mockClear();
-  vi.mocked(updateNote).mockReset();
-  vi.mocked(updateNote).mockImplementation(async (id: string) => ({
-    id,
-    mtime: 0,
-    disposition: 'wrote',
-  }));
   rescanLocalNotes.mockClear();
   refreshNotesAfterSync.mockClear();
   vi.mocked(updateAppState).mockClear();

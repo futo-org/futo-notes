@@ -97,6 +97,12 @@ export function onExternalFileOpen(
   };
 }
 
+/** The desktop editor's note host (tauri/editorHost.ts); desktop only. */
+export function noteEditorHost(): Promise<typeof import('./tauri/editorHost')> {
+  if (!isTauri) return Promise.reject(new Error('The note editor host is desktop-only'));
+  return import('./tauri/editorHost');
+}
+
 export async function copyExternalNoteIntoVault(path: string): Promise<LocalNoteMutation> {
   if (!isTauri) throw new Error('External Markdown import is available only in the desktop app');
   const { importExternalNoteFile } = await import('./tauri/externalFileOpen');

@@ -1,0 +1,61 @@
+/* A code line's syntax colours (codeColours.ts): `@lezer/highlight`'s `classHighlighter` names
+ * each token `tok-*`, and the palette is theme.css's `--syntax-*`, light and dark, painted as the
+ * Milkdown editor paints them (src/styles/code-tokens.css). Colour and slant only, never weight:
+ * Martian Mono is loaded at 400 alone, and a synthetic bold is drawn wider, so a block would move
+ * when its colours arrive. */
+
+.desktop-editor .code-line .tok-keyword {
+  color: var(--syntax-keyword);
+}
+
+.desktop-editor .code-line .tok-string {
+  color: var(--syntax-string);
+}
+
+.desktop-editor .code-line .tok-number,
+.desktop-editor .code-line .tok-literal,
+.desktop-editor .code-line .tok-bool,
+.desktop-editor .code-line .tok-atom {
+  color: var(--syntax-number);
+}
+
+.desktop-editor .code-line .tok-comment {
+  color: var(--color-muted);
+  font-style: italic;
+}
+
+.desktop-editor .code-line .tok-variableName,
+.desktop-editor .code-line .tok-variableName2,
+.desktop-editor .code-line .tok-labelName {
+  color: var(--syntax-variable);
+}
+
+.desktop-editor .code-line .tok-typeName,
+.desktop-editor .code-line .tok-className,
+.desktop-editor .code-line .tok-namespace,
+.desktop-editor .code-line .tok-macroName {
+  color: var(--syntax-type);
+}
+
+.desktop-editor .code-line .tok-propertyName,
+.desktop-editor .code-line .tok-definition {
+  color: var(--syntax-property);
+}
+
+.desktop-editor .code-line .tok-regexp,
+.desktop-editor .code-line .tok-escape,
+.desktop-editor .code-line .tok-url,
+.desktop-editor .code-line .tok-string2 {
+  color: var(--syntax-regexp);
+}
+
+.desktop-editor .code-line .tok-meta,
+.desktop-editor .code-line .tok-punctuation,
+.desktop-editor .code-line .tok-operator {
+  color: var(--syntax-type);
+}
+
+.desktop-editor .code-line .tok-invalid {
+  color: var(--color-danger);
+  text-decoration: underline wavy currentColor;
+}

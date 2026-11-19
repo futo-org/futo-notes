@@ -14,9 +14,10 @@ import { createExternalChangeCoordinator } from './createExternalChangeCoordinat
 beforeEach(resetCoordinatorMocks);
 
 // The real note session (save queue + persistence) behind this coordinator,
-// over an in-memory vault. `flushDraft` answers as the store's four arms do
-// (crates/futo-notes-store flush_draft); classification answers as
-// open_note.rs does for the facts these cases reach. Synthetic text only.
+// over an in-memory vault. The editor's host saves as an attachment's
+// checkpoint does (crates/futo-notes-store editor_session/checkpoint.rs over
+// flush_draft's four arms); classification answers as open_note.rs does for
+// the facts these cases reach. Synthetic text only.
 const disk = new Map<string, string>();
 
 function park(id: string, content: string): string {
@@ -34,15 +35,58 @@ function copiesOf(id: string): string[] {
   return [...disk.keys()].filter((key) => key.startsWith(`${id} (conflict`));
 }
 
+type Disposition = 'wrote' | 'converged' | 'recreated' | 'parked';
+
+/** flush_draft: write `content` at `id` when disk still holds `base`, else park it. */
+function flushDraft(id: string, base: string, content: string): [Disposition, string] {
+  const current = disk.get(id);
+  if (current === undefined) {
+    disk.set(id, content);
+    return ['recreated', id];
+  }
+  if (current === content) return ['converged', id];
+  if (current === base) {
+    disk.set(id, content);
+    return ['wrote', id];
+  }
+  return ['parked', park(id, content)];
+}
+
 function openRealSession(id: string, body: string) {
   let editorContent = body;
+  // The editor's host: the attached note, and the base it last loaded or wrote.
+  let hostId = id;
+  let hostBase = body;
+  const readBack = (): void => {
+    editorContent = disk.get(hostId) ?? '';
+    hostBase = editorContent;
+  };
   const deps: NoteSessionDeps = {
     getEditorContent: () => editorContent,
-    setEditorContent: (text) => {
-      editorContent = text;
+    getEditorSavedSource: () => hostBase,
+    getEditorNoteId: () => hostId,
+    isEditorIdle: () => editorContent === hostBase,
+    reloadEditorNote: readBack,
+    takeOutsideEditorChange: readBack,
+    openEditorNote: (noteId) => {
+      if (noteId !== null) hostId = noteId;
+      editorContent = noteId === null ? '' : (disk.get(noteId) ?? '');
+      hostBase = editorContent;
     },
-    openEditorNote: (text) => {
-      editorContent = text;
+    saveEditorNote: async () => {
+      if (editorContent === hostBase) return;
+      const [disposition, savedId] = flushDraft(hostId, hostBase, editorContent);
+      hostBase = editorContent;
+      // The attachment retargets to a copy it parked, and the editor reports both at once.
+      if (disposition === 'parked') {
+        const fromId = hostId;
+        hostId = savedId;
+        session.followEditorNote(fromId, savedId, true);
+      }
+      if (disposition !== 'converged') session.editorSaved();
+    },
+    renameEditorNote: async (wantedId) => {
+      throw new Error(`unexpected move ${hostId} -> ${wantedId}`);
     },
     focusEditor: () => {},
     isEditorFocused: () => true,
@@ -53,27 +97,28 @@ function openRealSession(id: string, body: string) {
     getNoteId: () => session.originalId,
     setPrevNoteId: () => {},
     onNoteRenamed: () => {},
-    reconcileOpenNote: (noteId, parkedDraft) =>
-      coordinator.reconcileOpenNote(noteId, { parkedDraft }),
     navigate: () => {},
   };
   const session = createNoteSession(deps);
   const coordinator = createExternalChangeCoordinator({
-    followRename: (fromId, toId) => {
-      if (session.originalId === fromId) session.applyRemoteRename(toId, toId);
-    },
     session,
     notifySaved: vi.fn(),
     showToast: vi.fn(),
     writeSuppressor: createWriteSuppressor(),
   });
-  session.seedOpenNote(id, body);
+  session.seedOpenNote(id);
   return {
     session,
     coordinator,
+    /** The watcher's sink: the store moves the attachment, and the host reports it. */
+    watcherRenamed(fromId: string, toId: string) {
+      if (hostId !== fromId || disk.has(fromId)) return;
+      hostId = toId;
+      session.followEditorNote(fromId, toId, false);
+    },
     type(text: string) {
       editorContent = text;
-      session.debouncedSave(text);
+      session.editorEdited();
     },
   };
 }
@@ -92,31 +137,6 @@ function installRealVault(): void {
   disk.clear();
   noteMocks.getNoteById.mockImplementation((id: string) =>
     disk.has(id) ? { id, title: id, preview: '', modificationTime: 0, tags: [] } : undefined,
-  );
-  noteMocks.updateNote.mockImplementation(
-    async (id: string, content: string, options: { originalId?: string; base?: string }) => {
-      if (options.originalId !== id || options.base === undefined) {
-        throw new Error(`unexpected save ${options.originalId} -> ${id}`);
-      }
-      const current = disk.get(id);
-      const result = (disposition: string, parkedId?: string) => ({
-        id,
-        mtime: 0,
-        disposition,
-        parkedId,
-        unappliedMutation: null,
-      });
-      if (current === undefined) {
-        disk.set(id, content);
-        return result('recreated');
-      }
-      if (current === content) return result('converged');
-      if (current === options.base) {
-        disk.set(id, content);
-        return result('wrote');
-      }
-      return result('parked', park(id, content));
-    },
   );
   syncMocks.classifyOpenNote.mockImplementation(async (facts) => {
     await new Promise((resolve) => setTimeout(resolve, 1));
@@ -179,13 +199,14 @@ describe('the real save queue behind the coordinator', () => {
     h.coordinator.stop();
   });
 
-  it('follows a host rename of the open note before its pending save lands', async () => {
+  it('follows a rename made outside the app before its pending save lands', async () => {
     disk.set('Draft', 'draft text');
     const h = openRealSession('Draft', 'draft text');
 
     h.type('draft text, typed on');
     disk.delete('Draft');
     disk.set('Draft renamed', 'draft text');
+    h.watcherRenamed('Draft', 'Draft renamed');
     await h.coordinator.handleFileChange({
       type: 'rename',
       from: 'Draft.md',

@@ -8,24 +8,24 @@ import { setEditIntentListener } from '$shared/lifecycle/editIntent';
  * edit is waited for, not exited: the JS close handler is the thing that saves it.
  *
  * "Dirty" is a save that is pending or in flight, PLUS a short window after any
- * input. The window matters because the save queue learns of an edit only after
- * the editor's own change debounce, and a stall that starts inside that gap (a
+ * input. The window matters because the save counts as pending only once the
+ * editor has applied the edit, and a stall that starts before then (a
  * multi-megabyte paste parsing synchronously) would otherwise be invisible: the
  * thread that would report the edit is the one that is blocked. Reporting on the
  * input event itself, before the work starts, closes that gap; once the thread is
  * blocked the last report simply stays in force.
  *
- * The editor also raises the same signal from its transaction dispatch
- * (documentChanges.ts, via shared/lifecycle/editIntent.ts), which covers the edits
- * that raise no input event at all: keymap commands (Ctrl-B, Enter, Tab, undo),
- * toolbar and checkbox clicks.
+ * Edits that raise no input event at all (in the desktop editor, Undo, Tab and
+ * Ctrl+K) are not reported at once: they make the save pending, and the next poll
+ * (every 200 ms) reports that. The desktop editor raises no edit intent
+ * (shared/lifecycle/editIntent.ts); only the notes-shell test hook does.
  *
  * Only edits count as input. A click or a keydown that edits nothing would leave
  * the page "dirty" until the next poll, and a click on a note in the sidebar
  * happens right before the giant open this whole mechanism exists to get out of.
  */
 
-/** Longer than the editor's 200 ms change debounce, so the save queue has taken over by then. */
+/** Longer than the poll, so the pending save has taken over by the time it lapses. */
 const EDIT_SETTLE_MS = 600;
 const POLL_MS = 200;
 const EDIT_EVENTS = ['beforeinput', 'paste', 'cut', 'drop'] as const;

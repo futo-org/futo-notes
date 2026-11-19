@@ -86,7 +86,7 @@
   unsaved checkpoint, a rename between scan and pull write, partial folder
   PUT failure and reused names); cross-platform
   scenario "offline title rename keeps identity under a peer edit"
-- [Desktop] When sync reports a rename of the open note, pending saves wait for the note-list refresh and rename classification to finish, then save under the followed identity. → `reconcileSyncCompletion.ts`, `syncManagerPeerProjections.test.ts`
+- [Desktop] A save pending when sync renames the open note writes under the new identity and never recreates the old name: the store moved the editor's attachment with the file. → crates/futo-notes-store/src/tests/editor_session/relocation.rs `a_pulled_rename_moves_the_attachment_and_its_next_save_writes_the_new_id`
 - **Sync reports rename intent; shells never infer renames from id patterns.**
   Every relocation the sync engine performs — paired local moves, mapping
   relocations, merge-target moves, and collision placements that relocate a
@@ -102,21 +102,13 @@
   `sync/behavior_tests.rs`); desktop `reconcileSyncCompletion.ts` (guarded by
   the cross-platform scenario "collision placement follows open note" in
   tests/cross-platform-sync.mjs)
-- **Following a reported rename is one atomic retarget of route AND editor**
-  _(desktop)_. A single helper moves the tab/route and — while the session is
-  still bound to the old id — the open editor's id and title, whether the
-  retarget comes from the classifier's `FollowRename` verdict or from sync
-  completion projecting a rename the classifier never answered for (a failed or
-  unavailable `e2ee_classify_open_note`; the browser dev/test lane has no engine
-  to ask at all). Projecting the tab alone left the URL and tab on the new title
-  while the title input kept the old one. Applying a reported rename without a
-  verdict cannot disagree with the engine: a reported rename outranks every
-  other fact and always yields `FollowRename`. →
-  src/features/sync/syncManager.svelte.ts `applyReportedRename` (guarded by
-  tests/remote-rename.spec.ts "open note stays open when sync reports a
-  rename", which runs on the browser lane that has no classifier; the
-  engine side by "a reported rename outranks …" in
-  `every_reachable_fact_combination_has_one_verdict`)
+- **The open note follows a reported rename through its editor** _(desktop)_.
+  The pull moved the editor's attachment with the file, and the host's report
+  moves the session, its title and its tab together; sync completion only
+  renames the other tabs showing a relocated note. A shell that moved the tab
+  alone left the URL on the new title while the title input kept the old one. →
+  src/app/NotesShell.svelte `renameTabs`, reconcileSyncCompletion.ts (guarded by
+  syncManagerPeerProjections.test.ts)
 - **Every shell family is handed the same cycle report.** The desktop IPC
   contract and the UniFFI contract both project the engine summary losslessly —
   the four counters plus `updatedIds`, `deletedIds`, `peerUpdatedIds`,
@@ -156,7 +148,9 @@
   side still has an object to be reported against. **An `mv` performed outside
   the app is a different case and is NOT covered.** Pairing there is by CONTENT
   identity: `derive_renames` pairs an object-map removal with an addition of the
-  same hash (and `detect_local_renames` claims a push-side rename only on same
+  same hash, never the empty note's, which every empty note shares — so a
+  peer's rename of a still-empty note arrives as a delete and a create, and the
+  open editor closes or keeps its draft as for any peer delete (and `detect_local_renames` claims a push-side rename only on same
   hash AND same basename, i.e. a folder move), so a pure external `mv` does pair
   and the open editor follows it in place, while an external `mv` PLUS a content
   change in the same cycle pairs with nothing — there is no surviving identity to
@@ -168,7 +162,7 @@
   a divergence — it has been filed as a bug twice. → futo-notes-sync
   `sync/outcome.rs` `remove_rename_ghost_ids` + `derive_renames`,
   `sync/push/local_changes.rs` `detect_local_renames`,
-  `sync/pull/apply_remote.rs` `relocate_existing_mapping`, and
+  `sync/pull/apply_remote.rs` `move_mapped_note`, and
   `sync/collision_resolution.rs` `move_collision_loser` (guarded by
   `same_cycle_update_of_a_collision_relocated_note_survives_ghost_stripping`
   and

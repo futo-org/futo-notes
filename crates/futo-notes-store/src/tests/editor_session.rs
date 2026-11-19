@@ -11,12 +11,15 @@ mod lifecycle;
 mod links;
 mod merging;
 mod native_input_traces;
+mod outside_rename;
 mod portable;
 mod portable_attachment;
 mod portable_merging;
 mod portable_waiting;
 mod quick_open;
 mod recovery_retry;
+mod relocation;
+mod rename_draft;
 mod saving;
 mod tables;
 mod tags;
@@ -57,27 +60,28 @@ fn legacy_writes_are_refused_by_lease_under_any_case() {
     store.create("", "plain", "ab").unwrap();
     store.create("", "other", "x").unwrap();
     let editor = store.open_editor("plain").unwrap();
-    let refused = [
-        store.save_unattached(Some("PLAIN"), "PLAIN", "z", None),
-        store.save_unattached(Some("other"), "Plain", "z", None),
-        store.save_unattached(None, "plain", "z", None),
-    ];
-    for refusal in refused {
-        assert!(refusal.unwrap_err().contains("editor_checkpoint"));
+    for (id, wanted_id) in [
+        ("PLAIN", "PLAIN"),
+        ("Plain", "Plain"),
+        ("other", "Plain"),
+        ("other", "plain"),
+    ] {
+        let refusal = store
+            .save_unattached(Some(id), wanted_id, "z", None)
+            .unwrap_err();
+        assert!(refusal.contains("editor_checkpoint"), "{refusal}");
     }
-    let refusal = store
-        .flush_draft_unattached("Plain", "ab", "z")
-        .unwrap_err();
-    assert!(refusal.contains("editor_checkpoint"), "{refusal}");
-    store
-        .save_draft_as_unattached("other", "plain", "x", "z")
-        .unwrap_err();
+    // A create asking for the attached note's name gets a free one instead.
+    let created = store.save_unattached(None, "plain", "z", None).unwrap();
+    assert_ne!(created.final_id.as_deref(), Some("plain"));
     assert_eq!(store.read_existing("plain").unwrap().as_deref(), Some("ab"));
     store
         .save_unattached(Some("other"), "other", "y", None)
         .unwrap();
     drop(editor);
-    store.flush_draft_unattached("plain", "ab", "z").unwrap();
+    store
+        .save_unattached(Some("plain"), "plain", "z", None)
+        .unwrap();
     assert_eq!(store.read_existing("plain").unwrap().as_deref(), Some("z"));
 }
 

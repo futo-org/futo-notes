@@ -1,0 +1,158 @@
+/* Tables (tableRowElements.ts). A table's lines stay one element each, flat siblings: a header
+ * or body row is a grid of its table's column count (`--table-columns`), every column an equal
+ * share of the text column, so the rows' columns line up whatever their cells hold, but never
+ * narrower than `--table-column-min` (the old editor's cell minimum, milkdownEditor.blocks.css).
+ * A cell's text wraps inside its column, a word longer than it broken; a row is as tall as its
+ * tallest cell, the others stretched to it. Only a table whose columns at their minimum pass the
+ * text column is wider than it: clipped at the row's sides, its cells shifted by the table's
+ * sideways scroll (`--table-scroll`, a wheel over it or the caret's reveal: tableLayouts.ts).
+ * The pipes are in the text but not drawn, and so is the delimiter row: it has no height, and
+ * no caret, selection or press reaches its hidden text. Rows have no vertical padding, so their
+ * text stands on the line units the caret, the highlight and the pointer measure. The rules are
+ * box shadows in the quote bars' tint (`--rule-color`): they take no room, and the selection
+ * drawn behind the lines shows through them. */
+.desktop-editor .line.table-row {
+  --table-column-min: 5em;
+  display: grid;
+  grid-template-columns: repeat(var(--table-columns, 1), minmax(var(--table-column-min), 1fr));
+  overflow: clip;
+  box-shadow:
+    inset 1px 0 var(--rule-color),
+    inset 0 -1px var(--rule-color);
+}
+
+.desktop-editor .line.table-row.header {
+  font-weight: 600;
+  box-shadow:
+    inset 1px 0 var(--rule-color),
+    inset 0 1px var(--rule-color),
+    inset 0 -1px var(--rule-color);
+}
+
+/* Right under a code block, as two touching blocks stand (desktopCodeBlocks.css). Across a
+ * chunk boundary the two lines are not siblings and touch. */
+.desktop-editor .line.code-line.last + .line.table-row {
+  margin-top: var(--code-block-gap);
+}
+
+.desktop-editor .table-pipe {
+  display: none;
+}
+
+/* A cell's padding spaces are its text; 0.35em more each side makes Milkdown's 0.6em. A
+ * left-aligned cell's wrapped rows start where its first row's text does, after its leading
+ * padding (`--table-padding` characters, a quarter em each: tableRowElements.ts `drawRow`). */
+.desktop-editor .table-cell,
+.desktop-editor .table-filler {
+  padding: 0 0.35em 0 calc(0.35em + var(--table-padding, 0) * 0.25em);
+  text-indent: calc(var(--table-padding, 0) * -0.25em);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  box-shadow: inset -1px 0 var(--rule-color);
+  transform: translateX(calc(-1 * var(--table-scroll, 0px)));
+}
+
+/* A cell's leading padding, each character a quarter em (in a monospace face a space is its
+ * `1ch`); its own face's taller line box would grow the row. No wrap after it: a long word
+ * breaks inside its column rather than leaving the padding alone on the cell's first row. */
+.desktop-editor .table-padding {
+  white-space: pre;
+  font-family: ui-monospace, monospace;
+  letter-spacing: calc(0.25em - 1ch);
+  line-height: 0;
+}
+
+/* A centred or right-aligned cell's rows are centred or flush right, so it hangs none. */
+.desktop-editor .table-cell.center {
+  padding-left: 0.35em;
+  text-align: center;
+  text-indent: 0;
+}
+
+.desktop-editor .table-cell.right {
+  padding-left: 0.35em;
+  text-align: right;
+  text-indent: 0;
+}
+
+/* A picture in a cell is no wider than its cell (desktopImages.css), kept off the row's rules
+ * by Milkdown's cell padding. */
+.desktop-editor .table-cell > .atom.image {
+  margin: 0.35em 0;
+}
+
+.desktop-editor .line.table-delimiter {
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  font-size: 0;
+  line-height: 0;
+}
+
+/* The one time the row shows: while the caret is writing it (editorTables.ts), as the text it
+ * is, muted. */
+.desktop-editor .line.table-delimiter[data-writing] {
+  height: auto;
+  overflow: visible;
+  visibility: visible;
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--color-muted, #737373);
+}
+
+/* The row and column grips (TableGrips.svelte), over the text: Milkdown's grip
+ * (milkdownEditor.blocks.css `.futo-table-grip`). */
+.desktop-table-grips {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* A grip's hit area reaches over its gap from the row or header (tableGrips.ts
+ * `TABLE_GRIP_GAP`), so the pointer travelling from a cell to the grip never leaves the two.
+ * Flex, so the dropdown's inline anchor sits on no line box, which put the grip 4px low. */
+.desktop-table-grips .table-grip-anchor {
+  display: flex;
+  position: absolute;
+  top: 0;
+  left: 0;
+  margin: -4px;
+  padding: 4px;
+  pointer-events: auto;
+}
+
+/* The row's grip stands in the middle of its row, its hit area the row's height: the pointer
+ * leaving any row of a tall cell sideways reaches it. */
+.desktop-table-grips .table-grip-anchor.row-grip {
+  height: calc(var(--table-row-height) + 8px);
+  align-items: center;
+}
+
+.desktop-table-grips .table-grip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: var(--color-muted, #737373);
+  background: var(--color-surface, #f2f2f2);
+  border: 1px solid var(--color-border, #e5e5e5);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.desktop-table-grips .table-grip:hover,
+.desktop-table-grips .table-grip[aria-expanded='true'] {
+  color: var(--color-text, #111827);
+  background: var(--color-selection, #ffe4d1);
+}
+
+/* The menu opens below its grip, along its left edge: the row's grip is at the page's left. */
+.desktop-table-grips .dropdown-menu {
+  right: auto;
+  left: 0;
+}

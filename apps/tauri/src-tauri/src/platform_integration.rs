@@ -12,6 +12,23 @@ pub(crate) fn prepare_process() {
     }
     #[cfg(all(target_os = "macos", debug_assertions))]
     opt_out_of_app_nap();
+    #[cfg(target_os = "macos")]
+    switch_off_quoted_keystrokes();
+}
+
+/// AppKit's quote key (`NSQuotedKeystrokeBinding`, Ctrl+Q) makes the next key type its raw
+/// character: a control character, which a note never takes, so the key after it was lost.
+/// With no quote key, Ctrl+Q does nothing, like Ctrl+G. AppKit reads the binding from the
+/// app's own defaults, not from registered ones, so it is written there.
+#[cfg(target_os = "macos")]
+fn switch_off_quoted_keystrokes() {
+    use objc2_foundation::{NSString, NSUserDefaults};
+    let none = NSString::from_str("");
+    // SAFETY: an NSString is a property-list value, as `setObject:forKey:` requires.
+    unsafe {
+        NSUserDefaults::standardUserDefaults()
+            .setObject_forKey(Some(&none), &NSString::from_str("NSQuotedKeystrokeBinding"));
+    }
 }
 
 /// Debug builds only. App Nap throttles an app whose windows are hidden or

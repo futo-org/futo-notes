@@ -19,6 +19,7 @@ use super::vault::{conflict_date, local_files, read_content};
 
 mod failure_reports;
 mod name_collisions;
+mod note_moves;
 mod pending_creates;
 mod rename_inference;
 mod tombstone_claims;

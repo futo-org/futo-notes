@@ -13,7 +13,7 @@ use crate::sync::{decision, FailureKind, RenamePair, SyncFailure, SyncPhase, Syn
 
 use super::{reason, PushContext};
 
-pub(super) fn missing_local_files(
+pub(in crate::sync) fn missing_local_files(
     state: &ConnectedState,
     files: &[LocalFile],
 ) -> Vec<(String, ObjectState)> {

@@ -53,7 +53,8 @@ impl StoreEditorSession<'_> {
     }
 
     /// Time left until the next save is due (zero when overdue); `None` when
-    /// every edit is saved. Arrange a `save_if_due` call on this worker then.
+    /// every edit is saved, or the session has ended. Arrange a `save_if_due`
+    /// call on this worker then.
     pub fn save_delay(&self) -> Option<Duration> {
         self.read(|state| state.save_delay())
     }
@@ -84,9 +85,48 @@ impl StoreEditorSession<'_> {
             });
         }
         let result = state.checkpoint(&self.store)?;
-        state.terminal = true;
-        state.lease.release();
+        state.end();
         Ok(result)
+    }
+
+    /// Release the attachment without saving: its unsaved edits are dropped
+    /// (leaving a note while the vault refuses every write).
+    pub fn discard(&mut self) {
+        self.lock_state().end();
+    }
+
+    /// Save (or, `discard`, drop) the draft, then read the note the attachment
+    /// holds back from disk into a fresh draft (an outside change adopted). The
+    /// lease and id stay: a save that parked the draft left the attachment on the
+    /// copy, so the copy is what it reads. A failed save or read leaves the draft
+    /// as it was. `None` when nothing was saved.
+    pub fn reload(&mut self, discard: bool) -> Result<Option<FlushDraftResult>, EditorStoreError> {
+        self.mutate(|state, store| {
+            let result = (!discard).then(|| state.checkpoint(store)).transpose()?;
+            state.lease.bind(&self.state);
+            let base = store
+                .read_existing(&state.id)
+                .map_err(EditorStoreError::Open)?
+                .ok_or_else(|| EditorStoreError::Open(NOTE_NOT_FOUND.to_owned()))?;
+            let mut engine = EditorSession::open_with_clock(
+                &base,
+                Arc::new(clock::GroupingClock(state.clock.clone())),
+            );
+            engine.update_note_ids(&links::vault_note_ids(&store.root));
+            state.save = save::SaveSchedule::clean(engine.revision());
+            state.engine = engine;
+            state.set_base(base);
+            state.coordinated.clear();
+            state.relink_offer = None;
+            Ok(result)
+        })
+    }
+
+    /// `moved` runs whenever a store workflow moves this attachment to another
+    /// id (a rename, a move, a sync relocation). It runs under the attachment's
+    /// lock, so it may only signal.
+    pub fn on_moved(&mut self, moved: impl Fn() + Send + 'static) {
+        self.read(|state| state.moved = Some(Box::new(moved)));
     }
 
     pub fn source_text(&self) -> String {
@@ -374,6 +414,67 @@ impl StoreEditorSession<'_> {
             let result = state.checkpoint(store);
             state.lease.bind(&self.state);
             result
+        })
+    }
+
+    /// The title's rename: the draft saved as `title` (sanitized) in the folder
+    /// the note is in when it runs, so a move that landed first is never undone,
+    /// in one store workflow, the native shells' `save_draft_as`: an unchanged
+    /// note is written and renamed (collision-resolved, backlinks rewritten), a
+    /// changed one keeps its bytes while the draft parks as a conflict copy named
+    /// after the destination, and a deleted one is recreated there. The
+    /// attachment follows the draft to its final id; on failure it stays where
+    /// it was.
+    pub fn rename_title(&mut self, title: &str) -> Result<RenameDraftResult, EditorStoreError> {
+        let _gate = self.store.lock_gate().map_err(EditorStoreError::Open)?;
+        let _vault =
+            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Open)?;
+        // Not held across the workflow: its rename locks this attachment to move it.
+        let (id, base, draft) = self.live(|state| {
+            // An unanswered relink offer: the file already holds the draft (see checkpoint).
+            let draft = match state.relink_offer {
+                Some(_) => state.base.clone(),
+                None => state.engine.source_text(),
+            };
+            Ok((state.id.clone(), state.base.clone(), draft))
+        })?;
+        let folder = futo_notes_model::split_id(&id).0;
+        let wanted_id = crate::join_id(&folder, &futo_notes_core::files::sanitize_title(title));
+        let saved = self
+            .store
+            .save_draft_as_locked(&id, &wanted_id, &base, &draft);
+        let mut state = self.lock_state();
+        let (disposition, mutation) = match saved {
+            Ok(saved) => saved,
+            Err(error) => {
+                // The draft can land before a failed rename; it is saved then.
+                if self
+                    .store
+                    .read_note_file(&id)
+                    .is_ok_and(|disk| disk == draft)
+                {
+                    state.set_base(draft);
+                    state.mark_saved();
+                }
+                return Err(EditorStoreError::Checkpoint(error));
+            }
+        };
+        let final_id = mutation
+            .final_id
+            .clone()
+            .expect("save_draft_as always reports a final id");
+        // A rewrite of the note's own links already set its baseline.
+        if !mutation.relinked.contains(&final_id) {
+            state.saved_as(&self.store.root, &final_id, draft)?;
+        }
+        state.lease.bind(&self.state);
+        Ok(RenameDraftResult {
+            final_id,
+            parked_id: match disposition {
+                crate::FlushDisposition::ParkedConflict { parked_id } => Some(parked_id),
+                _ => None,
+            },
+            mutation,
         })
     }
 }

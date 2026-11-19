@@ -53,6 +53,15 @@ const CLOSE_WINDOW: &str = "close-window";
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 const QUIT: &str = "quit";
 
+/// Edit > Paste and Match Style on ⇧⌘V, handled in Rust: muda's predefined item is
+/// hard-wired to ⌥⇧⌘V and Tauri does not offer it, so this item sends the same
+/// AppKit action, `pasteAsPlainText:`, down the responder chain. WKWebView answers
+/// it with a `paste` event whose clipboard holds only the plain text (WebKit
+/// `Editor::pasteAsPlainText`), which the editor pastes as Markdown. WebKitGTK and
+/// WebView2 bind Ctrl+Shift+V to the same command themselves.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const PASTE_AND_MATCH_STYLE: &str = "paste-and-match-style";
+
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -70,6 +79,7 @@ pub(crate) struct ApplicationMenuLabels {
     close_window: String,
     quit: String,
     toggle_sidebar: String,
+    paste_and_match_style: String,
 }
 
 impl ApplicationMenuLabels {
@@ -107,6 +117,7 @@ impl ApplicationMenuLabels {
             close_window: text("app.desktop.menu.closeWindow")?,
             quit: text("app.desktop.menu.quit")?,
             toggle_sidebar: text("app.desktop.menu.toggleSidebar")?,
+            paste_and_match_style: text("app.desktop.menu.pasteAndMatchStyle")?,
         })
     }
 }
@@ -161,6 +172,10 @@ fn apply_labels(
     let toggle_sidebar = MenuItemBuilder::with_id("toggle-sidebar", labels.toggle_sidebar.as_str())
         .accelerator("CmdOrCtrl+Backslash")
         .build(app)?;
+    let paste_and_match_style =
+        MenuItemBuilder::with_id(PASTE_AND_MATCH_STYLE, labels.paste_and_match_style.as_str())
+            .accelerator("Shift+CmdOrCtrl+V")
+            .build(app)?;
 
     let app_menu = SubmenuBuilder::new(app, package.name.clone())
         .about(Some(about))
@@ -196,6 +211,7 @@ fn apply_labels(
         .cut()
         .copy()
         .paste()
+        .item(&paste_and_match_style)
         .select_all()
         .build()?;
 
@@ -240,6 +256,21 @@ fn handle_menu_command(app: &tauri::AppHandle, id: &str) {
             None if id == QUIT => app.exit(0),
             None => {}
         }
+        return;
+    }
+    if id == PASTE_AND_MATCH_STYLE {
+        let _ = app.run_on_main_thread(|| {
+            use objc2::runtime::{AnyObject, Bool};
+            use objc2::{class, msg_send, sel};
+            let none: *mut AnyObject = std::ptr::null_mut();
+            // SAFETY: the shared NSApplication, messaged on the main thread; a nil target
+            // sends the action to the first responder, as a predefined item does.
+            unsafe {
+                let ns_app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+                let _: Bool =
+                    msg_send![ns_app, sendAction: sel!(pasteAsPlainText:), to: none, from: none];
+            }
+        });
         return;
     }
     if FRONTEND_COMMANDS.contains(&id) {

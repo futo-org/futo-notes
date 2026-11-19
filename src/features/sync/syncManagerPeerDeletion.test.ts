@@ -121,16 +121,13 @@ describe('peer deletion safety', () => {
 describe('open-note fate stays with the engine verdict', () => {
   // The disp-05 interleaving, sequenced instead of raced: the body autosave
   // lands between a cycle's push and its pull, so the pull finds the local file
-  // diverged from the deleted version, parks it into a conflict copy and reports
-  // that relocation (futo-notes-sync `tombstone_park_of_diverged_content_reports_rename_intent`).
-  // The facts the engine gets are then the Close row — disk gone, draft equal to
-  // the just-saved base — so only the reported rename keeps the editor open, now
-  // on the copy that actually holds the user's text.
+  // diverged from the deleted version and parks it into a conflict copy
+  // (futo-notes-sync `tombstone_park_of_diverged_content_reports_rename_intent`),
+  // moving the editor's attachment with it. Classified at the id it left, the
+  // facts were the Close row — disk gone, draft equal to the just-saved base — so
+  // the session follows the editor to the copy that holds the user's text first.
   it('follows a tombstone park onto the conflict copy holding the saved draft', async () => {
     const parkedId = 'Parked (conflict 019fdd01)';
-    openNoteMocks.classifyOpenNote
-      .mockResolvedValueOnce({ kind: 'followRename', toId: parkedId })
-      .mockResolvedValueOnce({ kind: 'leave' });
     const live = makeLiveNoteSession('Parked', 'peer text');
     const onRename = vi.fn();
     const pruneTabsForDeletedIds = vi.fn();
@@ -146,6 +143,7 @@ describe('open-note fate stays with the engine verdict', () => {
     await live.session.flushSave();
     expect(live.session.dirty).toBe(false);
 
+    live.relocate(parkedId);
     await manager.handleSyncComplete({
       ...emptySummary,
       conflicts: 1,
@@ -155,19 +153,18 @@ describe('open-note fate stays with the engine verdict', () => {
       renamed: [{ fromId: 'Parked', toId: parkedId }],
     });
 
-    expect(openNoteMocks.classifyOpenNote).toHaveBeenNthCalledWith(
-      1,
+    expect(openNoteMocks.classifyOpenNote).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
-        id: 'Parked',
+        id: parkedId,
         base: 'my draft',
         draft: 'my draft',
-        renamedTo: parkedId,
+        renamedTo: null,
       }),
     );
     expect(live.session.originalId).toBe(parkedId);
     expect(live.session.title).toBe(parkedId);
     expect(live.getEditorContent()).toBe('my draft');
-    expect(onRename).toHaveBeenCalledExactlyOnceWith('Parked', parkedId, parkedId);
+    expect(onRename).toHaveBeenCalledExactlyOnceWith('Parked', parkedId);
     expect(pruneTabsForDeletedIds).not.toHaveBeenCalled();
     expect(toasts).toEqual([]);
   });

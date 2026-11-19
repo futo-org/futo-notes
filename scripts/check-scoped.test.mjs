@@ -2,7 +2,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { commandsFor, importClosure, planCheck, rustExternalInputs } from './check-scoped.mjs';
+import { planCheck } from './check-scoped/plan-check.mjs';
+import { importClosure, rustExternalInputs } from './check-scoped/repo-inputs.mjs';
+import { commandsFor } from './check-scoped/step-commands.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 

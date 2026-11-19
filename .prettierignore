@@ -15,6 +15,8 @@ wtbase/
 # Generated code
 apps/ios/Sources/Generated/
 src/features/sync/syncContract.generated.ts
+# The desktop editor's engine build (scripts/build-editor-wasm.mjs)
+src/features/editor/desktop/wasm/
 tests/conformance/*.json
 pnpm-lock.yaml
 

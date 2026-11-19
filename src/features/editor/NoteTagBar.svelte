@@ -1,48 +1,35 @@
 <script lang="ts">
-  import { extractHeaderTagBlock, isValidTagName, normalizeTagName } from '$lib/rules';
+  import { listenForFocusChange } from '$shared/dom/listenForFocusChange';
+  import { isValidTagName, normalizeTagName } from '$lib/rules';
   import { getAllTagNames } from '$features/tags/noteTags';
   import type { NotePreview } from '$shared/types/note';
   import { localizedText } from '$shared/localization';
   import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
+  import type { HeaderTagEdits } from './desktop/headerTagEdits';
 
   interface Props {
-    content: string;
-    /** The note's markdown as the editor currently holds it. */
-    readMarkdown: () => string | undefined;
-    /**
-     * Hand the whole note back after a tag edit.
-     *
-     * The bar splices markdown at character offsets, and a markdown offset has
-     * no ProseMirror position to dispatch against, so it rewrites the document
-     * instead of patching it. One undo step, one save.
-     */
-    writeMarkdown: (markdown: string) => void;
+    /** The note's header tags (`#name`). */
+    tags: string[];
+    /** The engine's edits of the note these tags are in (the editor writes the tag block); null
+     *  with no note open. A tag being typed belongs to the note it was started on. */
+    edits: HeaderTagEdits | null;
     notes: NotePreview[];
     /** Whether the workspace around this bar is on screen: it stays mounted behind home. */
     active: boolean;
-    /** The bar's own box, for the shell's blank-space reach. */
-    element?: HTMLElement;
     /** Tags show but cannot be added or removed: the vault refuses writes. */
     readonly?: boolean;
+    /** The field was left by key (Escape, or Enter with nothing typed): focus goes to the note. */
+    onreturntonote?: () => void;
   }
 
-  let {
-    content,
-    readMarkdown,
-    writeMarkdown,
-    notes,
-    active,
-    element = $bindable(),
-    readonly = false,
-  }: Props = $props();
+  let { tags, edits, notes, active, readonly = false, onreturntonote }: Props = $props();
 
   let adding = $state(false);
   let inputValue = $state('');
   let inputEl: HTMLInputElement | undefined = $state(undefined);
   let selectedSuggestion = $state(-1);
-
-  let headerBlock = $derived(extractHeaderTagBlock(content));
-  let tags = $derived(headerBlock.tags);
+  /** The note's edits the open field adds to. */
+  let addingTo: HeaderTagEdits | null = null;
 
   let allTags = $derived(getAllTagNames(notes));
   let suggestions = $derived.by(() => {
@@ -64,11 +51,16 @@
     return true;
   });
 
+  // Another note opened (or none): the field it was typing in closes, adding nothing.
+  $effect(() => {
+    if (adding && edits !== addingTo) cancelAdding();
+  });
+
   $effect(() =>
     registerPuppetVerbs(() =>
       // Hidden behind the home screen, these tags belong to no note the user can see; a
       // read-only vault draws them without the add and remove buttons.
-      !active || readonly
+      !active || readonly || !edits
         ? []
         : [
             puppetVerb('RemoveTag', { name: 'string' }, (args) => {
@@ -106,6 +98,7 @@
   );
 
   function startAdding() {
+    addingTo = edits;
     adding = true;
     inputValue = '';
     selectedSuggestion = -1;
@@ -113,98 +106,30 @@
   }
 
   function cancelAdding() {
+    addingTo = null;
     adding = false;
     inputValue = '';
     selectedSuggestion = -1;
   }
 
+  /** Add the tag and keep the field, emptied, for the next one. */
   function addTag(name: string) {
     name = normalizeTagName(name);
     if (!isValidTagName(name)) return;
 
     const lower = name.toLowerCase();
-    if (tags.some((t) => t.toLowerCase().replace(/^#/, '') === lower)) {
-      cancelAdding();
-      return;
-    }
+    if (!tags.some((t) => t.toLowerCase().replace(/^#/, '') === lower)) addingTo?.add(name);
+    inputValue = '';
+    selectedSuggestion = -1;
+  }
 
-    const doc = readMarkdown();
-    if (doc === undefined) return;
-
-    const tagText = `#${name}`;
-    const { tags: existingTags, endOffset } = extractHeaderTagBlock(doc);
-
-    let insert: string;
-    let pos: number;
-
-    if (existingTags.length === 0) {
-      insert = `${tagText}\n\n`;
-      pos = 0;
-    } else {
-      const lines = doc.split('\n');
-      let offset = 0;
-      let lastTagLineEnd = 0;
-      for (let i = 0; i < lines.length; i++) {
-        const lineEnd = offset + lines[i].length;
-        if (offset >= endOffset) break;
-        if (lines[i].trim() !== '') {
-          lastTagLineEnd = lineEnd;
-        }
-        offset = lineEnd + 1; // +1 for \n
-      }
-      insert = ` ${tagText}`;
-      pos = lastTagLineEnd;
-    }
-
-    writeMarkdown(doc.slice(0, pos) + insert + doc.slice(pos));
-
+  function returnToNote() {
     cancelAdding();
+    onreturntonote?.();
   }
 
   function removeTag(tag: string) {
-    const doc = readMarkdown();
-    if (doc === undefined) return;
-
-    const { endOffset } = extractHeaderTagBlock(doc);
-    const headerText = doc.slice(0, endOffset);
-
-    const tagLower = tag.toLowerCase();
-    const tagRegex = new RegExp(`(\\s*)#${escapeRegex(tag.replace(/^#/, ''))}`, 'gi');
-    let match: RegExpExecArray | null;
-    let removeFrom = -1;
-    let removeTo = -1;
-
-    while ((match = tagRegex.exec(headerText)) !== null) {
-      const matchTag = match[0].replace(/^\s*/, '');
-      if (matchTag.toLowerCase() === tagLower) {
-        removeFrom = match.index;
-        removeTo = match.index + match[0].length;
-        break;
-      }
-    }
-
-    if (removeFrom === -1) return;
-
-    const remaining = (headerText.slice(0, removeFrom) + headerText.slice(removeTo)).trim();
-    const hasTagsLeft = /^#[a-zA-Z]/.test(
-      remaining
-        .split('\n')
-        .find((l) => l.trim())
-        ?.trim() ?? '',
-    );
-
-    if (!hasTagsLeft) {
-      writeMarkdown(doc.slice(endOffset));
-    } else {
-      let from = removeFrom;
-      let to = removeTo;
-
-      if (from === 0 || doc[from - 1] === '\n') {
-        if (to < doc.length && doc[to] === ' ') to++;
-      }
-
-      writeMarkdown(doc.slice(0, from) + doc.slice(to));
-    }
+    edits?.remove(tag);
   }
 
   function handleInputKeydown(e: KeyboardEvent) {
@@ -217,9 +142,11 @@
         addTag(createName);
       } else if (inputValue.trim()) {
         addTag(inputValue);
+      } else if (e.key === 'Enter') {
+        returnToNote();
       }
     } else if (e.key === 'Escape') {
-      cancelAdding();
+      returnToNote();
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       selectedSuggestion = Math.min(selectedSuggestion + 1, optionCount - 1);
@@ -228,17 +155,13 @@
       selectedSuggestion = Math.max(selectedSuggestion - 1, -1);
     }
   }
-
-  function escapeRegex(s: string): string {
-    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
 </script>
 
-<div class="note-tag-bar" bind:this={element}>
+<div class="note-tag-bar">
   {#each tags as tag}
     <span class="tag-pill">
       <span class="tag-pill-name">{tag.replace(/^#/, '')}</span>
-      {#if !readonly}
+      {#if !readonly && edits}
         <button
           class="tag-pill-remove"
           aria-label={localizedText('editor.tags.removeAccessibilityLabel', { tagName: tag })}
@@ -270,9 +193,10 @@
         bind:value={inputValue}
         bind:this={inputEl}
         onkeydown={handleInputKeydown}
-        onblur={() => {
-          setTimeout(cancelAdding, 150);
-        }}
+        {@attach (field) =>
+          listenForFocusChange(field, (focused) => {
+            if (!focused) setTimeout(cancelAdding, 150);
+          })}
         maxlength={50}
       />
       {#if suggestions.length > 0 || isCreatable}
@@ -304,7 +228,7 @@
         </div>
       {/if}
     </div>
-  {:else if !readonly}
+  {:else if !readonly && edits}
     <button
       class="tag-add-btn"
       aria-label={localizedText('editor.tags.addTag')}

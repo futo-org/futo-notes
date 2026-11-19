@@ -14,7 +14,9 @@
   (the vault root on the root screen) and opens it with the **body** focused for
   quick capture (keyboard on the note text, not the title). The New-folder
   control likewise creates in the folder being browsed, so both are reachable at
-  every depth. → NoteListScreen.kt, NoteListView.swift
+  every depth. Desktop creates the file when the new note opens, before the
+  editor attaches it. → NoteListScreen.kt, NoteListView.swift,
+  createNoteLoader.ts
 - On mobile-width shells, "+ New" opens the note with the **title** focused and
   "Untitled" select-all'd so typing replaces it immediately. Desktop keeps body
   focus; the wikilink-to-missing-note create path keeps body focus everywhere.

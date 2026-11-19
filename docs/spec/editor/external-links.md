@@ -6,7 +6,7 @@
   > **Gap:** _(Android, desktop)_ the iOS guard (`TextFirstEditorController.externalLinkURL`, also used by the
   > native text-first editor's link taps) opens `sms:` links, matching the engine's link rule
   > (`http`, `https`, `mailto`, `tel`, `sms`); Android's `openExternalUrl` in
-  > `ExternalLinks.kt` and the desktop dev opener (`dev_open_url.rs`) still deny `sms:`.
+  > `ExternalLinks.kt` and the desktop host's openers (`open_url_behind.rs`) still deny `sms:`.
   > The set is pinned on iOS in `TextFirstLinkTests.swift`.
 
 - Only the link's own glyphs open it: the hit is the anchor element under the

@@ -91,9 +91,7 @@ impl Drop for EditorLease {
 /// reports `SessionDeleted`, and the id can be attached again.
 pub(crate) fn terminate_deleted(root: &Path, id: &str) -> Result<(), String> {
     if let Some(state) = EditorLease::attached(root, id)? {
-        let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.terminal = true;
-        state.lease.release();
+        state.lock().unwrap_or_else(PoisonError::into_inner).end();
     }
     Ok(())
 }

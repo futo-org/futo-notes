@@ -1,18 +1,18 @@
 import { hasFileSystem } from '$lib/platform';
 import { idLeaf } from '$lib/platform/pathSafety';
-import { sanitizeFilename } from '$lib/rules';
+import { FALLBACK_TITLE } from '$lib/rules';
+import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import { markNoteSwitch } from '$shared/perf/noteSwitchTimeline';
-import type { NotePreview } from '$shared/types/note';
 
-import { getNoteById, readNote } from './notes.svelte';
+import { createNote, deleteNote, getNoteById, noteExists } from './notes.svelte';
 
 interface NoteLoadPatch {
-  content?: string;
   loading?: boolean;
   originalId?: string | null;
-  savedContent?: string;
   savedTitle?: string;
   title?: string;
+  /** The note this open created; leaving it untouched deletes it again. */
+  createdNoteId?: string;
 }
 
 interface CreateNoteLoaderOptions {
@@ -20,195 +20,118 @@ interface CreateNoteLoaderOptions {
   clearTitleWarning: () => void;
   flushSave: () => Promise<void>;
   focusEditor: () => void;
-  getEditorContent: () => string | undefined;
+  /** The note the editor's host holds, as it reported it; null while it holds none. */
+  getEditorNoteId: () => string | null;
   getNoteBody: () => HTMLElement | undefined;
-  getNotes: () => NotePreview[];
-  /** A save of the open note is armed, running or queued. */
-  isSavePending: () => boolean;
-  /**
-   * A fence for reading note `id` while the outgoing note's save still runs,
-   * or null when that save may write `id`'s file and must finish first (it is
-   * `id`, a rename may land on `id` or rewrite its links, or the note has no
-   * file yet). The fence answers whether that is STILL true: false once any
-   * save that could touch `id` has started since it was taken.
-   */
-  fenceIncomingRead: (id: string) => (() => boolean) | null;
-  navigate: (path: string) => void;
+  /** The folder a new note is created in. */
+  getPendingFolder: () => string | null;
+  onNoteRenamed: (fromId: string | null, toId: string) => void;
   patchState: (patch: NoteLoadPatch) => void;
   resetState: () => void;
-  openNote: (noteId: string | null, content: string) => void;
-}
-
-function getNextUntitledTitle(notes: NotePreview[]): string {
-  const base = 'Untitled';
-  const existingIds = new Set(notes.map((note) => note.id));
-  if (!existingIds.has(sanitizeFilename(base))) return base;
-  let suffix = 1;
-  while (existingIds.has(sanitizeFilename(`${base} (${suffix})`))) suffix += 1;
-  return `${base} (${suffix})`;
+  /** Hands the editor the note; settles once the editor holds it, and rejects when the
+   *  editor could not (it keeps the note it had). */
+  openNote: (noteId: string | null) => Promise<void> | void;
 }
 
 export function createNoteLoader(options: CreateNoteLoaderOptions) {
   let loadVersion = 0;
 
-  function finishNewNote(version: number, title: string): void {
-    options.patchState({
-      title,
-      content: '',
-      savedContent: '',
-      savedTitle: title,
-      loading: false,
-    });
-    options.openNote(null, '');
-    requestAnimationFrame(() => {
-      if (version !== loadVersion) return;
-      options.autoResizeTitle();
-      options.focusEditor();
-    });
+  /** A note created for a load a newer one overtook: no one saw it. */
+  function deleteUnseen(id: string): void {
+    void deleteNote(id).catch((error) => console.warn('Failed to delete a note:', error));
   }
 
   /**
-   * Reads the incoming note while the outgoing one is still the session's.
-   *
-   * The outgoing note stays mounted, visible and focused for as long as the
-   * read takes, so a keystroke typed now is ITS edit (RC-10: a keyboard tab
-   * switch, then typing). The session keeps saving it as usual, and whenever
-   * the read let an edit in, the outgoing note is flushed again and the
-   * incoming one re-read, so the replace that follows discards nothing. The
-   * last read's resolution and that replace then run in one task: no keystroke
-   * can land between them.
-   *
-   * With a `fence`, the outgoing note's save is still running while this
-   * reads — the two files are different, so the disk write and the disk read
-   * overlap instead of queueing (a dirty switch used to cost the save, THEN
-   * the read). The read is still only handed over once that save has
-   * settled, from the same microtask its flush resolves in, so the one-task
-   * guarantee above holds unchanged; it merely stops re-reading a file the
-   * save could not have touched. A broken fence (a rename save started while
-   * this read) drops back to the old order: flush, then read again.
-   * `outgoingFlush` is that save's flush: its outcome is observed before any
-   * hand-over, because a save that FAILED is no longer pending and would
-   * otherwise look settled — and a failed save keeps the user on the note.
+   * The note `id` opens, created now when it has no file yet: a new note (`'new'`,
+   * "Untitled" in the pending folder), or a missing wikilink target. The editor attaches
+   * only a note on disk. A failed existence check rejects: never turn it into a create
+   * that could resurrect a note deleted during sync. Null when a newer load took over
+   * (the note made for it is deleted again: no one saw it).
    */
-  async function readIncoming(
+  async function noteToOpen(
     id: string,
     version: number,
-    readFence: (() => boolean) | null,
-    outgoingFlush: Promise<void>,
-  ): Promise<{ content: string } | { error: unknown } | null> {
-    let fence = readFence;
-    for (;;) {
-      const outgoing = options.getEditorContent();
-      let result: { content: string } | { error: unknown };
-      try {
-        markNoteSwitch('readStarted');
-        result = { content: await readNote(id) };
-        markNoteSwitch('noteRead');
-      } catch (error) {
-        result = { error };
-      }
-      if (version !== loadVersion) return null;
-      // Rethrows a failed save; already settled, it costs one microtask.
-      if (fence !== null) await outgoingFlush;
-      if (version !== loadVersion) return null;
-      const settled = () => !options.isSavePending() && options.getEditorContent() === outgoing;
-      if (settled() && (fence === null || fence())) return result;
-      await options.flushSave();
-      if (version !== loadVersion) return null;
-      if (fence !== null && fence() && settled()) return result;
-      // Read again, now behind a finished flush — the order every read had.
-      fence = null;
+  ): Promise<{ id: string; created: boolean } | null> {
+    if (id !== 'new' && (await noteExists(id))) {
+      return version === loadVersion ? { id, created: false } : null;
     }
+    if (version !== loadVersion) return null;
+    const folder = id === 'new' ? options.getPendingFolder() : null;
+    const wantedId = id !== 'new' ? id : folder ? `${folder}/${FALLBACK_TITLE}` : FALLBACK_TITLE;
+    let createdId: string;
+    try {
+      // The store picks a free id ("Untitled-1"); the mutation is applied here.
+      createdId = (await createNote(wantedId, '')).id;
+    } catch (error) {
+      showGlobalToast({ path: 'notes.errors.createFailed' });
+      throw error;
+    }
+    if (version === loadVersion) return { id: createdId, created: true };
+    deleteUnseen(createdId);
+    return null;
   }
 
+  /**
+   * Leaves the open note for `id`. The session keeps the outgoing note until the editor
+   * holds the incoming one: its pending title saves first, then the editor closes it
+   * (saving the body) and opens the next, and only then does the session describe that
+   * note (its saved baseline is the editor's). A failed save or open rejects with the
+   * session unchanged, so the tab goes back (createTabNoteTransition).
+   */
   async function load(id: string | null): Promise<void> {
     const version = ++loadVersion;
-    const incomingId = id && id !== 'new' && hasFileSystem ? id : null;
-    /* The outgoing note's save and the incoming note's read overlap when the
-     * save cannot touch the incoming file. Any other save — the same note
-     * reopened, a rename that may land under the incoming id, a note saved
-     * for the first time — is awaited first, as every switch used to be, so
-     * the read sees what the save wrote. */
-    const fence = incomingId !== null ? options.fenceIncomingRead(incomingId) : null;
-    const flushing = options.flushSave();
-    if (fence !== null) {
-      /* `readIncoming` awaits this same promise before handing anything
-       * over; the handler only keeps a superseded load's failure from
-       * surfacing as unhandled. */
-      flushing.then(
-        () => markNoteSwitch('saveFlushed'),
-        () => undefined,
-      );
-    } else {
-      await flushing;
-      markNoteSwitch('saveFlushed');
-      if (version !== loadVersion) return;
-    }
-
-    const read =
-      incomingId !== null ? await readIncoming(incomingId, version, fence, flushing) : null;
+    await options.flushSave();
+    markNoteSwitch('saveFlushed');
     if (version !== loadVersion) return;
 
+    if (!id) {
+      await options.openNote(null);
+      if (version !== loadVersion) return;
+      options.clearTitleWarning();
+      options.resetState();
+      return;
+    }
+    if (!hasFileSystem) {
+      options.patchState({ originalId: id !== 'new' ? id : null });
+      return;
+    }
+    const target = await noteToOpen(id, version);
+    if (target === null) return;
+
     options.patchState({ loading: true });
+    try {
+      // The load settles once the editor holds the note, so a tab's scroll restore
+      // (createTabNoteTransition) lands on a laid-out note.
+      await options.openNote(target.id);
+    } finally {
+      options.patchState({ loading: false });
+    }
+    if (version !== loadVersion) {
+      // Overtaken while the editor opened it: the newer load moves the editor on.
+      if (target.created) deleteUnseen(target.id);
+      return;
+    }
+
+    // The note the host opened, as it names it: a stale row's "plan" opens "Plan".
+    const openedId = options.getEditorNoteId() ?? target.id;
+    const title = getNoteById(openedId)?.title || idLeaf(openedId);
     options.clearTitleWarning();
+    options.patchState({
+      originalId: openedId,
+      title,
+      savedTitle: title,
+      createdNoteId: target.created ? openedId : undefined,
+    });
+    if (openedId !== id) options.onNoteRenamed(id === 'new' ? null : id, openedId);
     const noteBody = options.getNoteBody();
     if (noteBody) noteBody.scrollTop = 0;
-
-    if (!id) {
-      options.openNote(null, '');
-      options.resetState();
-      return;
-    }
-
-    options.patchState({ originalId: id !== 'new' ? id : null });
-    if (id === 'new') {
-      finishNewNote(version, getNextUntitledTitle(options.getNotes()));
-      return;
-    }
-    if (!hasFileSystem || !read) {
-      options.patchState({ loading: false });
-      return;
-    }
-
-    try {
-      if ('error' in read) throw read.error;
-      const loadedContent = read.content;
-      const title = getNoteById(id)?.title || idLeaf(id);
-      options.patchState({
-        title,
-        content: loadedContent,
-        savedContent: loadedContent,
-        savedTitle: title,
-      });
-      options.openNote(id, loadedContent);
-      markNoteSwitch('contentApplied');
-      /* The editor's own serialization is the save baseline, because Milkdown
-       * normalizes syntax on parse and the first real edit would otherwise look
-       * like it rewrote the whole note. But an EMPTY serialization of a note
-       * that has bytes is not a normalization — it is an editor that failed to
-       * take the note (a parse that threw), and adopting it would declare the
-       * note empty and make every later save write from that baseline.
-       * 2026-09-03: that is how a note reached disk at 0 bytes. */
-      const editorContent = options.getEditorContent();
-      const editorTookTheNote = editorContent !== '' || loadedContent === '';
-      if (editorContent !== undefined && editorContent !== loadedContent && editorTookTheNote) {
-        options.patchState({ content: editorContent, savedContent: editorContent });
-      }
-      requestAnimationFrame(() => {
-        if (version === loadVersion) options.autoResizeTitle();
-      });
-    } catch {
+    markNoteSwitch('contentApplied');
+    requestAnimationFrame(() => {
       if (version !== loadVersion) return;
-      // Missing notes read as an empty string on every platform, so a broken
-      // wikilink opens through the success path and is created on first save.
-      // A rejection is a genuine backend read failure; never turn it into an
-      // eager create that could resurrect a note deleted during sync.
-      options.openNote(null, '');
-      options.resetState();
-      options.navigate('/');
-      return;
-    }
-    options.patchState({ loading: false });
+      options.autoResizeTitle();
+      // Quick capture: a new note opens with the body focused (list/new-note.md).
+      if (id === 'new') options.focusEditor();
+    });
     markNoteSwitch('loadReturned');
   }
 

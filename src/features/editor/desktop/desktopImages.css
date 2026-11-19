@@ -1,0 +1,82 @@
+/* An image in a note (pictureElements.ts): its atom's element holds the image's spelling, drawn
+ * at no size (it stays the line's text, for the caret and the selection), then its picture. The
+ * element is an inline block hanging from its row's top, so a picture taller than a row makes
+ * its row as tall as itself and text beside it stands on the row's first line, level with a
+ * list's marker (lineRowAt.ts measures that row). Its size limits and corners are the current
+ * editor's (milkdownEditor.blocks.css): at most the text column's width and 300px tall, its
+ * proportions kept. */
+/* On the wrap, so the selection's band behind a picture (highlight.ts) takes it too. */
+.desktop-editor-wrap {
+  --picture-radius: 6px;
+}
+
+.desktop-editor .atom.image {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: top;
+  font-size: 0;
+  line-height: 0;
+  -webkit-text-fill-color: transparent;
+}
+
+.desktop-editor .atom.image > .picture {
+  display: block;
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: var(--picture-radius);
+}
+
+/* A line of pictures alone is a block: as two code blocks that touch, it keeps 4px from a code
+ * block, a table or a picture line right beside it, and nothing from ordinary text. The gap is
+ * the line's own padding (blockNeighbours.ts), never a margin, so a press in it lands on the
+ * line; a picture line under another carries the gap between the two. */
+.desktop-editor .line.picture-line.gap-above {
+  padding-top: var(--code-block-gap);
+}
+
+.desktop-editor .line.picture-line.gap-below {
+  padding-bottom: var(--code-block-gap);
+}
+
+/* A table row has no vertical padding: a picture in a cell keeps that gap from its rules. */
+.desktop-editor .table-cell > .atom.image {
+  margin: var(--code-block-gap) 0;
+}
+
+/* A picture with nothing to load yet (pictureLoading.ts) draws nothing, not its alt text or a
+ * broken image. One that will not load (its file missing, or not synced yet) shows its label,
+ * its alt text or its file's name, so it can be seen, selected and deleted. */
+.desktop-editor .atom.image > .picture:not([src]),
+.desktop-editor .atom.image[data-missing] > .picture {
+  display: none;
+}
+
+.desktop-editor .atom.image[data-missing]::before {
+  content: attr(data-label);
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--color-muted, #737373);
+  -webkit-text-fill-color: currentColor;
+  background: color-mix(in srgb, var(--color-text, #0f0f0f) 6%, transparent);
+}
+
+/* The highlight is drawn behind the text, where a picture covers it: a selected picture is
+ * tinted with the selection colour over it (pictureSelection.ts). */
+.desktop-editor .atom.image[data-selected]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--picture-radius);
+  background: color-mix(in srgb, var(--color-selection, #ffe4d1) 55%, transparent);
+  pointer-events: none;
+}
+
+/* A selected picture's own band behind it: rounded as the picture is, square where the
+ * highlight runs on past a corner (joinRoundedBands.ts). */
+.desktop-selection > .picture-band {
+  border-radius: var(--picture-radius);
+}

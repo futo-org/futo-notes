@@ -3,8 +3,11 @@
   import { dismissable } from './dismissable';
   import { resolveLocalizedMessage, type LocalizedMessage } from '$shared/localization';
 
+  /** A catalog message, or text shown as it is (a development build's debug items). */
+  export type DropdownMenuText = LocalizedMessage | { verbatim: string };
+
   export interface DropdownMenuItem {
-    label: LocalizedMessage;
+    label: DropdownMenuText;
     onclick: () => void;
     destructive?: boolean;
     checked?: boolean;
@@ -13,7 +16,7 @@
   }
 
   export interface DropdownMenuHeading {
-    heading: LocalizedMessage;
+    heading: DropdownMenuText;
   }
 
   export type DropdownMenuEntry = DropdownMenuItem | DropdownMenuHeading;
@@ -63,8 +66,13 @@
     if (closeOnSelect) onclose();
   }
 
+  const textOf = (text: DropdownMenuText): string =>
+    'verbatim' in text ? text.verbatim : resolveLocalizedMessage(text);
+
   function entryKey(entry: DropdownMenuEntry): string {
-    return 'heading' in entry ? `heading:${entry.heading.path}` : entry.label.path;
+    const text = 'heading' in entry ? entry.heading : entry.label;
+    const key = 'verbatim' in text ? text.verbatim : text.path;
+    return 'heading' in entry ? `heading:${key}` : key;
   }
 </script>
 
@@ -86,7 +94,7 @@
       {#each entries as entry (entryKey(entry))}
         {#if 'heading' in entry}
           <div class="dropdown-menu-heading" role="presentation">
-            {resolveLocalizedMessage(entry.heading)}
+            {textOf(entry.heading)}
           </div>
         {:else}
           <button
@@ -109,7 +117,7 @@
                 stroke-linecap="round"
                 stroke-linejoin="round"
                 aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg
-              >{/if}{resolveLocalizedMessage(entry.label)}</button
+              >{/if}{textOf(entry.label)}</button
           >
         {/if}
       {/each}

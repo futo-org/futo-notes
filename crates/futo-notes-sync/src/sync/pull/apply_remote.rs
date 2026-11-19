@@ -4,15 +4,16 @@ use std::path::Path;
 use futo_notes_core::files::{classify_incoming_sync_path, IncomingSyncPath};
 use futo_notes_core::hash::hash_sha256;
 
-use crate::checkpoint::{Ancestry, ConnectedState};
+use crate::checkpoint::{Ancestry, ConnectedState, ObjectState};
 use crate::server::timestamp_ms;
 use crate::sync::collision_resolution::place_collision;
 use crate::sync::encrypted_note::{state_from_remote, RemoteNote};
-use crate::sync::object_map::mapped_name;
+use crate::sync::object_map::{mapped_name, object_is_current};
 use crate::sync::outcome::note_id;
 use crate::sync::vault::{
-    content_hash, park_local, path_exists, remove_local, write_content_if_changed, PulledWrite,
+    content_hash, park_local, path_exists, rename_local, write_content_if_changed, PulledWrite,
 };
+use crate::sync::vault_fs;
 use crate::sync::{
     decision, FailureKind, PreWrite, RenamePair, SyncFailure, SyncPhase, SyncSummary,
 };
@@ -84,43 +85,46 @@ fn requested_path(remote: &RemoteNote, summary: &mut SyncSummary) -> Option<Stri
     }
 }
 
+#[derive(PartialEq)]
 enum BootstrapAction {
-    Continue { replace_unmapped_target: bool },
+    Continue,
     Complete,
 }
 
 fn reconcile_bootstrap_ancestry(
     context: &mut ApplyContext<'_>,
     remote: &RemoteNote,
-    requested: &str,
     remote_hash: &str,
 ) -> Result<BootstrapAction, String> {
     if !context.bootstrap {
-        return Ok(BootstrapAction::Continue {
-            replace_unmapped_target: false,
-        });
+        return Ok(BootstrapAction::Continue);
     }
     let Some((old_name, ancestor)) = ancestry_for(context.ancestry, &remote.object.id) else {
-        return Ok(BootstrapAction::Continue {
-            replace_unmapped_target: false,
-        });
+        return Ok(BootstrapAction::Continue);
     };
     if !path_exists(context.root, old_name)? {
-        return Ok(BootstrapAction::Continue {
-            replace_unmapped_target: false,
-        });
+        return Ok(BootstrapAction::Continue);
     }
 
     let local_hash = content_hash(context.root, old_name);
     if local_hash.as_deref() == Some(ancestor.hash.as_str()) {
-        if old_name != requested {
-            let _ = remove_local(context.root, old_name, context.pre_write)?;
-            context.summary.deleted_ids.push(note_id(old_name));
-            context.summary.peer_deleted_ids.push(note_id(old_name));
-        }
-        return Ok(BootstrapAction::Continue {
-            replace_unmapped_target: true,
-        });
+        // The object's last synced copy, unchanged: mapped as that object so the
+        // pull moves and fast-forwards it like any mapped note, and a step that
+        // fails leaves it mapped for the next pull rather than unmapped for the
+        // push. Version 0: the ancestry records none, and the server holds none
+        // older.
+        context.state.object_map.insert(
+            old_name.to_owned(),
+            ObjectState {
+                object_id: remote.object.id.clone(),
+                version: 0,
+                blob_key: String::new(),
+                hash: local_hash,
+                mtime_ms: None,
+                size_bytes: None,
+            },
+        );
+        return Ok(BootstrapAction::Continue);
     }
     if remote_hash == ancestor.hash {
         let mut entry = state_from_remote(remote);
@@ -143,15 +147,25 @@ fn reconcile_bootstrap_ancestry(
         reason::BOOTSTRAP_LOCAL_DIVERGED,
         copy,
     );
-    Ok(BootstrapAction::Continue {
-        replace_unmapped_target: false,
-    })
+    Ok(BootstrapAction::Continue)
 }
 
-fn relocate_existing_mapping(
+/// The server moved the object from the name it is mapped at to `target`. The
+/// note moves there (`rename_local`, which reports the move under its guard
+/// hold) and takes its mapping along, so `commit_remote_file` fast-forwards it
+/// from the mapped hash. Every step leaves one mapped name holding the note on
+/// disk: a refused rename (a target already holding the pulled bytes, which
+/// `preserve_unmapped_target` accepts, included) changes nothing, a failed
+/// write leaves the target
+/// mapped at the previous version for the next pull, and a save landing in
+/// between makes the write refuse instead of overwrite. Written to the target
+/// first, a move that then failed left the push an unmapped duplicate, or a
+/// mapped name missing from disk to delete.
+fn move_mapped_note(
     context: &mut ApplyContext<'_>,
     remote: &RemoteNote,
     target: &str,
+    remote_hash: &str,
 ) -> Result<(), String> {
     let Some(old_name) = mapped_name(context.state, &remote.object.id) else {
         return Ok(());
@@ -159,41 +173,35 @@ fn relocate_existing_mapping(
     if old_name == target {
         return Ok(());
     }
-    if path_exists(context.root, &old_name)? {
-        let expected = context
-            .state
-            .object_map
-            .get(&old_name)
-            .and_then(|entry| entry.hash.as_deref());
-        let current = content_hash(context.root, &old_name);
-        if current.as_deref() == expected {
-            let _ = remove_local(context.root, &old_name, context.pre_write)?;
+    let (root, pre_write) = (context.root, context.pre_write);
+    let entry = context.state.object_map[&old_name].clone();
+    // Gone: nothing moves, and the target is written as a fresh pull.
+    if path_exists(root, &old_name)? {
+        if entry.hash.is_none() || content_hash(root, &old_name) != entry.hash {
+            // A local save since the last sync: kept as a conflict copy, and
+            // the target written as a fresh pull.
+            park_moved(context, remote, &old_name)?;
         } else {
-            let copy = park_local(
-                context.root,
-                &old_name,
-                &remote.object.id,
-                context.pre_write,
-            )?;
-            context.summary.conflicts += 1;
-            context.summary.updated_ids.push(note_id(&copy));
-            context.summary.decide_with(
-                SyncPhase::Pull,
-                &old_name,
-                decision::PARKED_LOCAL,
-                reason::OLD_NAME_DIVERGED,
-                copy,
-            );
+            // A case-only move on a volume that folds case names one file twice.
+            if !vault_fs::same_file(root, &old_name, target) {
+                preserve_unmapped_target(context, remote, target, remote_hash)?;
+            }
+            pre_write(&old_name);
+            pre_write(target);
+            if rename_local(root, &old_name, target)? {
+                context.state.object_map.insert(target.to_owned(), entry);
+            }
         }
     }
     context.state.object_map.remove(&old_name);
-    context.summary.deleted_ids.push(note_id(&old_name));
-    context.summary.peer_deleted_ids.push(note_id(&old_name));
-    context.summary.renamed.push(RenamePair {
+    let summary = &mut *context.summary;
+    summary.deleted_ids.push(note_id(&old_name));
+    summary.peer_deleted_ids.push(note_id(&old_name));
+    summary.renamed.push(RenamePair {
         from_id: note_id(&old_name),
         to_id: note_id(target),
     });
-    context.summary.decide_with(
+    summary.decide_with(
         SyncPhase::Pull,
         &old_name,
         decision::RELOCATED,
@@ -203,17 +211,33 @@ fn relocate_existing_mapping(
     Ok(())
 }
 
+/// Keeps a local save to the note the object moved away from as a conflict
+/// copy; `park_local` reports the move.
+fn park_moved(
+    context: &mut ApplyContext<'_>,
+    remote: &RemoteNote,
+    name: &str,
+) -> Result<(), String> {
+    let copy = park_local(context.root, name, &remote.object.id, context.pre_write)?;
+    context.summary.conflicts += 1;
+    context.summary.updated_ids.push(note_id(&copy));
+    context.summary.decide_with(
+        SyncPhase::Pull,
+        name,
+        decision::PARKED_LOCAL,
+        reason::OLD_NAME_DIVERGED,
+        copy,
+    );
+    Ok(())
+}
+
 fn preserve_unmapped_target(
     context: &mut ApplyContext<'_>,
     remote: &RemoteNote,
     target: &str,
     remote_hash: &str,
-    replace_unmapped_target: bool,
 ) -> Result<(), String> {
-    if !path_exists(context.root, target)?
-        || context.state.object_map.contains_key(target)
-        || replace_unmapped_target
-    {
+    if !path_exists(context.root, target)? || context.state.object_map.contains_key(target) {
         return Ok(());
     }
     let local_hash = content_hash(context.root, target);
@@ -302,13 +326,11 @@ pub(in crate::sync) fn apply_remote(
         summary,
     };
     let remote_hash = hash_sha256(&remote.content);
-    let replace_unmapped_target =
-        match reconcile_bootstrap_ancestry(&mut context, remote, &requested, &remote_hash)? {
-            BootstrapAction::Continue {
-                replace_unmapped_target,
-            } => replace_unmapped_target,
-            BootstrapAction::Complete => return Ok(()),
-        };
+    if reconcile_bootstrap_ancestry(&mut context, remote, &remote_hash)?
+        == BootstrapAction::Complete
+    {
+        return Ok(());
+    }
     let Some(target) = place_collision(
         context.state,
         context.root,
@@ -320,21 +342,15 @@ pub(in crate::sync) fn apply_remote(
     else {
         return Ok(());
     };
-    relocate_existing_mapping(&mut context, remote, &target)?;
-    let already = context.state.object_map.get(&target).is_some_and(|entry| {
-        entry.object_id == remote.object.id
-            && entry.version == remote.object.version
-            && entry.blob_key == remote.object.blob_key.as_deref().unwrap_or_default()
-    });
-    if already {
-        return Ok(());
+    let already = context
+        .state
+        .object_map
+        .get(&target)
+        .is_some_and(|entry| object_is_current(entry, &remote.object));
+    move_mapped_note(&mut context, remote, &target, &remote_hash)?;
+    if !already {
+        preserve_unmapped_target(&mut context, remote, &target, &remote_hash)?;
+        commit_remote_file(&mut context, remote, target, &remote_hash)?;
     }
-    preserve_unmapped_target(
-        &mut context,
-        remote,
-        &target,
-        &remote_hash,
-        replace_unmapped_target,
-    )?;
-    commit_remote_file(&mut context, remote, target, &remote_hash)
+    Ok(())
 }

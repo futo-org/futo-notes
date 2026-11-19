@@ -13,6 +13,30 @@ fn reset_removes_every_vault_entry_but_never_the_vault_directory() {
 }
 
 #[test]
+fn reset_ends_editor_attachments_so_no_draft_is_written_back() {
+    use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "plain", "ab").unwrap();
+    let mut editor = store.open_editor("plain").unwrap();
+    let end = DisplayRange {
+        start: DisplayOffset(2),
+        end: DisplayOffset(2),
+    };
+    editor.replace(Revision(0), end, " draft").unwrap();
+
+    store.reset().unwrap();
+
+    // Without the reset ending it, the close's save recreated the note (M4).
+    editor.close().unwrap();
+    assert_eq!(store.read_existing("plain").unwrap(), None);
+    assert_eq!(fs::read_dir(&root.0).unwrap().count(), 0);
+    // The lease is released: the id can be attached again once it exists.
+    store.create("", "plain", "fresh").unwrap();
+    drop(store.open_editor("plain").unwrap());
+}
+
+#[test]
 fn vault_migration_copies_every_entry_and_deletes_source_only_after_finalize() {
     let source = TestRoot::new();
     let destination = TestRoot::new();

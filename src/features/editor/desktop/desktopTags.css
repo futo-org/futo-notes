@@ -1,0 +1,37 @@
+/* Tags and front matter in the desktop editor (lineTags.ts; lineElements.ts `lineClass`).
+ * docs/spec/editor/desktop/tags.md. */
+
+/* Colour only: a tag is plain text, so its glyphs keep the text's own advance and typing in
+ * one never shifts the line. The colour is the Milkdown editor's `.futo-tag`. */
+.desktop-editor .tag {
+  color: var(--color-primary, #f26b1f);
+}
+
+/* Front matter: the engine hides its fences and shows each line as written, inert. Drawn as
+ * the Milkdown editor's metadata panel (muted, monospace, a left rule on the surface colour),
+ * line by line, on the editor's own monospace face and code size. The fill and the rule are
+ * tints of the text colour, as a code block's well and a quote's bars are: the selection is
+ * drawn behind the lines (highlight.ts), and an opaque panel hid a selection covering it. */
+.desktop-editor .line.metadata {
+  padding: 0 0.9em;
+  --panel-fill: color-mix(in srgb, var(--color-text, #0f0f0f) 5%, transparent);
+  border-left: 3px solid var(--rule-color);
+  background: var(--panel-fill);
+  color: var(--color-muted, #737373);
+  font-family: 'Martian Mono', ui-monospace, monospace;
+  font-size: 13px;
+}
+
+/* 8px of plain page under the panel, before the body (blockNeighbours.ts): its last line's
+ * padding, so a press there lands on that line, with the fill and the rule stopping above it. */
+.desktop-editor .line.metadata.gap-below {
+  --panel-gap: 8px;
+  padding-bottom: var(--panel-gap);
+  border-left-color: transparent;
+  background:
+    linear-gradient(var(--rule-color), var(--rule-color)) 0 0 / 3px calc(100% - var(--panel-gap))
+      no-repeat,
+    linear-gradient(var(--panel-fill), var(--panel-fill)) 0 0 / 100% calc(100% - var(--panel-gap))
+      no-repeat;
+  background-origin: border-box;
+}

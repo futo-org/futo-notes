@@ -15,6 +15,7 @@
 
   import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
+  import { listenForFocusChange } from '$shared/dom/listenForFocusChange';
   import { resolveLocalizedMessage, type LocalizedMessage } from '$shared/localization';
 
   interface Props {
@@ -125,7 +126,8 @@
     autocapitalize="none"
     spellcheck="false"
     onkeydown={handleKeydown}
-    onblur={() => !isSubmitting && void submit(false)}
+    {@attach (field) =>
+      listenForFocusChange(field, (focused) => !focused && !isSubmitting && void submit(false))}
     data-testid={testId}
   />
 </span>

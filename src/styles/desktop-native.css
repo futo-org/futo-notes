@@ -12,7 +12,7 @@
       harness untouched. It sits on the ROOT rather than on `.notes-shell`
       because popovers, dialogs and the settings screen render outside the
       shell element.
-   2. `.futo-milkdown` and its subtree are excluded from the cursor sweep.
+   2. `.desktop-editor-wrap` and its subtree are excluded from the cursor sweep.
       Inside a note the web cursors are the correct ones: I-beam over text,
       pointer over a link, grab over a table handle. */
 
@@ -31,7 +31,7 @@
      — so a layered `!important` is the one thing that wins. Cursor policy is
      consequently owned by this file: a surface that needs a different cursor
      declares it below. */
-  html.desktop-chrome *:not(:where(.futo-milkdown, .futo-milkdown *)) {
+  html.desktop-chrome *:not(:where(.desktop-editor-wrap, .desktop-editor-wrap *)) {
     cursor: default !important;
   }
 
@@ -42,7 +42,7 @@
      editable text. `auto` restores the document cursors: I-beam over text,
      and the editor's own rules (link pointer, table grab) still win over an
      inherited value because they declare on the element itself. */
-  html.desktop-chrome .futo-milkdown {
+  html.desktop-chrome .desktop-editor-wrap {
     cursor: auto !important;
   }
 
@@ -88,10 +88,11 @@
 /* macOS "Reduce Motion" (System Settings ▸ Accessibility ▸ Display). A native
    app participates in this automatically; a webview only does if it is asked.
    Scoped to the desktop shell so the embedded mobile editor keeps its own
-   timings. */
+   timings. The editor's caret keeps its blink: a blink is not motion, and
+   native carets keep blinking with reduced motion on. */
 @media (prefers-reduced-motion: reduce) {
   html.desktop-chrome,
-  html.desktop-chrome *,
+  html.desktop-chrome *:not(.desktop-caret-bar),
   html.desktop-chrome *::before,
   html.desktop-chrome *::after {
     animation-duration: 0.01ms !important;

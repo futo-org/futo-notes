@@ -38,7 +38,8 @@
           "closeTab": "Close Tab",
           "closeWindow": "Close Window",
           "quit": "Quit {appName}",
-          "toggleSidebar": "Toggle Sidebar"
+          "toggleSidebar": "Toggle Sidebar",
+          "pasteAndMatchStyle": "Paste and Match Style"
         }
       }
     },
@@ -477,6 +478,15 @@
       "newAccessibilityLabel": "New tab"
     },
     "editor": {
+      "codeBlock": {
+        "namePlaceholder": "name",
+        "languagePlaceholder": "language",
+        "copyTitle": "Copy code",
+        "copied": "Copied to clipboard",
+        "copyFailed": "Could not copy the code",
+        "addLineAbove": "add a line above",
+        "addLineBelow": "add a line below"
+      },
       "tags": {
         "removeAccessibilityLabel": "Remove tag {tagName}",
         "inputPlaceholder": "tag name",

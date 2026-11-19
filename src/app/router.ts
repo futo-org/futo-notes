@@ -1,5 +1,3 @@
-import { resolveWikilink } from '$shared/note/wikilinks';
-
 // Desktop history model is tabs, not a nav stack (nav.md). The window URL hash
 // mirrors the active tab (`#/note/<id>`, `#/note/new`, `#/` for the For You
 // home); external navigation (webview back/forward, deep link, tests) flows
@@ -39,13 +37,4 @@ export function noteIdFromPath(path: string): string | null {
   } catch {
     return rest;
   }
-}
-
-/**
- * Resolve an existing desktop wikilink to its canonical note id. Broken or
- * ambiguous links keep their raw target so the deferred create-on-first-save
- * flow can bind the empty editor to exactly what the user wrote.
- */
-export function resolveDesktopWikilinkTarget(target: string, allNoteIds: Iterable<string>): string {
-  return resolveWikilink(target, allNoteIds) ?? target;
 }
