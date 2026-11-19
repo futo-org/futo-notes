@@ -65,7 +65,8 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
                 if (!holdDragging) holdDragging = view.selectionStart != view.selectionEnd &&
                     (view.selectionStart to view.selectionEnd) != selectionAtDown &&
                     event.eventTime - downTime >= ViewConfiguration.getLongPressTimeout()
-                if (holdDragging) follow(nearerEnd(event.x, event.y), event.x, event.y)
+                // The word held stays selected: toward the top its start moves, toward the bottom its end.
+                if (holdDragging) follow(if (event.y < view.height / 2f) End.START else End.END, event.x, event.y)
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (holdDragging) { holdDragging = false; release() }
         }

@@ -12,12 +12,13 @@ import android.view.inspector.WindowInspector
  * windows of their own, which the note never sees a touch of; they are found by public structure only (API 29+):
  * a sub-panel window opened on the note's own window (its token) whose content is a single plain view (no ViewGroup: not a text
  * menu), found while the note has focus, so they are the note's. Each gets a listener that watches; only a move
- * inside an edge zone is kept from the handle, which then follows the selection the scroll places. It is dropped
- * when that window goes or the note detaches.
+ * inside an edge zone is kept from the handle, which then follows the selection the scroll places. The listener is
+ * off while its window is gone and on again when the platform shows it; all of it goes when the note detaches.
  * Found nothing (another Editor, an OEM's), nothing is attached and the platform's behaviour is all there is.
  */
 internal class HandleWatch(private val view: TextFirstEditText, private val edge: CaretEdgeScroll) {
-    private val watched = ArrayList<View>()
+    /** Each handle's window root, kept until the note detaches: the platform hides and shows the same window again. */
+    private val handles = HashMap<View, View>()
     /** The end the handle being held moves, from where it was taken; null with no handle held. */
     private var holding: CaretEdgeScroll.End? = null
 
@@ -33,16 +34,18 @@ internal class HandleWatch(private val view: TextFirstEditText, private val edge
         event.actionMasked == MotionEvent.ACTION_MOVE && holding?.let { edge.follow(it, x, y) } == true
     }
 
-    /** A held handle whose window went (the platform hides it while its end is out of place) and has not come back. */
-    private val lost = Runnable { forgetAll() }
+    /** A held handle whose window went and has not come back within [LOST_MS]: the finger is no longer reported. */
+    private val lost = Runnable { holding = null; edge.release() }
 
-    private val gone = object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: View) { view.removeCallbacks(lost) }
-        override fun onViewDetachedFromWindow(v: View) {
+    private val shown = object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(root: View) {
+            view.removeCallbacks(lost)
+            handles[root]?.setOnTouchListener(listener)
+        }
+        override fun onViewDetachedFromWindow(root: View) {
             // Held, it comes back with the same finger (its UP still arrives); the scroll goes on meanwhile.
-            if (holding != null && watched.any { it.rootView === v }) { view.postDelayed(lost, LOST_MS); return }
-            v.removeOnAttachStateChangeListener(this)
-            forget(v)
+            if (holding != null) { view.postDelayed(lost, LOST_MS); return }
+            handles[root]?.setOnTouchListener(null)
         }
     }
 
@@ -51,34 +54,26 @@ internal class HandleWatch(private val view: TextFirstEditText, private val edge
         if (Build.VERSION.SDK_INT < 29 || !view.isFocused || !view.isAttachedToWindow) return
         val token = view.windowToken ?: return
         for (root in WindowInspector.getGlobalWindowViews()) {
-            if (root === view.rootView) continue
+            if (root === view.rootView || root in handles) continue
             val params = root.layoutParams as? WindowManager.LayoutParams ?: continue
             if (params.type != WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL || params.token !== token) continue
             val handle = singleLeafOf(root) ?: continue
-            if (handle in watched) continue
             handle.setOnTouchListener(listener)
-            root.addOnAttachStateChangeListener(gone)
-            watched += handle
+            root.addOnAttachStateChangeListener(shown)
+            handles[root] = handle
         }
     }
 
-    /** The note left its window: nothing stays attached to the handles. */
-    fun detach() = forgetAll()
-
-    private fun forgetAll() {
+    /** The note left its window: nothing stays attached to the handles or their windows. */
+    fun detach() {
         view.removeCallbacks(lost)
-        for (handle in watched.toList()) {
-            handle.rootView.removeOnAttachStateChangeListener(gone)
-            forget(handle)
+        for ((root, handle) in handles) {
+            root.removeOnAttachStateChangeListener(shown)
+            handle.setOnTouchListener(null)
         }
+        handles.clear()
         holding = null
         edge.release()
-    }
-
-    private fun forget(root: View) {
-        val handle = if (root in watched) root else watched.firstOrNull { it.rootView === root } ?: return
-        handle.setOnTouchListener(null)
-        watched -= handle
     }
 
     /** The window's only content when it is one plain view under at most a frame of one child each. */
