@@ -17,9 +17,19 @@ class TextFirstBlockDragCodeCardTest {
 
     private val note = "before\n\n```js name:demo.js\nconst x = 1\n```\n\nafter"
 
-    /** Pixels of the code card's own colour in [area] (window coordinates), every second pixel. */
-    private fun BlockDragRig.codeCardPixels(shot: Bitmap, area: RectF): Int {
-        val card = ui { view.style.codeBackground }
+    /** The code card's colour as drawn before any lift: right of the text on the row holding [code]. */
+    private fun BlockDragRig.cardColour(shot: Bitmap, code: Int): Int {
+        val (x, y) = ui {
+            val l = view.layout
+            val line = l.getLineForOffset(code)
+            val at = IntArray(2).also(view::getLocationOnScreen)
+            (at[0] + view.width - view.totalPaddingRight - 20) to (at[1] + view.totalPaddingTop - view.scrollY + (l.getLineTop(line) + l.getLineBottom(line)) / 2)
+        }
+        return shot.getPixel(x, y).also { check(it != Color.WHITE) { "no card drawn at ($x, $y)" } }
+    }
+
+    /** Pixels of [card]'s colour in [area] (window coordinates), every second pixel. */
+    private fun BlockDragRig.codeCardPixels(shot: Bitmap, area: RectF, card: Int): Int {
         val window = ui { IntArray(2).also(view.rootView::getLocationOnScreen) }
         var count = 0
         for (x in (window[0] + area.left).toInt().coerceIn(0, shot.width) until (window[0] + area.right).toInt().coerceIn(0, shot.width) step 2) {
@@ -36,19 +46,37 @@ class TextFirstBlockDragCodeCardTest {
         RectF(at[0].toFloat(), at[1].toFloat(), (at[0] + view.width).toFloat(), (at[1] + view.height).toFloat())
     }
 
-    /** Codex's case: prose reordered on a tile the card is not on; the preview re-records that tile last. */
+    /** The reflow preview draws the code card where it is, as the view drew it (Sol review of the merge, 11). */
     @Test
-    fun aCodeBlockKeepsItsTapsWhileProseFarBelowItIsCarried() =
+    fun theReflowPreviewDrawsTheCodeCard() =
+        compose.openDragScreen("```js name:demo.js\nconst x = 1\n```\n\n" + (1..14).joinToString("\n") { "line $it" }) {
+            val before = screenshot()
+            val card = cardColour(before, offsetOf("const"))
+            val drawn = codeCardPixels(before, noteInWindow(), card)
+            val from = at(offsetOf("line 8"))
+            down(from); hold(600)
+            assertTrue("lifted", lifted)
+            val at = carryUntil(from, 8f, ui { IntArray(2).also(view::getLocationOnScreen)[0] + view.width * 0.85f }) { (report?.gap?.offset ?: 0) > offsetOf("line 9") }
+            SystemClock.sleep(Slide.SLIDE_MS + 120)
+            assertEquals("no autoscroll", 0, ui { view.scrollY })
+            val moved = codeCardPixels(screenshot(), noteInWindow(), card)
+            assertTrue("the card stays drawn ($moved of $drawn px)", moved > drawn / 2)
+            up(at)
+            compose.waitUntil(5_000) { !file.readText().contains("line 7\nline 8") }
+            compose.waitUntil(2_000) { !lifted }
+        }
+
+    /** Tiles recorded mid-drag (autoscroll brings new ones) keep the header's targets as the view drew them (Sol review of the merge, 5). */
+    @Test
+    fun theHeadersTargetsSurviveTilesRecordedMidDrag() =
         compose.openDragScreen("```js name:demo.js\nconst x = 1\n```\n\n" + (1..24).joinToString("\n") { "line $it" }) {
             val code = offsetOf("const")
             val chip = ui { RectF(checkNotNull(view.codeChrome.areaOf(code, CodeBlockAction.LANGUAGE_LABEL))) }
-            val drawn = codeCardPixels(screenshot(), noteInWindow())
             val from = at(offsetOf("line 20"))
             down(from); hold(600)
             assertTrue("lifted", lifted)
             val at = carryUntil(from, 8f, ui { IntArray(2).also(view::getLocationOnScreen)[0] + view.width * 0.85f }) { (report?.gap?.offset ?: 0) > offsetOf("line 21") }
             SystemClock.sleep(Slide.SLIDE_MS + 120)
-            assertTrue("the card stays drawn", codeCardPixels(screenshot(), noteInWindow()) > drawn / 2)
             assertEquals("the chip's tap target is the one the view drew", chip, ui { view.codeChrome.areaOf(code, CodeBlockAction.LANGUAGE_LABEL) })
             up(at)
             compose.waitUntil(5_000) { !file.readText().contains("line 19\nline 20") }
@@ -57,14 +85,17 @@ class TextFirstBlockDragCodeCardTest {
 
     @Test
     fun aLiftedCodeBlockCarriesItsCard() = compose.openDragScreen(note) {
+        val card = cardColour(screenshot(), offsetOf("const"))
         val from = at(offsetOf("const"))
         down(from); hold(600)
         assertTrue("lifted", lifted)
         moveTo(from, android.graphics.PointF(from.x, from.y + 40f), steps = 4)
         SystemClock.sleep(Slide.SLIDE_MS + 120)
-        val card = ui { view.blockLift.drag!!.cardInWindow() }
-        val drawn = codeCardPixels(screenshot(), card)
-        assertTrue("the lifted card at $card shows the code card ($drawn px)", drawn > 100)
+        val area = ui { view.blockLift.drag!!.cardInWindow() }
+        val drawn = codeCardPixels(screenshot(), area, card)
+        // Every second pixel each way was looked at: most of the card is the code card's colour.
+        val looked = (area.width() / 2) * (area.height() / 2)
+        assertTrue("the lifted card at $area shows the code card ($drawn of $looked px)", drawn > looked * 0.4f)
         up(android.graphics.PointF(from.x, from.y + 40f))
         compose.waitUntil(2_000) { !lifted }
     }
