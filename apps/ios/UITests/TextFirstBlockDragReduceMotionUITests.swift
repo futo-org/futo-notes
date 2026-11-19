@@ -42,7 +42,13 @@ final class TextFirstBlockDragReduceMotionUITests: XCTestCase {
         XCTAssertEqual(held.blockDrag?["line"] as? Int, 1)
         let before = try XCTUnwrap(held.dropLineBefore)
         XCTAssertGreaterThan(before, 20, "it went past the paragraph's own end")
-        let seen = try XCTUnwrap(drawn.all.last { $0["before"] as? Int == before })
+        // The last look at both lines while the drop line was there (a `/show` racing the
+        // scroll can find a line not yet drawn).
+        let seen = try XCTUnwrap(
+            drawn.all.last {
+                $0["before"] as? Int == before && $0["above"] is [String: Int]
+                    && $0["below"] is [String: Int]
+            })
         let above = try XCTUnwrap(seen["above"] as? [String: Int])
         let below = try XCTUnwrap(seen["below"] as? [String: Int])
         let y = try XCTUnwrap(seen["y"] as? Double)
