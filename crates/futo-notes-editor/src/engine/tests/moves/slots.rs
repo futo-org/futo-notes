@@ -310,14 +310,18 @@ fn the_work_to_find_the_slots_near_a_block_does_not_grow_with_the_note() {
 /// With front matter, every candidate asks whether the lines it shifts make
 /// or break a `---` there. The lifted lines are read once for the whole
 /// query, not once per candidate: the work grows by a visit per lifted line
-/// at most, where one visit per candidate made it ten times that.
+/// at most, where one visit per candidate made it ten times that. Lines a
+/// shift could make or break a `---` of (`  ---`, `  - - -`) are shifted
+/// once per whitespace the candidates shift them by, not once per
+/// candidate: here once, for the slots among `    - q`, where one shift
+/// per candidate made it eleven visits.
 #[test]
 fn front_matter_reads_the_shifted_lines_once_per_query() {
-    let work = |n: usize| {
+    let work = |n: usize, child: &str| {
         let note = format!(
             "---\ntags: a\n---\n{}- big\n{}after",
             "- p\n    - q\n".repeat(10),
-            "  - c\n".repeat(n)
+            child.repeat(n)
         );
         let session = EditorSession::open(&note);
         let within = crate::DisplayRange {
@@ -330,11 +334,13 @@ fn front_matter_reads_the_shifted_lines_once_per_query() {
         assert!(found.slots.len() > 10, "{} slots", found.slots.len());
         total(&found.work)
     };
-    let (short, long) = (work(500), work(10_000));
-    assert!(
-        long - short <= 10_000 - 500,
-        "{short} at 500 lines, {long} at 10,000"
-    );
+    for (child, visits) in [("  - c\n", 1), ("  ---\n", 2), ("  - - -\n", 2)] {
+        let (short, long) = (work(500, child), work(10_000, child));
+        assert!(
+            long - short <= visits * (10_000 - 500),
+            "{child:?}: {short} at 500 lines, {long} at 10,000"
+        );
+    }
 }
 
 /// What a press resolved is kept only for the text it was read from: after
