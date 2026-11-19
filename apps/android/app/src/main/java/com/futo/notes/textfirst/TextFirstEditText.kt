@@ -242,12 +242,13 @@ internal class TextFirstEditText(
         drawCodeBlocks(canvas)
         lineBelowHandle.afterDraw()
         drawCodeSelection(canvas)
+        drawTableSelectionUnder(canvas)
         drawListSelection(canvas)
         drawFindMarks(canvas)
         val e = editableText as? ChunkedEditable
         e?.drawWindow = visibleChars()
         drawing = true
-        try { super.onDraw(canvas); drawSelectedImageTint(canvas); drawTopPaddingBand(canvas); drawScrollEdge(canvas) } finally { drawing = false; e?.drawWindow = null }
+        try { super.onDraw(canvas); drawSelectedImageTint(canvas); drawTableSelectionOver(canvas); drawTopPaddingBand(canvas); drawScrollEdge(canvas) } finally { drawing = false; e?.drawWindow = null }
         if (timings != null) {
             timings.drawEnd = android.os.SystemClock.elapsedRealtimeNanos()
             pendingTimings = null

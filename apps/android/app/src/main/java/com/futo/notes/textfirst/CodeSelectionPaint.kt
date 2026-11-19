@@ -105,9 +105,12 @@ internal fun TextFirstEditText.paintCodeSelection(start: Int, end: Int, settled:
     return painted
 }
 
-/** The TextView's own highlight shows only while no block owns the selection's paint and no object (an image) is selected whole. */
+/**
+ * The TextView's own highlight shows only while no block owns the selection's paint, no object (an image) is selected
+ * whole and no table row is selected (TableSelectionPaint).
+ */
 internal fun TextFirstEditText.refreshCodeHighlight() {
-    val hidden = selectedCodeBlock != null || codeSelectionTracker.painted != null || selectedObject != null
+    val hidden = selectedCodeBlock != null || codeSelectionTracker.painted != null || selectedObject != null || selectedTableRows().isNotEmpty()
     val color = if (hidden) 0 else style.selectionColor
     if (highlightColor != color) highlightColor = color
 }
@@ -138,7 +141,7 @@ internal fun TextFirstEditText.drawCodeSelection(canvas: Canvas) {
 }
 
 /** One rectangle per visual row from [from] to [to]: a row whose line break is selected runs to the right edge. */
-private fun TextFirstEditText.drawSelectionRows(canvas: Canvas, l: Layout, e: Spanned, from: Int, to: Int, paint: Paint) {
+internal fun TextFirstEditText.drawSelectionRows(canvas: Canvas, l: Layout, e: Spanned, from: Int, to: Int, paint: Paint) {
     if (from >= to) return
     val firstLine = l.getLineForOffset(from)
     val lastLine = l.getLineForOffset(to)
