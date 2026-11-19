@@ -82,6 +82,7 @@ try {
     destination: 'https://old.test',
     title: 'Title',
   });
+  assert.equal(JSON.parse(session.link_label(1n, 5, 6)), 'the docs');
   const request = session.set_link(1n, 5, 6, 'https://x.test');
   // Queries do not wait for the worker.
   assert.equal(JSON.parse(session.project(2n, 0, 14)).links[0].destination, 'https://x.test');

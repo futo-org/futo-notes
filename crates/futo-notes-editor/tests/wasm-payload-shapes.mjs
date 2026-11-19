@@ -131,6 +131,10 @@ shape(
   'LinkDescription | null',
   session.inspect_link(0n, slice.links[0].range.start, slice.links[0].range.end),
 );
+shape(
+  'string | null',
+  session.link_label(0n, slice.links[0].range.start, slice.links[0].range.end),
+);
 shape('PortableStatus', session.status());
 shape('Composition | null', session.composition());
 shape('Range', session.display_to_utf16(0n, 0, 1));

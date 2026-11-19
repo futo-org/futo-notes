@@ -25,6 +25,8 @@ pub enum EditorToolbarCommand {
     CodeBlock,
     Divider,
     Table,
+    /// `insert_image` at the selection.
+    Image,
 }
 
 impl From<futo_notes_editor::ToolbarCommand> for EditorToolbarCommand {
@@ -44,6 +46,7 @@ impl From<futo_notes_editor::ToolbarCommand> for EditorToolbarCommand {
             ToolbarCommand::CodeBlock => Self::CodeBlock,
             ToolbarCommand::Divider => Self::Divider,
             ToolbarCommand::Table => Self::Table,
+            ToolbarCommand::Image => Self::Image,
         }
     }
 }
