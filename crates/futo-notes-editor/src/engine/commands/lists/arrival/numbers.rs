@@ -11,10 +11,11 @@
 //!   and its siblings after it that were counting on from it each count one
 //!   more, unless the item below and the next sibling are numbered alike.
 //!
-//! Each walk reads the note as it was: it passes over lines indented
-//! further, and over the moved lines while they were part of the sequence,
-//! and stops where the note stopped it, so it never reaches a list the move
-//! put next to it. A line on both walks keeps its number.
+//! Each walk, and the look for that next sibling, reads the note as it was:
+//! it passes over lines indented further, and over the moved lines while
+//! they were part of the sequence, and stops where the note stopped it, so
+//! it never reaches a list the move put next to it. A line on both walks
+//! keeps its number.
 use super::super::super::super::command::Edit;
 use super::super::draft::diff;
 use super::super::number::{ordinal, spell, step, Level, Step};
@@ -214,9 +215,11 @@ impl Engine {
             .sibling_beside(slot, level, moved, true)
             .filter(|&(_, _, d)| d == delimiter)
             .map(|(index, n, _)| (n, n + changes.get(&index).map_or(0, |&(_, by)| by)));
-        // Whether the sibling after the item below is numbered as it is.
+        // Whether the sibling after the item below, in the note as it was
+        // (a moved line included, a list the move joins not), is numbered
+        // as it is.
         let alike = |b: i128| {
-            self.sibling_beside(slot + 1, level, moved, false)
+            self.sibling_beside(slot + 1, level, &(slot..slot), false)
                 .is_some_and(|(_, n, d)| (n, d) == (b, delimiter))
         };
         let (number, counts_up) = match (above, counted) {
