@@ -16,7 +16,7 @@ impl Engine {
         range: DisplayRange,
         after: bool,
     ) -> Option<Command> {
-        let block = self.block_at(range.start.0)?;
+        let block = self.code_block_at(range.start.0)?;
         Some(if after {
             self.line_after_block(&block)
         } else {

@@ -36,7 +36,7 @@ impl Engine {
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);
         }
-        let block = self.block_at(at.0).ok_or(EditorError::InvalidRange)?;
+        let block = self.code_block_at(at.0).ok_or(EditorError::InvalidRange)?;
         self.select_block_at(self.line_start(block.first));
         Ok(self.selection_change())
     }
@@ -59,7 +59,7 @@ impl Engine {
             | ParagraphKey::PairedBackspace
             | ParagraphKey::Delete => Some(self.removed(range)),
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => {
-                let block = self.block_at(range.start.0)?;
+                let block = self.code_block_at(range.start.0)?;
                 if block.first == block.opener {
                     return Some(self.below_block(&block));
                 }
@@ -80,7 +80,7 @@ impl Engine {
         if range.start == range.end || self.block_selected {
             return None;
         }
-        let block = self.block_at(range.start.0)?;
+        let block = self.code_block_at(range.start.0)?;
         (block.description.range == range).then(|| self.removed(range))
     }
 

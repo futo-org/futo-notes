@@ -2,7 +2,7 @@
 use super::super::edit::{Batch, Change, Marked};
 use super::super::history::Group;
 use super::super::Engine;
-use super::Command;
+use super::{class, Command};
 use crate::lines::Kind;
 use crate::{DisplayRange, EditorError, InputAction, Revision, SourceEdit};
 
@@ -183,7 +183,8 @@ impl Engine {
     }
 
     /// Apply `command`'s edits to `batch`, then the guard. `false` when the
-    /// guard fails (the edits stay in `batch` for the caller to revert).
+    /// guard fails, `InvalidText` when the image it writes does not read
+    /// back (the edits stay in `batch` for the caller to revert).
     fn apply(&mut self, batch: &mut Batch, command: &Command) -> Result<bool, EditorError> {
         let mut edits = command.edits.clone();
         edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
@@ -205,7 +206,21 @@ impl Engine {
         } else {
             Some(self.before_command(command, &edits)?)
         };
+        let same_kind: Vec<_> = command
+            .same_kind
+            .iter()
+            .map(|&(old, new)| (class(&self.store.get(old).line.kind), new))
+            .collect();
         self.raw_edits(batch, &edits);
-        Ok(before.is_none_or(|before| self.guard_holds(&before)))
+        if let Some(image) = &command.image {
+            if !self.reads_as_image(image) {
+                return Err(EditorError::InvalidText);
+            }
+        }
+        let count = self.store.len();
+        let kinds_kept = same_kind
+            .iter()
+            .all(|&(was, new)| new < count && class(&self.store.get(new).line.kind) == was);
+        Ok(kinds_kept && before.is_none_or(|before| self.guard_holds(&before)))
     }
 }

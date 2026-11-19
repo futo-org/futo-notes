@@ -152,7 +152,7 @@ struct NativeEditorContractSurfaceTests {
                     try s.insertImage(
                         expected: 0, claim: claim, reference: "image-2.png", alt: ""))
             }
-            #expect(pictured == "a ![x](image-1.png) b![](image-2.png)")
+            #expect(pictured == "a ![x](image-1.png) b\n![](image-2.png)\n")
         }.value
     }
 }

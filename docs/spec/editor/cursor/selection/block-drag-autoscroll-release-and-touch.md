@@ -1,7 +1,7 @@
 #### Block drag: autoscroll, release and touch suspension
 
 This section describes the web editor and its standalone touch fixtures. Native mobile
-uses Linedown; rendered block movement is deferred in [remaining work](../../portable-core/remaining-work.md).
+uses Linedown; its block movement is [portable-core block movement](../../portable-core/block-movement.md).
 
 - A block drag holding the pointer within 64px of the visible top or bottom edge
   of whatever scrolls the note — the editable itself in the standalone embed,

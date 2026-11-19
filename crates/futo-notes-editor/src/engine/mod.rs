@@ -77,6 +77,8 @@ pub(crate) struct Engine {
     composition: Option<Marked>,
     /// Find's query and matches (`commands/find.rs`).
     find: commands::find::Find,
+    /// The block the last press lifted (`commands/moves.rs`); not state.
+    resolved: commands::moves::Resolved,
     /// The vault's note ids, which wikilinks resolve against. The host
     /// delivers them; they are not text, history or saved state.
     notes: Arc<futo_notes_wikilinks::WikilinkIndex>,
@@ -112,6 +114,7 @@ impl Engine {
             typing: None,
             composition: None,
             find: commands::find::Find::new(),
+            resolved: Default::default(),
             notes: Arc::default(),
         };
         let body = DisplayOffset(engine.metadata_end().unwrap_or(0));

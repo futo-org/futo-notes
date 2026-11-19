@@ -20,6 +20,11 @@ pub(crate) struct Carry {
     /// Increasing ancestor indent widths. Shared snapshots keep unchanged edits local.
     pub list_indents: Arc<Vec<usize>>,
     pub list_quote: usize,
+    /// The indents of the unquoted items that hold the next line, as Indent
+    /// moves an item with the lines under it: increasing, innermost last.
+    pub holders: Arc<Vec<usize>>,
+    /// The open fence was opened under `holders`, which hold its lines.
+    pub held_fence: bool,
 }
 
 impl Carry {
@@ -216,12 +221,62 @@ pub(crate) fn read_line(carry: &mut Carry, source: &str, start: usize) -> Line {
         };
         return place.syntax(Kind::FrontMatter(role));
     }
-    if let Some(open) = carry.fence.clone() {
-        return fenced(carry, open, &place, text);
-    }
-    let mut line = read_block(carry, &place, text, header_above);
-    list_level(carry, &mut line);
+    let line = if let Some(open) = carry.fence.clone() {
+        fenced(carry, open, &place, text)
+    } else {
+        let mut line = read_block(carry, &place, text, header_above);
+        list_level(carry, &mut line);
+        line
+    };
+    hold(carry, &line);
     line
+}
+
+/// Which unquoted items hold the line after `line`: an item holds the lines
+/// after it indented further than it, and a fence opened among them with
+/// its code, up to the first line that is not (a blank line, an unindented
+/// or quoted line, another block).
+fn hold(carry: &mut Carry, line: &Line) {
+    fn clear(carry: &mut Carry) {
+        if !carry.holders.is_empty() {
+            carry.holders = Arc::default();
+        }
+        carry.held_fence = false;
+    }
+    // Items not indented less than `indent` stop holding.
+    fn outdent(carry: &mut Carry, indent: usize) {
+        if carry.holders.last().is_some_and(|&width| width >= indent) {
+            let keep = carry.holders.partition_point(|&width| width < indent);
+            Arc::make_mut(&mut carry.holders).truncate(keep);
+        }
+    }
+    match line.kind {
+        Kind::Fence {
+            role: role @ (FenceRole::Code | FenceRole::Close),
+            ..
+        } => {
+            if !carry.held_fence {
+                clear(carry);
+            } else if role == FenceRole::Close {
+                carry.held_fence = false;
+            }
+        }
+        _ if line.quote > 0 => clear(carry),
+        Kind::List { indent, .. } => {
+            outdent(carry, indent);
+            Arc::make_mut(&mut carry.holders).push(indent);
+        }
+        Kind::Plain { indent } if indent > 0 => outdent(carry, indent),
+        Kind::Fence {
+            role: FenceRole::Open,
+            indent,
+            ..
+        } if indent > 0 => {
+            outdent(carry, indent);
+            carry.held_fence = !carry.holders.is_empty();
+        }
+        _ => clear(carry),
+    }
 }
 
 /// Whitespace-only blanks retain a list; explicit quote markers still change

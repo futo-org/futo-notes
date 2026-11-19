@@ -1,3 +1,4 @@
+//! Rewriting a line's start without changing what its text reads as.
 use crate::lines::{block, Carry, Line};
 
 /// `prefix` then `text`, with a `\` written into `text` when without it the

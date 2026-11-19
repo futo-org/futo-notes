@@ -69,13 +69,30 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
             if !down { self?.renderHoldChanged() }
         }
         textView.addGestureRecognizer(tracker)
+        installBlockDrag()
     }
 
+    /// Our recognizers share every touch, except the block lift: once it lifts, the touch is
+    /// the drag's alone (the touch tracker aside, which never recognizes).
     func gestureRecognizer(
         _ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
-    ) -> Bool { true }
+    ) -> Bool {
+        guard g === liftRecognizer || other === liftRecognizer else { return true }
+        return g is TextFirstTouchTracker || other is TextFirstTouchTracker
+    }
+
+    /// While a press may lift, UIKit's long-presses on the note (the loupe, long-press
+    /// selection) wait for the lift to fail: they act only where a press lifts nothing.
+    func gestureRecognizer(
+        _ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer
+    ) -> Bool {
+        g === liftRecognizer && liftArmed && other !== g
+            && other is UILongPressGestureRecognizer && other.view === textView
+    }
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        // A press that may not lift is never the lift's: the platform has it from touch-down.
+        if g === liftRecognizer { return liftArmed }
         selectionBeforeTouch = textView.selectedRange
         let p = touch.location(in: textView)
         touchHitCheckbox = checkboxFragment(at: p) != nil
@@ -111,17 +128,24 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
     }
 
     /// The storage range of the image whose drawn rect holds `p`, if any.
-    func imageHit(at p: CGPoint) -> NSRange? {
+    func imageHit(at p: CGPoint) -> NSRange? { imageAt(p)?.range }
+
+    /// The image whose drawn rect holds `p`: its storage range and that rect in text view
+    /// coordinates.
+    func imageAt(_ p: CGPoint) -> (range: NSRange, frame: CGRect)? {
         guard let f = fragment(at: p) as? TextFirstLayoutFragment, !f.imageRuns.isEmpty,
             let manager = textView.textLayoutManager
         else { return nil }
-        let local = CGPoint(
-            x: p.x - inset.left, y: p.y - inset.top - f.layoutFragmentFrame.minY)
+        let origin = CGPoint(x: inset.left, y: inset.top + f.layoutFragmentFrame.minY)
+        let local = CGPoint(x: p.x - origin.x, y: p.y - origin.y)
         let base = manager.offset(
             from: manager.documentRange.location, to: f.rangeInElement.location)
         for run in f.imageRuns {
             if let rect = f.imageRect(run), rect.contains(local) {
-                return NSRange(location: base + run.range.location, length: run.range.length)
+                return (
+                    NSRange(location: base + run.range.location, length: run.range.length),
+                    rect.offsetBy(dx: origin.x, dy: origin.y)
+                )
             }
         }
         return nil
@@ -129,7 +153,8 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
 
     /// A plain tap on an image, anywhere on it, is a collapsed caret right after it (the
     /// caret is drawn at its trailing edge): typing goes after the image and Backspace removes
-    /// it whole. A long-press, a drag or select-all still select it as one object.
+    /// it whole. A drag selection or select-all still selects it as one object (with the
+    /// keyboard down a long-press lifts it, or its line, +BlockDrag).
     private func placeCaretAfterImage(_ range: NSRange) {
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
@@ -142,8 +167,9 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
     }
 
     /// A horizontal drag that starts on a table scrolls all its columns together; any other
-    /// drag is the text view's own.
+    /// drag is the text view's own. The block lift begins only where it can lift (+BlockDrag).
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        if g === liftRecognizer { return liftShouldBegin(at: g.location(in: textView)) }
         guard g === tablePan, let pan = g as? UIPanGestureRecognizer else { return true }
         let v = pan.velocity(in: textView)
         return abs(v.x) > abs(v.y) && tableRowHit(at: pan.location(in: textView)) != nil

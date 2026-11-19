@@ -1,7 +1,7 @@
 #### Block drag: lifting and drop slots
 
 This section describes the web editor and its standalone touch fixtures. Native mobile
-uses Linedown; rendered block movement is deferred in [remaining work](../../portable-core/remaining-work.md).
+uses Linedown; its block movement is [portable-core block movement](../../portable-core/block-movement.md).
 
 - On desktop a ⠿ handle appears in the left gutter beside the top-level block
   under the pointer — in the GUTTER, 4px left of the text column, never over a

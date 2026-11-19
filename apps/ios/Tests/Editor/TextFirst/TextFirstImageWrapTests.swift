@@ -81,7 +81,7 @@
             #expect(shape(h) == ["Hello world", "tall:\(wide)"], "\(h.visualLines())")
         }
 
-        @Test func aPhotoInsertedAfterTypedTextLandsOnTheNextLine() async throws {
+        @Test func aPhotoInsertedAfterTypedTextLandsOnALineOfItsOwn() async throws {
             let h = TextFirstHarness("\n", files: Self.files)
             h.select(0, 0)
             h.type("Hello world")
@@ -89,12 +89,13 @@
             #expect(
                 await h.controller.insertImage(
                     data: TextFirstHarness.png(1800, 2400), ext: "png", claim: claim))
-            #expect(h.source.hasPrefix("Hello world![](image-"))
+            // A Markdown line of its own (images.md), so typing goes on the line after it.
+            #expect(h.source.hasPrefix("Hello world\n![](image-"))
+            #expect(h.source.hasSuffix(".png)\n\n"))
             await settle(h)
-            let lines = shape(h)
-            #expect(lines.count == 2, "\(lines)")
-            #expect(lines.first == "Hello world", "\(lines)")
-            #expect(lines.last?.hasPrefix("tall:![](image-") == true, "\(lines)")
+            #expect(shape(h, at: 0) == ["Hello world"])
+            let photo = shape(h, at: 12)
+            #expect(photo.count == 1 && photo[0].hasPrefix("tall:![](image-"), "\(photo)")
         }
 
         @Test func aPhotoAloneOnItsLineIsUnchanged() async {

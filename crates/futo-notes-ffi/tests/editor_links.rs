@@ -167,7 +167,7 @@ fn native_atoms_and_image_insertion_reject_claims_from_a_reopened_session() {
         .unwrap();
     assert_eq!(
         session.source_text().unwrap(),
-        "a ![x](image-1.png) b![](image-2.png)"
+        "a ![x](image-1.png) b\n![](image-2.png)\n"
     );
     session.checkpoint().unwrap();
     drop(session);

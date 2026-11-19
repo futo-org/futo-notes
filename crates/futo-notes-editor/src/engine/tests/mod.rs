@@ -14,6 +14,7 @@ mod images;
 mod inline;
 mod input;
 mod lists;
+mod moves;
 mod paired_typing;
 mod projection;
 mod properties;

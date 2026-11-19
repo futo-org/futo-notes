@@ -15,9 +15,10 @@
         let window: UIWindow
         var tv: TextFirstTextView { controller.textView }
 
+        /// `focused`: the body takes the keyboard once open, as after a tap on it.
         init(
             _ source: String, id: String = "note", imageProtocols: [AnyClass]? = nil,
-            files: [String: Data] = [:]
+            files: [String: Data] = [:], focused: Bool = true
         ) {
             root = FileManager.default.temporaryDirectory.appendingPathComponent(
                 "text-first-\(UUID().uuidString)")
@@ -40,7 +41,7 @@
             window.addSubview(tv)
             window.isHidden = false
             tv.layoutIfNeeded()
-            _ = tv.becomeFirstResponder()
+            if focused { _ = tv.becomeFirstResponder() }
         }
 
         /// Rows are compared without a single final line ending (a final blank line is kept).
@@ -96,6 +97,26 @@
                 let fragment = manager.textLayoutFragment(for: location)
             else { return [] }
             return fragment.textLineFragments.map { $0.typographicBounds.height }
+        }
+
+        /// The display's line starts (UTF-16), one per line, the empty last line included.
+        var lineStarts: [Int] {
+            let text = (tv.text ?? "") as NSString
+            var starts = [0]
+            for i in 0..<text.length where text.character(at: i) == 0x0A { starts.append(i + 1) }
+            return starts
+        }
+
+        /// A point on display line `line` (text view coordinates), `x` from the text view's left
+        /// edge, `fraction` of the way down the line's paragraph as TextKit lays it out now.
+        func point(line: Int, x: CGFloat = 60, fraction: CGFloat = 0.5) -> CGPoint {
+            tv.layoutIfNeeded()
+            let manager = tv.textLayoutManager!
+            let location = manager.location(
+                manager.documentRange.location, offsetBy: lineStarts[line])!
+            let frame = manager.textLayoutFragment(for: location)!.layoutFragmentFrame
+            return CGPoint(
+                x: x, y: tv.textContainerInset.top + frame.minY + frame.height * fraction)
         }
 
         /// The visual lines of the paragraph holding UTF-16 offset `i`: the display characters each

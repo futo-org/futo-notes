@@ -29,6 +29,35 @@
             #expect(h.controller.divergences.isEmpty)
         }
 
+        /// A block drag reads the empty last row where its box is drawn: a press on that box
+        /// lifts the last task, a press on the row above lifts that row's, the card covers the
+        /// drawn box, and the drop lines above and after the task sit at the box's row edges.
+        @Test func aDragFindsTheEmptyLastTaskWhereItsBoxIsDrawn() async throws {
+            let h = TextFirstHarness("- [ ] milk\n- [ ] \n- [ ] ", focused: false)
+            h.window.overrideUserInterfaceStyle = .light
+            _ = await h.until(0.5) { false }
+            let ink = gutterBands(h)
+            try #require(ink.count == 3, "\(ink)")
+            // The ink is scanned in the window's drawing: place it by `milk`'s row, whose card
+            // is that row, its box centered on it.
+            let milk = try #require(h.controller.liftPlan(at: CGPoint(x: 120, y: 16)))
+            let shift = ink[0].midY - milk.frame.midY
+            let boxes = ink.map { $0.offsetBy(dx: 0, dy: -shift) }
+            let (middle, last) = (boxes[1], boxes[2])
+            let length = h.controller.storage.length
+            let task = try #require(h.controller.liftPlan(at: CGPoint(x: 120, y: last.midY)))
+            #expect(task.block == NSRange(location: length, length: 0))
+            #expect(task.frame.minY <= last.minY && task.frame.maxY >= last.maxY, "\(task.frame)")
+            #expect(task.frame.minY >= middle.maxY, "\(task.frame) reaches \(middle)")
+            let above = try #require(h.controller.liftPlan(at: CGPoint(x: 120, y: middle.maxY)))
+            #expect(above.block.location < length, "the row above lifts its own task")
+            let ys = Dictionary(uniqueKeysWithValues: milk.targets.slots.map { ($0.slot, $0.y) })
+            let after = try #require(ys[TextFirstBlockSlot(offset: length, end: true)])
+            let before = try #require(ys[TextFirstBlockSlot(offset: length, end: false)])
+            #expect(after >= last.maxY, "after the task at \(after), its box ends \(last.maxY)")
+            #expect(before <= last.minY && before >= middle.maxY, "above it at \(before)")
+        }
+
         /// The bands of ink in the marker gutter (left of the list text), top to bottom, in
         /// points: one per drawn marker.
         private func gutterBands(_ h: TextFirstHarness) -> [CGRect] {
