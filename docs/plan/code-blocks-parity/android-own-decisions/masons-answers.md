@@ -77,3 +77,5 @@ Answered through the Desktop Editor chat (2026-11-19): **2B**, the engine MR car
 
 Asked, unanswered: **L1** when the marker units reach Android: L1A now, under the code-blocks work; L1B later with the desktop stack, as 2B has it.
 - "Also seems like tapping and having the keyboard come up is a bit laggy. Just doesn't feel great. Definitely want an agent looking into that on desktop". Its own agent on the desktop, branch `perf/android-keyboard-open`.
+
+Relayed by the Desktop Editor chat (2026-11-19), on M1: "We can have more for the Android editor". The desktop stack is three MRs on the engine MR; that count does not limit Android's. How many Android MRs, and which, is still open with Mason.
