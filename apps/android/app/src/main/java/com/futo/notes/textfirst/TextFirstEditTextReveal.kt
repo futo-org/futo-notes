@@ -102,3 +102,15 @@ internal fun TextFirstEditText.endSelectionOnBlur() {
     movingSelectionItself = true
     try { Selection.setSelection(editableText, end) } finally { movingSelectionItself = false }
 }
+
+/**
+ * A tap that leaves a caret shows its whole line, even where the caret already was. The TextView reveals only a
+ * selection that changed, so a retap on a line half under the note's edge kept a clipped caret (Mason, S23).
+ */
+internal fun TextFirstEditText.revealTappedCaret(event: android.view.MotionEvent) {
+    if (event.actionMasked != android.view.MotionEvent.ACTION_UP) return
+    if (event.eventTime - event.downTime >= android.view.ViewConfiguration.getLongPressTimeout()) return
+    if (selectionStart < 0 || selectionStart != selectionEnd) return
+    reveal.again()
+    bringPointIntoView(selectionEnd)
+}

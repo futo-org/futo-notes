@@ -318,7 +318,7 @@ internal class TextFirstEditText(
             MotionEvent.ACTION_MOVE -> if (checkboxDown >= 0) return true
             MotionEvent.ACTION_CANCEL -> if (checkboxDown >= 0) { checkboxDown = -1; return true }
         }
-        return super.onTouchEvent(event).also { imageTouch.settleSelection(); codeTouch.settleTap(event); lineBelowHandle.onTouch(event) }
+        return super.onTouchEvent(event).also { imageTouch.settleSelection(); codeTouch.settleTap(event); lineBelowHandle.onTouch(event); revealTappedCaret(event) }
     }
 
     private fun nativeTouch(event: MotionEvent) { super.onTouchEvent(event) }
