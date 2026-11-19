@@ -76,3 +76,4 @@ Answered through the Desktop Editor chat (2026-11-19): **2B**, the engine MR car
 - "Tapping a checkmark puts me at the top of the note. Not keeping scroll position. this might be a deeper thing. Seems like a bunch of things are messing with my scroll position"
 
 Asked, unanswered: **L1** when the marker units reach Android: L1A now, under the code-blocks work; L1B later with the desktop stack, as 2B has it.
+- "Also seems like tapping and having the keyboard come up is a bit laggy. Just doesn't feel great. Definitely want an agent looking into that on desktop". Its own agent on the desktop, branch `perf/android-keyboard-open`.
