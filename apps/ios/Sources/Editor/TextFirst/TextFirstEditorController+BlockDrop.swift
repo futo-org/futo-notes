@@ -38,8 +38,8 @@ extension TextFirstEditorController {
 
     /// The line to hold still on screen when `drag` drops its block at `slot`: only a block that
     /// leaves from above the screen to land below its top needs one, since taking it out pulls
-    /// everything on screen up by its height. It is the first line shown below the block and
-    /// above the drop line: the move shifts it up by exactly the block's length (a renumbered
+    /// everything on screen up by its height. It is a line shown below the block and above
+    /// the drop line: the move shifts it up by exactly the block's length (a renumbered
     /// marker above it by a unit or two, so its middle is what is kept). The middle of its text
     /// after the move, and its top on screen now.
     private func heldLine(_ drag: TextFirstBlockDrag, to slot: TextFirstBlockSlot)
@@ -63,10 +63,16 @@ extension TextFirstEditorController {
         start = max(
             start,
             manager.offset(from: manager.documentRange.location, to: shown.rangeInElement.location))
-        guard start < slot.offset,
-            let top = boundaryY(TextFirstBlockSlot(offset: start, end: false), in: laidOut)
+        guard start < slot.offset else { return nil }
+        // The line just above the slot, where the eye is, when it shows whole; else the first
+        // line that shows. A line cut by the screen's top edge is where TextKit joins its
+        // estimate of the text above the screen to what it lays out, and holding it held the
+        // estimate, not the screen (the screen moved by 8 pt).
+        let above = text.lineRange(for: NSRange(location: max(start, slot.offset - 1), length: 0))
+        let held = above.location >= start ? above.location : start
+        guard let top = boundaryY(TextFirstBlockSlot(offset: held, end: false), in: laidOut)
         else { return nil }
-        let line = text.lineRange(for: NSRange(location: start, length: 0))
+        let line = text.lineRange(for: NSRange(location: held, length: 0))
         return (line.location + line.length / 2 - block.length, top - textView.contentOffset.y)
     }
 
