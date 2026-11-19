@@ -19,7 +19,10 @@ class TextFirstCodeBlockCalloutTest {
     }
 
     /** In real time: the TextView's long press fires from a delayed callback, not from the events' times. */
+    /** With the note focused: unfocused, a real hold lifts the block instead (BlockLift). */
     private suspend fun holdInRealTime(view: TextFirstEditText, x: Float, y: Float) {
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
         val down = android.os.SystemClock.uptimeMillis()
         for (action in listOf(android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP)) {
             if (action == android.view.MotionEvent.ACTION_UP) delay(android.view.ViewConfiguration.getLongPressTimeout() + 300L)

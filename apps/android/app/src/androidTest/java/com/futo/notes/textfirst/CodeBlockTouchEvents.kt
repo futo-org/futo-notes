@@ -13,7 +13,12 @@ internal fun tapNoteAt(view: TextFirstEditText, x: Float, y: Float) {
     }
 }
 
+/**
+ * A 700 ms hold with the note focused, dispatched at once. Unfocused, a real hold lifts the block (BlockLift) on a
+ * timer this never lets run, so the note is focused first, as it is when a hold reaches the header.
+ */
 internal fun holdNoteAt(view: TextFirstEditText, x: Float, y: Float) {
+    if (!view.isFocused && view.liftAllowed()) { view.isFocusableInTouchMode = true; view.requestFocus() }
     val down = SystemClock.uptimeMillis()
     for ((action, time) in listOf(MotionEvent.ACTION_DOWN to down, MotionEvent.ACTION_UP to down + 700L)) {
         val event = MotionEvent.obtain(down, time, action, x, y, 0)
