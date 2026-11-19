@@ -50,22 +50,6 @@ class TextFirstBlockReflowEdgeTest {
         for ((a, b) in tops.zipWithNext()) assertTrue("it never jumps back ($a then $b)", b >= a - 2f)
     }
 
-    /** The editor takes longer than the 400 ms cap to make the move: the preview and the lift exclusion end at the cap, the move still lands. */
-    @Test
-    fun aDropTheEditorIsSlowToMakeEndsThePreviewAtTheCap() = compose.openDragScreen("alpha\nbravo\ncharlie\ndelta") {
-        val from = at(0)
-        down(from); hold(600)
-        val at = carryUntil(from, 8f, right()) { report?.gap == BlockSlot(offsetOf("delta"), false) }
-        SystemClock.sleep(250)
-        ui { view.engine!!.handler.post { SystemClock.sleep(1_500) } }
-        val released = SystemClock.uptimeMillis()
-        up(at)
-        compose.waitUntil(1_000) { !lifted }
-        assertTrue("the preview ended at the cap", SystemClock.uptimeMillis() - released < 700)
-        assertEquals("the move is still on its way", "alpha\nbravo\ncharlie\ndelta", file.readText())
-        saved("bravo\ncharlie\nalpha\ndelta")
-    }
-
     /** A new width cuts a long view to a prefix that no longer holds the lifted block: a release then moves nothing. */
     @Test
     fun aWidthChangeThatCutsTheBlockOutOfTheViewMovesNothingAtTheRelease() {

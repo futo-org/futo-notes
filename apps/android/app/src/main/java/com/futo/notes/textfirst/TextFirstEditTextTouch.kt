@@ -5,8 +5,9 @@ import android.view.MotionEvent
 /** The note's own touch handlers, in order, then the platform's; a lift hands them a CANCEL. */
 internal fun TextFirstEditText.routeTouch(event: MotionEvent): Boolean {
     if (event.actionMasked == MotionEvent.ACTION_DOWN) { restoring = null; stopPinning(); scroll.down(event) } else scroll.track(event)
-    if (!scroll.stoppingTouch && tableTouch.onTouch(event)) return true
-    if (scroll.own(event) { nativeTouch(it) }) return true
+    // A scroll that claims the contact keeps it: no block lifts from it (BlockLift.kt).
+    if (!scroll.stoppingTouch && tableTouch.onTouch(event)) return true.also { if (tableTouch.scrolling) blockLift.scrollClaimed() }
+    if (scroll.own(event) { nativeTouch(it) }) return true.also { if (scroll.dragging) blockLift.scrollClaimed() }
     if (onOpenUrl != null && linkTouch.onTouch(event)) return true
     if (wikilinkTouch.onTouch(event)) return true
     imageTouch.onTouch(event)

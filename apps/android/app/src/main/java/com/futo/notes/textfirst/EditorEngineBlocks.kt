@@ -86,7 +86,8 @@ internal fun EditorEngine.moreSlots(press: Int, revision: ULong, asks: List<IntR
 /** Drop the block lifted at [revision] on [slot]; [done] runs on the UI thread with whether it moved. */
 internal fun EditorEngine.dropBlock(press: Int, slot: BlockSlot, revision: ULong, drop: DropHold?, done: (Boolean) -> Unit) = handler.post {
     var moved = false
-    if (!closed && session != null && storageGate?.isMigrationStarted != true && rev == revision) try {
+    // Text being composed since the lift moved the display under [press] and [slot]: refused, nothing committed.
+    if (!closed && session != null && storageGate?.isMigrationStarted != true && rev == revision && mirror.overlay == null) try {
         moved = moveBlock(press, slot, drop)
     } catch (e: EditorSessionException) {
         handleFailure(e)

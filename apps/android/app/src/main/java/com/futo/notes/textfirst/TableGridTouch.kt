@@ -15,6 +15,8 @@ internal class TableGridTouch(
     private var y = 0f
     private var moved = false
     private var vertical = false
+    /** This contact scrolls the grid (sideways or the note): it is no block lift. */
+    val scrolling get() = down != null && moved
 
     fun onTouch(event: MotionEvent): Boolean {
         when (event.actionMasked) {

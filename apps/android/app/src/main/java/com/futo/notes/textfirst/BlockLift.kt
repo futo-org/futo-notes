@@ -5,6 +5,7 @@ import android.os.SystemClock
 import android.view.Choreographer
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
+import android.view.ViewTreeObserver
 import kotlin.math.hypot
 
 // Long-press block drag (#444, reflow #450; #311 holds the design, the iOS build is the
@@ -69,12 +70,21 @@ internal class BlockLift(private val view: TextFirstEditText) {
     internal var drag: BlockDrag? = null
         private set
 
-    /** Whether a press may lift anything, before the line under it is asked. */
-    private fun mayLift(): Boolean =
-        view.engine != null && view.layout != null && view.isEnabled && !view.isFocused && !view.scroll.coasting && view.liftAllowed()
+    /**
+     * A drop the editor has still to make, from the release until it is made or refused: the
+     * note takes no input meanwhile (a tap, a box, a hold), whose offsets the move is about to
+     * change, though the preview may already be gone (its 400 ms cap).
+     */
+    private var pendingDrop: EditorEngine? = null
+
+    /** Whether a press may lift anything, before the line under it is asked: a finger (not a stylus, eraser or mouse), with no field focused. */
+    private fun mayLift(e: MotionEvent): Boolean =
+        e.getToolType(0) !in NOT_A_FINGER &&
+            view.engine != null && view.layout != null && view.isEnabled && !view.isFocused && !view.scroll.coasting && view.liftAllowed()
 
     /** True while this press is the drag's: the view's other handlers and the platform must not see [e]. */
     fun onTouch(e: MotionEvent): Boolean {
+        pendingDrop?.let { if (it === view.engine) return true else pendingDrop = null }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 clear()
@@ -82,7 +92,7 @@ internal class BlockLift(private val view: TextFirstEditText) {
                 // A reflow landing is not cut short, and no block lifts until it has (#450).
                 val landing = drag?.reflow != null
                 if (!landing) drag?.let { finish(it, returning = false) }
-                if (!landing && mayLift()) {
+                if (!landing && mayLift(e)) {
                     phase = Phase.Holding
                     pointer = e.getPointerId(0)
                     downX = e.x; downY = e.y; fingerX = e.x; fingerY = e.y
@@ -145,6 +155,9 @@ internal class BlockLift(private val view: TextFirstEditText) {
         drag?.let { d -> if (d.landedAt != null && d.landedAt != revision) finish(d, returning = false) }
     }
 
+    /** A scroll (the note's or a table's) claimed this contact: it lifts nothing. */
+    fun scrollClaimed() { if (phase == Phase.Holding || phase == Phase.Asking) decline(platform = false) }
+
     /** The system took the touch, the window lost focus or the note is closing: end with nothing moved. */
     fun interrupt() {
         when (phase) {
@@ -194,6 +207,7 @@ internal class BlockLift(private val view: TextFirstEditText) {
 
     private fun ask() {
         if (phase != Phase.Holding) return
+        if (view.scroll.dragging || view.tableTouch.scrolling) return decline(platform = false)
         val engine = view.engine ?: return decline(platform = true)
         val press = view.pressOffset(fingerX, fingerY) ?: return decline(platform = true)
         val near = view.visibleChars() ?: return decline(platform = true)
@@ -215,6 +229,9 @@ internal class BlockLift(private val view: TextFirstEditText) {
         try { view.routeTouch(cancel) } finally { cancel.recycle() }
         view.parent?.requestDisallowInterceptTouchEvent(true)
         drag = created
+        // Any scroll (a restore after a resize, not only autoscroll) moves the destination under the still finger; focus ends the drag.
+        view.viewTreeObserver.addOnScrollChangedListener(scrolled)
+        view.viewTreeObserver.addOnGlobalFocusChangeListener(focused)
         // No text menu can open during a drag: the rest of a note still streaming in keeps coming, in its bounded slices.
         view.renderHold.dragging(true)
         haptics.lifted()
@@ -223,7 +240,16 @@ internal class BlockLift(private val view: TextFirstEditText) {
         follow(fromFinger = false)
     }
 
+    private var lastScroll = 0
+    private val scrolled = ViewTreeObserver.OnScrollChangedListener {
+        if (phase == Phase.Dragging && view.scrollY != lastScroll) follow(fromFinger = false)
+    }
+    /** A field of the screen (or the body) took focus mid-drag: no drag with the keyboard up, cancelled before any engine call. */
+    private val focused = ViewTreeObserver.OnGlobalFocusChangeListener { _, _ -> if (phase == Phase.Dragging && !keyboardDown()) cancel() }
+    private fun keyboardDown() = !view.isFocused && view.liftAllowed()
+
     private fun follow(fromFinger: Boolean) {
+        lastScroll = view.scrollY
         val d = drag ?: return
         if (d.follow(fingerX, fingerY) && fromFinger) haptics.reachedSlot()
         fetchSlots()
@@ -254,7 +280,8 @@ internal class BlockLift(private val view: TextFirstEditText) {
         val d = drag ?: return
         stopAutoscroll()
         phase = Phase.Spent
-        val engine = view.engine
+        // A field focused since the lift (the keyboard up): nothing moves.
+        val engine = view.engine?.takeIf { keyboardDown() }
         d.reflow?.let { reflow ->
             // Only a slot the preview shows now: a view cut for a new width may no longer hold it.
             val slot = reflow.target?.takeIf { drop }
@@ -263,20 +290,25 @@ internal class BlockLift(private val view: TextFirstEditText) {
             if (slot == null || engine == null) return reflow.settleHome { if (drag === d) finish(d, returning = false) }
             d.capture = reflow.release()
             d.landing = true
-            // The preview and the lift exclusion end by the cap even while the editor is still to make the move (it still lands).
-            view.postDelayed({ if (drag === d) finish(d, returning = false) }, ReflowCapture.LANDING_CAP_MS)
+            // The preview ends by the cap even while the editor is still to make the move; the note's input waits for it.
+            d.later(ReflowCapture.LANDING_CAP_MS) { if (drag === d) finish(d, returning = false) }
+            pendingDrop = engine
             engine.dropBlock(d.plan.press, slot, d.plan.revision, DropHold.KEEP) { moved ->
+                if (pendingDrop === engine) pendingDrop = null
                 if (moved) haptics.landed() else if (drag === d) reflow.settleHome { if (drag === d) finish(d, returning = false) }
                 // Moved, but no update reached the view (it was cut short for a new width): end here.
                 if (moved && drag === d && d.landedAt == null) finish(d, returning = false)
             }
             return
         }
-        val slot = d.slot?.takeIf { drop }
+        // Only a drop line on screen, with the lifted block laid out (not after a cut for a new width).
+        val slot = d.shownSlot()?.takeIf { drop }
         if (slot == null || engine == null) return finish(d, returning = true)
         d.landing = true
         d.invalidate()
+        pendingDrop = engine
         engine.dropBlock(d.plan.press, slot, d.plan.revision, d.holdFor(slot)) { moved ->
+            if (pendingDrop === engine) pendingDrop = null
             if (moved) haptics.landed()
             if (drag === d) finish(d, returning = !moved)
         }
@@ -290,6 +322,8 @@ internal class BlockLift(private val view: TextFirstEditText) {
     }
 
     private fun finish(d: BlockDrag, returning: Boolean) {
+        view.viewTreeObserver.removeOnScrollChangedListener(scrolled)
+        view.viewTreeObserver.removeOnGlobalFocusChangeListener(focused)
         view.renderHold.dragging(false)
         d.landing = false
         if (!returning) {
@@ -346,5 +380,7 @@ internal class BlockLift(private val view: TextFirstEditText) {
         if (autoscrolling) Choreographer.getInstance().postFrameCallback(frame)
     }
 }
+
+private val NOT_A_FINGER = setOf(MotionEvent.TOOL_TYPE_STYLUS, MotionEvent.TOOL_TYPE_ERASER, MotionEvent.TOOL_TYPE_MOUSE)
 
 private fun MotionEvent.canceled() = flags and MotionEvent.FLAG_CANCELED != 0

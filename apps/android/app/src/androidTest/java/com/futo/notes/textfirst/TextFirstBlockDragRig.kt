@@ -109,9 +109,9 @@ internal class BlockDragRig(val compose: DragRule, val view: TextFirstEditText, 
     fun release() { if (downTime != 0L) runCatching { send(MotionEvent.ACTION_CANCEL, last) } }
 
     /** Hand the view one multi-touch event directly (screen points), as its window would. */
-    fun dispatch(action: Int, points: List<PointF>, flags: Int = 0) = ui {
+    fun dispatch(action: Int, points: List<PointF>, flags: Int = 0, tool: Int = MotionEvent.TOOL_TYPE_FINGER) = ui {
         val loc = onScreen()
-        val props = Array(points.size) { MotionEvent.PointerProperties().apply { id = it; toolType = MotionEvent.TOOL_TYPE_FINGER } }
+        val props = Array(points.size) { MotionEvent.PointerProperties().apply { id = it; toolType = tool } }
         val coords = Array(points.size) { MotionEvent.PointerCoords().apply { x = points[it].x - loc[0]; y = points[it].y - loc[1]; pressure = 1f; size = 1f } }
         val e = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, points.size, props, coords, 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, flags)
         try { view.dispatchTouchEvent(e) } finally { e.recycle() }

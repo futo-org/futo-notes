@@ -125,7 +125,7 @@ internal class BlockDrag private constructor(
 
     fun enter() {
         // The preview's tiles are recorded after the lift's frame, before the gap first moves.
-        reflow?.let { view.post { if (!it.drawing) it.tiles.warm() } }
+        reflow?.let { later(0) { if (!it.drawing) it.tiles.warm() } }
         animator = ValueAnimator.ofFloat(ENTER_SCALE, LIFTED_SCALE).apply {
             duration = ENTER_MS
             interpolator = PathInterpolator(0.2f, 0.9f, 0.3f, 1f)
@@ -167,7 +167,26 @@ internal class BlockDrag private constructor(
     /** Draw the note as the reflow preview has it; false when the view draws it itself. */
     fun drawNote(canvas: Canvas): Boolean = reflow?.takeIf { it.drawing }?.draw(canvas) ?: false
 
+    private val queued = ArrayList<Runnable>()
+
+    /** Run [work] after [ms] unless this drag has been disposed first. */
+    fun later(ms: Long, work: () -> Unit) {
+        val r = Runnable { work() }
+        queued += r
+        view.postDelayed(r, ms)
+    }
+
+    /** The drop line's slot while it shows on screen with the lifted block laid out; null otherwise (a view cut for a new width). */
+    fun shownSlot(): BlockSlot? {
+        val s = slot ?: return null
+        sourceRect() ?: return null
+        val y = view.boundaryY(s) ?: return null
+        return s.takeIf { y >= view.scrollY && y <= view.scrollY + view.height }
+    }
+
     fun dispose() {
+        for (r in queued) view.removeCallbacks(r)
+        queued.clear()
         reflow?.landing?.cancel()
         reflow?.tiles?.clear()
         animator?.cancel()
