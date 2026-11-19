@@ -75,7 +75,8 @@ internal fun requireOpenEditor(screen: Screen, action: String): PuppetReply? =
 /**
  * The editor on top of the stack has read its note from disk and handed it to
  * the WebView — before that, a write would be overwritten by the load. Waits
- * up to three seconds; null when the editor is loaded or no note is open.
+ * up to three seconds; null when the editor is loaded or no note is open, a
+ * refusal when the editor on top changed during the wait.
  */
 internal suspend fun awaitEditorLoaded(bound: Binding, action: String): PuppetReply? {
     val screen = bound.navigator.currentScreen as? Screen.Editor ?: return null
@@ -91,6 +92,11 @@ internal suspend fun awaitEditorLoaded(bound: Binding, action: String): PuppetRe
     // One more turn so the recomposition that pushes the body reaches the
     // WebView before the caller writes into it.
     delay(50)
+    // The request was for the editor on top when it arrived: if another took its place while
+    // waiting (that note failed to open, navigation moved on), its lines name other text.
+    if (bound.navigator.currentScreen !== screen) {
+        return PuppetContract.refusal(409, "$action: the note on screen changed from ${screen.noteId} while it loaded; nothing was done")
+    }
     return null
 }
 

@@ -7,8 +7,8 @@ import com.futo.notes.textfirst.finishStreaming
 import com.futo.notes.textfirst.liftedBlock
 import com.futo.notes.textfirst.moveBlock
 import com.futo.notes.textfirst.streaming
-import kotlin.coroutines.resume
-import kotlinx.coroutines.suspendCancellableCoroutine
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import uniffi.futo_notes_ffi.EditorSessionException
@@ -47,19 +47,13 @@ internal suspend fun moveBlockVerb(view: TextFirstEditText, args: JSONObject): P
         return PuppetContract.refusal(refusal.status, refusal.message)
     }
     val engine = view.engine ?: return PuppetContract.refusal(503, "native editor is not open")
-    val answer = withTimeoutOrNull(5_000) {
-        suspendCancellableCoroutine<Pair<Int, String>> { continuation ->
-            val posted = engine.handler.post {
-                val result = try { engine.moveBlockOnEditorThread(request) } catch (refusal: PuppetVerbRefusal) {
-                    refusal.status to refusal.message
-                } catch (e: EditorSessionException) {
-                    409 to "the engine refused the move: $e"
-                }
-                if (continuation.isActive) continuation.resume(result)
-            }
-            if (!posted && continuation.isActive) continuation.resume(503 to "native editor closed")
+    val answer = onceOnEditorThread(engine.handler::post, 5_000) {
+        try { engine.moveBlockOnEditorThread(request) } catch (refusal: PuppetVerbRefusal) {
+            refusal.status to refusal.message
+        } catch (e: EditorSessionException) {
+            409 to "the engine refused the move: $e"
         }
-    } ?: return PuppetContract.refusal(503, "MoveBlock: the editor did not answer within 5 s")
+    } ?: return PuppetContract.refusal(503, "MoveBlock: the editor did not start it within 5 s; nothing was done")
     if (answer.first != 200) return PuppetContract.refusal(answer.first, answer.second)
     return PuppetReply(200, JSONObject().put("ok", true).put("moved", JSONObject(answer.second)).toString())
 }
@@ -80,8 +74,10 @@ private fun com.futo.notes.textfirst.EditorEngine.moveBlockOnEditorThread(reques
     }
     val line = lineRange(request.line)
     val column = request.column ?: 0
+    // Against the line's length before adding: a huge column must not wrap around.
+    if (column > line.last - line.first) throw PuppetVerbRefusal(400, "column $column is not a UTF-16 column on line ${request.line}")
     val at = line.first + column
-    if (at > line.last || (at in 1 until text.length && Character.isLowSurrogate(text[at]) && Character.isHighSurrogate(text[at - 1]))) {
+    if ((at in 1 until text.length && Character.isLowSurrogate(text[at]) && Character.isHighSurrogate(text[at - 1]))) {
         throw PuppetVerbRefusal(400, "column $column is not a UTF-16 column on line ${request.line}")
     }
     val target = request.before ?: request.after!!
@@ -103,3 +99,24 @@ private fun com.futo.notes.textfirst.EditorEngine.moveBlockOnEditorThread(reques
     if (!moveBlock(at, slot)) throw PuppetVerbRefusal(409, "the editor refused to move line ${request.line}'s block $side line $target: the note changed")
     return 200 to JSONObject().put("line", request.line).put(side, target).toString()
 }
+
+/**
+ * Run [work] once on the thread [post] reaches and return its result, or null when it had not
+ * started within [timeoutMs]: then it never runs, so a refusal for the timeout and a change to
+ * the note are never both the answer. Once started it is waited for to the end.
+ */
+internal suspend fun <T : Any> onceOnEditorThread(post: (Runnable) -> Boolean, timeoutMs: Long, work: () -> T): T? {
+    val state = AtomicInteger(PENDING)
+    val result = CompletableDeferred<T?>()
+    val posted = post(Runnable {
+        if (!state.compareAndSet(PENDING, STARTED)) return@Runnable
+        result.complete(try { work() } catch (e: Throwable) { result.completeExceptionally(e); return@Runnable })
+    })
+    if (!posted) return null
+    return withTimeoutOrNull(timeoutMs) { result.await() }
+        ?: if (state.compareAndSet(PENDING, ABANDONED)) null else result.await()
+}
+
+private const val PENDING = 0
+private const val STARTED = 1
+private const val ABANDONED = 2
