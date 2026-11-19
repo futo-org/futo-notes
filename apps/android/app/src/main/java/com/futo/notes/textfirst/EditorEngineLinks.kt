@@ -53,6 +53,8 @@ internal fun EditorEngine.editLink(draft: LinkDraft, label: String, destination:
 /** The target the engine parsed for the wikilink drawn over [start, end) (what a note it names is called). */
 internal fun EditorEngine.wikilinkTarget(start: Int, end: Int, deliver: (String) -> Unit) = command {
     val s = session ?: return@command
-    val target = s.project(rev, mirror.byteRange(start, end)).wikilinks.firstOrNull()?.target
+    val tapped = mirror.byteRange(start, end)
+    // The projection holds every wikilink of the range's paragraph, not only the tapped one.
+    val target = s.project(rev, tapped).wikilinks.firstOrNull { it.range.start < tapped.end && it.range.end > tapped.start }?.target
     if (target != null) ui.post { deliver(target) }
 }

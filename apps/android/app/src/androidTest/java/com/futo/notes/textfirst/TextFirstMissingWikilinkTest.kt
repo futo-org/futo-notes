@@ -72,9 +72,12 @@ class TextFirstMissingWikilinkTest {
     }
 
     private fun tapLink(view: TextFirstEditText, times: Int = 1) = compose.runOnUiThread {
-        val start = view.editableText.getSpanStart(view.editableText.getSpans(0, view.length(), TfWikilink::class.java).single())
+        val e = view.editableText
+        val link = e.getSpans(0, view.length(), TfWikilink::class.java).single()
+        val start = e.getSpanStart(link)
         val l = view.layout
-        val x = view.totalPaddingLeft + l.getPrimaryHorizontal(start) + view.paint.textSize
+        // On the label's text: a tap beside it follows nothing.
+        val x = view.totalPaddingLeft + l.getPrimaryHorizontal(start) + link.getSize(link.renderedPaint(view.paint), e, start, e.getSpanEnd(link), null) / 2f
         val y = view.totalPaddingTop - view.scrollY + l.getLineBaseline(l.getLineForOffset(start)) - view.paint.textSize / 3
         repeat(times) { tapNoteAt(view, x, y) }
     }

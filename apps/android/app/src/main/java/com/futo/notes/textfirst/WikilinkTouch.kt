@@ -15,7 +15,6 @@ internal sealed interface WikilinkDestination {
 internal class WikilinkTouch(private val view: TextFirstEditText, private val open: (WikilinkDestination) -> Unit) {
     private val slop = ViewConfiguration.get(view.context).scaledTouchSlop
     private var pressed: TfWikilink? = null
-    private var unresolved: TfWikilink? = null
     private var downX = 0f
     private var downY = 0f
 
@@ -23,67 +22,47 @@ internal class WikilinkTouch(private val view: TextFirstEditText, private val op
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 pressed = hit(event.x, event.y)
-                unresolved = locate(event.x, event.y)?.first?.takeIf { it.noteId == null }
                 downX = event.x
                 downY = event.y
             }
-            MotionEvent.ACTION_MOVE -> if (abs(event.x - downX) > slop || abs(event.y - downY) > slop) { pressed = null; unresolved = null }
-            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_CANCEL -> { pressed = null; unresolved = null }
+            MotionEvent.ACTION_MOVE -> if (abs(event.x - downX) > slop || abs(event.y - downY) > slop) pressed = null
+            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_CANCEL -> pressed = null
             MotionEvent.ACTION_UP -> {
-                val link = pressed
+                val link = pressed ?: return false
                 pressed = null
-                val broken = unresolved
-                unresolved = null
-                if (broken != null && event.eventTime - event.downTime < ViewConfiguration.getLongPressTimeout()) {
-                    view.cancelLongPress()
-                    view.isPressed = false
-                    val text = view.editableText
-                    view.engine?.wikilinkTarget(text.getSpanStart(broken), text.getSpanEnd(broken)) { open(WikilinkDestination.Missing(it)) }
+                if (event.eventTime - event.downTime >= ViewConfiguration.getLongPressTimeout() || hit(event.x, event.y) !== link) return false
+                view.cancelLongPress()
+                view.isPressed = false
+                val noteId = link.noteId
+                if (noteId != null) {
+                    open(WikilinkDestination.Note(noteId))
                     return true
                 }
-                if (link != null && event.eventTime - event.downTime < ViewConfiguration.getLongPressTimeout() &&
-                    hit(event.x, event.y) === link) {
-                    view.cancelLongPress()
-                    view.isPressed = false
-                    link.noteId?.let { open(WikilinkDestination.Note(it)) }
-                    return true
-                }
+                val text = view.editableText
+                view.engine?.wikilinkTarget(text.getSpanStart(link), text.getSpanEnd(link)) { open(WikilinkDestination.Missing(it)) }
+                return true
             }
         }
         return false
     }
 
-    private fun hit(x: Float, y: Float): TfWikilink? = locate(x, y)?.takeIf { (link, _) -> link.noteId != null && link.containsAt(view, x, y) }?.first
-
-    /** The link whose visual box holds the point, and where along its wrapped run the point falls (0..1). */
-    private fun locate(x: Float, y: Float): Pair<TfWikilink, Float>? {
+    /** The wikilink whose drawn label holds the point, on the visual line the point is on; a missing note's link too. */
+    private fun hit(x: Float, y: Float): TfWikilink? {
         val layout = view.layout ?: return null
         val text = view.editableText ?: return null
         val localX = x - view.totalPaddingLeft + view.scrollX
         val localY = y - view.totalPaddingTop + view.scrollY
         if (localY < 0 || localY >= layout.height) return null
         val line = layout.getLineForVertical(localY.toInt())
-        for (link in text.getSpans(layout.getLineStart(line), layout.getLineEnd(line), TfWikilink::class.java)) {
+        return text.getSpans(layout.getLineStart(line), layout.getLineEnd(line), TfWikilink::class.java).firstOrNull { link ->
             val start = text.getSpanStart(link)
-            if (layout.getLineForOffset(start) != line) continue
+            if (layout.getLineForOffset(start) != line) return@firstOrNull false
+            val paint = link.renderedPaint(view.paint)
             var left = layout.getPrimaryHorizontal(start)
-            if (layout.isRtlCharAt(start)) left -= link.getSize(link.renderedPaint(view.paint), text, start, text.getSpanEnd(link), null)
-            val fraction = link.runFraction(link.renderedPaint(view.paint), localX - left, localY - layout.getLineBaseline(line)) ?: continue
-            return link to fraction
+            if (layout.isRtlCharAt(start)) left -= link.getSize(paint, text, start, text.getSpanEnd(link), null)
+            link.contains(paint, localX - left, localY - layout.getLineBaseline(line))
         }
-        return null
     }
-}
-
-private fun TfWikilink.containsAt(view: TextFirstEditText, x: Float, y: Float): Boolean {
-    val layout = view.layout ?: return false
-    val text = view.editableText ?: return false
-    val localY = y - view.totalPaddingTop + view.scrollY
-    val line = layout.getLineForVertical(localY.toInt())
-    val start = text.getSpanStart(this)
-    var left = layout.getPrimaryHorizontal(start)
-    if (layout.isRtlCharAt(start)) left -= getSize(renderedPaint(view.paint), text, start, text.getSpanEnd(this), null)
-    return contains(renderedPaint(view.paint), x - view.totalPaddingLeft + view.scrollX - left, localY - layout.getLineBaseline(line))
 }
 
 /** Reserve only the current paragraph's usable width, including list/quote margins. */

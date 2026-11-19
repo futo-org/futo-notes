@@ -22,16 +22,16 @@ import org.junit.Assert.*
 import org.junit.Test
 import uniffi.futo_notes_ffi.NoteStore
 
-/** A tap anywhere along a wrapped wikilink to a missing note follows it, hit-tested against the link's own layout. */
+/** A tap on the text of any row of a wrapped wikilink to a missing note follows it, hit-tested against the link's own layout. */
 class TextFirstLinkTapTest {
     private val label = "A very long wikilink label that should wrap across multiple visible lines and remain readable while editing"
 
     @Test
-    fun tapAnywhereOnAWrappedLinkFollowsIt() = exercise("Before [[$label]] after")
+    fun tapOnAnyRowOfAWrappedLinkFollowsIt() = exercise("Before [[$label]] after")
 
     /** The atom is drawn with the heading's scale, so a tap must be hit-tested against that layout. */
     @Test
-    fun tapAnywhereOnAWrappedLinkInAHeadingFollowsIt() = exercise("# [[$label]] after")
+    fun tapOnAnyRowOfAWrappedLinkInAHeadingFollowsIt() = exercise("# [[$label]] after")
 
     private fun exercise(source: String) = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -62,7 +62,8 @@ class TextFirstLinkTapTest {
                 val tall = view.layout.getLineBottom(row) - view.layout.getLineTop(row)
                 assertTrue("label wraps over at least three lines", tall > view.paint.fontSpacing * 3)
                 val left = view.totalPaddingLeft + 2f
-                val right = width - view.totalPaddingRight - 2f
+                // Inside the label's rows: each wrapped row starts at the note's left and its text ends before the right edge.
+                val inside = left + view.paint.textSize * 2
                 val followed = mutableListOf<WikilinkDestination>()
                 view.onOpenWikilink = { followed.add(it) }
                 fun tap(x: Float, fraction: Float) {
@@ -75,9 +76,9 @@ class TextFirstLinkTapTest {
                 }
                 tap(left, 0.12f)
                 tap(left, 0.5f)
-                tap(right, 0.5f)
+                tap(inside, 0.5f)
                 tap(left, 0.85f)
-                tap(right, 0.85f)
+                tap(inside, 0.85f)
                 withTimeout(5_000) { while (followed.size < 5) delay(20) }
                 assertEquals("every visual line of the link follows it", List(5) { WikilinkDestination.Missing(label) }, followed)
             }
