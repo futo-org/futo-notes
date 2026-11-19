@@ -178,14 +178,12 @@ final class TextFirstReflow {
                 layer.isHidden = true
                 continue
             }
-            layer.contents = draw(shown)
-            layer.bounds.size = CGSize(width: shown.width, height: pixelHeight(shown))
+            show(draw(shown), in: layer)
             slide(layer, to: inCurtain(shown), over: duration)
         }
         if let block = block?.intersection(reach), !block.isNull {
             let before = copy.contents
-            copy.contents = draw(block)
-            copy.bounds.size = CGSize(width: block.width, height: pixelHeight(block))
+            show(draw(block), in: copy)
             slide(copy, to: inCurtain(block), over: duration)
             let fade = CABasicAnimation(keyPath: "contents")
             (fade.fromValue, fade.toValue, fade.duration) = (before, copy.contents, duration)
@@ -318,6 +316,19 @@ final class TextFirstReflow {
         copy.contents = image
     }
 
+    /// `image` in `layer`, the layer exactly the image's size, so it is never scaled or cropped
+    /// (a layer's content gravity is upside down on iOS: `.topLeft` pins the bottom edge).
+    private func show(_ image: CGImage?, in layer: CALayer) {
+        layer.contentsScale = painter.scale
+        layer.contents = image
+        layer.bounds.size =
+            image.map {
+                CGSize(
+                    width: CGFloat($0.width) / painter.scale,
+                    height: CGFloat($0.height) / painter.scale)
+            } ?? .zero
+    }
+
     /// A slice's drawing is shown pixel for pixel from its top-left corner, never scaled.
     @discardableResult private static func prepare(_ layer: CALayer) -> CALayer {
         layer.anchorPoint = .zero
@@ -339,19 +350,13 @@ final class TextFirstReflow {
         let duration = animated ? TextFirstReflowMotion.slide : 0
         for (j, slice) in slices.enumerated() {
             let closed = gap != plan.home
-            slice.layer.contentsScale = painter.scale
-            slice.layer.contents = closed ? slices[j].closed ?? slice.home : slice.home
-            let height = closed ? plan.runs[j].closed : plan.runs[j].height
+            show(closed ? slices[j].closed ?? slice.home : slice.home, in: slice.layer)
             let top = painter.pixel(plan.top(j, gap: gap))
-            slice.layer.bounds.size = CGSize(
-                width: visible.width, height: painter.pixel(top + height) - top)
             slide(slice.layer, to: CGPoint(x: 0, y: top - visible.minY), over: duration)
         }
         if let window = copyImage?.window {
             let frame = copyFrame
-            copy.bounds.size = CGSize(
-                width: frame.width,
-                height: CGFloat(copyImage.map { $0.image.height } ?? 0) / painter.scale)
+            show(copyImage?.image, in: copy)
             slide(
                 copy,
                 to: CGPoint(

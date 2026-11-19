@@ -46,6 +46,51 @@
             h.controller.endBlockDrag(dropping: false)
         }
 
+        @Test(arguments: ["light", "dark"])
+        func theCurtainAppearsShowingWhatTheTextViewDrew(theme: String) async throws {
+            let h = TextFirstHarness(
+                Self.mixed, files: ["pic.png": TextFirstHarness.png(900, 360)], focused: false)
+            h.controller.setTheme(theme)
+            let photo = (h.display as NSString).range(of: "![](pic.png)").location
+            #expect(await h.until { h.lineHeights(at: photo).contains { $0 > 100 } })
+            let drag = try begin(h, at: h.point(line: 2))
+            let preview = try #require(drag.preview)
+            // The text view as it draws itself, the block dimmed (the card is over it all).
+            drag.card.isHidden = true
+            let drawn = Self.image(h.tv.layer, h, over: preview.painter.surface)
+            // The gap opens and closes again: the curtain is up, everything in its place.
+            drag.follow(h.point(line: 6))
+            #expect(preview.isOpen && drag.slot != nil)
+            drag.follow(h.point(line: 2, fraction: 0.1))
+            #expect(preview.isOpen && drag.slot == nil)
+            let curtain = Self.image(preview.curtain.layer, h)
+            let differing = Self.differing(drawn, curtain)
+            #expect(
+                differing == 0,
+                "\(differing) pixels differ \(Self.keep(drawn, curtain, "open-\(theme)"))")
+            h.controller.endBlockDrag(dropping: false)
+        }
+
+        /// A heading, a paragraph, `lifted` (display line 2), a nested list, a task, code, a
+        /// quote, a link, a photo and a table.
+        static let mixed = """
+            # Title
+            Some **bold** text and `code` in a line.
+            lifted
+            - one
+              - nested
+            - [x] done
+            ```swift
+            let x = 1
+            ```
+            > quoted
+            [link](https://example.com)
+            ![](pic.png)
+            | a | b |
+            |---|---|
+            | 1 | 2 |
+            """
+
         @Test func aDropMovesTheNoteAtOnceUnderThePreviewAndUncoversTheSamePicture() async throws {
             // (note, line lifted, line whose top the finger is carried just past the middle
             // of, note after the drop)
