@@ -153,7 +153,6 @@ fun EditorToolbar(
                     .onGloballyPositioned {
                         slotPx = it.size.width.toFloat()
                         boxWindowX = it.positionInWindow().x
-                        measureTick++
                     },
             ) {
                 Row(
@@ -183,9 +182,11 @@ fun EditorToolbar(
                                     active = item.id in activeFormats,
                                     enabled = item.id !in disabledFormats,
                                     perform = perform,
+                                    // Only a real change counts: the rising keyboard moves the bar every
+                                    // frame, and a count per call recomposed it on each of those frames.
                                     modifier = Modifier.onGloballyPositioned {
-                                        buttonLefts[item.id] = it.positionInWindow().x - boxWindowX
-                                        measureTick++
+                                        val left = it.positionInWindow().x - boxWindowX
+                                        if (buttonLefts.put(item.id, left) != left) measureTick++
                                     },
                                 )
                             }
