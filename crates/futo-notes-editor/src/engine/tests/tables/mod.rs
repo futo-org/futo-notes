@@ -1,7 +1,8 @@
 //! Tables: the literal cases in `tests/fixtures/engine/tables/`. Random
 //! tables are in `random.rs`, a delimiter row being typed in
-//! `delimiter_row.rs`, the work at 20,000 rows in `work.rs` and the session
-//! surface in `surface.rs`.
+//! `delimiter_row.rs`, the work at 20,000 rows in `work.rs`, the session
+//! surface in `surface.rs` and cut and paste over a whole table in
+//! `whole_tables.rs`.
 //!
 //! A case's `before` and `after` are source text with the selection marked:
 //! `‸` is a caret, `«` and `»` bound a selection (a table's `|` cannot mark
@@ -22,6 +23,7 @@ mod delimiter_row;
 pub(super) mod projection;
 mod random;
 mod surface;
+mod whole_tables;
 mod work;
 
 use super::super::command::Command;
@@ -34,12 +36,13 @@ use crate::{
 use serde_json::Value;
 use std::ops::Range;
 
-const CASES: [&str; 5] = [
+const CASES: [&str; 6] = [
     include_str!("../../../../tests/fixtures/engine/tables/inspect.json"),
     include_str!("../../../../tests/fixtures/engine/tables/keys.json"),
     include_str!("../../../../tests/fixtures/engine/tables/cell-text.json"),
     include_str!("../../../../tests/fixtures/engine/tables/commands.json"),
     include_str!("../../../../tests/fixtures/engine/tables/delimiter-row.json"),
+    include_str!("../../../../tests/fixtures/engine/tables/whole-table.json"),
 ];
 
 /// Source text and the source selection its markers stand for.
