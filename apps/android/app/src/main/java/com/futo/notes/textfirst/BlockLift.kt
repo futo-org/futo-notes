@@ -105,10 +105,11 @@ internal class BlockLift(private val view: TextFirstEditText) {
             MotionEvent.ACTION_DOWN -> {
                 clear()
                 touch++
-                // A reflow landing is not cut short, and no block lifts until it has (#450).
-                val landing = drag?.reflow != null
-                if (!landing) drag?.let { finish(it, returning = false) }
-                if (!landing && mayLift(e)) {
+                // A preview still landing or sliding home draws rows where the layout does not have them: a press on one
+                // would hit another. It is not cut short, and nothing lifts until it ends (#450).
+                if (drag?.let { it.landing || it.reflow != null } == true) { swallowing = true; return true }
+                drag?.let { finish(it, returning = false) }
+                if (mayLift(e)) {
                     phase = Phase.Holding
                     pointer = e.getPointerId(0)
                     downX = e.x; downY = e.y; fingerX = e.x; fingerY = e.y
