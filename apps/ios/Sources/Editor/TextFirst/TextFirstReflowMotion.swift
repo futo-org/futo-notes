@@ -8,12 +8,8 @@ enum TextFirstReflowMotion {
     /// Neighbours slide over 0.18 s with the web editor's easing.
     static let slide: CFTimeInterval = 0.18
     static let easing = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
-    /// The whole landing, from the release to the curtain coming down (a test may shorten it).
-    #if DEBUG
-        nonisolated(unsafe) static var landingCap: CFTimeInterval = 0.4
-    #else
-        static let landingCap: CFTimeInterval = 0.4
-    #endif
+    /// The whole landing, from the release to the curtain coming down.
+    static let landingCap: CFTimeInterval = 0.4
     /// The copy in the gap, and the block in its place before the gap first moves.
     static let dim: Float = 0.35
     /// Idle-time drawing per frame.

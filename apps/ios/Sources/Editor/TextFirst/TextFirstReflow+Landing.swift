@@ -91,6 +91,11 @@ extension TextFirstReflow {
             copyImage.map { ($0.window, $0.offset) }
         }
 
+        /// The tallest drawing any slice holds, in pixels.
+        var tallestSlice: Int {
+            slices.flatMap { [$0.home, $0.closed] }.compactMap { $0?.height }.max() ?? 0
+        }
+
         /// Where each run's top is drawn now on screen; nil while hidden or sliding.
         var drawnOnScreen: [CGFloat?] {
             slices.map {

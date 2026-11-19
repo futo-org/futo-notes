@@ -42,6 +42,8 @@ final class TextFirstReflow {
     /// What the block is known to take in a gap and out of the note (`TextFirstReflowPlan
     /// .leaves`), kept for when it has scrolled away (#449).
     private(set) var known: (room: CGFloat, left: CGFloat)
+    /// The block's height last measured, which an estimate never replaces.
+    private(set) var measured: CGFloat?
     /// Draws `rect` (text view coordinates) of the block laid out on its own, its top at the
     /// given y: the copy once the block's own text is not laid out.
     var drawBlock: ((CGRect, CGFloat) -> CGImage?)?
@@ -71,6 +73,7 @@ final class TextFirstReflow {
         (self.plan, self.closedLine, self.painter, self.card) = (plan, closedLine, painter, card)
         gap = plan.home
         known = (plan.room, plan.leaves)
+        if plan.exact, closedLine == nil { measured = plan.room }
         visible = painter.textView.bounds
         slices = plan.runs.map { _ in Slice() }
         curtain.isUserInteractionEnabled = false
@@ -169,6 +172,7 @@ final class TextFirstReflow {
         if plan.homeShown || (closedLine != nil && closedLine !== self.closedLine) {
             known = (plan.room, plan.leaves)
         }
+        if plan.exact, plan.closing == nil, closedLine == nil { measured = plan.room }
         (self.plan, self.closedLine, visible, slices) = (plan, closedLine, bounds, next)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -306,8 +310,15 @@ final class TextFirstReflow {
         guard let closedLine, let line = plan.closing,
             run.top >= line.top - 0.5, run.bottom <= line.bottom + 0.5
         else { return (slices[j].home, slices[j].offset) }
+        // Only the stretch of it that can show (a row beside a photo far taller than the
+        // screen stays as tall once the photo has gone), as far below the run's top.
         let from = line.closedY(run.top - line.top)
-        return (closedLine.paint(from...(from + run.closed), at: line.top, with: painter), 0)
+        let shown = max(0, visible.minY - visible.height - run.top)
+        let to = min(run.closed, visible.maxY + visible.height - run.top)
+        guard to > shown else { return (nil, 0) }
+        let image = closedLine.paint(
+            (from + shown)...(from + to), at: line.top, with: painter)
+        return (image, painter.pixel(line.top + from + shown) - painter.pixel(line.top + from))
     }
 
     /// A lifted photo is drawn by the copy, so the runs leave its place blank.

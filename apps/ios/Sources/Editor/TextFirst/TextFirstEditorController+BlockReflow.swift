@@ -30,7 +30,8 @@ extension TextFirstEditorController {
     /// where the block laid out on its own puts it.
     func reflowPlan(
         _ book: TextFirstSlotBook, _ targets: TextFirstDropTargets,
-        reusing: TextFirstClosedLine? = nil, known: (room: CGFloat, left: CGFloat)? = nil
+        reusing: TextFirstClosedLine? = nil, known: (room: CGFloat, left: CGFloat)? = nil,
+        measured: CGFloat? = nil
     ) throws -> (plan: TextFirstReflowPlan, closedLine: TextFirstClosedLine?) {
         guard let laidOut = laidOutRange(), storage.length > 0 else {
             throw TextFirstReflowUnavailable("the note is not laid out")
@@ -49,8 +50,10 @@ extension TextFirstEditorController {
         var spans: [(CGFloat, CGFloat)] = [(window.top.y, window.bottom)]
         let anchor: Int
         // Whether the block's place was put beside what shows, not read from any layout: the
-        // note there is other text, never drawn as the block.
+        // note there is other text, never drawn as the block. Whether its height is measured
+        // rather than estimated.
         var placed = false
+        var exact = false
         // Which side of what shows the block is on when it does not show.
         let above = block.range.location < laidOut.location
         if book.alonePhoto {
@@ -132,9 +135,15 @@ extension TextFirstEditorController {
             // An edge beyond what is laid out is where the block laid out on its own puts it:
             // from its other edge, or from its line at the screen's top; off screen altogether,
             // beside what shows.
-            if top == nil || bottom == nil {
+            exact = top != nil && bottom != nil
+            if !exact {
+                // Its height measured (laid out whole, or read from both edges once) before
+                // one estimated from its first stretch.
                 let own = blockLayout(block.range)
-                let height = own?.height ?? known?.left ?? visible.height
+                let height =
+                    own.flatMap { $0.exact ? $0.height : nil } ?? measured ?? own?.height
+                    ?? known?.left ?? visible.height
+                exact = own?.exact == true || measured != nil
                 if let at = top {
                     bottom = at + height
                 } else if let at = bottom {
@@ -221,7 +230,7 @@ extension TextFirstEditorController {
         let plan = TextFirstReflowPlan(
             runs: runs, home: home, homeShown: homeShown, slots: slots, source: source,
             room: room, left: left, away: away, drawing: drawing,
-            blockDrawing: drawingSignature(block.range), sourceAnchor: anchor,
+            blockDrawing: drawingSignature(block.range), exact: exact, sourceAnchor: anchor,
             sourceLaidOut: placed
                 ? nil
                 : band.flatMap { b in

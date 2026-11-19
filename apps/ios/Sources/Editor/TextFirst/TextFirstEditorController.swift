@@ -147,6 +147,8 @@ final class TextFirstEditorController: NSObject {
     var reflowLanding: TextFirstReflowLanding?
     #if DEBUG
         var lastLanding: CFTimeInterval?
+        /// A test's shorter landing for this editor alone.
+        var debugLandingCap: CFTimeInterval?
     #endif
     /// The block being dragged laid out on its own, once the preview needs it (+BlockReflow).
     var liftedLayout: TextFirstBlockLayout?

@@ -52,6 +52,9 @@ struct TextFirstReflowPlan: Equatable {
     let drawing: Int
     /// What the images of the block itself draw: a change draws its copy again.
     let blockDrawing: Int
+    /// Whether `room` is the block's measured height (both its edges read, or it laid out
+    /// whole apart), not an estimate.
+    let exact: Bool
     /// The UTF-16 start of the line the block's drawing starts on.
     let sourceAnchor: Int
     /// The part of `source` TextKit has laid out (text view coordinates), where the copy can

@@ -80,7 +80,7 @@ extension TextFirstEditorController {
             preview.retreat {}
         }
         let left = preview.isOpen ? max(0, preview.slidesEnd - CACurrentMediaTime()) : 0
-        let wait = min(left, TextFirstReflowMotion.landingCap - (CACurrentMediaTime() - released))
+        let wait = min(left, landingCap - (CACurrentMediaTime() - released))
         guard wait > 0 else { return finishLanding() }
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self, weak landing] in
             guard let self, let landing, self.reflowLanding === landing else { return }
@@ -123,16 +123,10 @@ extension TextFirstEditorController {
         }
         // What shows is laid out again, around the text that moved, before any line is read.
         layOutViewport()
-        func spent() -> Bool {
-            CACurrentMediaTime() - released >= TextFirstReflowMotion.landingCap
-        }
-        if spent() {
-            TextFirstReflowMotion.log.notice(
-                "block drop: the move took the landing's time, landing without the slide")
-            preview.follow(boundsBy: textView.contentOffset.y - preview.visible.minY)
-            withinScroll(preview)
-            return true
-        }
+        // The time left of the landing's, from the release. A move that has spent it still
+        // holds the screen, then comes down at once, nothing set sliding.
+        func left() -> CFTimeInterval { landingCap - (CACurrentMediaTime() - released) }
+        let late = left() <= 0
         let plan = preview.plan
         // The screen holds still: the line beside the gap that shows (above it if it does) is
         // drawn after the move where the preview drew it. The block may have left from far
@@ -184,6 +178,11 @@ extension TextFirstEditorController {
         }
         // Below the note's foot (it came out shorter) the screen slides up to it with the runs.
         withinScroll(preview)
+        guard !late else {
+            TextFirstReflowMotion.log.notice(
+                "block drop: the move took the landing's time, landing without the slide")
+            return true
+        }
         // What shows is laid out before it is read and drawn, around the held line when TextKit
         // has left it so.
         if laidOutRange() == nil { ensureLayout(linesAround(anchor, count: 80)) }
@@ -193,10 +192,21 @@ extension TextFirstEditorController {
             TextFirstReflowMotion.log.error(
                 "block drop: the screen did not hold still, landing without the slide")
         }
+        // No slide outlasts the landing: one with too little time left is not started.
+        let time = min(TextFirstReflowMotion.slide, left())
         preview.settle(
             runs: landed.runs, block: landed.block, drawable: laidOutBand() ?? .infinite,
-            over: held && !spent() ? TextFirstReflowMotion.slide : 0)
+            over: held && time >= TextFirstReflowMotion.slide / 3 ? time : 0)
         return true
+    }
+
+    /// How long a landing may take from the release (a test may shorten it for one editor).
+    private var landingCap: CFTimeInterval {
+        #if DEBUG
+            debugLandingCap ?? TextFirstReflowMotion.landingCap
+        #else
+            TextFirstReflowMotion.landingCap
+        #endif
     }
 
     /// Scroll a note left beyond its foot (it came out shorter, or the preview drew it taller
@@ -205,20 +215,8 @@ extension TextFirstEditorController {
     func withinScroll(_ preview: TextFirstReflow) {
         textView.layoutIfNeeded()
         preview.follow(boundsBy: textView.contentOffset.y - preview.visible.minY)
-        // Only once the note's end is laid out is its foot known: TextKit's estimate of a
-        // long stretch it has not laid out again can fall short of it.
-        guard let manager = textView.textLayoutManager,
-            let end = manager.textContentManager?.location(
-                manager.documentRange.endLocation, offsetBy: -1),
-            manager.textLayoutFragment(for: end)?.state == .layoutAvailable
-        else { return }
-        let insets = textView.adjustedContentInset
-        let foot = max(
-            -insets.top, textView.contentSize.height + insets.bottom - textView.bounds.height)
-        let dy = foot - textView.contentOffset.y
-        guard dy < -0.25 else { return }
-        textView.contentOffset.y = foot
-        textView.layoutIfNeeded()
+        let dy = textView.backWithinFoot()
+        guard dy != 0 else { return }
         layOutViewport()
         preview.follow(boundsBy: dy)
     }
@@ -324,5 +322,26 @@ extension TextFirstEditorController {
     /// Lay out what shows now, as the next display pass would.
     func layOutViewport() {
         textView.textLayoutManager?.textViewportLayoutController.layoutViewport()
+    }
+}
+
+extension UITextView {
+    /// Scroll a note left past its foot back to it, once its end is laid out (TextKit's
+    /// estimate of a long stretch it has not laid out again can fall short of it): how far it
+    /// moved.
+    @discardableResult func backWithinFoot() -> CGFloat {
+        layoutIfNeeded()
+        guard let manager = textLayoutManager,
+            let end = manager.textContentManager?.location(
+                manager.documentRange.endLocation, offsetBy: -1),
+            manager.textLayoutFragment(for: end)?.state == .layoutAvailable
+        else { return 0 }
+        let insets = adjustedContentInset
+        let foot = max(-insets.top, contentSize.height + insets.bottom - bounds.height)
+        let dy = foot - contentOffset.y
+        guard dy < -0.25 else { return 0 }
+        contentOffset.y = foot
+        layoutIfNeeded()
+        return dy
     }
 }

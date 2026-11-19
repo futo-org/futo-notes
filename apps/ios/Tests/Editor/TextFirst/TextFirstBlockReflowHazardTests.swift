@@ -33,10 +33,8 @@
         }
 
         @Test func aReleaseThatSpentItsTimeComesDownAtOnceWithoutASlide() async throws {
-            let cap = TextFirstReflowMotion.landingCap
-            TextFirstReflowMotion.landingCap = 0
-            defer { TextFirstReflowMotion.landingCap = cap }
             let h = TextFirstHarness("one\ntwo\nthree\nfour", focused: false)
+            h.controller.debugLandingCap = 0
             let drag = try begin(h, at: h.point(line: 0))
             drag.follow(h.point(line: 2, fraction: 0.6))
             let preview = try #require(drag.preview)
@@ -46,6 +44,34 @@
             #expect(h.source == "two\nthree\none\nfour")
             #expect(preview.curtain.superview == nil && h.controller.reflowLanding == nil)
             #expect(preview.slidesEnd < released, "nothing was set sliding")
+        }
+
+        @Test func aReleaseThatSpentItsTimeStillHoldsWhatShows() async throws {
+            let lines = (0..<300).map { "line \($0)" }
+            let h = TextFirstHarness(lines.joined(separator: "\n"), focused: false)
+            h.controller.debugLandingCap = 0
+            let drag = try begin(h, at: h.point(line: 3))
+            drag.follow(h.point(line: 8))
+            for _ in 0..<4 {
+                h.tv.contentOffset.y += h.tv.bounds.height / 2
+                h.tv.layoutIfNeeded()
+                h.controller.remeasureBlockDrag()
+            }
+            hold(h, at: h.tv.bounds.height / 2)
+            try await Task.sleep(nanoseconds: 300_000_000)
+            // A line above the gap that shows whole, and where it is on screen.
+            let slot = try #require(drag.slot)
+            let gapLine = try #require(h.lineStarts.firstIndex(of: slot.offset))
+            let watched = gapLine - 4
+            // Where the preview draws it: pulled up by the block's leaving from above.
+            let preview = try #require(drag.preview)
+            let before =
+                h.point(line: watched, fraction: 0).y - h.tv.bounds.minY - preview.plan.left
+            h.controller.endBlockDrag(dropping: true)
+            #expect(h.controller.reflowLanding == nil, "down at once")
+            // The block left from above it: its text is a line further up the note.
+            let after = h.point(line: watched - 1, fraction: 0).y - h.tv.bounds.minY
+            #expect(abs(after - before) < 0.5, "drawn at \(before), then \(after)")
         }
 
         @Test func aNarrowPhotoTallerThanTheScreenIsDrawnOnlyWhereItCanShow() async throws {
@@ -214,6 +240,33 @@
             h.controller.blockDragInterrupted()
             #expect(drag.preview?.curtain.superview == nil)
             #expect(h.tv.contentOffset.y <= foot() + 0.5, "back within the note's scroll")
+        }
+
+        @Test func aDragWhoseEditorGoesAwayPastTheFootLeavesItWithinItsScroll() async throws {
+            let h = TextFirstHarness(Self.lines, focused: false)
+            _ = try h.controller.session.detach()
+            var editor: TextFirstEditorController? = try TextFirstEditorController(
+                noteId: "note", session: try h.store.openEditor(id: "note"), imageRoot: h.root)
+            let view = try #require(editor?.textView)
+            h.tv.removeFromSuperview()
+            view.frame = h.window.bounds
+            h.window.addSubview(view)
+            func foot() -> CGFloat {
+                view.contentSize.height + view.adjustedContentInset.bottom - view.bounds.height
+            }
+            view.contentOffset.y = foot()
+            view.layoutIfNeeded()
+            let p = CGPoint(x: 60, y: view.bounds.midY)
+            #expect(editor?.liftShouldBegin(at: p) == true)
+            editor?.beginBlockDrag(at: p)
+            editor?.followBlockDrag(to: CGPoint(x: 60, y: p.y - 100))
+            #expect(editor?.blockDrag?.preview?.isOpen == true)
+            // Past the foot, as the preview's extra height may take it.
+            view.contentOffset.y = foot() + 40
+            view.layoutIfNeeded()
+            editor = nil
+            try await Task.sleep(nanoseconds: 100_000_000)
+            #expect(view.contentOffset.y <= foot() + 0.5, "back within the note's scroll")
         }
 
         @Test func aDragLeavesNoSecondLayoutBehind() async throws {

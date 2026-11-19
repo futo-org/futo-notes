@@ -132,7 +132,11 @@ final class TextFirstBlockDrag {
     isolated deinit {
         guard !finished else { return }
         for view in [card, dimmedSource, dropLine] { view.removeFromSuperview() }
-        preview?.remove()
+        if let preview {
+            preview.remove()
+            // The preview may have scrolled the note past its end.
+            textView?.backWithinFoot()
+        }
         textView?.panGestureRecognizer.isEnabled = true
     }
 
