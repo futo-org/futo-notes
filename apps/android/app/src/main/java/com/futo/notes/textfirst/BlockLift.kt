@@ -77,6 +77,9 @@ internal class BlockLift(private val view: TextFirstEditText) {
      */
     private var pendingDrop: EditorEngine? = null
 
+    /** A gesture that went down while input waited: the rest of it is swallowed too, so no handler sees an UP without its DOWN. */
+    private var swallowing = false
+
     /** Whether a press may lift anything, before the line under it is asked: a finger (not a stylus, eraser or mouse), with no field focused. */
     private fun mayLift(e: MotionEvent): Boolean =
         e.getToolType(0) !in NOT_A_FINGER &&
@@ -84,7 +87,20 @@ internal class BlockLift(private val view: TextFirstEditText) {
 
     /** True while this press is the drag's: the view's other handlers and the platform must not see [e]. */
     fun onTouch(e: MotionEvent): Boolean {
-        pendingDrop?.let { if (it === view.engine) return true else pendingDrop = null }
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) swallowing = false
+        pendingDrop?.let {
+            if (it !== view.engine) { pendingDrop = null; return@let }
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> swallowing = true
+                // The gesture that dropped ends here (a second finger lifting last): nothing of it stays armed.
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> clear()
+            }
+            return true
+        }
+        if (swallowing) {
+            if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) swallowing = false
+            return true
+        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 clear()
