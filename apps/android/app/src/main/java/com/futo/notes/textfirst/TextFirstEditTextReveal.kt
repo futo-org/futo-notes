@@ -61,15 +61,26 @@ internal class CaretReveal {
  */
 internal fun TextFirstEditText.caretWasInView(viewHeight: Int): Boolean {
     val l = layout ?: return false
-    if (selectionEnd < 0) return false
-    val line = l.getLineForOffset(selectionEnd)
+    // A selected block is where its header is.
+    val offset = selectedCodeBlock?.first ?: selectionEnd
+    if (offset < 0) return false
+    val line = l.getLineForOffset(offset)
     return l.getLineTop(line) + totalPaddingTop >= scrollY && l.getLineBottom(line) + totalPaddingTop <= scrollY + viewHeight
 }
 
-/** A whole-note selection, or a code block selected as one object, changes the selected range without moving the reader to its end. */
+/**
+ * A whole-note selection changes the selected range without moving the reader to its end. A code block selected as
+ * one object is revealed whole, from its header, or from its header down when it is taller than the space.
+ */
 internal fun TextFirstEditText.revealCaret(offset: Int, nativeReveal: () -> Boolean): Boolean {
     // The reader is being put back on their line (an open, a new width); the caret stays where it is.
-    if (restoring != null || selectedCodeBlock != null) return false
+    if (restoring != null) return false
+    selectedCodeBlock?.let { block ->
+        return reveal.at(block.first, ready = layout != null && height > 0) {
+            val (top, bottom) = codeBlockLines(block) ?: return@at false
+            revealAreaAboveKeyboard(top.toFloat(), bottom.toFloat())
+        }
+    }
     // A code block's header field has the keyboard: the note's own caret is not where the reader is (CodeHeaderField).
     if (codeTouch.headerField.openField != null) return false
     val end = (editableText?.length ?: 0) - 1

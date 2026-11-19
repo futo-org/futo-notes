@@ -58,11 +58,8 @@ internal class CodeBlockCallout(private val note: TextFirstEditText) : ActionMod
 
     /** The block's code lines, unclipped: the platform's toolbar clips them to the screen and hides while none shows. */
     override fun onGetContentRect(mode: ActionMode, view: View, outRect: Rect) {
-        val layout = note.layout
-        val block = note.selectedCodeBlock
-        if (layout == null || block == null) return super.onGetContentRect(mode, view, outRect)
-        val top = layout.getLineTop(layout.getLineForOffset(block.first)) + note.totalPaddingTop - note.scrollY
-        val bottom = layout.getLineBottom(layout.getLineForOffset(maxOf(block.first, block.second - 1))) + note.totalPaddingTop - note.scrollY
-        outRect.set(note.totalPaddingLeft, top, note.width - note.totalPaddingRight, bottom)
+        val lines = note.selectedCodeBlock?.let(note::codeBlockLines) ?: return super.onGetContentRect(mode, view, outRect)
+        val onScreen = note.totalPaddingTop - note.scrollY
+        outRect.set(note.totalPaddingLeft, lines.first + onScreen, note.width - note.totalPaddingRight, lines.second + onScreen)
     }
 }

@@ -328,24 +328,9 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
 
     private fun keepInView(state: Editing) {
         val area = fieldArea(state) ?: return
-        // The keyboard resizes the note (the screen's imePadding) a few frames after it reports its height: measure
-        // against the keyboard's own top, so the first reveal lands where the note will end and the resize moves nothing.
         // Only a field the keyboard covers moves the note, as on !300; when leaving
         // brings the toolbar back over the caret's line, the caret's own reveal moves it then (ruling, 2026-11-17).
-        val keyboard = ViewCompat.getRootWindowInsets(note)?.takeIf { it.isVisible(WindowInsetsCompat.Type.ime()) }
-            ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom
-        val inWindow = IntArray(2).also(note::getLocationInWindow)
-        val keyboardTop = keyboard?.let { note.rootView.height - it - inWindow[1] } ?: note.height
-        val visibleBottom = minOf(note.height, keyboardTop) - note.totalPaddingBottom
-        val top = note.totalPaddingTop - note.scrollY + area.top
-        val bottom = note.totalPaddingTop - note.scrollY + area.bottom
-        val shift = when {
-            bottom > visibleBottom -> bottom - visibleBottom
-            top < note.totalPaddingTop -> top - note.totalPaddingTop
-            else -> return
-        }
-        // Never past the note's end: the next restyle would pull it back while the reader types.
-        note.scrollTo(note.scrollX, (note.scrollY + shift).roundToInt().coerceIn(0, note.maxScrollY()))
+        note.revealAreaAboveKeyboard(area.top, area.bottom)
     }
 
     private companion object {
