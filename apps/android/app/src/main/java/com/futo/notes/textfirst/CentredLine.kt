@@ -7,9 +7,9 @@ import android.text.style.LineHeightSpan
 import kotlin.math.roundToInt
 
 /**
- * The field's one line, as tall as the font's but centred on what the eye sees, from the capitals'
- * top to the descenders' bottom, so the selection highlight sits around the text instead of
- * reaching mostly above it (Mason, 2026-11-17: "magnetized to the top").
+ * The field's one line, as tall as the font's but centred on what the eye sees ([visibleLineSpan]),
+ * so the selection highlight sits around the text: not mostly above it (Mason, 2026-11-17:
+ * "magnetized to the top"), nor below it, as the font's declared descent put it (job 11 C).
  */
 internal class CentredLine(paint: TextPaint) : LineHeightSpan {
     val ascent: Int
@@ -17,9 +17,9 @@ internal class CentredLine(paint: TextPaint) : LineHeightSpan {
 
     init {
         val metrics = paint.fontMetricsInt
-        val capital = Rect().also { paint.getTextBounds("H", 0, 1, it) }
+        val (top, bottom) = visibleLineSpan(paint)
         val height = metrics.descent - metrics.ascent
-        val centre = (capital.top + metrics.descent) / 2f
+        val centre = (top + bottom) / 2f
         ascent = (centre - height / 2f).roundToInt()
         descent = ascent + height
     }
@@ -32,3 +32,9 @@ internal class CentredLine(paint: TextPaint) : LineHeightSpan {
     }
 }
 
+/** What the eye sees of a line in [paint], relative to its baseline: from the capitals' top to the descenders' drawn bottom. */
+internal fun visibleLineSpan(paint: Paint): Pair<Int, Int> {
+    val capital = Rect().also { paint.getTextBounds("H", 0, 1, it) }
+    val descender = Rect().also { paint.getTextBounds("gjpqy", 0, 5, it) }
+    return capital.top to descender.bottom
+}

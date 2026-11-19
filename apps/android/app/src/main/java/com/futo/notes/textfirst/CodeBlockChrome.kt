@@ -161,12 +161,12 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     }
 
     /**
-     * The baseline that centres a header text in [face] on a header whose top is [top]: the drawn
-     * label and its open field both sit on it.
+     * The baseline that centres a header text in [face] (what the eye sees of it) in the field's chip on a header whose
+     * top is [top]: the drawn label and its open field both sit on it.
      */
     fun headerBaseline(top: Float, face: Typeface): Float {
-        val metrics = baselinePaint.apply { typeface = face; textSize = look.codeHeaderTextSize }.run { getFontMetrics(scratchMetrics); scratchMetrics }
-        return top + (look.codeHeaderHeight - metrics.ascent - metrics.descent) / 2f
+        val (visibleTop, visibleBottom) = visibleLineSpan(baselinePaint.apply { typeface = face; textSize = look.codeHeaderTextSize })
+        return top + look.codeFieldInset + look.codeFieldHeight / 2f - (visibleTop + visibleBottom) / 2f
     }
 
     /** Where [action]'s part of the block at [codeStart] was last drawn, in layout coordinates. */

@@ -56,9 +56,9 @@ class TextFirstCodeHeaderFieldTest {
         assertEquals(drawn, fieldBaseline(), 1f)
         val line = field.layout
         val highlightCentre = field.top - view.top + field.totalPaddingTop + (line.getLineTop(0) + line.getLineBottom(0)) / 2f
-        // Centred on what the eye sees: from the capitals' top to the descenders' bottom.
-        val capital = android.graphics.Rect().also { field.paint.getTextBounds("H", 0, 1, it) }
-        val inkCentre = fieldBaseline() + (capital.top + field.paint.fontMetrics.descent) / 2f
+        // Centred on what the eye sees: from the capitals' top to the drawn descenders' bottom.
+        val (visibleTop, visibleBottom) = visibleLineSpan(field.paint)
+        val inkCentre = fieldBaseline() + (visibleTop + visibleBottom) / 2f
         assertEquals(inkCentre, highlightCentre, 1f)
         val input = field.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!
         for (letter in "abcde") {
