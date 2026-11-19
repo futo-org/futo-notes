@@ -32,6 +32,11 @@ final class TextFirstClosedLine {
         _ storage: NSTextStorage, line: NSRange, removing photo: NSRange, width: CGFloat,
         drawing: Int
     ) {
+        // The photo must lie inside the line: a mismatch (lines counted another way) gives
+        // no closed line, and the drag shows the drop line, rather than an out-of-range edit.
+        guard photo.location >= line.location, NSMaxRange(photo) <= NSMaxRange(line),
+            NSMaxRange(line) <= storage.length
+        else { return nil }
         let text = NSMutableAttributedString(
             attributedString: storage.attributedSubstring(from: line))
         text.deleteCharacters(
@@ -86,13 +91,18 @@ final class TextFirstClosedLine {
             shift: top - laidOut, fragments: { visit in _ = visit(fragment) })
     }
 
-    /// The photo's own line, its top at `top` (text view coordinates), as `painter` draws the
-    /// note, over the surface colour.
-    func paintPhoto(at top: CGFloat, with painter: TextFirstSlicePainter) -> CGImage? {
+    /// The stretch `band` (its own coordinates, 0 at its top) of the photo's own line, its top
+    /// at `top` (text view coordinates), as `painter` draws the note, over the surface colour.
+    func paintPhoto(
+        _ band: ClosedRange<CGFloat>, at top: CGFloat, with painter: TextFirstSlicePainter
+    ) -> CGImage? {
         let laidOut =
             painter.textView.textContainerInset.top + photoFragment.layoutFragmentFrame.minY
+        let from = painter.pixel(top + band.lowerBound)
         return painter.draw(
-            CGRect(x: 0, y: top, width: painter.textView.bounds.width, height: photoHeight),
+            CGRect(
+                x: 0, y: from, width: painter.textView.bounds.width,
+                height: painter.pixel(top + band.upperBound) - from),
             shift: top - laidOut, fragments: { visit in _ = visit(photoFragment) })
     }
 }

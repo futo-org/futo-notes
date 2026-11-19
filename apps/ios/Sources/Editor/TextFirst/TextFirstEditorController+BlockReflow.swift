@@ -48,11 +48,13 @@ extension TextFirstEditorController {
         var closedLine: TextFirstClosedLine?
         var spans: [(CGFloat, CGFloat)] = [(window.top.y, window.bottom)]
         let anchor: Int
+        // Whether the block's place was put beside what shows, not read from any layout: the
+        // note there is other text, never drawn as the block.
+        var placed = false
         // Which side of what shows the block is on when it does not show.
         let above = block.range.location < laidOut.location
         if book.alonePhoto {
-            let line = (storage.string as NSString).lineRange(
-                for: NSRange(location: block.range.location, length: 0))
+            let line = (storage.string as NSString).noteLine(at: block.range.location)
             let start = TextFirstBlockSlot(offset: line.location, end: false)
             // A line ending at the text's end ends at the note's end unless a line ending
             // closes it: then an empty last line (an empty task) follows, with its own row.
@@ -87,12 +89,31 @@ extension TextFirstEditorController {
                     Cut(y: middle, anchor: start, inset: middle - top, home: true),
                 ]
             } else {
-                // Its line has scrolled away: it closed up by what it was known to (`left`).
+                // Its line has scrolled away: it closed up by what it was known to (`left`),
+                // unless it draws otherwise now (the photo loaded, a new width): then the line
+                // is laid out again apart, with and without the photo.
                 guard let known, let before = reusing else {
                     throw TextFirstReflowUnavailable("the photo's line is not laid out")
                 }
-                closedLine = before
-                (room, left, anchor) = (known.room, known.left, line.location)
+                if before.width == width, before.drawing == drawing {
+                    closedLine = before
+                    (room, left) = (known.room, known.left)
+                } else {
+                    guard
+                        let closed = TextFirstClosedLine(
+                            storage, line: line, removing: block.range, width: width,
+                            drawing: drawing),
+                        let whole = TextFirstBlockLayout(
+                            storage, block: line, width: width, drawing: drawing, host: self)
+                    else {
+                        throw TextFirstReflowUnavailable(
+                            "the photo's line did not lay out without it")
+                    }
+                    closedLine = closed
+                    (room, left) = (closed.photoHeight, max(0, whole.height - closed.height))
+                }
+                anchor = line.location
+                placed = true
                 source = CGRect(
                     x: visible.minX, y: above ? window.top.y - room : window.bottom,
                     width: visible.width, height: room)
@@ -124,6 +145,7 @@ extension TextFirstEditorController {
                     top = window.top.y - y
                 } else {
                     top = above ? window.top.y - height : window.bottom
+                    placed = true
                 }
                 bottom = bottom ?? top.map { $0 + height }
             }
@@ -200,41 +222,27 @@ extension TextFirstEditorController {
             runs: runs, home: home, homeShown: homeShown, slots: slots, source: source,
             room: room, left: left, away: away, drawing: drawing,
             blockDrawing: drawingSignature(block.range), sourceAnchor: anchor,
-            sourceLaidOut: band.flatMap { b in
-                let top = max(b.minY, source.minY)
-                let bottom = min(b.maxY, source.maxY)
-                return top < bottom ? top...bottom : nil
-            }, closing: closing)
+            sourceLaidOut: placed
+                ? nil
+                : band.flatMap { b in
+                    let top = max(b.minY, source.minY)
+                    let bottom = min(b.maxY, source.maxY)
+                    return top < bottom ? top...bottom : nil
+                }, closing: closing)
         return (plan, closedLine)
     }
 
-    /// `block` laid out on its own, once for the drag.
+    /// `block` laid out on its own, once for the drag, and again when it draws otherwise
+    /// (an image in it loaded, a new width).
     func blockLayout(_ block: NSRange) -> TextFirstBlockLayout? {
         let width = textView.textContainer.size.width
-        if let own = liftedLayout, own.range == block, own.width == width { return own }
-        liftedLayout = TextFirstBlockLayout(storage, block: block, width: width)
+        let drawing = drawingSignature(block)
+        if let own = liftedLayout, own.range == block, own.width == width, own.drawing == drawing {
+            return own
+        }
+        liftedLayout = TextFirstBlockLayout(
+            storage, block: block, width: width, drawing: drawing, host: self)
         return liftedLayout
-    }
-
-    /// The stretch of the note TextKit has laid out (text view coordinates), unbounded at the
-    /// note's ends: what is drawn there beyond its fragments (the box of an empty last task)
-    /// is laid out too.
-    func laidOutBand() -> CGRect? {
-        guard let manager = textView.textLayoutManager,
-            let viewport = manager.textViewportLayoutController.viewportRange,
-            let first = manager.textLayoutFragment(for: viewport.location),
-            let end = manager.textContentManager?.location(viewport.endLocation, offsetBy: -1),
-            let last = manager.textLayoutFragment(for: end)
-        else { return nil }
-        let document = manager.documentRange
-        let far: CGFloat = 1e7
-        let top =
-            viewport.location.compare(document.location) == .orderedDescending
-            ? inset.top + first.layoutFragmentFrame.minY : -far
-        let bottom =
-            viewport.endLocation.compare(document.endLocation) == .orderedAscending
-            ? inset.top + max(last.layoutFragmentFrame.maxY, first.layoutFragmentFrame.maxY) : far
-        return CGRect(x: 0, y: top, width: textView.bounds.width, height: bottom - top)
     }
 
     /// What the images in UTF-16 `range` draw: each one's place, its size, and whether it has
@@ -250,42 +258,6 @@ extension TextFirstEditorController {
             hasher.combine(span.atom.failed)
         }
         return hasher.finalize()
-    }
-
-    /// The UTF-16 start of display line `k`, counting from the line start `base`; nil past the
-    /// text's end.
-    func lineStart(_ k: Int, from base: Int) -> Int? {
-        let starts = lineStarts(from: base, through: storage.length, lines: k + 1)
-        return k < starts.count ? starts[k] : nil
-    }
-
-    /// The UTF-16 starts of the display lines from the line start `base` to `through`, at most
-    /// `lines` of them.
-    func lineStarts(from base: Int, through: Int, lines: Int = .max) -> [Int] {
-        let text = storage.string as NSString
-        var starts = [base]
-        var at = base
-        while at < min(through, text.length), starts.count < lines {
-            let found = text.range(
-                of: "\n", options: .literal,
-                range: NSRange(location: at, length: min(through, text.length) - at))
-            guard found.location != NSNotFound else { break }
-            at = NSMaxRange(found)
-            starts.append(at)
-        }
-        return starts
-    }
-
-    /// Have TextKit lay out the lines of UTF-16 `range` now.
-    func ensureLayout(_ range: NSRange) {
-        guard let manager = textView.textLayoutManager, let content = manager.textContentManager,
-            let a = content.location(manager.documentRange.location, offsetBy: range.location),
-            let b = content.location(
-                manager.documentRange.location,
-                offsetBy: min(NSMaxRange(range) + 1, storage.length)),
-            let lines = NSTextRange(location: a, end: b)
-        else { return }
-        manager.ensureLayout(for: lines)
     }
 
     /// The y of `slot`, laying out the text between what is laid out and it when it is not.
@@ -331,9 +303,19 @@ extension TextFirstEditorController {
         {
             let start = manager.offset(
                 from: manager.documentRange.location, to: f.rangeInElement.location)
-            return Cut(
-                y: inset.top + f.layoutFragmentFrame.minY,
-                anchor: TextFirstBlockSlot(offset: start, end: false), inset: 0)
+            let top = inset.top + f.layoutFragmentFrame.minY
+            // TextKit starts a paragraph inside a line at U+2029, U+0085 or a lone return:
+            // the run is measured from the line's start, as the landing finds lines.
+            let line = (storage.string as NSString).noteLine(at: start).location
+            if line != start,
+                let lineTop = boundaryY(
+                    TextFirstBlockSlot(offset: line, end: false), in: laidOut)
+            {
+                return Cut(
+                    y: top, anchor: TextFirstBlockSlot(offset: line, end: false),
+                    inset: top - lineTop)
+            }
+            return Cut(y: top, anchor: TextFirstBlockSlot(offset: start, end: false), inset: 0)
         }
         let end = TextFirstBlockSlot(offset: storage.length, end: true)
         if let bottom = boundaryY(end, in: laidOut), y >= bottom {

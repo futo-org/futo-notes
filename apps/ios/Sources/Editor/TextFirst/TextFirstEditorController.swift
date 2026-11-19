@@ -145,7 +145,9 @@ final class TextFirstEditorController: NSObject {
     /// A drop whose preview is still settling over the moved note (+BlockLanding), and how long
     /// the last one covered the note from its release (debug readout).
     var reflowLanding: TextFirstReflowLanding?
-    var lastLanding: CFTimeInterval?
+    #if DEBUG
+        var lastLanding: CFTimeInterval?
+    #endif
     /// The block being dragged laid out on its own, once the preview needs it (+BlockReflow).
     var liftedLayout: TextFirstBlockLayout?
     /// Debug builds: drag as with Reduce Motion on (`-FUTODebugReduceMotion`), which a UI test
