@@ -59,8 +59,11 @@ class TextFirstTypedDelimiterRowTest {
         assertEquals("intro\n\n| a | b |\n|---|---|\n| x |  |", c.sourceText()!!.trimEnd('\n'))
     }
 
-    /** Verifier: Enter finishes the row too; FUTO's Backspace in the opened cell, then its read of the text, crashed. */
-    @Test fun backspaceAfterEnterFinishedTheRowDoesNotCrash() = textFirstSession("intro\n\n") { c ->
+    /**
+     * tables.md: Enter, Shift+Enter and Tab on a typed row do the finishing move too, and a Backspace straight after takes
+     * that move back as after the closing pipe. Backspace is FUTO's DEL key in the opened cell (the verifier's crash path).
+     */
+    private fun finishedByAKeyThenBackspace(finish: android.view.inputmethod.InputConnection.() -> Unit) = textFirstSession("intro\n\n") { c ->
         val view = c.view
         withContext(Dispatchers.Main) { view.isFocusableInTouchMode = true; view.requestFocus() }
         withTimeout(5_000) { while (view.layout == null) delay(20) }
@@ -69,15 +72,30 @@ class TextFirstTypedDelimiterRowTest {
         for (key in "| a | b |") textFirstIme(c) { commitText(key.toString(), 1) }
         textFirstIme(c) { commitText("\n", 1) }
         for (key in "|---|---") textFirstIme(c) { commitText(key.toString(), 1) }
-        textFirstIme(c) { commitText("\n", 1) }
+        val row = view.lineOf("|---|---")
+        textFirstIme(c) { finish() }
         withTimeout(5_000) { while (c.cellView == null) delay(20) }
+        assertEquals("intro\n\n| a | b |\n|---|---\n|  |  |", c.sourceText()!!.trimEnd('\n'))
         val cell = withContext(Dispatchers.Main) { c.cellView!!.onCreateInputConnection(android.view.inputmethod.EditorInfo())!! }
         textFirstIme(c, connection = cell) {
             sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DEL))
             sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_DEL))
         }
         textFirstIme(c, connection = cell) { getTextBeforeCursor(1040, 0); getTextAfterCursor(1040, 0) }
-        assertTrue("the note is still open", c.sourceText()!!.startsWith("intro"))
+        assertEquals("intro\n\n| a | b |\n|---|---", c.sourceText()!!.trimEnd('\n'))
+        withTimeout(5_000) { while (!shownAsText(c, row) || c.cellView != null) delay(20) }
+        assertEquals("the caret is back at the row's end", row + "|---|---".length, view.selectionStart)
     }
-}
 
+    private fun key(code: Int, meta: Int = 0): android.view.inputmethod.InputConnection.() -> Unit = {
+        sendKeyEvent(android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_DOWN, code, 0, meta))
+        sendKeyEvent(android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_UP, code, 0, meta))
+    }
+
+    @Test fun backspaceTakesBackEnterFinishingTheRow() = finishedByAKeyThenBackspace { commitText("\n", 1) }
+
+    @Test fun backspaceTakesBackShiftEnterFinishingTheRow() =
+        finishedByAKeyThenBackspace(key(android.view.KeyEvent.KEYCODE_ENTER, android.view.KeyEvent.META_SHIFT_ON))
+
+    @Test fun backspaceTakesBackTabFinishingTheRow() = finishedByAKeyThenBackspace(key(android.view.KeyEvent.KEYCODE_TAB))
+}
