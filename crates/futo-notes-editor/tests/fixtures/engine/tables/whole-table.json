@@ -1,0 +1,110 @@
+[
+ {
+  "name": "Backspace over every cell removes the table, leaving one empty line",
+  "before": "a\n| «x | y |\n| --- | --- |\n| 1 | 2» |\nb",
+  "command": "key Backspace",
+  "after": "a\n‸\nb"
+ },
+ {
+  "name": "Delete over every cell removes the table, leaving one empty line",
+  "before": "a\n| «x | y |\n| --- | --- |\n| 1 | 2» |\nb",
+  "command": "key Delete",
+  "after": "a\n‸\nb"
+ },
+ {
+  "name": "a selection to the point in an empty last cell covers every cell",
+  "before": "a\n| «x | y |\n|---|---|\n| 1 | » |\nb",
+  "command": "key Backspace",
+  "after": "a\n‸\nb"
+ },
+ {
+  "name": "a short last row's last existing cell is its last cell; a table at the note's start",
+  "before": "| «x | y |\n|---|---|\n| 1» |\nb",
+  "command": "key Backspace",
+  "after": "‸\nb"
+ },
+ {
+  "name": "a header-only table is covered by its header's cells",
+  "before": "a\n| «x | y» |\n|---|---|",
+  "command": "key Delete",
+  "after": "a\n‸"
+ },
+ {
+  "name": "a table at the note's end with no line ending",
+  "before": "a\n| «x |\n|---|\n| 1» |",
+  "command": "key Backspace",
+  "after": "a\n‸"
+ },
+ {
+  "name": "ends inside formatted cells, at the edges of their visible text, cover them",
+  "before": "| **«x** | y |\n|---|---|\n| 1 | *2»* |\nb",
+  "command": "key Backspace",
+  "after": "‸\nb"
+ },
+ {
+  "name": "a CRLF table leaves its last line's CRLF",
+  "before": "a\r\n| «x |\r\n|---|\r\n| 1» |\r\nb",
+  "command": "key Backspace",
+  "after": "a\r\n‸\r\nb"
+ },
+ {
+  "name": "a table under a code block goes alone",
+  "before": "```\ncode\n```\n| «x |\n|---|\n| 1» |\nb",
+  "command": "key Backspace",
+  "after": "```\ncode\n```\n‸\nb"
+ },
+ {
+  "name": "an end above the table stays; the end in the table goes to its line's end",
+  "before": "ab«c\n| x | y |\n|---|---|\n| 1 | 2» |\nd",
+  "command": "key Backspace",
+  "after": "ab‸\nd"
+ },
+ {
+  "name": "an end below the table stays; the end in the table goes to its line's start",
+  "before": "a\n| «x | y |\n|---|---|\n| 1 | 2 |\nde»f",
+  "command": "key Delete",
+  "after": "a\n‸f"
+ },
+ {
+  "name": "an end on a list item above the table stays",
+  "before": "- a«b\n| x |\n|---|\n| 1» |\nc",
+  "command": "key Backspace",
+  "after": "- a‸\nc"
+ },
+ {
+  "name": "typing over every cell replaces the table's lines",
+  "before": "a\n| «x | y |\n|---|---|\n| 1 | 2» |\nb",
+  "command": "type z",
+  "after": "a\nz‸\nb"
+ },
+ {
+  "name": "a text service's text over every cell replaces the table's lines",
+  "before": "a\n| «x | y |\n|---|---|\n| 1 | 2» |\nb",
+  "command": "service x!",
+  "after": "a\nx!‸\nb"
+ },
+ {
+  "name": "marked text committed over every cell replaces the table's lines",
+  "before": "a\n| «x | y |\n|---|---|\n| 1 | 2» |\nb",
+  "command": "commit x",
+  "after": "a\nx‸\nb"
+ },
+ {
+  "name": "a selection one cell short at the start deletes as plain text",
+  "before": "| x | «y |\n|---|---|\n| 1 | 2» |\nb",
+  "command": "key Backspace",
+  "after": "| x | ‸ |\nb"
+ },
+ {
+  "name": "a selection one cell short at the end deletes as plain text",
+  "before": "| «x | y |\n|---|---|\n| 1» | 2 |\nb",
+  "command": "key Backspace",
+  "after": "| ‸ | 2 |\nb"
+ },
+ {
+  "name": "a selection inside a one-cell table's only cell deletes that cell's text",
+  "before": "| «x» |\n|---|\nb",
+  "command": "key Backspace",
+  "after": "| ‸ |\n|---|\nb"
+ }
+]

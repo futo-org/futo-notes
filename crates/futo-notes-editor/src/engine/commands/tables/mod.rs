@@ -10,6 +10,7 @@ mod delimiter_row;
 mod keys;
 mod paste;
 mod structure;
+mod whole_tables;
 
 use super::super::line::Entry;
 use super::super::Engine;

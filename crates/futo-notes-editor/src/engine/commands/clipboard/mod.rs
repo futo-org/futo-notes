@@ -2,7 +2,8 @@
 //!
 //! Copy exports the selection's exact source, with the marks a selection
 //! boundary cuts closed or opened again (`copy.rs`). Cut is copy plus the
-//! deletion Backspace makes over the selection, as its own undo step, and
+//! deletion Backspace makes over the selection (over a table it covers, of
+//! the table's lines whole), as its own undo step, and
 //! carries the cut text's formats to the next typed character. Paste writes
 //! the pasted text as it is, behind the one guard (`paste.rs`). Drag-to-move
 //! is a cut and a paste joined into one undo step (`move_text.rs`).
@@ -45,8 +46,9 @@ impl Engine {
             expected,
             |engine| {
                 engine.check_display_range(range)?;
-                // Cut copies what it removes: never front matter.
-                copied = engine.copied(engine.in_body(range));
+                // Cut copies what it removes: never front matter, and a
+                // table it covers whole.
+                copied = engine.copied(engine.whole_tables(engine.in_body(range)));
                 if copied.is_empty() {
                     return Ok(None);
                 }

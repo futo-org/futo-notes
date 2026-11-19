@@ -120,7 +120,8 @@ impl Engine {
     /// the line markers and hidden lines inside it, keeps the syntax of spans
     /// that reach out of it, and drops the syntax of spans left empty; the
     /// text lands where the selection starts, inside spans that start there.
-    /// A code block it reaches into or out of goes whole (`block_reach`).
+    /// A code block it reaches into or out of goes whole (`block_reach`), and
+    /// so does a table it covers every cell of (`whole_tables`).
     /// Every plan, so every input, key and command, first takes `range`'s
     /// ends out of images and wikilinks (`plan_writing`).
     pub(crate) fn plan(&self, range: DisplayRange, text: &str) -> Plan {
@@ -140,7 +141,8 @@ impl Engine {
     /// its edge (`outside_atoms`), so no plan keeps part of one's spelling.
     /// No plan writes front matter (`in_body`).
     fn plan_writing(&self, range: DisplayRange, text: &str, writes: bool) -> Plan {
-        let plan = self.replacement(self.outside_atoms(self.in_body(range)), text, writes);
+        let range = self.whole_tables(self.outside_atoms(self.in_body(range)));
+        let plan = self.replacement(range, text, writes);
         // A deletion keeps a span's format when it leaves a space at its
         // edge (inline family, `commands/inline/typing.rs`).
         match self.kept_formats(&plan.range, &plan.inserted) {
@@ -321,7 +323,12 @@ impl Engine {
                 carry: typed.carry,
             };
         }
-        if action == InputAction::Typing || range.start == range.end {
+        // Over a table it covers, nothing of the selection is kept, so no
+        // shared stretch is either.
+        if action == InputAction::Typing
+            || range.start == range.end
+            || self.whole_tables(range) != range
+        {
             return self.plan(range, text);
         }
         let old = self.display_slice(range.start.0..range.end.0);
