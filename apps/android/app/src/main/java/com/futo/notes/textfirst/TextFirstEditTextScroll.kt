@@ -8,10 +8,11 @@ internal fun TextFirstEditText.anchorY(anchor: ScrollAnchor): Int? {
     return (l.getLineTop(line) + anchor.intoLine + totalPaddingTop).coerceIn(0, maxScrollY())
 }
 
-/** The furthest the note scrolls: its last line (and the padding under it) at the bottom edge. */
+/** The furthest the note scrolls: its last line (and the padding under it) at the bottom edge, as a block drag's preview draws it. */
 internal fun TextFirstEditText.maxScrollY(): Int {
     val l = layout ?: return 0
-    return (l.height + totalPaddingTop + totalPaddingBottom - height).coerceAtLeast(0)
+    val preview = blockLift.drag?.reflow?.extraHeight() ?: 0
+    return (l.height + preview + totalPaddingTop + totalPaddingBottom - height).coerceAtLeast(0)
 }
 
 /**

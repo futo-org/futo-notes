@@ -155,6 +155,23 @@ class TextFirstBlockReflowTest {
         assertEquals(1, haptics.lifts)
     }
 
+    /** A photo lifted out of a checklist item shows in the gap as itself, without the item's box or indent (it lands as a plain line). */
+    @Test
+    fun aPhotoLiftedOutOfAChecklistItemShowsInTheGapWithoutTheItemsBox() =
+        compose.openDragScreen("- [ ] caption ![](p.png)\nnext\nend", mapOf("p.png" to png(300, 200))) {
+            compose.waitUntil(5_000) { ui { view.text!!.getSpans(0, view.length(), TfImage::class.java).first().bitmap != null } }
+            val photo = ui {
+                val r = checkNotNull(view.imageRect(view.text!!.getSpans(0, view.length(), TfImage::class.java).first()))
+                val loc = IntArray(2).also(view::getLocationOnScreen)
+                PointF(loc[0] + r.centerX(), loc[1] + r.centerY() - view.scrollY)
+            }
+            down(photo); hold(600)
+            val at = carryUntil(photo, 8f, right()) { report?.gap == BlockSlot(lineStart("end"), false) }
+            assertPhotoCopyDrawn()
+            up(at)
+            saved("- [ ] caption \nnext\n![](p.png)\nend")
+        }
+
     /** A photo lifted out of `Nice!![](p.png)`: its line closes to the text without it and it lands as a line of its own, where its copy was drawn. */
     @Test
     fun aPhotoLiftedOutOfItsLineLandsAsALineOfItsOwnWhereItsCopyWasDrawn() =
@@ -168,10 +185,8 @@ class TextFirstBlockReflowTest {
             down(photo); hold(600)
             assertTrue(lifted)
             val at = carryUntil(photo, 8f, right()) { report?.gap == BlockSlot(lineStart("end"), false) }
-            SystemClock.sleep(Slide.SLIDE_MS + 120)
+            assertPhotoCopyDrawn()
             val copy = report!!.copy!!
-            val (count, _) = ink(screenshot(), android.graphics.RectF(ui { view.totalPaddingLeft.toFloat() + 4 }, copy.top + 4, ui { view.totalPaddingLeft.toFloat() + 40 }, copy.bottom - 8))
-            assertTrue("the photo's copy is drawn in the gap", count > 20)
             val copyTop = copy.top
             up(at)
             saved("Nice!\nnext\n![](p.png)\nend")

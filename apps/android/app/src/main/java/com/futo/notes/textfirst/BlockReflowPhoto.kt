@@ -24,7 +24,7 @@ internal class PhotoLine private constructor(
     private val imageEnd: Int,
 ) {
     private var width = -1
-    private var bitmap: Any? = null
+    private var bitmaps: List<Pair<Any?, Boolean>>? = null
     private var rest: StaticLayout? = null
     private var alone: StaticLayout? = null
 
@@ -41,17 +41,25 @@ internal class PhotoLine private constructor(
         return if (end < last) BlockSlot(end + 1, false) else BlockSlot(last, true)
     }
 
-    /** Lay both out again if the width or the photo changed since. */
+    /** Lay both out again if the width or any photo of the line (the lifted one or a sibling) changed since. */
     fun measure(view: TextFirstEditText) {
         val l = view.layout ?: return
-        if (l.width == width && image.bitmap === bitmap && rest != null) return
         val e = view.editableText ?: return
+        val photos = e.getSpans(start, end, TfImage::class.java).map { it.bitmap to it.failed }
+        if (l.width == width && photos == bitmaps && rest != null) return
         width = l.width
-        bitmap = image.bitmap
+        bitmaps = photos
         val without = SpannableStringBuilder(e, start, end).apply { delete(imageStart - start, imageEnd - start) }
         rest = lay(view, without)
-        alone = lay(view, SpannableStringBuilder(e, imageStart, imageEnd))
+        // The photo as it lands at a plain slot: without its line's marker, box, indent or quote bar.
+        val photo = SpannableStringBuilder(e, imageStart, imageEnd).apply {
+            for (span in getSpans(0, length, android.text.style.ParagraphStyle::class.java)) removeSpan(span)
+        }
+        alone = lay(view, photo)
     }
+
+    /** Lay both out again at the next measure (the view re-laid out: a photo may have decoded). */
+    fun invalidate() { rest = null }
 
     private fun lay(view: TextFirstEditText, text: SpannableStringBuilder): StaticLayout {
         text.append("\n").append(TextFirstEditText.END_SENTINEL)

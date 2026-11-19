@@ -157,7 +157,11 @@ internal class BlockLift(private val view: TextFirstEditText) {
     }
 
     /** The text or its layout moved under the drag: measure again. */
-    fun relayout() { if (phase == Phase.Dragging) follow(fromFinger = false) }
+    fun relayout() {
+        // A photo decoding or a new width: the preview's recorded drawing is stale, before or after the release.
+        drag?.reflow?.remeasure()
+        if (phase == Phase.Dragging) follow(fromFinger = false)
+    }
 
     /**
      * The dropped block's update (engine [revision]) landed in this frame: the card and the dim
@@ -250,14 +254,17 @@ internal class BlockLift(private val view: TextFirstEditText) {
         val d = drag ?: return
         stopAutoscroll()
         phase = Phase.Spent
-        val slot = d.slot?.takeIf { drop }
         val engine = view.engine
         d.reflow?.let { reflow ->
+            // Only a slot the preview shows now: a view cut for a new width may no longer hold it.
+            val slot = reflow.target?.takeIf { drop }
             // The card goes at once; the copy turns solid and the move is made under the preview.
             d.dropCard()
             if (slot == null || engine == null) return reflow.settleHome { if (drag === d) finish(d, returning = false) }
             d.capture = reflow.release()
             d.landing = true
+            // The preview and the lift exclusion end by the cap even while the editor is still to make the move (it still lands).
+            view.postDelayed({ if (drag === d) finish(d, returning = false) }, ReflowCapture.LANDING_CAP_MS)
             engine.dropBlock(d.plan.press, slot, d.plan.revision, DropHold.KEEP) { moved ->
                 if (moved) haptics.landed() else if (drag === d) reflow.settleHome { if (drag === d) finish(d, returning = false) }
                 // Moved, but no update reached the view (it was cut short for a new width): end here.
@@ -265,6 +272,7 @@ internal class BlockLift(private val view: TextFirstEditText) {
             }
             return
         }
+        val slot = d.slot?.takeIf { drop }
         if (slot == null || engine == null) return finish(d, returning = true)
         d.landing = true
         d.invalidate()
@@ -287,6 +295,8 @@ internal class BlockLift(private val view: TextFirstEditText) {
         if (!returning) {
             d.dispose()
             if (drag === d) drag = null
+            // A preview drawn taller than the note may have let autoscroll past its end.
+            view.clampScrollToNote()
             view.invalidate()
             return
         }

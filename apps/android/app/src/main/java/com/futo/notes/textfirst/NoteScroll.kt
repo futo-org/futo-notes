@@ -39,8 +39,7 @@ internal class NoteScroll(private val view: TextFirstEditText) {
         view.postInvalidateOnAnimation()
     }
 
-    private fun maxScroll() =
-        ((view.layout?.height ?: 0) + view.totalPaddingTop + view.totalPaddingBottom - view.height).coerceAtLeast(0)
+    private fun maxScroll() = view.maxScrollY()
 
     /** Move the note by [dy] (positive = further down the note). */
     fun dragBy(dy: Int) {

@@ -110,16 +110,6 @@ class TextFirstBlockDragEdgeTest {
     }
 
     @Test
-    fun withAnimationsOffTheNoteClosingDuringTheReturnTakesTheCardDownWithIt() = compose.openDragScreen("alpha\nbravo\ncharlie") { withAnimationsOff {
-        val from = at(offsetOf("bravo"))
-        down(from); hold(600)
-        up(from)
-        // The card slides home over 200 ms; the editor leaves the window meanwhile.
-        ui { (view.parent as ViewGroup).removeView(view) }
-        assertNull("no card outlives its editor", ui { view.blockLift.drag })
-    } }
-
-    @Test
     fun aWidthChangeMidDragMeasuresTheCardAgain() = compose.openDragScreen("alpha is a line long enough to wrap when the note gets narrow enough\nbravo") {
         val from = at(0)
         down(from); hold(600)

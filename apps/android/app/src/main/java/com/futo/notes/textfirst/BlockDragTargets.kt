@@ -48,10 +48,17 @@ internal class SlotBook {
         return asks to minOf(range.first, have.first)..maxOf(range.last, have.last)
     }
 
+    /** The known slots in order, kept as they arrive (no copy per read). */
+    val ordered: List<BlockSlot> get() = list
+    private val list = ArrayList<BlockSlot>()
+
     /** Take the engine's answers, now covering [covering]. */
     fun add(found: List<BlockSlot>, covering: IntRange) {
         covered = covering
-        known.addAll(found)
+        for (slot in found) if (known.add(slot)) {
+            val at = list.binarySearch(slot)
+            list.add(if (at < 0) -at - 1 else at, slot)
+        }
     }
 
     /** The slots whose offsets lie in [range] (both ends included), in display order. */

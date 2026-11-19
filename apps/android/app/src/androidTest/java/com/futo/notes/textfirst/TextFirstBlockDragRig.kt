@@ -95,6 +95,15 @@ internal class BlockDragRig(val compose: DragRule, val view: TextFirstEditText, 
         }
     }
     fun up(p: PointF) = send(MotionEvent.ACTION_UP, p)
+    /** One move to [p] (screen) and the finger lifts there, handed to the view in one go, so no frame draws between them. */
+    fun moveThenLift(p: PointF) = ui {
+        val loc = onScreen()
+        for (action in listOf(MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP)) {
+            val e = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, p.x - loc[0], p.y - loc[1], 0)
+            e.source = InputDevice.SOURCE_TOUCHSCREEN
+            try { view.dispatchTouchEvent(e) } finally { e.recycle() }
+        }
+    }
     private var last = PointF()
     /** End whatever injected gesture a failed test left down, so the next test's touches are accepted. */
     fun release() { if (downTime != 0L) runCatching { send(MotionEvent.ACTION_CANCEL, last) } }
@@ -204,19 +213,33 @@ internal class BlockDragRig(val compose: DragRule, val view: TextFirstEditText, 
         check(darkest > 120) { "the copy at $visible is not dimmed: luminance $darkest" }
     }
 
-    /** Run [block] with animations turned off in the system's settings, as a person would turn them off. */
+    /** Run [block] with animations turned off in the system's settings, as a person would turn them off; the setting is put back as it was (absent stays absent). */
     fun <T> withAnimationsOff(block: () -> T): T {
-        val before = shell("settings get global animator_duration_scale").trim()
+        val before = shell("settings get global animator_duration_scale").trim().takeUnless { it.isEmpty() || it == "null" }
+        val wasOn = ui { android.animation.ValueAnimator.areAnimatorsEnabled() }
         shell("settings put global animator_duration_scale 0")
         try {
             compose.waitUntil(5_000) { ui { !android.animation.ValueAnimator.areAnimatorsEnabled() } }
             return block()
         } finally {
-            // Deleting the setting does not reach a running app; its default is 1.
-            shell("settings put global animator_duration_scale ${before.toFloatOrNull() ?: 1f}")
+            // A running app hears a value written, not a deletion: write the value it had, then delete the key if it was absent.
+            shell("settings put global animator_duration_scale ${before ?: "1"}")
+            if (before == null) shell("settings delete global animator_duration_scale")
             // Best effort: a timeout here must not hide the test's own failure.
-            runCatching { compose.waitUntil(5_000) { ui { android.animation.ValueAnimator.areAnimatorsEnabled() } } }
+            runCatching { compose.waitUntil(5_000) { ui { android.animation.ValueAnimator.areAnimatorsEnabled() == wasOn } } }
         }
+    }
+
+    /** The dimmed copy of a [png] photo (cyan) starts at the text's left edge in the gap: the photo itself, not a placeholder, a box or an indent. */
+    fun assertPhotoCopyDrawn() {
+        SystemClock.sleep(Slide.SLIDE_MS + 120)
+        val shot = screenshot()
+        val copy = checkNotNull(report?.copy) { "no copy reported" }
+        val window = ui { windowOnScreen() }
+        val x = (window[0] + copy.left + ui { view.totalPaddingLeft } + 8).toInt()
+        val y = (window[1] + copy.top + copy.height() * 0.4f).toInt()
+        val p = shot.getPixel(x, y)
+        check(Color.red(p) in 120..215 && Color.green(p) > 225 && Color.blue(p) > 225) { "no dimmed photo at the gap's left edge ($x, $y): #${Integer.toHexString(p)}" }
     }
 
     private fun shell(command: String): String =

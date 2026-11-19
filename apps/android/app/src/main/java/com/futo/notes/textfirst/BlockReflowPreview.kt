@@ -56,6 +56,8 @@ internal class BlockReflowPreview private constructor(
     /** Released: the copy is solid and nothing follows the finger. */
     private var released = false
     private var seed = false
+    /** The layout changed since the slides were set: their shifts belong to the old one. */
+    private var stale = false
     private var slides = TreeMap<BlockSlot, Slide>()
     private var copySlide = Slide.still(0f)
     private var restSlide = Slide.still(0f)
@@ -80,17 +82,8 @@ internal class BlockReflowPreview private constructor(
         return ReflowShape(top, bottom, p.restHeight, p.aloneHeight)
     }
 
-    private var cachedCount = -1
-    private var cached: List<BlockSlot> = emptyList()
-
-    /** The offered slots near the screen, in order, the block's own edges left out. */
-    private fun slots(): List<BlockSlot> {
-        if (book.count != cachedCount) {
-            cachedCount = book.count
-            cached = book.slots.filter { photo != null || (it != topKey && it != bottomKey) }
-        }
-        return cached
-    }
+    /** The offered slots near the screen, in order (kept as they arrive; the block's own edges are never offered). */
+    private fun slots(): List<BlockSlot> = book.ordered
 
     private fun ys(list: List<BlockSlot>) = object : AbstractList<Float>() {
         override val size get() = list.size
@@ -102,12 +95,18 @@ internal class BlockReflowPreview private constructor(
     /** The finger is at content y [finger]: move the gap by the rule. True when it reached a new slot (not home). */
     fun follow(finger: Float): Boolean {
         if (released) return false
-        val shape = shape() ?: return false
+        // The block's place is not laid out now (a new width cut the view to a prefix): nothing would show where it lands.
+        val shape = shape() ?: run { if (slot != null) { slot = null; view.invalidate() }; return false }
         val list = slots()
         val stops = ReflowStops(shape, ys(list), photo != null)
         val index = slot?.let { list.binarySearch(it) } ?: -1
         val from = if (index < 0) stops.home else if (index < stops.home) index else index + 1
-        val to = stops.walk(from, finger)
+        // A neighbour still sliding counts where it is painted: the run below a stop starts at that slot (home: the block's bottom).
+        val now = SystemClock.uptimeMillis()
+        val to = stops.walk(from, finger) { stop ->
+            val key = if (stop == stops.home) bottomKey else list.getOrNull(if (stop < stops.home) stop else stop - 1)
+            key?.takeIf { !stale }?.let { slides[it]?.at(now) }
+        }
         if (to == from) return false
         slot = if (to == stops.home) null else list[if (to < stops.home) to else to - 1]
         if (!opened) { opened = true; seed = true }
@@ -155,11 +154,13 @@ internal class BlockReflowPreview private constructor(
             val target = shape.shift(run.top, gap)
             val prior = when {
                 seed -> Slide.still(0f)
+                stale -> Slide.still(target)
                 else -> slides[run.key] ?: slides.floorEntry(run.key)?.value ?: Slide.still(target)
             }
             prior.toward(target, now).also { next[run.key] = it }.at(now)
         }
         if (seed) { copySlide = Slide.still(shape.top); restSlide = Slide.still(shape.top); seed = false }
+        if (stale) { copySlide = Slide.still(shape.copyTop(gap)); restSlide = Slide.still(shape.residueTop(gap)); stale = false }
         copySlide = copySlide.toward(shape.copyTop(gap), now)
         restSlide = restSlide.toward(shape.residueTop(gap), now)
         slides = next
@@ -216,55 +217,79 @@ internal class BlockReflowPreview private constructor(
 
     // ---- the release ----
 
+    /** The slot a release would drop on: the open gap, only while the preview can show it (a cut view may not hold it). */
+    val target: BlockSlot? get() = slot?.takeIf { shape() != null && view.boundaryY(it) != null }
+
     /**
-     * Released over [slot]: the copy turns solid and the preview stays until the move lands.
-     * Returns what is on screen now, by paragraph, to find again in the moved note; null when
-     * nothing moves.
+     * Released over [target]: the copy turns solid and the preview stays until the move lands.
+     * Returns every paragraph on screen, with the slide that draws it, to find again in the
+     * moved note (where each is drawn is read when the move lands, not now); null when nothing moves.
      */
     fun release(): ReflowCapture? {
+        val s = target
         released = true
         view.invalidate()
-        val s = slot ?: return null
+        if (s == null) return null
         val shape = shape() ?: return null
         val e = view.editableText ?: return null
         val l = view.layout ?: return null
         val last = end
         val now = SystemClock.uptimeMillis()
+        val gap = gap()
+        val runs = runs(shape)
+        // Released before a frame drew the open gap: everything starts where it was laid out.
+        if (seed) place(shape, gap, runs, now)
         val below = s >= bottomKey
         val bandStart = topKey.offset
         val bandEnd = bottomKey.offset
         val stretch = if (below) bandStart else s.offset
-        fun paras(a: Int, b: Int) = ReflowCapture.paragraphs(e, a, b, last)
-        val blockParas = if (photo != null) 1 else paras(bandStart, bandEnd)
-        val between = if (below) paras(bandEnd, s.offset) else paras(s.offset, bandStart)
+        val blockParas = if (photo != null) 1 else reflowParagraphs(e, bandStart, bandEnd, last, bottomKey.end)
+        val between = if (below) reflowParagraphs(e, bandEnd, s.offset, last, s.end) else reflowParagraphs(e, s.offset, bandStart, last, false)
         val move = ReflowMove(photo != null, below, blockParas, between)
-        fun lands(at: Int) = if (at < stretch) -1 else move.lands(paras(stretch, at))
-        val gap = gap()
         val top = view.scrollY.toFloat()
         val bottom = top + view.height
         val pieces = ArrayList<LandingPiece>()
-        val runs = runs(shape)
+        val ranked = ArrayList<Int>()
+        fun next(p: Int) = e.indexOf('\n', p).let { if (it < 0 || it >= last) last else it + 1 }
+        val emptyLast = last == 0 || e[last - 1] == '\n'
         for (run in runs) {
-            val shift = (slides[run.key] ?: Slide.still(shape.shift(run.top, gap))).at(now)
+            val key = run.key
+            val shift = slides[key]?.at(now) ?: shape.shift(run.top, gap)
             val a = maxOf(run.top, top - shift)
             val b = minOf(run.bottom, bottom - shift)
             if (b <= a) continue
-            // The whole paragraphs that show, within the run.
             val first = l.getLineStart(l.getLineForVertical((a - view.totalPaddingTop).toInt().coerceAtLeast(0)))
-            val from = maxOf(run.key.offset, e.lastIndexOf('\n', first - 1) + 1)
-            val lastShown = l.getLineEnd(l.getLineForVertical((b - view.totalPaddingTop).toInt() - 1).coerceAtLeast(0))
-            val next = e.indexOf('\n', maxOf(from, lastShown - 1)).let { if (it < 0) last else it + 1 }
-            val to = minOf(run.endKey.offset, next, last).coerceAtLeast(from)
-            if (to <= from) continue
-            val y = view.boundaryY(BlockSlot(from, false)) ?: continue
-            pieces += LandingPiece(from, to, paras(from, to), y + shift, lands(from), false, ReflowCapture.probe(e, from, last))
+            var p = maxOf(key.offset, e.lastIndexOf('\n', first - 1) + 1)
+            val stop = minOf(run.endKey.offset, next(l.getLineStart(l.getLineForVertical((b - view.totalPaddingTop).toInt() - 1).coerceAtLeast(0))))
+            // Each paragraph that shows; an empty last line (an empty task) only where the run reaches the note's end.
+            while (p < stop || (p == last && p == stop && emptyLast && run.endKey.end)) {
+                val n = next(p)
+                val y = view.boundaryY(BlockSlot(p, false)) ?: break
+                pieces += LandingPiece(p, n, { t -> y + (slides[key]?.at(t) ?: shift) }, -1, false, ReflowCapture.probe(e, p, last))
+                if (p >= stretch) ranked += p
+                if (n == p) break
+                p = n
+            }
         }
-        val c = copySlide.at(now)
+        // One pass over the stretch gives every shown paragraph its index in it.
+        val rank = HashMap<Int, Int>()
+        var k = 0
+        var i = stretch
+        for (at in ranked.distinct().sorted()) {
+            while (i < at) { if (e[i] == '\n') k++; i++ }
+            rank[at] = k
+        }
+        for (j in pieces.indices) rank[pieces[j].start]?.let { pieces[j] = pieces[j].landing(move.lands(it)) }
         if (photo == null) {
-            pieces += LandingPiece(block.start, block.end, blockParas, c, move.moved, true, ReflowCapture.probe(e, block.start, last))
+            var p = bandStart
+            for (j in 0 until blockParas) {
+                val y = view.boundaryY(BlockSlot(p, false)) ?: break
+                pieces += LandingPiece(p, next(p), { t -> copySlide.at(t) + (y - shape.top) }, move.moved + j, true, ReflowCapture.probe(e, p, last))
+                p = next(p)
+            }
         } else {
-            pieces += LandingPiece(-1, -1, 1, c, move.moved, true, ReflowCapture.probe(photo.text(e), 0, photo.text(e).length))
-            pieces += LandingPiece(bandStart, bandEnd, 1, restSlide.at(now), move.lands(if (below) 0 else between), false, ReflowCapture.probe(photo.rest(e), 0, photo.rest(e).length))
+            pieces += LandingPiece(-1, -1, { t -> copySlide.at(t) }, move.moved, true, ReflowCapture.probe(photo.text(e), 0, photo.text(e).length))
+            pieces += LandingPiece(bandStart, bandEnd, { t -> restSlide.at(t) }, move.lands(if (below) 0 else between), false, ReflowCapture.probe(photo.rest(e), 0, photo.rest(e).length))
         }
         return ReflowCapture(tiles, stretch, pieces, view.scrollY, now)
     }
@@ -280,13 +305,30 @@ internal class BlockReflowPreview private constructor(
         view.postDelayed({ settled?.let { settled = null; it() } }, ReflowCapture.LANDING_CAP_MS)
     }
 
+    /** How much taller the preview draws the note than it is laid out (a photo leaving a row a sibling keeps tall): autoscroll reaches that far. */
+    fun extraHeight(): Int {
+        if (!opened || released) return 0
+        val shape = shape() ?: return 0
+        return kotlin.math.ceil(shape.copy - shape.closes).toInt().coerceAtLeast(0)
+    }
+
+    /** The layout changed (a photo decoded, a new width): what was recorded from it is drawn again. */
+    fun remeasure() {
+        if (opened && landing == null) stale = true
+        tiles.clear()
+        photo?.invalidate()
+    }
+
     fun report(): ReflowReport {
         val shape = shape()
         val at = IntArray(2).also(view::getLocationInWindow)
-        val copy = if (shape == null || !opened) null else {
-            val c = copySlide.at(SystemClock.uptimeMillis())
-            RectF(at[0].toFloat(), at[1] + c - view.scrollY, (at[0] + view.width).toFloat(), at[1] + c + shape.copy - view.scrollY)
+        // During the landing, the moved block as the landing draws it; a photo back home, its own box in its line.
+        val content = landing?.movedBlock() ?: when {
+            shape == null || !opened -> null
+            photo != null && gap() == ReflowGap.Home -> view.imageRect(photo.image)
+            else -> copySlide.at(SystemClock.uptimeMillis()).let { c -> RectF(0f, c, view.width.toFloat(), c + shape.copy) }
         }
+        val copy = content?.apply { offset(at[0].toFloat(), at[1].toFloat() - view.scrollY) }
         return ReflowReport(slot, opened, copy, landing != null)
     }
 

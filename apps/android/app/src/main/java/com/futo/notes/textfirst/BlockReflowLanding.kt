@@ -12,12 +12,14 @@ import android.util.Log
 // with it. Then the preview ends, the note drawn as it is. The view does not scroll.
 
 /**
- * Part of what the preview showed at the release: the paragraphs from display offset [start] up
- * to [end] of the note then, drawn with their top at content y [drawnTop]. [lands] is where the
- * move puts its first paragraph, counted from the first paragraph the move rewrites (-1: before
- * that, unchanged). [probe] is its first paragraph's text, to recognise it again.
+ * A paragraph the preview showed at the release: display offsets [start] to [end] of the note
+ * then, drawn with its top at content y [drawnTop] at a time (it may still be sliding while the
+ * engine works). [lands] is where the move puts it, counted from the first paragraph the move
+ * rewrites (-1: before that, unchanged). [probe] is its text, to recognise it again.
  */
-internal class LandingPiece(val start: Int, val end: Int, val count: Int, val drawnTop: Float, val lands: Int, val solid: Boolean, val probe: String)
+internal class LandingPiece(val start: Int, val end: Int, val drawnTop: (Long) -> Float, val lands: Int, val solid: Boolean, val probe: String) {
+    fun landing(at: Int) = LandingPiece(start, end, drawnTop, at, solid, probe)
+}
 
 /** The release, as needed to find each part again in the moved note. */
 internal class ReflowCapture(private val tiles: SliceTiles, private val stretch: Int, private val pieces: List<LandingPiece>, private val scrollY: Int, private val at: Long) {
@@ -25,30 +27,28 @@ internal class ReflowCapture(private val tiles: SliceTiles, private val stretch:
     fun land(view: TextFirstEditText, done: () -> Unit): ReflowLanding? {
         val e = view.editableText ?: return null
         val last = view.length() - 1
-        val need = pieces.filter { it.lands >= 0 }.maxOfOrNull { it.lands + it.count } ?: 0
-        // Where each paragraph of the rewritten stretch starts now.
-        val starts = IntArray(need + 1) { -1 }
-        starts[0] = stretch
-        var k = 1
+        val now = SystemClock.uptimeMillis()
+        val ms = minOf(Slide.SLIDE_MS, LANDING_CAP_MS - (now - at))
+        if (ms <= 0) return null
+        val need = (pieces.maxOfOrNull { it.lands } ?: -1) + 1
+        // Where each paragraph of the rewritten stretch starts now (an empty last line starts at the end).
+        val starts = ArrayList<Int>().apply { add(stretch) }
         var i = stretch
-        while (k <= need && i < last) { if (e[i] == '\n') starts[k++] = i + 1; i++ }
-        if (k == need) starts[k++] = last
-        if (k <= need) return fail("the moved note has fewer lines than the preview showed")
+        while (starts.size <= need && i < last) { if (e[i] == '\n') starts += i + 1; i++ }
+        if (starts.size < need) return fail("the moved note has fewer lines than the preview showed")
         val elements = ArrayList<LandingElement>()
         for (p in pieces) {
             val from = if (p.lands < 0) p.start else starts[p.lands]
-            val to = if (p.lands < 0) p.end else starts[p.lands + p.count]
+            val to = if (p.lands < 0) p.end else starts.getOrElse(p.lands + 1) { last }
             if (probe(e, from, last) != p.probe) return fail("a paragraph is not where the move should have put it")
             val top = view.boundaryY(BlockSlot(from, false)) ?: return fail("no layout at $from")
             val bottom = view.boundaryY(if (to >= last) BlockSlot(last, true) else BlockSlot(to, false)) ?: return fail("no layout at $to")
-            val shift = (p.drawnTop - scrollY) - (top - view.scrollY)
+            // From where the preview draws it this frame, to where it is laid out now.
+            val shift = (p.drawnTop(now) - scrollY) - (top - view.scrollY)
             elements += LandingElement(from, top, bottom, shift, p.solid)
         }
         elements.sortBy { it.top }
         if (elements.zipWithNext().any { (a, b) -> b.top < a.bottom }) return fail("the parts overlap in the moved note")
-        val now = SystemClock.uptimeMillis()
-        val ms = minOf(Slide.SLIDE_MS, LANDING_CAP_MS - (now - at))
-        if (ms <= 0) return null
         return ReflowLanding(view, tiles, elements, now, ms, done)
     }
 
@@ -71,13 +71,6 @@ internal class ReflowCapture(private val tiles: SliceTiles, private val stretch:
             while (i < end && text[i] != '\n' && out.length < 24) out.append(text[i++])
             return out.toString()
         }
-
-        /** Paragraphs in display range [a, b) of [text], whose last paragraph may run to [last] without an ending. */
-        fun paragraphs(text: CharSequence, a: Int, b: Int, last: Int): Int {
-            var n = 0
-            for (i in a until b) if (text[i] == '\n') n++
-            return if (b == last && b > a && text[b - 1] != '\n') n + 1 else n
-        }
     }
 }
 
@@ -94,6 +87,9 @@ internal class ReflowLanding(
 ) {
     private var ended = false
     private val end = Runnable { finish() }
+    /** The layout the parts were measured in: a new one (a new width) ends the landing at once. */
+    private val layout = view.layout
+    private val width = view.width
 
     init { view.postDelayed(end, ms + 100) }
 
@@ -107,7 +103,7 @@ internal class ReflowLanding(
     /** Draw the moved note with each part sliding home; false once they are all home (the view draws itself again). */
     fun draw(canvas: Canvas): Boolean {
         val now = SystemClock.uptimeMillis()
-        if (ended || now - start >= ms) { view.post { finish() }; return false }
+        if (ended || now - start >= ms || view.layout !== layout || view.width != width) { view.post { finish() }; return false }
         val top = view.scrollY.toFloat()
         val bottom = top + view.height
         // What no part covers is where it is; then each part where it slides, a solid one over the page.
@@ -125,6 +121,15 @@ internal class ReflowLanding(
         view.drawScrollEdge(canvas)
         view.postInvalidateOnAnimation()
         return true
+    }
+
+    /** Where the moved block is drawn now (content y), as solid parts sliding home; null once home. */
+    fun movedBlock(): android.graphics.RectF? {
+        val now = SystemClock.uptimeMillis()
+        val solid = elements.filter { it.solid }
+        if (solid.isEmpty() || ended || now - start >= ms) return null
+        val s = Slide(solid.first().shift, 0f, start, ms).at(now)
+        return android.graphics.RectF(0f, solid.first().top + s, view.width.toFloat(), solid.last().bottom + s)
     }
 
     /** End now (an interruption, another change to the note). */
