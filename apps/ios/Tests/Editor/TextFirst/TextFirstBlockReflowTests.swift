@@ -10,7 +10,7 @@
     /// landing. Drags with real touches are `TextFirstBlockReflowUITests`.
     @Suite @MainActor
     struct TextFirstBlockReflowTests {
-        @Test func theGapPassesABlockAtItsMiddleAsDrawnAndDoesNotFlicker() throws {
+        @Test func theGapPassesABlockAtItsMiddleAsDrawnAndDoesNotFlicker() async throws {
             // `alpha` lifts; below it a heading, a paragraph of several rows, and `delta`.
             let words = Array(repeating: "wrapping words", count: 12).joined(separator: " ")
             let h = TextFirstHarness("alpha\n# Heading\n\(words)\ndelta", focused: false)
@@ -23,10 +23,14 @@
             let preview = try #require(drag.preview)
             func follow(_ at: CGFloat) -> Bool { drag.follow(CGPoint(x: 60, y: at)) }
             func gap() -> Int? { drag.slot?.offset }
+            // The finger rests until what slid has arrived (mid-slide, the gap is judged against
+            // blocks where they are on their way: TextFirstBlockReflowEdgeTests).
+            func rest() async throws { try await Task.sleep(nanoseconds: 250_000_000) }
             // Short of the heading's middle nothing moves and the note is not covered.
             #expect(!follow(y(1, 0.5) - 1) && gap() == nil && !preview.isOpen)
             // Past it the gap opens below the heading, with a tick.
             #expect(follow(y(1, 0.5) + 1) && gap() == starts[2] && preview.isOpen)
+            try await rest()
             // The heading is now drawn the block's height higher: a finger resting by its old
             // middle, or anywhere short of its middle as drawn now, changes nothing.
             for at in [y(1, 0.5) - 2, y(1, 0.5) + 2, y(1, 0.5) - height + 1] {
@@ -34,8 +38,10 @@
             }
             // Above that middle the gap is home again: no tick, nothing would move.
             #expect(!follow(y(1, 0.5) - height - 1) && gap() == nil)
+            try await rest()
             // A quick move down passes the heading and the tall paragraph at once.
             #expect(follow(y(2, 0.5) + 1) && gap() == starts[3])
+            try await rest()
             for at in [y(2, 0.5) - 3, y(2, 0.5) - height + 1] {
                 #expect(!follow(at) && gap() == starts[3], "\(at)")
             }
@@ -193,6 +199,7 @@
             // a tick. The drag goes on; carried to `third` as drawn now, it opens there.
             #expect(h.controller.blockDrag === drag && drag.slot == nil)
             #expect(drag.previewUnavailable == nil, "\(drag.previewUnavailable ?? "")")
+            try await Task.sleep(nanoseconds: 250_000_000)
             h.controller.followBlockDrag(to: h.point(line: 5, fraction: 0.6))
             #expect(drag.slot?.offset == h.lineStarts[6])
             try await dropAndCompare(
@@ -213,6 +220,9 @@
             h.tv.layoutIfNeeded()
             let preview = try #require(drag.preview)
             #expect(preview.curtain.frame == h.tv.bounds)
+            // The gap is judged again where everything is drawn now; once it has arrived,
+            // carried to `third` as drawn now, it opens above `fourth`.
+            try await Task.sleep(nanoseconds: 250_000_000)
             h.controller.followBlockDrag(to: h.point(line: 5, fraction: 0.3))
             #expect(drag.slot?.offset == h.lineStarts[6])
             try await dropAndCompare(
@@ -262,95 +272,5 @@
             return try #require(h.controller.blockDrag)
         }
 
-        /// The note on screen as the editor draws it (the test host cannot capture its real
-        /// screen; the UI tests compare the preview with real screenshots).
-        static func screen(_ h: TextFirstHarness) -> CGImage {
-            h.tv.layoutIfNeeded()
-            let drawn = TextFirstSlicePainter(textView: h.tv).paint(h.tv.bounds)!
-            let layer = CALayer()
-            layer.frame = CGRect(origin: .zero, size: h.tv.bounds.size)
-            layer.contents = drawn
-            layer.contentsGravity = .topLeft
-            layer.contentsScale = h.tv.traitCollection.displayScale
-            return image(layer, h)
-        }
-
-        /// `layer` drawn as its model tree stands (no animation in flight), the text view's
-        /// size at the screen's scale.
-        static func image(_ layer: CALayer, _ h: TextFirstHarness, over: UIColor? = nil) -> CGImage
-        {
-            h.tv.layoutIfNeeded()
-            let format = UIGraphicsImageRendererFormat(for: h.tv.traitCollection)
-            format.opaque = true
-            return UIGraphicsImageRenderer(size: h.tv.bounds.size, format: format).image { ui in
-                if let over {
-                    over.setFill()
-                    ui.cgContext.fill(CGRect(origin: .zero, size: h.tv.bounds.size))
-                }
-                h.tv.traitCollection.performAsCurrent { layer.render(in: ui.cgContext) }
-            }.cgImage!
-        }
-
-        /// When a comparison fails: both images, kept where the run's log names them.
-        static func keep(_ a: CGImage, _ b: CGImage, _ name: String) -> String {
-            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("reflow")
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            for (image, side) in [(a, "a"), (b, "b")] {
-                try? UIImage(cgImage: image).pngData()?.write(
-                    to: dir.appendingPathComponent("\(name)-\(side).png"))
-            }
-            return dir.path
-        }
-
-        /// The box of an image's ink (dark pixels) in `rows` (points from the top), in pixels:
-        /// top, bottom, left, right.
-        static func ink(_ image: CGImage, rows: Range<CGFloat>) -> [Int] {
-            let p = bytes(image)
-            let scale = CGFloat(image.width) / UIScreen.main.bounds.width
-            var box = [Int.max, -1, Int.max, -1]
-            for r in max(
-                0, Int(rows.lowerBound * scale))..<min(image.height, Int(rows.upperBound * scale))
-            {
-                for c in 0..<image.width where p[(r * image.width + c) * 4] < 100 {
-                    box = [min(box[0], r), max(box[1], r), min(box[2], c), max(box[3], c)]
-                }
-            }
-            return box
-        }
-
-        /// How many pixels of two same-sized images differ by more than `threshold` in a channel,
-        /// in all rows or `rows` (points from the top).
-        static func differing(
-            _ a: CGImage, _ b: CGImage, rows: Range<CGFloat>? = nil, threshold: Int = 24
-        ) -> Int {
-            let (pa, pb) = (bytes(a), bytes(b))
-            guard pa.count == pb.count else { return Int.max }
-            let scale = CGFloat(a.width) / UIScreen.main.bounds.width
-            let row = a.width * 4
-            let from = rows.map { max(0, Int($0.lowerBound * scale)) * row } ?? 0
-            let to = rows.map { min(a.height, Int($0.upperBound * scale)) * row } ?? pa.count
-            var count = 0
-            for i in stride(from: from, to: max(from, to), by: 4) {
-                for c in 0..<3 where abs(Int(pa[i + c]) - Int(pb[i + c])) > threshold {
-                    count += 1
-                    break
-                }
-            }
-            return count
-        }
-
-        private static func bytes(_ image: CGImage) -> [UInt8] {
-            var out = [UInt8](repeating: 0, count: image.width * image.height * 4)
-            out.withUnsafeMutableBytes { raw in
-                let context = CGContext(
-                    data: raw.baseAddress, width: image.width, height: image.height,
-                    bitsPerComponent: 8, bytesPerRow: image.width * 4,
-                    space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-                context?.draw(
-                    image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-            }
-            return out
-        }
     }
 #endif

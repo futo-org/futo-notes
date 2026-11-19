@@ -91,14 +91,17 @@ enum TextFirstBlockCard {
         drawing.contents = content
         drawing.contentsScale = scale
         drawing.contentsGravity = .topLeft
+        // Exactly as big as the drawing (a capped block's is only what the card shows): a layer
+        // taller than its contents pins them to its foot on iOS, out of the card.
+        let drawn = content.map { CGFloat($0.height) / scale } ?? block.height
         drawing.frame = CGRect(
-            x: block.minX - frame.minX, y: pad, width: block.width, height: block.height)
+            x: block.minX - frame.minX, y: pad, width: block.width, height: drawn)
         if block.height + 2 * pad > frame.height {
             // The foot of a capped block's drawing fades into the card.
             let fade = CAGradientLayer()
             fade.frame = drawing.bounds
-            let end = (frame.height - pad) / block.height
-            let start = max(0, end - Self.fade / block.height)
+            let end = min(1, (frame.height - pad) / drawn)
+            let start = max(0, end - Self.fade / drawn)
             fade.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
             fade.locations = [0, NSNumber(value: Double(start)), NSNumber(value: Double(end))]
             drawing.mask = fade

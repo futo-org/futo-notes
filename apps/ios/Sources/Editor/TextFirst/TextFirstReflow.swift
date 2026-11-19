@@ -8,21 +8,6 @@ import os
 // in idle time after the lift, so the first gap change only moves layers. Until the gap first
 // leaves home the curtain is not shown: the note with its dimmed block looks the same.
 
-enum TextFirstReflowMotion {
-    /// Neighbours slide over 0.18 s with the web editor's easing.
-    static let slide: CFTimeInterval = 0.18
-    static let easing = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
-    /// The whole landing, from the release to the curtain coming down.
-    static let landingCap: CFTimeInterval = 0.4
-    /// The copy in the gap, and the block in its place before the gap first moves.
-    static let dim: Float = 0.35
-    /// Idle-time drawing per frame.
-    static let budget: CFTimeInterval = 0.004
-
-    static let log = Logger(subsystem: "com.futo.notes", category: "block-reflow")
-    static let signposts = OSSignposter(logger: log)
-}
-
 @MainActor
 final class TextFirstReflow {
     private(set) var plan: TextFirstReflowPlan
@@ -48,15 +33,22 @@ final class TextFirstReflow {
     /// The copy's drawing, the stretch of the block (its own coordinates) it covers, and how far
     /// below the block's top (on the pixel grid) the drawing starts.
     private var copyImage: (image: CGImage, window: ClosedRange<CGFloat>, offset: CGFloat)?
+    /// A photo lifted out of a line, drawn as the line of its own it becomes, for a gap.
+    private var awayImage: CGImage?
+    /// The card the curtain goes under.
+    private weak var card: UIView?
+    /// Each sliding layer's slide: where it started, where it goes, and when it began.
+    private var motions: [ObjectIdentifier: (from: CGPoint, to: CGPoint, begun: CFTimeInterval)] =
+        [:]
     private var builder: TextFirstIdleBuilder?
     /// Debug timing of the idle drawing.
     private var building = (spent: CFTimeInterval(0), frames: 0, logged: false)
 
     init(
         _ plan: TextFirstReflowPlan, closedLine: TextFirstClosedLine?,
-        painter: TextFirstSlicePainter
+        painter: TextFirstSlicePainter, under card: UIView
     ) {
-        (self.plan, self.closedLine, self.painter) = (plan, closedLine, painter)
+        (self.plan, self.closedLine, self.painter, self.card) = (plan, closedLine, painter, card)
         gap = plan.home
         visible = painter.textView.bounds
         slices = plan.runs.map { _ in Slice() }
@@ -81,13 +73,16 @@ final class TextFirstReflow {
             x: frame.minX, y: painter.pixel(frame.minY), width: frame.width, height: frame.height)
     }
 
-    /// The finger is at `y` (text view coordinates): open the gap the plan chooses, the first
-    /// time it leaves home showing the curtain. True when the gap moved, to a slot.
-    func follow(_ y: CGFloat, under card: UIView) -> Bool {
+    /// The finger is at `y` (text view coordinates): open the gap the plan chooses against the
+    /// runs where they are drawn now, mid-slide included, the first time it leaves home showing
+    /// the curtain. True when the gap moved, to a slot.
+    func follow(_ y: CGFloat) -> Bool {
         guard !retreating else { return false }
-        let moved = plan.gap(from: gap, finger: min(max(y, visible.minY), visible.maxY))
+        let drawn = isOpen ? slices.map { drawn($0.layer).y + visible.minY } : nil
+        let moved = plan.gap(
+            from: gap, finger: min(max(y, visible.minY), visible.maxY), drawn: drawn)
         guard moved != gap else { return false }
-        if !isOpen { open(under: card) }
+        if !isOpen { open() }
         let interval = TextFirstReflowMotion.signposts.beginInterval("gap")
         let started = CACurrentMediaTime()
         gap = moved
@@ -101,18 +96,19 @@ final class TextFirstReflow {
 
     /// The layout changed under the drag (a photo decoded, a rotation): `plan` is read from it.
     /// The gap stays on its slot, or goes home when that slot is gone, and is judged again under
-    /// the still finger. Slices whose run is unchanged keep their drawing; replaced ones start
-    /// from where the old ones were drawn and slide to their places.
+    /// the still finger; a gap that opens so is shown at once, curtain and all, so a release
+    /// never lands where nothing showed. Slices whose run and drawing are unchanged keep their
+    /// drawing; replaced ones start from where the old ones were drawn and slide to their places.
     func remeasure(
         _ plan: TextFirstReflowPlan, closedLine: TextFirstClosedLine?, finger y: CGFloat
     ) {
         let bounds = painter.textView.bounds
         guard plan != self.plan || bounds != visible else { return }
         let old = self.plan
-        let drawn = slices.map { $0.layer.presentation()?.position ?? $0.layer.position }
+        let drawn = slices.map { drawn($0.layer) }
         var next = plan.runs.map { _ in Slice() }
         var appearing: [Int] = []
-        let resized = bounds.size != visible.size
+        let resized = bounds.size != visible.size || plan.drawing != self.plan.drawing
         for (j, run) in plan.runs.enumerated() {
             guard
                 let i = old.runs.firstIndex(where: {
@@ -129,6 +125,7 @@ final class TextFirstReflow {
             next[j].layer.position = drawn[i]
         }
         if resized || old.source.size != plan.source.size { copyImage = nil }
+        if resized || old.away != plan.away { awayImage = nil }
         for slice in slices { slice.layer.removeFromSuperlayer() }
         let slot = old.slot(gap)
         (self.plan, self.closedLine, visible, slices) = (plan, closedLine, bounds, next)
@@ -139,7 +136,16 @@ final class TextFirstReflow {
             slices[j].layer.position = CGPoint(
                 x: 0, y: painter.pixel(plan.top(j, gap: gap)) - visible.minY)
         }
-        guard isOpen else { return }
+        guard isOpen else {
+            if gap != plan.home {
+                let shown = gap
+                gap = plan.home
+                open()
+                gap = shown
+                place(animated: true)
+            }
+            return
+        }
         curtain.frame = visible
         build(all: true)
         for slice in slices {
@@ -154,10 +160,15 @@ final class TextFirstReflow {
     func retreat(_ done: @escaping () -> Void) {
         builder = nil
         retreating = true
-        guard isOpen, gap != plan.home else { return done() }
-        gap = plan.home
-        place(animated: true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + TextFirstReflowMotion.slide) { done() }
+        guard isOpen else { return done() }
+        if gap != plan.home {
+            gap = plan.home
+            place(animated: true)
+        }
+        // Whatever is still sliding home, from this move or the last, gets there first.
+        let left = slidesEnd - CACurrentMediaTime()
+        guard left > 0 else { return done() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + left) { done() }
     }
 
     /// The release: the copy is drawn solid at once.
@@ -221,7 +232,7 @@ final class TextFirstReflow {
 
     // MARK: drawing
 
-    private func open(under card: UIView) {
+    private func open() {
         let interval = TextFirstReflowMotion.signposts.beginInterval("open")
         build(all: true)
         curtain.frame = visible
@@ -233,7 +244,11 @@ final class TextFirstReflow {
         copy.anchorPoint = .zero
         curtain.layer.addSublayer(copy)
         place(animated: false)
-        card.superview?.insertSubview(curtain, belowSubview: card)
+        if let card, let view = card.superview {
+            view.insertSubview(curtain, belowSubview: card)
+        } else {
+            painter.textView.addSubview(curtain)
+        }
         isOpen = true
         TextFirstReflowMotion.signposts.endInterval("open", interval)
     }
@@ -263,6 +278,9 @@ final class TextFirstReflow {
         }
         if !all, CACurrentMediaTime() - started > TextFirstReflowMotion.budget { return true }
         drawCopy(for: gap)
+        if awayImage == nil, let closedLine {
+            awayImage = closedLine.paintPhoto(at: plan.source.minY, with: painter)
+        }
         if builder != nil || all, !building.logged {
             building.logged = true
             let spent = (building.spent + CACurrentMediaTime() - started) * 1000
@@ -371,7 +389,11 @@ final class TextFirstReflow {
             let top = painter.pixel(plan.top(j, gap: gap))
             slide(slice.layer, to: CGPoint(x: 0, y: top - visible.minY), over: duration)
         }
-        if let drawn = copyImage {
+        if plan.closing != nil, gap != plan.home, let awayImage {
+            let frame = copyFrame
+            show(awayImage, in: copy)
+            slide(copy, to: inCurtain(frame), over: duration)
+        } else if let drawn = copyImage {
             let frame = copyFrame
             show(drawn.image, in: copy)
             slide(
@@ -384,50 +406,34 @@ final class TextFirstReflow {
         if animated { slidesEnd = CACurrentMediaTime() + TextFirstReflowMotion.slide }
     }
 
+    /// Where `layer` is drawn now (its top-left corner, curtain coordinates): along its slide,
+    /// worked out from the slide itself, so it is known before the screen has drawn a frame.
+    private func drawn(_ layer: CALayer) -> CGPoint {
+        guard let motion = motions[ObjectIdentifier(layer)] else { return layer.position }
+        let t = (CACurrentMediaTime() - motion.begun) / TextFirstReflowMotion.slide
+        guard t < 1 else { return layer.position }
+        let eased = CGFloat(TextFirstReflowMotion.eased(max(0, t)))
+        return CGPoint(
+            x: motion.from.x + (motion.to.x - motion.from.x) * eased,
+            y: motion.from.y + (motion.to.y - motion.from.y) * eased)
+    }
+
     /// Move `layer` to `to` (its top-left corner, curtain coordinates), sliding from where it
     /// is drawn now.
     private func slide(_ layer: CALayer, to: CGPoint, over duration: CFTimeInterval) {
-        let from = layer.presentation()?.position ?? layer.position
+        let from = drawn(layer)
         layer.position = to
+        motions[ObjectIdentifier(layer)] = nil
         guard duration > 0, layer.superlayer != nil,
             abs(from.y - to.y) > 0.01 || abs(from.x - to.x) > 0.01
         else { return }
+        if duration == TextFirstReflowMotion.slide {
+            motions[ObjectIdentifier(layer)] = (from, to, CACurrentMediaTime())
+        }
         let animation = CABasicAnimation(keyPath: "position")
         (animation.fromValue, animation.toValue) = (NSValue(cgPoint: from), NSValue(cgPoint: to))
         animation.duration = duration
         animation.timingFunction = TextFirstReflowMotion.easing
         layer.add(animation, forKey: "slide")
-    }
-}
-
-/// Runs `step` once per display frame until it returns false or this object goes away.
-@MainActor
-final class TextFirstIdleBuilder {
-    private var link: CADisplayLink?
-    private let step: () -> Bool
-
-    init(_ step: @escaping () -> Bool) {
-        self.step = step
-        let link = CADisplayLink(
-            target: TextFirstIdleProxy(self), selector: #selector(TextFirstIdleProxy.frame))
-        link.add(to: .main, forMode: .common)
-        self.link = link
-    }
-
-    isolated deinit { link?.invalidate() }
-
-    fileprivate func frame() {
-        if !step() {
-            link?.invalidate()
-            link = nil
-        }
-    }
-}
-
-private final class TextFirstIdleProxy: NSObject {
-    weak var builder: TextFirstIdleBuilder?
-    init(_ builder: TextFirstIdleBuilder) { self.builder = builder }
-    @MainActor @objc func frame(_ link: CADisplayLink) {
-        if let builder { builder.frame() } else { link.invalidate() }
     }
 }

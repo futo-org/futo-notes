@@ -7,15 +7,31 @@ import UIKit
 // slides end, at most 0.4 s after the release, uncovering the same picture. The screen does not
 // scroll. No block lifts until the curtain is down.
 
-/// A drop whose preview is settling over the moved note: what comes down when it ends, and the
-/// revision the move left the note at (any other change ends it at once).
+/// A drop whose preview is settling over the moved note: what comes down when it ends, the
+/// revision the move left the note at (any other change ends it at once), and the note's bounds
+/// and content size it settles over (a scroll, a rotation or a relayout ends it at once too).
+/// Going away, it takes what it shows down with it.
 @MainActor
 final class TextFirstReflowLanding {
     let preview: TextFirstReflow
     let dimmedSource: UIView
     let revision: UInt64
-    init(_ preview: TextFirstReflow, dimmedSource: UIView, revision: UInt64) {
+    private let bounds: CGRect
+    private let contentSize: CGSize
+    init(_ preview: TextFirstReflow, dimmedSource: UIView, revision: UInt64, on view: UIScrollView)
+    {
         (self.preview, self.dimmedSource, self.revision) = (preview, dimmedSource, revision)
+        (bounds, contentSize) = (view.bounds, view.contentSize)
+    }
+
+    /// Whether `view` has scrolled, resized or laid out to another size since the landing began.
+    func disturbed(_ view: UIScrollView) -> Bool {
+        view.bounds != bounds || abs(view.contentSize.height - contentSize.height) > 0.5
+    }
+
+    isolated deinit {
+        preview.remove()
+        dimmedSource.removeFromSuperview()
     }
 }
 
@@ -40,7 +56,7 @@ extension TextFirstEditorController {
             )
         }
         let landing = TextFirstReflowLanding(
-            preview, dimmedSource: drag.dimmedSource, revision: rev)
+            preview, dimmedSource: drag.dimmedSource, revision: rev, on: textView)
         reflowLanding = landing
         if moved {
             dragHaptics.landed()

@@ -39,6 +39,12 @@ struct TextFirstReflowPlan: Equatable {
     /// (none for a photo lifted out of a line: that line closes up instead).
     let room: CGFloat
     let left: CGFloat
+    /// How the copy is drawn in a gap (its x, width and height): the block as it is, or for a
+    /// photo lifted out of a line, the photo's own line.
+    let away: CGRect
+    /// What the note's images draw on screen (each one's place, size and whether it has
+    /// decoded): a change redraws every slice even when nothing moved.
+    let drawing: Int
     /// The UTF-16 start of the line the block's drawing starts on.
     let sourceAnchor: Int
     /// The line a photo is lifted out of, which closes up without it; nil for any other block.
@@ -93,14 +99,14 @@ struct TextFirstReflowPlan: Equatable {
     }
 
     /// Where the copy of the block is drawn with the gap at `gap`: at home, in place; elsewhere
-    /// the top of the gap, the room above the run below it.
+    /// the top of the gap, the room above the run below it, as wide and as far in as `away`.
     func copy(_ gap: Int) -> CGRect {
         guard gap != home, !runs.isEmpty else { return source }
         let y =
             gap < runs.count
             ? top(gap, gap: gap) - room
             : top(runs.count - 1, gap: gap) + height(runs.count - 1, gap: gap)
-        return CGRect(x: source.minX, y: y, width: source.width, height: source.height)
+        return CGRect(x: away.minX, y: y, width: away.width, height: away.height)
     }
 
     /// The gap a finger at `y` opens, starting from the gap open now (the web editor's
@@ -108,16 +114,21 @@ struct TextFirstReflowPlan: Equatable {
     /// it may open on once the finger passes that stretch's middle as it is drawn now, step by
     /// step, and stays put on the exact middle. Passing a stretch draws it on the gap's other
     /// side, so the finger has to come back past its middle as drawn there to undo the step,
-    /// which is a block's height away: the gap does not flicker.
-    func gap(from start: Int, finger y: CGFloat) -> Int {
+    /// which is a block's height away: the gap does not flicker. `drawn` is each run's top as it
+    /// is drawn now, mid-slide included; without it, where the gap at `start` puts it.
+    func gap(from start: Int, finger y: CGFloat, drawn: [CGFloat]? = nil) -> Int {
+        let drawn = drawn.flatMap { $0.count == runs.count ? $0 : nil }
         let positions = self.positions
         var gap = positions.contains(start) ? start : home
         // Each step passes one stretch, and a stretch passed is never passed back.
         for _ in 0...positions.count {
             guard let at = positions.firstIndex(of: gap) else { break }
-            if at + 1 < positions.count, middle(gap..<positions[at + 1], gap: gap) < y {
-                gap = positions[at + 1]
-            } else if at > 0, middle(positions[at - 1]..<gap, gap: gap) > y {
+            let next = at + 1 < positions.count ? positions[at + 1] : nil
+            let previous = at > 0 ? positions[at - 1] : nil
+            if let next, middle(gap..<next, gap: gap, drawn: drawn, start: start) < y {
+                gap = next
+            } else if let previous, middle(previous..<gap, gap: gap, drawn: drawn, start: start) > y
+            {
                 gap = positions[at - 1]
             } else {
                 break
@@ -126,9 +137,13 @@ struct TextFirstReflowPlan: Equatable {
         return gap
     }
 
-    /// The middle of runs `span`, which are drawn together, with the gap at `gap`.
-    private func middle(_ span: Range<Int>, gap: Int) -> CGFloat {
+    /// The middle of runs `span`, which are drawn together: where they are drawn now
+    /// (`drawn`, for the gap at `start`), else where the gap at `gap` puts them.
+    private func middle(_ span: Range<Int>, gap: Int, drawn: [CGFloat]?, start: Int) -> CGFloat {
         guard let last = span.last else { return copy(gap).maxY }
+        if let drawn {
+            return (drawn[span.lowerBound] + drawn[last] + height(last, gap: start)) / 2
+        }
         let top = top(span.lowerBound, gap: gap)
         return (top + self.top(last, gap: gap) + height(last, gap: gap)) / 2
     }

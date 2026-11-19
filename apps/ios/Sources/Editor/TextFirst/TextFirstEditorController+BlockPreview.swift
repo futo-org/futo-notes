@@ -46,7 +46,8 @@ extension TextFirstEditorController {
         guard !reducesMotion else { return }
         do {
             let (plan, closedLine) = try reflowPlan(drag.book, drag.targets)
-            let preview = TextFirstReflow(plan, closedLine: closedLine, painter: slicePainter)
+            let preview = TextFirstReflow(
+                plan, closedLine: closedLine, painter: slicePainter, under: drag.card)
             drag.preview = preview
             preview.buildInIdleTime()
         } catch {

@@ -81,7 +81,7 @@ final class TextFirstBlockDrag {
         let scrolled = textView?.contentOffset ?? .zero
         finger = CGPoint(x: p.x - scrolled.x, y: p.y - scrolled.y)
         if let preview {
-            let ticked = preview.follow(fingerY, under: card)
+            let ticked = preview.follow(fingerY)
             place()
             return ticked
         }
@@ -312,6 +312,8 @@ extension TextFirstEditorController {
     /// The note was laid out again (a scroll, a photo that decoded, a rotation): the drag's
     /// targets are read again from where things are drawn now, and the drag carries on.
     func remeasureBlockDrag() {
+        // A drop still settling is drawn for the layout it settled into: any other ends it.
+        if let landing = reflowLanding, landing.disturbed(textView) { finishLanding() }
         guard let drag = blockDrag, !drag.measuring else { return }
         drag.measuring = true
         defer { drag.measuring = false }

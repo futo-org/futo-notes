@@ -44,7 +44,9 @@ extension TextFirstEditorController {
         let block = book.block
         var cuts = targets.slots.map { Cut(y: $0.y, anchor: $0.slot, inset: 0, slot: $0.slot) }
         let source: CGRect
+        let away: CGRect
         let room: CGFloat
+        let drawing = drawingSignature(laidOut)
         var closing: TextFirstReflowPlan.Closing?
         var closedLine: TextFirstClosedLine?
         var spans: [(CGFloat, CGFloat)]
@@ -53,17 +55,23 @@ extension TextFirstEditorController {
             let line = (storage.string as NSString).lineRange(
                 for: NSRange(location: block.range.location, length: 0))
             let start = TextFirstBlockSlot(offset: line.location, end: false)
+            // A line ending at the text's end ends at the note's end unless a line ending
+            // closes it: then an empty last line (an empty task) follows, with its own row.
+            let ends = storage.string.utf16.last != 0x0A
             let end = TextFirstBlockSlot(
-                offset: NSMaxRange(line), end: NSMaxRange(line) == storage.length)
+                offset: NSMaxRange(line), end: NSMaxRange(line) == storage.length && ends)
             guard let photo = drawnImage(block.range, in: laidOut),
                 let row = imageRow(block.range.location),
                 let top = edgeY(start, laidOut), let bottom = edgeY(end, laidOut)
             else { throw TextFirstReflowUnavailable("the photo's line is not laid out") }
             let width = textView.textContainer.size.width
             guard
-                let closed = reusing.flatMap({ $0.width == width ? $0 : nil })
+                let closed = reusing.flatMap({
+                    $0.width == width && $0.drawing == drawing ? $0 : nil
+                })
                     ?? TextFirstClosedLine(
-                        storage, line: line, removing: block.range, width: width)
+                        storage, line: line, removing: block.range, width: width,
+                        drawing: drawing)
             else { throw TextFirstReflowUnavailable("the photo's line did not lay out without it") }
             closedLine = closed
             // Home cuts the line at the photo's middle, or where the photo shows.
@@ -71,7 +79,8 @@ extension TextFirstEditorController {
             closing = TextFirstReflowPlan.Closing(
                 top: top, bottom: bottom, anchor: line.location, photoTop: row.minY - top,
                 rowBottom: row.maxY - top, home: middle - top, closed: closed.height)
-            (source, room, anchor) = (photo, row.height, line.location)
+            (source, room, anchor) = (photo, closed.photoHeight, line.location)
+            away = CGRect(x: visible.minX, y: 0, width: visible.width, height: closed.photoHeight)
             cuts += [
                 Cut(y: top, anchor: start, inset: 0), Cut(y: bottom, anchor: end, inset: 0),
                 Cut(y: middle, anchor: start, inset: middle - top, home: true),
@@ -89,6 +98,7 @@ extension TextFirstEditorController {
             else { throw TextFirstReflowUnavailable("the block's edges are not laid out") }
             source = CGRect(x: visible.minX, y: top, width: visible.width, height: bottom - top)
             (room, anchor) = (bottom - top, block.range.location)
+            away = CGRect(x: source.minX, y: 0, width: source.width, height: source.height)
             cuts.removeAll { $0.y > top + 0.5 && $0.y < bottom - 0.5 }
             cuts.append(Cut(y: bottom, anchor: end, inset: 0))
             spans = [
@@ -134,7 +144,8 @@ extension TextFirstEditorController {
         guard let home else { throw TextFirstReflowUnavailable("the photo's place is off screen") }
         let plan = TextFirstReflowPlan(
             runs: runs, home: home, slots: slots, source: source, room: room,
-            left: book.alonePhoto ? 0 : room, sourceAnchor: anchor, closing: closing)
+            left: book.alonePhoto ? 0 : room, away: away, drawing: drawing, sourceAnchor: anchor,
+            closing: closing)
         return (plan, closedLine)
     }
 
@@ -145,7 +156,9 @@ extension TextFirstEditorController {
         _ plan: TextFirstReflowPlan, _ book: TextFirstSlotBook, to slot: TextFirstBlockSlot
     ) -> TextFirstLandingLines {
         let block = book.block.range
-        let offsets = plan.runs.map(\.anchor.offset) + [block.location, slot.offset]
+        // The block's end too: a block running below the screen ends beyond every run.
+        let offsets =
+            plan.runs.map(\.anchor.offset) + [block.location, NSMaxRange(block), slot.offset]
         let text = storage.string as NSString
         let base = text.lineRange(
             for: NSRange(location: min(offsets.min() ?? 0, text.length), length: 0)
@@ -171,33 +184,39 @@ extension TextFirstEditorController {
 
     /// Where each run of `plan`, and the block, are laid out now that the block has moved
     /// (text view coordinates), `lines` read before the move. A run's top is where the line it
-    /// is measured from is now; it ends where the next run, or the block, starts.
+    /// is measured from is now; it ends where the next run, or the block, starts. A line that is
+    /// not laid out is far off screen: nothing is laid out to read it (TextKit would answer with
+    /// an empty frame), the run keeps the place the preview gave it, and the block's foot is
+    /// taken from the copy's height.
     func landedFrames(_ plan: TextFirstReflowPlan, gap: Int, _ lines: TextFirstLandingLines)
         -> (runs: [CGRect], block: CGRect?)
     {
         let width = textView.bounds.width
         let all = NSRange(location: 0, length: storage.length)
+        let laidOut = laidOutRange() ?? all
         let last = (lines.runs.compactMap { $0 } + [lines.block.upperBound, lines.slot]).max() ?? 0
         let starts = lineStarts(from: lines.base, through: storage.length, lines: last + 2)
         let end = TextFirstBlockSlot(offset: storage.length, end: true)
         func top(ofLine k: Int) -> CGFloat? {
-            edgeY(k < starts.count ? TextFirstBlockSlot(offset: starts[k], end: false) : end, all)
+            boundaryY(
+                k < starts.count ? TextFirstBlockSlot(offset: starts[k], end: false) : end,
+                in: laidOut)
         }
+        // The block's lines are where the move put them (a photo's, the line it became).
         var moved: CGRect?
         let first = TextFirstMoveMap.blockLine(lines.block, to: lines.slot, photo: lines.photo)
-        if first < starts.count, let lifted = try? liftedBlock(at: starts[first]),
-            let top = edgeY(TextFirstBlockSlot(offset: lifted.range.location, end: false), all),
-            let bottom = edgeY(
-                TextFirstBlockSlot(offset: NSMaxRange(lifted.range), end: lifted.toEnd), all)
-        {
-            moved = CGRect(x: 0, y: top, width: width, height: bottom - top)
+        if let upper = top(ofLine: first) {
+            let lower =
+                top(ofLine: first + (lines.photo ? 1 : lines.block.count))
+                ?? upper + plan.away.height
+            moved = CGRect(x: 0, y: upper, width: width, height: lower - upper)
         }
         let n = plan.runs.count
         var tops = plan.runs.indices.map { j -> CGFloat in
             let k = lines.runs[j].map {
                 TextFirstMoveMap.line($0, block: lines.block, to: lines.slot, photo: lines.photo)
             }
-            let y = k.map { top(ofLine: $0) } ?? edgeY(end, all)
+            let y = k.map { top(ofLine: $0) } ?? boundaryY(end, in: laidOut)
             return y.map { $0 + plan.runs[j].inset } ?? plan.top(j, gap: gap)
         }
         // A run measured from inside a line that closed up ends no lower than the next run.
@@ -212,6 +231,21 @@ extension TextFirstEditorController {
             return CGRect(x: 0, y: tops[j], width: width, height: max(0, bottom - tops[j]))
         }
         return (runs, moved)
+    }
+
+    /// What the images in UTF-16 `range` draw: each one's place, its size, and whether it has
+    /// decoded or failed.
+    private func drawingSignature(_ range: NSRange) -> Int {
+        var hasher = Hasher()
+        storage.enumerateAttribute(.tfImage, in: range) { value, run, _ in
+            guard let span = value as? TextFirstImageSpan else { return }
+            hasher.combine(run.location)
+            hasher.combine(span.size.width)
+            hasher.combine(span.size.height)
+            hasher.combine(span.atom.image.map(ObjectIdentifier.init))
+            hasher.combine(span.atom.failed)
+        }
+        return hasher.finalize()
     }
 
     /// The UTF-16 starts of the display lines from the line start `base` to `through`, at most
