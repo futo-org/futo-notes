@@ -49,15 +49,17 @@ class TextFirstCodeBlockCalloutTest {
         assertTrue("a tap showed the callout", !view.codeTouch.callout.isShowing)
     }
 
-    /** The one way it worked before, "kinda busted": the platform's text menu and two handles over the selected block. */
+    /**
+     * The one way it worked before, "kinda busted": the platform's text menu and two handles over the selected block.
+     * Verifier (job 11): with the keyboard up, the lift after the hold put the caret under the finger.
+     */
     @Test fun aHoldInsideTheSelectedBlockKeepsItWithItsCalloutAndNoHandles() = textFirstSession(note) { c ->
         val view = c.view
-        header(view)
-        // Selected without a header tap: the tap raises the keyboard, whose resize would move the note under the hold.
-        val code = view.editableText.indexOf("a = 1")
-        view.engine!!.selectCodeBlock(code)
+        val (x, y) = header(view)
+        tapNoteAt(view, x, y)
         withTimeout(5_000) { while (view.selectedCodeBlock == null) delay(20) }
         val selected = view.selectedCodeBlock
+        val code = view.editableText.indexOf("a = 1")
         val layout = view.layout
         val line = layout.getLineForOffset(code)
         val codeX = view.totalPaddingLeft + layout.getPrimaryHorizontal(code)

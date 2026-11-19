@@ -13,6 +13,8 @@ import uniffi.futo_notes_ffi.EditorBlockCommand
 internal class CodeBlockTouch(private val view: TextFirstEditText) {
     private val slop = ViewConfiguration.get(view.context).scaledTouchSlop
     private var pressed: CodeBlockTarget? = null
+    /** A hold inside the selected block was taken by [longPress]: the rest of that gesture is ours. */
+    private var heldInside = false
     private var downX = 0f
     private var downY = 0f
     val headerField = CodeHeaderField(view)
@@ -22,6 +24,15 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
         private set
 
     fun onTouch(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) heldInside = false
+        // The TextView reads the lift after a hold it did not handle as a tap, which put the caret under the finger.
+        if (heldInside) {
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                heldInside = false
+                view.isPressed = false
+            }
+            return true
+        }
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 headerField.close()
@@ -71,6 +82,7 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
         val block = view.selectedCodeBlock ?: return false
         if (view.getOffsetForPosition(downX, downY) !in block.first..block.second) return false
         callout.showWhenSelected(block.first)
+        heldInside = true
         return true
     }
 
