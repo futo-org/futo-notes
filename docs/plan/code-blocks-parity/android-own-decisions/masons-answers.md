@@ -88,3 +88,4 @@ So: **S2**, **L1B**, T1–T4 deferred; block drag is made solid on `play/android
 
 - "Also, the / menu isn't there" (2026-11-19). The `/` menu is a desktop-only line in the spec (interactive-elements.md) and was never in the native Android or iOS editor. Asked: **Z1** build it on the phone after this MR (Z1A) or inside it (Z1B).
 - "took a screenshot of the caret dragging off screen with a picture above not allowing the scrolling up. This goes with the speed thing I talked abotu earlier." (build `f26b323a6`, 16:09). The screenshot: the insertion handle at the top-left corner of a tall photo at the top edge of the note, the note not scrolling further; an empty white menu pill over the back arrow.
+- "When I cycle to the first result in the find in note, the keyboard drops" (build `f26b323a6`).
