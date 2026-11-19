@@ -232,6 +232,9 @@ internal class BlockLift(private val view: TextFirstEditText) {
         val asked = touch
         engine.planLift(view.appliedSeq, press, near.first..minOf(near.last, view.length() - 1)) { plan ->
             if (asked != touch || phase != Phase.Asking) return@planLift
+            // A field focused while the engine answered: the keyboard is up, nothing lifts.
+            // The note itself focused: its own long press (a word selection) still comes.
+            if (!keyboardDown()) return@planLift decline(platform = view.isFocused)
             if (plan == null || plan.seq != view.appliedSeq || view.engine !== engine) decline(platform = true)
             else begin(plan)
         }

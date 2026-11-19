@@ -11,7 +11,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
-/** Input that comes while a drop is made or lands (Sol review of !716, 1 and 4): none of it reaches the note. */
+/** Input that comes while a lift is asked for, a drop is made or lands (Sol review of !716, 1, 2 and 4). */
 class TextFirstBlockDropInputTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
@@ -82,5 +82,18 @@ class TextFirstBlockDropInputTest {
         // A box the tap checked is saved after the move.
         SystemClock.sleep(2_500)
         assertEquals("the note after a tap on a landing drop", "- [ ] bravo\n- [ ] charlie\n- [ ] delta\n- [ ] alpha", file.readText())
+    }
+
+    @Test
+    fun aFieldFocusedWhileTheLiftIsAskedForLiftsNothing() = compose.openDragScreen("alpha\nbravo\ncharlie") {
+        val from = at(offsetOf("bravo"))
+        // The editor busy: the lift's question waits for it.
+        ui { view.engine!!.handler.post { SystemClock.sleep(1_500) } }
+        down(from); hold(600)
+        ui { view.requestFocus() }
+        SystemClock.sleep(1_500)
+        assertTrue("nothing lifted", !lifted)
+        assertEquals("no lift haptic", 0, haptics.lifts)
+        up(from)
     }
 }
