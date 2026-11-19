@@ -80,17 +80,17 @@ fn every_offered_slot_is_a_move_that_lands() {
 
 #[test]
 fn the_boundaries_around_a_last_line_that_shows_nothing_are_two_slots() {
-    // The task draws a box and no characters, so the display is `a\nb\n` and
-    // the boundary above the task and the note's end are both at 4.
-    let note = "a\nb\n- [ ] ";
+    // The empty heading shows no characters, so the display is `a\nb\n` and
+    // the boundary above it and the note's end are both at 4.
+    let note = "a\nb\n# ";
     let mut session = EditorSession::open(note);
     assert_eq!(session.display_text(), "a\nb\n");
     let at = |at: usize, end: bool| BlockBoundary {
         at: DisplayOffset(at),
         end,
     };
-    let (top, above_b, above_task, end) = (at(0, false), at(2, false), at(4, false), at(4, true));
-    // The task lifts, from the top of its row to the note's end.
+    let (top, above_b, above_last, end) = (at(0, false), at(2, false), at(4, false), at(4, true));
+    // The heading lifts, from the top of its row to the note's end.
     assert_eq!(
         session
             .block_at(session.revision(), DisplayOffset(4))
@@ -102,9 +102,9 @@ fn the_boundaries_around_a_last_line_that_shows_nothing_are_two_slots() {
     );
     // (the press, its slots, a move to each and the note after).
     for (press, want, after) in [
-        (0, [above_task, end], ["b\na\n- [ ] ", "b\n- [ ] \na"]),
-        (2, [top, end], ["b\na\n- [ ] ", "a\n- [ ] \nb"]),
-        (4, [top, above_b], ["- [ ] \na\nb", "a\n- [ ] \nb"]),
+        (0, [above_last, end], ["b\na\n# ", "b\n# \na"]),
+        (2, [top, end], ["b\na\n# ", "a\n# \nb"]),
+        (4, [top, above_b], ["# \na\nb", "a\n# \nb"]),
     ] {
         let press = DisplayOffset(press);
         assert_eq!(slots(&mut session, press), want, "{press:?}");
@@ -122,6 +122,45 @@ fn the_boundaries_around_a_last_line_that_shows_nothing_are_two_slots() {
 }
 
 #[test]
+fn an_empty_last_task_shows_its_marker_unit_between_its_boundaries() {
+    // The task's box is one unit of 3 bytes, so the boundary above it (4)
+    // and the note's end (7) are apart.
+    let note = "a\nb\n- [ ] ";
+    let mut session = EditorSession::open(note);
+    assert_eq!(session.display_text(), "a\nb\n\u{fffc}");
+    let at = |at: usize, end: bool| BlockBoundary {
+        at: DisplayOffset(at),
+        end,
+    };
+    assert_eq!(
+        session
+            .block_at(session.revision(), DisplayOffset(4))
+            .unwrap(),
+        Some(LiftedBlock {
+            range: range(4, 7),
+            to_end: true
+        })
+    );
+    assert_eq!(
+        slots(&mut session, DisplayOffset(0)),
+        [at(4, false), at(7, true)]
+    );
+    for (to, after) in [
+        (at(4, false), "b\na\n- [ ] "),
+        (at(7, true), "b\n- [ ] \na"),
+    ] {
+        let revision = session.revision();
+        session
+            .move_block(revision, DisplayOffset(0), to, &mut ok)
+            .unwrap()
+            .unwrap_or_else(|| panic!("{to:?} was refused"));
+        assert_eq!(session.source_text(), after, "{to:?}");
+        session.undo(session.revision(), &mut ok).unwrap().unwrap();
+        assert_eq!(session.source_text(), note);
+    }
+}
+
+#[test]
 fn a_renderer_asks_for_the_slots_inside_a_display_range() {
     // In NOTE the heading (line 3) lands on boundaries 5, 9, 10, 12, 15, 18,
     // 19 and 20; the plain line (4) also inside the list, on 6, 7 and 8.
@@ -134,7 +173,8 @@ fn a_renderer_asks_for_the_slots_inside_a_display_range() {
         start: line(session, from),
         end: line(session, to),
     };
-    let quoted = line(&session, 11).0 + 1;
+    // Inside the quoted item `> - r`, after its marker unit.
+    let quoted = line(&session, 11).0 + "\u{fffc}".len();
     for (press, within, want) in [
         (3, r(&session, 6, 10), &[9, 10][..]),
         (4, r(&session, 6, 10), &[6, 7, 8, 9, 10]),

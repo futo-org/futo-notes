@@ -450,30 +450,32 @@ fn a_photo_lifted_into_a_list_becomes_an_item_as_a_plain_line_would() {
 
 #[test]
 fn a_selection_of_exactly_a_line_that_becomes_an_item_travels_with_its_text() {
-    // `plain` selected (display 4..9) lands as `- plain`, shown at 2..7.
+    // `plain` selected (display 10..15; each marker is one unit of 3 bytes)
+    // lands as `- plain`, its text shown at 8..13 after the new marker.
     let mut session = EditorSession::open("- a\n- b\nplain");
     let revision = session.revision();
-    session.select(revision, range(4, 9)).unwrap();
+    session.select(revision, range(10, 15)).unwrap();
     session
         .move_block(revision, line(&session, 2), slot(&session, 1), &mut ok)
         .unwrap()
         .unwrap();
     assert_eq!(session.source_text(), "- a\n- plain\n- b");
-    assert_eq!(session.selection(), range(2, 7));
+    assert_eq!(session.selection(), range(8, 13));
 }
 
 #[test]
 fn a_caret_in_the_block_keeps_its_place_in_the_text_when_its_marker_changes() {
     // (note, the caret, the line pressed, the boundary, the caret after):
-    // display offsets, where markers and boxes are hidden. A caret keeps its
+    // display offsets, where an item's marker (a task's box included) is
+    // one unit of 3 bytes and indents are hidden. A caret keeps its
     // character; one before the text lands at the text's start.
     for (before, caret, pressed, to, landed) in [
         // `pl|ain` becomes `- pl|ain`.
-        ("- a\n- b\nplain", 6, 2, 1, 4),
+        ("- a\n- b\nplain", 12, 2, 1, 10),
         // `  no|te` loses its indent: `no|te`.
-        ("- a\n  note\n\nend", 4, 1, 4, 9),
+        ("- a\n  note\n\nend", 7, 1, 4, 12),
         // `- x|` taking a box keeps its character.
-        ("- [ ] a\n- [ ] b\n1. x", 5, 2, 1, 3),
+        ("- [ ] a\n- [ ] b\n1. x", 14, 2, 1, 9),
     ] {
         let mut session = EditorSession::open(before);
         let revision = session.revision();

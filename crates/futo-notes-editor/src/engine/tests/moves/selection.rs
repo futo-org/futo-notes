@@ -57,7 +57,8 @@ fn a_selection_of_exactly_the_moved_lines_travels_past_hidden_markers() {
         // The line below the block starts with a hidden marker.
         ("a\n# b\nc", (0, 2), Some(0), 3, "# b\nc\na", (4, 5)),
         ("a\n# b\nc", (0, 2), Some(0), 2, "# b\na\nc", (2, 4)),
-        ("a\n- b\nc", (0, 2), Some(0), 3, "- b\nc\na", (4, 5)),
+        // An item's marker shows as one unit of 3 bytes.
+        ("a\n- b\nc", (0, 2), Some(0), 3, "- b\nc\na", (7, 8)),
         ("a\n> b\nc", (0, 2), Some(0), 3, "> b\nc\na", (4, 5)),
         (
             "a\n```\nx\n```\nc",

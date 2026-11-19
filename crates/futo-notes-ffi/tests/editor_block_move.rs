@@ -57,14 +57,18 @@ fn native_block_move_lifts_a_list_item_with_its_children_and_undo_restores_it() 
         .create_note("list".into(), "".into(), note.into())
         .unwrap();
     let session = store.open_editor("list".into()).unwrap();
-    // Display "a\nb\nc\nd": `b` at byte 2 lifts `b` and `c`.
-    assert_eq!(session.block_at(0, at(2)).unwrap(), lines(2, 6, false));
-    assert_eq!(slots(&session, 0, 2), vec![above(0), end(7)]);
-    // Not a slot: refused, nothing changes.
-    assert!(session.move_block(0, at(2), above(4)).unwrap().is_none());
-    let change = session.move_block(0, at(2), end(7)).unwrap().unwrap();
+    // Each item's marker is one U+FFFC of 3 bytes: the display is
+    // "a\n\u{fffc}b\n\u{fffc}c\nd", and `b`'s line at byte 2 lifts `b`
+    // and `c`, their marker units included.
+    let shown = "a\n\u{fffc}b\n\u{fffc}c\nd";
+    assert_eq!(session.display_text().unwrap(), shown);
+    assert_eq!(session.block_at(0, at(2)).unwrap(), lines(2, 12, false));
+    assert_eq!(slots(&session, 0, 2), vec![above(0), end(13)]);
+    // Not a slot (inside the block): refused, nothing changes.
+    assert!(session.move_block(0, at(2), above(7)).unwrap().is_none());
+    let change = session.move_block(0, at(2), end(13)).unwrap().unwrap();
     assert_eq!(change.revision, 1);
-    let mut display = "a\nb\nc\nd".to_owned();
+    let mut display = shown.to_owned();
     display.replace_range(
         change.range.start as usize..change.range.end as usize,
         &change.inserted,
@@ -72,7 +76,7 @@ fn native_block_move_lifts_a_list_item_with_its_children_and_undo_restores_it() 
     assert_eq!(display, session.display_text().unwrap());
     assert_eq!(session.source_text().unwrap(), "a\nd\n- b\n  - c");
     assert!(matches!(
-        session.move_block(0, at(0), end(7)),
+        session.move_block(0, at(0), end(13)),
         Err(EditorSessionError::StaleRevision {
             expected: 0,
             actual: 1
@@ -132,13 +136,13 @@ fn native_block_move_lifts_a_photo_out_of_its_line_by_the_position_under_the_fin
 fn native_block_move_tells_the_two_edges_of_an_empty_last_task_apart() {
     let tree = TempTree::new();
     let (store, session) = open(&tree, "a\nb\n- [ ] ");
-    // The task shows no characters: the display is `a\nb\n`, and both the
-    // boundary above the task and the note's end are at byte 4.
-    assert_eq!(session.display_text().unwrap(), "a\nb\n");
-    assert_eq!(session.block_at(0, at(4)).unwrap(), lines(4, 4, true));
+    // The task shows its box as one U+FFFC of 3 bytes: the boundary above
+    // it is at byte 4 and the note's end at byte 7.
+    assert_eq!(session.display_text().unwrap(), "a\nb\n\u{fffc}");
+    assert_eq!(session.block_at(0, at(4)).unwrap(), lines(4, 7, true));
     assert_eq!(slots(&session, 0, 4), vec![above(0), above(2)]);
-    assert_eq!(slots(&session, 0, 0), vec![above(4), end(4)]);
-    session.move_block(0, at(0), end(4)).unwrap().unwrap();
+    assert_eq!(slots(&session, 0, 0), vec![above(4), end(7)]);
+    session.move_block(0, at(0), end(7)).unwrap().unwrap();
     assert_eq!(session.source_text().unwrap(), "b\n- [ ] \na");
     session.undo(1).unwrap().unwrap();
     session.move_block(2, at(0), above(4)).unwrap().unwrap();
@@ -173,11 +177,11 @@ fn native_block_move_reports_one_change_spanning_the_numbers_it_rewrites() {
     let tree = TempTree::new();
     let note = "1. a\n2. b\n3. c\n\n1. d\n2. e\n3. f";
     let (store, session) = open(&tree, note);
-    // Markers are hidden: the display is `a\nb\nc\n\nd\ne\nf`. `a` dropped
-    // above `e` joins the second list as its second item: the first list
+    // Each marker is one U+FFFC of 3 bytes, so each item shows 5 bytes and
+    // `e`'s line starts at byte 21. `a` dropped above `e` joins the second list as its second item: the first list
     // closes up and `e` and `f` count on, edits far apart in one change.
     let before = session.display_text().unwrap();
-    let change = session.move_block(0, at(0), above(9)).unwrap().unwrap();
+    let change = session.move_block(0, at(0), above(21)).unwrap().unwrap();
     let after = "1. b\n2. c\n\n1. d\n2. a\n3. e\n4. f";
     assert_eq!(session.source_text().unwrap(), after);
     let mut display = before;
@@ -188,8 +192,8 @@ fn native_block_move_reports_one_change_spanning_the_numbers_it_rewrites() {
     assert_eq!(display, session.display_text().unwrap());
     // The renderer restyles the projection: it must carry every rewritten
     // marker, `b`'s at the top and `f`'s at the bottom included, though
-    // the displayed text changes only before `e`.
-    assert!(change.range.end <= 9);
+    // the displayed text changes only through `e`'s marker unit (21..24).
+    assert!(change.range.end <= 24, "{:?}", change.range);
     let markers: Vec<_> = change
         .projection
         .blocks

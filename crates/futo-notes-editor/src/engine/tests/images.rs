@@ -220,7 +220,7 @@ fn an_insertion_is_an_isolated_undo_step_after_typing() {
 
 #[test]
 fn an_inserted_image_is_an_atom_with_the_caret_after_it() {
-    // In a list item it stays inline; the marker is hidden.
+    // In a list item it stays inline, after the item's marker unit.
     let mut engine = Engine::open("- a  b");
     engine.land(4..4, None);
     let change = engine
@@ -236,7 +236,7 @@ fn an_inserted_image_is_an_atom_with_the_caret_after_it() {
     assert_eq!(atoms.len(), 1);
     let atom = atoms[0];
     let spelled = "![x](<pics/my pic.png>)";
-    assert_eq!(atom.range, range(2, 2 + spelled.len()));
+    assert_eq!(atom.range, range(5, 5 + spelled.len()));
     assert_eq!(
         (atom.before, atom.after),
         (atom.range.start, atom.range.end)
