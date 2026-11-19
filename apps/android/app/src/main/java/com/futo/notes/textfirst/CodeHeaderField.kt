@@ -165,6 +165,8 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
         field.setTextSize(TypedValue.COMPLEX_UNIT_PX, look.codeHeaderTextSize)
         // !300's fields are inked as text while edited, with a thin caret in the same ink.
         field.setTextColor(look.textColor)
+        // The selection handles take the note's accent, as the note's and the cell field's do; the caret is replaced next.
+        field.tintCaretAndSelectionHandles(look.linkColor)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             field.setTextCursorDrawable(GradientDrawable().apply { setColor(look.textColor); setSize(look.dp(1f).roundToInt(), 0) })
         }
