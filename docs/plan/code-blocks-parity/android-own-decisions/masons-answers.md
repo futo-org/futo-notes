@@ -67,3 +67,12 @@ Answered through the Desktop Editor chat (2026-11-19): **2B**, the engine MR car
 - "The scrolling with the caret when going off screen is way too fast and doesn't have that speed gradient thing we were talking about (at least we talked about it with desktop I think)"
 - "Sometimes when tapping around retapping or something i get an invisible or small caret (second screenshot there)". The 10:07 screenshot: a half-height caret on the note's empty last line.
 - "can you take the android work from here and bring it in for us to play around with?" of !716 (Justin's Android block drag). Built on a scratch branch, never merged into this one.
+
+### Reported on the S23, build `f26b323a6` (2026-11-19)
+
+- "Can't highlight the > atom"
+- "Copying form the code block has two toasts. A "Copied" one and another with the notes logo popping up. We just want the logo one"
+- "bullets and chgeckmark boxes can't be highlighted iether. I think this is a deeper underlying atom thing". Cause: on this engine layer a marker is hidden source and is tinted only when its whole row is selected; the list-marker-units layer makes each bullet, number and task box one unit. A quote's `>` is a unit in neither layer.
+- "Tapping a checkmark puts me at the top of the note. Not keeping scroll position. this might be a deeper thing. Seems like a bunch of things are messing with my scroll position"
+
+Asked, unanswered: **L1** when the marker units reach Android: L1A now, under the code-blocks work; L1B later with the desktop stack, as 2B has it.
