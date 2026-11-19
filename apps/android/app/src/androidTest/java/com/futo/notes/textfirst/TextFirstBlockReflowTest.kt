@@ -86,7 +86,7 @@ class TextFirstBlockReflowTest {
 
     @Test
     fun theGapFollowsTheContentWhileTheNoteAutoscrollsAndTheDropLandsWhereShown() {
-        val rows = (1..80).map { "row $it" }
+        val rows = (1..200).map { "row $it" }
         compose.openDragScreen(rows.joinToString("\n")) {
             val from = at(0)
             down(from); hold(600)
@@ -94,8 +94,9 @@ class TextFirstBlockReflowTest {
             moveTo(from, edge)
             val gap = report?.gap
             val ticks = haptics.ticks
-            hold(1_200)
-            assertTrue("the note scrolled under the still finger", ui { view.scrollY } > 600)
+            hold(2_500)
+            // Far enough that the block's own place is screens away: its copy is still drawn.
+            assertTrue("the note scrolled two screens under the still finger", ui { view.scrollY > 2 * view.height })
             assertNotEquals("the gap followed the content under the finger", gap, report?.gap)
             assertEquals("no ticks from the scroll alone", ticks, haptics.ticks)
             // Out of the edge zone the scroll stops; the drop lands where the preview shows it.

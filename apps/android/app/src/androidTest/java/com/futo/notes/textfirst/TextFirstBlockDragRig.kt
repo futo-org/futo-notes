@@ -168,8 +168,8 @@ internal class BlockDragRig(val compose: DragRule, val view: TextFirstEditText, 
         return at
     }
 
-    /** Ink in a window rect of [shot]: how many pixels are darker than the page, and the darkest luminance. */
-    fun ink(shot: Bitmap, r: android.graphics.RectF): Pair<Int, Int> {
+    /** Ink in a window rect of [shot]: how many pixels are darker than [darker] (the page by default), and the darkest luminance. */
+    fun ink(shot: Bitmap, r: android.graphics.RectF, darker: Int = 235): Pair<Int, Int> {
         val window = ui { windowOnScreen() }
         var count = 0
         var darkest = 255
@@ -180,7 +180,7 @@ internal class BlockDragRig(val compose: DragRule, val view: TextFirstEditText, 
         for (x in x0 until x1 step 2) for (y in y0 until y1 step 2) {
             val p = shot.getPixel(x, y)
             val l = (Color.red(p) * 299 + Color.green(p) * 587 + Color.blue(p) * 114) / 1000
-            if (l < 235) count++
+            if (l < darker) count++
             darkest = minOf(darkest, l)
         }
         return count to darkest
@@ -198,8 +198,9 @@ internal class BlockDragRig(val compose: DragRule, val view: TextFirstEditText, 
         val left = ui { view.totalPaddingLeft.toFloat() }
         val visible = android.graphics.RectF(left, copy.top + 2, minOf(copy.right, card.left - 4), copy.bottom - 2)
         check(visible.width() > 60) { "the card covers the copy ($card over $copy)" }
-        val (count, darkest) = ink(shot, visible)
-        check(count > 10) { "no text drawn in the copy at $visible" }
+        val (count, darkest) = ink(shot, visible, darker = 205)
+        // Text, not the card's soft shadow (about 225 at its darkest), and dimmed (35% of text on the page is about 175).
+        check(count > 10 && darkest < 205) { "no text drawn in the copy at $visible (darkest $darkest)" }
         check(darkest > 120) { "the copy at $visible is not dimmed: luminance $darkest" }
     }
 

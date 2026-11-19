@@ -16,6 +16,8 @@ import android.text.Layout
  */
 internal class SliceTiles(private val view: TextFirstEditText) {
     private val tiles = HashMap<Int, RenderNode>()
+    /** The tiles drawn this frame: the frame's display list refers to them until the render thread has drawn it. */
+    private val used = HashSet<Int>()
     private var layout: Layout? = null
     private var height = -1
     private var width = -1
@@ -32,6 +34,7 @@ internal class SliceTiles(private val view: TextFirstEditText) {
         canvas.clipRect(view.scrollX.toFloat(), a, (view.scrollX + view.width).toFloat(), b)
         for (k in tileOf(a - shift)..tileOf(b - shift - 0.01f)) {
             val node = tiles.getOrPut(k) { record(k) }
+            used += k
             canvas.save()
             canvas.translate(0f, k * TILE + shift)
             canvas.drawRenderNode(node)
@@ -47,16 +50,23 @@ internal class SliceTiles(private val view: TextFirstEditText) {
         for (k in tileOf(view.scrollY.toFloat())..tileOf(view.scrollY + view.height - 0.01f)) tiles.getOrPut(k) { record(k) }
     }
 
-    /** Drop the tiles more than a screen away from what shows (call after a frame). */
+    /**
+     * Drop the tiles more than a screen away from what shows that this frame did not draw (call
+     * after a frame). A tile this frame drew stays, though laid out far away (the copy in the gap
+     * is drawn from the block's own place, which autoscroll may have left screens behind):
+     * discarding it would empty the frame's display list before the render thread draws it.
+     */
     fun trim() {
         if (Build.VERSION.SDK_INT < 29) return
         val keep = tileOf(view.scrollY.toFloat() - view.height)..tileOf(view.scrollY + 2f * view.height)
-        tiles.entries.removeAll { (k, node) -> (k !in keep).also { if (it) node.discardDisplayList() } }
+        tiles.entries.removeAll { (k, node) -> (k !in keep && k !in used).also { if (it) node.discardDisplayList() } }
+        used.clear()
     }
 
     fun clear() {
         if (Build.VERSION.SDK_INT >= 29) for (node in tiles.values) node.discardDisplayList()
         tiles.clear()
+        used.clear()
     }
 
     private fun tileOf(y: Float) = kotlin.math.floor(y / TILE).toInt()
