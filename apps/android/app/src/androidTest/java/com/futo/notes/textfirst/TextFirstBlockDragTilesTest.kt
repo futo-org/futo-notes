@@ -73,4 +73,38 @@ class TextFirstBlockDragTilesTest {
         up(from)
         assertTrue("the photo drawn ($magenta photo pixels sampled)", magenta > 500)
     }
+
+    /** Inline code's chip, drawn by the note (not the text's run background), in a window rect of [shot]: its filled grey, counted. */
+    private fun BlockDragRig.chipPixels(shot: android.graphics.Bitmap, r: RectF): Int {
+        val window = ui { IntArray(2).also(view.rootView::getLocationOnScreen) }
+        // The chip's own fill: the text colour at 12% over the page (the card's lighter tint is not it).
+        val fill = Color.red(ui { androidx.core.graphics.ColorUtils.compositeColors((view.style.textColor and 0x00ffffff) or 0x1F000000, Color.WHITE) })
+        var count = 0
+        for (y in (window[1] + r.top).toInt().coerceAtLeast(0) until (window[1] + r.bottom).toInt().coerceAtMost(shot.height))
+            for (x in (window[0] + r.left).toInt().coerceAtLeast(0) until (window[0] + r.right).toInt().coerceAtMost(shot.width)) {
+                fun grey(px: Int, py: Int): Boolean {
+                    if (px >= shot.width || py >= shot.height) return false
+                    val p = shot.getPixel(px, py)
+                    return Math.abs(Color.red(p) - fill) <= 5 && Math.abs(Color.red(p) - Color.green(p)) < 7 && Math.abs(Color.green(p) - Color.blue(p)) < 7
+                }
+                // A filled patch, not a glyph's antialiased edge.
+                if (grey(x, y) && grey(x + 3, y) && grey(x, y + 3) && grey(x + 3, y + 3)) count++
+            }
+        return count
+    }
+
+    private val codeNote = "intro line to lift\n\nA line with `inline code here` in it.\n\nnext\n\nmore\n\n" + (1..20).joinToString("\n\n") { "row $it" }
+
+    /** Sol (batch 4): the chip is the note's drawing now; a lifted paragraph keeps it on its card. */
+    @Test
+    fun aLiftedParagraphKeepsItsInlineCodeChipOnTheCard() = compose.openDragScreen(codeNote) {
+        val from = at(offsetOf("A line"))
+        down(from); hold(600)
+        assertTrue("lifted", lifted)
+        SystemClock.sleep(400)
+        val card = ui { view.blockLift.drag!!.cardInWindow() }
+        val chip = chipPixels(screenshot(), RectF(card.left + 8, card.top + 8, card.right - 8, card.bottom - 8))
+        up(from)
+        assertTrue("the chip's grey on the card ($chip pixels)", chip > 300)
+    }
 }
