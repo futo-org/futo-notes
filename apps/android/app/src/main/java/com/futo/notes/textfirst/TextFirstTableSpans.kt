@@ -111,7 +111,8 @@ internal class TfTableRow(
             val layout = layouts.getOrNull(column) ?: continue
             layout.paint.color = look.textColor
             val cellSave = canvas.save()
-            canvas.translate(left + padding, top + (bottom - top - layout.height) / 2f)
+            // The cell's letters as seen centred, not its font box (which carried them low).
+            canvas.translate(left + padding, top + (bottom - top - layout.height) / 2f - lettersBelowFontBoxCentre(layout.paint))
             val cell = row.cells[column]
             val shift = start - displayStart
             marks.drawCell(canvas, layout, cell.start + shift, cell.end + shift, look)

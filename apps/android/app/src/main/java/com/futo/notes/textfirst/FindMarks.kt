@@ -55,6 +55,8 @@ internal fun FindMarks.drawCell(canvas: android.graphics.Canvas, layout: android
         if (b <= a) return@visit
         path.rewind()
         layout.getSelectionPath(a, b, path)
+        // On the letters as seen, as a mark in the note is (overlayBand).
+        path.offset(0f, lettersBelowFontBoxCentre(layout.paint))
         paint.color = style.findMarkColor(current)
         canvas.drawPath(path, paint)
     }
