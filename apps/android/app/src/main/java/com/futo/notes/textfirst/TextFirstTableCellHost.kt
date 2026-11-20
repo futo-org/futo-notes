@@ -19,6 +19,15 @@ internal class TextFirstTableCellHost(
     private var styled: TableCellGeometry? = null
     private var bounds: Rect? = null
     private var started = false
+    /**
+     * The cell opened while another field of the screen had the keyboard (the find bar stepping onto its match): it
+     * stays unshown, the note drawing it and its match, takes no focus, and leaving it hides nothing, until a press on
+     * the table asks for a cell (Mason, S23).
+     */
+    private var yielded = false
+    /** When a press last landed on the table: the cell it opens, within [ASKED_MS], is the one asked for. */
+    private var pressedTableAt = 0L
+    private val asked get() = android.os.SystemClock.uptimeMillis() - pressedTableAt < ASKED_MS
     private var placing = false
     private var observingNote = false
     private var observer: ViewTreeObserver? = null
@@ -55,6 +64,7 @@ internal class TextFirstTableCellHost(
             removeView(previous)
         }
         cell = next
+        yielded = false
         anchor = null
         styled = null
         started = false
@@ -144,13 +154,17 @@ internal class TextFirstTableCellHost(
             if (field.left != x || field.top != y || field.right != x + w || field.bottom != y + h || needsLayout) {
                 field.layout(x, y, x + w, y + h)
             }
-            // A field of the screen keeps its keyboard (the find bar stepping onto a cell's match): the cell stays unshown,
-            // the note drawing it and its match, and leaving it hides nothing (Mason, S23).
-            if (!started && rootView.findFocus()?.let { it.onCheckIsTextEditor() && it !== note && it.parent !== this } == true) return
+            if (!asked && (yielded || !field.isFocused && rootView.findFocus()?.let { it.onCheckIsTextEditor() && it !== note && it.parent !== this } == true)) {
+                yielded = true
+                field.alpha = 0f
+                reportBounds(null)
+                return
+            }
             field.alpha = 1f
             reportBounds(Rect(field.left, field.top, field.right, field.bottom))
             if (!started) {
                 started = true
+                pressedTableAt = 0L
                 field.requestFocus()
                 field.post {
                     if (cell === field && field.isAttachedToWindow && field.isFocused) context.getSystemService(InputMethodManager::class.java)
@@ -168,6 +182,10 @@ internal class TextFirstTableCellHost(
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            pressedTableAt = if (note.tableRowAt(event.y - note.top) != null) event.downTime else 0L
+            if (asked && yielded) { yielded = false; started = false; post { placeCell() } }
+        }
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             val hit = Rect()
             cell?.getHitRect(hit)
             observingNote = cell != null && !hit.contains(event.x.toInt(), event.y.toInt())
@@ -178,5 +196,9 @@ internal class TextFirstTableCellHost(
         if (observingNote) gestures.onTouchEvent(event)
         if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) observingNote = false
         return handled
+    }
+
+    private companion object {
+        const val ASKED_MS = 1_000L
     }
 }
