@@ -26,6 +26,12 @@ class CaretEdgeFrameStepTest {
     }
 
     @Test
+    fun aStallTravelsNoMoreThanATenthOfASecond(): Unit {
+        val step = CaretEdgeFrameStep()
+        assertEquals(300, step.scrollPixels(3000f, 500_000_000))
+    }
+
+    @Test
     fun fractionalTravelIsCarriedUntilTheNextPixel(): Unit {
         val step = CaretEdgeFrameStep()
         assertEquals(0, step.scrollPixels(400f, 1_000_000))
