@@ -141,6 +141,9 @@ enum TextFirstStyler {
             paragraph.minimumLineHeight = 28
             storage.addAttributes(
                 [.paragraphStyle: paragraph, .foregroundColor: UIColor.clear], range: r)
+        case .listMarker(let start, let end):
+            guard let r = range(start, end, length) else { return }
+            storage.addAttribute(.foregroundColor, value: UIColor.clear, range: r)
         case .image(let start, let end, let destination, let alt, let vault, let remote):
             guard let r = range(start, end, length) else { return }
             images.style(
