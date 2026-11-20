@@ -1,9 +1,12 @@
 package com.futo.notes.textfirst
 
+import android.graphics.Bitmap
 import android.graphics.PointF
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -69,6 +72,75 @@ class TextFirstBlockReflowTest {
     }
 
     @Test
+    fun theFirstLineDoesNotCarryFontPaddingIntoTheGap() =
+        compose.openDragScreen("moved line\nstationary line\n![](p.png)\ntail", mapOf("p.png" to png(300, 225))) {
+            compose.waitUntil(5_000) { ui { view.editableText.getSpans(0, view.length(), TfImage::class.java).single().bitmap != null } }
+            val source = at(0)
+            down(source)
+            compose.waitUntil(2_000) { lifted }
+            val destination = ui {
+                val text = view.editableText
+                val photo = text.getSpans(0, text.length, TfImage::class.java).single()
+                BlockSlot(text.getSpanStart(photo), false)
+            }
+            val release = carryUntil(source, 8f, right()) { report?.gap == destination }
+            hold(Slide.SLIDE_MS + 60)
+            val previewTop = checkNotNull(report?.copy).top
+            val landingTops = mutableListOf<Float>()
+            ui {
+                view.onRenderFrame = {
+                    view.blockLift.drag?.reflow?.landing?.movedBlock()?.let { copy ->
+                        landingTops += viewInWindow() + copy.top - view.scrollY
+                    }
+                }
+            }
+            up(release)
+            saved("stationary line\nmoved line\n![](p.png)\ntail")
+            compose.waitUntil(2_000) { !lifted }
+            val drawnTops = ui {
+                view.onRenderFrame = null
+                landingTops + (viewInWindow() + view.boundaryY(BlockSlot(offsetOf("moved line"), false))!! - view.scrollY)
+            }
+            for (drawnTop in drawnTops) {
+                assertEquals("the dropped row stays at the settled preview's top", previewTop, drawnTop, 1f)
+            }
+        }
+
+    @Test
+    fun aPhotoResizedDuringTheLandingUsesItsNewLayoutOnTheNextDraw() =
+        compose.openDragScreen("alpha\n![](p.png)\ncharlie\ndelta", mapOf("p.png" to png(256, 180))) {
+            compose.waitUntil(5_000) { ui { view.editableText.getSpans(0, view.length(), TfImage::class.java).single().bitmap != null } }
+            val source = at(offsetOf("delta"))
+            down(source)
+            compose.waitUntil(2_000) { lifted }
+            val release = carryUntil(source, -8f, right()) { report?.gap == BlockSlot(offsetOf("charlie"), false) }
+            hold(Slide.SLIDE_MS + 60)
+            val frame = ArrayBlockingQueue<Boolean>(1)
+            ui {
+                view.onApplyMeasured = applied@{ _, update ->
+                    if (update.drop == null) return@applied
+                    val oldLayout = view.layout
+                    val oldHeight = oldLayout.height
+                    val text = view.editableText
+                    val photo = text.getSpans(0, view.length(), TfImage::class.java).single()
+                    check(view.blockLift.drag?.reflow?.report()?.landing == true)
+                    photo.bitmap = Bitmap.createBitmap(256, 360, Bitmap.Config.ARGB_8888)
+                    text.setSpan(photo, text.getSpanStart(photo), text.getSpanEnd(photo), TF_SPAN_FLAGS)
+                    check(view.layout === oldLayout && oldLayout.height > oldHeight)
+                    view.requestLayout()
+                    view.invalidate()
+                    view.onRenderFrame = {
+                        view.onRenderFrame = null
+                        frame.offer(view.blockLift.drag?.reflow?.report()?.landing == true)
+                    }
+                }
+            }
+            up(release)
+            assertEquals("the first frame after a photo resize uses the current rows", false, frame.poll(2, TimeUnit.SECONDS))
+            saved("alpha\n![](p.png)\ndelta\ncharlie")
+        }
+
+    @Test
     fun aListItemDroppedInsideItsListLandsWhereItsCopyWasDrawn() = compose.openDragScreen("- one\n- two\n- three\n- four\n\nafter") {
         dropWhereShown("one", 8f, { BlockSlot(lineStart("four"), false) }, "- two\n- three\n- one\n- four\n\nafter")
     }
@@ -127,15 +199,19 @@ class TextFirstBlockReflowTest {
             ui { view.setPadding(view.paddingLeft, view.paddingTop, view.width / 2, view.paddingBottom) }
             compose.waitUntil(3_000) { (report?.copy?.height() ?: 0f) > tall * 1.5f }
             assertEquals("the gap stayed", BlockSlot(offsetOf("charlie"), false), report?.gap)
-            val source = ui { view.blockLift.drag!!.sourceInWindow()!! }
-            assertEquals("the copy is the block as laid out now", source.height(), report!!.copy!!.height(), 1f)
             assertCopyDrawn()
-            val copyTop = report!!.copy!!.top
+            val copy = checkNotNull(report?.copy)
             up(at)
             saved("bravo\nalpha is a line long enough to wrap when the note gets narrow enough\ncharlie\ndelta")
             compose.waitUntil(2_000) { !lifted }
-            val landed = ui { viewInWindow() + view.boundaryY(BlockSlot(offsetOf("alpha"), false))!! - view.scrollY }
-            assertEquals(copyTop, landed, ui { view.lineHeight / 4f })
+            val landed = ui {
+                val origin = viewInWindow() - view.scrollY
+                val top = checkNotNull(view.boundaryY(BlockSlot(offsetOf("alpha"), false)))
+                val bottom = checkNotNull(view.boundaryY(BlockSlot(offsetOf("charlie"), false)))
+                (origin + top) to (origin + bottom)
+            }
+            assertEquals("the resized copy starts where the moved block lands", copy.top, landed.first, 1f)
+            assertEquals("the resized copy ends where the moved block lands", copy.bottom, landed.second, 1f)
         }
 
     /** While a dropped block slides into place nothing else lifts: a hold that starts then is the platform's. */

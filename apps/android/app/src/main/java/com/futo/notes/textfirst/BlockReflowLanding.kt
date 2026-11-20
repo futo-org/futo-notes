@@ -87,9 +87,10 @@ internal class ReflowLanding(
 ) {
     private var ended = false
     private val end = Runnable { finish() }
-    /** The layout the parts were measured in: a new one (a new width) ends the landing at once. */
     private val layout = view.layout
     private val width = view.width
+    // A bitmap can change row measurements in the existing DynamicLayout.
+    private val height = layout?.height
 
     init { view.postDelayed(end, ms + 100) }
 
@@ -103,7 +104,10 @@ internal class ReflowLanding(
     /** Draw the moved note with each part sliding home; false once they are all home (the view draws itself again). */
     fun draw(canvas: Canvas): Boolean {
         val now = SystemClock.uptimeMillis()
-        if (ended || now - start >= ms || view.layout !== layout || view.width != width) { view.post { finish() }; return false }
+        if (ended || now - start >= ms || view.layout !== layout || view.width != width || layout?.height != height) {
+            view.post { finish() }
+            return false
+        }
         val top = view.scrollY.toFloat()
         val bottom = top + view.height
         // What no part covers is where it is; then each part where it slides, a solid one over the page.
