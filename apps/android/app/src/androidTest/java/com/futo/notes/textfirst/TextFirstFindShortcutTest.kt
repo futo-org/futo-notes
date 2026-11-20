@@ -68,6 +68,23 @@ class TextFirstFindShortcutTest {
         assertEquals("the note lost focus", true, readOnMainThread { view.isFocused })
     }
 
+    /** Mason (S23): stepping from a match in a table cell back to the first match dropped the keyboard. The query keeps focus. */
+    @Test fun stepsOntoAndOffACellsMatchKeepTheQueryFocused() = compose.withTextFirstScreen(
+        "beta in prose\n\n| Name | Owner |\n| - | - |\n| one | beta |\n\n" + "ordinary note text ".repeat(10) + "\n", nativeTheme = tableSceneTheme,
+    ) { view, _ ->
+        assertEquals("beta", ctrlF(view, 0, 4))
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("1 of 2").fetchSemanticsNodes().isNotEmpty() }
+        // The first step lands on the current match; the next ones move, onto the cell and back round to the first.
+        for (shown in listOf("1 of 2", "2 of 2", "1 of 2", "2 of 2", "1 of 2")) {
+            compose.runOnUiThread {
+                query(compose.activity.window.decorView)!!.onKeyDown(KeyEvent.KEYCODE_G, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_G, 0, KeyEvent.META_CTRL_ON))
+            }
+            compose.waitUntil(10_000) { compose.onAllNodesWithText(shown).fetchSemanticsNodes().isNotEmpty() }
+            compose.waitForIdle()
+            assertEquals("the query is focused at $shown", true, readOnMainThread { query(compose.activity.window.decorView)!!.isFocused })
+        }
+    }
+
     /** Ctrl+K reaches the toolbar's link form through the screen's own wiring, not a hook a test sets. */
     @Test fun ctrlKOpensTheToolbarsLinkForm() = compose.withTextFirstScreen("alpha beta gamma\nsecond line\n\n" + "ordinary note text ".repeat(10) + "\n") { view, _ ->
         val start = readOnMainThread { view.text.toString().indexOf("beta") }

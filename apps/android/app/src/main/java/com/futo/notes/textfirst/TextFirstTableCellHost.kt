@@ -144,6 +144,9 @@ internal class TextFirstTableCellHost(
             if (field.left != x || field.top != y || field.right != x + w || field.bottom != y + h || needsLayout) {
                 field.layout(x, y, x + w, y + h)
             }
+            // A field of the screen keeps its keyboard (the find bar stepping onto a cell's match): the cell stays unshown,
+            // the note drawing it and its match, and leaving it hides nothing (Mason, S23).
+            if (!started && rootView.findFocus()?.let { it.onCheckIsTextEditor() && it !== note && it.parent !== this } == true) return
             field.alpha = 1f
             reportBounds(Rect(field.left, field.top, field.right, field.bottom))
             if (!started) {
