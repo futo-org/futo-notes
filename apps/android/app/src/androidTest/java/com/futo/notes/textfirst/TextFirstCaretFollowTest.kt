@@ -213,7 +213,7 @@ class TextFirstCaretFollowTest {
             bitmap.eraseColor(android.graphics.Color.WHITE)
             val canvas = android.graphics.Canvas(bitmap)
             canvas.translate(0f, -view.scrollY.toFloat())
-            view.drawTopPaddingBand(canvas)
+            view.draw(canvas)
             val space = view.layout.getLineStart(8) + 4
             val x = view.totalPaddingLeft + ((view.layout.getPrimaryHorizontal(space) + view.layout.getPrimaryHorizontal(space + 1)) / 2).toInt()
             val nativePath = android.graphics.Path().also { view.layout.getSelectionPath(view.selectionStart, view.selectionEnd, it) }

@@ -30,6 +30,10 @@ class SelectedPartOfRowTest {
     @Test fun theFirstRowOfASelectionStartingAtTheEndOfItsTextShowsOnlyItsBreak() =
         assertEquals(RowSelection(5, 5, 5), selectedPartOfRow(alpha, 5, 10))
 
+    /** Sol review: from inside the row's trailing spaces, the break still shows right after the text. */
+    @Test fun aSelectionStartingInTrailingSpacesShowsTheBreakAfterTheText() =
+        assertEquals(RowSelection(18, 18, 16), selectedPartOfRow(TextRow(6, 19, 16, endsWithBreak = true), 18, 25))
+
     @Test fun theRowASelectionEndsAtTheStartOfShowsNothing() =
         assertNull(selectedPartOfRow(delta, 2, 17))
 
