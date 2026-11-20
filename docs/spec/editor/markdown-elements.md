@@ -11,6 +11,7 @@
   renders as a code block, just uncoloured.
   → src/features/editor/codeFenceLanguages.ts
 - *(Android text-first editor)* Inline code sits on a rounded chip, as on desktop: the code's letters as seen (capital tops to descender bottoms) with a tenth of its em above and below, never taller than its row, filled with the text colour at 12% so a selection or find mark shows over it; its sides reach into the whitespace beside it, up to three tenths of an em and never over a neighbouring letter. A run that wraps is one chip per row, rounded only at its real start and end. → apps/android/app/src/main/java/com/futo/notes/textfirst/InlineCodeChips.kt
+- *(Android text-first editor)* A code line's letters as seen (capital tops to descender bottoms) are centred in its row; its line number stays on its baseline. → apps/android/app/src/main/java/com/futo/notes/textfirst/TfCodeBlock.kt `chooseHeight`
 - *(Android text-first editor)* Every code-body line has the same inset, including lines added with Enter; hidden fence rows do not add another inset to the first or last body line. → crates/futo-notes-editor/src/host/style_plan.rs
 - Links: `[text](url)`, autolinks `<url>`, and bare GFM URLs.
 - Blockquotes, including nested: each level renders as an indented block with a
@@ -23,6 +24,7 @@
 - *(Android text-first editor)* Block styling remains visible while the keyboard composes a word, including the first character on an empty quote, heading or code line; a quote's margin does not extend into the following plain line. → apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstBlockIndicatorTest.kt
 - Lists: ordered, unordered, nested, and task checkboxes (checked / unchecked /
   uppercase `X`).
+- *(Android text-first editor)* In a right-to-left paragraph a code line's number sits on the right, between the block's edge and its rule, and a selected photo's or table row's tint covers the photo or the grid as drawn. → apps/android/app/src/main/java/com/futo/notes/textfirst/CodeGutter.kt, ImageSelectionTint.kt `imageDrawnRect`, TableSelectionPaint.kt
 - *(Android text-first editor)* A right-to-left paragraph (Hebrew, Arabic) draws its list number, bullet, task checkbox and quote bars on its right, beside where its text starts, and a tap there toggles the checkbox. The toggle's touch area is the checkbox's own visual row in the leading margin up to where the text starts: taps on blank padding, below the content, in a wrapped continuation's gutter or on the text (its first letter included) place the caret and leave the task as it was. → apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstSpans.kt, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstCheckbox.kt, apps/android/app/src/test/java/com/futo/notes/textfirst/RtlListMarkerTest.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstTapGestureTest.kt
 - List depth comes from CommonMark's parse, not from counting spaces — a whole
   list indented by one to three spaces still renders as a list, and `*  Parent.`

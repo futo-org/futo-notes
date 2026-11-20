@@ -88,8 +88,10 @@ internal class TfTableRow(
     override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
         fm?.apply { ascent = -(rowHeight - look.bodyLineSpacing); top = ascent; descent = 0; bottom = 0 }
         // As wide as the table, the note's width at most: a row's end (a selection handle there) is the table's edge.
-        return minOf(width(), kotlin.math.ceil(row.columns * cellWidth).toInt())
+        return drawnWidth
     }
+    /** How wide the row is drawn: the table, the note's width at most. */
+    val drawnWidth: Int get() = minOf(width(), kotlin.math.ceil(row.columns * cellWidth).toInt())
     override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
         val save = canvas.save()
         canvas.clipRect(x, top.toFloat(), x + width(), bottom.toFloat())
@@ -111,7 +113,8 @@ internal class TfTableRow(
             val layout = layouts.getOrNull(column) ?: continue
             layout.paint.color = look.textColor
             val cellSave = canvas.save()
-            canvas.translate(left + padding, top + (bottom - top - layout.height) / 2f)
+            // The cell's letters as seen centred, not its font box (which carried them low).
+            canvas.translate(left + padding, top + (bottom - top - layout.height) / 2f - lettersBelowFontBoxCentre(layout.paint))
             val cell = row.cells[column]
             val shift = start - displayStart
             marks.drawCell(canvas, layout, cell.start + shift, cell.end + shift, look)

@@ -98,8 +98,8 @@ internal class TfHeading(private val look: TextFirstStyle, val level: Int) :
     private val rowTop: Int = run {
         val paint = TextPaint().apply { typeface = look.regular; textSize = look.textSizePx }
         apply(paint)
-        val seen = android.graphics.Rect().also { paint.getTextBounds("Hg", 0, 2, it) }
-        kotlin.math.round((seen.top + seen.bottom) / 2f - rowHeight / 2f).toInt()
+        val (seenTop, seenBottom) = visibleLineSpan(paint)
+        kotlin.math.round((seenTop + seenBottom) / 2f - rowHeight / 2f).toInt()
     }
 
     private companion object {
@@ -318,6 +318,9 @@ internal class TfDivider(private val look: TextFirstStyle, private val width: ()
  * place); the view re-sets the span when the bitmap lands, which re-lays out
  * only this paragraph.
  */
+/** The room above and below a photo's row: half of what its row once had all below it (4 dp and the line spacing). */
+private fun photoRowRoom(look: TextFirstStyle): Int = (look.dp(4f).toInt() + look.bodyLineSpacing) / 2
+
 internal class TfImage(
     private val look: TextFirstStyle,
     val destination: String,
@@ -325,7 +328,7 @@ internal class TfImage(
     val vault: Boolean,
     val remote: Boolean,
     private val maxWidth: () -> Int,
-) : ReplacementSpan(), TfAtom {
+) : ReplacementSpan(), LineHeightSpan, TfAtom {
     @Volatile var bitmap: Bitmap? = null
     var failed = false
     private val placeholder = Paint().apply { color = look.surfaceColor }
@@ -341,12 +344,28 @@ internal class TfImage(
     override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
         val (w, h) = drawSize()
         if (fm != null) {
-            fm.ascent = -h
-            fm.top = -h
+            fm.ascent = -h - photoRowRoom(look)
+            fm.top = fm.ascent
             fm.descent = look.dp(4f).toInt()
             fm.bottom = fm.descent
         }
         return w
+    }
+
+    /**
+     * A photo alone on its row owns the row: as much room above the photo as below it (the line break's own font would
+     * otherwise set the room below). The TextView adds the line spacing below the row, so it is counted in.
+     */
+    override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
+        val spanned = text as? Spanned ?: return
+        var stop = end
+        while (stop > start && (text[stop - 1] == '\n' || text[stop - 1] == '\r')) stop--
+        if (spanned.getSpanStart(this) != start || spanned.getSpanEnd(this) != stop) return
+        val h = drawSize().second
+        fm.ascent = -h - photoRowRoom(look)
+        fm.top = fm.ascent
+        fm.descent = photoRowRoom(look) - look.bodyLineSpacing
+        fm.bottom = fm.descent
     }
 
     override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {

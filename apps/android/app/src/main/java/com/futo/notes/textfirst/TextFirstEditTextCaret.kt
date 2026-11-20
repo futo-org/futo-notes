@@ -28,8 +28,8 @@ internal fun TextFirstEditText.fitCaretToItsText() {
 private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditText) : DrawableWrapper(caret) {
     private val padding = Rect()
     private val paint = TextPaint()
-    private val visible = Rect()
     private val photo = Rect()
+    private val drawn = android.graphics.RectF()
     /** Beside a photo: the TextView draws its caret clipped to its text and under it, so the note draws it after all. */
     private var besidePhoto = false
     private var dueOverPhoto = false
@@ -86,8 +86,8 @@ private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditTe
         for (span in text.getSpans(at, at + 1, MetricAffectingSpan::class.java)) span.updateMeasureState(paint)
         val metrics = if (text.getSpans(at, at + 1, TfCodeBlock::class.java).isEmpty()) paint.fontMetricsInt else view.paint.fontMetricsInt
         val height = metrics.descent - metrics.ascent
-        paint.getTextBounds(VISIBLE_EXTENT, 0, VISIBLE_EXTENT.length, visible)
-        val top = layout.getLineBaseline(line) + (visible.top + visible.bottom - height) / 2
+        val (seenTop, seenBottom) = visibleLineSpan(paint)
+        val top = layout.getLineBaseline(line) + (seenTop + seenBottom - height) / 2
         return top..top + height
     }
 
@@ -101,12 +101,9 @@ private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditTe
             val start = text.getSpanStart(image)
             if (start != offset && text.getSpanEnd(image) != offset) continue
             if (image.bitmap == null || layout.getLineForOffset(start) != line) continue
-            val (width, height) = image.drawSize()
-            if (tallest != null && height <= photo.height()) continue
-            val x = layout.getPrimaryHorizontal(start).toInt()
-            val left = if (layout.isRtlCharAt(start)) x - width else x
-            val bottom = layout.getLineBaseline(line)
-            photo.set(left, bottom - height, left + width, bottom)
+            if (tallest != null && image.drawSize().second <= photo.height()) continue
+            if (!imageDrawnRect(layout, text, image, drawn)) continue
+            drawn.roundOut(photo)
             tallest = image
         }
         return tallest
@@ -117,6 +114,3 @@ private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditTe
 internal fun TextFirstEditText.drawCaretBesidePhoto(canvas: android.graphics.Canvas) {
     (textCursorDrawable as? TextHeightCaret)?.drawDue(canvas)
 }
-
-/** A capital and a descender: the text as seen reaches from the one's top to the other's bottom. */
-private const val VISIBLE_EXTENT = "Hg"

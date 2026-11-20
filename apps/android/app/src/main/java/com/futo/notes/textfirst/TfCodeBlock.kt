@@ -24,6 +24,9 @@ internal class TfCodeBlock(private val look: TextFirstStyle, line: CodeLineFacts
         textSize = look.codeTextSize
     }
     private val rulePaint = Paint()
+    /** A code row's top from its baseline: half a row above the middle of the code's capitals and descenders. */
+    private val rowTop: Int = visibleLineSpan(numberPaint)
+        .let { (seenTop, seenBottom) -> kotlin.math.round((seenTop + seenBottom) / 2f - look.codeLineHeight.toInt() / 2f).toInt() }
     /** Where the numbers end: !300's two-digit column, one digit wider per digit past two the block's count needs. */
     val digits = digitsFor(line)
     /**
@@ -62,14 +65,14 @@ internal class TfCodeBlock(private val look: TextFirstStyle, line: CodeLineFacts
 
     override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
         val spanned = text as Spanned
-        // !300's code line, its leading split above and below the text as CSS does; the TextView adds its body spacing
-        // below every line, so it is taken out here. Top and bottom follow, so a block on the note's first line is not
-        // given the font's padding. The code face's own metrics, not the incoming ones:
-        // a wrapped row of a block's first line arrives with them changed, and its text fell below the row.
-        val code = numberPaint.fontMetricsInt
-        val leading = look.codeLineHeight.toInt() - (code.descent - code.ascent)
-        fm.ascent = code.ascent - leading / 2
-        fm.descent = code.descent + leading - leading / 2 - look.bodyLineSpacing
+        // !300's code line, with the code's letters as seen (capital tops to descender bottoms) centred in it: split by
+        // the font box, they sat 4 px low. The TextView adds its body spacing below every line, so it is taken out here.
+        // Top and bottom follow, so a block on the note's first line is not given the font's padding. The code face's own
+        // metrics, not the incoming ones: a wrapped row of a block's first line arrives with them changed, and its text
+        // fell below the row.
+        val row = look.codeLineHeight.toInt()
+        fm.ascent = rowTop
+        fm.descent = rowTop + row - look.bodyLineSpacing
         fm.top = fm.ascent
         fm.bottom = fm.descent
         if (line.first && start == spanned.getSpanStart(this)) {

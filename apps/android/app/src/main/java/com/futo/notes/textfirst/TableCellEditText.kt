@@ -37,7 +37,9 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         typeface = style.regular
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
         imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI
-        setPadding(style.dp(10f).toInt(), style.dp(10f).toInt(), style.dp(10f).toInt(), style.dp(10f).toInt())
+        // Centred on its letters as seen, where the grid draws them, not on its font box.
+        val lift = kotlin.math.round(lettersBelowFontBoxCentre(paint)).toInt()
+        setPadding(style.dp(10f).toInt(), style.dp(10f).toInt() - lift, style.dp(10f).toInt(), style.dp(10f).toInt() + lift)
         includeFontPadding = false
         filters = arrayOf(InputFilter { _, _, _, dest, a, b -> if (applying) null else dest.subSequence(a, b) })
         importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO

@@ -22,11 +22,7 @@ internal fun TextFirstEditText.drawSelectedImageTint(canvas: Canvas) {
     for (image in images) {
         val at = e.getSpanStart(image)
         if (at < selectionStart || e.getSpanEnd(image) > selectionEnd) continue
-        val (width, height) = image.drawSize()
-        val x = l.getPrimaryHorizontal(at)
-        val baseline = l.getLineBaseline(l.getLineForOffset(at)).toFloat()
-        rect.set(x, baseline - height, x + width, baseline)
-        canvas.drawRoundRect(rect, style.dp(6f), style.dp(6f), paint)
+        if (imageDrawnRect(l, e, image, rect)) canvas.drawRoundRect(rect, style.dp(6f), style.dp(6f), paint)
     }
     canvas.restoreToCount(save)
 }
@@ -46,4 +42,19 @@ internal fun TextFirstEditText.imageSelectedWhole(start: Int, end: Int): Pair<In
     val e = editableText ?: return null
     if (start < 0 || start >= end || end > e.length) return null
     return e.getSpans(start, end, TfImage::class.java).firstOrNull { e.getSpanStart(it) == start && e.getSpanEnd(it) == end }?.let { start to end }
+}
+
+/**
+ * Where [image] is drawn, layout coordinates, into [out]: its row's baseline is its bottom and its start its leading
+ * side (the right one in a right-to-left row). False when it is no longer in the text.
+ */
+internal fun imageDrawnRect(l: android.text.Layout, e: android.text.Spanned, image: TfImage, out: android.graphics.RectF): Boolean {
+    val start = e.getSpanStart(image)
+    if (start < 0) return false
+    val (width, height) = image.drawSize()
+    val x = l.getPrimaryHorizontal(start)
+    val left = if (l.isRtlCharAt(start)) x - width else x
+    val bottom = l.getLineBaseline(l.getLineForOffset(start)).toFloat()
+    out.set(left, bottom - height, left + width, bottom)
+    return true
 }
