@@ -100,6 +100,10 @@ class TextFirstWrappedSelectionTintTest {
             assertEquals("wrapped row ${line - first + 1} tinted left of its text", 0,
                 s.tinted(c.view.totalPaddingLeft, s.rowTop(line) + 4, s.x(l.getLineStart(line)) - 2, s.rowBottom(line) - 4))
         }
+        // Verifier (job 13, A1): the empty line before the table was tinted across the note's width.
+        val blank = l.getLineForOffset(e.indexOf("| a"))  - 1
+        val wide = c.view.width / 4
+        assertEquals("the empty line's tint past a space's width", 0, s.tinted(c.view.totalPaddingLeft + wide, s.rowTop(blank) + 4, c.view.width - c.view.totalPaddingRight, s.rowBottom(blank) - 4))
     }
 
     /** Sol review (7): a selection that wrapped and then fits one row (a wider window) still shows its tint. */
