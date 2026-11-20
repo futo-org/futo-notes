@@ -2,6 +2,7 @@ package com.futo.notes.textfirst
 
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.text.Layout
 import android.text.Spanned
 
@@ -42,33 +43,37 @@ internal fun TextFirstEditText.drawTextSelection(canvas: Canvas) {
 
 /**
  * Visual row [line]'s part of the selection [start, end), over its text only: from where the selection enters the row
- * to where it leaves it or the row's text ends. A row of which only the line break is selected shows a space's width
- * where the selection starts, as the TextView's highlight did.
+ * to where it leaves it or the row's text ends, and a space's width after the text when the row's line break is
+ * selected ([selectedPartOfRow]), one shape with it.
  */
 internal fun TextFirstEditText.drawTextSelectionRow(canvas: Canvas, l: Layout, text: Spanned, line: Int, start: Int, end: Int, paint: Paint) {
     val lineStart = l.getLineStart(line)
     val lineEnd = l.getLineEnd(line)
-    val from = maxOf(start, lineStart)
-    val to = minOf(end, l.getLineVisibleEnd(line))
+    val row = TextRow(lineStart, lineEnd, l.getLineVisibleEnd(line), lineEnd > lineStart && text[lineEnd - 1] == '\n')
+    val part = selectedPartOfRow(row, start, end) ?: return
     val top = l.getLineTop(line).toFloat()
     val bottom = l.getLineBottom(line).toFloat()
     val rightToLeft = l.getParagraphDirection(line) < 0
-    if (from < to) {
-        // A row that ends where the next starts (a long word wrapped hard): a path to that offset would run past the
-        // text to the edge and into the next row's indent.
-        if (to == lineEnd && line + 1 < l.lineCount) {
-            val x = l.getPrimaryHorizontal(from)
-            if (rightToLeft) canvas.drawRect(l.getLineLeft(line), top, x, bottom, paint) else canvas.drawRect(x, top, l.getLineRight(line), bottom, paint)
-            return
-        }
-        val row = codeChrome.selectionPath
-        row.rewind()
-        l.getSelectionPath(from, to, row)
-        canvas.drawPath(row, paint)
+    val breakEdges = part.breakAt?.let { lineBreakTintEdges(l.getPrimaryHorizontal(it), this.paint.measureText(" "), rightToLeft) }
+    if (part.from == part.to) {
+        if (breakEdges != null) canvas.drawRect(breakEdges.first, top, breakEdges.second, bottom, paint)
         return
     }
-    if (lineEnd == lineStart || end < lineEnd || from >= lineEnd || text[lineEnd - 1] != '\n') return
-    val x = l.getPrimaryHorizontal(from)
-    val width = (if (rightToLeft) -1 else 1) * this.paint.measureText(" ")
-    canvas.drawRect(minOf(x, x + width), top, maxOf(x, x + width), bottom, paint)
+    // A row that ends where the next starts (a long word wrapped hard): a path to that offset would run past the
+    // text to the edge and into the next row's indent.
+    if (part.to == lineEnd && line + 1 < l.lineCount) {
+        val x = l.getPrimaryHorizontal(part.from)
+        if (rightToLeft) canvas.drawRect(l.getLineLeft(line), top, x, bottom, paint) else canvas.drawRect(x, top, l.getLineRight(line), bottom, paint)
+        return
+    }
+    val path = codeChrome.selectionPath
+    path.rewind()
+    l.getSelectionPath(part.from, part.to, path)
+    if (breakEdges != null) {
+        // Joined into the text's own outline: two shapes side by side would show a seam where they meet.
+        val bounds = codeChrome.selectionRow
+        path.computeBounds(bounds, true)
+        path.op(Path().apply { addRect(breakEdges.first, bounds.top, breakEdges.second, bounds.bottom, Path.Direction.CW) }, Path.Op.UNION)
+    }
+    canvas.drawPath(path, paint)
 }
