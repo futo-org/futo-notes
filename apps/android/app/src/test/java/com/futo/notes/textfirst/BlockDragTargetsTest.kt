@@ -61,9 +61,10 @@ class BlockDragTargetsTest {
         // Shorter than two zones: the nearer edge wins.
         assertEquals(-1600f, BlockAutoscroll.velocity(64f, 0f, 200f, d), 0.1f)
         assertEquals(2200f, BlockAutoscroll.velocity(168f, 0f, 200f, d), 0.1f)
-        // A frame's step is at most 0.05 s of travel.
+        // A frame's step is at most 0.1 s of travel: a late frame keeps its travel, a stall does not jump.
         assertEquals(28f, BlockAutoscroll.step(2800f, 0.01f), 0.001f)
-        assertEquals(140f, BlockAutoscroll.step(2800f, 0.5f), 0.001f)
+        assertEquals(224f, BlockAutoscroll.step(2800f, 0.08f), 0.001f)
+        assertEquals(280f, BlockAutoscroll.step(2800f, 0.5f), 0.001f)
         assertEquals(0f, BlockAutoscroll.step(2800f, -1f), 0f)
     }
 }

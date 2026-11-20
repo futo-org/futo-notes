@@ -86,13 +86,14 @@ internal class DropTargets(val slots: List<Pair<BlockSlot, Float>>, val own: Pai
  * The edge autoscroll of a block drag, as the web editor's (blockDragGeometry.ts): held within
  * [ZONE_DP] of the visible note's top or bottom the note scrolls, [SLOWEST_DP] per second at
  * the zone's inner lip ramping to [FASTEST_DP] at the edge and past it, one frame's step capped
- * at [LONGEST_STEP_S]. Where the note shows less than two zones the nearer edge wins.
+ * at [LONGEST_FRAME_S]. Where the note shows less than two zones the nearer edge wins.
  */
 internal object BlockAutoscroll {
     const val ZONE_DP = 64f
     const val SLOWEST_DP = 200f
     const val FASTEST_DP = 1400f
-    const val LONGEST_STEP_S = 0.05f
+    /** The longest frame an edge scroll moves for (this one and the caret's): a late frame keeps its travel, one long stall is not one long jump. */
+    const val LONGEST_FRAME_S = 0.1f
 
     /** Pixels per second (negative scrolls towards the top) for a finger at [y] in [top]..[bottom]. */
     fun velocity(y: Float, top: Float, bottom: Float, density: Float): Float {
@@ -107,5 +108,5 @@ internal object BlockAutoscroll {
     }
 
     /** How far one frame scrolls at [velocity], [elapsedS] seconds after the last. */
-    fun step(velocity: Float, elapsedS: Float): Float = velocity * elapsedS.coerceIn(0f, LONGEST_STEP_S)
+    fun step(velocity: Float, elapsedS: Float): Float = velocity * elapsedS.coerceIn(0f, LONGEST_FRAME_S)
 }
