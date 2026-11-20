@@ -64,3 +64,9 @@ internal class TableGridTouch(
     }
 
 }
+
+/** TextView caches drawing separately: changing span data also invalidates its text display list. */
+internal fun TextFirstEditText.invalidateTableScroll(scroll: TableScroll) {
+    redrawTableRows { it.scroll === scroll }
+    invalidate()
+}

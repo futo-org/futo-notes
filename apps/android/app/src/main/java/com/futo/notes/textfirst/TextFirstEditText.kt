@@ -78,7 +78,7 @@ internal class TextFirstEditText(
     internal var onViewportReady: (() -> Unit)? = null
     /** Paste and keyboard content; its [TextFirstClipboard.onImageContent] owner saves images. */
     val clipboard = TextFirstClipboard(context) { engine }
-    private val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, ::invalidateTableScroll)
+    private val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, { invalidateTableScroll(it) })
     internal val marks = FindMarks()
     internal val scroll = NoteScroll(this)
     internal val spans = TfSpanFactory(style, marks, { contentWidth() }) { span ->
@@ -327,12 +327,6 @@ internal class TextFirstEditText(
     override fun computeScroll() {
         super.computeScroll()
         scroll.step()
-    }
-
-    /** TextView caches drawing separately: changing span data also invalidates its text display list. */
-    private fun invalidateTableScroll(scroll: TableScroll) {
-        redrawTableRows { it.scroll === scroll }
-        invalidate()
     }
 
     // Hardware Enter must reach the engine with its original selection. Gboard
