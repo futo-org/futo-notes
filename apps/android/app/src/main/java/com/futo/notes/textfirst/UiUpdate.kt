@@ -70,6 +70,7 @@ internal class UiUpdate(
     val styleOnly: Boolean = false,
     /** A source mutation may require a bounded reset rather than a visible text delta. */
     val sourceChanged: Boolean = false,
+    /** The reader's place stays: a reset keeps its anchor, and a caret moved with no text is not revealed. */
     val preserveScroll: Boolean = false,
     /**
      * The inline formats the marked text will have once committed, over

@@ -52,9 +52,13 @@ internal fun EditorEngine.editLink(draft: LinkDraft, label: String, destination:
 
 /** The target the engine parsed for the wikilink drawn over [start, end) (what a note it names is called). */
 internal fun EditorEngine.wikilinkTarget(viewSeq: Int, start: Int, end: Int, deliver: (String) -> Unit) = command {
+    // A word still being composed is committed first, as a checkbox tap does: the view already shows it, so its offsets
+    // are the engine's once it is in.
+    val composing = mirror.overlay != null
+    if (composing) commitComposition(null)
     val s = session ?: return@command
-    // The view may show text an edit since has changed: its offsets are mapped to the engine's own, as a tap's are.
-    val (a, b) = viewEdits.map(viewSeq, start, end) ?: return@command
+    // Otherwise the view may show text an edit since has changed: its offsets are mapped to the engine's own, as a tap's are.
+    val (a, b) = (if (composing) start to end else viewEdits.map(viewSeq, start, end)) ?: return@command
     val tapped = mirror.byteRange(a, b)
     // The projection holds every wikilink of the range's paragraph, not only the tapped one.
     val target = s.project(rev, tapped).wikilinks.firstOrNull { it.range.start < tapped.end && it.range.end > tapped.start }?.target

@@ -117,6 +117,8 @@ internal class EditorEngine(
 
     internal fun selectFromView(viewSeq: Int, start: Int, end: Int, force: Boolean = false, placed: Boolean = true) {
         val (a, b) = viewEdits.map(viewSeq, start, end) ?: return
+        // A selection the reader placed is theirs, not find's, even on the same characters: a new query leaves it.
+        if (placed && !force) find.landedOn = null
         if (!force && a == mirror.selStart && b == mirror.selEnd && mirror.selectedBlock == null) return
         guarded { select(a, b, fromView = true, echo = force || viewSeq != seq, placed = placed && !force) }
     }
@@ -224,6 +226,8 @@ internal class EditorEngine(
     // ---- internals ----
 
     internal fun input(block: () -> Unit) {
+        // A key before the whole open waits for it as a key, its update still revealing the caret it edits at.
+        if (deferredUntilOpen { input(block) }) return
         inputStartNanos = SystemClock.elapsedRealtimeNanos()
         keyed = true
         try { guarded(block) } finally { keyed = false }

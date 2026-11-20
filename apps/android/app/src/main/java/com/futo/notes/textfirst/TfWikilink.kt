@@ -62,6 +62,14 @@ internal class TfWikilink(
         return labelLayout!!
     }
 
+    /** The label's characters [from, to) as drawn with its left at [x] and its last baseline on [baseline], into [out]. */
+    fun labelPath(paint: Paint, from: Int, to: Int, x: Float, baseline: Float, out: android.graphics.Path) {
+        val layout = layoutFor(paint)
+        out.rewind()
+        layout.getSelectionPath(from.coerceIn(0, label.length), to.coerceIn(0, label.length), out)
+        out.offset(x, baseline - layout.getLineBaseline(layout.lineCount - 1))
+    }
+
     /** Hit only painted label lines, excluding the unused rectangle beside them. */
     fun contains(paint: Paint, x: Float, baselineY: Float): Boolean {
         val layout = layoutFor(paint)

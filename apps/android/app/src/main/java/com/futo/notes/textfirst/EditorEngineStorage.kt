@@ -107,7 +107,8 @@ private fun EditorEngine.install(opened: NativeEditorSession): Throwable? = try 
     applySelectionChange(opened.selectUtf16(rev, EditorUtf16Range(mirror.selStart.toULong(), mirror.selEnd.toULong())))
     if (quick != null && display.startsWith(quick)) {
         // A view kept from the quick open still shows the caret the session just moved: it takes the session's now.
-        if (viewCaret != (mirror.selStart to mirror.selEnd)) postUpdate(emptyList(), emptyList())
+        // Not revealed: the reader may be reading the front matter it left (Sol review, batch 1, 9).
+        if (viewCaret != (mirror.selStart to mirror.selEnd)) postUpdate(emptyList(), emptyList(), preserveScroll = true)
         // The view already shows these screens with these styles; it keeps
         // them, and its caret, and the rest follows in slices.
         tailLength = display.length - quick.length
