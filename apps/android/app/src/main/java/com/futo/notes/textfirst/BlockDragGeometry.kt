@@ -115,6 +115,7 @@ internal fun TextFirstEditText.drawNoteRegion(canvas: Canvas, top: Float, bottom
     try {
         canvas.clipRect(0f, top, (width + scrollX).toFloat(), bottom)
         drawCodeBlocksForDrag(canvas, from, to)
+        drawInlineCodeChips(canvas, from, to)
         drawFindMarks(canvas, from, to)
         val e = editableText as? ChunkedEditable
         e?.drawWindow = l.getLineStart(l.getLineForVertical(maxOf(0, from)))..l.getLineEnd(l.getLineForVertical(maxOf(0, to)))
@@ -177,6 +178,7 @@ internal fun TextFirstEditText.blockInkBounds(start: Int, end: Int, top: Float, 
         canvas.clipRect(0f, top, width.toFloat(), bottom)
         val layoutTop = (top - totalPaddingTop).toInt()
         drawCodeBlocksForDrag(canvas, layoutTop, layoutTop + height)
+        drawInlineCodeChips(canvas, layoutTop, layoutTop + height)
         drawLayoutRegion(canvas, start, end)
         val alpha = java.nio.ByteBuffer.allocate(bitmap.rowBytes * height)
         bitmap.copyPixelsToBuffer(alpha)
