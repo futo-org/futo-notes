@@ -54,7 +54,8 @@ private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditTe
         if (text == null || layout == null) { besidePhoto = false; super.onBoundsChange(bounds); return }
         drawable?.getPadding(padding)
         val line = layout.getLineForOffset(view.selectionStart)
-        val beside = photoBesideCaret(layout, view.editableText, view.selectionStart, line)
+        val beside = photoBesideCaret(layout, view.editableText, view.selectionStart, drawn)
+        if (beside != null) drawn.roundOut(photo)
         besidePhoto = beside != null
         val extent = if (beside != null && photo.height() > text.last - text.first) photo.top..photo.bottom else text
         // Kept inside its row, line spacing included (the platform's bounds leave it out): too tall for it, it is cut
@@ -90,24 +91,30 @@ private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditTe
         val top = layout.getLineBaseline(line) + (seenTop + seenBottom - height) / 2
         return top..top + height
     }
+}
 
-    /**
-     * The tallest loaded photo the caret touches on its own row, its drawn rect put in [photo] (layout coordinates);
-     * null with none. A photo still loading is not one: beside its placeholder the caret stays one text line tall.
-     */
-    private fun photoBesideCaret(layout: android.text.Layout, text: android.text.Spanned, offset: Int, line: Int): TfImage? {
-        var tallest: TfImage? = null
-        for (image in text.getSpans(maxOf(0, offset - 1), minOf(text.length, offset + 1), TfImage::class.java)) {
-            val start = text.getSpanStart(image)
-            if (start != offset && text.getSpanEnd(image) != offset) continue
-            if (image.bitmap == null || layout.getLineForOffset(start) != line) continue
-            if (tallest != null && image.drawSize().second <= photo.height()) continue
-            if (!imageDrawnRect(layout, text, image, drawn)) continue
-            drawn.roundOut(photo)
-            tallest = image
-        }
-        return tallest
+/**
+ * The tallest loaded photo a caret at [offset] touches on its own row (right before or after it), or with [anywhere]
+ * any on that row, with its drawn rect put in [drawn] (layout coordinates); null with none. A photo still loading is
+ * not one.
+ */
+internal fun photoBesideCaret(layout: android.text.Layout, text: android.text.Spanned, offset: Int, drawn: android.graphics.RectF, anywhere: Boolean = false): TfImage? {
+    if (offset < 0 || offset > text.length) return null
+    val line = layout.getLineForOffset(offset)
+    val from = if (anywhere) layout.getLineStart(line) else maxOf(0, offset - 1)
+    val to = if (anywhere) layout.getLineEnd(line) else minOf(text.length, offset + 1)
+    var tallest: TfImage? = null
+    var tallestHeight = 0
+    for (image in text.getSpans(from, to, TfImage::class.java)) {
+        val start = text.getSpanStart(image)
+        if (!anywhere && start != offset && text.getSpanEnd(image) != offset) continue
+        if (image.bitmap == null || layout.getLineForOffset(start) != line) continue
+        val height = image.drawSize().second
+        if (tallest != null && height <= tallestHeight) continue
+        tallest = image
+        tallestHeight = height
     }
+    return tallest?.takeIf { imageDrawnRect(layout, text, it, drawn) }
 }
 
 /** The caret beside a photo, which the TextView left for the note to draw over everything (TextHeightCaret). */

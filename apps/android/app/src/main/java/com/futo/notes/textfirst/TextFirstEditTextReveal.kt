@@ -85,6 +85,18 @@ internal fun TextFirstEditText.revealCaret(offset: Int, nativeReveal: () -> Bool
     if (codeTouch.headerField.openField != null) return false
     val end = (editableText?.length ?: 0) - 1
     if (end > 0 && minOf(selectionStart, selectionEnd) == 0 && maxOf(selectionStart, selectionEnd) == end) return false
+    // A caret on a photo's row shows the photo, as much as fits from its top, never scrolled away for a text line's
+    // strip of it with the platform's margin (a quarter of the view on a photo's row). A photo that already fills the
+    // view stays where it is, so typing beside one taller than the view keeps the scroll.
+    val l = layout
+    val text = editableText
+    val photo = android.graphics.RectF()
+    if (l != null && text != null && selectionStart == selectionEnd && photoBesideCaret(l, text, offset, photo, anywhere = true) != null) {
+        return reveal.at(offset, ready = height > 0) {
+            val fills = photo.top <= scrollY && photo.bottom >= scrollY + height - totalPaddingTop - totalPaddingBottom
+            !fills && revealAreaAboveKeyboard(photo.top, photo.bottom)
+        }
+    }
     return reveal.at(offset, ready = layout != null && height > 0, reveal = nativeReveal)
 }
 
