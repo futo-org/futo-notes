@@ -83,24 +83,31 @@ internal class TfHeading(private val look: TextFirstStyle, val level: Int) :
      * Every row of an h1 or h2 is 1.25 times its font size tall and every row of an h3 to h6 one body line, whatever
      * runs it mixes (inline code, bold, a link), with its letters as seen (capital tops to descender bottoms) centred in
      * it and no room above or below the heading: space around it is empty lines (Mason). The TextView adds
-     * [TextFirstStyle.bodyLineSpacing] below each row afterwards, so that is counted in the row.
+     * [TextFirstStyle.bodyLineSpacing] below each row afterwards, so that is counted in the row. A wikilink whose label
+     * wraps keeps the rows its label needs above its last one.
      */
     override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
-        fm.ascent = rowTop
-        fm.top = rowTop
+        val wrappedLabel = if (text is android.text.Spanned && text.getSpans(start, end, TfWikilink::class.java).isNotEmpty()) {
+            minOf(0, fm.ascent - naturalAscent)
+        } else 0
+        fm.ascent = rowTop + wrappedLabel
+        fm.top = fm.ascent
         fm.descent = rowTop + rowHeight - look.bodyLineSpacing
         fm.bottom = fm.descent
     }
 
     private val rowHeight = if (level <= 2) kotlin.math.round(ROW_EMS * look.textSizePx * scale).toInt() else look.bodyLineHeight
 
+    private val headingPaint = TextPaint().apply { typeface = look.regular; textSize = look.textSizePx }.also(::apply)
+
     /** The row's top from the baseline: half a row above the middle of the heading's capitals and descenders. */
     private val rowTop: Int = run {
-        val paint = TextPaint().apply { typeface = look.regular; textSize = look.textSizePx }
-        apply(paint)
-        val (seenTop, seenBottom) = visibleLineSpan(paint)
+        val (seenTop, seenBottom) = visibleLineSpan(headingPaint)
         kotlin.math.round((seenTop + seenBottom) / 2f - rowHeight / 2f).toInt()
     }
+
+    /** The heading font's own ascent: a line's ascent beyond it is a wrapped label's rows. */
+    private val naturalAscent = headingPaint.fontMetricsInt.ascent
 
     private companion object {
         /** An h1's or h2's row pitch, in its own font size. */
