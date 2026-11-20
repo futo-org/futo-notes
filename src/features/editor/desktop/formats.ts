@@ -94,9 +94,20 @@ export interface SelectedFormats {
   blocks: BlockFormats;
 }
 
+/** `line`'s text with each picture's spelling blanked, its length kept. */
+function textWithoutPictures(line: Line): string {
+  let text = line.text;
+  for (const atom of line.atoms) {
+    if (!atom.image) continue;
+    text = text.slice(0, atom.start) + ' '.repeat(atom.end - atom.start) + text.slice(atom.end);
+  }
+  return text;
+}
+
 /** Whether UTF-16 display `start`..`end` in `lines` holds a character a format could apply
- *  to, from the line at index `first` (the one holding `start`): not whitespace, and not a
- *  list marker's or a divider's one character. Line breaks are not characters here. */
+ *  to, from the line at index `first` (the one holding `start`): not whitespace, not a list
+ *  marker's or a divider's one character, and not a picture's spelling. Line breaks are not
+ *  characters here. */
 export function selectsText(
   lines: readonly Line[],
   first: number,
@@ -107,7 +118,7 @@ export function selectsText(
     const line = lines[index];
     const from = Math.max(start - line.start, 0);
     const to = Math.min(end - line.start, line.text.length);
-    if (from < to && /[^\s\uFFFC]/.test(line.text.slice(from, to))) return true;
+    if (from < to && /[^\s\uFFFC]/.test(textWithoutPictures(line).slice(from, to))) return true;
   }
   return false;
 }

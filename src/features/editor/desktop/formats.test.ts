@@ -161,6 +161,17 @@ describe('selectsText', () => {
     expect(selectsText(item, 0, 0, 1)).toBe(false);
     expect(selectsText(item, 0, 0, 2)).toBe(true);
   });
+
+  it("does not count a picture's spelling, but counts text beside it", () => {
+    const spelling = '![cat](cat.png)';
+    const image = { alt: 'cat', destination: 'cat.png', title: null, reference: null, vault: true };
+    const picture: Line = {
+      ...line(`${spelling} hi`),
+      atoms: [{ kind: 'Image', start: 0, end: spelling.length, image }],
+    };
+    expect(selectsText([picture], 0, 0, spelling.length)).toBe(false);
+    expect(selectsText([picture], 0, 0, spelling.length + 3)).toBe(true);
+  });
 });
 
 describe('toolbar buttons and the flag', () => {

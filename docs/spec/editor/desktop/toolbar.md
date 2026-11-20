@@ -11,7 +11,7 @@ page holds no format rule of its own.
   first row, or below its last when the pane has no room above, inside the pane and never over
   the selected text (with no room either side it hides); it scrolls with the text. In a pane
   narrower than the bar its buttons wrap onto a second row. It does not show for a caret, a
-  selection of only whitespace and line breaks, over code (code-blocks.md), while a press
+  selection of only whitespace, line breaks and pictures, over code (code-blocks.md), while a press
   drags, during a composition, or while the editor has no focus. A press keeps the editor's
   focus and selection, and is one Undo step. → src/features/editor/desktop/FormatToolbar.svelte,
   overlays.ts `toolbar`, tests/desktop-editor-toolbar-stories.mjs

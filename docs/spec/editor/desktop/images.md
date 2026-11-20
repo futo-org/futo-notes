@@ -58,6 +58,7 @@ no image rule of its own. Pasting and dropping an image: [paste.md](paste.md).
   selection ending inside an image's spelling is fitted outside it by the engine
   (`place_selection`, portable-core/images.md): a caret to its nearer stop (after, on a tie),
   a selection to take it whole. → hitTest.ts `atomHit`, selection.ts `sync`
+- The pointer over a picture is the arrow, not the text I-beam. → src/features/editor/desktop/desktopImages.css
 - A selected picture is tinted with the selection colour over it, as the highlight behind the
   text is hidden under it, and highlighted over its own box, rounded as it is: never the rest
   of its row beside or under it, or its line's padding; on a line of pictures alone, not the
