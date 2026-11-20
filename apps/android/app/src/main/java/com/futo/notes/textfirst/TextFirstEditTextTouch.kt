@@ -20,7 +20,8 @@ internal fun TextFirstEditText.routeTouch(event: MotionEvent): Boolean {
     if (codeTouch.onTouch(event)) return true
     when (event.actionMasked) {
         // The platform sees a checkbox press too, so a hold selects the box (ListMarkerTouch); a tap ticks it and the
-        // platform's tap is cancelled, so it places no caret. After a hold there is no tick.
+        // platform's tap is cancelled, so it places no caret. A press held as long as a long press ticks nothing, whatever
+        // took the hold (the box selected, a lift, another field's keyboard).
         MotionEvent.ACTION_DOWN -> {
             checkboxDown = checkboxAt(this, style, event.x, event.y)
             if (checkboxDown >= 0) return true.also { nativeTouch(event) }
@@ -29,7 +30,7 @@ internal fun TextFirstEditText.routeTouch(event: MotionEvent): Boolean {
             val hit = checkboxAt(this, style, event.x, event.y)
             val box = checkboxDown
             checkboxDown = -1
-            if (listMarkerTouch.held) return nativeTouch(event)
+            if (listMarkerTouch.held || event.eventTime - event.downTime >= android.view.ViewConfiguration.getLongPressTimeout()) return nativeTouch(event)
             cancelNativeTouch(event)
             if (hit == box) engine?.toggleTaskAt(hit)
             return true

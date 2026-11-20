@@ -86,7 +86,8 @@ class TextFirstListMarkerTouchTest {
     @Test fun aHoldOnAMarkerWithTheKeyboardUpSelectsItAndCopiesItsSource() = textFirstSession(note) { c ->
         ready(c)
         val m = withContext(Dispatchers.Main) { marker(c, "tenth") }
-        hold(c, (m.left + m.right) / 2, m.y)
+        // On its trailing half, where a tap puts the caret at the text: a platform hold there selects the word "tenth".
+        hold(c, m.left + (m.right - m.left) * 0.75f, m.y)
         assertEquals("the marker alone is selected", m.at to m.at + 1, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
         val copied = withContext(Dispatchers.Main) {
             val clipboard = c.view.context.getSystemService(ClipboardManager::class.java)
@@ -107,6 +108,33 @@ class TextFirstListMarkerTouchTest {
         assertEquals("a hold ticks nothing", note, c.sourceText())
         tap(c, (m.left + m.right) / 2, m.y)
         awaitSource(c, "the tick") { it.contains("- [x] task") }
+    }
+
+    /** A text menu already open (a word held first): the platform would take the hold as a drag of the selection. */
+    @Test fun aHoldOnAMarkerWithAMenuOpenSelectsTheMarker() = textFirstSession(note) { c ->
+        ready(c)
+        val (m, word) = withContext(Dispatchers.Main) {
+            val m = marker(c, "tenth")
+            val l = c.view.layout
+            val at = c.view.editableText.indexOf("tenth") + 2
+            m to (c.view.totalPaddingLeft + l.getPrimaryHorizontal(at))
+        }
+        hold(c, word, m.y)
+        await("the word's menu") { c.view.renderHold.menuOpen && c.view.selectionStart != c.view.selectionEnd }
+        hold(c, m.left + (m.right - m.left) * 0.75f, m.y)
+        assertEquals("the marker alone is selected", m.at to m.at + 1, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
+        await("the menu on it") { c.view.renderHold.menuOpen }
+    }
+
+    /** A tap just past the checkbox's outer side ticks it (TextFirstCheckbox reach); a hold there selects it and ticks nothing. */
+    @Test fun aHoldJustPastACheckboxSelectsItAndTicksNothing() = textFirstSession(note) { c ->
+        ready(c)
+        val m = withContext(Dispatchers.Main) { marker(c, "task") }
+        val outside = m.left - c.view.style.dp(4f)
+        assertEquals("the reach is the checkbox's", m.at, withContext(Dispatchers.Main) { checkboxAt(c.view, c.view.style, outside, m.y) })
+        hold(c, outside, m.y)
+        assertEquals("the checkbox is selected", m.at to m.at + 1, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
+        assertEquals("a hold ticks nothing", note, c.sourceText())
     }
 
     @Test fun backspaceRightAfterAMarkerLeavesAPlainLine() = textFirstSession(note) { c ->

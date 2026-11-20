@@ -22,11 +22,17 @@ internal class ListMarkerTouch(private val view: TextFirstEditText) {
         held = false
     }
 
-    /** Select the marker under the press, if the keyboard is up and there is one; the platform then opens its menu. */
+    /**
+     * Select the marker under the press, a checkbox anywhere its tap would tick it; the platform then opens its menu.
+     * Only with the note's own keyboard up: unfocused, a hold lifts its block (BlockLift), or another field keeps the
+     * keyboard and the platform's long press runs as on any text.
+     */
     fun longPress(): Boolean {
         if (!view.isFocused) return false
-        val start = listMarkerAt(view, downX, downY)
+        val start = listMarkerAt(view, downX, downY).takeIf { it >= 0 } ?: checkboxAt(view, view.style, downX, downY)
         if (start < 0) return false
+        // An open text menu would make the platform take a press inside the new selection as a drag of it.
+        view.renderHold.closeTextMenus()
         view.setSelection(start, start + 1)
         held = true
         return true
