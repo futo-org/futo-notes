@@ -34,8 +34,9 @@ internal class HandleWatch(private val view: TextFirstEditText, private val edge
         val end = holding[handle]
         if (event.actionMasked != MotionEvent.ACTION_MOVE || end == null) return@OnTouchListener false
         if (edge.grabbed != end) edge.grab(end, x, y, belowCaret = true)
-        // In an edge zone the scroll places the end: the handle's own step back to the row it stands on would undo it.
-        edge.follow(x, y)
+        // Over a tall row the scroll places the end: the handle's own step back to that row would undo it. Over text the
+        // handle sees its moves, landing where the scroll does, so its magnifier stays on the caret's line.
+        edge.follow(x, y) && edge.isOverTallRow()
     }
 
     private val shown = object : View.OnAttachStateChangeListener {

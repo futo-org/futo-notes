@@ -67,6 +67,16 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
         return true
     }
 
+    /**
+     * Whether the row the grabbed end lands on is taller than two text lines (a photo): there the platform's handle
+     * would step its end back to that row; over text it lands where the scroll does and keeps its magnifier on it.
+     */
+    fun isOverTallRow(): Boolean {
+        val l = view.layout ?: return false
+        val line = l.getLineForVertical((fingerY + reach - view.totalPaddingTop + view.scrollY).toInt().coerceAtLeast(0))
+        return l.getLineBottom(line) - l.getLineTop(line) > 2 * view.lineHeight
+    }
+
     fun release() {
         end = null
         stop()
