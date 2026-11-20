@@ -50,12 +50,18 @@ class TextFirstBlockDragQuoteDropTest {
                 .count { e.getSpanStart(it) !in lineStarts }
             both to off
         }
+        val doubled = ui {
+            val l = view.layout
+            (0 until l.lineCount).count { line -> l.getLineStart(line).let { a -> view.editableText.getSpans(a, a + 1, TfCodeBlock::class.java).size > 1 } }
+        }
+        assertEquals("rows drawn with two code spans", 0, doubled)
         assertEquals("lines drawn as both quote and code", 0, quoteOnCode)
         assertEquals("block spans that start inside a line", 0, starts)
     }
 
     /** Lift the empty block, carry it down until the gap is just before the nested quote, drop there. */
     private fun dropBeforeTheNestedQuote(middle: String, rowAbove: Boolean = false) = compose.openDragScreen("100) Hundred with a paren\n\n$middle$tail") {
+        val original = file.readText()
         val press = ui { view.editableText.let { e -> e.getSpans(0, e.length, TfCodeBlock::class.java).filter { it.line.first }.minOf { e.getSpanStart(it) } } }
         // The slot just above the nested quote's line, or (rowAbove) above the row before it.
         val nested = ui { view.text.toString().let { t -> t.lastIndexOf('\n', t.indexOf("Nested quote")) + 1 } } - if (rowAbove) 1 else 0
@@ -67,7 +73,9 @@ class TextFirstBlockDragQuoteDropTest {
         compose.waitUntil(3_000) { !lifted }
         // The landing's last frame.
         SystemClock.sleep(Slide.SLIDE_MS + 600)
-        assertEachLineHasItsOwnSpans(file.readText())
+        val saved = file.readText()
+        assertTrue("the block moved down", saved.lines().indexOf("```Hii") > original.lines().indexOf("```Hii"))
+        assertEachLineHasItsOwnSpans(saved)
     }
 
     @Test fun aBlockDroppedBeforeANestedQuoteJoiningTwoQuoteLines() =
