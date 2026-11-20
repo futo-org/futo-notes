@@ -7,10 +7,10 @@ import android.text.TextPaint
 import android.text.style.MetricAffectingSpan
 
 /**
- * A list item's marker (`- `, `10. `, `- [ ] `) as the one character the engine puts at the item's start: its U+FFFC is
- * scaled to the item's marker column and drawn clear, and its item's row (TfList) draws the bullet, number or checkbox
- * in that column. Not a ReplacementSpan: a replaced run always lets the line break right after it, leaving the marker
- * alone on its row above an over-long first word (ListMarkerKeep holds the two together).
+ * A list item's marker (`- `, `10. `, `- [ ] `) as the one character the engine puts at the item's start, stored as a
+ * no-break space (ListMarkerUnitCharacter) scaled to the item's marker column and drawn clear; its item's row (TfList)
+ * draws the bullet, number or checkbox in that column. Neither a ReplacementSpan nor U+FFFC: either lets the line break
+ * right after the marker, leaving it alone on its row above an over-long first word.
  */
 internal class TfListMarker(
     private val look: TextFirstStyle,
@@ -46,7 +46,7 @@ internal class TfListMarker(
             var scale = 1f
             repeat(3) {
                 tp.textScaleX = scale
-                scale *= width / tp.measureText(MARKER_UNIT)
+                scale *= width / tp.getRunAdvance(LIST_MARKER_UNIT_STORED, 0, 1, 0, 1, false, 1)
             }
             fittedScale = scale
         }
@@ -54,8 +54,7 @@ internal class TfListMarker(
     }
 }
 
-/** The character the engine puts where an item's marker is. */
-private const val MARKER_UNIT = "\uFFFC"
+
 
 private val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 

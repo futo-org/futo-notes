@@ -216,7 +216,7 @@ class TextFirstGlyphMetricsTest {
             view.apply(UiUpdate(3, null, emptyList(), 0, 0, -1, -1, windows(9), 0L))
             assertEquals(narrowX, view.layout.getPrimaryHorizontal(1), 0f)
             assertEquals(narrowEnd, view.layout.getLineEnd(0))
-            assertEquals(body + TextFirstEditText.END_SENTINEL, view.text.toString())
+            assertEquals(body.replace('\uFFFC', '\u00A0') + TextFirstEditText.END_SENTINEL, view.text.toString())
         } finally { images.shutdown() }
     }
 
@@ -271,7 +271,7 @@ class TextFirstGlyphMetricsTest {
                     assertEquals("the bounded checkbox still hits its task", 0, checkboxAt(view, look, center, middleY))
                     assertEquals("the first text pixel remains a caret tap", -1, checkboxAt(view, look, edge + dir, middleY))
                 }
-                assertEquals(body + TextFirstEditText.END_SENTINEL, view.text.toString())
+                assertEquals(body.replace('\uFFFC', '\u00A0') + TextFirstEditText.END_SENTINEL, view.text.toString())
             }
         } finally { images.shutdown() }
     }

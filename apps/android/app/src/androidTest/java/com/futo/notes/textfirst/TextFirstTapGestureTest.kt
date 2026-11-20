@@ -57,7 +57,8 @@ class TextFirstTapGestureTest {
             controller.sourceText()
         }
         assertEquals(raw, controller.sourceText())
-        assertEquals("\uFFFCPack" + TextFirstEditText.END_SENTINEL, text)
+        // The marker unit, held as a no-break space.
+        assertEquals("\u00A0Pack" + TextFirstEditText.END_SENTINEL, text)
         withTimeout(5_000) { while (view.layout.getLineEnd(0) != view.length()) delay(20) }
         val l = view.layout
         val top = view.totalPaddingTop

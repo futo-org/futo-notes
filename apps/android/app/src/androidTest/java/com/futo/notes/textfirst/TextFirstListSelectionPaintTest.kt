@@ -144,7 +144,7 @@ class TextFirstListSelectionPaintTest {
                             SpanSpec.ListItemMarker(last, last + 1, 0, kind, "3.", false),
                         ))), 0L))
                     committedFrame(view)
-                    assertEquals(body + TextFirstEditText.END_SENTINEL, view.text.toString())
+                    assertEquals(body.replace('\uFFFC', '\u00A0') + TextFirstEditText.END_SENTINEL, view.text.toString())
                     for (row in 0..2) assertEquals(if (rtl) -1 else 1, view.layout.getParagraphDirection(row))
                     suspend fun selection(start: Int, end: Int, rows: Set<Int>) {
                         Selection.setSelection(view.editableText, start, end)

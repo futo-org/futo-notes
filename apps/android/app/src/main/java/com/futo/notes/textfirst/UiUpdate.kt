@@ -23,8 +23,6 @@ internal sealed class SpanSpec(val start: Int, val end: Int) {
     class ListRow(start: Int, end: Int, val depth: Int, val marker: ListMarker, val label: String, val checked: Boolean, val first: Boolean) : SpanSpec(start, end)
     /** An item's marker: the one character the engine puts at the item's start, with its row's facts to draw it. */
     class ListItemMarker(start: Int, end: Int, val depth: Int, val marker: ListMarker, val label: String, val checked: Boolean) : SpanSpec(start, end)
-    /** An item's marker unit and the first character after it, kept on one row (API 35+): a long first word wraps after them. */
-    class ListMarkerKeep(start: Int, end: Int) : SpanSpec(start, end)
     /** An indented plain line under a list: it takes the list's display level and draws no marker. */
     class Indent(start: Int, end: Int, val depth: Int) : SpanSpec(start, end)
     class Code(start: Int, end: Int, val line: CodeLineFacts) : SpanSpec(start, end)
