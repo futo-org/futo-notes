@@ -276,4 +276,35 @@ class TextFirstGlyphMetricsTest {
         } finally { images.shutdown() }
     }
 
+    /** An empty or digits-only item has no strong letter: its marker follows the view's own direction, as its layout does. */
+    @Test fun anEmptyItemsNumberSitsOnTheTextSideInARightToLeftView() = runBlocking(Dispatchers.Main) {
+        val images = ImageLoader(context, context.cacheDir)
+        try {
+            for (body in listOf("\uFFFC\n", "\uFFFC2025\n")) {
+                val view = TextFirstEditText(context, look, images)
+                view.textDirection = android.view.View.TEXT_DIRECTION_FIRST_STRONG_RTL
+                view.apply(UiUpdate(1, body, emptyList(), 0, 0, -1, -1, listOf(StyleWindow(0, body.length, listOf(
+                    SpanSpec.ListRow(0, body.length, 0, ListMarker.Ordered, "100.", false, true),
+                    SpanSpec.ListItemMarker(0, 1, 0, ListMarker.Ordered, "100.", false),
+                ))), 0L))
+                val width = look.dp(360f).toInt()
+                val height = look.dp(120f).toInt()
+                layOut(view, width, height)
+                assertEquals(-1, view.layout.getParagraphDirection(0))
+                val marker = view.editableText.getSpans(0, 1, TfListMarker::class.java).single()
+                val left = view.totalPaddingLeft + minOf(view.layout.getPrimaryHorizontal(0), view.layout.getPrimaryHorizontal(1)).toInt()
+                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                try {
+                    bitmap.eraseColor(Color.WHITE)
+                    view.draw(Canvas(bitmap))
+                    val top = view.totalPaddingTop + view.layout.getLineTop(0)
+                    val bottom = view.totalPaddingTop + view.layout.getLineBottom(0)
+                    val inked = (left until left + marker.width).filter { x -> (top until bottom).any { y -> bitmap.getPixel(x, y) != Color.WHITE } }
+                    assertTrue("${body.trim()}: the number is drawn", inked.isNotEmpty())
+                    // The text is on the column's left: the number starts at the gap beside it.
+                    assertEquals("${body.trim()}: the number's first ink", left + look.dp(LIST_NUMBER_GAP_DP), inked.first().toFloat(), look.dp(2f))
+                } finally { bitmap.recycle() }
+            }
+        } finally { images.shutdown() }
+    }
 }

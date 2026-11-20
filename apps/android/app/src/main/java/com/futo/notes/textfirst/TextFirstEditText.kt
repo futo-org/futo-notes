@@ -84,7 +84,7 @@ internal class TextFirstEditText(
     internal val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, { invalidateTableScroll(it) })
     internal val marks = FindMarks()
     internal val scroll = NoteScroll(this)
-    internal val spans = TfSpanFactory(style, marks, { contentWidth() }) { span ->
+    internal val spans = TfSpanFactory(style, marks, ::markerTextDirection, { contentWidth() }) { span ->
         wikilinkContentWidth(this, span, contentWidth())
     }
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */

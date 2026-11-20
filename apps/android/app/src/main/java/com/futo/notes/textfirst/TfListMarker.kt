@@ -3,6 +3,7 @@ package com.futo.notes.textfirst
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
+import android.text.TextDirectionHeuristic
 import android.text.TextDirectionHeuristics
 import android.text.style.ReplacementSpan
 
@@ -17,6 +18,8 @@ internal class TfListMarker(
     val marker: ListMarker,
     val label: String,
     val checked: Boolean,
+    /** How the view decides a paragraph's direction, as its layout does. */
+    private val direction: () -> TextDirectionHeuristic,
 ) : ReplacementSpan(), TfAtom {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val lead = listLead(look, depth)
@@ -30,7 +33,7 @@ internal class TfListMarker(
 
     override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
         // The marker sits between the margin and the text: in a right-to-left item the text is on its left.
-        val rtl = text != null && rightToLeft(text, end)
+        val rtl = text != null && rightToLeft(text, end, direction())
         val near = if (rtl) x else x + width
         fun towardsText(offset: Float) = if (rtl) near + offset else near - offset
         this.paint.color = look.textColor
@@ -78,9 +81,21 @@ internal class TfListMarker(
     }
 }
 
-/** Whether the paragraph that continues from [from] reads right to left, judged as the view judges it: first strong letter. */
-private fun rightToLeft(text: CharSequence, from: Int): Boolean {
-    val end = text.indexOf('\n', from).let { if (it < 0) text.length else it }
-    if (end <= from) return false
-    return TextDirectionHeuristics.FIRSTSTRONG_LTR.isRtl(text, from, end - from)
+/**
+ * Whether the paragraph that continues from [from] reads right to left, judged by the view's own [heuristic] (an empty or
+ * digits-only item follows the view's direction). Its first strong letter decides, so only a bounded stretch is read.
+ */
+private fun rightToLeft(text: CharSequence, from: Int, heuristic: TextDirectionHeuristic): Boolean {
+    var end = from
+    val limit = minOf(text.length, from + DIRECTION_SCAN_CHARS)
+    while (end < limit && text[end] != '\n') end++
+    return heuristic.isRtl(text, from, end - from)
 }
+
+private const val DIRECTION_SCAN_CHARS = 512
+
+/** The text direction the note's layout uses: its heuristic, or on API 28 the first-strong rule for its layout direction. */
+internal fun TextFirstEditText.markerTextDirection(): TextDirectionHeuristic =
+    if (android.os.Build.VERSION.SDK_INT >= 29) textDirectionHeuristic
+    else if (layoutDirection == android.view.View.LAYOUT_DIRECTION_RTL) TextDirectionHeuristics.FIRSTSTRONG_RTL
+    else TextDirectionHeuristics.FIRSTSTRONG_LTR
