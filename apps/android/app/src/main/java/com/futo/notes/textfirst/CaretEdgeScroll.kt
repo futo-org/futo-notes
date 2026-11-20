@@ -23,6 +23,10 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
     private var reach = 0f
     /** The selection's other end, where it was when the drag began: the dragged end may cross it, as a handle can. */
     private var anchor = -1
+    /** Whether the dragged end is a handle's own slot of the selection (see [grab]). */
+    private var slots = false
+    /** The range a hold selected before it dragged: its far end stays put whichever way the drag goes. */
+    private var held = 0..0
     private var velocity = 0f
     private var running = false
     private var lastFrame = 0L
@@ -39,14 +43,16 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
 
     /**
      * A finger at ([x], [y]), the note's coordinates, takes the selection's [end]; [belowCaret] when it holds a handle
-     * drawn under its caret (the gap kept as it moves), not the text itself. The other end stays where it is now.
+     * drawn under its caret (the gap kept as it moves), not the text itself. The other end stays at [anchorAt], by
+     * default where it is now. A handle writes its own slot of the selection (start or end), as the platform's handles
+     * read them, even once it has crossed the other; a held drag writes the range in order.
      */
-    fun grab(end: End, x: Float, y: Float, belowCaret: Boolean) {
+    fun grab(end: End, x: Float, y: Float, belowCaret: Boolean, anchorAt: Int? = null) {
+        stop()
         this.end = end
+        slots = belowCaret
         reach = if (belowCaret) caretRowOf(end) - y else 0f
-        val low = minOf(view.selectionStart, view.selectionEnd)
-        val high = maxOf(view.selectionStart, view.selectionEnd)
-        anchor = when (end) { End.START -> high; End.END -> low; End.CARET -> -1 }
+        anchor = anchorAt ?: when (end) { End.START -> view.selectionEnd; End.END -> view.selectionStart; End.CARET -> -1 }
         fingerX = x
         fingerY = y
     }
@@ -73,7 +79,7 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
      */
     fun isOverTallRow(): Boolean {
         val l = view.layout ?: return false
-        val line = l.getLineForVertical((fingerY + reach - view.totalPaddingTop + view.scrollY).toInt().coerceAtLeast(0))
+        val line = l.getLineForVertical((landingY() - view.totalPaddingTop + view.scrollY).toInt().coerceAtLeast(0))
         return l.getLineBottom(line) - l.getLineTop(line) > 2 * view.lineHeight
     }
 
@@ -95,13 +101,16 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
                 val i = event.findPointerIndex(pointer)
                 if (i < 0) return
                 // A swipe the note's scroll already took is not a selection being dragged.
-                if (!holdDragging) holdDragging = !view.scroll.dragging && view.selectionStart != view.selectionEnd &&
-                    (view.selectionStart to view.selectionEnd) != selectionAtDown &&
-                    event.eventTime - downTime >= ViewConfiguration.getLongPressTimeout()
+                if (!holdDragging) {
+                    holdDragging = !view.scroll.dragging && view.selectionStart != view.selectionEnd &&
+                        (view.selectionStart to view.selectionEnd) != selectionAtDown &&
+                        event.eventTime - downTime >= ViewConfiguration.getLongPressTimeout()
+                    if (holdDragging) held = minOf(view.selectionStart, view.selectionEnd)..maxOf(view.selectionStart, view.selectionEnd)
+                }
                 if (!holdDragging) return
-                // The word held stays selected: toward the top its start moves, toward the bottom its end.
+                // The word held stays selected: toward the top its start moves from its end, toward the bottom its end from its start.
                 val end = if (event.getY(i) < view.height / 2f) End.START else End.END
-                if (end != grabbed) grab(end, event.getX(i), event.getY(i), belowCaret = false)
+                if (end != grabbed) grab(end, event.getX(i), event.getY(i), belowCaret = false, anchorAt = if (end == End.START) held.last else held.first)
                 follow(event.getX(i), event.getY(i))
             }
             MotionEvent.ACTION_POINTER_UP -> if (holdDragging && event.getPointerId(event.actionIndex) == pointer) { holdDragging = false; release() }
@@ -152,10 +161,11 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
     private fun land() {
         val text = view.editableText ?: return
         val l = view.layout ?: return
-        val y = (fingerY + reach).coerceIn(view.totalPaddingTop.toFloat(), (view.height - view.totalPaddingBottom - 1).toFloat())
-        val at = view.getOffsetForPosition(fingerX, y)
+        val at = view.getOffsetForPosition(fingerX, landingY())
         if (at < 0 || l.lineCount == 0) return
         if (end == null) return
+        // The text changed under the drag (an Undo, a sync): the other end may be gone.
+        if (anchor > text.length) return release()
         val (from, to) = if (end == End.CARET) at to at else {
             // Never an empty range: on the other end itself, one character (a whole code point) past it the way the note scrolls.
             val moved = when {
@@ -164,13 +174,20 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
                 velocity > 0 && anchor < text.length -> anchor + Character.charCount(Character.codePointAt(text, anchor))
                 else -> return
             }
-            minOf(moved, anchor) to maxOf(moved, anchor)
+            when {
+                !slots -> minOf(moved, anchor) to maxOf(moved, anchor)
+                end == End.START -> moved to anchor
+                else -> anchor to moved
+            }
         }
         if (from == view.selectionStart && to == view.selectionEnd) return
         // The scroll put the end there, under the finger: revealing it (a photo's row, taller than the zone) would scroll back.
         view.reveal.hold(from, to)
         Selection.setSelection(text, from, to)
     }
+
+    /** The view y the dragged end lands at: its caret's row under the finger, kept inside the note. */
+    private fun landingY(): Float = (fingerY + reach).coerceIn(view.totalPaddingTop.toFloat(), (view.height - view.totalPaddingBottom - 1).toFloat())
 
     /** Where the [end]'s caret is drawn: half a text line above its row's bottom, a photo's row included. */
     private fun caretRowOf(end: End): Float {

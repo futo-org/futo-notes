@@ -29,7 +29,11 @@ internal class HandleWatch(private val view: TextFirstEditText, private val edge
         val y = event.rawY - at[1]
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> edge.nearerEnd(x, y).let { holding[handle] = it; edge.grab(it, x, y, belowCaret = true) }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (holding.remove(handle) == edge.grabbed) edge.release()
+            // The finger that took it lifting, another still on it: this handle's drag ends as with an UP.
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_UP ->
+                if (event.actionMasked != MotionEvent.ACTION_POINTER_UP || event.getPointerId(event.actionIndex) == 0) {
+                    if (holding.remove(handle) == edge.grabbed) edge.release()
+                }
         }
         val end = holding[handle]
         if (event.actionMasked != MotionEvent.ACTION_MOVE || end == null) return@OnTouchListener false
@@ -48,12 +52,12 @@ internal class HandleWatch(private val view: TextFirstEditText, private val edge
     }
 
     private var searchUntil = 0L
-    private val search = Runnable { if (look() == 0 && SystemClock.uptimeMillis() < searchUntil) searchNextFrame() }
+    private val search = Runnable { look(); if (SystemClock.uptimeMillis() < searchUntil) searchNextFrame() }
 
     /**
      * A lift may show a handle, at once or once no second tap can follow (a tap on the caret, a swipe that brings a
-     * selection back, each in a window the platform makes then): look on each frame for [SEARCH_MS], stopping at the
-     * first one found.
+     * selection back, each in a window the platform makes then, one handle a few frames after the other): look on each
+     * frame for [SEARCH_MS].
      */
     fun searchAfterLift() {
         if (Build.VERSION.SDK_INT < 29) return
@@ -64,11 +68,12 @@ internal class HandleWatch(private val view: TextFirstEditText, private val edge
 
     private fun searchNextFrame(): Unit = view.postOnAnimation(search)
 
-    /** Handles may have appeared (a tap placed the caret, a selection was made): watch any not watched yet; how many. */
-    fun look(): Int {
-        if (Build.VERSION.SDK_INT < 29 || !view.isFocused || !view.isAttachedToWindow) return 0
-        val token = view.windowToken ?: return 0
-        var found = 0
+    /** Handles may have appeared (a tap placed the caret, a selection was made): watch any not watched yet. */
+    fun look() {
+        if (Build.VERSION.SDK_INT < 29 || !view.isFocused || !view.isAttachedToWindow) return
+        val token = view.windowToken ?: return
+        val before = handles.keys.toList()
+        var found = false
         for (root in WindowInspector.getGlobalWindowViews()) {
             if (root === view.rootView || root in handles) continue
             val params = root.layoutParams as? WindowManager.LayoutParams ?: continue
@@ -77,9 +82,13 @@ internal class HandleWatch(private val view: TextFirstEditText, private val edge
             handle.setOnTouchListener(listener)
             root.addOnAttachStateChangeListener(shown)
             handles[root] = handle
-            found++
+            found = true
         }
-        return found
+        // The platform made windows anew: ones it put away for good are not coming back.
+        if (found) for (gone in before) if (!gone.isAttachedToWindow && handles[gone] !in holding) {
+            gone.removeOnAttachStateChangeListener(shown)
+            handles.remove(gone)
+        }
     }
 
     /** The note left its window: nothing stays attached to the handles or their windows. */
