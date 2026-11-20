@@ -174,8 +174,6 @@ internal class TfList(
 
     override fun slice(head: Boolean): TfSpan = if (head) this else TfList(look, depth, marker, label, checked, false)
 
-    fun sameAs(other: TfList) = depth == other.depth && marker == other.marker && label == other.label && checked == other.checked && first == other.first
-
     override fun updateDrawState(tp: TextPaint) {
         if (marker == ListMarker.Task && checked) {
             tp.color = look.mutedColor

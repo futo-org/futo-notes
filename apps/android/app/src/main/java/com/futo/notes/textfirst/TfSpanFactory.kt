@@ -30,8 +30,8 @@ internal class TfSpanFactory(private val style: TextFirstStyle, private val mark
         is SpanSpec.Inline -> span is TfInline && span.bold == spec.bold && span.italic == spec.italic && span.strike == spec.strike && span.code == spec.code
         is SpanSpec.Heading -> span is TfHeading && span.level == spec.level
         is SpanSpec.Quote -> span is TfQuote && span.depth == spec.depth
-        is SpanSpec.ListRow -> span is TfList && span.sameAs(TfList(style, spec.depth, spec.marker, spec.label, spec.checked, spec.first))
-        is SpanSpec.ListItemMarker -> span is TfListMarker && span.sameAs(TfListMarker(style, spec.depth, spec.marker, spec.label, spec.checked, direction))
+        is SpanSpec.ListRow -> span is TfList && span.depth == spec.depth && span.marker == spec.marker && span.label == spec.label && span.checked == spec.checked && span.first == spec.first
+        is SpanSpec.ListItemMarker -> span is TfListMarker && span.depth == spec.depth && span.marker == spec.marker && span.label == spec.label && span.checked == spec.checked
         is SpanSpec.Indent -> span is TfIndent && span.depth == spec.depth
         is SpanSpec.Code -> span is TfCodeBlock && span.sameMetrics(spec.line)
         is SpanSpec.Metadata -> span is TfMetadata

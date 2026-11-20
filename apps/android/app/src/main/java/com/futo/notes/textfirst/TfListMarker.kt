@@ -27,8 +27,6 @@ internal class TfListMarker(
     /** The column's width as laid out: the hanging margin (TfList) less the first row's, so wrapped rows meet the text. */
     val width: Int = (lead + listMarkerColumn(look, marker, label)).toInt() - lead.toInt()
 
-    fun sameAs(other: TfListMarker) = depth == other.depth && marker == other.marker && label == other.label && checked == other.checked
-
     override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int = width
 
     override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
