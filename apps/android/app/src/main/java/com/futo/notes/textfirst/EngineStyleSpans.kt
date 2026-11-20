@@ -14,7 +14,8 @@ internal fun List<EditorStyleSpan>.toStyleWindow(start: Int, end: Int, display: 
     }
     // A marker carries only its range: it draws with the facts of the item row that starts with it.
     val itemRows = filterIsInstance<EditorStyleSpan.ListRow>().associateBy { it.start }
-    val (grid, text) = mapNotNull { it.toSpanSpec(display, blocks, itemRows, typedDelimiterAt) }
+    val planned = mapNotNull { it.toSpanSpec(display, blocks, itemRows, typedDelimiterAt) }
+    val (grid, text) = (planned + listMarkerKeeps(planned, display))
         .partition { it is SpanSpec.TableRow || it is SpanSpec.TableDelimiter }
     // Grid rows are disjoint lines in document order, so the row a span could sit in is the last one starting at or before it.
     val rows = grid.sortedBy { it.start }
@@ -55,6 +56,19 @@ private fun EditorStyleSpan.ListRow.toListSpec(): SpanSpec {
     val depth = level.toInt()
     val kind = kind() ?: return SpanSpec.Indent(start.toInt(), end.toInt(), depth)
     return SpanSpec.ListRow(start.toInt(), end.toInt(), depth, kind, text, checked, first)
+}
+
+/**
+ * The line may break after a marker unit's U+FFFC: an item whose first word is wider than its row would show its marker
+ * alone. Each marker followed by text is kept with that text's first character, where the platform can (API 35). Not
+ * before an atom (a photo, a wikilink): it is laid out whole, and a keep over its first character breaks it apart.
+ */
+private fun listMarkerKeeps(specs: List<SpanSpec>, display: CharSequence): List<SpanSpec> {
+    if (android.os.Build.VERSION.SDK_INT < 35) return emptyList()
+    val atoms = specs.filter { it is SpanSpec.Image || it is SpanSpec.Wikilink || it is SpanSpec.Divider }.map { it.start }.toSet()
+    return specs.filterIsInstance<SpanSpec.ListItemMarker>()
+        .filter { it.end < display.length && display[it.end] != '\n' && display[it.end] != '\r' && it.end !in atoms }
+        .map { SpanSpec.ListMarkerKeep(it.start, it.end + 1) }
 }
 
 /** The marker an item row draws; null for a plain line under a list. */

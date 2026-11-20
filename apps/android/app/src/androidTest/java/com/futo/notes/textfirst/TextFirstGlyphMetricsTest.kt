@@ -165,7 +165,7 @@ class TextFirstGlyphMetricsTest {
                     fullMarker.eraseColor(Color.WHITE)
                     view.draw(Canvas(actual))
                     val text = view.editableText
-                    val marker = text.getSpans(0, 1, TfListMarker::class.java).single()
+                    val marker = text.getSpans(0, 1, TfList::class.java).single()
                     val top = view.totalPaddingTop + view.layout.getLineTop(0)
                     val baseline = view.totalPaddingTop + view.layout.getLineBaseline(0)
                     val bottom = view.totalPaddingTop + view.layout.getLineBottom(0)
@@ -173,8 +173,8 @@ class TextFirstGlyphMetricsTest {
                     // view must retain all marker ink, including its first digit.
                     val dir = view.layout.getParagraphDirection(0)
                     assertEquals(if (rtl) -1 else 1, dir)
-                    val runLeft = view.totalPaddingLeft + minOf(view.layout.getPrimaryHorizontal(0), view.layout.getPrimaryHorizontal(1))
-                    marker.draw(Canvas(fullMarker), text, 0, 1, runLeft, top, baseline, bottom, TextPaint())
+                    val edge = view.totalPaddingLeft + if (rtl) view.layout.width else 0
+                    marker.drawLeadingMargin(Canvas(fullMarker), TextPaint(), edge, dir, top, baseline, bottom, text, 0, 5, true, view.layout)
                     val margin = 0 until width
                     var ink = 0
                     for (y in top until bottom) for (x in margin) {

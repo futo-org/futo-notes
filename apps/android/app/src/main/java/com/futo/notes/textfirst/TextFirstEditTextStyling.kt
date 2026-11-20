@@ -57,6 +57,7 @@ internal fun TextFirstEditText.restyle(e: Editable, given: StyleWindow, previous
     // A window reaching the display's end also owns the end sentinel.
     val window = if (given.end == e.length - 1) StyleWindow(given.start, given.end + 1, given.specs) else given
     val wanted = window.specs.toMutableList()
+    clearListMarkerKeeps(e, window.start, window.end)
     for (span in e.getSpans(window.start, window.end, TfSpan::class.java)) {
         val s = e.getSpanStart(span)
         val en = e.getSpanEnd(span)
@@ -102,6 +103,7 @@ internal fun TextFirstEditText.addSpans(target: Spannable, specs: List<SpanSpec>
     val mintedKeys = mintedTableKeys(specs)
     for (spec in specs) {
         if (spec.end < spec.start || spec.end > target.length - 1) continue
+        if (spec is SpanSpec.ListMarkerKeep) { setListMarkerKeep(target, spec.start, spec.end); continue }
         // A block on the empty last line (a new list item at the end) sits
         // on the end sentinel; Android lays out no paragraph spans for an
         // empty last line.

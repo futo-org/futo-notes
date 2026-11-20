@@ -1,14 +1,15 @@
 package com.futo.notes.textfirst
 
 /** Builds the renderer span for a [SpanSpec], and tells whether an existing span already is it. */
-internal class TfSpanFactory(private val style: TextFirstStyle, private val marks: FindMarks, private val direction: () -> android.text.TextDirectionHeuristic, private val contentWidth: () -> Int, private val wikilinkWidth: (TfWikilink) -> Int) {
+internal class TfSpanFactory(private val style: TextFirstStyle, private val marks: FindMarks, private val contentWidth: () -> Int, private val wikilinkWidth: (TfWikilink) -> Int) {
     private val tableScroll = mutableMapOf<Int, TableScroll>()
     fun create(spec: SpanSpec): TfSpan = when (spec) {
         is SpanSpec.Inline -> TfInline(style, spec.bold, spec.italic, spec.strike, spec.code)
         is SpanSpec.Heading -> TfHeading(style, spec.level)
         is SpanSpec.Quote -> TfQuote(style, spec.depth)
         is SpanSpec.ListRow -> TfList(style, spec.depth, spec.marker, spec.label, spec.checked, spec.first)
-        is SpanSpec.ListItemMarker -> TfListMarker(style, spec.depth, spec.marker, spec.label, spec.checked, direction)
+        is SpanSpec.ListItemMarker -> TfListMarker(style, spec.depth, spec.marker, spec.label, spec.checked)
+        is SpanSpec.ListMarkerKeep -> error("List marker keep is set by addSpans, never built here")
         is SpanSpec.Indent -> TfIndent(style, spec.depth)
         is SpanSpec.Code -> TfCodeBlock(style, spec.line)
         is SpanSpec.Metadata -> TfMetadata(style)
@@ -32,6 +33,7 @@ internal class TfSpanFactory(private val style: TextFirstStyle, private val mark
         is SpanSpec.Quote -> span is TfQuote && span.depth == spec.depth
         is SpanSpec.ListRow -> span is TfList && span.depth == spec.depth && span.marker == spec.marker && span.label == spec.label && span.checked == spec.checked && span.first == spec.first
         is SpanSpec.ListItemMarker -> span is TfListMarker && span.depth == spec.depth && span.marker == spec.marker && span.label == spec.label && span.checked == spec.checked
+        is SpanSpec.ListMarkerKeep -> false
         is SpanSpec.Indent -> span is TfIndent && span.depth == spec.depth
         is SpanSpec.Code -> span is TfCodeBlock && span.sameMetrics(spec.line)
         is SpanSpec.Metadata -> span is TfMetadata

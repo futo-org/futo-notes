@@ -158,7 +158,7 @@ internal class TfIndent(private val look: TextFirstStyle, val depth: Int) : Lead
 /**
  * A list item's row: its nesting and, for a checked task, muted struck text. Its marker is the item's first character
  * (TfListMarker), as wide as the marker column, so the first row's margin is the nesting alone and wrapped rows hang
- * past the column, at the text.
+ * past the column, at the text; the row draws the marker in that column.
  */
 internal class TfList(
     private val look: TextFirstStyle,
@@ -184,7 +184,12 @@ internal class TfList(
     // Only the item's own first row holds its marker unit; a piece that continues the item hangs at its text throughout.
     override fun getLeadingMargin(first: Boolean) = if (first && this.first) markerLead.toInt() else hanging
 
-    override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) = Unit
+    // The item's marker is drawn in its marker unit's column, beside the text on the side the layout reads from.
+    override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) {
+        if (!first || !this.first) return
+        if ((text as? Spanned)?.getSpanStart(this) != start) return
+        drawListMarker(c, look, this, leadingX(x, dir, hanging.toFloat()), dir < 0, baseline, (hanging - markerLead.toInt()).toFloat())
+    }
 }
 
 internal class TfMetadata(private val look: TextFirstStyle) :
