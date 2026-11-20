@@ -44,42 +44,6 @@ async function drawnNote(source: string): Promise<{ model: LineModel; elements: 
   return { model, elements };
 }
 
-// Display text "Head" at 0 and "below" at 5: a two-unit heading with 10px of room under its
-// row, placed at fractional tops as a scrolled note's lines are (at 6.4 the row's height comes
-// out 48.00000000000001).
-it('fills the room under a heading only where the selection runs on past it', async () => {
-  const engine = await Engine.restore({
-    token: 1,
-    source: '# Head\nbelow',
-    revision: 0,
-    paused: false,
-  });
-  const model = LineModel.from(engine.projectAll());
-  engine.free();
-  const origin = document.createElement('div');
-  origin.getBoundingClientRect = (): DOMRect => new DOMRect(0, 0, 800, 800);
-  for (const top of [100.4, 342.8, 6.4]) {
-    const elements = model.lines.map((line, index) => {
-      const element = document.createElement('div');
-      drawLine(element, line);
-      element.style.lineHeight = `${index === 0 ? 2 * ROW : ROW}px`;
-      if (index === 0) {
-        element.style.paddingBottom = '10px';
-        element.style.setProperty('--row-room', '10px');
-      }
-      const box = index === 0 ? new DOMRect(CARD_LEFT, top, 600, 2 * ROW + 10) : null;
-      element.getBoundingClientRect = (): DOMRect =>
-        box ?? new DOMRect(CARD_LEFT, top + 2 * ROW + 10, 600, ROW);
-      return element;
-    });
-    document.body.replaceChildren(...elements);
-    const heights = (start: number, end: number): number[] =>
-      selectedBands(elements, model, { start, end }, origin).map((band) => band.height);
-    expect(heights(1, 7)[0]).toBeCloseTo(2 * ROW + 10);
-    expect(heights(1, 3)).toEqual([2 * ROW]);
-  }
-});
-
 // Display text "above\n\na\n\nb\n\nbelow": lines 1 to 5 are code, "" at 6, "a" at 7, "" at 9,
 // "b" at 10 and "" at 12.
 it('keeps every band on a code line in the code column, an empty line included', async () => {

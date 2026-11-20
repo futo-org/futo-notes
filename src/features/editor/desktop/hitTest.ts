@@ -143,8 +143,9 @@ export class EditorHitTest {
         const end = lines[lines.length - 1];
         return { offset: end.start + end.text.length, rowEnd: false, x, pastNote: true };
       }
-      // Half the next line's row past this row's edge, never half this row's: a heading's
-      // two-unit row would reach past a one-unit line's first row.
+      // Half the next line's row past this row's edge, never half this row's: rows differ in
+      // height (a heading's, a picture's), and a taller one would reach past the next line's
+      // first row.
       const near = tableCellTextBoxAt(next, x) ?? next.getBoundingClientRect();
       const half = rowHeightOf(next, near) / 2;
       y = down
@@ -205,9 +206,7 @@ export class EditorHitTest {
     // on the picture.
     const rows = rowsOf(element, box);
     const row = lineRowAt(rows, y);
-    // A press in the room under a heading is on its row's text, a picture's included.
-    const rowBottom = row.bottom > rows.bottom ? row.bottom - rows.room : row.bottom;
-    const onRow = Math.min(Math.max(y, row.top), rowBottom - 1);
+    const onRow = Math.min(Math.max(y, row.top), row.bottom - 1);
     const point = caretPoint(Math.min(Math.max(x, box.left + 1), box.right - 1), row.middle);
     const line = lines[index];
     if (!point || !view.dom.contains(point[0])) {

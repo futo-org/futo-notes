@@ -11,9 +11,9 @@ reviews engine changes. Delete this file in the commit that ships the MR.
   Svelte per block, and no CodeMirror.
 - Replace Milkdown on this branch, one MR at the end. Start small and build out slice by slice.
 - Port today's look, except the line rhythm: every row is one fixed line unit and anything
-  taller is a whole number of lines (Mason, 2026-11-03), but for 10px of room under a
-  heading's last row (!720). The desktop title field stays
-  separate from the body.
+  taller is a whole number of lines (Mason, 2026-11-03), but for a first- and second-level
+  heading's rows, 30px and 28px with no space around them, as on Android (Mason, 2026-11-20).
+  The desktop title field stays separate from the body.
 - We change the engine when a behavior needs it; Justin reviews. Note rules stay in Rust.
 - macOS is checked here; Windows and Linux on masons-desktop.
 - The host attachment is the one owner of the open note: which note it is, its source,

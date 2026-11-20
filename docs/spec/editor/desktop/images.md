@@ -25,7 +25,7 @@ no image rule of its own. Pasting and dropping an image: [paste.md](paste.md).
   and Down measure that row so: a line's rows are line units but a picture's, and a press
   beside a picture anywhere down its height is on its row, landing in that row's first line.
   Selected text on that row is highlighted on the row's first line unit only. A line's rows start below its top padding and end above its bottom
-  padding, but for the room under a heading, which is its last row's (editing.md). → lineRowAt.ts `lineRows` / `lineRowAt`, caret.ts `measureCaret`, highlight.ts, hitTest.ts
+  padding. → lineRowAt.ts `lineRows` / `lineRowAt`, caret.ts `measureCaret`, highlight.ts, hitTest.ts
 
 > **Gap:** A picture in a table cell does not make its row tall to the highlight, a click or Up
 > and Down: they read only a line's own pictures, so a cell's picture row is measured as text

@@ -4,8 +4,7 @@
  * the text column's right edge, as AppKit draws it, and a row it runs into starts at the
  * line's left edge. Only the lines on screen, and a screen either side, are drawn: a
  * selection of a whole long note costs what one screen does. Over code blocks the bands keep to
- * the code's column, or fill a block's card (codeBlockSelection.ts). The room under a heading
- * is highlighted where the selection runs on past the heading (lineRowAt.ts). A selected picture is
+ * the code's column, or fill a block's card (codeBlockSelection.ts). A selected picture is
  * highlighted over its own box, text on its row over the row's first line unit, never the rest
  * of the row; cards and pictures join the bands they meet (joinRoundedBands.ts). In a table, a
  * selection inside one cell is highlighted in that cell's column; one crossing cells covers
@@ -14,14 +13,7 @@ import type { DisplayRange } from '@futo-notes/editor/wasm-payloads';
 import type { LineModel } from './lineModel';
 import { pointInLine, withMeasuringRange } from './lineElements';
 import { atomElementsOf } from './atomElements';
-import {
-  lineRowAt,
-  lineRowSizesOf,
-  lineRows,
-  type LineRow,
-  type LineRowSizes,
-  type LineRows,
-} from './lineRowAt';
+import { lineRowAt, lineRowSizesOf, lineRows, type LineRow, type LineRowSizes } from './lineRowAt';
 import {
   cardBand,
   codeBlockLinesAt,
@@ -77,18 +69,6 @@ export function firstBelow(elements: readonly HTMLElement[], y: number): number 
     else high = middle;
   }
   return low;
-}
-
-/** The height of a text band on row `drawn` of `rows`: text stands on a row's first line unit,
- *  the rest of a picture's row being the picture's. The room under a line's last row (a
- *  heading's) is the row's where the selection `runsOn` past it, so the band meets the next
- *  line's. */
-function textBandHeight(drawn: LineRow, rows: LineRows, runsOn: boolean): number {
-  const room = drawn.bottom > rows.bottom ? rows.room : 0;
-  const rowSpan = drawn.bottom - room - drawn.top;
-  // Half a pixel either way: rows meet at fractional heights.
-  const isTextRow = rowSpan <= rows.rowHeight + 0.5;
-  return Math.min(rowSpan, rows.rowHeight) + (runsOn && isTextRow ? room : 0);
 }
 
 /** `rect` (viewport px) as a band relative to `base`. */
@@ -261,7 +241,8 @@ export function selectedBands(
           left: bandLeft - base.left,
           top: drawn.top - base.top,
           width: bandRight - bandLeft,
-          height: textBandHeight(drawn, lineRowsOf, runsOn),
+          // Text stands on a row's first line unit: the rest of a picture's row is the picture's.
+          height: Math.min(drawn.bottom - drawn.top, lineRowsOf.rowHeight),
         });
       });
     }

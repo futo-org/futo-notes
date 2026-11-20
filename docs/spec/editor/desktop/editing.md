@@ -7,18 +7,21 @@ DOM, one element per display line; it holds no Markdown rules of its own.
   `>`, a list's indent) are not drawn, and a list item's marker is one unit of that text;
   lists, tasks, quotes and dividers draw as blocks.md says. Every row is one line unit tall
   (Plus Jakarta Sans 16px on a 24px line), blank lines included, with no margins between
-  blocks; anything taller takes a whole number of lines, but for the room under a heading. A
-  tab is 2em wide. →
+  blocks; anything taller takes a whole number of lines, but for a first- and second-level
+  heading's rows. A tab is 2em wide. →
   src/features/editor/desktop/view.ts, src/features/editor/desktop/desktopEditor.css, src/styles/desktop-fonts.css
-- Headings take the redesign's sizes and weights: a first-level heading is 24px 700 on two
-  lines; the others fit one line: 22px 700, 20px 600, 19px 600, 18px 500, 17px 500.
-  → src/features/editor/desktop/desktopEditor.css
-- Every heading has 10px of room under its last row, inside its line: its rows stay whole line
-  units from its top. The room belongs to that row: a press in it lands on the row, Up and
-  Down cross it as they cross the row, and a selection that runs on past the heading
-  highlights it, so the heading's band meets the next line's; one that ends in the heading
-  leaves it unpainted. → desktopEditor.css `--row-room`, lineRowAt.ts, highlight.ts,
-  hitTest.ts `verticalStop`, tests/desktop-editor-heading-stories.mjs
+- Headings take the redesign's sizes and weights: 24px 700, 22px 700, 20px 600, 19px 600,
+  18px 500, 17px 500. → src/features/editor/desktop/desktopEditor.css
+- Every row of a first-level heading is 30px tall and of a second-level heading 28px (1.25
+  times the font size, as on Android, rounded up to a whole pixel); the other levels' rows are
+  one line unit. Its text is centred in each row. → desktopEditor.css,
+  tests/desktop-editor-heading-stories.mjs
+- A heading has no space above its first row or below its last: the next line starts where
+  the heading's last row ends, and a blank line makes space. → desktopEditor.css,
+  tests/desktop-editor-heading-stories.mjs
+- Up and Down from a heading go to the next line's nearest row, however much taller the
+  heading's rows are than the next line's. → hitTest.ts `verticalStop`,
+  tests/desktop-editor-heading-stories.mjs
 - Bold, italic, strikethrough and inline code draw where the engine's runs say, in body text
   and headings alike, and compose: bold is one step heavier than its line (700 in body text
   and a 500 heading, 800 in a 600 or 700 heading), italic slants, strikethrough strikes, and

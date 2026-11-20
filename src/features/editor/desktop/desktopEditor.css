@@ -1,9 +1,9 @@
 /* The desktop editor surface (view.ts). Every row of text is one line unit tall (--line),
  * blank lines included, with no margins between blocks but a code block's header and gap
- * (desktopCodeBlocks.css); anything taller is a whole number of lines. Plus Jakarta Sans 16px
- * on a 24px line (src/styles/desktop-fonts.css). `.note-body` is the scroller, so the surface
- * is a plain box at least its container's height
- * (docs/spec/editor/cursor/blank-editor-surface.md). */
+ * (desktopCodeBlocks.css); anything taller is a whole number of lines, but for a first- and
+ * second-level heading's rows (30px, 28px). Plus Jakarta Sans 16px on a 24px line
+ * (src/styles/desktop-fonts.css). `.note-body` is the scroller, so the surface is a plain box
+ * at least its container's height (docs/spec/editor/cursor/blank-editor-surface.md). */
 .desktop-editor-wrap {
   position: relative;
   isolation: isolate;
@@ -67,24 +67,20 @@
   background: var(--color-selection, #ffe4d1);
 }
 
-/* The redesign's heading sizes and weights; a first-level heading is two lines tall, the
- * others fit one. */
+/* The redesign's heading sizes and weights. A heading has no space of its own above or below
+ * it (a blank line makes space): a first- or second-level heading's rows are 1.25 times its
+ * font size, as Android draws them, the second's rounded up to a whole pixel so the lines
+ * under it stay on whole pixels; the others' are one line unit. */
 .desktop-editor .h1 {
   font-size: 24px;
   font-weight: 700;
-  line-height: calc(2 * var(--line));
-}
-
-/* Room under a heading: its rows stay whole line units from its box's top, and the box adds
- * this much under the last one, which belongs to that row (lineRowAt.ts `room`). */
-.desktop-editor :is(.h1, .h2, .h3, .h4, .h5, .h6) {
-  --row-room: 10px;
-  padding-bottom: var(--row-room);
+  line-height: 30px;
 }
 
 .desktop-editor .h2 {
   font-size: 22px;
   font-weight: 700;
+  line-height: 28px;
 }
 
 .desktop-editor .h3 {

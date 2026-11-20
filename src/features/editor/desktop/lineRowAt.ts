@@ -3,20 +3,16 @@ import { isImageAtom } from './pictureElements';
 /** A line element's rows, viewport px: from its first row's top (below any top padding, a
  *  picture's gap) to its last row's bottom (above any bottom padding, a code block's skirt, the
  *  front matter's gap), `rowHeight` each, but for the rows a picture makes taller (`tall`, each
- *  its top and bottom, top to bottom). `room` is the part of the bottom padding that belongs to
- *  the last row (the room under a heading): page for a press and a key, highlighted where a
- *  selection runs past the line; the rest of the padding is page between blocks. */
+ *  its top and bottom, top to bottom). */
 export interface LineRows {
   top: number;
   bottom: number;
   rowHeight: number;
   tall: readonly (readonly [number, number])[];
-  room: number;
 }
 
-/** One row of a line: its top and bottom (the last row's with its line's `room`), and the
- *  middle of its first line unit, where its text stands (a picture hangs from its row's top,
- *  desktopImages.css). */
+/** One row of a line: its top and bottom, and the middle of its first line unit, where its
+ *  text stands (a picture hangs from its row's top, desktopImages.css). */
 export interface LineRow {
   index: number;
   top: number;
@@ -24,14 +20,11 @@ export interface LineRow {
   middle: number;
 }
 
-/** What a line element's rows are measured with: its row height, vertical padding and the
- *  room its last row has under it (the `--row-room` its style sets, part of its bottom
- *  padding), px. */
+/** What a line element's rows are measured with: its row height and vertical padding, px. */
 export interface LineRowSizes {
   rowHeight: number;
   paddingTop: number;
   paddingBottom: number;
-  room: number;
 }
 
 const NO_TALL_ROWS: LineRows['tall'] = [];
@@ -43,7 +36,6 @@ export function lineRowSizesOf(element: HTMLElement, box: DOMRect): LineRowSizes
     rowHeight: parseFloat(style.lineHeight) || box.height,
     paddingTop: parseFloat(style.paddingTop) || 0,
     paddingBottom: parseFloat(style.paddingBottom) || 0,
-    room: parseFloat(style.getPropertyValue('--row-room')) || 0,
   };
 }
 
@@ -51,7 +43,7 @@ export function lineRowSizesOf(element: HTMLElement, box: DOMRect): LineRowSizes
  *  image's element taller than a row makes its row as tall as itself. A line without an image
  *  reads no more layout than its box. */
 export function lineRows(element: HTMLElement, box: DOMRect, sizes: LineRowSizes): LineRows {
-  const { rowHeight, paddingTop, paddingBottom, room } = sizes;
+  const { rowHeight, paddingTop, paddingBottom } = sizes;
   let tall: [number, number][] | null = null;
   for (const child of element.children) {
     if (!isImageAtom(child)) continue;
@@ -70,7 +62,6 @@ export function lineRows(element: HTMLElement, box: DOMRect, sizes: LineRowSizes
     bottom: box.bottom - paddingBottom,
     rowHeight,
     tall: tall ?? NO_TALL_ROWS,
-    room,
   };
 }
 
@@ -79,11 +70,10 @@ export function lineRows(element: HTMLElement, box: DOMRect, sizes: LineRowSizes
  *  skirt) belongs to the nearest. */
 export function lineRowAt(rows: LineRows, y: number): LineRow {
   const { rowHeight } = rows;
-  // The last row is the one no other row fits under.
   const row = (index: number, top: number, bottom: number): LineRow => ({
     index,
     top,
-    bottom: bottom > rows.bottom - rowHeight / 2 ? bottom + rows.room : bottom,
+    bottom,
     middle: top + rowHeight / 2,
   });
   // The ordinary rows from `from` to `to`, `index` the first's: the one `y` is on, nearest.

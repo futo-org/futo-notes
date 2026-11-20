@@ -3,7 +3,7 @@ import { expect, it } from 'vitest';
 import { lineRowAt, lineRows } from './lineRowAt';
 
 // Three rows of 24 from 100.4: a line placed at a fractional height, as a note's are.
-const rows = { top: 100.4, bottom: 172.4, rowHeight: 24, tall: [], room: 0 };
+const rows = { top: 100.4, bottom: 172.4, rowHeight: 24, tall: [] };
 
 it('puts every pixel of a line on one row and asks at that row middle', () => {
   expect(lineRowAt(rows, 100.4)).toEqual({ index: 0, top: 100.4, bottom: 124.4, middle: 112.4 });
@@ -15,7 +15,7 @@ it('puts every pixel of a line on one row and asks at that row middle', () => {
 it('gives a press above the first row or below the last (a skirt) the nearest row', () => {
   expect(lineRowAt(rows, 80).index).toBe(0);
   expect(lineRowAt(rows, 180).index).toBe(2);
-  expect(lineRowAt({ top: 0, bottom: 10, rowHeight: 24, tall: [], room: 0 }, 30)).toEqual({
+  expect(lineRowAt({ top: 0, bottom: 10, rowHeight: 24, tall: [] }, 30)).toEqual({
     index: 0,
     top: 0,
     bottom: 24,
@@ -24,7 +24,7 @@ it('gives a press above the first row or below the last (a skirt) the nearest ro
 });
 
 // A row of text, a 200px picture's row, then two rows of text.
-const pictured = { top: 0, bottom: 272, rowHeight: 24, tall: [[24, 224] as const], room: 0 };
+const pictured = { top: 0, bottom: 272, rowHeight: 24, tall: [[24, 224] as const] };
 
 it('makes a picture row as tall as its picture, its text on its first line unit', () => {
   expect(lineRowAt(pictured, 10)).toEqual({ index: 0, top: 0, bottom: 24, middle: 12 });
@@ -35,7 +35,7 @@ it('makes a picture row as tall as its picture, its text on its first line unit'
 });
 
 it('ends a line on its picture row when nothing follows the picture', () => {
-  const alone = { top: 0, bottom: 200, rowHeight: 24, tall: [[0, 200] as const], room: 0 };
+  const alone = { top: 0, bottom: 200, rowHeight: 24, tall: [[0, 200] as const] };
   expect(lineRowAt(alone, -5)).toEqual({ index: 0, top: 0, bottom: 200, middle: 12 });
   expect(lineRowAt(alone, 260)).toEqual({ index: 0, top: 0, bottom: 200, middle: 12 });
 });
@@ -51,14 +51,14 @@ it('reads a picture taller than a row as its row, and pictures on one row as one
   };
   line.append('a', picture(24, 224), picture(124, 224), 'b', picture(248, 260));
   const box = new DOMRect(0, 0, 400, 284);
-  const sizes = { rowHeight: 24, paddingTop: 0, paddingBottom: 0, room: 0 };
+  const sizes = { rowHeight: 24, paddingTop: 0, paddingBottom: 0 };
   expect(lineRows(line, box, sizes).tall).toEqual([[24, 224]]);
   expect(lineRows(document.createElement('div'), box, sizes).tall).toEqual([]);
 });
 
 it('starts a line rows below its top padding and ends them above its bottom padding', () => {
   const box = new DOMRect(0, 100, 400, 36);
-  const sizes = { rowHeight: 24, paddingTop: 4, paddingBottom: 8, room: 0 };
+  const sizes = { rowHeight: 24, paddingTop: 4, paddingBottom: 8 };
   const rows = lineRows(document.createElement('div'), box, sizes);
   expect(rows).toMatchObject({ top: 104, bottom: 128 });
   // A press in either gap is on the line's one row, its text at that row's middle.
@@ -66,23 +66,9 @@ it('starts a line rows below its top padding and ends them above its bottom padd
   expect(lineRowAt(rows, 134).middle).toBe(116);
 });
 
-it('gives the room under a heading to its last row only, its text where it was', () => {
-  // A two-line-unit row, 10px of room under it.
-  const box = new DOMRect(0, 100, 400, 58);
-  const heading = { rowHeight: 48, paddingTop: 0, paddingBottom: 10, room: 10 };
-  const rows = lineRows(document.createElement('div'), box, heading);
-  expect(lineRowAt(rows, 150)).toEqual({ index: 0, top: 100, bottom: 158, middle: 124 });
-  expect(lineRowAt(rows, 155).index).toBe(0);
-  // Two wrapped rows of 24: only the second reaches into the room.
-  const wrapped = { top: 0, bottom: 48, rowHeight: 24, tall: [], room: 10 };
-  expect(lineRowAt(wrapped, 10)).toEqual({ index: 0, top: 0, bottom: 24, middle: 12 });
-  expect(lineRowAt(wrapped, 30)).toEqual({ index: 1, top: 24, bottom: 58, middle: 36 });
-  expect(lineRowAt(wrapped, 55).index).toBe(1);
-});
-
 it('puts a gap above a picture line on its picture row', () => {
   // A 4px gap, then a 200px picture from the row's top.
-  const gapped = { top: 4, bottom: 204, rowHeight: 24, tall: [[4, 204] as const], room: 0 };
+  const gapped = { top: 4, bottom: 204, rowHeight: 24, tall: [[4, 204] as const] };
   expect(lineRowAt(gapped, 1)).toEqual({ index: 0, top: 4, bottom: 204, middle: 16 });
   expect(lineRowAt(gapped, 200).index).toBe(0);
 });
