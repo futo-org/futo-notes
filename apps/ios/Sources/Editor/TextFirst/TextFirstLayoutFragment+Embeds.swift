@@ -69,11 +69,15 @@ extension TextFirstLayoutFragment {
                 } ?? 0
             context.saveGState()
             context.clip(to: rect)
+            let width = TextFirstTableMetrics.cellWidth(columns: span.columns)
             if span.header {
                 UIColor.tertiarySystemFill.setFill()
-                context.fill(rect)
+                context.fill(
+                    CGRect(
+                        x: rect.minX - scroll, y: rect.minY,
+                        width: CGFloat(span.columns) * width,
+                        height: rect.height))
             }
-            let width = TextFirstTableMetrics.cellWidth
             let pad = TextFirstTableMetrics.padding
             let marks = tableMarks(for: run)
             for column in 0..<span.columns {
@@ -93,16 +97,8 @@ extension TextFirstLayoutFragment {
                 guard let content = span.cell(atColumn: column), !content.text.isEmpty else {
                     continue
                 }
-                let paragraph = NSMutableParagraphStyle()
-                paragraph.alignment =
-                    content.alignment == .right
-                    ? .right : content.alignment == .center ? .center : .natural
-                (content.text as NSString).draw(
-                    in: cell.insetBy(dx: pad, dy: pad),
-                    withAttributes: [
-                        .font: TextFirstTableMetrics.font(header: span.header),
-                        .foregroundColor: UIColor.label, .paragraphStyle: paragraph,
-                    ])
+                TextFirstTableMetrics.styled(content, header: span.header)
+                    .draw(in: cell.insetBy(dx: pad, dy: pad))
             }
             context.restoreGState()
         }

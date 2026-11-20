@@ -425,17 +425,11 @@ final class TextFirstEditorController: NSObject {
         } catch {
             recover(error, context: redo ? "redo" : "undo")
         }
+        // Undo of Delete table (done in the note) puts the caret back in a cell.
+        if cellEditor == nil { openCellEditorAtSelection() }
     }
 
     static func range(_ r: NSRange) -> EditorUtf16Range {
         EditorUtf16Range(start: UInt64(r.location), end: UInt64(NSMaxRange(r)))
     }
-}
-
-extension String {
-    /// Whether both strings are the same UTF-16 code units. Swift's `==` is canonical
-    /// equivalence (precomposed `é` equals `e` plus U+0301), but the engine, the mirror and
-    /// the view address text in exact UTF-16 units, so any text they must agree on is
-    /// compared with this.
-    func isSameUtf16(as other: String) -> Bool { utf16.elementsEqual(other.utf16) }
 }

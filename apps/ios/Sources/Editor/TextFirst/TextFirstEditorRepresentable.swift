@@ -57,8 +57,11 @@ final class TextFirstEditorContainer: UIView {
         applyFrame()
         let covered = fullHeight - bounds.height
         if textView.contentInset.bottom != covered {
+            let rising = covered > textView.contentInset.bottom
             textView.contentInset.bottom = covered
             textView.verticalScrollIndicatorInsets.bottom = covered
+            // the keyboard came up over an open cell that was in view without it.
+            if rising { textView.controller?.cellEditor?.scrollCellIntoView() }
         }
     }
 

@@ -21,8 +21,15 @@ enum TextFirstStyler {
         if window.length > 0 {
             storage.beginEditing()
             storage.setAttributes(TextFirstEditorController.baseAttributes, range: window)
+            TextFirstTableMetrics.windowSpecs = specs.filter {
+                switch $0 {
+                case .inline, .link, .wikilink: return true
+                default: return false
+                }
+            }
             for spec in specs { apply(spec, to: storage, length: length, images: images) }
             storage.endEditing()
+            images.controller?.settleTableColumns(in: window)
         }
         if NSMaxRange(window) == length {
             images.controller?.setTrailingBlock(trailingBlock(specs, length: length))

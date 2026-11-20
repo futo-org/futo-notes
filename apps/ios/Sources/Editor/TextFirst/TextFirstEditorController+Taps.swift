@@ -67,18 +67,14 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         return g is TextFirstTouchTracker || other is TextFirstTouchTracker
     }
 
-    /// While a press may lift, or came down on a list marker while the note is edited, UIKit's
-    /// long-presses on the note wait for ours to fail.
-    func gestureRecognizer(
-        _ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer
-    ) -> Bool {
-        let armed =
-            (g === liftRecognizer && liftArmed) || (g === markerHoldRecognizer && markerHoldArmed)
-        return armed && other !== g && other is UILongPressGestureRecognizer
-            && other.view === textView
-    }
-
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        // A table grip is its own button, not a tap on the cell under it, nor a press to lift.
+        if touch.view is TextFirstTableGripControl { return false }
+        // A touch in the open cell's field is the field's (it places its own caret), but a
+        // sideways drag from it still scrolls the table. The block lift never takes it either.
+        if let field = cellEditor?.field, touch.view?.isDescendant(of: field) == true {
+            return g === tablePan
+        }
         // A press that may not lift is never the lift's: the platform has it from touch-down.
         if g === liftRecognizer { return liftArmed }
         if g is TextFirstMarkerDoubleTap {
@@ -187,13 +183,62 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         }
     }
 
-    /// A horizontal drag that starts on a table scrolls all its columns together; any other
-    /// drag is the text view's own. The block lift begins only where it can lift (+BlockDrag).
+    /// A horizontal drag that starts on a table wider than the note scrolls all its columns
+    /// together, unless it starts in the system's screen-edge back swipe zone; any
+    /// other drag is the text view's own, or the navigation's. The block lift begins only
+    /// where it can lift (+BlockDrag).
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
         if g === liftRecognizer { return liftShouldBegin(at: g.location(in: textView)) }
         guard g === tablePan, let pan = g as? UIPanGestureRecognizer else { return true }
         let v = pan.velocity(in: textView)
-        return abs(v.x) > abs(v.y) && tableRowHit(at: pan.location(in: textView)) != nil
+        let p = pan.location(in: textView)
+            .applying(
+                CGAffineTransform(
+                    translationX: -pan.translation(in: textView).x,
+                    y: -pan.translation(in: textView).y))
+        guard abs(v.x) > abs(v.y), let hit = tableRowHit(at: p),
+            TextFirstTableMetrics.maxScroll(
+                columns: hit.span.columns, width: images.containerWidth) > 0
+        else { return false }
+        return true
+    }
+
+    /// The table pan waits for the system's screen-edge back swipe to fail, so a drag
+    /// that starts where that recognizer claims it (its own edge zone, not a hard-coded strip)
+    /// is the back swipe, and any other drag on a wide table is the table's.
+    func gestureRecognizer(
+        _ g: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer
+    ) -> Bool {
+        guard g === tablePan, let nav = navigationController else { return false }
+        return other === nav.interactivePopGestureRecognizer
+    }
+
+    /// Rules about who waits for whom.
+    /// - While a press may lift, or came down on a list marker while the note is edited, UIKit's
+    ///   long-presses on the note (the loupe, long-press selection) wait for ours to fail: they
+    ///   act only where a press lifts or holds nothing.
+    /// - The navigation's content-area back swipe waits for the table pan to fail, so a sideways
+    ///   drag on a scrollable table never pops the note (at any scroll position). The
+    ///   screen-edge back swipe is not held back: the table pan waits for it to fail.
+    func gestureRecognizer(
+        _ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer
+    ) -> Bool {
+        if (g === liftRecognizer && liftArmed) || (g === markerHoldRecognizer && markerHoldArmed) {
+            return other !== g && other is UILongPressGestureRecognizer && other.view === textView
+        }
+        if g === tablePan, #available(iOS 26.0, *), let nav = navigationController {
+            return other === nav.interactiveContentPopGestureRecognizer
+        }
+        return false
+    }
+
+    private var navigationController: UINavigationController? {
+        var responder: UIResponder? = textView
+        while let r = responder {
+            if let vc = r as? UIViewController, let nav = vc.navigationController { return nav }
+            responder = r.next
+        }
+        return nil
     }
 
     @objc func handleTablePan(_ g: UIPanGestureRecognizer) {
@@ -235,7 +280,11 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         }
         if g.state == .ended, let hit = tableCellHit(at: g.location(in: textView)) {
             suppressFocus = false
-            openCellEditor(hit)
+            handleCellTap(hit, at: g.location(in: textView))
+            return
+        }
+        if g.state == .ended, openMissingCell(at: g.location(in: textView)) {
+            suppressFocus = false
             return
         }
         if g.state == .ended, !touchHitCheckbox,
@@ -288,5 +337,30 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
                 try accept(change)
             }
         } catch { recover(error, context: "toggle task") }
+    }
+}
+
+extension TextFirstEditorController {
+    /// link taps in table cells (all single taps, none delayed): with no cell of this
+    /// table open a tap on link text opens the link, as in a paragraph; with a cell of this table
+    /// open (table editing mode) a tap on another cell opens that cell, link text or not. A tap
+    /// on a link in the cell that is already open is the field's (`TextFirstCellLinkTap`).
+    func handleCellTap(_ hit: TableCellHit, at p: CGPoint) {
+        if !tableIsOpen(hit.span.tableStart), let (_, target) = tableLinkHit(at: p) {
+            applying += 1
+            textView.selectedRange = selectionBeforeTouch
+            applying -= 1
+            open(target)
+            return
+        }
+        openCellEditor(hit, at: p)
+    }
+
+    /// A cell of the table with scroll key `key` is open.
+    func tableIsOpen(_ key: Int) -> Bool {
+        guard let editor = cellEditor, !editor.isFinished,
+            let (span, _) = tableCell(at: editor.cellStart)
+        else { return false }
+        return span.tableStart == key
     }
 }

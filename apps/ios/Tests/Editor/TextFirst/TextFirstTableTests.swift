@@ -23,17 +23,19 @@
             h.tv.layoutIfNeeded()
             let manager = h.tv.textLayoutManager!
             var frames: [CGRect] = []
+            var columns = 1
             manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [])
             { f in
-                if let f = f as? TextFirstLayoutFragment, !f.tableRuns.isEmpty {
+                if let f = f as? TextFirstLayoutFragment, let run = f.tableRuns.first {
                     frames.append(f.layoutFragmentFrame)
+                    columns = run.span.columns
                 }
                 return true
             }
             let inset = h.tv.textContainerInset
             let frame = frames[index]
             return CGPoint(
-                x: inset.left + CGFloat(column) * TextFirstTableMetrics.cellWidth + 20,
+                x: inset.left + CGFloat(column) * TextFirstTableMetrics.cellWidth(columns: columns) + 20,
                 y: inset.top + frame.minY + 15)
         }
 
@@ -83,7 +85,7 @@
                 startingAt: hit.span.tableStart, columns: 4, to: 200, around: hit.row)
             // Both rows follow the one scroll; the cell under the same point is further right.
             let width = h.controller.images.containerWidth
-            let scroll = min(200, 4 * TextFirstTableMetrics.cellWidth - width)
+            let scroll = min(200, 4 * TextFirstTableMetrics.cellWidth(columns: 4) - width)
             #expect(h.controller.tableScroll[hit.span.tableStart] == scroll)
             let after = h.controller.tableCellHit(at: point(h, row: 1, column: 0))
             #expect(after?.cell.text != "1")
@@ -91,7 +93,7 @@
             h.controller.scrollTable(
                 startingAt: hit.span.tableStart, columns: 4, to: 9999, around: hit.row)
             #expect(
-                h.controller.tableScroll[hit.span.tableStart] == 4 * TextFirstTableMetrics.cellWidth
+                h.controller.tableScroll[hit.span.tableStart] == 4 * TextFirstTableMetrics.cellWidth(columns: 4)
                     - width)
         }
 
@@ -173,7 +175,7 @@
             let column = try #require(h.controller.tableCell(at: editor.cellStart)).1.column
             #expect(column == 1)
             let scroll = h.controller.tableScroll.values.first ?? 0
-            let x = h.tv.textContainerInset.left + TextFirstTableMetrics.cellWidth - scroll
+            let x = h.tv.textContainerInset.left + TextFirstTableMetrics.cellWidth(columns: 2) - scroll
             #expect(abs(editor.field.frame.minX - x) < 0.5, "\(old) -> \(editor.field.frame)")
             #expect(editor.field.frame.minY == old.minY)
             #expect(h.controller.divergences.isEmpty)
