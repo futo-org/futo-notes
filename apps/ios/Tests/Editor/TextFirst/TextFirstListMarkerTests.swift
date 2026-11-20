@@ -212,14 +212,17 @@
 
         /// A first word wider than the row (a long link) starts on the marker's row: the line
         /// never breaks between the marker unit and the text after it.
-        @Test(arguments: ["- ", "- [ ] ", "10. ", "- a\n  - "])
-        func aLongFirstWordStaysOnItsMarkersRow(prefix: String) {
-            let link = "https://example.com/a/very/long/path/without/any/spaces/that/is/wider/than/the/whole/column"
-            let h = TextFirstHarness(prefix + link + "\n")
-            let start = (h.tv.text as NSString).range(of: "https").location
+        @Test(arguments: ["- ", "- [ ] ", "10. ", "- a\n  - "], [
+            "https://example.com/a/very/long/path/without/any/spaces/that/is/wider/than/the/whole/column",
+            // No break opportunity anywhere in it.
+            String(repeating: "Supercalifragilistic", count: 3),
+        ])
+        func aLongFirstWordStaysOnItsMarkersRow(prefix: String, word: String) {
+            let h = TextFirstHarness(prefix + word + "\n")
+            let start = (h.tv.text as NSString).range(of: word).location
             let lines = h.visualLines(at: start)
-            #expect(lines.count > 1, "the link wraps: \(lines)")
-            #expect(lines.first?.text.hasPrefix("\u{FFFC}https") == true, "\(lines)")
+            #expect(lines.count > 1, "the word wraps: \(lines)")
+            #expect(lines.first?.text.hasPrefix("\u{FFFC}" + word.prefix(5)) == true, "\(lines)")
         }
 
         /// The marker unit's rect in text view coordinates, on the line holding `word`.

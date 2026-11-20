@@ -359,4 +359,21 @@ final class TextFirstLayoutDelegate: NSObject, NSTextLayoutManagerDelegate {
         }
         return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
     }
+
+    /// Never between a list item's marker unit and its text: an attachment is a break
+    /// opportunity (UAX #14 class CB), so a first word wider than the row would leave the marker
+    /// alone on its row. The word wraps by character beside the marker instead.
+    func textLayoutManager(
+        _ textLayoutManager: NSTextLayoutManager, shouldBreakLineBefore location: NSTextLocation,
+        hyphenating: Bool
+    ) -> Bool {
+        guard
+            let storage = (textLayoutManager.textContentManager as? NSTextContentStorage)?
+                .textStorage
+        else { return true }
+        let offset = textLayoutManager.offset(
+            from: textLayoutManager.documentRange.location, to: location)
+        return !(offset > 0 && offset <= storage.length
+            && storage.attribute(.tfListMarker, at: offset - 1, effectiveRange: nil) != nil)
+    }
 }
