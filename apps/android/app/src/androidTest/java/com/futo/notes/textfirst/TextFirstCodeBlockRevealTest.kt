@@ -58,4 +58,30 @@ class TextFirstCodeBlockRevealTest {
         val (bottom, visible) = tapHeaderNearTheBottom(c, "const x1 ")
         assertTrue("the block's end ($bottom) should run past the keyboard ($visible): it is taller than the space", bottom > visible)
     }
+
+    /** Sol review (job 14, 6): a tap on the header of a block already selected, partly under the note's edge, shows it. */
+    @Test fun aRetapOnASelectedBlockPartlyHiddenShowsIt() = textFirstSession("$prose\n\n```js\nconst a = 1\nconst b = 2\n```\n\nend") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        val start = view.editableText.indexOf("const a")
+        await("a layout") { view.layout != null && view.text?.contains("end") == true }
+        val l = view.layout
+        view.scrollTo(0, view.totalPaddingTop + l.getLineTop(l.getLineForOffset(start)) - view.height / 2)
+        await("the header drawn") { view.invalidate(); view.codeChrome.areaOf(start, CodeBlockAction.SELECT_BLOCK) != null }
+        var area = view.codeChrome.areaOf(start, CodeBlockAction.SELECT_BLOCK)!!
+        tapNoteAt(view, view.totalPaddingLeft + area.left + area.width() * 0.6f, view.totalPaddingTop - view.scrollY + area.centerY())
+        await("the block selected") { view.selectedCodeBlock != null }
+        delay(300)
+        // The block's last line under the note's bottom edge, its header still on screen.
+        val (_, bottom) = view.codeBlockLines(view.selectedCodeBlock!!)!!
+        view.scrollTo(0, view.totalPaddingTop + bottom - view.height + view.totalPaddingBottom + view.lineHeight)
+        delay(300)
+        await("the header drawn again") { view.invalidate(); view.codeChrome.areaOf(start, CodeBlockAction.SELECT_BLOCK) != null }
+        area = view.codeChrome.areaOf(start, CodeBlockAction.SELECT_BLOCK)!!
+        tapNoteAt(view, view.totalPaddingLeft + area.left + area.width() * 0.6f, view.totalPaddingTop - view.scrollY + area.centerY())
+        delay(600)
+        val shown = view.totalPaddingTop - view.scrollY + bottom
+        assertTrue("the block ends at $shown, under the edge at ${view.height - view.totalPaddingBottom}", shown <= view.height - view.totalPaddingBottom + 1)
+    }
 }

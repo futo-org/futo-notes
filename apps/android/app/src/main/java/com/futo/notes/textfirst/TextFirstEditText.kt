@@ -307,7 +307,8 @@ internal class TextFirstEditText(
         val shown = renderedSelection
         renderedSelection = (selStart.toLong() shl 32) or (selEnd.toLong() and 0xffffffffL)
         selectedObject = imageSelectedWhole(selStart, selEnd)
-        selectedCodeBlock = selectedCodeBlock?.takeIf { it.first == selStart && it.second == selEnd }
+        // A loading note clamps the block to the text it has; the block stays selected.
+        selectedCodeBlock = selectedCodeBlock?.takeIf { it.first == selStart && (it.second == selEnd || !contentComplete && selEnd <= it.second) }
         val painted = paintCodeSelection(selStart, selEnd, settled = settlingFromEngine)
         if (applying) return
         val e = editableText ?: return

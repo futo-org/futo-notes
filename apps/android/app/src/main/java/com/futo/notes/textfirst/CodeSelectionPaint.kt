@@ -141,7 +141,7 @@ internal fun TextFirstEditText.drawCodeSelection(canvas: Canvas) {
     canvas.restoreToCount(save)
 }
 
-/** One rectangle per visual row from [from] to [to]: a row whose line break is selected runs to the right edge. */
+/** One rectangle per visual row from [from] to [to]: a code row whose line break is selected runs to the card's side; a prose row covers its text. */
 internal fun TextFirstEditText.drawSelectionRows(canvas: Canvas, l: Layout, e: Spanned, from: Int, to: Int, paint: Paint) {
     if (from >= to) return
     val firstLine = l.getLineForOffset(from)
@@ -150,6 +150,11 @@ internal fun TextFirstEditText.drawSelectionRows(canvas: Canvas, l: Layout, e: S
         val lineStart = l.getLineStart(line)
         val lineEnd = l.getLineEnd(line)
         if (line == lastLine && to == lineStart && line > firstLine) break
+        // A prose row is tinted over its text, as a selection without a block is (TextSelectionPaint).
+        if (e.getSpans(lineStart, lineStart, TfCodeBlock::class.java).none { e.getSpanEnd(it) > lineStart }) {
+            drawTextSelectionRow(canvas, l, e, line, from, to, paint)
+            continue
+        }
         val a = maxOf(from, lineStart)
         val breakSelected = to >= lineEnd && lineEnd > lineStart && e[lineEnd - 1] == '\n'
         val rightToLeft = l.getParagraphDirection(line) < 0

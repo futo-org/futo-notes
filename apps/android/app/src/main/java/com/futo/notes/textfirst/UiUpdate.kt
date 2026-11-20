@@ -78,6 +78,8 @@ internal class UiUpdate(
     val marked: List<SpanSpec.Inline>? = null,
     /** The code block selected as one object; the selection equals it. */
     val selectedBlock: Pair<Int, Int>? = null,
+    /** Made by a key or the keyboard at the caret (EditorEngine.input), not a command such as a checkbox toggle. */
+    val keyed: Boolean = false,
     /** A block was made whose opening fence takes the next letters as its language: its language field opens. */
     val writesLanguage: Boolean = false,
     /** This update is a dropped block landing: how the view keeps its place (EditorEngineBlocks.kt). */

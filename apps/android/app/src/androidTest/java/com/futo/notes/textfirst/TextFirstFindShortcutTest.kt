@@ -7,6 +7,8 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.futo.notes.ui.FindQueryEditText
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -66,6 +68,46 @@ class TextFirstFindShortcutTest {
         compose.waitUntil(10_000) { scene.field() == null }
         compose.waitForIdle()
         assertEquals("the note lost focus", true, readOnMainThread { view.isFocused })
+    }
+
+    /** Mason (S23): stepping from a match in a table cell back to the first match dropped the keyboard. The query keeps focus. */
+    @Test fun stepsOntoAndOffACellsMatchKeepTheQueryFocused() = compose.withTextFirstScreen(
+        "beta in prose\n\n| Name | Owner |\n| - | - |\n| one | beta |\n\n" + "ordinary note text ".repeat(10) + "\n", nativeTheme = tableSceneTheme,
+    ) { view, _ ->
+        assertEquals("beta", ctrlF(view, 0, 4))
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("1 of 2").fetchSemanticsNodes().isNotEmpty() }
+        // The first step lands on the current match; the next ones move, onto the cell and back round to the first.
+        for (shown in listOf("1 of 2", "2 of 2", "1 of 2", "2 of 2", "1 of 2")) {
+            compose.runOnUiThread {
+                query(compose.activity.window.decorView)!!.onKeyDown(KeyEvent.KEYCODE_G, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_G, 0, KeyEvent.META_CTRL_ON))
+            }
+            compose.waitUntil(10_000) { compose.onAllNodesWithText(shown).fetchSemanticsNodes().isNotEmpty() }
+            compose.waitForIdle()
+            assertEquals("the query is focused at $shown", true, readOnMainThread { query(compose.activity.window.decorView)!!.isFocused })
+        }
+        // A press on the cell itself asks for it: its field takes the keyboard (Sol review of the batch, 1).
+        val scene = TableCellScene(view, compose.activity) { action -> compose.runOnUiThread(action) }
+        scene.tap(scene.pointAt("one", 1))
+        compose.waitUntil(10_000) { scene.field()?.isFocused == true }
+    }
+
+    /** Sol review of the batch (2): closing find after it stepped onto a cell's match leaves that cell alone. */
+    @Test fun closingFindOnACellsMatchStartsNoCellEditing() = compose.withTextFirstScreen(
+        "beta in prose\n\n| Name | Owner |\n| - | - |\n| one | beta |\n\n" + "ordinary note text ".repeat(10) + "\n", nativeTheme = tableSceneTheme,
+    ) { view, _ ->
+        assertEquals("beta", ctrlF(view, 0, 4))
+        for (shown in listOf("1 of 2", "2 of 2")) {
+            compose.runOnUiThread {
+                query(compose.activity.window.decorView)!!.onKeyDown(KeyEvent.KEYCODE_G, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_G, 0, KeyEvent.META_CTRL_ON))
+            }
+            compose.waitUntil(10_000) { compose.onAllNodesWithText(shown).fetchSemanticsNodes().isNotEmpty() }
+        }
+        val strings = com.futo.notes.localization.Localization.fromGeneratedCatalogs(listOf("en"), "en-US")
+        compose.onNodeWithContentDescription(strings.localizedText("editor.find.close")).performClick()
+        compose.waitForIdle()
+        Thread.sleep(500)
+        val scene = TableCellScene(view, compose.activity) { action -> compose.runOnUiThread(action) }
+        assertEquals("a cell field took focus", false, readOnMainThread { scene.field()?.isFocused == true })
     }
 
     /** Ctrl+K reaches the toolbar's link form through the screen's own wiring, not a hook a test sets. */

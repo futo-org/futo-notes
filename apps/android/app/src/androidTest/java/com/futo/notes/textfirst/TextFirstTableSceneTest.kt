@@ -233,7 +233,9 @@ class TextFirstTableSceneTest {
         compose.waitUntil(10_000) { view.appliedSeq > beforeStep }
         if (cell && !cellFocus) {
             compose.waitForIdle()
-            scene.assertNoFindPaint()
+            // The query keeps the keyboard on a cell's match, the note painting the match (mobile/find.md).
+            assertTrue("the query keeps focus on the cell's match", scene.queryFocused())
+            assertTrue("no cell field has focus", readOnMainThread { scene.fieldInWindow()?.isFocused != true })
         }
         if (cellFocus) {
             scene.tap(scene.pointAt("Name", 0))

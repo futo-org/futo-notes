@@ -141,7 +141,14 @@ internal fun TextFirstEditText.drawTopPaddingBand(canvas: Canvas) {
     val last = (l.getLineForVertical(scrollY) + 1).coerceAtMost(l.lineCount - 1)
     val start = maxOf(minOf(selectionStart, selectionEnd), l.getLineStart(first))
     val end = minOf(maxOf(selectionStart, selectionEnd), l.getLineEnd(last))
-    val selection = if (start >= 0 && end > start) Path().also { l.getSelectionPath(start, end, it) } else null
+    // The row painter owns a selection over several rows (the TextView's highlight is clear then): the band paints its rows.
+    val rows = isTextSelectionPainted()
+    if (rows && end > start) {
+        val text = editableText
+        val rowPaint = codeChrome.selectionPaint.apply { color = this@drawTopPaddingBand.style.selectionColor }
+        if (text != null) for (line in first..last) drawTextSelectionRow(canvas, l, text, line, minOf(selectionStart, selectionEnd), maxOf(selectionStart, selectionEnd), rowPaint)
+    }
+    val selection = if (!rows && start >= 0 && end > start) Path().also { l.getSelectionPath(start, end, it) } else null
     val paint = Paint().apply { color = highlightColor }
     if (android.os.Build.VERSION.SDK_INT >= 34) {
         // On API36 the legacy overload passes null highlight lists and Layout

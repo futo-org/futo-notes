@@ -39,6 +39,19 @@ class TextFirstCodeHeaderFieldTest {
         assertEquals(false, field.isAttachedToWindow)
     }
 
+    /** Sol review (job 14): the header stands past the text column, and a hold on that left edge opens its name. */
+    @Test fun aHoldOnTheHeadersLeftEdgePastTheTextOpensTheName() = textFirstSession("```js name:demo.js\nconst a = 1\n```\n\nafter") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.codeChrome.areaOf(0, CodeBlockAction.NAME_FIELD) == null) delay(20) }
+        val area = view.codeChrome.areaOf(0, CodeBlockAction.NAME_FIELD)!!
+        check(area.left < -view.style.dp(3f)) { "the header starts at ${area.left}, not past the text" }
+        holdNoteAt(view, view.totalPaddingLeft - view.style.dp(3f), view.totalPaddingTop - view.scrollY + area.centerY())
+        val field = openHeaderField(view)
+        assertEquals("demo.js", field.text.toString())
+    }
+
     /**
      * Mason's report: the text bounced between the drawn header and the open field, and the field's
      * highlight hugged the top. The field's baseline is the drawn label's, opening, typing and closing.

@@ -108,9 +108,12 @@ internal fun TextFirstEditText.endSelectionOnBlur() {
  * selection that changed, so a retap on a line half under the note's edge kept a clipped caret (Mason, S23).
  */
 internal fun TextFirstEditText.revealTappedCaret(event: android.view.MotionEvent) {
-    if (event.actionMasked != android.view.MotionEvent.ACTION_UP) return
+    // A disabled note (saving on the way out) placed no caret: there is nothing to show.
+    if (event.actionMasked != android.view.MotionEvent.ACTION_UP || !isEnabled) return
     if (event.eventTime - event.downTime >= android.view.ViewConfiguration.getLongPressTimeout()) return
     if (selectionStart < 0 || selectionStart != selectionEnd) return
+    // A line already shown whole is left where it is: the TextView's reveal would add its own margin.
+    if (caretWasInView(height - totalPaddingBottom)) return
     reveal.again()
     bringPointIntoView(selectionEnd)
 }

@@ -41,6 +41,8 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
                 downY = event.y
             }
             MotionEvent.ACTION_MOVE -> if (abs(event.x - downX) > slop || abs(event.y - downY) > slop) pressed = null
+            // A second finger makes it a gesture, not a press on the header.
+            MotionEvent.ACTION_POINTER_DOWN -> pressed = null
             MotionEvent.ACTION_UP -> {
                 val target = pressed ?: return false
                 pressed = null
@@ -130,6 +132,11 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
                 view.renderHold.closeTextMenus()
                 view.showKeyboard()
                 if (held) callout.showWhenSelected(target.codeStart)
+                // Selecting the block it already is changes no selection, so nothing would reveal it: a retap does.
+                if (view.selectedCodeBlock?.let { target.codeStart in it.first..it.second } == true) {
+                    view.reveal.again()
+                    view.bringPointIntoView(view.selectionEnd)
+                }
                 engine.selectCodeBlock(target.codeStart)
             }
             CodeBlockAction.OPEN_LINE_ABOVE -> { view.showKeyboard(); engine.openCodeBlockLine(target.codeStart, EditorBlockCommand.OpenLineBeforeCodeBlock) }
@@ -185,8 +192,8 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
         const val COPIED_MILLISECONDS = 1_100L
     }
 
+    /** The card and its header stand past the text column (codeCardOutset): their left edge is a target too. */
     private fun targetAt(event: MotionEvent): CodeBlockTarget? {
-        if (event.x < view.totalPaddingLeft) return null
         return view.codeChrome.targetAt(event.x - view.totalPaddingLeft + view.scrollX, event.y - view.totalPaddingTop + view.scrollY)
     }
 }

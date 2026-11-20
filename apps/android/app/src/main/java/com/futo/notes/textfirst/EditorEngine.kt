@@ -79,6 +79,8 @@ internal class EditorEngine(
     internal var closed = false
     internal val toolbarCommands = ToolbarCommandQueue(handler) { executeCommand({}, it) }
     private var inputStartNanos = 0L
+    /** While a key or the keyboard's input runs: its updates reveal the caret they edit at. */
+    private var keyed = false
     internal var engineNanos = 0L
     /** Characters at the end of the display the view has not been given yet (progressive open). */
     internal var tailLength = 0
@@ -223,7 +225,8 @@ internal class EditorEngine(
 
     internal fun input(block: () -> Unit) {
         inputStartNanos = SystemClock.elapsedRealtimeNanos()
-        guarded(block)
+        keyed = true
+        try { guarded(block) } finally { keyed = false }
     }
 
     internal fun command(onUnavailable: () -> Unit = {}, block: () -> Unit) = handler.post {
@@ -330,6 +333,7 @@ internal class EditorEngine(
             writesLanguage = writesLanguage.also { writesLanguage = false },
             drop = pendingDrop.also { pendingDrop = null },
             revision = rev,
+            keyed = keyed,
         )
         publishSelection()
         publishCell()

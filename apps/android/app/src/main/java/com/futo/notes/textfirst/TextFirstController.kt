@@ -42,6 +42,8 @@ internal class TextFirstController(
     private var closing: CompletableDeferred<FlushDraftResult?>? = null
 
     var cellView by mutableStateOf<TableCellEditText?>(null); private set
+    /** Whether the cell field has the keyboard: its controls show only then (the find bar may step onto a cell). */
+    var cellFocused by mutableStateOf(false); private set
     var opened by mutableStateOf(false); private set
     var openFailure by mutableStateOf<Throwable?>(null); private set
     /** Whether navigation can proceed without an attached editor save. */
@@ -167,12 +169,14 @@ internal class TextFirstController(
     override fun onCell(update: CellUpdate?, toNote: Boolean) {
         if (update == null) {
             cellView = null
+            cellFocused = false
             if (toNote) { view.requestFocus(); view.showKeyboard() }
             return
         }
         val e = engine ?: return
         val field = cellView ?: TableCellEditText(context, e, style).also {
             it.clipboard.onCopyRefused = { onClipboardRefused() }
+            it.setOnFocusChangeListener { _, has -> cellFocused = has }
             // Ctrl+Enter leaves the table for the line after it: the note takes focus (and the keyboard) first.
             it.onLeaveTable = { view.requestFocus(); e.leaveTableBelow() }
             cellView = it

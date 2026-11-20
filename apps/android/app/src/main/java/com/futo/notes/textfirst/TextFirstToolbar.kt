@@ -81,7 +81,7 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
         )
     }
     val caret = controller.caret
-    if (controller.cellView != null) TextFirstTableCellControls(controller)
+    if (controller.cellFocused) TextFirstTableCellControls(controller)
     if (composed || visible) key(generation) { EditorToolbar(
         modifier = (if (visible) Modifier else measuredWithoutSpace).pointerInput(Unit) {
             awaitPointerEventScope { while (true) touched = awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed } }
