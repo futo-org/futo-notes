@@ -32,6 +32,7 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
     }
 
     func installTapRecognizer() {
+        installMarkerHold()
         layoutDelegate.host = self
         textView.textLayoutManager?.delegate = layoutDelegate
         (textView.textLayoutManager?.textContentManager as? NSTextContentStorage)?.delegate =
@@ -65,16 +66,24 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
 
     /// While a press may lift, UIKit's long-presses on the note (the loupe, long-press
     /// selection) wait for the lift to fail: they act only where a press lifts nothing.
+    /// While a press may lift, or came down on a list marker while the note is edited, UIKit's
+    /// long-presses on the note wait for ours to fail.
     func gestureRecognizer(
         _ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer
     ) -> Bool {
-        g === liftRecognizer && liftArmed && other !== g
-            && other is UILongPressGestureRecognizer && other.view === textView
+        let armed = (g === liftRecognizer && liftArmed) || (g === markerHoldRecognizer && markerHoldArmed)
+        return armed && other !== g && other is UILongPressGestureRecognizer
+            && other.view === textView
     }
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         // A press that may not lift is never the lift's: the platform has it from touch-down.
         if g === liftRecognizer { return liftArmed }
+        if g === markerHoldRecognizer {
+            markerHoldArmed = textView.isFirstResponder
+                && markerUnitFragment(at: touch.location(in: textView)) != nil
+            return markerHoldArmed
+        }
         selectionBeforeTouch = textView.selectedRange
         let p = touch.location(in: textView)
         touchHitCheckbox = checkboxFragment(at: p) != nil
@@ -97,16 +106,19 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
             for: CGPoint(x: p.x - inset.left, y: p.y - inset.top))
     }
 
-    /// The fragment whose checkbox (with a generous touch margin) holds `p`.
-    func checkboxFragment(at p: CGPoint) -> TextFirstLayoutFragment? {
-        guard let f = fragment(at: p) as? TextFirstLayoutFragment, let box = f.checkboxRect
-        else {
-            return nil
-        }
-        let frame = f.layoutFragmentFrame
-        let rect = box.offsetBy(dx: inset.left, dy: frame.minY + inset.top).insetBy(
-            dx: -12, dy: -12)
+    /// The fragment whose list marker unit holds `p`: across the unit, from where the item's
+    /// text starts to the far edge of its marker column, and the row's height with a margin.
+    func markerUnitFragment(at p: CGPoint) -> TextFirstLayoutFragment? {
+        guard let f = fragment(at: p) as? TextFirstLayoutFragment, let unit = f.markerUnit
+        else { return nil }
+        let rect = unit.rect.offsetBy(dx: inset.left, dy: f.layoutFragmentFrame.minY + inset.top)
+            .insetBy(dx: 0, dy: -8)
         return rect.contains(p) ? f : nil
+    }
+
+    /// The fragment whose task checkbox (its marker unit) holds `p`.
+    func checkboxFragment(at p: CGPoint) -> TextFirstLayoutFragment? {
+        markerUnitFragment(at: p).flatMap { $0.block.list?.marker == .task ? $0 : nil }
     }
 
     /// The storage range of the image whose drawn rect holds `p`, if any.

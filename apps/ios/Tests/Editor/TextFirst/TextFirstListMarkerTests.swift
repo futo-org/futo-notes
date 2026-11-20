@@ -209,5 +209,93 @@
             #expect(h.block(atLineStartingWith: "item")?.list?.marker == .bullet)
             #expect(h.controller.divergences.isEmpty)
         }
+
+        /// A first word wider than the row (a long link) starts on the marker's row: the line
+        /// never breaks between the marker unit and the text after it.
+        @Test(arguments: ["- ", "- [ ] ", "10. ", "- a\n  - "])
+        func aLongFirstWordStaysOnItsMarkersRow(prefix: String) {
+            let link = "https://example.com/a/very/long/path/without/any/spaces/that/is/wider/than/the/whole/column"
+            let h = TextFirstHarness(prefix + link + "\n")
+            let start = (h.tv.text as NSString).range(of: "https").location
+            let lines = h.visualLines(at: start)
+            #expect(lines.count > 1, "the link wraps: \(lines)")
+            #expect(lines.first?.text.hasPrefix("\u{FFFC}https") == true, "\(lines)")
+        }
+
+        /// The marker unit's rect in text view coordinates, on the line holding `word`.
+        private func unitRect(_ h: TextFirstHarness, _ word: String) -> CGRect {
+            h.tv.layoutIfNeeded()
+            let manager = h.tv.textLayoutManager!
+            let at = (h.tv.text as NSString).range(of: word).location - 1
+            let f =
+                manager.textLayoutFragment(
+                    for: manager.location(manager.documentRange.location, offsetBy: at)!)
+                as! TextFirstLayoutFragment
+            let inset = h.tv.textContainerInset
+            return f.markerUnit!.rect.offsetBy(
+                dx: inset.left, dy: f.layoutFragmentFrame.minY + inset.top)
+        }
+
+        /// A tap's caret goes to the nearer side of a bullet or number, as beside a character.
+        @Test func aTapOnAMarkersHalvesPlacesTheCaretOnThatSide() {
+            let h = TextFirstHarness("- one\n10. two\n")
+            for word in ["one", "two"] {
+                let unit = unitRect(h, word)
+                let at = (h.tv.text as NSString).range(of: word).location - 1
+                func caret(_ x: CGFloat) -> Int {
+                    h.tv.offset(
+                        from: h.tv.beginningOfDocument,
+                        to: h.tv.closestPosition(to: CGPoint(x: x, y: unit.midY))!)
+                }
+                #expect(caret(unit.minX + 2) == at, "\(word): left half")
+                #expect(caret(unit.midX - 2) == at, "\(word): left half")
+                #expect(caret(unit.midX + 2) == at + 1, "\(word): right half")
+                #expect(caret(unit.maxX - 2) == at + 1, "\(word): right half")
+            }
+        }
+
+        /// A hold on a marker selects the unit alone; on a checkbox it ticks nothing.
+        @Test func aHoldSelectsJustTheMarkerAndTicksNoBox() throws {
+            let h = TextFirstHarness("- [ ] one\n- two\n")
+            for word in ["one", "two"] {
+                let unit = unitRect(h, word)
+                let at = (h.tv.text as NSString).range(of: word).location - 1
+                h.controller.touchHitCheckbox = true
+                #expect(h.controller.selectMarkerUnit(at: CGPoint(x: unit.midX, y: unit.midY)))
+                #expect(h.tv.selectedRange == NSRange(location: at, length: 1))
+                #expect(h.controller.engineSelection == NSRange(location: at, length: 1))
+                #expect(!h.controller.touchHitCheckbox)
+                #expect(try h.controller.selectionMarkdown(h.tv.selectedRange)
+                    == (word == "one" ? "- [ ] " : "- "))
+            }
+            #expect(h.source.hasPrefix("- [ ] one\n- two"))
+            // Off the marker (on the text) nothing is selected by the hold.
+            let text = unitRect(h, "one").offsetBy(dx: 40, dy: 0)
+            #expect(!h.controller.selectMarkerUnit(at: CGPoint(x: text.midX, y: text.midY)))
+        }
+
+        /// A checkbox's touch area is its marker unit: a tap beside it on the text is the text's.
+        @Test func aCheckboxIsHitOnItsMarkerUnitOnly() {
+            let h = TextFirstHarness("- [ ] one\n")
+            let unit = unitRect(h, "one")
+            #expect(h.controller.checkboxFragment(at: CGPoint(x: unit.midX, y: unit.midY)) != nil)
+            #expect(h.controller.checkboxFragment(at: CGPoint(x: unit.maxX + 4, y: unit.midY)) == nil)
+        }
+
+        /// A tick with the caret just before the task's marker leaves the caret there, and the
+        /// view and the engine agree on it; the next character lands as at a caret placed there.
+        @Test func aTickWithTheCaretBeforeAMarkerKeepsTheCaretAndTheEngineAgrees() {
+            let h = TextFirstHarness("- [ ] one\n")
+            h.select(0, 0)
+            h.controller.toggleTask(atLineOffset: 0, keeping: h.tv.selectedRange)
+            #expect(h.source.hasPrefix("- [x] one"))
+            #expect(h.tv.selectedRange == NSRange(location: 0, length: 0))
+            #expect(h.controller.engineSelection == NSRange(location: 0, length: 0))
+            h.type("a")
+            let fresh = TextFirstHarness("- [x] one\n")
+            fresh.select(0, 0)
+            fresh.type("a")
+            #expect(h.source == fresh.source, "typed after the tick: \(h.source.debugDescription)")
+        }
     }
 #endif

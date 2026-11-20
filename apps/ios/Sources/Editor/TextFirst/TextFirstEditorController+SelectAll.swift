@@ -61,8 +61,9 @@ extension TextFirstEditorController {
         applying -= 1
     }
 
-    /// The floating Cut, Copy and Paste menu UIKit shows after its own Select All.
-    private func presentSelectionMenu() {
+    /// The floating Cut, Copy and Paste menu UIKit shows after its own Select All, from `point`
+    /// (text view coordinates; by default a third of the way down what shows).
+    func presentSelectionMenu(at point: CGPoint? = nil) {
         let interaction: UIEditMenuInteraction
         if let selectionMenu {
             interaction = selectionMenu
@@ -71,8 +72,10 @@ extension TextFirstEditorController {
             textView.addInteraction(interaction)
             selectionMenu = interaction
         }
-        let point = CGPoint(
-            x: textView.bounds.midX, y: textView.contentOffset.y + textView.bounds.height / 3)
+        let point =
+            point
+            ?? CGPoint(
+                x: textView.bounds.midX, y: textView.contentOffset.y + textView.bounds.height / 3)
         interaction.presentEditMenu(
             with: UIEditMenuConfiguration(identifier: nil, sourcePoint: point))
     }

@@ -131,6 +131,10 @@ final class TextFirstEditorController: NSObject {
     /// Our own tap recogniser, the only one allowed to act on a checkbox touch.
     var checkboxTap: UITapGestureRecognizer?
     var selectionBeforeTouch = NSRange(location: 0, length: 0)
+    /// The long-press that selects a list marker while the note is edited, and whether the touch
+    /// under way came down on one (+MarkerHold).
+    var markerHoldRecognizer: UILongPressGestureRecognizer?
+    var markerHoldArmed = false
     /// The long-press that lifts a block, whether the touch under way may lift, the lift it
     /// planned as it began, the drag it is running and its haptics (+BlockDrag).
     var liftRecognizer: UILongPressGestureRecognizer?
