@@ -103,8 +103,11 @@ private fun EditorEngine.install(opened: NativeEditorSession): Throwable? = try 
     // The session keeps a caret out of what cannot hold one (a note's front matter): the view starts where the session
     // has it, or the first command would move it there, a caret move the view then revealed (Mason: a checkbox tap
     // put the note at its top).
+    val viewCaret = mirror.selStart to mirror.selEnd
     applySelectionChange(opened.selectUtf16(rev, EditorUtf16Range(mirror.selStart.toULong(), mirror.selEnd.toULong())))
     if (quick != null && display.startsWith(quick)) {
+        // A view kept from the quick open still shows the caret the session just moved: it takes the session's now.
+        if (viewCaret != (mirror.selStart to mirror.selEnd)) postUpdate(emptyList(), emptyList())
         // The view already shows these screens with these styles; it keeps
         // them, and its caret, and the rest follows in slices.
         tailLength = display.length - quick.length
