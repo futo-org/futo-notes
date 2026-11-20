@@ -77,8 +77,6 @@ internal class BlockLift(private val view: TextFirstEditText) {
      */
     private var pendingDrop: EditorEngine? = null
 
-    private val dropRecorder = DropRecorder(view)
-
     /** A gesture that went down while input waited: the rest of it is swallowed too, so no handler sees an UP without its DOWN. */
     private var swallowing = false
 
@@ -314,7 +312,6 @@ internal class BlockLift(private val view: TextFirstEditText) {
             d.landing = true
             // The preview ends by the cap even while the editor is still to make the move; the note's input waits for it.
             d.later(ReflowCapture.LANDING_CAP_MS) { if (drag === d) finish(d, returning = false) }
-            dropRecorder.dropping(d.plan.block, slot)
             pendingDrop = engine
             engine.dropBlock(d.plan.press, slot, d.plan.revision, DropHold.KEEP) { moved ->
                 if (pendingDrop === engine) pendingDrop = null
@@ -329,7 +326,6 @@ internal class BlockLift(private val view: TextFirstEditText) {
         if (slot == null || engine == null) return finish(d, returning = true)
         d.landing = true
         d.invalidate()
-        dropRecorder.dropping(d.plan.block, slot)
         pendingDrop = engine
         engine.dropBlock(d.plan.press, slot, d.plan.revision, d.holdFor(slot)) { moved ->
             if (pendingDrop === engine) pendingDrop = null
@@ -350,7 +346,6 @@ internal class BlockLift(private val view: TextFirstEditText) {
         view.viewTreeObserver.removeOnGlobalFocusChangeListener(focused)
         view.renderHold.dragging(false)
         d.landing = false
-        dropRecorder.landed()
         if (!returning) {
             d.dispose()
             if (drag === d) drag = null
