@@ -23,8 +23,9 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
     private var reach = 0f
     /** The selection's other end, where it was when the drag began: the dragged end may cross it, as a handle can. */
     private var anchor = -1
-    /** Whether the dragged end is a handle's own slot of the selection (see [grab]). */
-    private var slots = false
+    /** Whether the dragged end has crossed the other: the platform's handle no longer moves the end it holds. */
+    var crossed = false
+        private set
     /** The range a hold selected before it dragged: its far end stays put whichever way the drag goes. */
     private var held = 0..0
     private var velocity = 0f
@@ -44,15 +45,18 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
     /**
      * A finger at ([x], [y]), the note's coordinates, takes the selection's [end]; [belowCaret] when it holds a handle
      * drawn under its caret (the gap kept as it moves), not the text itself. The other end stays at [anchorAt], by
-     * default where it is now. A handle writes its own slot of the selection (start or end), as the platform's handles
-     * read them, even once it has crossed the other; a held drag writes the range in order.
+     * default where it is now.
      */
     fun grab(end: End, x: Float, y: Float, belowCaret: Boolean, anchorAt: Int? = null) {
         stop()
         this.end = end
-        slots = belowCaret
+        crossed = false
         reach = if (belowCaret) caretRowOf(end) - y else 0f
-        anchor = anchorAt ?: when (end) { End.START -> view.selectionEnd; End.END -> view.selectionStart; End.CARET -> -1 }
+        anchor = anchorAt ?: when (end) {
+            End.START -> maxOf(view.selectionStart, view.selectionEnd)
+            End.END -> minOf(view.selectionStart, view.selectionEnd)
+            End.CARET -> -1
+        }
         fingerX = x
         fingerY = y
     }
@@ -63,7 +67,8 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
         fingerX = x
         fingerY = y
         velocity = BlockAutoscroll.velocity(y, 0f, view.height.toFloat(), view.style.density)
-        if (velocity == 0f) { stop(); return false }
+        // Out of the zones a crossed end follows the finger here: its handle no longer moves it.
+        if (velocity == 0f) { stop(); if (crossed) land(); return false }
         if (velocity < 0 && view.scrollY == 0 || velocity > 0 && view.scrollY >= view.maxScrollY()) return false
         if (running) return true
         running = true
@@ -102,14 +107,15 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
                 if (i < 0) return
                 // A swipe the note's scroll already took is not a selection being dragged.
                 if (!holdDragging) {
-                    holdDragging = !view.scroll.dragging && view.selectionStart != view.selectionEnd &&
+                    // Not a photo a hold selected whole: that is an object, not text being dragged.
+                    holdDragging = !view.scroll.dragging && view.selectedObject == null && view.selectionStart != view.selectionEnd &&
                         (view.selectionStart to view.selectionEnd) != selectionAtDown &&
                         event.eventTime - downTime >= ViewConfiguration.getLongPressTimeout()
                     if (holdDragging) held = minOf(view.selectionStart, view.selectionEnd)..maxOf(view.selectionStart, view.selectionEnd)
                 }
                 if (!holdDragging) return
-                // The word held stays selected: toward the top its start moves from its end, toward the bottom its end from its start.
-                val end = if (event.getY(i) < view.height / 2f) End.START else End.END
+                // The word held stays selected: a finger before it moves the start from its end, after it the end from its start.
+                val end = if (view.getOffsetForPosition(event.getX(i), event.getY(i)) < held.first) End.START else End.END
                 if (end != grabbed) grab(end, event.getX(i), event.getY(i), belowCaret = false, anchorAt = if (end == End.START) held.last else held.first)
                 follow(event.getX(i), event.getY(i))
             }
@@ -164,21 +170,19 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
         val at = view.getOffsetForPosition(fingerX, landingY())
         if (at < 0 || l.lineCount == 0) return
         if (end == null) return
-        // The text changed under the drag (an Undo, a sync): the other end may be gone.
-        if (anchor > text.length) return release()
+        // The text changed under the drag (an Undo, a sync): the other end may be gone, and this drag with it.
+        if (anchor > text.length) { holdDragging = false; return release() }
         val (from, to) = if (end == End.CARET) at to at else {
-            // Never an empty range: on the other end itself, one character (a whole code point) past it the way the note scrolls.
+            // Never an empty range: on the other end itself, one character as drawn past it the way the note scrolls.
             val moved = when {
                 at != anchor -> at
-                velocity < 0 && anchor > 0 -> anchor - Character.charCount(Character.codePointBefore(text, anchor))
-                velocity > 0 && anchor < text.length -> anchor + Character.charCount(Character.codePointAt(text, anchor))
-                else -> return
+                else -> java.text.BreakIterator.getCharacterInstance().run {
+                    setText(text.toString())
+                    if (velocity < 0) preceding(anchor) else following(anchor)
+                }.takeIf { it != java.text.BreakIterator.DONE } ?: return
             }
-            when {
-                !slots -> minOf(moved, anchor) to maxOf(moved, anchor)
-                end == End.START -> moved to anchor
-                else -> anchor to moved
-            }
+            if (end == End.START && moved > anchor || end == End.END && moved < anchor) crossed = true
+            minOf(moved, anchor) to maxOf(moved, anchor)
         }
         if (from == view.selectionStart && to == view.selectionEnd) return
         // The scroll put the end there, under the finger: revealing it (a photo's row, taller than the zone) would scroll back.

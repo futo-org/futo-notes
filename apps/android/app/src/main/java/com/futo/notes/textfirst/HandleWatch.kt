@@ -33,14 +33,18 @@ internal class HandleWatch(private val view: TextFirstEditText, private val edge
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_UP ->
                 if (event.actionMasked != MotionEvent.ACTION_POINTER_UP || event.getPointerId(event.actionIndex) == 0) {
                     if (holding.remove(handle) == edge.grabbed) edge.release()
+                    // The other handle may come back in a window of its own once this one is let go.
+                    if (event.actionMasked == MotionEvent.ACTION_UP) searchAfterLift()
                 }
         }
         val end = holding[handle]
         if (event.actionMasked != MotionEvent.ACTION_MOVE || end == null) return@OnTouchListener false
         if (edge.grabbed != end) edge.grab(end, x, y, belowCaret = true)
         // Over a tall row the scroll places the end: the handle's own step back to that row would undo it. Over text the
-        // handle sees its moves, landing where the scroll does, so its magnifier stays on the caret's line.
-        edge.follow(x, y) && edge.isOverTallRow()
+        // handle sees its moves, landing where the scroll does, so its magnifier stays on the caret's line. Once its end
+        // crossed the other, the handle no longer holds the end it moves: it sees none of the rest of this drag.
+        val scrolling = edge.follow(x, y)
+        edge.crossed || scrolling && edge.isOverTallRow()
     }
 
     private val shown = object : View.OnAttachStateChangeListener {

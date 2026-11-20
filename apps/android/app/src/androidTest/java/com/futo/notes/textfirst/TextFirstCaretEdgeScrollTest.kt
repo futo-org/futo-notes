@@ -4,6 +4,7 @@ import android.graphics.PointF
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -90,9 +91,11 @@ class TextFirstCaretEdgeScrollTest {
     fun aHoldDragSelectionHeldAtTheTopEdgeOverATallPhotoScrollsPastIt() = compose.openDragScreen(note, mapOf("tall.png" to png(900, 2400))) {
         val end = holdThenCarry("after") { noteTop() }
         val image = ui { view.text.toString().indexOf("line 30 above") + "line 30 above".length + 1 }
-        val start = ui { view.selectionStart }
+        val word = ui { view.text.toString().indexOf("after photo") + "after".length }
+        val (start, stop) = ui { view.selectionStart to view.selectionEnd }
         up(end)
-        assertTrue("the selection's start at $start passed above the photo at $image", start < image)
+        assertTrue("the selection's start at $start passed above the photo at $image", start in 0 until image)
+        assertTrue("the selection at $start..$stop still ends after the held word ($word)", stop >= word)
     }
 
     @Test
@@ -111,9 +114,11 @@ class TextFirstCaretEdgeScrollTest {
         moveTo(handle, PointF(handle.x, noteTop()), steps = 10)
         repeat(15) { hold(100); moveTo(PointF(handle.x, noteTop()), PointF(handle.x, noteTop()), steps = 1) }
         val image = ui { view.text.toString().indexOf("line 30 above") + "line 30 above".length + 1 }
-        val start = ui { view.selectionStart }
+        val heldEnd = ui { view.text.toString().indexOf("after") + "after".length }
+        val (start, stop) = ui { view.selectionStart to view.selectionEnd }
         up(PointF(handle.x, noteTop()))
-        assertTrue("the selection's start at $start passed above the photo at $image", start < image)
+        assertTrue("the selection's start at $start passed above the photo at $image", start in 0 until image)
+        assertEquals("the selection's end, which no finger held", heldEnd, stop)
     }
 
     @Test
