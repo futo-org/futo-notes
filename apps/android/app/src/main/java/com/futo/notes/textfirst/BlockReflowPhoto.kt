@@ -51,9 +51,10 @@ internal class PhotoLine private constructor(
         bitmaps = photos
         val without = SpannableStringBuilder(e, start, end).apply { delete(imageStart - start, imageEnd - start) }
         rest = lay(view, without)
-        // The photo as it lands at a plain slot: without its line's marker, box, indent or quote bar.
+        // The photo as it lands at a plain slot: without its line's marker, box, indent or quote bar. The photo sizes its
+        // own row (a ParagraphStyle too) and stays.
         val photo = SpannableStringBuilder(e, imageStart, imageEnd).apply {
-            for (span in getSpans(0, length, android.text.style.ParagraphStyle::class.java)) removeSpan(span)
+            for (span in getSpans(0, length, android.text.style.ParagraphStyle::class.java)) if (span !is TfImage) removeSpan(span)
         }
         alone = lay(view, photo)
     }
