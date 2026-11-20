@@ -49,22 +49,14 @@ internal fun TextFirstEditText.spacingGainedAt(slot: BlockSlot): Float {
     return lineSpacingExtra
 }
 
-/**
- * The photo [image] draws, in content coordinates: as tall as its bitmap above the row's
- * baseline, and in a right-to-left run to the left of its leading caret position.
- */
+/** The photo [image] draws, in content coordinates ([imageDrawnRect], the one rectangle paint, tint and caret use). */
 internal fun TextFirstEditText.imageRect(image: TfImage): RectF? {
     val l = layout ?: return null
     val e = editableText ?: return null
-    val start = e.getSpanStart(image)
-    if (start < 0) return null
-    val line = l.getLineForOffset(start)
-    val fm = android.graphics.Paint.FontMetricsInt()
-    val width = image.getSize(paint, e, start, e.getSpanEnd(image), fm)
-    val caret = totalPaddingLeft + l.getPrimaryHorizontal(start)
-    val left = if (l.isRtlCharAt(start)) caret - width else caret
-    val baseline = (totalPaddingTop + l.getLineBaseline(line)).toFloat()
-    return RectF(left, baseline + fm.ascent, left + width, baseline)
+    val rect = RectF()
+    if (!imageDrawnRect(l, e, image, rect)) return null
+    rect.offset(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
+    return rect
 }
 
 /** The photo drawn under ([x], [y]) in view coordinates: inside its own box, not merely on its row. */
