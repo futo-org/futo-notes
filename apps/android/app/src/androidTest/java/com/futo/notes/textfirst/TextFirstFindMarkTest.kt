@@ -82,4 +82,27 @@ class TextFirstFindMarkTest {
         delay(800)
         assertEquals("the scroll after a query with no match", 0, withContext(Dispatchers.Main) { view.scrollY })
     }
+
+    /** Mason (batch 2): the current match inside a link was orange text on the orange mark. Its text takes the note's text colour. */
+    @Test fun theCurrentMatchInALinkReadsOnItsMark() = textFirstSession("[web zap link](https://example.com)\n\nend\n") { c ->
+        val view = c.view
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        c.findSetQuery("zap")
+        c.findStep(forward = true)
+        delay(300)
+        val shot = render(view)
+        val l = view.layout
+        val at = view.editableText.toString().indexOf("zap")
+        val line = l.getLineForOffset(at)
+        var darkest = 255
+        for (y in view.totalPaddingTop - view.scrollY + l.getLineTop(line) until view.totalPaddingTop - view.scrollY + l.getLineBottom(line)) {
+            for (x in view.totalPaddingLeft + l.getPrimaryHorizontal(at).toInt() until view.totalPaddingLeft + l.getPrimaryHorizontal(at + 3).toInt()) {
+                val p = shot.getPixel(x, y)
+                darkest = minOf(darkest, (Color.red(p) * 299 + Color.green(p) * 587 + Color.blue(p) * 114) / 1000)
+            }
+        }
+        val text = view.style.textColor
+        val textLuminance = (Color.red(text) * 299 + Color.green(text) * 587 + Color.blue(text) * 114) / 1000
+        assertTrue("the match's text is drawn as dark as the note's text ($darkest against $textLuminance)", darkest <= textLuminance + 20)
+    }
 }

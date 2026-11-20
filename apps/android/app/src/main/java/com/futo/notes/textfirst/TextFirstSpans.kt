@@ -56,7 +56,7 @@ internal class TfInline(
     override fun updateDrawState(paint: TextPaint) {
         apply(paint)
         if (strike) paint.isStrikeThruText = true
-        if (code) paint.bgColor = look.codeBackground
+        if (code && !look.drawingMatchText) paint.bgColor = look.codeBackground
     }
 }
 
