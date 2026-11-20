@@ -2,7 +2,8 @@ package com.futo.notes.textfirst
 
 internal fun EditorEngine.paste(markdown: String) = command {
     if (mirror.overlay != null) commitComposition(null)
-    session?.pasteMarkdown(rev, mirror.byteRange(mirror.selStart, mirror.selEnd), markdown)?.let(::accept)
+    keyed = true
+    try { session?.pasteMarkdown(rev, mirror.byteRange(mirror.selStart, mirror.selEnd), markdown)?.let(::accept) } finally { keyed = false }
 }
 
 /**

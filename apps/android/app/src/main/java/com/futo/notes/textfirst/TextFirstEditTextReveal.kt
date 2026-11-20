@@ -88,25 +88,24 @@ internal fun TextFirstEditText.revealCaret(offset: Int, nativeReveal: () -> Bool
     if (codeTouch.headerField.openField != null) return false
     val end = (editableText?.length ?: 0) - 1
     if (end > 0 && minOf(selectionStart, selectionEnd) == 0 && maxOf(selectionStart, selectionEnd) == end) return false
-    // Typing beside a photo that already fills the space keeps the scroll.
+    // Typing (a key, Backspace, Enter, a paste) beside a photo reveals the typed text, not the photo's top.
     val typed = reveal.editPending
     return reveal.at(offset, ready = layout != null && height > 0) { photoRowReveal(offset, typed) ?: nativeReveal() }
 }
 
 /**
- * A caret on a loaded photo's row shows the whole row, from its top when it is taller than the space, never a strip of
- * the photo with the platform's margin (a quarter of the view, below a caret as tall as the photo); null off a photo's
- * row, where the platform reveals.
+ * A caret moved onto a loaded photo's row shows the whole row, from its top when it is taller than the space, never a
+ * strip of the photo with the platform's margin (a quarter of the view, below a caret as tall as the photo). After
+ * [typed] text it shows where the text lands: a line's height above the row's baseline down to the row's bottom, which
+ * may scroll on the first character and then stays. Null off a photo's row, where the platform reveals.
  */
 private fun TextFirstEditText.photoRowReveal(offset: Int, typed: Boolean): Boolean? {
     val l = layout ?: return null
     val text = editableText ?: return null
     if (selectionStart != selectionEnd || photoBesideCaret(l, text, offset, android.graphics.RectF(), anywhere = true) == null) return null
     val line = l.getLineForOffset(offset)
-    val top = l.getLineTop(line).toFloat()
     val bottom = l.getLineBottom(line).toFloat()
-    val fills = top <= scrollY && totalPaddingTop - scrollY + bottom >= visibleBottomAboveKeyboard()
-    if (typed && fills) return false
+    val top = if (typed) (l.getLineBaseline(line) - lineHeight).toFloat() else l.getLineTop(line).toFloat()
     return revealAreaAboveKeyboard(top, bottom)
 }
 

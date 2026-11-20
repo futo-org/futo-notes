@@ -23,7 +23,7 @@ internal fun TextFirstEditText.revealAreaAboveKeyboard(top: Float, bottom: Float
 }
 
 /** The bottom of the note's text area left visible by the keyboard, in view coordinates. */
-internal fun TextFirstEditText.visibleBottomAboveKeyboard(): Int {
+private fun TextFirstEditText.visibleBottomAboveKeyboard(): Int {
     // The keyboard resizes the note (the screen's imePadding) a few frames after it reports its height: measure
     // against the keyboard's own top, so the first reveal lands where the note will end and the resize moves nothing.
     val keyboard = ViewCompat.getRootWindowInsets(this)?.takeIf { it.isVisible(WindowInsetsCompat.Type.ime()) }

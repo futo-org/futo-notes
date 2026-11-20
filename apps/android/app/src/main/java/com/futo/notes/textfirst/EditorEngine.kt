@@ -80,7 +80,8 @@ internal class EditorEngine(
     internal val toolbarCommands = ToolbarCommandQueue(handler) { executeCommand({}, it) }
     private var inputStartNanos = 0L
     /** While a key or the keyboard's input runs: its updates reveal the caret they edit at. */
-    private var keyed = false
+    /** The change being made is the reader's input at the caret (a key, the keyboard, a paste): the view reveals it. */
+    internal var keyed = false
     internal var engineNanos = 0L
     /** Characters at the end of the display the view has not been given yet (progressive open). */
     internal var tailLength = 0
