@@ -47,7 +47,8 @@ class TextFirstListSelectionPaintTest {
                     Selection.setSelection(view.editableText, 0)
                     committedFrame(view)
                     assertTrue("the regression exercises hardware Layout drawing", view.isHardwareAccelerated)
-                    val ys = (0..2).map { view.totalPaddingTop + view.layout.getLineTop(it) + view.style.dp(2f).toInt() }
+                    // Inside the band the selection is drawn on, near its top.
+                    val ys = (0..2).map { view.totalPaddingTop + view.overlayBand(view.layout, view.editableText, it).first.toInt() + view.style.dp(2f).toInt() }
                     suspend fun assertMarkers(start: Int, end: Int, selectedRows: Set<Int>) {
                         val shot = copyViewPixels(view)
                         try {
@@ -152,7 +153,7 @@ class TextFirstListSelectionPaintTest {
                         val shot = copyViewPixels(view)
                         try {
                             for (row in 0..2) {
-                                val y = view.totalPaddingTop + view.layout.getLineTop(row) + view.style.dp(2f).toInt()
+                                val y = view.totalPaddingTop + view.overlayBand(view.layout, view.editableText, row).first.toInt() + view.style.dp(2f).toInt()
                                 val dir = view.layout.getParagraphDirection(row)
                                 val edge = view.totalPaddingLeft + view.layout.getPrimaryHorizontal(view.layout.getLineStart(row)).toInt()
                                 val marker = view.totalPaddingLeft + if (dir > 0) 1 else view.layout.width - 2

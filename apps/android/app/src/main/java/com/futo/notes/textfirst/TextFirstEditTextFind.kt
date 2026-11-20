@@ -55,29 +55,34 @@ internal fun TextFirstEditText.drawFindMarks(canvas: Canvas, top: Int = scrollY 
     marks.visit(from, to) { s, en, current ->
         // A grid row paints its own matches inside its cells.
         if (e.getSpans(s, s, TfTableRow::class.java).isNotEmpty()) return@visit
-        markPath.rewind()
-        l.getSelectionPath(s, en.coerceAtMost(e.length), markPath)
         markPaint.color = style.findMarkColor(current)
-        val rows = canvas.save()
-        canvas.clipRect(0f, textRowBand(l, e, l.getLineForOffset(s)).first, l.width.toFloat(), textRowBand(l, e, l.getLineForOffset(en)).second)
-        canvas.drawPath(markPath, markPaint)
-        canvas.restoreToCount(rows)
+        val stop = en.coerceAtMost(e.length)
+        // Row by row, on the band a selection takes there.
+        for (row in l.getLineForOffset(s)..l.getLineForOffset(maxOf(s, stop - 1))) {
+            if (selectionRowShape(l, e, row, s, stop, markPath)) canvas.drawPath(markPath, markPaint)
+        }
         // A wikilink draws its own label, where the layout sees one object: its matched characters are marked there.
         for (atom in e.getSpans(s, en, TfWikilink::class.java)) {
-            val atomStart = e.getSpanStart(atom)
-            // The drawn label ends the link's text ([[folder/Note]] draws Note, [[target|label]] its label); a hit in what
-            // it hides is not drawn.
-            val atomEnd = e.getSpanEnd(atom)
-            val labelAt = e.subSequence(atomStart, atomEnd).toString().lastIndexOf(atom.label).coerceAtLeast(0)
-            val line = l.getLineForOffset(atomStart)
-            // Its left edge either way the line runs (right to left, the span's start is its right edge).
-            val left = minOf(l.getPrimaryHorizontal(atomStart), l.getPrimaryHorizontal(atomEnd))
-            atom.labelPath(atom.renderedPaint(paint), s - atomStart - labelAt, en - atomStart - labelAt,
-                left, l.getLineBaseline(line).toFloat(), markPath)
-            canvas.drawPath(markPath, markPaint)
+            if (wikilinkLabelMark(l, e, atom, s, en, markPath)) canvas.drawPath(markPath, markPaint)
         }
     }
     canvas.restoreToCount(save)
+}
+
+/** The part of [atom]'s drawn label that [s, en) covers, on its row's [overlayBand], into [out]; false with none. */
+private fun TextFirstEditText.wikilinkLabelMark(l: android.text.Layout, e: android.text.Spanned, atom: TfWikilink, s: Int, en: Int, out: android.graphics.Path): Boolean {
+    val atomStart = e.getSpanStart(atom)
+    // The drawn label ends the link's text ([[folder/Note]] draws Note, [[target|label]] its label); a hit in what
+    // it hides is not drawn.
+    val atomEnd = e.getSpanEnd(atom)
+    val labelAt = e.subSequence(atomStart, atomEnd).toString().lastIndexOf(atom.label).coerceAtLeast(0)
+    val line = l.getLineForOffset(atomStart)
+    // Its left edge either way the line runs (right to left, the span's start is its right edge).
+    val left = minOf(l.getPrimaryHorizontal(atomStart), l.getPrimaryHorizontal(atomEnd))
+    atom.labelPath(atom.renderedPaint(paint), s - atomStart - labelAt, en - atomStart - labelAt, left, l.getLineBaseline(line).toFloat(), out)
+    if (out.isEmpty) return false
+    fitToOverlayBand(l, e, line, out)
+    return true
 }
 
 /** TextView caches span drawing: re-set each grid row (or those matching [only]) so it repaints. */
@@ -108,17 +113,15 @@ internal fun TextFirstEditText.drawCurrentMatchText(canvas: Canvas) {
     marks.visit(from, to) { s, en, current -> if (current) range = s until en }
     val match = range ?: return
     if (e.getSpans(match.first, match.first, TfTableRow::class.java).isNotEmpty()) return
+    // The mark's own shape, row by row, and a wikilink's label.
     val clip = android.graphics.Path()
-    l.getSelectionPath(match.first, (match.last + 1).coerceAtMost(e.length), clip)
-    val label = android.graphics.Path()
+    val piece = android.graphics.Path()
+    val stop = (match.last + 1).coerceAtMost(e.length)
+    for (row in l.getLineForOffset(match.first)..l.getLineForOffset(match.last)) {
+        if (selectionRowShape(l, e, row, match.first, stop, piece)) clip.addPath(piece)
+    }
     for (atom in e.getSpans(match.first, match.last + 1, TfWikilink::class.java)) {
-        val atomStart = e.getSpanStart(atom)
-        val atomEnd = e.getSpanEnd(atom)
-        val labelAt = e.subSequence(atomStart, atomEnd).toString().lastIndexOf(atom.label).coerceAtLeast(0)
-        val left = minOf(l.getPrimaryHorizontal(atomStart), l.getPrimaryHorizontal(atomEnd))
-        atom.labelPath(atom.renderedPaint(paint), match.first - atomStart - labelAt, match.last + 1 - atomStart - labelAt,
-            left, l.getLineBaseline(l.getLineForOffset(atomStart)).toFloat(), label)
-        clip.addPath(label)
+        if (wikilinkLabelMark(l, e, atom, match.first, match.last + 1, piece)) clip.addPath(piece)
     }
     val bounds = android.graphics.RectF().also { clip.computeBounds(it, true) }
     if (bounds.isEmpty) return
