@@ -42,7 +42,9 @@ class TextFirstBlockDragCardInsetTest {
             else (at[1] + view.boundaryY(BlockSlot(block.start, false))!! - view.scrollY) to (at[1] + view.boundaryY(BlockSlot(block.end, block.toEnd))!! - view.scrollY)
         }
         var inkLeft = Int.MAX_VALUE; var inkRight = -1; var inkTop = Int.MAX_VALUE; var inkBottom = -1
-        for (y in (window[1] + rowTop).toInt() until (window[1] + rowBottom).toInt()) for (x in 0 until before.width) {
+        // A photo's ink is its own columns: the text beside it on its line stays when it lifts.
+        val (inkFrom, inkTo) = if (word == null) ui { view.imageRect(view.text!!.getSpans(0, view.length(), TfImage::class.java).first())!!.let { (window[0] + it.left).toInt() to (window[0] + it.right).toInt() } } else 0 to before.width
+        for (y in (window[1] + rowTop).toInt() until (window[1] + rowBottom).toInt()) for (x in inkFrom until inkTo) {
             val p = before.getPixel(x, y)
             if (Color.red(p) > 247 && Color.green(p) > 247 && Color.blue(p) > 247) continue
             inkLeft = minOf(inkLeft, x); inkRight = maxOf(inkRight, x); inkTop = minOf(inkTop, y); inkBottom = maxOf(inkBottom, y)

@@ -114,12 +114,13 @@ class TextFirstBlockDragEdgeTest {
         val from = at(0)
         down(from); hold(600)
         assertTrue(lifted)
-        val tall = ui { view.blockLift.drag!!.sourceInWindow()!!.height() }
+        val (tall, cardBefore) = ui { view.blockLift.drag!!.let { it.sourceInWindow()!!.height() to it.cardInWindow().height() } }
         // The text column narrows (as a new width would make it): the block wraps to more rows.
         ui { view.setPadding(view.paddingLeft, view.paddingTop, view.width / 2, view.paddingBottom) }
         compose.waitUntil(3_000) { ui { view.blockLift.drag!!.sourceInWindow()!!.height() } > tall * 1.5f }
         val (card, source) = ui { view.blockLift.drag!!.let { it.cardInWindow() to it.sourceInWindow()!! } }
-        assertEquals("the card is the block as drawn now", source.height() + 20f * ui { view.style.density }, card.height(), 2f)
+        // The card is the block's ink plus its insets: it grows by the rows the block gained.
+        assertEquals("the card is the block as drawn now", cardBefore + source.height() - tall, card.height(), 4f)
         up(from)
     }
 

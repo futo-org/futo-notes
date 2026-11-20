@@ -79,10 +79,13 @@ internal class BlockDrag private constructor(
         if (source == null) return checkNotNull(lastCard)
         lastCard?.let { if (source == measuredFrom) return it }
         val shownTop = source.top + cardFromTop
-        val ink = view.blockInkBounds(plan.block.start, plan.block.end, shownTop, source.bottom)
-            ?: RectF(view.totalPaddingLeft.toFloat(), shownTop, (view.width - view.totalPaddingRight).toFloat(), source.bottom)
-        val cap = view.resources.displayMetrics.heightPixels * MAX_SCREEN_FRACTION
-        val shows = maxOf(1f, ink.height())
+        // The whole card, insets included, is at most the screen fraction.
+        val cap = view.resources.displayMetrics.heightPixels * MAX_SCREEN_FRACTION - 2 * padY
+        // A photo is its own box (the text on its line stays); a block is measured no further than the card can show.
+        val measuredTo = minOf(source.bottom, shownTop + cap)
+        val ink = (if (photo != null) RectF(source) else view.blockInkBounds(plan.block.start, plan.block.end, shownTop, measuredTo))
+            ?: RectF(view.totalPaddingLeft.toFloat(), shownTop, (view.width - view.totalPaddingRight).toFloat(), measuredTo)
+        val shows = maxOf(1f, if (measuredTo < source.bottom) source.bottom - ink.top else ink.height())
         measuredFrom = RectF(source)
         return Card(ink.left - padY, ink.right + padY, ink.top, minOf(shows, cap), shows > cap).also { lastCard = it }
     }
