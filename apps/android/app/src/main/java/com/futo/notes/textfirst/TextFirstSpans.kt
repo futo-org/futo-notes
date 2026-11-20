@@ -309,10 +309,12 @@ internal class TfImage(
         fm.bottom = fm.descent
     }
 
+    /** Whether the photo is all its row shows: after a list item's marker unit (an image-only task) too. */
     fun fillsPhotoRow(text: Spanned, start: Int, end: Int): Boolean {
         var contentEnd = end
         while (contentEnd > start && text[contentEnd - 1] in PHOTO_ROW_ENDINGS) contentEnd--
-        return text.getSpanStart(this) == start && text.getSpanEnd(this) == contentEnd
+        val marker = start < end && text.getSpans(start, start + 1, TfListMarker::class.java).any { text.getSpanStart(it) == start }
+        return text.getSpanStart(this) == (if (marker) start + 1 else start) && text.getSpanEnd(this) == contentEnd
     }
 
     override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
