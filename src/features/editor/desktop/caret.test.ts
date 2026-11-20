@@ -69,18 +69,46 @@ describe('measureCaret beside a picture', () => {
     return line;
   }
 
-  it('stands the caret after a picture on its row first line unit, a text line tall', () => {
+  it('makes the caret beside a picture as tall as the picture, a text line tall by one not loaded', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     const origin = document.createElement('div');
     origin.getBoundingClientRect = () => new DOMRect(0, 0, 800, 800);
-    for (const height of [200, 0]) {
-      const line = pictureLine(height);
-      expect(measureCaret(line, 1, line, origin), `${height}px`).toEqual({
+    for (const [pictureHeight, caretHeight] of [
+      [200, 200],
+      [0, 24],
+    ]) {
+      const line = pictureLine(pictureHeight);
+      expect(measureCaret(line, 1, line, origin), `${pictureHeight}px`).toEqual({
         left: 60,
         top: 104,
-        height: 24,
+        height: caretHeight,
       });
-      expect(measureCaret(line, 0, line, origin).left).toBe(10);
+      expect(measureCaret(line, 0, line, origin), `${pictureHeight}px`).toEqual({
+        left: 10,
+        top: 104,
+        height: caretHeight,
+      });
+    }
+  });
+
+  it('makes the caret in text that touches a picture on its row as tall as the picture', () => {
+    const origin = document.createElement('div');
+    origin.getBoundingClientRect = () => new DOMRect(0, 0, 800, 800);
+    const line = pictureLine(200);
+    const text = document.createTextNode(' after');
+    line.append(text);
+    // The text's glyph box: at the picture's right edge, on the row's first line unit.
+    const glyph = vi.fn(() => [new DOMRect(60, 106, 0, 20)]);
+    const measure = Range.prototype.getClientRects;
+    Range.prototype.getClientRects = glyph as unknown as Range['getClientRects'];
+    try {
+      expect(measureCaret(text, 0, line, origin)).toEqual({ left: 60, top: 104, height: 200 });
+      // Away from the picture, and on a row above it, the caret is the text's own.
+      expect(measureCaret(text, 3, line, origin).height).toBe(20);
+      glyph.mockReturnValue([new DOMRect(60, 80, 0, 20)]);
+      expect(measureCaret(text, 0, line, origin)).toEqual({ left: 60, top: 80, height: 20 });
+    } finally {
+      Range.prototype.getClientRects = measure;
     }
   });
 });

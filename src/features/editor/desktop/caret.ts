@@ -10,7 +10,7 @@
 import { snapCaretToDevicePixels } from './caretPixels';
 import { withMeasuringRange } from './lineElements';
 import { lineRowAt, lineRowSizesOf, lineRows } from './lineRowAt';
-import { pictureStopRect } from './pictureStops';
+import { pictureBesideCaret, pictureStopRect } from './pictureStops';
 import { emptyCellStopRect } from './tableRowElements';
 import { wikilinkStopRect } from './wikilinkElements';
 import { reveal, scrollerOf } from './paneScroll';
@@ -86,7 +86,8 @@ export function caretViewportRect(node: Node, offset: number, rowEnd = false): D
  *  no glyph box, and text in a format's span (inline code) has its own font's: the caret
  *  takes the box the line's font would give its own text, centred on the row,
  *  as the native caret sits, so it is as tall in a run as beside it. A code line's caret
- *  takes the body text's box (its parent's font), as tall as a paragraph's. */
+ *  takes the body text's box (its parent's font), as tall as a paragraph's. A caret that
+ *  touches a picture taller than its box is the picture's height, from the picture's top. */
 export function measureCaret(
   node: Node,
   offset: number,
@@ -110,6 +111,17 @@ export function measureCaret(
       0,
       height,
     );
+  }
+  const picture = pictureBesideCaret(node, offset);
+  // Only a picture on the caret's own row: text that ends a row above a wrapped picture keeps
+  // its own height.
+  if (
+    picture &&
+    picture.height > rect.height &&
+    rect.top >= picture.top - 1 &&
+    rect.bottom <= picture.bottom + 1
+  ) {
+    rect = new DOMRect(rect.left, picture.top, 0, picture.height);
   }
   const base = origin.getBoundingClientRect();
   return { left: rect.left - base.left, top: rect.top - base.top, height: rect.height };

@@ -21,16 +21,15 @@ no image rule of its own. Pasting and dropping an image: [paste.md](paste.md).
 - A picture is at most the text column's width and 300px tall, its proportions kept, its
   corners rounded 6px. Its `alt` is the image's alt text and its tooltip the image's title. →
   desktopImages.css, pictureElements.ts `drawPicture`
-- A picture taller than a row makes that row as tall as itself, and the caret, a click and Up
+- A picture taller than a row makes that row as tall as itself, and a click and Up
   and Down measure that row so: a line's rows are line units but a picture's, and a press
   beside a picture anywhere down its height is on its row, landing in that row's first line.
   Selected text on that row is highlighted on the row's first line unit only. A line's rows start below its top padding and end above its bottom
   padding, but for the room under a heading, which is its last row's (editing.md). → lineRowAt.ts `lineRows` / `lineRowAt`, caret.ts `measureCaret`, highlight.ts, hitTest.ts
 
-> **Gap:** A picture in a table cell does not make its row tall to the caret, the highlight, a
-> click or Up and Down: they read only a line's own pictures, so a cell's picture row is
-> measured as text rows, and the caret beside such a picture draws as tall as the picture. →
-> lineRowAt.ts `lineRows`, caret.ts `measureCaret`
+> **Gap:** A picture in a table cell does not make its row tall to the highlight, a click or Up
+> and Down: they read only a line's own pictures, so a cell's picture row is measured as text
+> rows. → lineRowAt.ts `lineRows`
 
 - A vault image resolves to a URL for display only, through the shell
   (`$features/images/vaultImageSrc`, on desktop `PlatformFS.getImageUrl`), relative to the
@@ -50,8 +49,10 @@ no image rule of its own. Pasting and dropping an image: [paste.md](paste.md).
   takes its room before it loads. → pictureLoading.ts `keepReaderStill`
 - The caret stops only before and after an image, never in its spelling: before it, at the
   picture's left edge; after it, at the start of the text that follows, else at the picture's
-  right edge; on the picture row's first line, one text line tall. Left and Right step over an
-  image to its other stop; Shift with them takes it whole. → lineElements.ts `pointInLine`, pictureStops.ts, keys.ts
+  right edge. A caret that touches a picture taller than its text, on the picture's row, is as
+  tall as the picture, from the picture's top; beside a shorter picture, or one not loaded, it
+  is one text line tall on the row's first line. Left and Right step over an
+  image to its other stop; Shift with them takes it whole. → lineElements.ts `pointInLine`, pictureStops.ts, caret.ts `measureCaret`, keys.ts
   `besideAtom`
 - A click on a picture selects the image whole, whatever its click count, and a drag through it
   takes it whole; Up and Down onto a picture land on the side of it nearer the column. Any
