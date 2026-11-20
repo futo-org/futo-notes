@@ -191,8 +191,9 @@ class TextFirstLinkTest {
                 val layout = view.layout
                 val available = width - view.compoundPaddingLeft - view.compoundPaddingRight
                 for (line in 0 until layout.lineCount) {
-                    assertTrue("line $line extends beyond the viewport: ${layout.getLineWidth(line)} > $available",
-                        layout.getLineWidth(line) <= available + 1)
+                    // The trailing space after a label that fills the column is not drawn: what is drawn is the line's max.
+                    assertTrue("line $line extends beyond the viewport: ${layout.getLineMax(line)} > $available",
+                        layout.getLineMax(line) <= available + 1)
                 }
                 assertTrue("a long linked label must occupy multiple visible lines", layout.lineCount >= 3)
                 assertEquals(source, controller.sourceText())
