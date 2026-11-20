@@ -95,6 +95,53 @@ class TextFirstCodeBlockCalloutTest {
         // what the block owns is that the hold leaves it, from the place the finger held.
         withTimeout(5_000) { while (view.selectedCodeBlock != null) delay(20) }
         assertTrue("the hold left the block's range selected", view.selectionStart to view.selectionEnd != block)
-        assertTrue("the hold's selection is not at the word", view.selectionStart in word..word + "after".length)
+        assertTrue("the hold left its caret or selection away from the word, at ${view.selectionStart}", view.selectionStart in word..word + "after".length)
+    }
+
+    /** Sol review (job 14, 1): with block A's menu up, a header tap selecting block B closes it; Cut would have taken B. */
+    @Test fun selectingAnotherBlockClosesTheMenu() = textFirstSession("intro\n\n```js\nconst a = 1\n```\n\nmiddle\n\n```py\nb = 2\n```\n\nafter") { c ->
+        val view = c.view
+        val (x, y) = header(view)
+        holdNoteAt(view, x, y)
+        awaitCallout(view)
+        val second = view.editableText.indexOf("b = 2")
+        withTimeout(5_000) { while (view.codeChrome.areaOf(second, CodeBlockAction.SELECT_BLOCK) == null) { view.invalidate(); delay(20) } }
+        val area = view.codeChrome.areaOf(second, CodeBlockAction.SELECT_BLOCK)!!
+        tapNoteAt(view, view.totalPaddingLeft + area.left + area.width() * 0.6f, view.totalPaddingTop - view.scrollY + area.centerY())
+        withTimeout(5_000) { while (view.selectedCodeBlock?.first != second) delay(20) }
+        delay(300)
+        assertTrue("block A's menu still shows over block B's selection", !view.codeTouch.callout.isShowing)
+    }
+
+    /** Sol review (11): a second finger on the header makes the press a gesture: lifting after the hold opens no menu. */
+    @Test fun aSecondFingerOnTheHeaderOpensNoMenu() = textFirstSession(note) { c ->
+        val view = c.view
+        val (x, y) = header(view)
+        val down = android.os.SystemClock.uptimeMillis()
+        fun send(action: Int, at: Long, pointers: Int) {
+            val ids = IntArray(pointers) { it }
+            val coords = Array(pointers) { i -> android.view.MotionEvent.PointerCoords().apply { this.x = x + i * 80f; this.y = y } }
+            val props = Array(pointers) { i -> android.view.MotionEvent.PointerProperties().apply { id = ids[i]; toolType = android.view.MotionEvent.TOOL_TYPE_FINGER } }
+            val event = android.view.MotionEvent.obtain(down, at, action, pointers, props, coords, 0, 0, 1f, 1f, 0, 0, android.view.InputDevice.SOURCE_TOUCHSCREEN, 0)
+            try { view.dispatchTouchEvent(event) } finally { event.recycle() }
+        }
+        send(android.view.MotionEvent.ACTION_DOWN, down, 1)
+        send(android.view.MotionEvent.ACTION_POINTER_DOWN or (1 shl android.view.MotionEvent.ACTION_POINTER_INDEX_SHIFT), down + 50, 2)
+        send(android.view.MotionEvent.ACTION_POINTER_UP or (1 shl android.view.MotionEvent.ACTION_POINTER_INDEX_SHIFT), down + 100, 2)
+        send(android.view.MotionEvent.ACTION_UP, down + 900, 1)
+        delay(800)
+        assertTrue("a two-finger press opened the block menu", !view.codeTouch.callout.isShowing)
+    }
+
+    /** Sol review (3): a hold on a long block's header while the note still loads keeps the block selected with its menu. */
+    @Test fun aHoldWhileTheNoteLoadsKeepsTheBlockAndItsMenu() = textFirstSession("```js\n" + (1..1200).joinToString("\n") { "const value$it = $it" } + "\n```\n\nafter") { c ->
+        val view = c.view
+        withTimeout(5_000) { while (view.codeChrome.areaOf(0, CodeBlockAction.SELECT_BLOCK) == null) { view.invalidate(); delay(5) } }
+        val area = view.codeChrome.areaOf(0, CodeBlockAction.SELECT_BLOCK)!!
+        holdNoteAt(view, view.totalPaddingLeft + area.left + area.width() * 0.6f, view.totalPaddingTop - view.scrollY + area.centerY())
+        withTimeout(10_000) { while (view.text?.contains("after") != true) delay(20) }
+        delay(500)
+        assertTrue("the block is no longer selected", view.selectedCodeBlock != null)
+        assertTrue("the menu closed", view.codeTouch.callout.isShowing)
     }
 }
