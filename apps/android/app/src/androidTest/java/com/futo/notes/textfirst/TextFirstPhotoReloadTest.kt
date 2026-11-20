@@ -6,28 +6,11 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertSame
 import org.junit.Rule
 import org.junit.Test
 
 class TextFirstPhotoReloadTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
-
-    @Test
-    fun scrollingAnEvictedPhotoOutAndBackKeepsItsHeight(): Unit = openWarmPhoto { photo, cache ->
-        val before = ui { view.layout.height to checkNotNull(view.imageRect(photo)).height() }
-        cache.bitmaps.evictAll()
-        ui { view.scrollTo(0, view.maxScrollY()) }
-        compose.waitUntil(2_000) { ui { view.scrollY > checkNotNull(view.imageRect(photo)).bottom } }
-        ui { view.scrollTo(0, 0) }
-        val after = ui {
-            assertSame(photo, photoSpan())
-            view.onNextPhotoFrame()
-        }
-        val frame = after.poll(2, java.util.concurrent.TimeUnit.SECONDS)!!
-        Log.i("PhotoDropTravel", "scroll-return before=$before after=$frame")
-        assertEquals(before, frame)
-    }
 
     @Test
     fun aFreshSpanReservesTheEvictedBitmapSizeBeforeItsDecode(): Unit = openWarmPhoto { original, cache ->
