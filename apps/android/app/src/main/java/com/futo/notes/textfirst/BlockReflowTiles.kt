@@ -18,6 +18,8 @@ internal class SliceTiles(private val view: TextFirstEditText) {
     private val tiles = HashMap<Int, RenderNode>()
     /** The tiles drawn this frame: the frame's display list refers to them until the render thread has drawn it. */
     private val used = HashSet<Int>()
+    /** Debug builds (DragCopyLog): the tiles the last draw call used, "*" where freshly recorded. To go before an MR. */
+    val drawnNow = ArrayList<String>()
     private var layout: Layout? = null
     private var height = -1
     private var width = -1
@@ -35,6 +37,7 @@ internal class SliceTiles(private val view: TextFirstEditText) {
         val save = canvas.save()
         canvas.clipRect(view.scrollX.toFloat(), a, (view.scrollX + view.width).toFloat(), b)
         for (k in tileOf(a - shift)..tileOf(b - shift - 0.01f)) {
+            if (com.futo.notes.BuildConfig.DEBUG) drawnNow += if (k in tiles) "$k" else "$k*"
             val node = tiles.getOrPut(k) { record(k) }
             used += k
             canvas.save()

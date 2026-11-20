@@ -191,7 +191,9 @@ internal class BlockReflowPreview private constructor(
         val copy = when {
             photo == null -> {
                 view.coverSlice(canvas, c, c + shape.copy, top, bottom)
+                tiles.drawnNow.clear()
                 tiles.draw(canvas, shape.top, shape.bottom, c - shape.top, top, bottom)
+                if (com.futo.notes.BuildConfig.DEBUG) logCopy(shape, gap, c)
                 RectF(0f, c, view.width.toFloat(), c + shape.copy)
             }
             gap == ReflowGap.Home -> {
@@ -215,6 +217,18 @@ internal class BlockReflowPreview private constructor(
         tiles.trim()
         if (moving) view.postInvalidateOnAnimation() else settled?.let { done -> settled = null; view.post(done) }
         return true
+    }
+
+    // Debug builds only, to be reverted before an MR: what the dimmed copy drew, for a report from a phone.
+    private var loggedSlot: BlockSlot? = null
+    private var loggedAt = 0L
+    private fun logCopy(shape: ReflowShape, gap: ReflowGap, copyAt: Float) {
+        val now = SystemClock.uptimeMillis()
+        if (slot == loggedSlot && now - loggedAt < 1_000) return
+        loggedSlot = slot
+        loggedAt = now
+        android.util.Log.i("DragCopyLog", "slot=$slot shape=${shape.top}..${shape.bottom} copy=${shape.copy} copyAt=$copyAt " +
+            "target=${shape.copyTop(gap)} gap=$gap tiles=${tiles.drawnNow} layoutHeight=${view.layout?.height} scrollY=${view.scrollY}")
     }
 
     // ---- the release ----
