@@ -109,7 +109,9 @@ internal fun TextFirstEditText.addSpans(target: Spannable, specs: List<SpanSpec>
         val photo = if (spec is SpanSpec.Image) {
             previousPhotos.firstOrNull { spans.matches(spec, it) && target.getSpanStart(it) < 0 }
         } else null
-        val span = photo ?: spans.create(target.keyedToTableAbove(spec, mintedKeys))
+        val span = photo ?: spans.create(target.keyedToTableAbove(spec, mintedKeys)).also { created ->
+            if (created is TfImage) created.rememberedSize = images.rememberedPhotoSize(created.destination, contentWidth())
+        }
         setRendererSpan(target, span, spec.start, end)
     }
 }

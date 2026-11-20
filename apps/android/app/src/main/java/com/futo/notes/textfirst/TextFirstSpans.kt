@@ -330,15 +330,19 @@ internal class TfImage(
     private val maxWidth: () -> Int,
 ) : ReplacementSpan(), LineHeightSpan, TfAtom {
     @Volatile var bitmap: Bitmap? = null
+    var rememberedSize: PhotoSize? = null
     var failed = false
     private val placeholder = Paint().apply { color = look.surfaceColor }
 
     fun drawSize(): Pair<Int, Int> {
         val bmp = bitmap
         val limit = maxOf(1, maxWidth())
-        if (bmp == null) return limit to if (failed) look.dp(28f).toInt() else look.dp(48f).toInt()
-        val w = minOf(limit, bmp.width)
-        return w to (bmp.height.toLong() * w / maxOf(1, bmp.width)).toInt()
+        val reserved = rememberedSize.takeUnless { failed }
+        val width = bmp?.width ?: reserved?.width
+            ?: return limit to if (failed) look.dp(28f).toInt() else look.dp(48f).toInt()
+        val height = bmp?.height ?: checkNotNull(reserved).height
+        val drawnWidth = minOf(limit, width)
+        return drawnWidth to (height.toLong() * drawnWidth / width).toInt()
     }
 
     override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
