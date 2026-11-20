@@ -332,9 +332,6 @@ internal class TextFirstEditText(
         return super.performHapticFeedback(feedbackConstant, flags)
     }
 
-    internal fun performEdgeLineTick(): Boolean =
-        super.performHapticFeedback(HapticFeedbackConstants.TEXT_HANDLE_MOVE, 0)
-
     override fun computeScroll() {
         super.computeScroll()
         scroll.step()
