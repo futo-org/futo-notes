@@ -32,7 +32,7 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
     var isDriving = false
         private set
     private var lastFrame = 0L
-    private var remainder = 0f
+    private val frameStep = CaretEdgeFrameStep()
     private val frame = Choreographer.FrameCallback { now -> step(now) }
 
     private var downTime = 0L
@@ -74,7 +74,7 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
         if (isDriving) return true
         isDriving = true
         lastFrame = 0L
-        remainder = 0f
+        frameStep.reset()
         Choreographer.getInstance().postFrameCallback(frame)
         return true
     }
@@ -151,9 +151,7 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
     private fun step(now: Long) {
         if (!isDriving) return
         if (lastFrame != 0L) {
-            remainder += BlockAutoscroll.step(velocity, (now - lastFrame) / 1e9f)
-            val dy = remainder.toInt()
-            remainder -= dy
+            val dy = frameStep.scrollPixels(velocity, now - lastFrame)
             val before = view.scrollY
             if (dy != 0) view.scroll.dragBy(dy)
             if (view.scrollY != before) land()
