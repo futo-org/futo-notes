@@ -17,7 +17,7 @@
                 let block = controller.storage.attribute(
                     .tfBlock, at: line.range.location, effectiveRange: nil)
                     as? TextFirstBlockAttribute,
-                let list = block.list, block.showsMarker, list.marker == .task
+                let list = block.list, block.holdsMarkerUnit, list.marker == .task
             else { return nil }
             return list
         }

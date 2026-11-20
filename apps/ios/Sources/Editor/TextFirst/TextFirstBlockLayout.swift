@@ -137,7 +137,7 @@ final class TextFirstLaidOutLines {
     private let top: CGFloat
     /// Retained: the stack holds its delegates weakly.
     private let layoutDelegate = TextFirstLayoutDelegate()
-    private let breakDelegate = TextFirstImageBreakDelegate()
+    private let typesetDelegate = TextFirstTypesetDelegate()
 
     /// `toEnd`: the lines run to the note's end, its empty last line (an empty task) included.
     init?(
@@ -168,7 +168,7 @@ final class TextFirstLaidOutLines {
                 from: NSRange(location: above.location, length: NSMaxRange(below) - above.location)
             ))
         content = NSTextContentStorage()
-        content.delegate = breakDelegate
+        content.delegate = typesetDelegate
         manager = NSTextLayoutManager()
         // The note's empty last line (an empty task) is drawn with lines that run to the
         // note's end; lines that end above it end at its top, as the note's boundary does.

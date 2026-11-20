@@ -103,7 +103,7 @@ final class TextFirstEditorController: NSObject {
     let toolbarState = EditorToolbarState()
     var toolbarInstalled = false
     let layoutDelegate = TextFirstLayoutDelegate()
-    let imageBreakDelegate = TextFirstImageBreakDelegate()
+    let typesetDelegate = TextFirstTypesetDelegate()
     let imageRoot: URL
     /// The container width the table rows' kern was last set for (`tablesWidthChanged`).
     var tablesWidth: CGFloat = 0

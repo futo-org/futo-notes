@@ -1,27 +1,9 @@
 import UIKit
 
 // A tap on a task's checkbox toggles it through the engine (`ToggleTask`) and leaves the caret
-// and the keyboard where they were; the checkbox is drawn by a layout fragment, not a character.
+// and the keyboard where they were; the checkbox is drawn over the item's marker unit.
 
 extension TextFirstEditorController: UIGestureRecognizerDelegate {
-    /// The text of `fragment`'s row spans the selection: a non-empty selection that starts at or
-    /// before the row's first character and ends at or after its last (its line break aside).
-    func selectionRange(for fragment: NSTextLayoutFragment, in manager: NSTextLayoutManager)
-        -> NSRange?
-    {
-        let selected = textView.selectedRange
-        guard selected.length > 0 else { return nil }
-        let start = manager.offset(
-            from: manager.documentRange.location, to: fragment.rangeInElement.location)
-        let end =
-            start
-            + manager.offset(
-                from: fragment.rangeInElement.location, to: fragment.rangeInElement.endLocation)
-        let text = storage.string as NSString
-        let rowEnd = (end > start && text.character(at: end - 1) == 0x0A) ? end - 1 : end
-        return selected.location <= start && NSMaxRange(selected) >= rowEnd ? selected : nil
-    }
-
     /// Whether the selection covers all of `run`, a glyph run in `fragment`'s paragraph.
     func selectionCovers(
         _ run: NSRange, in fragment: NSTextLayoutFragment, _ manager: NSTextLayoutManager
@@ -34,8 +16,8 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
             && NSMaxRange(selected) >= start + NSMaxRange(run)
     }
 
-    /// Repaint the rows whose marker highlight may change with the selection.
-    func invalidateMarkerHighlights(old: NSRange, new: NSRange) {
+    /// Repaint the rows whose image tint may change with the selection.
+    func invalidateImageHighlights(old: NSRange, new: NSRange) {
         guard old.length > 0 || new.length > 0, let manager = textView.textLayoutManager,
             let content = manager.textContentManager
         else { return }
@@ -53,7 +35,7 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         layoutDelegate.host = self
         textView.textLayoutManager?.delegate = layoutDelegate
         (textView.textLayoutManager?.textContentManager as? NSTextContentStorage)?.delegate =
-            imageBreakDelegate
+            typesetDelegate
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         tap.cancelsTouchesInView = false
         tap.delegate = self

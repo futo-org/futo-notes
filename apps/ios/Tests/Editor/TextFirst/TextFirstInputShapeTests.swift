@@ -305,7 +305,7 @@
                 calls: [.dictationRemoveFirst([" more", " words"])],
                 source: "[link more words](u) x"),
             ShapeRow(
-                name: "dictation into a list item", before: "- item", caret: 4,
+                name: "dictation into a list item", before: "- item", caret: 5,
                 calls: [.dictation([" more"])], source: "- item more"),
             ShapeRow(
                 name: "text placeholder, bold end", before: bold, caret: 4,

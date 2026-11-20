@@ -159,10 +159,14 @@
         }
 
         @Test func aPhotoInAListItemQuoteAndHeading() async {
-            for (prefix, name) in [("- ", "list"), ("> ", "quote"), ("# ", "heading")] {
+            // A list item's first line starts with its marker unit.
+            for (prefix, name, shown) in [
+                ("- ", "list", "\u{FFFC}"), ("> ", "quote", ""), ("# ", "heading", ""),
+            ] {
                 let h = await open("\(prefix)Hello world\(wide)\n")
                 let lines = shape(h)
-                #expect(lines == ["Hello world", "tall:\(wide)"], "\(name): \(h.visualLines())")
+                #expect(
+                    lines == ["\(shown)Hello world", "tall:\(wide)"], "\(name): \(h.visualLines())")
             }
         }
 
@@ -180,7 +184,7 @@
         /// shown instead must not be wider, or a full-width photo's line would overflow by the
         /// difference and its last characters wrap onto a line of their own.
         @Test func theBreakCharacterIsNoWiderThanTheBangItStandsFor() {
-            let shown = TextFirstImageBreakDelegate.breakBefore
+            let shown = TextFirstTypesetDelegate.breakBefore
             #expect((shown as NSString).length == 1)
             #expect(
                 TextFirstImageMetrics.textAdvance(shown) <= TextFirstImageMetrics.textAdvance("!"))

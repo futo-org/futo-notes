@@ -120,13 +120,18 @@
                 }
                 return pieces.joined(separator: "\n")
             }
+            /// The range's text as shown: an image as its destination, a list item's marker unit
+            /// left out (the line's `kind` and the checkbox targets report the marker).
             func rendered(_ range: NSRange) -> String {
                 var out = ""
-                controller.storage.enumerateAttribute(.tfImage, in: range) { value, run, _ in
+                let storage = controller.storage
+                storage.enumerateAttribute(.tfImage, in: range) { value, run, _ in
                     if let image = value as? TextFirstImageSpan {
                         out += "[image \(image.atom.destination)]"
-                    } else {
-                        out += text.substring(with: run)
+                        return
+                    }
+                    storage.enumerateAttribute(.tfListMarker, in: run) { marker, piece, _ in
+                        if marker == nil { out += text.substring(with: piece) }
                     }
                 }
                 return out
