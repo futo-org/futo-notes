@@ -19,6 +19,20 @@ impl EditorSession {
         self.run(|e| e.press_table_key(expected, key, accept))
     }
 
+    /// Put the caret in cell `column` (from 0) of the header or body row at
+    /// display `at`. A row that lacks the cell gains empty cells up to it in
+    /// one edit, as Tab gives them. `None` off a header or body row (the
+    /// delimiter row included), and for a column past the table's count.
+    pub fn enter_table_cell(
+        &mut self,
+        expected: Revision,
+        at: DisplayOffset,
+        column: usize,
+        accept: Accept,
+    ) -> Result<Option<TableOutcome>, EditorError> {
+        self.run(|e| e.enter_table_cell(expected, at, column, accept))
+    }
+
     /// Structural command addressed by any range inside the target cell.
     /// `None`: not in a cell, or the command is disabled for it (header row
     /// deletion, a table's last body row or column).

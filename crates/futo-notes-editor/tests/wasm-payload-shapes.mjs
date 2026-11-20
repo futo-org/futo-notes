@@ -156,6 +156,7 @@ const cell = table.rows[0][0].content;
 session.select_with_affinity(0n, cell.end, cell.end, '"Forward"');
 assert.ok(shape('TableDescription', session.inspect_table(0n, cell.end, cell.end)).focus);
 shape('TableOutcome | null', session.table_key(0n, 'Tab'));
+shape('TableOutcome | null', session.enter_table_cell_utf16(0n, slice.text.indexOf('c'), 0));
 shape('string', JSON.stringify(session.copy_markdown(0n, 0, 4)));
 shape('[string, Applied | null]', session.cut_markdown(0n, 0, 0));
 

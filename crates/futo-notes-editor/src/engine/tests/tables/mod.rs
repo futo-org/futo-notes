@@ -1,8 +1,8 @@
 //! Tables: the literal cases in `tests/fixtures/engine/tables/`. Random
 //! tables are in `random.rs`, a delimiter row being typed in
 //! `delimiter_row.rs`, the work at 20,000 rows in `work.rs`, the session
-//! surface in `surface.rs` and cut and paste over a whole table in
-//! `whole_tables.rs`.
+//! surface in `surface.rs`, cut and paste over a whole table in
+//! `whole_tables.rs` and a host entering a cell in `enter_cell.rs`.
 //!
 //! A case's `before` and `after` are source text with the selection marked:
 //! `‸` is a caret, `«` and `»` bound a selection (a table's `|` cannot mark
@@ -20,6 +20,7 @@
 //! lists `[columns, rows]` of each table `inspect_tables` finds in the note
 //! (after the command, when there is one), which the projection describes.
 mod delimiter_row;
+mod enter_cell;
 pub(super) mod projection;
 mod random;
 mod surface;

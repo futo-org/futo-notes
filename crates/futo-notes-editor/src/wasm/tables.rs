@@ -82,16 +82,30 @@ impl WasmSession {
     /// `null`, `{"selected": change}` or `{"edited": request}`.
     pub fn table_key(&mut self, revision: u64, key: &str) -> Result<String, JsValue> {
         let key = serde_json::from_str(&format!("{key:?}")).map_err(error)?;
-        json(
-            &match self.0.table_key(Revision(revision), key).map_err(error)? {
-                None => serde_json::Value::Null,
-                Some(PortableTableStep::Selected(change)) => {
-                    serde_json::json!({ "selected": change })
-                }
-                Some(PortableTableStep::Edited(applied)) => {
-                    serde_json::json!({ "edited": applied })
-                }
-            },
+        table_step(self.0.table_key(Revision(revision), key).map_err(error)?)
+    }
+
+    /// Cell `column` of the header or body row at UTF-16 display offset
+    /// `at`, given empty cells up to it when the row lacks it: as `table_key`
+    /// returns (`null` off such a row or past the table's columns).
+    pub fn enter_table_cell_utf16(
+        &mut self,
+        revision: u64,
+        at: usize,
+        column: usize,
+    ) -> Result<String, JsValue> {
+        table_step(
+            self.0
+                .enter_table_cell_utf16(Revision(revision), DisplayUtf16Offset(at), column)
+                .map_err(error)?,
         )
     }
+}
+
+fn table_step(step: Option<PortableTableStep>) -> Result<String, JsValue> {
+    json(&match step {
+        None => serde_json::Value::Null,
+        Some(PortableTableStep::Selected(change)) => serde_json::json!({ "selected": change }),
+        Some(PortableTableStep::Edited(applied)) => serde_json::json!({ "edited": applied }),
+    })
 }

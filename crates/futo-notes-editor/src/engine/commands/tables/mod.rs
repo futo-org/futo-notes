@@ -264,13 +264,26 @@ impl Engine {
     /// line, inside one cell's text between its pipes.
     fn cell_at(&self, range: DisplayRange) -> Option<Cell> {
         let (index, column) = self.column_at(range)?;
+        let (table, row) = self.table_row(index)?;
+        Some(Cell { table, row, column })
+    }
+
+    /// The table and row of the header or body line display `range` starts
+    /// on, wherever on that line it starts.
+    fn row_at(&self, range: DisplayRange) -> Option<(Table, usize)> {
+        let index = self.line_of(self.source_selection(range).start);
+        if !matches!(role(self.line(index))?, TableRole::Header | TableRole::Row) {
+            return None;
+        }
+        self.table_row(index)
+    }
+
+    /// The table holding line `index` and that line's row: the header is 0,
+    /// the first line under the delimiter row 1.
+    fn table_row(&self, index: usize) -> Option<(Table, usize)> {
         let table = self.table_at(index)?;
-        let row = index - table.lines[0].index;
-        Some(Cell {
-            table,
-            row: row.saturating_sub(1),
-            column,
-        })
+        let row = (index - table.lines[0].index).saturating_sub(1);
+        Some((table, row))
     }
 
     /// The line and column of the cell display `range` lies in, as
