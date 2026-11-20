@@ -77,6 +77,25 @@ class TextFirstPhotoDropTravelTest {
         }
     }
 
+    @Test
+    fun dropAfterTheLastPhotoUsesItsActualBottom(): Unit =
+        compose.openDragScreen("intro\nmoving row\nlast text\n![](a.jpg)", mapOf("a.jpg" to png(300, 225))) {
+            compose.waitUntil(5_000) { ui { photoSpans().singleOrNull()?.bitmap != null } }
+            val source = at(offsetOf("moving row"))
+            down(source)
+            compose.waitUntil(2_000) { lifted }
+            val slot = ui { BlockSlot(view.length() - 1, true) }
+            val release = carryUntil(source, 12f, view.width * 0.8f) { report?.gap == slot }
+            hold(Slide.SLIDE_MS + 60)
+            val preview = checkNotNull(report?.copy).top
+            up(release)
+            saved("intro\nlast text\n![](a.jpg)\nmoving row")
+            compose.waitUntil(2_000) { !lifted }
+            val landed = ui { viewInWindow() + checkNotNull(view.boundaryY(BlockSlot(offsetOf("moving row"), false))) - view.scrollY }
+            Log.i("PhotoDropTravel", "note-end preview=$preview final=$landed")
+            assertEquals("final-photo slot predicts where the moved row lands", preview, landed, 1f)
+        }
+
     private fun BlockDragRig.photoSpans(): List<TfImage> =
         view.editableText.getSpans(0, view.length(), TfImage::class.java).sortedBy { it.destination }
 

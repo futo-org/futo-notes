@@ -334,6 +334,10 @@ internal class TfImage(
     var failed = false
     private val placeholder = Paint().apply { color = look.surfaceColor }
 
+    private companion object {
+        val PHOTO_ROW_ENDINGS: String = "\r\n" + TextFirstEditText.END_SENTINEL
+    }
+
     fun drawSize(): Pair<Int, Int> {
         val bmp = bitmap
         val limit = maxOf(1, maxWidth())
@@ -363,16 +367,19 @@ internal class TfImage(
      */
     override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
         val spanned = text as? Spanned ?: return
-        var stop = end
-        // Nor the note's end sentinel, after a photo that ends the note.
-        while (stop > start && (text[stop - 1] == '\n' || text[stop - 1] == '\r' || text[stop - 1] == TextFirstEditText.END_SENTINEL[0])) stop--
-        if (spanned.getSpanStart(this) != start || spanned.getSpanEnd(this) != stop) return
+        if (!fillsPhotoRow(spanned, start, end)) return
         val h = drawSize().second
         fm.ascent = -h - photoRowRoom(look)
         fm.top = fm.ascent
         // The note's last row gets no line spacing from the TextView.
         fm.descent = photoRowRoom(look) - if (end >= text.length) 0 else look.bodyLineSpacing
         fm.bottom = fm.descent
+    }
+
+    fun fillsPhotoRow(text: Spanned, start: Int, end: Int): Boolean {
+        var contentEnd = end
+        while (contentEnd > start && text[contentEnd - 1] in PHOTO_ROW_ENDINGS) contentEnd--
+        return text.getSpanStart(this) == start && text.getSpanEnd(this) == contentEnd
     }
 
     override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
