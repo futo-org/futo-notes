@@ -235,9 +235,7 @@ internal class TextFirstEditText(
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)
         blockLift.relayout()
-        val anchor = pinned ?: return
-        val y = anchorY(anchor) ?: return
-        if (y != scrollY) scrollTo(scrollX, y)
+        restorePinnedViewport()
     }
 
 
@@ -290,14 +288,9 @@ internal class TextFirstEditText(
     }
 
 
-    // Images and dividers size to the content width; a new width re-measures
-    // their lines (one measured while the view was not laid out yet would
-    // otherwise keep a stale height).
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        if (h > oldh) clampScrollToNote()
-        if (h < oldh && isFocused && caretWasInView(oldh)) { reveal.again(); bringPointIntoView(selectionEnd) }
-        if (w != oldw) refreshWidthDependentSpans()
+        resizeEditorViewport(w != oldw, h, oldh)
     }
 
     // ---- view → engine ----
