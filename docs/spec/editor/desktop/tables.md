@@ -60,6 +60,11 @@ table rule of its own. → src/features/editor/desktop/tableLines.ts
   no padding). A click in such a cell puts the caret there, and Up and Down reach and leave it
   by that x. → tableRowElements.ts `emptyCellStopRect`, caret.ts `caretViewportRect`,
   tableRowElements.test.ts, tests/desktop-editor-table-control-stories.mjs
+- A click on the box a short row is drawn with for a cell it lacks, in a note that can be
+  edited, gives the row its missing cells up to that column (one Undo step, the engine's
+  `enter_table_cell`) and puts the caret in that cell; Shift+click there extends the selection
+  as anywhere. → tableFillerPress.ts, applyTableOutcome.ts, tableRowElements.test.ts,
+  tests/desktop-editor-table-stories.mjs
 - Up and Down from a cell move through its own wrapped rows first, then go to the row above or
   below, though a taller cell beside it holds its row open, and land on the own text of that
   row's cell in the caret's column, passing over the delimiter row. Home and End (Cmd+Left and

@@ -2,7 +2,8 @@
  * (desktopTables.css): one element per cell holding the cell's text, padding spaces included
  * (its leading padding in an element of its own), drawn as a line's text is (lineSegments.ts);
  * the pipes in elements the grid does not draw;
- * and an empty filler per cell a shorter row lacks. The delimiter row holds its text, which
+ * and an empty filler per cell a shorter row lacks, which a press enters (tableFillerPress.ts).
+ * The delimiter row holds its text, which
  * the page never draws. Every character stays in the line, in order, so the page's offsets
  * (lineElements.ts `offsetOf`, `pointInLine`) and the engine's stay one. A row drawn takes
  * its table's sideways scroll on the next frame (tableDrawnRows.ts). */
@@ -187,6 +188,20 @@ function isCellElement(node: Node): node is HTMLElement {
   return node instanceof HTMLElement && node.classList.contains(CELL_CLASS);
 }
 
+/** A table row's element's parts that stand for its columns, in order: its cells, then its
+ *  fillers. */
+export function tableColumnParts(element: Element): Element[] {
+  return [...element.children].filter(
+    (part) => part.classList.contains(CELL_CLASS) || part.classList.contains(FILLER_CLASS),
+  );
+}
+
+/** The filler `node` is in, drawn for a cell its short row lacks; null outside one. */
+export function tableFillerOf(node: Node | null): HTMLElement | null {
+  const element = node instanceof Element ? node : (node?.parentElement ?? null);
+  return element?.closest<HTMLElement>(`.${FILLER_CLASS}`) ?? null;
+}
+
 /** The DOM point at UTF-16 `at` in a table row's element: inside a cell's text, as
  *  `pointInLine` finds it there. A point in a pipe, which draws nothing, is the end of the cell
  *  before it, or the first cell's start for the row's leading pipe. */
@@ -316,9 +331,7 @@ function tableCellsBox(
   cells: readonly TableCellSpan[],
   selection: TableRowSelection,
 ): DOMRect | null {
-  const parts = [...element.children].filter(
-    (part) => part.classList.contains(CELL_CLASS) || part.classList.contains(FILLER_CLASS),
-  );
+  const parts = tableColumnParts(element);
   let first = selection.runsIn ? 0 : cells.findIndex((cell) => cell.end >= selection.from);
   if (first < 0) first = cells.length;
   let last = selection.runsOn ? parts.length - 1 : -1;

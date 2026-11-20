@@ -4,7 +4,7 @@ import { Engine } from './engine';
 import { LineModel } from './lineModel';
 import { chunked, drawLine, offsetOf, pointInLine } from './lineElements';
 import { atomElementsOf } from './atomElements';
-import { emptyCellStopRect } from './tableRowElements';
+import { emptyCellStopRect, tableColumnParts, tableFillerOf } from './tableRowElements';
 import { loadEngineBuild } from './__test__/loadEngineBuild';
 
 beforeAll(loadEngineBuild);
@@ -60,6 +60,9 @@ it('draws each row as its cells between undrawn pipes, padded to the widest row'
     'table-cell right:  ',
     'table-filler:',
   ]);
+  // A filler stands for the column after the row's cells: the header's lacks the third.
+  const filler = tableFillerOf(elements[1].lastChild);
+  expect(filler && tableColumnParts(elements[1]).indexOf(filler)).toBe(2);
   expect(partsOf(elements[4]).slice(-1)).toEqual(['table-cell: h']);
   expect(elements[2].className).toBe('line table-delimiter');
   for (const [index, line] of model.lines.entries()) {

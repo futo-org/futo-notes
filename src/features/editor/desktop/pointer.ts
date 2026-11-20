@@ -6,14 +6,16 @@
  * text instead: a drop caret follows the pointer, and the release moves the text there
  * through the engine, one Undo step; a press there that does not move places the caret. A
  * press on a divider or an image selects it whole, one on a list item's marker places the
- * caret beside it as on a character, one on a task's checkbox toggles it, and one on a code
- * block's header or below its end is the block's (codeBlockPress.ts). Where a press
+ * caret beside it as on a character, one on a task's checkbox toggles it, one on a code
+ * block's header or below its end is the block's (codeBlockPress.ts), and one on the box a
+ * short table row lacks a cell in enters that cell (tableFillerPress.ts). Where a press
  * lands is the hit-test's (hitTest.ts). */
 import type { DisplayRange } from '@futo-notes/editor/wasm-payloads';
 import { TASK_BOX_CLASS } from './atomElements';
 import { pressCodeBlock } from './codeBlockPress';
 import type { Hit } from './hitTest';
 import { scrollerOf } from './paneScroll';
+import { pressTableFiller } from './tableFillerPress';
 import type { EditorView } from './view';
 
 /** How far past the pane's edge a drag scrolls at its fastest, and that speed per frame. */
@@ -62,6 +64,7 @@ export class EditorPointer {
       return;
     }
     if (pressCodeBlock(view, event)) return;
+    if (pressTableFiller(view, event)) return;
     // Shift extends from the anchor: the page's, or the engine's start when the editor has
     // no focus (and so no selection on the page). Read before focusing, which leaves the
     // page's selection to this press.

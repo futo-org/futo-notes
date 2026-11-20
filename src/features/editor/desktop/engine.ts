@@ -59,6 +59,7 @@ interface RawSession extends RawFind {
   table_command_utf16(revision: bigint, start: number, end: number, command: string): string;
   inspect_table_utf16(revision: bigint, start: number, end: number): string;
   table_key(revision: bigint, key: string): string;
+  enter_table_cell_utf16(revision: bigint, at: number, column: number): string;
   active_formats(): string;
   toolbar_state(): string;
   toggle_format(revision: bigint, format: string): string;
@@ -158,6 +159,12 @@ export class Engine {
     const applied = JSON.parse(json) as Applied | null;
     if (applied) this.current = applied.change.revision;
     return applied;
+  }
+
+  private tableOutcome(json: string): TableOutcome | null {
+    const outcome = JSON.parse(json) as TableOutcome | null;
+    if (outcome && 'edited' in outcome) this.current = outcome.edited.change.revision;
+    return outcome;
   }
 
   /** Find in the note, at the revision shown (engineFind.ts). */
@@ -286,9 +293,14 @@ export class Engine {
 
   /** A table key at the engine's selection: null when the key is not the table's there. */
   tableKey(key: TableKey): TableOutcome | null {
-    const outcome = JSON.parse(this.raw.table_key(this.rev, key)) as TableOutcome | null;
-    if (outcome && 'edited' in outcome) this.current = outcome.edited.change.revision;
-    return outcome;
+    return this.tableOutcome(this.raw.table_key(this.rev, key));
+  }
+
+  /** The cell in 0-based `column` of the table row on the line UTF-16 `at` is on, the caret
+   *  in it: the row given empty cells up to it (one edit) when it lacks it; null off a header
+   *  or body row, or for a column past the table's. */
+  enterTableCell(at: number, column: number): TableOutcome | null {
+    return this.tableOutcome(this.raw.enter_table_cell_utf16(this.rev, at, column));
   }
 
   /** The formats the next typed character takes at the selection's start: the carried ones

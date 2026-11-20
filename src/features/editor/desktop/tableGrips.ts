@@ -5,6 +5,7 @@
  * and the column's grip hides while its column is scrolled out of the row. */
 import type { Line } from './lineModel';
 import { tableHeaderIndex } from './tableLayouts';
+import { tableColumnParts } from './tableRowElements';
 
 /** Where the grips go, relative to the editor's wrapper (CSS px, their top left corners; the
  *  row's grip is centred on its row's `height`, which its hit area spans); the column's null
@@ -18,8 +19,6 @@ export interface TableGripsState {
  *  (milkdown/table/tableGripsDom.ts). */
 const TABLE_GRIP_SIZE = 18;
 const TABLE_GRIP_GAP = 4;
-
-const CELL_CLASSES = ['table-cell', 'table-filler'];
 
 /** The grips for the cell in column `column` of line `index` (its element among `elements`,
  *  drawn from `lines`), relative to `origin`. */
@@ -39,9 +38,7 @@ export function tableGripsAt({
   const row = elements[index].getBoundingClientRect();
   const header = elements[tableHeaderIndex(lines, index)];
   const headerBox = header.getBoundingClientRect();
-  const cell = [...header.children].filter((part) =>
-    CELL_CLASSES.some((name) => part.classList.contains(name)),
-  )[column];
+  const cell = tableColumnParts(header)[column];
   const box = cell?.getBoundingClientRect();
   const middle = box ? (box.left + box.right) / 2 : null;
   const shows = middle !== null && middle >= headerBox.left && middle <= headerBox.right;
