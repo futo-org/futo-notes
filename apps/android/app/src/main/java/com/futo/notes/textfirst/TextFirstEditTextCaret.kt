@@ -19,24 +19,33 @@ internal fun TextFirstEditText.fitCaretToItsText() {
     textCursorDrawable = TextHeightCaret(platformCaret, this)
 }
 
-/** The platform caret, cut to the font ascent and descent of the text at the caret; in code, to body text's. */
+/**
+ * The platform caret, as tall as the font's ascent to descent at the caret (in code, body text's) and centred on the
+ * text as seen, capital tops to descender bottoms: the font's ascent reaches far above its capitals and its descent
+ * barely below its descenders, so a caret on them sat high against the letters (Mason, S23).
+ */
 private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditText) : DrawableWrapper(caret) {
     private val padding = Rect()
     private val paint = TextPaint()
+    private val visible = Rect()
 
     override fun onBoundsChange(bounds: Rect) {
+        val layout = view.layout
         val text = textExtentAtCaret()
-        if (text == null) { super.onBoundsChange(bounds); return }
+        if (text == null || layout == null) { super.onBoundsChange(bounds); return }
         drawable?.getPadding(padding)
-        // Kept inside the line's box by moving it, not cutting it, so its height holds (a code line is short for it).
+        // Kept inside its row, line spacing included (the platform's bounds leave it out), by moving it, not cutting
+        // it, so its height holds (a code line is short for it).
+        val line = layout.getLineForOffset(view.selectionStart)
+        val row = layout.getLineTop(line) - padding.top..layout.getLineBottom(line) + padding.bottom
         val wanted = text.first - padding.top..text.last + padding.bottom
         val shift = when {
-            wanted.last > bounds.bottom -> bounds.bottom - wanted.last
-            wanted.first < bounds.top -> bounds.top - wanted.first
+            wanted.last > row.last -> row.last - wanted.last
+            wanted.first < row.first -> row.first - wanted.first
             else -> 0
         }
-        val top = maxOf(bounds.top, wanted.first + shift)
-        val bottom = minOf(bounds.bottom, wanted.last + shift)
+        val top = maxOf(row.first, wanted.first + shift)
+        val bottom = minOf(row.last, wanted.last + shift)
         super.onBoundsChange(Rect(bounds.left, top, bounds.right, maxOf(top, bottom)))
     }
 
@@ -51,13 +60,13 @@ private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditTe
         val at = offset.coerceIn(lineStart, maxOf(lineStart, layout.getLineEnd(line) - 1))
         paint.set(view.paint)
         for (span in text.getSpans(at, at + 1, MetricAffectingSpan::class.java)) span.updateMeasureState(paint)
-        val metrics = paint.fontMetricsInt
-        val baseline = layout.getLineBaseline(line)
-        if (text.getSpans(at, at + 1, TfCodeBlock::class.java).isEmpty()) return baseline + metrics.ascent..baseline + metrics.descent
-        // In code the caret is as tall as in body text, centred on the code (Mason's rule).
-        val body = view.paint.fontMetricsInt
-        val centre = baseline + (metrics.ascent + metrics.descent) / 2
-        val half = (body.descent - body.ascent) / 2
-        return centre - half..centre - half + (body.descent - body.ascent)
+        val metrics = if (text.getSpans(at, at + 1, TfCodeBlock::class.java).isEmpty()) paint.fontMetricsInt else view.paint.fontMetricsInt
+        val height = metrics.descent - metrics.ascent
+        paint.getTextBounds(VISIBLE_EXTENT, 0, VISIBLE_EXTENT.length, visible)
+        val top = layout.getLineBaseline(line) + (visible.top + visible.bottom - height) / 2
+        return top..top + height
     }
 }
+
+/** A capital and a descender: the text as seen reaches from the one's top to the other's bottom. */
+private const val VISIBLE_EXTENT = "Hg"

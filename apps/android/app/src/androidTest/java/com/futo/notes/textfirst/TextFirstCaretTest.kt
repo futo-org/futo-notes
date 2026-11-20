@@ -48,12 +48,14 @@ class TextFirstCaretTest {
                 val paint = android.text.TextPaint(view.paint)
                 for (span in view.editableText.getSpans(1, 2, android.text.style.MetricAffectingSpan::class.java)) span.updateMeasureState(paint)
                 val baseline = view.totalPaddingTop + layout.getLineBaseline(0)
+                val seen = android.graphics.Rect().also { paint.getTextBounds("Hg", 0, 2, it) }
                 val textTop = baseline + paint.fontMetricsInt.ascent
                 val textBottom = baseline + paint.fontMetricsInt.descent
                 val lineHeight = layout.getLineBottom(0) - layout.getLineTop(0)
                 assertTrue("the h1 line ($lineHeight px) is taller than its text", lineHeight > textBottom - textTop)
-                assertTrue("the caret ${caret.first}..${caret.last} lies within the h1 text $textTop..$textBottom",
-                    caret.first >= textTop - 1 && caret.last <= textBottom + 1)
+                assertEquals("the caret is as tall as the h1's text", (textBottom - textTop).toFloat(), (caret.last - caret.first).toFloat(), 2f)
+                // Mason (S23): centred on the letters as seen, as far above the capitals as below the descenders.
+                assertEquals("room above the capitals against below the descenders", (baseline + seen.top - caret.first).toFloat(), (caret.last - baseline - seen.bottom).toFloat(), 2f)
             }
         } finally {
             withContext(Dispatchers.Main) { controller.discard(); controller.dispose() }
@@ -61,6 +63,16 @@ class TextFirstCaretTest {
             store.destroy()
             root.deleteRecursively()
         }
+    }
+
+    /** Mason (S23): the caret on body text sat high, 20 px above the capitals and 1 px below the descenders. */
+    @Test fun caretOnBodyTextIsCentredOnItsLetters() = textFirstSession("Body Hgjp\nnext\n") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true; view.requestFocusFromTouch()
+        val caret = checkNotNull(caretExtent(c, 9)) { "the caret draws on the body line" }
+        val seen = android.graphics.Rect().also { view.paint.getTextBounds("Hg", 0, 2, it) }
+        val baseline = view.totalPaddingTop + view.layout.getLineBaseline(0)
+        assertEquals("room above the capitals against below the descenders", (baseline + seen.top - caret.first).toFloat(), (caret.last - baseline - seen.bottom).toFloat(), 2f)
     }
 
     /** The blank line above a heading is drawn half height, but its caret is as tall as the one on a line of text. */
