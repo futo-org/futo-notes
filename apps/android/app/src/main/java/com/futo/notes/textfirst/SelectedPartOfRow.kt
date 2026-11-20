@@ -16,7 +16,7 @@ internal data class RowSelection(val from: Int, val to: Int, val breakAt: Int?)
 internal fun selectedPartOfRow(row: TextRow, selectionStart: Int, selectionEnd: Int): RowSelection? {
     val from = maxOf(selectionStart, row.start)
     val to = maxOf(from, minOf(selectionEnd, row.visibleEnd))
-    val breakAt = if (row.endsWithBreak && selectionStart < row.end && selectionEnd >= row.end) to else null
+    val breakAt = if (row.endsWithBreak && selectionStart < row.end && selectionEnd >= row.end) row.visibleEnd else null
     if (from == to && breakAt == null) return null
     return RowSelection(from, to, breakAt)
 }

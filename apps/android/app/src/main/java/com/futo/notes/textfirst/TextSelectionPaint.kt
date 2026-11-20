@@ -73,7 +73,10 @@ internal fun TextFirstEditText.drawTextSelectionRow(canvas: Canvas, l: Layout, t
         // Joined into the text's own outline: two shapes side by side would show a seam where they meet.
         val bounds = codeChrome.selectionRow
         path.computeBounds(bounds, true)
-        path.op(Path().apply { addRect(breakEdges.first, bounds.top, breakEdges.second, bounds.bottom, Path.Direction.CW) }, Path.Op.UNION)
+        val stub = codeChrome.selectionBreak
+        stub.rewind()
+        stub.addRect(breakEdges.first, bounds.top, breakEdges.second, bounds.bottom, Path.Direction.CW)
+        path.op(stub, Path.Op.UNION)
     }
     canvas.drawPath(path, paint)
 }

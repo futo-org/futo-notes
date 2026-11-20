@@ -60,10 +60,6 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
     }
 
     /**
-     * Typing made a block whose opening fence takes the next letters as its language (the third backtick on a line,
-     * writes_language): its language field opens on that block, as !300 focused it. Once the block is drawn.
-     */
-    /**
      * A fence just typed or made: its language field takes the caret before the block's first frame, so no frame shows
      * the caret in its body. Its header's targets come from drawing, so they are drawn first, on nothing.
      */
