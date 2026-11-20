@@ -110,4 +110,4 @@ internal fun TextFirstEditText.refreshWidthDependentSpans() {
     requestImageLoads()
 }
 
-internal fun TextFirstEditText.contentWidth(): Int = maxOf(1, width - totalPaddingLeft - totalPaddingRight - style.dp(4f).toInt())
+internal fun TextFirstEditText.contentWidth(): Int = maxOf(1, width - totalPaddingLeft - totalPaddingRight)
