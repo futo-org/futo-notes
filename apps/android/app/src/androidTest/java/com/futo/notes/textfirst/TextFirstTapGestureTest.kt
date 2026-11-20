@@ -131,12 +131,13 @@ class TextFirstTapGestureTest {
             controller.sourceText()
         }
         assertEquals(raw, controller.sourceText())
-        assertEquals("Pack" + TextFirstEditText.END_SENTINEL, text)
+        assertEquals("\uFFFCPack" + TextFirstEditText.END_SENTINEL, text)
         withTimeout(5_000) { while (view.layout.getLineEnd(0) != view.length()) delay(20) }
         val l = view.layout
         val top = view.totalPaddingTop
-        val edge = view.totalPaddingLeft + l.getParagraphLeft(0)
-        val x = edge - view.style.listIndent / 2
+        // The checkbox is the item's marker unit; its text starts where the unit ends.
+        val edge = view.totalPaddingLeft + l.getPrimaryHorizontal(1)
+        val x = edge - view.editableText.getSpans(0, 1, TfListMarker::class.java).single().width / 2f
         val rowY = top + l.height / 2f
         val below = top + l.height + view.style.dp(150f)
         assertTrue(below < view.height)
@@ -150,7 +151,7 @@ class TextFirstTapGestureTest {
         assertEquals("- [x] Pack", controller.sourceText())
         controller.undo()
         assertEquals(raw, controller.sourceText())
-        controller.select(4)
+        controller.select(5)
         textFirstIme(controller, connection = input) { commitText(" parcel".repeat(20), 1) }
         val wrapped = controller.sourceText()
         withTimeout(5_000) { while (view.layout.lineCount < 2) delay(20) }

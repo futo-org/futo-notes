@@ -150,8 +150,11 @@ class TextFirstGlyphMetricsTest {
         try {
             for (depth in listOf(0, 1, 4, 7, 14, 20)) for (rtl in listOf(false, true)) for (number in listOf(9L, 10L, 99L, 100L, 999999999L)) {
                 val view = TextFirstEditText(context, look, images)
-                view.apply(UiUpdate(1, if (rtl) "אבג\n" else "Box\n", emptyList(), 0, 0, -1, -1,
-                    listOf(StyleWindow(0, 4, listOf(SpanSpec.ListRow(0, 4, depth, ListMarker.Ordered, "$number.", false, true)))), 0L))
+                view.apply(UiUpdate(1, if (rtl) "\uFFFCאבג\n" else "\uFFFCBox\n", emptyList(), 0, 0, -1, -1,
+                    listOf(StyleWindow(0, 5, listOf(
+                        SpanSpec.ListRow(0, 5, depth, ListMarker.Ordered, "$number.", false, true),
+                        SpanSpec.ListItemMarker(0, 1, depth, ListMarker.Ordered, "$number.", false),
+                    ))), 0L))
                 val width = look.dp(360f).toInt()
                 val height = look.dp(160f).toInt()
                 layOut(view, width, height)
@@ -162,7 +165,7 @@ class TextFirstGlyphMetricsTest {
                     fullMarker.eraseColor(Color.WHITE)
                     view.draw(Canvas(actual))
                     val text = view.editableText
-                    val marker = text.getSpans(0, 1, TfList::class.java).single()
+                    val marker = text.getSpans(0, 1, TfListMarker::class.java).single()
                     val top = view.totalPaddingTop + view.layout.getLineTop(0)
                     val baseline = view.totalPaddingTop + view.layout.getLineBaseline(0)
                     val bottom = view.totalPaddingTop + view.layout.getLineBottom(0)
@@ -170,11 +173,9 @@ class TextFirstGlyphMetricsTest {
                     // view must retain all marker ink, including its first digit.
                     val dir = view.layout.getParagraphDirection(0)
                     assertEquals(if (rtl) -1 else 1, dir)
-                    val edge = view.totalPaddingLeft + if (rtl) view.layout.width else 0
-                    marker.drawLeadingMargin(Canvas(fullMarker), TextPaint(), edge, dir,
-                        top, baseline, bottom, text, 0, 4, true, view.layout)
-                    val body = view.totalPaddingLeft + view.layout.getPrimaryHorizontal(0).toInt()
-                    val margin = if (rtl) body + 1 until width else 0 until body
+                    val runLeft = view.totalPaddingLeft + minOf(view.layout.getPrimaryHorizontal(0), view.layout.getPrimaryHorizontal(1))
+                    marker.draw(Canvas(fullMarker), text, 0, 1, runLeft, top, baseline, bottom, TextPaint())
+                    val margin = 0 until width
                     var ink = 0
                     for (y in top until bottom) for (x in margin) {
                         if (fullMarker.getPixel(x, y) == Color.GRAY) {
@@ -196,21 +197,24 @@ class TextFirstGlyphMetricsTest {
         val images = ImageLoader(context, context.cacheDir)
         try {
             val view = TextFirstEditText(context, look, images)
-            val body = "Parcel ".repeat(10) + "\n"
-            fun windows(number: Long) = listOf(StyleWindow(0, body.length,
-                listOf(SpanSpec.ListRow(0, body.length, 0, ListMarker.Ordered, "$number.", false, true))))
+            val body = "\uFFFC" + "Parcel ".repeat(10) + "\n"
+            fun windows(number: Long) = listOf(StyleWindow(0, body.length, listOf(
+                SpanSpec.ListRow(0, body.length, 0, ListMarker.Ordered, "$number.", false, true),
+                SpanSpec.ListItemMarker(0, 1, 0, ListMarker.Ordered, "$number.", false),
+            )))
             view.apply(UiUpdate(1, body, emptyList(), 0, 0, -1, -1, windows(9), 0L))
             val width = view.totalPaddingLeft + view.totalPaddingRight + kotlin.math.ceil(look.listIndent + view.paint.measureText("Parcel Parcel")).toInt() + 1
             val height = look.dp(500f).toInt()
             layOut(view, width, height)
-            val narrowX = view.layout.getPrimaryHorizontal(0)
+            // The item's text starts after its marker unit.
+            val narrowX = view.layout.getPrimaryHorizontal(1)
             val narrowEnd = view.layout.getLineEnd(0)
             view.apply(UiUpdate(2, null, emptyList(), 0, 0, -1, -1, windows(100), 0L))
-            assertTrue("a wider number reserves its complete glyphs", view.layout.getPrimaryHorizontal(0) > narrowX)
+            assertTrue("a wider number reserves its complete glyphs", view.layout.getPrimaryHorizontal(1) > narrowX)
             assertTrue("metadata-only width changes reflow the existing Layout", view.layout.getLineEnd(0) < narrowEnd)
-            assertEquals("the wrapped body hangs at the same text column", view.layout.getPrimaryHorizontal(0), view.layout.getPrimaryHorizontal(view.layout.getLineStart(1)), 0f)
+            assertEquals("the wrapped body hangs at the same text column", view.layout.getPrimaryHorizontal(1), view.layout.getPrimaryHorizontal(view.layout.getLineStart(1)), 0f)
             view.apply(UiUpdate(3, null, emptyList(), 0, 0, -1, -1, windows(9), 0L))
-            assertEquals(narrowX, view.layout.getPrimaryHorizontal(0), 0f)
+            assertEquals(narrowX, view.layout.getPrimaryHorizontal(1), 0f)
             assertEquals(narrowEnd, view.layout.getLineEnd(0))
             assertEquals(body + TextFirstEditText.END_SENTINEL, view.text.toString())
         } finally { images.shutdown() }
@@ -222,12 +226,14 @@ class TextFirstGlyphMetricsTest {
         try {
             for (kind in listOf(ListMarker.Bullet, ListMarker.Ordered, ListMarker.Task)) for (depth in listOf(0, 3, 4, 7, 8, 14, 20)) for (rtl in listOf(false, true)) {
                 val line = if (rtl) "אריזה למשלוח\n" else "Parcel ready\n"
-                val body = line + line
+                val first = "\uFFFC" + line
+                val body = first + line
                 val view = TextFirstEditText(context, look, images)
                 view.apply(UiUpdate(1, body, emptyList(), 0, 0, -1, -1,
                     listOf(StyleWindow(0, body.length, listOf(
-                        SpanSpec.ListRow(0, line.length, depth, kind, "1.", false, true),
-                        SpanSpec.ListRow(line.length, body.length, depth, kind, "1.", false, false),
+                        SpanSpec.ListRow(0, first.length, depth, kind, "1.", false, true),
+                        SpanSpec.ListItemMarker(0, 1, depth, kind, "1.", false),
+                        SpanSpec.ListRow(first.length, body.length, depth, kind, "1.", false, false),
                     ))), 0L))
                 val width = look.dp(360f).toInt()
                 val height = look.dp(120f).toInt()
@@ -236,18 +242,19 @@ class TextFirstGlyphMetricsTest {
                 val normal = minOf(levels, 4)
                 val compact = (levels - 4).coerceIn(0, 4)
                 val expected = (look.textSizePx * (normal * 1.4f + compact * 0.7f)).toInt()
-                val at = view.layout.getPrimaryHorizontal(0)
+                // The body starts after the marker unit.
+                val at = view.layout.getPrimaryHorizontal(1)
                 val indent = if (rtl) view.layout.width - at else at
                 assertEquals("$kind depth$depth rtl$rtl: bounded native body indent", expected.toFloat(), indent, 0f)
-                assertEquals("$kind depth$depth: a short phrase still fits", line.length, view.layout.getLineEnd(0))
-                assertEquals("physical continuation hangs at the same body column", at, view.layout.getPrimaryHorizontal(line.length), 0f)
+                assertEquals("$kind depth$depth: a short phrase still fits", first.length, view.layout.getLineEnd(0))
+                assertEquals("physical continuation hangs at the same body column", at, view.layout.getPrimaryHorizontal(first.length), 0f)
                 // Inside the band the selection is drawn on (overlayBand).
                 val y = view.totalPaddingTop + view.overlayBand(view.layout, view.editableText, 0).first.toInt() + 2
                 val lead = look.textSizePx * (normal * 1.4f + compact * 0.7f) - look.listIndent
                 val x = if (rtl) width - view.totalPaddingRight - lead.toInt() - 2 else view.totalPaddingLeft + lead.toInt() + 2
                 val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                 try {
-                    android.text.Selection.setSelection(view.editableText, 0, line.length)
+                    android.text.Selection.setSelection(view.editableText, 0, first.length)
                     bitmap.eraseColor(Color.WHITE)
                     view.draw(Canvas(bitmap))
                     assertEquals("full row selection includes the bounded marker", androidx.core.graphics.ColorUtils.compositeColors(look.selectionColor, Color.WHITE), bitmap.getPixel(x, y))
