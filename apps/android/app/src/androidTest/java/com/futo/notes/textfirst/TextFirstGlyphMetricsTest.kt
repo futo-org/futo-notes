@@ -262,7 +262,8 @@ class TextFirstGlyphMetricsTest {
                 assertEquals("$kind depth$depth rtl$rtl: bounded native body indent", expected.toFloat(), indent, 0f)
                 assertEquals("$kind depth$depth: a short phrase still fits", line.length, view.layout.getLineEnd(0))
                 assertEquals("physical continuation hangs at the same body column", at, view.layout.getPrimaryHorizontal(line.length), 0f)
-                val y = view.totalPaddingTop + view.layout.getLineTop(0) + 2
+                // Inside the band the selection is drawn on (overlayBand).
+                val y = view.totalPaddingTop + view.overlayBand(view.layout, view.editableText, 0).first.toInt() + 2
                 val lead = look.textSizePx * (normal * 1.4f + compact * 0.7f) - look.listIndent
                 val x = if (rtl) width - view.totalPaddingRight - lead.toInt() - 2 else view.totalPaddingLeft + lead.toInt() + 2
                 val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)

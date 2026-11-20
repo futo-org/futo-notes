@@ -21,13 +21,14 @@ internal fun TextFirstEditText.drawInlineCodeChips(canvas: Canvas, fromY: Int, t
     val e = editableText ?: return
     val from = l.getLineStart(l.getLineForVertical(maxOf(0, fromY)))
     val to = l.getLineEnd(l.getLineForVertical(maxOf(0, toY)))
-    val chips = e.getSpans(from, to, TfInline::class.java).filter { it.code }
-    if (chips.isEmpty()) return
+    val chips = e.getSpans(from, to, TfInline::class.java)
+    if (chips.none { it.code }) return
     val chip = codeChrome.inlineChip
     chip.fill.color = (style.textColor and 0x00ffffff) or CHIP_ALPHA
     val save = canvas.save()
     canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
     for (span in chips) {
+        if (!span.code) continue
         val start = e.getSpanStart(span)
         val end = e.getSpanEnd(span)
         for (line in l.getLineForOffset(start)..l.getLineForOffset(maxOf(start, end - 1))) chip.drawRow(this, canvas, l, e, line, start, end)

@@ -344,7 +344,8 @@ internal class TfImage(
     override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
         val (w, h) = drawSize()
         if (fm != null) {
-            fm.ascent = -h - photoRowRoom(look)
+            // Sharing its row (text, another photo), the photo takes only its own height; alone, chooseHeight sets the row.
+            fm.ascent = -h
             fm.top = fm.ascent
             fm.descent = look.dp(4f).toInt()
             fm.bottom = fm.descent
@@ -359,12 +360,14 @@ internal class TfImage(
     override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
         val spanned = text as? Spanned ?: return
         var stop = end
-        while (stop > start && (text[stop - 1] == '\n' || text[stop - 1] == '\r')) stop--
+        // Nor the note's end sentinel, after a photo that ends the note.
+        while (stop > start && (text[stop - 1] == '\n' || text[stop - 1] == '\r' || text[stop - 1] == TextFirstEditText.END_SENTINEL[0])) stop--
         if (spanned.getSpanStart(this) != start || spanned.getSpanEnd(this) != stop) return
         val h = drawSize().second
         fm.ascent = -h - photoRowRoom(look)
         fm.top = fm.ascent
-        fm.descent = photoRowRoom(look) - look.bodyLineSpacing
+        // The note's last row gets no line spacing from the TextView.
+        fm.descent = photoRowRoom(look) - if (end >= text.length) 0 else look.bodyLineSpacing
         fm.bottom = fm.descent
     }
 

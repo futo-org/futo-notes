@@ -40,7 +40,8 @@ class TextFirstImageTintTest {
     private fun changed(before: Int, after: Int): Boolean =
         maxOf(Math.abs(Color.red(before) - Color.red(after)), Math.abs(Color.green(before) - Color.green(after)), Math.abs(Color.blue(before) - Color.blue(after))) > 24
 
-    private suspend fun tintCoversThePicture(c: TextFirstController) {
+    /** [slack]: a photo on a fractional x (a right-to-left row) blends its edge column, which the exact colour misses. */
+    private suspend fun tintCoversThePicture(c: TextFirstController, slack: Int = 0) {
         val view = c.view
         withContext(Dispatchers.Main) { view.isFocusableInTouchMode = true; view.requestFocus() }
         withTimeout(5_000) { while (view.layout == null) delay(20) }
@@ -58,7 +59,8 @@ class TextFirstImageTintTest {
         delay(300)
         val selected = render(view)
         val tint = bounds(plain.width, plain.height) { x, y -> changed(plain.getPixel(x, y), selected.getPixel(x, y)) }
-        assertEquals("the tint's rect is the picture's", picture, tint)
+        val edges = listOf(picture.left - tint.left, picture.top - tint.top, picture.right - tint.right, picture.bottom - tint.bottom)
+        assertTrue("the tint's rect $tint is the picture's $picture", edges.all { Math.abs(it) <= slack })
     }
 
     /**
@@ -86,6 +88,26 @@ class TextFirstImageTintTest {
         val tint = bounds(plain.width, plain.height) { x, y -> changed(plain.getPixel(x, y), selected.getPixel(x, y)) }
         assertEquals("the tint's rect is the picture's", picture, tint)
     }
+
+    /** Batch 4 (C): a photo alone on its row has as much room above it as below it, the note's last row included. */
+    @Test fun aPictureAloneOnItsRowHasEqualRoomAboveAndBelow() {
+        for (note in listOf("before\n\n![a picture](picture.png)\n\nafter", "before\n\n![a picture](picture.png)")) textFirstSession(note, ::picture) { c ->
+            val view = c.view
+            withTimeout(5_000) { while (view.layout == null || view.editableText.getSpans(0, view.length(), TfImage::class.java).single().bitmap == null) delay(50) }
+            delay(300)
+            val l = view.layout
+            val e = view.editableText
+            val image = e.getSpans(0, e.length, TfImage::class.java).single()
+            val rect = android.graphics.RectF().also { imageDrawnRect(l, e, image, it) }
+            val line = l.getLineForOffset(e.getSpanStart(image))
+            val above = rect.top - l.getLineTop(line)
+            val below = l.getLineBottom(line) - rect.bottom
+            assertEquals("room above and below the photo in ${note.replace("\n", "|")}", above, below, 1f)
+        }
+    }
+
+    /** Batch 4 (F): in a right-to-left row the tint was drawn rightward from the photo's right edge. */
+    @Test fun aPictureInARightToLeftLine() = textFirstSession("\u05e9\u05dc\u05d5\u05dd ![a picture](picture.png) \u05e2\u05d5\u05dc\u05dd\n\nnext", ::picture) { tintCoversThePicture(it, slack = 1) }
 
     @Test fun aPictureOnItsOwnLine() = textFirstSession("before\n\n![a picture](picture.png)\n\nafter", ::picture) { tintCoversThePicture(it) }
 
