@@ -66,8 +66,10 @@ internal fun TextFirstEditText.drawTableSelectionOver(canvas: Canvas) {
         val start = e.getSpanStart(row)
         if (e.getSpanEnd(row) <= shown.first || start >= shown.last) continue
         val line = l.getLineForOffset(start)
-        val left = l.getPrimaryHorizontal(start)
-        val right = minOf(left - row.scroll.x + row.row.columns * row.cellWidth, left + contentWidth())
+        // The grid as drawn: its start is its right side in a right-to-left row.
+        val x = l.getPrimaryHorizontal(start)
+        val left = if (l.isRtlCharAt(start)) x - row.drawnWidth else x
+        val right = minOf(left - row.scroll.x + row.row.columns * row.cellWidth, left + row.drawnWidth)
         if (right > left) canvas.drawRect(left, l.getLineTop(line).toFloat(), right, l.getLineBottom(line).toFloat(), paint)
     }
     canvas.restoreToCount(save)

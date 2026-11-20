@@ -30,6 +30,7 @@ private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditTe
     private val paint = TextPaint()
     private val visible = Rect()
     private val photo = Rect()
+    private val drawn = android.graphics.RectF()
     /** Beside a photo: the TextView draws its caret clipped to its text and under it, so the note draws it after all. */
     private var besidePhoto = false
     private var dueOverPhoto = false
@@ -101,12 +102,9 @@ private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditTe
             val start = text.getSpanStart(image)
             if (start != offset && text.getSpanEnd(image) != offset) continue
             if (image.bitmap == null || layout.getLineForOffset(start) != line) continue
-            val (width, height) = image.drawSize()
-            if (tallest != null && height <= photo.height()) continue
-            val x = layout.getPrimaryHorizontal(start).toInt()
-            val left = if (layout.isRtlCharAt(start)) x - width else x
-            val bottom = layout.getLineBaseline(line)
-            photo.set(left, bottom - height, left + width, bottom)
+            if (tallest != null && image.drawSize().second <= photo.height()) continue
+            if (!imageDrawnRect(layout, text, image, drawn)) continue
+            drawn.roundOut(photo)
             tallest = image
         }
         return tallest

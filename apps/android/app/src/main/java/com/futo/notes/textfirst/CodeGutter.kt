@@ -22,7 +22,8 @@ internal fun TextFirstEditText.drawCodeNumbers(canvas: Canvas, l: Layout, e: Spa
         val spanEnd = e.getSpanEnd(span)
         val line = l.getLineForOffset(spanStart)
         val dir = l.getParagraphDirection(line)
-        val edge = if (dir < 0) l.getParagraphRight(line).toFloat() else 0f
+        // The layout's own edge: a right-to-left paragraph's right already leaves out the gutter, which numberEnd counts.
+        val edge = if (dir < 0) l.width.toFloat() else 0f
         val on = isFocused && start >= 0 && isSelectionOnLine(start, end, spanStart, spanEnd, e)
         paint.color = if (on) look.codeNumberActiveColor else look.codeNumberColor
         paint.textAlign = if (dir < 0) Paint.Align.LEFT else Paint.Align.RIGHT
