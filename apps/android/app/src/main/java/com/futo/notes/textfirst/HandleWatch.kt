@@ -1,6 +1,7 @@
 package com.futo.notes.textfirst
 
 import android.os.Build
+import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -19,40 +20,54 @@ import android.view.inspector.WindowInspector
 internal class HandleWatch(private val view: TextFirstEditText, private val edge: CaretEdgeScroll) {
     /** Each handle's window root, kept until the note detaches: the platform hides and shows the same window again. */
     private val handles = HashMap<View, View>()
-    /** The end the handle being held moves, from where it was taken; null with no handle held. */
-    private var holding: CaretEdgeScroll.End? = null
+    /** The end each handle being held moves, from where it was taken (two fingers may hold both). */
+    private val holding = HashMap<View, CaretEdgeScroll.End>()
 
-    private val listener = View.OnTouchListener { _, event ->
+    private val listener = View.OnTouchListener { handle, event ->
         val at = IntArray(2).also(view::getLocationOnScreen)
         val x = event.rawX - at[0]
         val y = event.rawY - at[1]
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> holding = edge.nearerEnd(x, y)
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { holding = null; edge.release(); view.removeCallbacks(lost) }
+            MotionEvent.ACTION_DOWN -> edge.nearerEnd(x, y).let { holding[handle] = it; edge.grab(it, x, y, belowCaret = true) }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (holding.remove(handle) == edge.grabbed) edge.release()
         }
+        val end = holding[handle]
+        if (event.actionMasked != MotionEvent.ACTION_MOVE || end == null) return@OnTouchListener false
+        if (edge.grabbed != end) edge.grab(end, x, y, belowCaret = true)
         // In an edge zone the scroll places the end: the handle's own step back to the row it stands on would undo it.
-        event.actionMasked == MotionEvent.ACTION_MOVE && holding?.let { edge.follow(it, x, y) } == true
+        edge.follow(x, y)
     }
-
-    /** A held handle whose window went and has not come back within [LOST_MS]: the finger is no longer reported. */
-    private val lost = Runnable { holding = null; edge.release() }
 
     private val shown = object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(root: View) {
-            view.removeCallbacks(lost)
-            handles[root]?.setOnTouchListener(listener)
-        }
+        override fun onViewAttachedToWindow(root: View) { handles[root]?.setOnTouchListener(listener) }
         override fun onViewDetachedFromWindow(root: View) {
-            // Held, it comes back with the same finger (its UP still arrives); the scroll goes on meanwhile.
-            if (holding != null) { view.postDelayed(lost, LOST_MS); return }
-            handles[root]?.setOnTouchListener(null)
+            // A held handle the platform hides (its end out of view) still gets its finger's moves and UP.
+            handles[root]?.let { if (it !in holding) it.setOnTouchListener(null) }
         }
     }
 
-    /** Handles may have appeared (a tap placed the caret, a selection was made): watch any not watched yet. */
-    fun look() {
-        if (Build.VERSION.SDK_INT < 29 || !view.isFocused || !view.isAttachedToWindow) return
-        val token = view.windowToken ?: return
+    private var searchUntil = 0L
+    private val search = Runnable { if (look() == 0 && SystemClock.uptimeMillis() < searchUntil) searchNextFrame() }
+
+    /**
+     * A lift may show a handle, at once or once no second tap can follow (a tap on the caret, a swipe that brings a
+     * selection back, each in a window the platform makes then): look on each frame for [SEARCH_MS], stopping at the
+     * first one found.
+     */
+    fun searchAfterLift() {
+        if (Build.VERSION.SDK_INT < 29) return
+        searchUntil = SystemClock.uptimeMillis() + SEARCH_MS
+        view.removeCallbacks(search)
+        searchNextFrame()
+    }
+
+    private fun searchNextFrame(): Unit = view.postOnAnimation(search)
+
+    /** Handles may have appeared (a tap placed the caret, a selection was made): watch any not watched yet; how many. */
+    fun look(): Int {
+        if (Build.VERSION.SDK_INT < 29 || !view.isFocused || !view.isAttachedToWindow) return 0
+        val token = view.windowToken ?: return 0
+        var found = 0
         for (root in WindowInspector.getGlobalWindowViews()) {
             if (root === view.rootView || root in handles) continue
             val params = root.layoutParams as? WindowManager.LayoutParams ?: continue
@@ -61,18 +76,20 @@ internal class HandleWatch(private val view: TextFirstEditText, private val edge
             handle.setOnTouchListener(listener)
             root.addOnAttachStateChangeListener(shown)
             handles[root] = handle
+            found++
         }
+        return found
     }
 
     /** The note left its window: nothing stays attached to the handles or their windows. */
     fun detach() {
-        view.removeCallbacks(lost)
+        view.removeCallbacks(search)
         for ((root, handle) in handles) {
             root.removeOnAttachStateChangeListener(shown)
             handle.setOnTouchListener(null)
         }
         handles.clear()
-        holding = null
+        holding.clear()
         edge.release()
     }
 
@@ -87,6 +104,6 @@ internal class HandleWatch(private val view: TextFirstEditText, private val edge
     }
 
     private companion object {
-        const val LOST_MS = 1_500L
+        const val SEARCH_MS = 1_000L
     }
 }

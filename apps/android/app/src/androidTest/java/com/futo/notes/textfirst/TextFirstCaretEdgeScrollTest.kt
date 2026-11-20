@@ -19,7 +19,7 @@ class TextFirstCaretEdgeScrollTest {
     private val note = (1..30).joinToString("") { "line $it above\n" } + "\n![tall](tall.png)\n\nafter photo\n" + (1..30).joinToString("\n") { "below $it" }
 
     /** Tap [word] to put the caret there with the keyboard up, then carry its insertion handle to [edge] (screen y) and hold it. */
-    private fun BlockDragRig.carryHandle(word: String, edge: () -> Float) {
+    private fun BlockDragRig.carryHandle(word: String, retap: Boolean = false, edge: () -> Float) {
         compose.waitUntil(5_000) { ui { view.text!!.getSpans(0, view.length(), TfImage::class.java).all { it.bitmap != null } } }
         ui { view.scrollTo(0, (view.boundaryY(BlockSlot(view.text.toString().indexOf(word), false))!! - view.height * 0.5f).toInt().coerceAtLeast(0)) }
         SystemClock.sleep(300)
@@ -28,6 +28,13 @@ class TextFirstCaretEdgeScrollTest {
         compose.waitUntil(5_000) { ui { view.isFocused && view.selectionStart == view.selectionEnd } }
         // The keyboard rises and the caret is revealed above it.
         SystemClock.sleep(1_200)
+        if (retap) {
+            // The handle hides on its own; a tap on the caret brings it back, in a window the platform makes anew.
+            SystemClock.sleep(5_000)
+            val caret = at(ui { view.selectionStart })
+            down(caret); up(caret)
+            SystemClock.sleep(1_000)
+        }
         val handle = ui {
             val l = view.layout
             val line = l.getLineForOffset(view.selectionStart)
@@ -119,5 +126,14 @@ class TextFirstCaretEdgeScrollTest {
         val caret = ui { view.selectionStart }
         up(PointF(0f, noteTop()))
         assertTrue("the caret at $caret passed above the code block at $code", caret < code)
+    }
+
+    @Test
+    fun aHandleATapBroughtBackScrollsPastATallPhoto() = compose.openDragScreen(note, mapOf("tall.png" to png(900, 2400))) {
+        carryHandle("after photo", retap = true) { noteTop() }
+        val image = ui { view.text.toString().indexOf("line 30 above") + "line 30 above".length + 1 }
+        val caret = ui { view.selectionStart }
+        up(PointF(0f, noteTop()))
+        assertTrue("the caret at $caret passed above the photo at $image", caret < image)
     }
 }
