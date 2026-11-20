@@ -1,6 +1,7 @@
 //! Keys in a table. Tab, Shift+Tab and Enter move between cells (a move is
 //! a selection change with no edit); entering a cell a short row lacks gives
-//! the row the cells up to it, and leaving the last row appends one.
+//! the row the cells up to it, and leaving the last row appends one. A host
+//! enters a cell by its row's position and column the same way.
 //! Backspace and Delete at a caret never remove a pipe, the line break
 //! between two of a table's lines or the one after its delimiter row.
 use super::super::super::command::{Command, Edit};
@@ -9,8 +10,8 @@ use super::delimiter_row::is_delimiter_row;
 use super::{Cell, Row, Table};
 use crate::lines::{Kind, TableRole};
 use crate::{
-    CaretDirection, DisplayRange, EditorError, ParagraphKey, Revision, SelectionChange, SourceEdit,
-    TableKey, TableOutcome, ViewChange,
+    CaretDirection, DisplayOffset, DisplayRange, EditorError, ParagraphKey, Revision,
+    SelectionChange, SourceEdit, TableKey, TableOutcome, ViewChange,
 };
 use std::ops::Range;
 
@@ -180,6 +181,47 @@ impl Engine {
         let Some((command, read)) = self.cell_key(self.selection, key) else {
             return Ok(None);
         };
+        self.table_step(expected, command, read, accept)
+    }
+
+    /// Put the caret in cell `column` of the header or body row at display
+    /// `at`, as a table key enters a cell (`enter_cell`): a selection move
+    /// when the row has the cell, else one accepted edit that gives the row
+    /// empty cells up to it. `None` off a header or body row, and for a
+    /// column at or past the table's count.
+    pub(crate) fn enter_table_cell(
+        &mut self,
+        expected: Revision,
+        at: DisplayOffset,
+        column: usize,
+        accept: Accept,
+    ) -> Result<Option<TableOutcome>, EditorError> {
+        self.check_revision(expected)?;
+        if self.composition.is_some() {
+            return Err(EditorError::CompositionActive);
+        }
+        let caret = DisplayRange { start: at, end: at };
+        self.check_display_range(caret)?;
+        let Some((table, row)) = self.row_at(caret) else {
+            return Ok(None);
+        };
+        if column >= table.width {
+            return Ok(None);
+        }
+        let command = enter_cell(&table, row, column);
+        self.table_step(expected, command, table.read, accept)
+    }
+
+    /// A table key's or entered cell's command applied: one with no edits
+    /// moves the selection; any other is one accepted edit, its view
+    /// counting the `read` source bytes that found the table.
+    fn table_step(
+        &mut self,
+        expected: Revision,
+        command: Command,
+        read: usize,
+        accept: Accept,
+    ) -> Result<Option<TableOutcome>, EditorError> {
         if command.edits.is_empty() {
             return self
                 .move_to(expected, command.selection)
