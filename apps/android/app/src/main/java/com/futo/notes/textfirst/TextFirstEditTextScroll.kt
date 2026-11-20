@@ -83,3 +83,23 @@ internal fun TextFirstEditText.visibleChars(): IntRange? {
     val last = l.getLineForVertical(top + 2 * height)
     return l.getLineStart(first)..l.getLineEnd(last)
 }
+
+internal fun TextFirstEditText.restorePinnedViewport(): Unit {
+    val anchor = pinned ?: return
+    val y = anchorY(anchor) ?: return
+    if (y != scrollY) scrollTo(scrollX, y)
+}
+
+/** Images and dividers need remeasuring at the new width, or their lines keep stale heights. */
+internal fun TextFirstEditText.resizeEditorViewport(
+    widthChanged: Boolean,
+    height: Int,
+    previousHeight: Int,
+): Unit {
+    if (height > previousHeight) clampScrollToNote()
+    if (height < previousHeight && isFocused && caretWasInView(previousHeight)) {
+        reveal.again()
+        bringPointIntoView(selectionEnd)
+    }
+    if (widthChanged) refreshWidthDependentSpans()
+}

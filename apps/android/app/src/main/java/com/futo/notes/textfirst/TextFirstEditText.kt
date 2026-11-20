@@ -9,6 +9,7 @@ import android.text.Selection
 import android.text.Spannable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.inputmethod.EditorInfo
@@ -235,9 +236,7 @@ internal class TextFirstEditText(
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)
         blockLift.relayout()
-        val anchor = pinned ?: return
-        val y = anchorY(anchor) ?: return
-        if (y != scrollY) scrollTo(scrollX, y)
+        restorePinnedViewport()
     }
 
 
@@ -290,14 +289,9 @@ internal class TextFirstEditText(
     }
 
 
-    // Images and dividers size to the content width; a new width re-measures
-    // their lines (one measured while the view was not laid out yet would
-    // otherwise keep a stale height).
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        if (h > oldh) clampScrollToNote()
-        if (h < oldh && isFocused && caretWasInView(oldh)) { reveal.again(); bringPointIntoView(selectionEnd) }
-        if (w != oldw) refreshWidthDependentSpans()
+        resizeEditorViewport(w != oldw, h, oldh)
     }
 
     // ---- view → engine ----
@@ -332,6 +326,14 @@ internal class TextFirstEditText(
 
     /** The platform's own touch handling, under the note's handlers (TextFirstEditTextTouch.kt). */
     internal fun nativeTouch(event: MotionEvent): Boolean = super.onTouchEvent(event)
+
+    override fun performHapticFeedback(feedbackConstant: Int, flags: Int): Boolean {
+        if (feedbackConstant == HapticFeedbackConstants.TEXT_HANDLE_MOVE && caretEdge.isDriving) return false
+        return super.performHapticFeedback(feedbackConstant, flags)
+    }
+
+    internal fun performEdgeLineTick(): Boolean =
+        super.performHapticFeedback(HapticFeedbackConstants.TEXT_HANDLE_MOVE, 0)
 
     override fun computeScroll() {
         super.computeScroll()

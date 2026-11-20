@@ -19,8 +19,8 @@ class TextFirstCaretEdgeScrollTest {
 
     private val note = (1..30).joinToString("") { "line $it above\n" } + "\n![tall](tall.png)\n\nafter photo\n" + (1..30).joinToString("\n") { "below $it" }
 
-    /** Tap [word] to put the caret there with the keyboard up, then carry its insertion handle to [edge] (screen y) and hold it. */
-    private fun BlockDragRig.carryHandle(word: String, retap: Boolean = false, edge: () -> Float) {
+    /** Tap [word] to put the caret there with the keyboard up, then carry its insertion handle to [edge] (screen y). */
+    private fun BlockDragRig.carryHandle(word: String, retap: Boolean = false, edge: () -> Float): PointF {
         compose.waitUntil(5_000) { ui { view.text!!.getSpans(0, view.length(), TfImage::class.java).all { it.bitmap != null } } }
         ui { view.scrollTo(0, (view.boundaryY(BlockSlot(view.text.toString().indexOf(word), false))!! - view.height * 0.5f).toInt().coerceAtLeast(0)) }
         SystemClock.sleep(300)
@@ -44,9 +44,13 @@ class TextFirstCaretEdgeScrollTest {
                 loc[1] + view.totalPaddingTop - view.scrollY + l.getLineBottom(line) + view.style.dp(14f))
         }
         down(handle)
-        moveTo(handle, PointF(handle.x, edge()), steps = 10)
-        // Held still in the zone: a few moves in place, as a resting finger sends.
-        repeat(15) { hold(100); moveTo(PointF(handle.x, edge()), PointF(handle.x, edge()), steps = 1) }
+        val point = PointF(handle.x, edge())
+        moveTo(handle, point, steps = 10)
+        return point
+    }
+
+    private fun BlockDragRig.holdHandleAtEdge(point: PointF): Unit {
+        repeat(15) { hold(100); moveTo(point, point, steps = 1) }
     }
 
     private fun BlockDragRig.noteTop() = ui { IntArray(2).also(view::getLocationOnScreen)[1] + view.style.dp(8f) }
@@ -54,7 +58,13 @@ class TextFirstCaretEdgeScrollTest {
 
     @Test
     fun aHandleHeldAtTheTopEdgeOverATallPhotoScrollsPastIt() = compose.openDragScreen(note, mapOf("tall.png" to png(900, 2400))) {
-        carryHandle("after photo") { noteTop() }
+        val point = carryHandle("after photo") { noteTop() }
+        ui {
+            val before = view.scrollY
+            view.bringPointIntoView(0)
+            assertEquals("a caret reveal must leave the edge ramp in control", before, view.scrollY)
+        }
+        holdHandleAtEdge(point)
         val image = ui { view.text.toString().indexOf("line 30 above") + "line 30 above".length + 1 }
         val caret = ui { view.selectionStart }
         up(PointF(0f, noteTop()))
@@ -63,7 +73,7 @@ class TextFirstCaretEdgeScrollTest {
 
     @Test
     fun aHandleHeldAtTheBottomEdgeOverATallPhotoScrollsPastIt() = compose.openDragScreen(note, mapOf("tall.png" to png(900, 2400))) {
-        carryHandle("line 30 above") { noteBottom() }
+        holdHandleAtEdge(carryHandle("line 30 above") { noteBottom() })
         val after = ui { view.text.toString().indexOf("after photo") }
         val caret = ui { view.selectionStart }
         up(PointF(0f, noteBottom()))
@@ -126,7 +136,7 @@ class TextFirstCaretEdgeScrollTest {
         (1..20).joinToString("") { "line $it above\n" } + "\n```js\n" + (1..6).joinToString("\n") { "const c$it = $it" } +
             "\n```\n\n| a | b |\n| --- | --- |\n" + (1..6).joinToString("") { "| r$it | s$it |\n" } + "\nafter table\n" + (1..20).joinToString("\n") { "below $it" },
     ) {
-        carryHandle("after table") { noteTop() }
+        holdHandleAtEdge(carryHandle("after table") { noteTop() })
         val code = ui { view.text.toString().indexOf("const c1") }
         val caret = ui { view.selectionStart }
         up(PointF(0f, noteTop()))
@@ -135,7 +145,7 @@ class TextFirstCaretEdgeScrollTest {
 
     @Test
     fun aHandleATapBroughtBackScrollsPastATallPhoto() = compose.openDragScreen(note, mapOf("tall.png" to png(900, 2400))) {
-        carryHandle("after photo", retap = true) { noteTop() }
+        holdHandleAtEdge(carryHandle("after photo", retap = true) { noteTop() })
         val image = ui { view.text.toString().indexOf("line 30 above") + "line 30 above".length + 1 }
         val caret = ui { view.selectionStart }
         up(PointF(0f, noteTop()))

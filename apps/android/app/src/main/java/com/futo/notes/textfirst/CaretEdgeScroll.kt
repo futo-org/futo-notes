@@ -4,6 +4,7 @@ import android.text.Selection
 import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import kotlin.math.abs
 
 /**
  * A caret or selection end carried to the note's top or bottom edge scrolls the note at the block drag's ramp
@@ -29,9 +30,11 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
     /** The range a hold selected before it dragged: its far end stays put whichever way the drag goes. */
     private var held = 0..0
     private var velocity = 0f
-    private var running = false
+    var isDriving = false
+        private set
     private var lastFrame = 0L
-    private var remainder = 0f
+    private val frameStep = CaretEdgeFrameStep()
+    private val haptics = CaretEdgeHaptics()
     private val frame = Choreographer.FrameCallback { now -> step(now) }
 
     private var downTime = 0L
@@ -69,11 +72,14 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
         velocity = BlockAutoscroll.velocity(y, 0f, view.height.toFloat(), view.style.density)
         // Out of the zones a crossed end follows the finger here: its handle no longer moves it.
         if (velocity == 0f) { stop(); if (crossed) land(); return false }
-        if (velocity < 0 && view.scrollY == 0 || velocity > 0 && view.scrollY >= view.maxScrollY()) return false
-        if (running) return true
-        running = true
+        if (velocity < 0 && view.scrollY == 0 || velocity > 0 && view.scrollY >= view.maxScrollY()) {
+            stop()
+            return false
+        }
+        if (isDriving) return true
+        isDriving = true
         lastFrame = 0L
-        remainder = 0f
+        frameStep.reset()
         Choreographer.getInstance().postFrameCallback(frame)
         return true
     }
@@ -142,29 +148,27 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
 
     private fun stop() {
         velocity = 0f
-        if (!running) return
-        running = false
+        if (!isDriving) return
+        isDriving = false
         Choreographer.getInstance().removeFrameCallback(frame)
     }
 
     private fun step(now: Long) {
-        if (!running) return
+        if (!isDriving) return
         if (lastFrame != 0L) {
-            remainder += BlockAutoscroll.step(velocity, (now - lastFrame) / 1e9f)
-            val dy = remainder.toInt()
-            remainder -= dy
+            val dy = frameStep.scrollPixels(velocity, now - lastFrame)
             val before = view.scrollY
             if (dy != 0) view.scroll.dragBy(dy)
-            if (view.scrollY != before) land()
+            if (view.scrollY != before) land(now)
             // At the note's top or end: no frames until the finger asks again.
-            else if (dy != 0) { running = false; return }
+            else if (dy != 0) { isDriving = false; return }
         }
         lastFrame = now
         Choreographer.getInstance().postFrameCallback(frame)
     }
 
     /** The dragged end onto the caret stop nearest the finger, the note as it is scrolled now. */
-    private fun land() {
+    private fun land(frameNanos: Long? = null): Unit {
         val text = view.editableText ?: return
         val l = view.layout ?: return
         val at = view.getOffsetForPosition(fingerX, landingY())
@@ -186,8 +190,20 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
         }
         if (from == view.selectionStart && to == view.selectionEnd) return
         // The scroll put the end there, under the finger: revealing it (a photo's row, taller than the zone) would scroll back.
+        val previousOffset = draggedOffset()
         view.reveal.hold(from, to)
         Selection.setSelection(text, from, to)
+        if (frameNanos == null) return
+        val lineChanged = l.getLineForOffset(previousOffset) != l.getLineForOffset(draggedOffset())
+        if (haptics.allowLineTick(lineChanged, abs(velocity) / view.lineHeight, frameNanos)) {
+            view.performEdgeLineTick()
+        }
+    }
+
+    private fun draggedOffset(): Int = if (end == End.CARET || view.selectionStart == anchor) {
+        view.selectionEnd
+    } else {
+        view.selectionStart
     }
 
     /** The view y the dragged end lands at: its caret's row under the finger, kept inside the note. */
