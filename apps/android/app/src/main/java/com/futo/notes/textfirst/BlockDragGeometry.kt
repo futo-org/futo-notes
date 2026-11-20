@@ -161,3 +161,41 @@ internal fun TextFirstEditText.holdDropLine(hold: DropHold) {
     val y = totalPaddingTop + l.getLineTop(l.getLineForOffset(start))
     scrollTo(scrollX, (y - hold.top).coerceIn(0, maxScrollY()))
 }
+
+/**
+ * The bounds of what a lifted block draws of display [start, end) between content y [top] and [bottom]: its code card,
+ * photo, table grid, markers, quote bars and the ink of its text, not the rows' spacing around them. Content
+ * coordinates; null when nothing is drawn there.
+ */
+internal fun TextFirstEditText.blockInkBounds(start: Int, end: Int, top: Float, bottom: Float): RectF? {
+    val height = kotlin.math.ceil(bottom - top).toInt()
+    if (height <= 0 || width <= 0) return null
+    val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ALPHA_8)
+    try {
+        val canvas = Canvas(bitmap)
+        canvas.translate(0f, -top)
+        canvas.clipRect(0f, top, width.toFloat(), bottom)
+        val layoutTop = (top - totalPaddingTop).toInt()
+        drawCodeBlocksForDrag(canvas, layoutTop, layoutTop + height)
+        drawLayoutRegion(canvas, start, end)
+        val alpha = java.nio.ByteBuffer.allocate(bitmap.rowBytes * height)
+        bitmap.copyPixelsToBuffer(alpha)
+        var left = width; var right = -1; var first = -1; var last = -1
+        for (y in 0 until height) {
+            val row = y * bitmap.rowBytes
+            for (x in 0 until width) {
+                if (alpha.get(row + x).toInt() and 0xff < INK_ALPHA) continue
+                if (x < left) left = x
+                if (x > right) right = x
+                if (first < 0) first = y
+                last = y
+            }
+        }
+        return if (right < 0) null else RectF(left.toFloat(), top + first, right + 1f, top + last + 1f)
+    } finally {
+        bitmap.recycle()
+    }
+}
+
+/** How opaque a drawn pixel is before it counts as the block's (anti-aliased fringes do not). */
+private const val INK_ALPHA = 24

@@ -31,11 +31,9 @@ internal class BlockDrag private constructor(
     private val photo: TfImage?,
     /** Where the card's content starts below the block's top: the part that showed at the lift. */
     private val cardFromTop: Float,
-    /** The finger at the lift, and the card's top-left then, in view coordinates. */
+    /** The finger at the lift, in view coordinates. */
     private val liftX: Float,
     private val liftY: Float,
-    private val cardX: Float,
-    private val cardY: Float,
 ) {
     val book = SlotBook().apply { add(plan.slots, plan.covered) }
     var slot: BlockSlot? = null
@@ -54,23 +52,39 @@ internal class BlockDrag private constructor(
     private var scale = ENTER_SCALE
     private var animator: ValueAnimator? = null
     private val d = view.style.density
-    private val padY = if (photo != null) 0f else CARD_PAD_Y_DP * d
+    /** The one margin between what the block draws and the card's edge, the same on all four sides for every kind. */
+    private val padY = CARD_INSET_DP * d
 
     /** The card's sides, the content y it shows from, how much it shows and whether that is cut short. */
     private class Card(val left: Float, val right: Float, val from: Float, val height: Float, val capped: Boolean)
     private var lastCard: Card? = null
+    /** The source the last card was measured from: its ink is drawn again only when the layout moves it. */
+    private var measuredFrom: RectF? = null
 
-    init { card() }
+    /** The card's top-left at the lift, in view coordinates: what the block draws stays where it was. */
+    private val cardX: Float
+    private val cardY: Float
 
-    /** The card as the block is laid out now (a photo decoding, a new width), at most 40% of the screen tall. */
+    init {
+        val card = card()
+        cardX = card.left - view.scrollX
+        cardY = card.from - padY - view.scrollY
+    }
+
+    /**
+     * The card as the block is laid out now (a photo decoding, a new width): what the block draws, from the part that
+     * showed at the lift, plus the one inset; at most 40% of the screen tall.
+     */
     private fun card(source: RectF? = sourceRect()): Card {
         if (source == null) return checkNotNull(lastCard)
+        lastCard?.let { if (source == measuredFrom) return it }
+        val shownTop = source.top + cardFromTop
+        val ink = view.blockInkBounds(plan.block.start, plan.block.end, shownTop, source.bottom)
+            ?: RectF(view.totalPaddingLeft.toFloat(), shownTop, (view.width - view.totalPaddingRight).toFloat(), source.bottom)
         val cap = view.resources.displayMetrics.heightPixels * MAX_SCREEN_FRACTION
-        val shows = maxOf(1f, if (photo != null) source.height() else source.height() - cardFromTop)
-        val left = if (photo != null) source.left else view.totalPaddingLeft - CARD_PAD_X_DP * d
-        val right = if (photo != null) source.right else view.width - view.totalPaddingRight + CARD_PAD_X_DP * d
-        val from = if (photo != null) source.top else source.top + cardFromTop
-        return Card(left, right, from, minOf(shows, cap), shows > cap).also { lastCard = it }
+        val shows = maxOf(1f, ink.height())
+        measuredFrom = RectF(source)
+        return Card(ink.left - padY, ink.right + padY, ink.top, minOf(shows, cap), shows > cap).also { lastCard = it }
     }
 
     /** The block's top and bottom as laid out now (a photo's own box), content coordinates. */
@@ -330,8 +344,8 @@ internal class BlockDrag private constructor(
         private const val ENTER_MS = 120L
         private const val RETURN_MS = 200L
         private const val CARD_RADIUS_DP = 14f
-        private const val CARD_PAD_X_DP = 6f
-        private const val CARD_PAD_Y_DP = 10f
+        /** The page-colour margin around what a lifted block draws, on every side. */
+        private const val CARD_INSET_DP = 8f
         private const val FADE_DP = 56f
         private const val DROP_LINE_DP = 3f
         private const val MAX_SCREEN_FRACTION = 0.4f
@@ -353,7 +367,6 @@ internal class BlockDrag private constructor(
         /** The drag for [plan], held at ([x], [y]); null when no part of the block shows. */
         fun lift(view: TextFirstEditText, plan: LiftPlan, x: Float, y: Float): BlockDrag? {
             val e = view.editableText ?: return null
-            val d = view.style.density
             val photo = e.getSpans(plan.block.start, plan.block.end, TfImage::class.java).firstOrNull {
                 e.getSpanStart(it) == plan.block.start && e.getSpanEnd(it) == plan.block.end
             }?.takeIf { !coversWholeLines(e, plan.block) }
@@ -368,9 +381,7 @@ internal class BlockDrag private constructor(
             val top = maxOf(source.top, shownTop)
             val bottom = minOf(source.bottom, shownBottom)
             if (bottom <= top) return null
-            val left = if (photo != null) source.left else view.totalPaddingLeft - CARD_PAD_X_DP * d
-            val padY = if (photo != null) 0f else CARD_PAD_Y_DP * d
-            return BlockDrag(view, plan, photo, if (photo != null) 0f else top - source.top, x, y, cardX = left, cardY = top - padY - view.scrollY)
+            return BlockDrag(view, plan, photo, if (photo != null) 0f else top - source.top, x, y)
         }
 
         /** Whether [block] runs from a line's start to the start of a line after it (or the end): what lifts with its lines. */
