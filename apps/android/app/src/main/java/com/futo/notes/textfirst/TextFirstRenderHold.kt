@@ -23,8 +23,6 @@ internal class RenderHold(private val view: TextFirstEditText) {
     /** A block drag owns the touch: no text menu can open, so the touch holds nothing back. */
     private var dragging = false
     private var menus = 0
-    /** A text menu is open (MenuWatch). */
-    val menuOpen get() = menus > 0
     private val openMenus = mutableListOf<ActionMode>()
     private var menuPending = false
     private val menuGaveUp = Runnable { menuPending = false; update() }

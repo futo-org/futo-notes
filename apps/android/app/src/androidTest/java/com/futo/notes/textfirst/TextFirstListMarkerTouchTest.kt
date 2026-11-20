@@ -119,11 +119,21 @@ class TextFirstListMarkerTouchTest {
             val at = c.view.editableText.indexOf("tenth") + 2
             m to (c.view.totalPaddingLeft + l.getPrimaryHorizontal(at))
         }
+        var menus = 0
+        withContext(Dispatchers.Main) {
+            val inner = c.view.customSelectionActionModeCallback
+            c.view.customSelectionActionModeCallback = object : android.view.ActionMode.Callback {
+                override fun onCreateActionMode(mode: android.view.ActionMode, menu: android.view.Menu): Boolean { menus++; return inner?.onCreateActionMode(mode, menu) ?: true }
+                override fun onPrepareActionMode(mode: android.view.ActionMode, menu: android.view.Menu) = inner?.onPrepareActionMode(mode, menu) ?: false
+                override fun onActionItemClicked(mode: android.view.ActionMode, item: android.view.MenuItem) = inner?.onActionItemClicked(mode, item) ?: false
+                override fun onDestroyActionMode(mode: android.view.ActionMode) { inner?.onDestroyActionMode(mode) }
+            }
+        }
         hold(c, word, m.y)
-        await("the word's menu") { c.view.renderHold.menuOpen && c.view.selectionStart != c.view.selectionEnd }
+        await("the word's menu") { menus == 1 && c.view.selectionStart != c.view.selectionEnd }
         hold(c, m.left + (m.right - m.left) * 0.75f, m.y)
         assertEquals("the marker alone is selected", m.at to m.at + 1, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
-        await("the menu on it") { c.view.renderHold.menuOpen }
+        await("a menu on it") { menus == 2 }
     }
 
     /** A tap just past the checkbox's outer side ticks it (TextFirstCheckbox reach); a hold there selects it and ticks nothing. */
