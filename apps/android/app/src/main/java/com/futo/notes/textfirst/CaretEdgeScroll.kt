@@ -29,7 +29,8 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
     /** The range a hold selected before it dragged: its far end stays put whichever way the drag goes. */
     private var held = 0..0
     private var velocity = 0f
-    private var running = false
+    var isDriving = false
+        private set
     private var lastFrame = 0L
     private var remainder = 0f
     private val frame = Choreographer.FrameCallback { now -> step(now) }
@@ -70,8 +71,8 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
         // Out of the zones a crossed end follows the finger here: its handle no longer moves it.
         if (velocity == 0f) { stop(); if (crossed) land(); return false }
         if (velocity < 0 && view.scrollY == 0 || velocity > 0 && view.scrollY >= view.maxScrollY()) return false
-        if (running) return true
-        running = true
+        if (isDriving) return true
+        isDriving = true
         lastFrame = 0L
         remainder = 0f
         Choreographer.getInstance().postFrameCallback(frame)
@@ -142,13 +143,13 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
 
     private fun stop() {
         velocity = 0f
-        if (!running) return
-        running = false
+        if (!isDriving) return
+        isDriving = false
         Choreographer.getInstance().removeFrameCallback(frame)
     }
 
     private fun step(now: Long) {
-        if (!running) return
+        if (!isDriving) return
         if (lastFrame != 0L) {
             remainder += BlockAutoscroll.step(velocity, (now - lastFrame) / 1e9f)
             val dy = remainder.toInt()
@@ -157,7 +158,7 @@ internal class CaretEdgeScroll(private val view: TextFirstEditText) {
             if (dy != 0) view.scroll.dragBy(dy)
             if (view.scrollY != before) land()
             // At the note's top or end: no frames until the finger asks again.
-            else if (dy != 0) { running = false; return }
+            else if (dy != 0) { isDriving = false; return }
         }
         lastFrame = now
         Choreographer.getInstance().postFrameCallback(frame)

@@ -74,7 +74,7 @@ internal fun TextFirstEditText.caretWasInView(viewHeight: Int): Boolean {
  */
 internal fun TextFirstEditText.revealCaret(offset: Int, nativeReveal: () -> Boolean): Boolean {
     // The reader is being put back on their line (an open, a new width); the caret stays where it is.
-    if (restoring != null) return false
+    if (restoring != null || caretEdge.isDriving) return false
     selectedCodeBlock?.let { block ->
         return reveal.at(block.first, ready = layout != null && height > 0) {
             val (top, bottom) = codeBlockLines(block) ?: return@at false
