@@ -18,6 +18,8 @@ internal class FindEngineState(refresh: () -> Unit) {
     var open = false
     /** Whether a step has already landed on the current match since the query last changed. */
     var landed = false
+    /** The range the last step selected, display UTF-16, while that selection stands: a new query lets it go. */
+    var landedOn: Pair<Int, Int>? = null
     var scanning = false
     val refresh = Runnable { refresh() }
     val executor: java.util.concurrent.ExecutorService by lazy { java.util.concurrent.Executors.newSingleThreadExecutor { Thread(it, "futo-find-scan") } }
@@ -52,6 +54,9 @@ internal fun EditorEngine.findCommand(done: (FindSnapshot?) -> Unit, block: (Nat
 
 internal fun EditorEngine.findSetQuery(query: String, done: (FindSnapshot?) -> Unit) = findCommand(done) { s ->
     find.landed = false
+    // The old match's selection would stay painted (a code block's, a cell's) though the new query has no match there.
+    find.landedOn?.let { (start, end) -> if (mirror.selStart == start && mirror.selEnd == end) select(start, start, fromView = false) }
+    find.landedOn = null
     val report = s.findSetQuery(rev, query)
     report to (report.reveal != null)
 }
@@ -64,6 +69,7 @@ internal fun EditorEngine.findStep(forward: Boolean, done: (FindSnapshot?) -> Un
     if (landing != null) {
         showDisplayRange(mirror.toUtf16(landing.start.toInt()), mirror.toUtf16(landing.end.toInt()))
         find.landed = true
+        find.landedOn = mirror.selStart to mirror.selEnd
     }
     report to (landing != null)
 }
