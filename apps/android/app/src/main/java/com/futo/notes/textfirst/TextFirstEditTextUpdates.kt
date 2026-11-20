@@ -16,6 +16,8 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
     contentComplete = update.complete
     if (update.append) { applyAppend(update); scheduleRestore(); return }
     if (update.styleOnly) { applyStyleSlice(update); return }
+    // A caret the editor moved on its own, with no text: the reader stays where they are.
+    if (update.reset == null && update.preserveScroll) reveal.hold(update.selStart, update.selEnd)
     if (update.reset != null && update.preserveScroll) {
         scrollAnchor()?.let { before ->
             var offset = before.offset
