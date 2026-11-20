@@ -19,13 +19,12 @@ use super::super::super::command::kept_line;
 use super::super::super::Engine;
 use super::number::spell;
 use super::shift::Shift;
+use super::written::{marker_start, Written};
 use super::{parts, Parts};
 use crate::lines::{Carry, Kind, Line};
 use std::ops::Range;
 
 mod numbers;
-
-pub(in crate::engine::commands) use numbers::Written;
 
 /// What arrives: lines (old indices), or a photo's source alone.
 #[derive(Clone)]
@@ -63,6 +62,9 @@ pub(in crate::engine::commands) struct Landing {
     marker: Marker,
     /// Where the first line's text starts in its old text.
     cut: usize,
+    /// Where the first line's marker starts in its old text, when it is an
+    /// item.
+    old_marker: Option<usize>,
     keeps: Keeps,
     /// A plain line or a photo becomes an item.
     pub becomes_item: bool,
@@ -128,11 +130,13 @@ impl Landing {
                 .position(|(a, b)| a != b)
                 .unwrap_or(text.len())
         });
+        let item = matches!(keeps, Keeps::Item { .. });
         Written {
             old_cut: self.cut,
             new_cut: prefix.len(),
             escape,
             body: written,
+            markers: self.old_marker.zip(item.then_some(self.space.len())),
         }
     }
 }
@@ -184,6 +188,7 @@ impl First<'_> {
             space: space.to_owned(),
             marker,
             cut: self.part.as_ref().map_or(0, |p| p.content),
+            old_marker: self.line.and_then(marker_start),
             keeps,
             becomes_item: !item,
             shift: (item && self.space() != space).then(|| Shift {
