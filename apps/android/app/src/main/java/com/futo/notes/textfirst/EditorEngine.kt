@@ -351,7 +351,7 @@ internal class EditorEngine(
         publishedSelection = (mirror.selStart.toLong() shl 32) or (mirror.selEnd.toLong() and 0xffffffffL)
         val state = EngineImeState.capture(mirror.text, mirror.selStart, mirror.selEnd,
             mirror.composingStart, mirror.composingEnd,
-            android.text.TextUtils.getCapsMode(mirror.text, mirror.selStart, IME_CAPS_MODES))
+            noteCapsMode(mirror.text, mirror.selStart, IME_CAPS_MODES))
         publishedIme = state
         ui.post { sink.onImeState(state) }
     }
