@@ -31,6 +31,9 @@ internal class CaretReveal {
     /** The engine changed the text. */
     fun edited() { edits += 1 }
 
+    /** An edit came since the last reveal: the next one is for it. */
+    val editPending get() = edits != revealedEdits
+
     /** The view shrank (the keyboard rose) under a caret that was on screen: reveal it again. */
     fun again() { offset = -1; other = -1 }
 
@@ -85,19 +88,26 @@ internal fun TextFirstEditText.revealCaret(offset: Int, nativeReveal: () -> Bool
     if (codeTouch.headerField.openField != null) return false
     val end = (editableText?.length ?: 0) - 1
     if (end > 0 && minOf(selectionStart, selectionEnd) == 0 && maxOf(selectionStart, selectionEnd) == end) return false
-    // A caret on a photo's row shows the photo, as much as fits from its top, never scrolled away for a text line's
-    // strip of it with the platform's margin (a quarter of the view on a photo's row). A photo that already fills the
-    // view stays where it is, so typing beside one taller than the view keeps the scroll.
-    val l = layout
-    val text = editableText
-    val photo = android.graphics.RectF()
-    if (l != null && text != null && selectionStart == selectionEnd && photoBesideCaret(l, text, offset, photo, anywhere = true) != null) {
-        return reveal.at(offset, ready = height > 0) {
-            val fills = photo.top <= scrollY && photo.bottom >= scrollY + height - totalPaddingTop - totalPaddingBottom
-            !fills && revealAreaAboveKeyboard(photo.top, photo.bottom)
-        }
-    }
-    return reveal.at(offset, ready = layout != null && height > 0, reveal = nativeReveal)
+    // Typing beside a photo that already fills the space keeps the scroll.
+    val typed = reveal.editPending
+    return reveal.at(offset, ready = layout != null && height > 0) { photoRowReveal(offset, typed) ?: nativeReveal() }
+}
+
+/**
+ * A caret on a loaded photo's row shows the whole row, from its top when it is taller than the space, never a strip of
+ * the photo with the platform's margin (a quarter of the view, below a caret as tall as the photo); null off a photo's
+ * row, where the platform reveals.
+ */
+private fun TextFirstEditText.photoRowReveal(offset: Int, typed: Boolean): Boolean? {
+    val l = layout ?: return null
+    val text = editableText ?: return null
+    if (selectionStart != selectionEnd || photoBesideCaret(l, text, offset, android.graphics.RectF(), anywhere = true) == null) return null
+    val line = l.getLineForOffset(offset)
+    val top = l.getLineTop(line).toFloat()
+    val bottom = l.getLineBottom(line).toFloat()
+    val fills = top <= scrollY && totalPaddingTop - scrollY + bottom >= visibleBottomAboveKeyboard()
+    if (typed && fills) return false
+    return revealAreaAboveKeyboard(top, bottom)
 }
 
 /**

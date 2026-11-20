@@ -42,6 +42,10 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
         nativeStart >= 0 && nativeEnd >= 0 &&
         minOf(nativeStart, nativeEnd) == minOf(update.selStart, update.selEnd) &&
         maxOf(nativeStart, nativeEnd) == maxOf(update.selStart, update.selEnd)
+    // Only a key or the keyboard's input reveals the caret it edits at again; a checkbox toggled or a format applied
+    // elsewhere leaves the reader where they are (Mason: a checkbox tap put the note at its top, at the caret). Counted
+    // before the edit: the TextView reveals the moved caret while the edit is applied.
+    if (update.keyed && update.edits.isNotEmpty()) reveal.edited()
     val applyStart = android.os.SystemClock.elapsedRealtimeNanos()
     var editsEnd = applyStart
     val wasApplying = applying
@@ -77,9 +81,6 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
                 android.util.Log.i("TextFirstApply", "replace=${(t1 - t0) / 1000}us restyle+batch=${(t2 - t1) / 1000}us windows=${update.windows.map { it.end - it.start }}")
             }
         }
-        // Only a key or the keyboard's input reveals the caret it edits at again; a checkbox toggled or a format applied
-        // elsewhere leaves the reader where they are (Mason: a checkbox tap put the note at its top, at the caret).
-        if (update.keyed && update.edits.isNotEmpty()) reveal.edited()
         if (!restyleOnly) codeTouch.forgetCopied()
         val e = editableText
         // Not BaseInputConnection.removeComposingSpans: it lists every span in the note.
