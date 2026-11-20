@@ -28,7 +28,6 @@ internal fun TextFirstEditText.fitCaretToItsText() {
 private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditText) : DrawableWrapper(caret) {
     private val padding = Rect()
     private val paint = TextPaint()
-    private val visible = Rect()
     private val photo = Rect()
     private val drawn = android.graphics.RectF()
     /** Beside a photo: the TextView draws its caret clipped to its text and under it, so the note draws it after all. */
@@ -87,8 +86,8 @@ private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditTe
         for (span in text.getSpans(at, at + 1, MetricAffectingSpan::class.java)) span.updateMeasureState(paint)
         val metrics = if (text.getSpans(at, at + 1, TfCodeBlock::class.java).isEmpty()) paint.fontMetricsInt else view.paint.fontMetricsInt
         val height = metrics.descent - metrics.ascent
-        paint.getTextBounds(VISIBLE_EXTENT, 0, VISIBLE_EXTENT.length, visible)
-        val top = layout.getLineBaseline(line) + (visible.top + visible.bottom - height) / 2
+        val (seenTop, seenBottom) = visibleLineSpan(paint)
+        val top = layout.getLineBaseline(line) + (seenTop + seenBottom - height) / 2
         return top..top + height
     }
 
@@ -115,6 +114,3 @@ private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditTe
 internal fun TextFirstEditText.drawCaretBesidePhoto(canvas: android.graphics.Canvas) {
     (textCursorDrawable as? TextHeightCaret)?.drawDue(canvas)
 }
-
-/** A capital and a descender: the text as seen reaches from the one's top to the other's bottom. */
-private const val VISIBLE_EXTENT = "Hg"

@@ -2,7 +2,6 @@ package com.futo.notes.textfirst
 
 import android.graphics.Matrix
 import android.graphics.Path
-import android.graphics.Rect
 import android.graphics.RectF
 import android.text.Layout
 import android.text.Spanned
@@ -25,8 +24,8 @@ internal fun TextFirstEditText.overlayBand(l: Layout, e: Spanned, line: Int): Pa
     val at = l.getLineStart(line)
     band.paint.set(paint)
     for (span in e.getSpans(at, minOf(e.length, at + 1), MetricAffectingSpan::class.java)) span.updateMeasureState(band.paint)
-    band.paint.getTextBounds(VISIBLE_EXTENT, 0, VISIBLE_EXTENT.length, band.seen)
-    val centre = baseline + (band.seen.top + band.seen.bottom) / 2f
+    val (seenTop, seenBottom) = visibleLineSpan(band.paint)
+    val centre = baseline + (seenTop + seenBottom) / 2f
     val top = (centre - height / 2f).coerceIn(rowTop, rowBottom - height)
     return top to top + height
 }
@@ -45,7 +44,6 @@ internal fun TextFirstEditText.fitToOverlayBand(l: Layout, e: Spanned, line: Int
 /** The scratch objects [overlayBand] works with, kept by the view (CodeBlockChrome). */
 internal class OverlayBandScratch {
     val paint = TextPaint()
-    val seen = Rect()
     val from = RectF()
     val to = RectF()
     val matrix = Matrix()
@@ -56,11 +54,7 @@ internal class OverlayBandScratch {
  * centred by its font box carries its text this much low.
  */
 internal fun lettersBelowFontBoxCentre(paint: android.graphics.Paint): Float {
-    val seen = Rect()
-    paint.getTextBounds(VISIBLE_EXTENT, 0, VISIBLE_EXTENT.length, seen)
+    val (seenTop, seenBottom) = visibleLineSpan(paint)
     val font = paint.fontMetrics
-    return (seen.top + seen.bottom) / 2f - (font.ascent + font.descent) / 2f
+    return (seenTop + seenBottom) / 2f - (font.ascent + font.descent) / 2f
 }
-
-/** A capital and a descender: the text as seen reaches from the one's top to the other's bottom. */
-private const val VISIBLE_EXTENT = "Hg"

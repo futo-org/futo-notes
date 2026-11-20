@@ -25,8 +25,8 @@ internal class TfCodeBlock(private val look: TextFirstStyle, line: CodeLineFacts
     }
     private val rulePaint = Paint()
     /** A code row's top from its baseline: half a row above the middle of the code's capitals and descenders. */
-    private val rowTop: Int = android.graphics.Rect().also { numberPaint.getTextBounds("Hg", 0, 2, it) }
-        .let { kotlin.math.round((it.top + it.bottom) / 2f - look.codeLineHeight.toInt() / 2f).toInt() }
+    private val rowTop: Int = visibleLineSpan(numberPaint)
+        .let { (seenTop, seenBottom) -> kotlin.math.round((seenTop + seenBottom) / 2f - look.codeLineHeight.toInt() / 2f).toInt() }
     /** Where the numbers end: !300's two-digit column, one digit wider per digit past two the block's count needs. */
     val digits = digitsFor(line)
     /**

@@ -98,8 +98,8 @@ internal class TfHeading(private val look: TextFirstStyle, val level: Int) :
     private val rowTop: Int = run {
         val paint = TextPaint().apply { typeface = look.regular; textSize = look.textSizePx }
         apply(paint)
-        val seen = android.graphics.Rect().also { paint.getTextBounds("Hg", 0, 2, it) }
-        kotlin.math.round((seen.top + seen.bottom) / 2f - rowHeight / 2f).toInt()
+        val (seenTop, seenBottom) = visibleLineSpan(paint)
+        kotlin.math.round((seenTop + seenBottom) / 2f - rowHeight / 2f).toInt()
     }
 
     private companion object {

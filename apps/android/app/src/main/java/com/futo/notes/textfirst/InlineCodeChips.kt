@@ -3,7 +3,6 @@ package com.futo.notes.textfirst
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.Rect
 import android.graphics.RectF
 import android.text.Layout
 import android.text.Spanned
@@ -43,7 +42,6 @@ private const val CHIP_ALPHA = 0x1F000000
 internal class InlineCodeChip {
     val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val paint = TextPaint()
-    private val seen = Rect()
     private val box = RectF()
     private val path = Path()
     private val radii = FloatArray(8)
@@ -56,11 +54,11 @@ internal class InlineCodeChip {
         if (b <= a) return
         paint.set(view.paint)
         for (span in e.getSpans(a, a + 1, MetricAffectingSpan::class.java)) span.updateMeasureState(paint)
-        paint.getTextBounds(VISIBLE, 0, VISIBLE.length, seen)
+        val (seenTop, seenBottom) = visibleLineSpan(paint)
         val em = paint.textSize
         val baseline = l.getLineBaseline(line)
-        val top = maxOf(l.getLineTop(line).toFloat(), baseline + seen.top - em * PAD_Y)
-        val bottom = minOf(l.getLineBottom(line).toFloat(), baseline + seen.bottom + em * PAD_Y)
+        val top = maxOf(l.getLineTop(line).toFloat(), baseline + seenTop - em * PAD_Y)
+        val bottom = minOf(l.getLineBottom(line).toFloat(), baseline + seenBottom + em * PAD_Y)
         val rtl = l.getParagraphDirection(line) < 0
         val xa = l.getPrimaryHorizontal(a)
         // A run that ends where the row wraps: its far side is the row's text edge.
@@ -92,7 +90,6 @@ internal class InlineCodeChip {
     }
 
     private companion object {
-        const val VISIBLE = "Hg"
         const val PAD_X = 0.3f
         const val PAD_Y = 0.1f
         const val RADIUS_DP = 4f
