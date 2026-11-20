@@ -40,6 +40,7 @@ internal class TextFirstEditText(
     var onOpenUrl: ((String) -> Boolean)? = null
     internal val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
     internal val imageTouch = ImageTouch(this)
+    internal val listMarkerTouch = ListMarkerTouch(this)
     @Volatile override var renderedSelection: Long = Long.MIN_VALUE
         private set
     @Volatile override var selectedObject: Pair<Int, Int>? = null
