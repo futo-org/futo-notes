@@ -1,9 +1,12 @@
 package com.futo.notes.textfirst
 
+import android.graphics.Bitmap
 import android.graphics.PointF
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -67,6 +70,40 @@ class TextFirstBlockReflowTest {
         dropWhereShown("alpha", 8f, { ui { BlockSlot(view.length() - 1, true) } }, "bravo\ncharlie\ndelta\nalpha")
         assertEquals("a tick for each new gap: above charlie, above delta, the end", 3, haptics.ticks)
     }
+
+    @Test
+    fun aPhotoResizedDuringTheLandingUsesItsNewLayoutOnTheNextDraw() =
+        compose.openDragScreen("alpha\n![](p.png)\ncharlie\ndelta", mapOf("p.png" to png(256, 180))) {
+            compose.waitUntil(5_000) { ui { view.editableText.getSpans(0, view.length(), TfImage::class.java).single().bitmap != null } }
+            val source = at(offsetOf("delta"))
+            down(source)
+            compose.waitUntil(2_000) { lifted }
+            val release = carryUntil(source, -8f, right()) { report?.gap == BlockSlot(offsetOf("charlie"), false) }
+            hold(Slide.SLIDE_MS + 60)
+            val frame = ArrayBlockingQueue<Boolean>(1)
+            ui {
+                view.onApplyMeasured = applied@{ _, update ->
+                    if (update.drop == null) return@applied
+                    val oldLayout = view.layout
+                    val oldHeight = oldLayout.height
+                    val text = view.editableText
+                    val photo = text.getSpans(0, view.length(), TfImage::class.java).single()
+                    check(view.blockLift.drag?.reflow?.report()?.landing == true)
+                    photo.bitmap = Bitmap.createBitmap(256, 360, Bitmap.Config.ARGB_8888)
+                    text.setSpan(photo, text.getSpanStart(photo), text.getSpanEnd(photo), TF_SPAN_FLAGS)
+                    check(view.layout === oldLayout && oldLayout.height > oldHeight)
+                    view.requestLayout()
+                    view.invalidate()
+                    view.onRenderFrame = {
+                        view.onRenderFrame = null
+                        frame.offer(view.blockLift.drag?.reflow?.report()?.landing == true)
+                    }
+                }
+            }
+            up(release)
+            assertEquals("the first frame after a photo resize uses the current rows", false, frame.poll(2, TimeUnit.SECONDS))
+            saved("alpha\n![](p.png)\ndelta\ncharlie")
+        }
 
     @Test
     fun aListItemDroppedInsideItsListLandsWhereItsCopyWasDrawn() = compose.openDragScreen("- one\n- two\n- three\n- four\n\nafter") {
