@@ -268,6 +268,7 @@ internal class TextFirstEditText(
         // Under the caret, which the TextView draws before the layout's own drawing.
         if (blockLift.drag?.drawNote(canvas) != true) {
             drawCodeBlocks(canvas)
+            drawInlineCodeChips(canvas, scrollY - totalPaddingTop, scrollY - totalPaddingTop + height)
             lineBelowHandle.afterDraw()
             drawCodeSelection(canvas)
             drawTextSelection(canvas)
@@ -277,7 +278,7 @@ internal class TextFirstEditText(
             val e = editableText as? ChunkedEditable
             e?.drawWindow = visibleChars()
             drawing = true
-            try { super.onDraw(canvas); drawTopPaddingBand(canvas); drawFindMarksOverCode(canvas); drawCurrentMatchText(canvas); drawSelectedImageTint(canvas); drawTableSelectionOver(canvas); drawCaretBesidePhoto(canvas); drawScrollEdge(canvas) } finally { drawing = false; e?.drawWindow = null }
+            try { super.onDraw(canvas); drawTopPaddingBand(canvas); drawCurrentMatchText(canvas); drawSelectedImageTint(canvas); drawTableSelectionOver(canvas); drawCaretBesidePhoto(canvas); drawScrollEdge(canvas) } finally { drawing = false; e?.drawWindow = null }
         }
         blockLift.drag?.draw(canvas)
         if (timings != null) {

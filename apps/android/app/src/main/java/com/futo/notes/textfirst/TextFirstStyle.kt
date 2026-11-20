@@ -95,8 +95,5 @@ internal class TextFirstStyle(
     val tableHeaderBorderColor get() = androidx.core.graphics.ColorUtils.compositeColors((textColor and 0x00ffffff) or 0x26000000, codeBackground)
 
     /** Find-match highlight: the link colour, stronger for the current match. */
-    /** While the current find match's text is drawn again on its mark (drawCurrentMatchText): inline code without its chip. */
-    var drawingMatchText = false
-
     fun findMarkColor(current: Boolean) = (linkColor and 0x00ffffff) or (if (current) 0x99000000.toInt() else 0x40000000)
 }

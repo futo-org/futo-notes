@@ -57,17 +57,12 @@ private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditTe
         val beside = photoBesideCaret(layout, view.editableText, view.selectionStart, line)
         besidePhoto = beside != null
         val extent = if (beside != null && photo.height() > text.last - text.first) photo.top..photo.bottom else text
-        // Kept inside its row, line spacing included (the platform's bounds leave it out), by moving it, not cutting
-        // it, so its height holds (a code line is short for it).
-        val row = layout.getLineTop(line) - padding.top..layout.getLineBottom(line) + padding.bottom
-        val wanted = extent.first - padding.top..extent.last + padding.bottom
-        val shift = when {
-            wanted.last > row.last -> row.last - wanted.last
-            wanted.first < row.first -> row.first - wanted.first
-            else -> 0
-        }
-        val top = maxOf(row.first, wanted.first + shift)
-        val bottom = minOf(row.last, wanted.last + shift)
+        // Kept inside its row, line spacing included (the platform's bounds leave it out): too tall for it, it is cut
+        // the same at both ends, so it stays centred on the letters.
+        val row = layout.getLineTop(line)..layout.getLineBottom(line)
+        val over = maxOf(0, row.first - extent.first, extent.last - row.last)
+        val top = extent.first + over - padding.top
+        val bottom = extent.last - over + padding.bottom
         // Just outside the photo's edge, on the side it touches.
         val half = (bounds.width() - padding.left - padding.right + 1) / 2
         val dx = when {
