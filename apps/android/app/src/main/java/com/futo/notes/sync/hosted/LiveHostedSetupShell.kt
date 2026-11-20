@@ -69,6 +69,8 @@ class LiveHostedSetupShell(
         activity.startActivity(Intent.createChooser(send, shareLabel()))
     }
 
+    override val confirmsCopies: Boolean get() = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
+
     override fun announce(message: LocalizedMessage) {
         showToast(activity, localization().localizedText(message.path, message.arguments))
     }
