@@ -3,20 +3,16 @@
 //! indent) see them. `finish` turns the draft into one `Command`.
 use super::super::super::command::{Command, Edit};
 use super::super::super::Engine;
+use super::written::{marker_start, Written};
 use super::{parts, Parts};
 use crate::lines::{block, Line};
 use std::collections::BTreeMap;
 use std::ops::Range;
 
-/// One rewritten line. The text before `cut` (in the old line) became the
-/// text before `new_cut`; the rest is the old text, with one `\` inserted
-/// at `escape` (relative to the cut) when a command had to write one.
+/// One rewritten line, and how it reads.
 struct Rewrite {
-    body: String,
+    written: Written,
     line: Line,
-    old_cut: usize,
-    new_cut: usize,
-    escape: Option<usize>,
 }
 
 pub(super) struct Draft<'a> {
@@ -39,7 +35,7 @@ impl<'a> Draft<'a> {
     /// Line `index` without its ending, as the draft has it.
     pub fn body(&self, index: usize) -> &str {
         match self.rewrites.get(&index) {
-            Some(rewrite) => &rewrite.body,
+            Some(rewrite) => &rewrite.written.body,
             None => self.engine.line(index).body(),
         }
     }
@@ -62,12 +58,21 @@ impl<'a> Draft<'a> {
         let (old_cut, escape) = match self.rewrites.get(&index) {
             // Text after the cut is the old text after the first cut.
             Some(rewrite) => (
-                rewrite.old_cut + cut.saturating_sub(rewrite.new_cut),
-                rewrite.escape,
+                rewrite.written.old_cut + cut.saturating_sub(rewrite.written.new_cut),
+                rewrite.written.escape,
             ),
             None => (cut, None),
         };
-        self.store(index, body, old_cut, prefix.len(), escape);
+        self.store(
+            index,
+            Written {
+                body,
+                old_cut,
+                new_cut: prefix.len(),
+                escape,
+                markers: None,
+            },
+        );
     }
 
     /// Replace the line with `prefix` then the old text after `cut`, where
@@ -83,42 +88,38 @@ impl<'a> Draft<'a> {
                 .position(|(a, b)| a != b)
                 .unwrap_or(old.len())
         });
-        self.store(index, written, cut, prefix, escape);
+        self.store(
+            index,
+            Written {
+                body: written,
+                old_cut: cut,
+                new_cut: prefix,
+                escape,
+                markers: None,
+            },
+        );
     }
 
-    fn store(
-        &mut self,
-        index: usize,
-        body: String,
-        old_cut: usize,
-        new_cut: usize,
-        escape: Option<usize>,
-    ) {
+    /// Keep `written` as line `index`, read again, with where its marker
+    /// moved when it stays an item.
+    fn store(&mut self, index: usize, mut written: Written) {
         let entry = self.engine.line(index);
         let mut carry = entry.carry.clone();
         carry.first = false;
-        let text = format!("{body}{}", entry.ending());
+        let text = format!("{}{}", written.body, entry.ending());
         let line = block::read_line(&mut carry, &text, 0);
-        self.rewrites.insert(
-            index,
-            Rewrite {
-                body,
-                line,
-                old_cut,
-                new_cut,
-                escape,
-            },
-        );
+        written.markers = marker_start(&entry.line).zip(marker_start(&line));
+        self.rewrites.insert(index, Rewrite { written, line });
     }
 
     pub fn is_empty(&self) -> bool {
         self.rewrites
             .iter()
-            .all(|(index, rewrite)| rewrite.body == self.engine.line(*index).body())
+            .all(|(index, rewrite)| rewrite.written.body == self.engine.line(*index).body())
     }
 
-    /// Where source offset `at` (before the command) lands after it. A
-    /// position in a rewritten line's prefix lands where its text starts.
+    /// Where source offset `at` (before the command) lands after it
+    /// (`Written::map` in a rewritten line).
     pub fn map(&self, at: usize) -> usize {
         let index = self.engine.line_of(at);
         let start = self.engine.line_start(index);
@@ -126,7 +127,7 @@ impl<'a> Draft<'a> {
             .rewrites
             .range(..index)
             .map(|(line, rewrite)| {
-                rewrite.body.len() as isize - self.engine.line(*line).body_len() as isize
+                rewrite.written.body.len() as isize - self.engine.line(*line).body_len() as isize
             })
             .sum();
         let local = at - start;
@@ -135,12 +136,9 @@ impl<'a> Draft<'a> {
             Some(rewrite) => {
                 let old_len = self.engine.line(index).body_len();
                 if local > old_len {
-                    rewrite.body.len() + local - old_len
-                } else if local <= rewrite.old_cut {
-                    rewrite.new_cut
+                    rewrite.written.body.len() + local - old_len
                 } else {
-                    let into = local - rewrite.old_cut;
-                    rewrite.new_cut + into + usize::from(rewrite.escape.is_some_and(|k| into > k))
+                    rewrite.written.map(local)
                 }
             }
         };
@@ -163,7 +161,7 @@ impl<'a> Draft<'a> {
         }
         for (index, rewrite) in &self.rewrites {
             let old = self.engine.line(*index).body();
-            if let Some(edit) = diff(self.engine.line_start(*index), old, &rewrite.body) {
+            if let Some(edit) = diff(self.engine.line_start(*index), old, &rewrite.written.body) {
                 edits.push(edit);
                 match lines.last_mut() {
                     Some(last) if last.end == *index => last.end += 1,

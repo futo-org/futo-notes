@@ -334,5 +334,95 @@
   "before": "- «one\n- »two",
   "command": "Backspace",
   "after": "- ‸two"
+ },
+ {
+  "name": "The checkbox toggle with the caret before the marker keeps it there",
+  "before": "‸- [ ] a",
+  "command": "ToggleTask",
+  "after": "‸- [x] a"
+ },
+ {
+  "name": "The checkbox toggle over a selection of exactly the box keeps it selected",
+  "before": "«- [ ] »a",
+  "command": "ToggleTask",
+  "after": "«- [x] »a"
+ },
+ {
+  "name": "The checkbox toggle with the caret before a quoted marker keeps it there",
+  "before": "> ‸- [x] a",
+  "command": "ToggleTask",
+  "after": "> ‸- [ ] a"
+ },
+ {
+  "name": "Tab with the caret before the marker keeps it before the marker",
+  "before": "- a\n‸- b",
+  "command": "Tab",
+  "after": "- a\n\t‸- b"
+ },
+ {
+  "name": "Shift+Tab with the caret before the marker keeps it before the marker",
+  "before": "- a\n\t‸- b",
+  "command": "ShiftTab",
+  "after": "- a\n‸- b"
+ },
+ {
+  "name": "Tab with the caret before a quoted marker keeps it before the marker",
+  "before": "> - a\n> ‸- b",
+  "command": "Tab",
+  "after": "> - a\n> \t‸- b"
+ },
+ {
+  "name": "Outdent keeps a selection ending before the marker of an item under it",
+  "before": "- a\n  - «b\n    »- c",
+  "command": "Outdent",
+  "after": "- a\n- «b\n  »- c"
+ },
+ {
+  "name": "Numbered with the caret before a bullet's marker keeps it before the new marker",
+  "before": "‸- a",
+  "command": "OrderedList",
+  "after": "‸1. a"
+ },
+ {
+  "name": "Task with the caret before a bullet's marker keeps it before the new marker",
+  "before": "‸- a",
+  "command": "TaskList",
+  "after": "‸- [ ] a"
+ },
+ {
+  "name": "Bullet with the caret before a task's marker keeps it before the new marker",
+  "before": "‸- [x] a",
+  "command": "BulletList",
+  "after": "‸- a"
+ },
+ {
+  "name": "Bullet over a selection of exactly a number selects the new marker",
+  "before": "«1. »a",
+  "command": "BulletList",
+  "after": "«- »a"
+ },
+ {
+  "name": "Taking a marker off with the caret before it leaves the caret at the text start",
+  "before": "> ‸- a",
+  "command": "BulletList",
+  "after": "> ‸a"
+ },
+ {
+  "name": "A renumbered item keeps a selection ending before its marker",
+  "before": "1. a\n«b\n»2. c",
+  "command": "OrderedList",
+  "after": "1. a\n2. «b\n»3. c"
+ },
+ {
+  "name": "A renumbered item that grows a digit keeps a selection ending before its marker",
+  "before": "1. a\n2. b\n3. c\n4. d\n5. e\n6. f\n7. g\n8. h\n«i\n»9. j",
+  "command": "OrderedList",
+  "after": "1. a\n2. b\n3. c\n4. d\n5. e\n6. f\n7. g\n8. h\n9. «i\n»10. j"
+ },
+ {
+  "name": "A renumbered item that grows a digit keeps a selection ending at its text start",
+  "before": "1. a\n2. b\n3. c\n4. d\n5. e\n6. f\n7. g\n8. h\n«i\n9. »j",
+  "command": "OrderedList",
+  "after": "1. a\n2. b\n3. c\n4. d\n5. e\n6. f\n7. g\n8. h\n9. «i\n10. »j"
  }
 ]

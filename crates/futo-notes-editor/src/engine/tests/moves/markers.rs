@@ -81,7 +81,7 @@ fn a_selected_item_with_its_marker_travels_whole() {
         (usize, usize),
         (usize, usize),
     );
-    let cases: [Case; 5] = [
+    let cases: [Case; 11] = [
         // A caret before a marker the move keeps stays before it.
         (
             "- a\n- b\n- c",
@@ -132,6 +132,70 @@ fn a_selected_item_with_its_marker_travels_whole() {
             (12, true),
             "\nx\n> - a\n> - b",
             (12, 12),
+            (14, 14),
+        ),
+        // A caret before a marker the move renumbers stays before the new
+        // marker; one at its text start stays at the text start.
+        (
+            "1. a\n2. b\n3. c",
+            (10, 10),
+            10,
+            (5, false),
+            "1. a\n2. c\n3. b",
+            (5, 5),
+            (5, 5),
+        ),
+        (
+            "1. a\n2. b\n3. c",
+            (13, 13),
+            10,
+            (5, false),
+            "1. a\n2. c\n3. b",
+            (8, 8),
+            (8, 8),
+        ),
+        // A selection of exactly a marker the move renumbers selects the
+        // new marker.
+        (
+            "1. a\n2. b\n3. c",
+            (10, 13),
+            10,
+            (5, false),
+            "1. a\n2. c\n3. b",
+            (5, 8),
+            (5, 8),
+        ),
+        // A bullet arriving among numbers: the caret stays before its new
+        // number.
+        (
+            "1. a\n2. b\n- c",
+            (10, 10),
+            10,
+            (5, false),
+            "1. a\n2. c\n3. b",
+            (5, 5),
+            (5, 5),
+        ),
+        // An item arriving at a deeper indent: the caret stays before its
+        // marker, after the new indent.
+        (
+            "- a\n  - b\n- c",
+            (10, 10),
+            10,
+            (5, false),
+            "- a\n  - c\n  - b",
+            (5, 5),
+            (6, 6),
+        ),
+        // The item under it moves with its indent: a caret before its
+        // marker stays there.
+        (
+            "- a\n  - b\n- c\n  - d",
+            (15, 15),
+            10,
+            (5, false),
+            "- a\n  - c\n    - d\n  - b",
+            (10, 10),
             (14, 14),
         ),
     ];
