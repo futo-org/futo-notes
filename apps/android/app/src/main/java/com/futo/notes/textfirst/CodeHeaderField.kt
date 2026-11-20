@@ -211,6 +211,11 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
             note.post {
                 if (this.field !== view || view.hasFocus() || note.hasFocus()) return@post
                 close()
+                // Focus went somewhere with no keyboard of its own (the screen's back arrow): the keyboard the field
+                // raised goes with it, or it stays up over the next screen.
+                if (note.rootView.findFocus() !is android.widget.EditText) {
+                    note.context.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(note.windowToken, 0)
+                }
                 note.onFocusChangeListener?.onFocusChange(note, false)
             }
         }

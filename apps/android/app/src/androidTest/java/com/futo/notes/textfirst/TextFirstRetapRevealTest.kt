@@ -34,4 +34,22 @@ class TextFirstRetapRevealTest {
         val bottom = view.totalPaddingTop - view.scrollY + l.getLineBottom(line)
         assertTrue("the caret's line ends at $bottom, under the note's edge at $visibleBottom", bottom <= visibleBottom + 1)
     }
+
+    /** Sol review (job 14, 12): a tap while the note is disabled (saving on the way out) moves no caret and no scroll. */
+    @Test fun aTapOnADisabledNoteLeavesTheScroll() = textFirstSession((1..80).joinToString("\n") { "line $it" } + "\n") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        c.select(2)
+        withTimeout(5_000) { while (view.selectionStart != 2) delay(20) }
+        delay(300)
+        view.scrollTo(0, view.layout.height / 2)
+        delay(300)
+        val before = view.scrollY
+        view.isEnabled = false
+        tapNoteAt(view, view.totalPaddingLeft + 20f, view.height / 2f)
+        delay(500)
+        assertEquals("the scroll after a tap on a disabled note", before, view.scrollY)
+    }
 }

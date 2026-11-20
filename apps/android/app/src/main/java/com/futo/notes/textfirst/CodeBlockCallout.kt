@@ -13,6 +13,8 @@ import android.view.View
  */
 internal class CodeBlockCallout(private val note: TextFirstEditText) : ActionMode.Callback2() {
     private var mode: ActionMode? = null
+    /** The block the open menu acts on: another block selected while it shows ends it (Cut would take that one). */
+    private var shownFor: Pair<Int, Int>? = null
     private var wanted = false
     val isShowing: Boolean get() = mode != null
 
@@ -28,9 +30,11 @@ internal class CodeBlockCallout(private val note: TextFirstEditText) : ActionMod
             mode?.finish()
             return
         }
+        if (block != shownFor) mode?.finish()
         if (!wanted) return
         wanted = false
         mode?.finish()
+        shownFor = block
         mode = note.startActionMode(this, ActionMode.TYPE_FLOATING)
     }
 
@@ -53,7 +57,7 @@ internal class CodeBlockCallout(private val note: TextFirstEditText) : ActionMod
     }
 
     override fun onDestroyActionMode(mode: ActionMode) {
-        if (this.mode === mode) this.mode = null
+        if (this.mode === mode) { this.mode = null; shownFor = null }
     }
 
     /** The block's code lines, unclipped: the platform's toolbar clips them to the screen and hides while none shows. */
