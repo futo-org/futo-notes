@@ -41,7 +41,18 @@ class TextFirstBlockDragOwnershipTest {
         compose.waitUntil(1_000) { !lifted }
         assertTrue("the preview ended at the cap", SystemClock.uptimeMillis() - released < 700)
         // The old order shows: the first row's box is `one`'s, but the move will make it `two`'s.
-        val boxX = ui { view.layout.getParagraphLeft(view.layout.getLineForOffset(offsetOf("one"))) - 12f }
+        // The middle of the row's marker unit, where a tap ticks its box.
+        val (boxX, row) = ui {
+            val l = view.layout
+            val line = l.getLineForOffset(offsetOf("one"))
+            val start = l.getLineStart(line)
+            (l.getPrimaryHorizontal(start) + l.getPrimaryHorizontal(start + 1)) / 2 to start
+        }
+        assertEquals("aimed at the box", row, ui {
+            val l = view.layout
+            val line = l.getLineForOffset(row)
+            checkboxAt(view, view.style, view.totalPaddingLeft + boxX, view.totalPaddingTop - view.scrollY + (l.getLineTop(line) + l.getLineBottom(line)) / 2f)
+        })
         val box = at(offsetOf("one"), x = boxX)
         down(box); up(box)
         val press = at(offsetOf("two"))
