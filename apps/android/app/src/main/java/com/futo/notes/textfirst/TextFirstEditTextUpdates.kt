@@ -61,11 +61,12 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
             beginBatchEdit()
             var t1 = t0
             try {
-                e.withRendererUpdate(this, update, windows) {
+                e.withRendererUpdate(this, update, windows) { change ->
+                    val previousPhotos = e.photoSpansToReuse(change, windows)
                     for (edit in update.edits) e.replace(edit.start, edit.end, edit.text)
                     t1 = System.nanoTime()
                     editsEnd = android.os.SystemClock.elapsedRealtimeNanos()
-                    for (window in windows) restyle(e, window)
+                    for (window in windows) restyle(e, window, previousPhotos)
                     update.marked?.let { restyleMarked(e, update.composingStart, update.composingEnd, it) }
                 }
             } finally {

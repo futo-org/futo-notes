@@ -53,7 +53,7 @@ internal fun TextFirstEditText.applyAppend(update: UiUpdate) {
 }
 
 /** Replace the renderer's spans inside a window, keeping identical ones so the layout does not reflow them. */
-internal fun TextFirstEditText.restyle(e: Editable, given: StyleWindow) {
+internal fun TextFirstEditText.restyle(e: Editable, given: StyleWindow, previousPhotos: List<TfImage> = emptyList()) {
     // A window reaching the display's end also owns the end sentinel.
     val window = if (given.end == e.length - 1) StyleWindow(given.start, given.end + 1, given.specs) else given
     val wanted = window.specs.toMutableList()
@@ -76,7 +76,7 @@ internal fun TextFirstEditText.restyle(e: Editable, given: StyleWindow) {
         if (s < window.start) span.slice(head = true)?.let { setRendererSpan(e, it, s, window.start) }
         if (en > window.end) span.slice(head = false)?.let { setRendererSpan(e, it, window.end, en) }
     }
-    addSpans(e, wanted)
+    addSpans(e, wanted, previousPhotos)
     if (wanted.any { it is SpanSpec.Image }) requestImageLoads(window.start, window.end)
 }
 
@@ -98,7 +98,7 @@ internal fun TextFirstEditText.restyleMarked(e: Editable, start: Int, composingE
     addSpans(e, marked)
 }
 
-internal fun TextFirstEditText.addSpans(target: Spannable, specs: List<SpanSpec>) {
+internal fun TextFirstEditText.addSpans(target: Spannable, specs: List<SpanSpec>, previousPhotos: List<TfImage> = emptyList()) {
     val mintedKeys = mintedTableKeys(specs)
     for (spec in specs) {
         if (spec.end < spec.start || spec.end > target.length - 1) continue
@@ -106,7 +106,11 @@ internal fun TextFirstEditText.addSpans(target: Spannable, specs: List<SpanSpec>
         // on the end sentinel; Android lays out no paragraph spans for an
         // empty last line.
         val end = if (spec.start == spec.end && spec.start == target.length - 1) spec.end + 1 else spec.end
-        setRendererSpan(target, spans.create(target.keyedToTableAbove(spec, mintedKeys)), spec.start, end)
+        val photo = if (spec is SpanSpec.Image) {
+            previousPhotos.firstOrNull { spans.matches(spec, it) && target.getSpanStart(it) < 0 }
+        } else null
+        val span = photo ?: spans.create(target.keyedToTableAbove(spec, mintedKeys))
+        setRendererSpan(target, span, spec.start, end)
     }
 }
 
