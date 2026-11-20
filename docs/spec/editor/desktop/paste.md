@@ -14,7 +14,7 @@ against the window's drop guard) is not among them.
   input.ts `paste`
 
 > **Gap:** Rich paste (Mod+V reads HTML that holds formatting as its Markdown, Shift+Mod+V the
-> plain text; Mason 2026-11-05, docs/plan/desktop-editor.md) needs the engine's HTML paste,
+> plain text; Mason 2026-11-05) needs the engine's HTML paste,
 > which went with the old engine (#423) and has no Linedown replacement yet:
 > `paste_clipboard(revision, start, end, text, html)` beside `paste_markdown`
 > (portable-core/clipboard.md, #303).

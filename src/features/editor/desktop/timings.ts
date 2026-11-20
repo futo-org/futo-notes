@@ -1,5 +1,5 @@
 /* Our own work per keystroke: the input handler plus the caret draw that follows it.
- * The budget (docs/plan/desktop-editor.md) is a median under 1 ms and p99 under 2 ms;
+ * The budget is a median under 1 ms and p99 under 2 ms;
  * Puppet reads the summary. */
 const KEPT = 2000;
 
