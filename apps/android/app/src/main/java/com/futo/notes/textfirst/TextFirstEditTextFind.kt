@@ -94,10 +94,10 @@ internal fun TextFirstEditText.drawFindMarksOverCode(canvas: Canvas) {
     val from = l.getLineStart(l.getLineForVertical(maxOf(0, top)))
     val to = l.getLineEnd(l.getLineForVertical(maxOf(0, top + height)))
     val markPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-    if (android.os.Build.VERSION.SDK_INT >= 29) {
-        val light = androidx.core.graphics.ColorUtils.calculateLuminance(style.codeBackground) > 0.5
-        markPaint.blendMode = if (light) android.graphics.BlendMode.MULTIPLY else android.graphics.BlendMode.SCREEN
-    }
+    val light = androidx.core.graphics.ColorUtils.calculateLuminance(style.codeBackground) > 0.5
+    val blend = if (android.os.Build.VERSION.SDK_INT >= 29) {
+        if (light) android.graphics.BlendMode.MULTIPLY else android.graphics.BlendMode.SCREEN
+    } else null
     val save = canvas.save()
     canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
     marks.visit(from, to) { s, en, current ->
@@ -107,6 +107,8 @@ internal fun TextFirstEditText.drawFindMarksOverCode(canvas: Canvas) {
             val b = minOf(en, e.getSpanEnd(code))
             if (b <= a) continue
             markPaint.color = style.findMarkColor(current)
+            // The current match's text is drawn again on its mark (drawCurrentMatchText): the mark lies over plainly.
+            if (android.os.Build.VERSION.SDK_INT >= 29) markPaint.blendMode = if (current) null else blend
             // Row by row over the code's own text: a wrapped run's middle rows would otherwise span the margin and gutter.
             for (row in l.getLineForOffset(a)..l.getLineForOffset(b)) drawTextSelectionRow(canvas, l, e, row, a, b, markPaint)
         }
@@ -124,4 +126,53 @@ internal fun TextFirstEditText.redrawTableRows(only: (TfTableRow) -> Boolean = {
             if (only(span)) e.setSpan(span, e.getSpanStart(span), e.getSpanEnd(span), e.getSpanFlags(span))
         }
     } finally { applying = wasApplying }
+}
+
+/**
+ * The current match's text, drawn again over its mark in the note's text colour: a link's, a tag's, a missing link's or
+ * inline code's own colour does not read on the mark. Clipped to the mark, in a layer whose filter gives every glyph
+ * drawn there that one colour (a wikilink's own label too); inline code is drawn without its chip for it.
+ */
+internal fun TextFirstEditText.drawCurrentMatchText(canvas: Canvas) {
+    if (marks.isEmpty) return
+    val l = layout ?: return
+    val e = editableText as? ChunkedEditable ?: return
+    val top = scrollY - totalPaddingTop
+    val from = l.getLineStart(l.getLineForVertical(maxOf(0, top)))
+    val to = l.getLineEnd(l.getLineForVertical(maxOf(0, top + height)))
+    var range: IntRange? = null
+    marks.visit(from, to) { s, en, current -> if (current) range = s until en }
+    val match = range ?: return
+    if (e.getSpans(match.first, match.first, TfTableRow::class.java).isNotEmpty()) return
+    val clip = android.graphics.Path()
+    l.getSelectionPath(match.first, (match.last + 1).coerceAtMost(e.length), clip)
+    val label = android.graphics.Path()
+    for (atom in e.getSpans(match.first, match.last + 1, TfWikilink::class.java)) {
+        val atomStart = e.getSpanStart(atom)
+        val atomEnd = e.getSpanEnd(atom)
+        val labelAt = e.subSequence(atomStart, atomEnd).toString().lastIndexOf(atom.label).coerceAtLeast(0)
+        val left = minOf(l.getPrimaryHorizontal(atomStart), l.getPrimaryHorizontal(atomEnd))
+        atom.labelPath(atom.renderedPaint(paint), match.first - atomStart - labelAt, match.last + 1 - atomStart - labelAt,
+            left, l.getLineBaseline(l.getLineForOffset(atomStart)).toFloat(), label)
+        clip.addPath(label)
+    }
+    val bounds = android.graphics.RectF().also { clip.computeBounds(it, true) }
+    if (bounds.isEmpty) return
+    val save = canvas.save()
+    canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
+    canvas.clipPath(clip)
+    val onMark = style.textColor
+    val tint = android.graphics.Paint().apply { colorFilter = android.graphics.PorterDuffColorFilter(onMark, android.graphics.PorterDuff.Mode.SRC_IN) }
+    canvas.saveLayer(bounds, tint)
+    val window = e.drawWindow
+    e.drawWindow = l.getLineStart(l.getLineForOffset(match.first))..l.getLineEnd(l.getLineForOffset(match.last))
+    style.drawingMatchText = true
+    try {
+        paint.color = currentTextColor
+        l.draw(canvas)
+    } finally {
+        style.drawingMatchText = false
+        e.drawWindow = window
+        canvas.restoreToCount(save)
+    }
 }
