@@ -10,6 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -26,7 +27,7 @@ class TextFirstImageTintTest {
     }
 
     private suspend fun render(view: TextFirstEditText): Bitmap = withContext(Dispatchers.Main) {
-        Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888).also { Canvas(it).apply { drawColor(Color.WHITE); view.draw(this) } }
+        Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888).also { Canvas(it).apply { drawColor(Color.WHITE); translate(-view.scrollX.toFloat(), -view.scrollY.toFloat()); view.draw(this) } }
     }
 
     private fun bounds(width: Int, height: Int, hit: (Int, Int) -> Boolean): Rect {
@@ -56,6 +57,32 @@ class TextFirstImageTintTest {
         withTimeout(5_000) { while (view.selectedObject == null) delay(20) }
         delay(300)
         val selected = render(view)
+        val tint = bounds(plain.width, plain.height) { x, y -> changed(plain.getPixel(x, y), selected.getPixel(x, y)) }
+        assertEquals("the tint's rect is the picture's", picture, tint)
+    }
+
+    /**
+     * Mason (S23, batch 3): scrolled half under the title bar, a selected picture showed about 48 px untinted there (the
+     * top padding the note's text scrolls into). The tint covers what is drawn of the picture there too.
+     */
+    @Test fun aPictureScrolledUnderTheTopEdgeIsTintedThere() = textFirstSession((1..30).joinToString("") { "line $it\n\n" } + "![a picture](picture.png)\n\n" + (1..30).joinToString("") { "after $it\n\n" }, ::picture) { c ->
+        val view = c.view
+        withContext(Dispatchers.Main) { view.isFocusableInTouchMode = true; view.requestFocus() }
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        val e = view.editableText
+        withTimeout(5_000) { while (e.getSpans(0, e.length, TfImage::class.java).singleOrNull()?.bitmap == null) delay(50) }
+        val image = e.getSpans(0, e.length, TfImage::class.java).single()
+        withContext(Dispatchers.Main) { view.isCursorVisible = false }
+        // The picture's middle row at the top padding's bottom edge: its upper half drawn in the padding band.
+        val scroll = withContext(Dispatchers.Main) { val l = view.layout; val line = l.getLineForOffset(e.getSpanStart(image)); (l.getLineTop(line) + l.getLineBottom(line)) / 2 }
+        suspend fun shot(): Bitmap { withContext(Dispatchers.Main) { view.scrollTo(0, scroll) }; delay(300); return render(view) }
+        c.select(0)
+        val plain = shot()
+        val picture = bounds(plain.width, plain.height) { x, y -> plain.getPixel(x, y) == PICTURE }
+        c.select(e.getSpanStart(image), e.getSpanEnd(image))
+        withTimeout(5_000) { while (view.selectedObject == null) delay(20) }
+        val selected = shot()
+        assertTrue("the picture is drawn in the top padding (from ${picture.top})", picture.top < view.totalPaddingTop / 2)
         val tint = bounds(plain.width, plain.height) { x, y -> changed(plain.getPixel(x, y), selected.getPixel(x, y)) }
         assertEquals("the tint's rect is the picture's", picture, tint)
     }
