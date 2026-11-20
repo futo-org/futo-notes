@@ -3,6 +3,7 @@ package com.futo.notes.textfirst
 import uniffi.futo_notes_ffi.EditorByteRange
 import uniffi.futo_notes_ffi.EditorFindReport
 import uniffi.futo_notes_ffi.EditorSessionException
+import uniffi.futo_notes_ffi.EditorUtf16Range
 import uniffi.futo_notes_ffi.NativeEditorSession
 import uniffi.futo_notes_ffi.editorFindScan
 
@@ -55,7 +56,12 @@ internal fun EditorEngine.findCommand(done: (FindSnapshot?) -> Unit, block: (Nat
 internal fun EditorEngine.findSetQuery(query: String, done: (FindSnapshot?) -> Unit) = findCommand(done) { s ->
     find.landed = false
     // The old match's selection would stay painted (a code block's, a cell's) though the new query has no match there.
-    find.landedOn?.let { (start, end) -> if (mirror.selStart == start && mirror.selEnd == end) select(start, start, fromView = false) }
+    // Let go where it stands, the reader's place kept: a caret revealed there would scroll back to the old match.
+    find.landedOn?.let { (start, end) ->
+        if (mirror.selStart != start || mirror.selEnd != end) return@let
+        applySelectionChange(s.selectUtf16(rev, EditorUtf16Range(start.toULong(), start.toULong())))
+        postUpdate(emptyList(), emptyList(), preserveScroll = true)
+    }
     find.landedOn = null
     val report = s.findSetQuery(rev, query)
     report to (report.reveal != null)

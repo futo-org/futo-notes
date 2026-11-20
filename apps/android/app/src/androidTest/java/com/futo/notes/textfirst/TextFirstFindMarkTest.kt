@@ -68,4 +68,18 @@ class TextFirstFindMarkTest {
         delay(300)
         assertEquals("pixels changed from the plain note", 0, changed(plain, render(view), 0, 0, view.width, view.height))
     }
+
+    /** Sol review (batch 2, 3): letting go of the old match keeps the reader where they scrolled. */
+    @Test fun aQueryWithNoMatchLeavesTheScroll() = textFirstSession((1..100).joinToString("\n\n") { "filler paragraph $it" } + "\n\nneedle\n") { c ->
+        val view = c.view
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        c.findSetQuery("needle")
+        c.findStep(forward = true)
+        delay(500)
+        withContext(Dispatchers.Main) { view.scrollTo(0, 0) }
+        delay(300)
+        c.findSetQuery("absent")
+        delay(800)
+        assertEquals("the scroll after a query with no match", 0, withContext(Dispatchers.Main) { view.scrollY })
+    }
 }
