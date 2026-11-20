@@ -10,8 +10,9 @@ import android.text.Layout
  * the reflow preview (#450) draws a slice at its previewed place each frame for a few
  * drawRenderNode calls instead of laying out its lines again: drawing every slice through the
  * layout cost 15 ms a frame on the Moto G Play. A slice is the tiles it spans, clipped to it and
- * moved by its shift. Tiles are recorded as they first show, dropped once well off screen, and
- * all recorded again when the note's layout or text changes. On API 28, and on a canvas that is
+ * moved by its shift. Tiles are recorded as they first show, dropped once well off screen, one
+ * recorded again when the platform let go of its drawing, and all when the note's layout or text
+ * changes (a photo landing changes its line's height). On API 28, and on a canvas that is
  * not hardware accelerated, slices are drawn through the layout directly.
  */
 internal class SliceTiles(private val view: TextFirstEditText) {
@@ -38,7 +39,7 @@ internal class SliceTiles(private val view: TextFirstEditText) {
         canvas.clipRect(view.scrollX.toFloat(), a, (view.scrollX + view.width).toFloat(), b)
         for (k in tileOf(a - shift)..tileOf(b - shift - 0.01f)) {
             if (com.futo.notes.BuildConfig.DEBUG) drawnNow += if (k in tiles) "$k" else "$k*"
-            val node = tiles.getOrPut(k) { record(k) }
+            val node = tileAt(k)
             used += k
             canvas.save()
             canvas.translate(0f, k * TILE + shift)
@@ -52,7 +53,18 @@ internal class SliceTiles(private val view: TextFirstEditText) {
     fun warm() {
         if (Build.VERSION.SDK_INT < 29 || !view.isHardwareAccelerated) return
         current()
-        for (k in tileOf(view.scrollY.toFloat())..tileOf(view.scrollY + view.height - 0.01f)) tiles.getOrPut(k) { record(k) }
+        for (k in tileOf(view.scrollY.toFloat())..tileOf(view.scrollY + view.height - 0.01f)) tileAt(k)
+    }
+
+    /**
+     * Tile [k], recorded again when the platform let go of its drawing: a node no frame drew loses its display list
+     * (a stretch kept just off screen through a fast autoscroll came back blank, Mason S23).
+     */
+    @androidx.annotation.RequiresApi(29)
+    private fun tileAt(k: Int): RenderNode {
+        val kept = tiles[k]
+        if (kept != null && kept.hasDisplayList()) return kept
+        return record(k).also { tiles[k] = it }
     }
 
     /**
