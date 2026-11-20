@@ -235,3 +235,43 @@ private fun EditorEngine.streamAfterUi() {
         }
     }
 }
+
+/** Own-action changes (a relink after rename) the Store queued for this session. */
+internal fun EditorEngine.drainCoordinatedChanges() = command {
+    val s = session ?: return@command
+    for (change in s.takeCoordinatedChanges()) {
+        if (change.previousRevision != rev) {
+            Log.w(EditorEngine.TAG, "coordinated change ${change.previousRevision}->${change.revision} at $rev; reloading view")
+            reloadFromEngine()
+            return@command
+        }
+        accept(change)
+    }
+}
+
+/**
+ * Save the draft as Markdown now, ahead of the debounce (on pause). [done]
+ * runs on the UI thread with the result, or null when nothing was unsaved
+ * or the save failed (reported through the sink).
+ */
+internal fun EditorEngine.checkpoint(done: ((FlushDraftResult?) -> Unit)? = null) = handler.post {
+    val result = if (closed || session == null) null else save(force = true)
+    if (done != null) ui.post { done(result) }
+}
+
+/** Sync already applied its authoritative mutation, including attachment identity.
+ * Reconcile on the input thread, after accepted typing, without replacing the session. */
+internal fun EditorEngine.reconcileExternalChanges(done: () -> Unit) = handler.post {
+    if (!closed && session != null) {
+        val id = session!!.noteId()
+        ui.post { sink.onAttachmentId(id) }
+        save(force = true, external = true)
+    }
+    ui.post(done)
+}
+
+/** The current exact source, for the screen's rename/draft paths. */
+internal fun EditorEngine.sourceText(done: (String?) -> Unit) = handler.post {
+    val source = try { session?.sourceText() } catch (e: EditorSessionException) { null }
+    ui.post { done(source) }
+}
