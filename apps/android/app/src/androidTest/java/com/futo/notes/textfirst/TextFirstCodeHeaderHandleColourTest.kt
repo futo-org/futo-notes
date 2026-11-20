@@ -26,6 +26,8 @@ class TextFirstCodeHeaderHandleColourTest {
         return best or 0xff000000.toInt()
     }
 
+    // The handle getters and setters are API 29: before it the theme's handles show (CaretAndHandleTint).
+    @androidx.test.filters.SdkSuppress(minSdkVersion = 29)
     @Test fun theNameFieldsHandlesTakeTheNotesAccent() = textFirstSession("```js name:short.js\nconst a = 1\n```\n\nafter") { c ->
         val view = c.view
         withTimeout(5_000) { while (view.codeChrome.areaOf(0, CodeBlockAction.NAME_FIELD) == null) delay(20) }
