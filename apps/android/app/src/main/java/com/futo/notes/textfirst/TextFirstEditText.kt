@@ -9,6 +9,7 @@ import android.text.Selection
 import android.text.Spannable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.inputmethod.EditorInfo
@@ -325,6 +326,14 @@ internal class TextFirstEditText(
 
     /** The platform's own touch handling, under the note's handlers (TextFirstEditTextTouch.kt). */
     internal fun nativeTouch(event: MotionEvent): Boolean = super.onTouchEvent(event)
+
+    override fun performHapticFeedback(feedbackConstant: Int, flags: Int): Boolean {
+        if (feedbackConstant == HapticFeedbackConstants.TEXT_HANDLE_MOVE && caretEdge.isDriving) return false
+        return super.performHapticFeedback(feedbackConstant, flags)
+    }
+
+    internal fun performEdgeLineTick(): Boolean =
+        super.performHapticFeedback(HapticFeedbackConstants.TEXT_HANDLE_MOVE, 0)
 
     override fun computeScroll() {
         super.computeScroll()
