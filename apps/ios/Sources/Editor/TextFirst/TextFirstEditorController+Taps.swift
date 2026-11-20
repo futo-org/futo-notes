@@ -254,12 +254,12 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
                         y: -g.translation(in: textView).y))
             if let hit = tableRowHit(at: start) {
                 tablePanRow = (hit.row, hit.span)
-                tablePanOrigin = tableScroll[hit.span.tableStart] ?? 0
+                tablePanOrigin = tableScroll[hit.span.tableID] ?? 0
             }
         case .changed:
             guard let (row, span) = tablePanRow else { return }
             scrollTable(
-                startingAt: span.tableStart, columns: span.columns,
+                startingAt: span.tableID, columns: span.columns,
                 to: tablePanOrigin - g.translation(in: textView).x, around: row)
         default:
             tablePanRow = nil
@@ -346,7 +346,7 @@ extension TextFirstEditorController {
     /// open (table editing mode) a tap on another cell opens that cell, link text or not. A tap
     /// on a link in the cell that is already open is the field's (`TextFirstCellLinkTap`).
     func handleCellTap(_ hit: TableCellHit, at p: CGPoint) {
-        if !tableIsOpen(hit.span.tableStart), let (_, target) = tableLinkHit(at: p) {
+        if !tableIsOpen(hit.span.tableID), let (_, target) = tableLinkHit(at: p) {
             applying += 1
             textView.selectedRange = selectionBeforeTouch
             applying -= 1
@@ -361,6 +361,6 @@ extension TextFirstEditorController {
         guard let editor = cellEditor, !editor.isFinished,
             let (span, _) = tableCell(at: editor.cellStart)
         else { return false }
-        return span.tableStart == key
+        return span.tableID == key
     }
 }

@@ -65,7 +65,7 @@ extension TextFirstLayoutFragment {
             let span = run.span
             let scroll =
                 MainActor.assumeIsolated {
-                    host?.tableScroll[span.tableStart] ?? detached?.tableScroll(span.tableStart)
+                    host?.tableScroll[span.tableID] ?? detached?.tableScroll(span.tableID)
                 } ?? 0
             context.saveGState()
             context.clip(to: rect)

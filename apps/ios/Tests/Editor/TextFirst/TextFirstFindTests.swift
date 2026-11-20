@@ -145,7 +145,7 @@
                 wide.controller.storage.attribute(
                     .tfTable, at: wide.controller.find.marks[0].location, effectiveRange: nil)
                 as! TextFirstTableRowSpan
-            #expect((wide.controller.tableScroll[span.tableStart] ?? 0) > 0)
+            #expect((wide.controller.tableScroll[span.tableID] ?? 0) > 0)
         }
 
         @Test func cellMarksSurviveAnEditAboveTheTable() async {

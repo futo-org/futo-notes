@@ -152,7 +152,10 @@ extension TextFirstEditorController {
     /// Edit the link under the selection, or make one from it.
     /// `onClose` (a table cell's prompt) runs after the prompt closes either way.
     func presentLinkPrompt(localization: Localization, onClose: (() -> Void)? = nil) {
-        guard !engineBusy else { onClose?(); return }
+        guard !engineBusy else {
+            onClose?()
+            return
+        }
         finishComposition()
         guard let presenter = textView.window?.rootViewController?.topmost else {
             onClose?()
@@ -233,9 +236,7 @@ extension TextFirstEditorController {
             let change: EditorViewChange?
             if var label, !destination.isEmpty {
                 guard !label.isEmpty else { return }
-                // in a cell a `|` in the text is spelled `\|` (spec: tables). The
-                // engine escapes it itself but then checks the written link over the
-                // unescaped length and drops the whole edit without an error, so say it here.
+                // editLink's custom-label path rejects an unescaped pipe in a cell.
                 if cellOpen { label = Self.escapingPipes(label) }
                 // The engine decides what was typed: a note that exists stays a note link;
                 // otherwise a web address is saved as `https://…`, and anything it is unsure

@@ -22,21 +22,24 @@
         private func point(_ h: TextFirstHarness, row index: Int, column: Int) -> CGPoint {
             h.tv.layoutIfNeeded()
             let manager = h.tv.textLayoutManager!
-            var frames: [CGRect] = []
-            var columns = 1
-            manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [])
-            { f in
-                if let f = f as? TextFirstLayoutFragment, let run = f.tableRuns.first {
-                    frames.append(f.layoutFragmentFrame)
-                    columns = run.span.columns
-                }
-                return true
-            }
+            let (row, span) = rows(h)[index]
+            let location = manager.location(manager.documentRange.location, offsetBy: row.location)!
+            let frame = manager.textLayoutFragment(for: location)!.layoutFragmentFrame
             let inset = h.tv.textContainerInset
-            let frame = frames[index]
+            let width = TextFirstTableMetrics.cellWidth(columns: span.columns)
             return CGPoint(
-                x: inset.left + CGFloat(column) * TextFirstTableMetrics.cellWidth(columns: columns) + 20,
+                x: inset.left + CGFloat(column) * width + 20,
                 y: inset.top + frame.minY + 15)
+        }
+
+        /// Ask the delegate as the keyboard does, then let UITextView apply the key
+        /// and deliver its selection and text change notifications.
+        private func type(_ key: String, in editor: TextFirstCellEditor) {
+            let field = editor.field
+            if editor.textView(field, shouldChangeTextIn: field.selectedRange, replacementText: key)
+            {
+                field.insertText(key)
+            }
         }
 
         @Test func tableRowsAreHiddenGlyphsDrawnAsAGridFromTheEnginesCells() {
@@ -82,18 +85,19 @@
             #expect(h.controller.tableCellHit(at: point(h, row: 1, column: 1))?.cell.text == "2")
             let hit = first!
             h.controller.scrollTable(
-                startingAt: hit.span.tableStart, columns: 4, to: 200, around: hit.row)
+                startingAt: hit.span.tableID, columns: 4, to: 200, around: hit.row)
             // Both rows follow the one scroll; the cell under the same point is further right.
             let width = h.controller.images.containerWidth
             let scroll = min(200, 4 * TextFirstTableMetrics.cellWidth(columns: 4) - width)
-            #expect(h.controller.tableScroll[hit.span.tableStart] == scroll)
+            #expect(h.controller.tableScroll[hit.span.tableID] == scroll)
             let after = h.controller.tableCellHit(at: point(h, row: 1, column: 0))
             #expect(after?.cell.text != "1")
             // Never past the last column.
             h.controller.scrollTable(
-                startingAt: hit.span.tableStart, columns: 4, to: 9999, around: hit.row)
+                startingAt: hit.span.tableID, columns: 4, to: 9999, around: hit.row)
             #expect(
-                h.controller.tableScroll[hit.span.tableStart] == 4 * TextFirstTableMetrics.cellWidth(columns: 4)
+                h.controller.tableScroll[hit.span.tableID] == 4
+                    * TextFirstTableMetrics.cellWidth(columns: 4)
                     - width)
         }
 
@@ -108,43 +112,25 @@
         @Test func aCellFieldEditsThroughTheEngineInTheNotesOwnCoordinates() throws {
             let h = TextFirstHarness(Self.note)
             let hit = try #require(h.controller.tableCellHit(at: point(h, row: 0, column: 0)))
-            h.controller.selectInCell(hit.cell.range)
-            let editor = TextFirstCellEditor(controller: h.controller)
-            editor.install()
+            h.controller.openCellEditor(hit)
+            let editor = try #require(h.controller.cellEditor)
             #expect(editor.field.text == "日本")
-            // Typing, then a pipe (written as typed: the row gains a cell), are the engine's edits.
-            _ = editor.textView(
-                editor.field, shouldChangeTextIn: NSRange(location: 2, length: 0),
-                replacementText: "z")
-            #expect(editor.field.text == "日本z")
-            #expect(h.source.contains("| 日本z | b |"))
-            _ = editor.textView(
-                editor.field, shouldChangeTextIn: NSRange(location: 3, length: 0),
-                replacementText: "|")
-            #expect(h.source.contains("| 日本z| | b |"))
-            #expect(editor.field.text == "")
-            // The grid shows the new text and the new cell.
-            #expect(rows(h)[0].1.cells.map(\.text) == ["日本z", "", "b"])
-            // Undo is the engine's: two steps back.
-            h.controller.undo()
-            editor.refresh()
-            h.controller.undo()
-            editor.refresh()
-            #expect(h.source.contains("| 日本 | b |"))
-            #expect(editor.field.text == "日本")
+            for key in " hello" { type(String(key), in: editor) }
+            #expect(editor.field.text == "日本 hello")
+            editor.finish()
+            _ = try h.controller.session.detach()
+            let reopened = try h.reopen()
+            #expect(reopened.source.contains("| 日本 hello | b |"))
             #expect(h.controller.divergences.isEmpty)
         }
 
         @Test func enterTabAndPasteInACellFollowTheEngine() throws {
             let h = TextFirstHarness(Self.note)
             let hit = try #require(h.controller.tableCellHit(at: point(h, row: 0, column: 0)))
-            h.controller.selectInCell(hit.cell.range)
-            let editor = TextFirstCellEditor(controller: h.controller)
-            editor.install()
+            h.controller.openCellEditor(hit)
+            let editor = try #require(h.controller.cellEditor)
             // Enter selects the cell below.
-            _ = editor.textView(
-                editor.field, shouldChangeTextIn: NSRange(location: 0, length: 0),
-                replacementText: "\n")
+            type("\n", in: editor)
             #expect(editor.field.text == "x")
             // Tab moves right; a cell holds one line, so pasted breaks become spaces.
             #expect(editor.tab(back: false))
@@ -162,23 +148,63 @@
         @Test func aTypedPipeMovesTheCellFieldOverTheNewCell() throws {
             let h = TextFirstHarness("| a | b |\n|---|---|\n| c | d |\n")
             let hit = try #require(h.controller.tableCellHit(at: point(h, row: 1, column: 0)))
-            h.controller.selectInCell(hit.cell.range)
-            let editor = TextFirstCellEditor(controller: h.controller)
-            editor.install()
+            h.controller.openCellEditor(hit)
+            let editor = try #require(h.controller.cellEditor)
             #expect(editor.field.text == "c")
             let old = editor.field.frame
-            _ = editor.textView(
-                editor.field, shouldChangeTextIn: NSRange(location: 1, length: 0),
-                replacementText: "|")
+            type("|", in: editor)
             #expect(h.source.contains("| c| | d |"), "\(h.source.debugDescription)")
             #expect(editor.field.text == "")
             let column = try #require(h.controller.tableCell(at: editor.cellStart)).1.column
             #expect(column == 1)
             let scroll = h.controller.tableScroll.values.first ?? 0
-            let x = h.tv.textContainerInset.left + TextFirstTableMetrics.cellWidth(columns: 2) - scroll
+            let x =
+                h.tv.textContainerInset.left + TextFirstTableMetrics.cellWidth(columns: 3) - scroll
             #expect(abs(editor.field.frame.minX - x) < 0.5, "\(old) -> \(editor.field.frame)")
             #expect(editor.field.frame.minY == old.minY)
             #expect(h.controller.divergences.isEmpty)
+        }
+
+        @Test func deletingTheTableReturnsToTheNoteAndOneUndoRestoresItsBytes() throws {
+            for (prefix, table, suffix) in [
+                ("intro\r\n", "| H | B |\r\n|---|---|\r\n| é |", "\r\n# Heading\r\n"),
+                ("---\ntags: [sample]\n---\n", "| H |\n|---|\n| é |", "\nafter\n"),
+                ("", "| H |\n|---|", "\n# Heading\n"),
+            ] {
+                let h = TextFirstHarness(prefix + table + suffix)
+                let before = try h.controller.session.sourceText()
+                let needle = try #require(before.range(of: table))
+                let expected = before.replacingCharacters(in: needle, with: "")
+                let hit = try #require(h.controller.tableCellHit(at: point(h, row: 0, column: 0)))
+                h.controller.openCellEditor(hit)
+                let editor = try #require(h.controller.cellEditor)
+                let lineStart = hit.row.location
+                editor.grips.deleteTable()
+                #expect(try Array(h.controller.session.sourceText().utf8) == Array(expected.utf8))
+                #expect(h.tv.selectedRange == NSRange(location: lineStart, length: 0))
+                #expect(h.tv.isFirstResponder)
+                #expect(editor.field.superview == nil && h.controller.cellEditor == nil)
+                #expect(
+                    editor.grips.rowGrip.superview == nil
+                        && editor.grips.columnGrip.superview == nil)
+                h.controller.undo()
+                #expect(try Array(h.controller.session.sourceText().utf8) == Array(before.utf8))
+            }
+        }
+
+        @Test func aMissingCellCanOnlyBeReachedFromItsOwnTable() throws {
+            let h = TextFirstHarness(
+                "| a | b | c |\n|---|---|---|\n| 1 | 2 | 3 |\n\n| h |\n|---|\n| x | y | z |\n| last |\n"
+            )
+            let before = h.source
+            #expect(h.controller.openMissingCell(at: point(h, row: 2, column: 2)))
+            #expect(h.source == before)
+            #expect(h.controller.cellEditor == nil)
+            #expect(h.controller.openMissingCell(at: point(h, row: 4, column: 2)))
+            let editor = try #require(h.controller.cellEditor)
+            #expect(editor.cell?.row == 2 && editor.cell?.column == 2)
+            h.controller.undo()
+            #expect(h.source == before)
         }
 
         @Test func imageContentIsRefusedInsideACell() throws {
@@ -237,7 +263,7 @@
             let hit = TextFirstEditorController.TableCellHit(
                 row: row, span: span, cell: cell, range: range)
             h.controller.openCellEditor(hit)
-            #expect(h.tv.selectedRange == range)
+            #expect(h.tv.selectedRange == NSRange(location: NSMaxRange(range), length: 0))
             #expect(h.controller.divergences.isEmpty)
         }
 
@@ -252,7 +278,7 @@
             #expect(h.controller.tableCell(at: range.location)?.1.text == "r3999")
         }
 
-        @Test func restyledBodyRowsKeepTheScrollKeyOfTheRowsAboveThem() async {
+        @Test func changingTheWidthInAMiddleRowUpdatesTheWholeShiftedTable() async {
             // 3,000 filler lines keep the header out of the first edit's restyle window.
             let filler = String(repeating: "filler line\n", count: 3000)
             let h = TextFirstHarness(filler + "\n" + longTable(4000))
@@ -260,8 +286,16 @@
             // An edit above the table moves it; its rows are not restyled and keep their key.
             h.select(0, 0)
             h.type("zz")
-            typeInRow(h, 2000, "W")
-            let keys = Set(rows(h).map(\.1.tableStart))
+            typeInRow(h, 2000, "||")
+            let wider = rows(h)
+            #expect(wider.allSatisfy { $0.1.columns == 4 })
+            let (row, header) = wider[0]
+            h.controller.scrollTable(startingAt: header.tableID, columns: 4, to: 100, around: row)
+            #expect((h.controller.tableScroll[header.tableID] ?? 0) > 0)
+            h.controller.undo()
+            #expect(rows(h).allSatisfy { $0.1.columns == 2 })
+            #expect(h.controller.tableScroll[header.tableID] == 0)
+            let keys = Set(rows(h).map(\.1.tableID))
             #expect(keys.count == 1, "one table scrolls as one: \(keys.count) keys")
         }
 

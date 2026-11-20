@@ -107,7 +107,8 @@ final class TextFirstEditorController: NSObject {
     let imageRoot: URL
     /// The container width the table rows' kern was last set for (`tablesWidthChanged`).
     var tablesWidth: CGFloat = 0
-    /// Each table's sideways scroll, by the display offset its table starts at.
+    /// Scroll keys follow their table's attributed range through edits above it.
+    var nextTableID = 0
     var tableScroll: [Int: CGFloat] = [:]
     var cellEditor: TextFirstCellEditor?
     /// Find in note: the bar's model and the engine-side bookkeeping.

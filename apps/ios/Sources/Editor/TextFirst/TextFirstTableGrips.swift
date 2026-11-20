@@ -204,8 +204,9 @@ final class TextFirstTableGrips: NSObject {
         }
         let left = c.inset.left
         let width = c.images.containerWidth
-        let scroll = c.tableScroll[span.tableStart] ?? 0
-        let tableRight = left - scroll + CGFloat(table.columns)
+        let scroll = c.tableScroll[span.tableID] ?? 0
+        let tableRight =
+            left - scroll + CGFloat(table.columns)
             * TextFirstTableMetrics.cellWidth(columns: Int(table.columns))
         let visibleRight = min(tableRight, left + width)
 
@@ -326,50 +327,19 @@ final class TextFirstTableGrips: NSObject {
         }
     }
 
-    /// No engine command: delete the table's lines and their line break, plus one adjoining blank
-    /// separator line where that is safe, as ONE edit through the ordinary replace path, then
-    /// return to the note with the caret where the table was.
-    ///
-    /// The replace works in display coordinates, where a block marker (`# `, `- `, a fence line)
-    /// is hidden: a range ENDING at the start of the next line also swallows that line's hidden
-    /// marker. So the range never ends at the start of a line that is not blank in the SOURCE
-    /// (`sourceText`, where the marker is visible); to remove a blank line it reaches back over
-    /// the blank line before the table instead.
-    private func deleteTable() {
-        guard let editor, let c = controller, let table = describe(),
-            let table0 = try? c.mirror.byteToUtf16(byte: table.display.start),
-            let to = try? c.mirror.byteToUtf16(byte: table.display.end)
+    /// Backspace over every cell lets the engine remove the table as one edit.
+    func deleteTable() {
+        guard let editor, let c = controller, !c.engineComposing, let table = describe(),
+            let first = table.rows.first?.first, let last = table.rows.last?.last
         else { return }
-        var start = Int(table0)
-        var end = Int(to)
-        let text = c.storage.string as NSString
-        func newline(_ at: Int) -> Bool { at >= 0 && at < text.length && text.character(at: at) == 0x0A }
-        if let source = try? c.session.sourceText() {
-            let src = Array(source.utf8)
-            let s0 = Int(table.source.start), s1 = Int(table.source.end)
-            func isNewline(_ at: Int) -> Bool { at >= 0 && at < src.count && src[at] == 0x0A }
-            // The line after the table's line break is empty or blank in the source (or there is none).
-            func blankFrom(_ at: Int) -> Bool {
-                var i = at
-                while i < src.count, src[i] == 0x20 || src[i] == 0x09 { i += 1 }
-                return i >= src.count || src[i] == 0x0A
-            }
-            let hasBreak = isNewline(s1) && newline(end)
-            let breakIsSafe = hasBreak && (s1 + 1 >= src.count || blankFrom(s1 + 1))
-            // The line before the table is empty: its line break sits right before the table's.
-            let blankBefore =
-                s0 >= 1 && isNewline(s0 - 1) && newline(start - 1) && (s0 == 1 || isNewline(s0 - 2))
-            if breakIsSafe {
-                end += 1  // lands on a blank line (or the end), never on a marker
-                if blankBefore { start -= 1 }
-            } else if blankBefore, s0 >= 2, newline(start - 2) {
-                start -= 2  // the table's own break stays: it ends the previous line
-            } else if !blankBefore, s0 >= 1, isNewline(s0 - 1), newline(start - 1) {
-                start -= 1
-            }
-        }
+        // A selection inside a single cell edits its text. Include the leading pipe
+        // when the header's only cell is the entire table.
+        let oneCell = table.rows.count == 1 && table.rows[0].count == 1
+        guard let start = utf16(oneCell ? table.display.start : first.content.start),
+            let end = utf16(last.content.end)
+        else { return }
         editor.finish()
-        c.replaceInCell(range: NSRange(location: start, length: end - start), text: "")
+        c.paragraphKey(.backspace, range: NSRange(location: start, length: end - start))
         c.textView.becomeFirstResponder()
     }
 }

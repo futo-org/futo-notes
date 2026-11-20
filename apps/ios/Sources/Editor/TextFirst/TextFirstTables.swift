@@ -27,20 +27,17 @@ final class TextFirstTableRowSpan: NSObject {
         /// the engine's inline styling over the cell's text (bold, link, ...).
         var runs: [TextFirstCellRun] = []
     }
-    /// How many columns the engine says this row has.
-    let rawColumns: Int
-    /// the columns this row is drawn with: the table's widest row's count
-    /// (`settleTableColumns`), so every row of a table has the same column width.
+    /// The engine's column count for the entire table.
     var columns: Int
     let header: Bool
-    let tableStart: Int
+    let tableID: Int
     let cells: [Cell]
     /// re-measured when the note's width or the table's column count changes.
     var height: CGFloat
 
-    init(columns: Int, header: Bool, tableStart: Int, cells: [Cell]) {
-        (self.rawColumns, self.columns, self.header, self.tableStart, self.cells) = (
-            columns, columns, header, tableStart, cells
+    init(columns: Int, header: Bool, tableID: Int, cells: [Cell]) {
+        (self.columns, self.header, self.tableID, self.cells) = (
+            columns, header, tableID, cells
         )
         height = TextFirstTableMetrics.height(cells: cells, header: header, columns: columns)
     }
@@ -112,17 +109,11 @@ extension TextFirstEditorController {
                 runs: TextFirstTableMetrics.runs(
                     from: TextFirstTableMetrics.windowSpecs, origin: s, length: e - s))
         }
-        // The engine plans only the rows an edit meets, and `tableStart` is where the table
-        // starts now; rows it did not plan keep their old key. A body row takes the key of
-        // the row above it so a table keeps one key (one sideways scroll). A header, which
-        // every whole-table plan includes, mints it.
         TextFirstTableMetrics.noteWidth = images.containerWidth
-        let key = header ? tableStart : (tableKey(above: range, in: storage) ?? tableStart)
-        // A header comes with a whole-table plan: the column count may have shrunk (Delete
-        // column, Undo of Add column), so the scroll offset must not stay past the new end.
-        if header { clampTableScroll(key, columns: columns) }
+        guard let key = storage.attribute(.tfTableID, at: tableStart, effectiveRange: nil) as? Int
+        else { return }
         let span = TextFirstTableRowSpan(
-            columns: columns, header: header, tableStart: key, cells: parts)
+            columns: columns, header: header, tableID: key, cells: parts)
         storage.addAttributes(
             [
                 .tfTable: span, .font: TextFirstImageMetrics.hiddenFont,
@@ -138,28 +129,6 @@ extension TextFirstEditorController {
         guard let scroll = tableScroll[key] else { return }
         let most = TextFirstTableMetrics.maxScroll(columns: columns, width: images.containerWidth)
         if scroll > most { tableScroll[key] = most }
-    }
-
-    /// The scroll key of the table row before the row at `range`, looking through the
-    /// delimiter line to the header.
-    private func tableKey(above range: NSRange, in storage: NSTextStorage) -> Int? {
-        let text = storage.string as NSString
-        var at = range.location
-        for _ in 0..<2 {
-            guard at > 0 else { return nil }
-            let line = text.paragraphRange(for: NSRange(location: at - 1, length: 0))
-            if let span = storage.attribute(.tfTable, at: line.location, effectiveRange: nil)
-                as? TextFirstTableRowSpan
-            {
-                return span.tableStart
-            }
-            guard
-                storage.attribute(.tfTableDelimiter, at: line.location, effectiveRange: nil)
-                    != nil
-            else { return nil }
-            at = line.location
-        }
-        return nil
     }
 
     func styleTableDelimiter(_ storage: NSTextStorage, _ range: NSRange) {
@@ -203,7 +172,7 @@ extension TextFirstEditorController {
         storage.enumerateAttribute(.tfTable, in: all) { value, run, _ in
             if let span = value as? TextFirstTableRowSpan {
                 // A wider note (rotation) can leave a scrolled table fitting: back to 0.
-                if span.header { clampTableScroll(span.tableStart, columns: span.columns) }
+                if span.header { clampTableScroll(span.tableID, columns: span.columns) }
                 span.height = TextFirstTableMetrics.height(
                     cells: span.cells, header: span.header, columns: span.columns)
                 rows.append((run, span.height))
@@ -250,7 +219,7 @@ extension TextFirstEditorController {
 
     func tableCellHit(at p: CGPoint) -> TableCellHit? {
         guard let hit = tableRowHit(at: p) else { return nil }
-        let scroll = tableScroll[hit.span.tableStart] ?? 0
+        let scroll = tableScroll[hit.span.tableID] ?? 0
         let column = Int(
             (hit.local.x + scroll) / TextFirstTableMetrics.cellWidth(columns: hit.span.columns))
         guard let cell = hit.span.cell(atColumn: column) else { return nil }
@@ -301,7 +270,7 @@ extension TextFirstEditorController {
             let run = f.tableRuns.first(where: { $0.span === span }),
             let rect = f.tableRect(run)
         else { return nil }
-        let scroll = tableScroll[span.tableStart] ?? 0
+        let scroll = tableScroll[span.tableID] ?? 0
         let column = TextFirstTableMetrics.cellWidth(columns: span.columns)
         let width = min(column, images.containerWidth)
         return CGRect(
@@ -319,13 +288,7 @@ extension TextFirstEditorController {
             TextFirstTableMetrics.maxScroll(columns: columns, width: images.containerWidth))
         guard clamped != (tableScroll[tableStart] ?? 0) else { return }
         tableScroll[tableStart] = clamped
-        redrawTable(around: row, tableStart: tableStart)
-    }
-
-    /// Invalidate the layout of every row of the table that holds `row`, and put the open
-    /// cell's field back over its cell.
-    func redrawTable(around row: NSRange, tableStart: Int) {
-        invalidateTable(around: row, tableStart: tableStart)
+        invalidateTable(at: row.location)
         cellEditor?.reposition()
     }
 
@@ -336,13 +299,13 @@ extension TextFirstEditorController {
         let width = images.containerWidth
         let column = TextFirstTableMetrics.cellWidth(columns: span.columns)
         let left = CGFloat(cell.column) * column
-        let scroll = tableScroll[span.tableStart] ?? 0
+        let scroll = tableScroll[span.tableID] ?? 0
         if left < scroll {
             scrollTable(
-                startingAt: span.tableStart, columns: span.columns, to: left, around: row)
+                startingAt: span.tableID, columns: span.columns, to: left, around: row)
         } else if left + column > scroll + width {
             scrollTable(
-                startingAt: span.tableStart, columns: span.columns,
+                startingAt: span.tableID, columns: span.columns,
                 to: left + column - width, around: row)
         }
     }

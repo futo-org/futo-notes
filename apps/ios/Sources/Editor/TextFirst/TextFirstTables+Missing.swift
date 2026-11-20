@@ -3,23 +3,21 @@ import UIKit
 // A tap in a box a short row draws but lacks.
 
 extension TextFirstEditorController {
-    /// The table row above the one at `row` (looking through the delimiter line), with its range.
-    private func tableRowAbove(_ row: NSRange) -> (NSRange, TextFirstTableRowSpan)? {
-        let text = storage.string as NSString
-        var at = row.location
-        for _ in 0..<2 {
-            guard at > 0 else { return nil }
-            let line = text.paragraphRange(for: NSRange(location: at - 1, length: 0))
-            var run = NSRange()
-            if let span = storage.attribute(
-                .tfTable, at: line.location, longestEffectiveRange: &run, in: line)
-                as? TextFirstTableRowSpan
-            {
-                return (run, span)
-            }
-            at = line.location
-        }
-        return nil
+    /// Use the touched row's existing cell to find its current index. An edit above
+    /// it may have shifted that index since TextKit last drew the row.
+    private func cellAbove(
+        _ row: NSRange, span: TextFirstTableRowSpan, column: Int
+    ) -> NSRange? {
+        guard !span.header, let first = span.cells.first,
+            let anchor = try? mirror.utf16ToByte(
+                unit: UInt64(span.contentRange(of: first, row: row).location)),
+            let table = try? session.inspectTable(
+                expected: rev, range: EditorByteRange(start: anchor, end: anchor)),
+            let focus = table.focus, focus.row > 0,
+            let cell = table.rows[Int(focus.row) - 1].first(where: { Int($0.column) == column }),
+            let end = try? mirror.byteToUtf16(byte: cell.content.end)
+        else { return nil }
+        return NSRange(location: Int(end), length: 0)
     }
 
     /// A tap in a box the row lacks: the engine's own table key enters it, giving the row its
@@ -29,7 +27,7 @@ extension TextFirstEditorController {
     /// steps), so it does nothing, as before. True when the tap was a missing box.
     func openMissingCell(at p: CGPoint) -> Bool {
         guard let hit = tableRowHit(at: p) else { return false }
-        let scroll = tableScroll[hit.span.tableStart] ?? 0
+        let scroll = tableScroll[hit.span.tableID] ?? 0
         let column = Int(
             (hit.local.x + scroll) / TextFirstTableMetrics.cellWidth(columns: hit.span.columns))
         guard column >= 0, column < hit.span.columns, hit.span.cell(atColumn: column) == nil
@@ -39,8 +37,8 @@ extension TextFirstEditorController {
             last.column + 1 == column
         {
             from = (hit.span.contentRange(of: last, row: hit.row), .tab)
-        } else if let (row, span) = tableRowAbove(hit.row), let cell = span.cell(atColumn: column) {
-            from = (span.contentRange(of: cell, row: row), .enter)
+        } else if let above = cellAbove(hit.row, span: hit.span, column: column) {
+            from = (above, .enter)
         }
         guard let (range, key) = from else { return true }
         cellEditor?.finish()

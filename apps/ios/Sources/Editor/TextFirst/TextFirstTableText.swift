@@ -132,7 +132,7 @@ extension TextFirstEditorController {
             let run = f.tableRuns.first(where: { $0.span === hit.span }),
             let rect = f.tableRect(run)
         else { return nil }
-        let scroll = tableScroll[hit.span.tableStart] ?? 0
+        let scroll = tableScroll[hit.span.tableID] ?? 0
         let width = TextFirstTableMetrics.cellWidth(columns: hit.span.columns)
         let pad = TextFirstTableMetrics.padding
         let local = CGPoint(

@@ -88,9 +88,9 @@ extension TextFirstEditorController {
         guard !closed else { return }
         cellEditor?.finish()
         finishComposition()
-        let before = tableScroll[hit.span.tableStart] ?? 0
+        let before = tableScroll[hit.span.tableID] ?? 0
         revealCell(hit.cell, in: hit.span, row: hit.row)
-        let shift = (tableScroll[hit.span.tableStart] ?? 0) - before
+        let shift = (tableScroll[hit.span.tableID] ?? 0) - before
         selectInCell(NSRange(location: NSMaxRange(hit.range), length: 0))
         let editor = TextFirstCellEditor(controller: self)
         cellEditor = editor
