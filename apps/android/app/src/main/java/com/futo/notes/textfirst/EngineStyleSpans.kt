@@ -12,7 +12,9 @@ internal fun List<EditorStyleSpan>.toStyleWindow(start: Int, end: Int, display: 
     val blocks = filterIsInstance<EditorStyleSpan.CodeBlock>().map {
         CodeBlockFacts(it.start.toInt(), it.end.toInt(), it.language, it.name, it.lineCount.toInt())
     }
-    val (grid, text) = mapNotNull { it.toSpanSpec(display, blocks, typedDelimiterAt) }
+    // A marker carries only its range: it draws with the facts of the item row that starts with it.
+    val itemRows = filterIsInstance<EditorStyleSpan.ListRow>().associateBy { it.start }
+    val (grid, text) = mapNotNull { it.toSpanSpec(display, blocks, itemRows, typedDelimiterAt) }
         .partition { it is SpanSpec.TableRow || it is SpanSpec.TableDelimiter }
     // Grid rows are disjoint lines in document order, so the row a span could sit in is the last one starting at or before it.
     val rows = grid.sortedBy { it.start }
@@ -23,11 +25,12 @@ internal fun List<EditorStyleSpan>.toStyleWindow(start: Int, end: Int, display: 
     return StyleWindow(minOf(start, specs.minOfOrNull { it.start } ?: start), maxOf(end, specs.maxOfOrNull { it.end } ?: end), specs)
 }
 
-private fun EditorStyleSpan.toSpanSpec(display: CharSequence, blocks: List<CodeBlockFacts>, typedDelimiterAt: Int): SpanSpec? = when (this) {
+private fun EditorStyleSpan.toSpanSpec(display: CharSequence, blocks: List<CodeBlockFacts>, itemRows: Map<ULong, EditorStyleSpan.ListRow>, typedDelimiterAt: Int): SpanSpec? = when (this) {
     is EditorStyleSpan.Inline -> SpanSpec.Inline(start.toInt(), end.toInt(), bold, italic, strike, code)
     is EditorStyleSpan.Heading -> SpanSpec.Heading(start.toInt(), end.toInt(), level.toInt())
     is EditorStyleSpan.Quote -> SpanSpec.Quote(start.toInt(), end.toInt(), depth.toInt())
     is EditorStyleSpan.ListRow -> toListSpec()
+    is EditorStyleSpan.ListMarker -> itemRows[start]?.let { row -> row.kind()?.let { kind -> SpanSpec.ListItemMarker(start.toInt(), end.toInt(), row.level.toInt(), kind, row.text, row.checked) } }
     is EditorStyleSpan.Code -> toCodeSpec(blocks)
     is EditorStyleSpan.CodeBlock -> null
     is EditorStyleSpan.Metadata -> SpanSpec.Metadata(start.toInt(), end.toInt())
@@ -50,13 +53,16 @@ private fun EditorStyleSpan.Code.toCodeSpec(blocks: List<CodeBlockFacts>): SpanS
 
 private fun EditorStyleSpan.ListRow.toListSpec(): SpanSpec {
     val depth = level.toInt()
-    val kind = when (marker) {
-        EditorListMarker.PLAIN -> return SpanSpec.Indent(start.toInt(), end.toInt(), depth)
-        EditorListMarker.BULLET -> ListMarker.Bullet
-        EditorListMarker.ORDERED -> ListMarker.Ordered
-        EditorListMarker.TASK -> ListMarker.Task
-    }
+    val kind = kind() ?: return SpanSpec.Indent(start.toInt(), end.toInt(), depth)
     return SpanSpec.ListRow(start.toInt(), end.toInt(), depth, kind, text, checked, first)
+}
+
+/** The marker an item row draws; null for a plain line under a list. */
+private fun EditorStyleSpan.ListRow.kind(): ListMarker? = when (marker) {
+    EditorListMarker.PLAIN -> null
+    EditorListMarker.BULLET -> ListMarker.Bullet
+    EditorListMarker.ORDERED -> ListMarker.Ordered
+    EditorListMarker.TASK -> ListMarker.Task
 }
 
 /** A cell's text is read from the display: the engine names only its range. */

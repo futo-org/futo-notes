@@ -144,27 +144,6 @@ class TextFirstGlyphMetricsTest {
         }
     }
 
-    @Test fun selectedListMarginFollowsTheMarkerIndentAndDirection() {
-        val body = "alpha beta gamma"
-        for (kind in listOf(ListMarker.Ordered, ListMarker.Bullet, ListMarker.Task)) for (depth in 0..1) for (dir in listOf(1, -1)) {
-            val text = ChunkedEditable.from(body + "\n" + TextFirstEditText.END_SENTINEL)
-            val marker = TfList(look, depth = depth, marker = kind, label = "12.", checked = false, first = true)
-            text.setSpan(marker, 0, body.length + 1, TF_SPAN_FLAGS)
-            val bitmap = Bitmap.createBitmap((look.listIndent * 3).toInt(), (look.textSizePx * 1.55f).toInt(), Bitmap.Config.ARGB_8888)
-            bitmap.eraseColor(Color.WHITE)
-            try {
-                val edge = if (dir > 0) 0 else bitmap.width
-                val canvas = Canvas(bitmap)
-                marker.drawSelectedMargin(canvas, edge, dir, 0f, bitmap.height.toFloat())
-                marker.drawLeadingMargin(canvas, TextPaint(), edge, dir, 0, look.textSizePx.toInt(), bitmap.height, text, 0, body.length + 1, true, null)
-                val x = edge + dir * ((look.listIndent * depth).toInt() + 1)
-                assertNotEquals("$kind depth$depth dir$dir: the margin includes its marker", Color.WHITE, bitmap.getPixel(x, 1))
-                val outside = edge + dir * (marker.getLeadingMargin(true) + 3)
-                assertEquals("the body is left to the native selection path", Color.WHITE, bitmap.getPixel(outside, 1))
-            } finally { bitmap.recycle() }
-        }
-    }
-
     /** A real TextView clips its Layout to the content padding; direct span drawing does not. */
     @Test fun orderedMarkerInkSurvivesTheNativeViewClip() = runBlocking(Dispatchers.Main) {
         val images = ImageLoader(context, context.cacheDir)

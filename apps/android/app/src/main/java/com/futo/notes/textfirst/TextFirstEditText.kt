@@ -272,7 +272,6 @@ internal class TextFirstEditText(
             drawCodeSelection(canvas)
             drawTextSelection(canvas)
             drawTableSelectionUnder(canvas)
-            drawListSelection(canvas)
             drawFindMarks(canvas)
             val e = editableText as? ChunkedEditable
             e?.drawWindow = visibleChars()
