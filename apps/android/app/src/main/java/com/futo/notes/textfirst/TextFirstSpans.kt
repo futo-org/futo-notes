@@ -65,7 +65,6 @@ internal class TfHeading(private val look: TextFirstStyle, val level: Int) :
 
     private val scale = when (level) { 1 -> 1.5f; 2 -> 1.375f; 3 -> 1.25f; 4 -> 1.1875f; 5 -> 1.125f; else -> 1.0625f }
     private val weight = when (level) { 1, 2 -> 700; 3, 4 -> 600; else -> 500 }
-    private val bodyLines = if (level == 1) 2 else 1
 
     // A retained inline span may run before or after this one: a run it already made heavier than
     // the body's regular face is bold, and the heading makes it heavier than its own weight.
@@ -81,19 +80,31 @@ internal class TfHeading(private val look: TextFirstStyle, val level: Int) :
     override fun updateDrawState(paint: TextPaint) = apply(paint)
 
     /**
-     * Every visual line of an H1 is two body lines tall and every other level's one, with the text
-     * centred; a level whose glyph box is taller than that keeps its own height. The TextView adds
-     * [TextFirstStyle.bodyLineSpacing] below each line afterwards.
+     * Every row of an h1 or h2 is 1.25 times its font size tall and every row of an h3 to h6 one body line, whatever
+     * runs it mixes (inline code, bold, a link), with its letters as seen (capital tops to descender bottoms) centred in
+     * it and no room above or below the heading: space around it is empty lines (Mason). The TextView adds
+     * [TextFirstStyle.bodyLineSpacing] below each row afterwards, so that is counted in the row.
      */
     override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
-        val glyphs = fm.descent - fm.ascent
-        val line = look.bodyLineHeight * bodyLines
-        if (glyphs > line) return
-        val space = (line - glyphs) / 2
-        fm.ascent -= space
-        fm.descent = fm.ascent + line - look.bodyLineSpacing
-        fm.top = fm.ascent
+        fm.ascent = rowTop
+        fm.top = rowTop
+        fm.descent = rowTop + rowHeight - look.bodyLineSpacing
         fm.bottom = fm.descent
+    }
+
+    private val rowHeight = if (level <= 2) kotlin.math.round(ROW_EMS * look.textSizePx * scale).toInt() else look.bodyLineHeight
+
+    /** The row's top from the baseline: half a row above the middle of the heading's capitals and descenders. */
+    private val rowTop: Int = run {
+        val paint = TextPaint().apply { typeface = look.regular; textSize = look.textSizePx }
+        apply(paint)
+        val seen = android.graphics.Rect().also { paint.getTextBounds("Hg", 0, 2, it) }
+        kotlin.math.round((seen.top + seen.bottom) / 2f - rowHeight / 2f).toInt()
+    }
+
+    private companion object {
+        /** An h1's or h2's row pitch, in its own font size. */
+        const val ROW_EMS = 1.25f
     }
 }
 

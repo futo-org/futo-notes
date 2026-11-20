@@ -32,12 +32,20 @@ class TextFirstLineMetricsTest {
         assertEquals("the delimiter line between header and body ($heights)", 0, heights[1])
     }
 
-    /** An H1 line is two body lines tall and H3 to H6 lines one, with tall and deep glyphs in them. */
+    /**
+     * An h1 or h2 row is 1.25 times its font size and an h3 to h6 row one body line, with tall and deep glyphs in it,
+     * with inline code and bold mixed in, and with nothing added above or below the heading.
+     */
     @Test fun headingLinesKeepTheBodyLineGrid() {
-        val heights = lineHeights("x\ny\n# Ågjpq\n### Ågjpq\n#### Ågjpq\n##### Ågjpq\n###### Ågjpq\nz\n")
+        val heights = lineHeights("x\ny\n# Ågjpq\n## Ågjpq\n### Ågjpq\n#### Ågjpq\n##### Ågjpq\n###### Ågjpq\n# Ågjpq `code` **b**\n### Ågjpq `code` **b**\nz\n")
         val body = heights[1]
-        assertEquals("an H1 line is two body lines ($heights)", body * 2, heights[2])
-        for (line in 3..6) assertEquals("a level ${line} heading line is one body line ($heights)", body, heights[line])
+        val size = 17f * InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.scaledDensity
+        val h1 = kotlin.math.round(1.25f * 1.5f * size).toInt()
+        assertEquals("an h1 row is 1.25 times its font ($heights)", h1, heights[2])
+        assertEquals("an h2 row is 1.25 times its font ($heights)", kotlin.math.round(1.25f * 1.375f * size).toInt(), heights[3])
+        for (line in 4..7) assertEquals("a level ${line - 1} heading row is one body line ($heights)", body, heights[line])
+        assertEquals("an h1 row mixing code and bold keeps its height ($heights)", h1, heights[8])
+        assertEquals("an h3 row mixing code and bold keeps its height ($heights)", body, heights[9])
     }
 
     /** A fallback font (Arabic, Hebrew) must not make its row taller than a Latin row of the same list. */
