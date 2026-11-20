@@ -37,7 +37,8 @@ internal class TfSpanFactory(private val style: TextFirstStyle, private val mark
         is SpanSpec.Wikilink -> span is TfWikilink && span.label == spec.label && span.noteId == spec.noteId
         is SpanSpec.Tag -> span is TfTag
         is SpanSpec.Divider -> span is TfDivider
-        is SpanSpec.Image -> span is TfImage && span.destination == spec.destination
+        is SpanSpec.Image -> span is TfImage && span.destination == spec.destination &&
+            span.alt == spec.alt && span.vault == spec.vault && span.remote == spec.remote
         is SpanSpec.TableRow -> span is TfTableRow && span.matches(spec.row, spec.start)
         is SpanSpec.TableDelimiter -> if (spec.typed) span is TfTypedDelimiter else span is TfTableDelimiter
     }
