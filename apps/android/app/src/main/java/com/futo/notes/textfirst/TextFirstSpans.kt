@@ -183,7 +183,8 @@ internal class TfList(
         }
     }
 
-    override fun getLeadingMargin(first: Boolean) = if (first) markerLead.toInt() else hanging
+    // Only the item's own first row holds its marker unit; a piece that continues the item hangs at its text throughout.
+    override fun getLeadingMargin(first: Boolean) = if (first && this.first) markerLead.toInt() else hanging
 
     override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) = Unit
 }
