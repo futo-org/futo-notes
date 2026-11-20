@@ -81,41 +81,6 @@ internal fun TextFirstEditText.drawFindMarks(canvas: Canvas) {
     canvas.restoreToCount(save)
 }
 
-/**
- * Inline code paints its chip over what is drawn behind the text, the marks included: a match inside it is marked
- * over the drawn chip instead, blended so its text stays readable (multiplied on a light page, screened on a dark one).
- * Before Android 10 it is laid over plainly.
- */
-internal fun TextFirstEditText.drawFindMarksOverCode(canvas: Canvas) {
-    if (marks.isEmpty) return
-    val l = layout ?: return
-    val e = editableText ?: return
-    val top = scrollY - totalPaddingTop
-    val from = l.getLineStart(l.getLineForVertical(maxOf(0, top)))
-    val to = l.getLineEnd(l.getLineForVertical(maxOf(0, top + height)))
-    val markPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-    val light = androidx.core.graphics.ColorUtils.calculateLuminance(style.codeBackground) > 0.5
-    val blend = if (android.os.Build.VERSION.SDK_INT >= 29) {
-        if (light) android.graphics.BlendMode.MULTIPLY else android.graphics.BlendMode.SCREEN
-    } else null
-    val save = canvas.save()
-    canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
-    marks.visit(from, to) { s, en, current ->
-        for (code in e.getSpans(s, en, TfInline::class.java)) {
-            if (!code.code) continue
-            val a = maxOf(s, e.getSpanStart(code))
-            val b = minOf(en, e.getSpanEnd(code))
-            if (b <= a) continue
-            markPaint.color = style.findMarkColor(current)
-            // The current match's text is drawn again on its mark (drawCurrentMatchText): the mark lies over plainly.
-            if (android.os.Build.VERSION.SDK_INT >= 29) markPaint.blendMode = if (current) null else blend
-            // Row by row over the code's own text: a wrapped run's middle rows would otherwise span the margin and gutter.
-            for (row in l.getLineForOffset(a)..l.getLineForOffset(b)) drawTextSelectionRow(canvas, l, e, row, a, b, markPaint)
-        }
-    }
-    canvas.restoreToCount(save)
-}
-
 /** TextView caches span drawing: re-set each grid row (or those matching [only]) so it repaints. */
 internal fun TextFirstEditText.redrawTableRows(only: (TfTableRow) -> Boolean = { true }) {
     val e = editableText ?: return
@@ -131,7 +96,7 @@ internal fun TextFirstEditText.redrawTableRows(only: (TfTableRow) -> Boolean = {
 /**
  * The current match's text, drawn again over its mark in the note's text colour: a link's, a tag's, a missing link's or
  * inline code's own colour does not read on the mark. Clipped to the mark, in a layer whose filter gives every glyph
- * drawn there that one colour (a wikilink's own label too); inline code is drawn without its chip for it.
+ * drawn there that one colour (a wikilink's own label too).
  */
 internal fun TextFirstEditText.drawCurrentMatchText(canvas: Canvas) {
     if (marks.isEmpty) return
@@ -166,12 +131,10 @@ internal fun TextFirstEditText.drawCurrentMatchText(canvas: Canvas) {
     canvas.saveLayer(bounds, tint)
     val window = e.drawWindow
     e.drawWindow = l.getLineStart(l.getLineForOffset(match.first))..l.getLineEnd(l.getLineForOffset(match.last))
-    style.drawingMatchText = true
     try {
         paint.color = currentTextColor
         l.draw(canvas)
     } finally {
-        style.drawingMatchText = false
         e.drawWindow = window
         canvas.restoreToCount(save)
     }

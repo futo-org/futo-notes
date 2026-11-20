@@ -58,7 +58,11 @@ class TextFirstFindMarkTest {
 
     @Test fun aQueryWithNoMatchPaintsNothing() = textFirstSession(note) { c ->
         val view = c.view
+        // The landed selection collapses to a caret at its match, in the code block: the plain note is drawn with the
+        // caret there (its line number active), and without a blinking caret, so only marks would differ.
+        withContext(Dispatchers.Main) { view.isCursorVisible = false }
         withTimeout(5_000) { while (view.layout == null) delay(20) }
+        c.select(view.editableText.toString().indexOf("nu", view.editableText.toString().indexOf("code nu")))
         delay(300)
         val plain = render(view)
         c.findSetQuery("nu")

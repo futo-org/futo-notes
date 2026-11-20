@@ -50,6 +50,7 @@ internal class CodeBlockChrome(private val look: TextFirstStyle) {
     val card = RectF()
     val selectionPaint = Paint()
     val selectionPath = android.graphics.Path()
+    val inlineChip = InlineCodeChip()
     val selectionBreak = android.graphics.Path()
     val selectionRow = RectF()
     /** A selection row's corner radii, top-left first, clockwise, two values a corner. */

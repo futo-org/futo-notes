@@ -10,6 +10,7 @@
   fetched the first time a fence uses it. A fence in any other language still
   renders as a code block, just uncoloured.
   → src/features/editor/codeFenceLanguages.ts
+- *(Android text-first editor)* Inline code sits on a rounded chip, as on desktop: the code's letters as seen (capital tops to descender bottoms) with a tenth of its em above and below, never taller than its row, filled with the text colour at 12% so a selection or find mark shows over it; its sides reach into the whitespace beside it, up to three tenths of an em and never over a neighbouring letter. A run that wraps is one chip per row, rounded only at its real start and end. → apps/android/app/src/main/java/com/futo/notes/textfirst/InlineCodeChips.kt
 - *(Android text-first editor)* Every code-body line has the same inset, including lines added with Enter; hidden fence rows do not add another inset to the first or last body line. → crates/futo-notes-editor/src/host/style_plan.rs
 - Links: `[text](url)`, autolinks `<url>`, and bare GFM URLs.
 - Blockquotes, including nested: each level renders as an indented block with a
