@@ -26,7 +26,8 @@ class TextFirstBlockDragQuoteDropTest {
             (0 until l.lineCount).map { line ->
                 val a = l.getLineStart(line)
                 val b = l.getLineEnd(line)
-                Triple(e.subSequence(a, b).toString().trim(),
+                // A list item's row starts with its marker unit, which the source writes as its marker.
+                Triple(e.subSequence(a, b).toString().trim().removePrefix("\uFFFC"),
                     e.getSpans(a, a + 1, TfQuote::class.java).maxOfOrNull { it.depth } ?: 0,
                     e.getSpans(a, a + 1, TfCodeBlock::class.java).isNotEmpty())
             }
