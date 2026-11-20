@@ -5,6 +5,7 @@ import type { Hit } from './hitTest';
 import { arrowFromSelectedBlock, downOffNoteEndBlock } from './codeBlockKeys';
 import { openLineBesideBlock } from './openLineBesideBlock';
 import { selectImageBesideCaret } from './imageDeletion';
+import { arrowFromSelectedPictures } from './pictureLineKeys';
 import { leaveTable } from './leaveTable';
 import type { EditorView } from './view';
 
@@ -118,6 +119,8 @@ export class EditorKeys {
       event.preventDefault();
       this.openLine(event.shiftKey);
     } else if (plain && !event.shiftKey && arrowFromSelectedBlock(this.view, event.key)) {
+      event.preventDefault();
+    } else if (plain && !event.shiftKey && arrowFromSelectedPictures(this.view, event.key)) {
       event.preventDefault();
     } else if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && wordModifiers) {
       event.preventDefault();

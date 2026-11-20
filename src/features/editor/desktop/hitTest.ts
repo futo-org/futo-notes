@@ -92,6 +92,28 @@ export class EditorHitTest {
     return {};
   }
 
+  /** `offset` (UTF-16), the browser's answer for a press at viewport `x`, `y` on line `index`
+   *  (drawn in `element`), kept on the press's side of each picture whose rows the press is
+   *  on: left of a picture it is no later than the stop before it, right of one no earlier
+   *  than the stop after it. WebKit answers a press beside a picture with a point across it. */
+  private besidePictures(
+    index: number,
+    element: HTMLElement,
+    press: { x: number; y: number },
+    offset: number,
+  ): number {
+    const line = this.view.displayLines()[index];
+    if (!line.atoms.some((atom) => atom.image)) return offset;
+    const atomElements = atomElementsOf(element);
+    for (const [position, atom] of line.atoms.entries()) {
+      const box = atom.image && atomElements[position]?.getBoundingClientRect();
+      if (!box || press.y < box.top || press.y >= box.bottom) continue;
+      if (press.x < box.left) offset = Math.min(offset, line.start + atom.start);
+      else if (press.x >= box.right) offset = Math.max(offset, line.start + atom.end);
+    }
+    return offset;
+  }
+
   /** The row of a caret at UTF-16 `from` (at the end of the row above with `rowEnd`): its
    *  top and bottom, a line unit's height and the caret's x, viewport px. */
   private caretRow(
@@ -213,10 +235,11 @@ export class EditorHitTest {
       const offset = x < box.left + box.width / 2 ? line.start : line.start + line.text.length;
       return { offset, rowEnd: false, atom: this.atomHit(index, element, x, onRow).atom };
     }
-    const offset = Math.min(
+    const answered = Math.min(
       Math.max(view.offsetOf(point[0], point[1]), line.start),
       line.start + line.text.length,
     );
+    const offset = this.besidePictures(index, element, { x, y: onRow }, answered);
     const caret = view.caretSide.clientRect(offset);
     const rowEnd = !!caret && lineRowAt(rows, caret.top + caret.height / 2).index > row.index;
     const found = this.atomHit(index, element, x, onRow);

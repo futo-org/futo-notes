@@ -56,6 +56,11 @@ no image rule of its own. Pasting and dropping an image: [paste.md](paste.md).
   starts or ends its line, the pane scrolling only as far as brings the caret in whole (a
   picture's height beside one); Shift with them takes it whole. → lineElements.ts `pointInLine`, pictureStops.ts, caret.ts `measureCaret`, keys.ts
   `besideAtom`
+- A press left of a picture, on its rows, puts the caret before it, and one right of it after
+  it: never across the picture. → hitTest.ts `besidePictures`
+- Up from a selection held in a line of pictures alone puts the caret at the end of the line
+  above, and Down at the start of the line below, as off a selected code block; with no line
+  there, at the selection's start or end. → pictureLineKeys.ts, tests/desktop-editor-image-stories.mjs
 - A click on a picture selects the image whole, whatever its click count, and a drag through it
   takes it whole; Up and Down onto a picture land on the side of it nearer the column. Any
   selection ending inside an image's spelling is fitted outside it by the engine
