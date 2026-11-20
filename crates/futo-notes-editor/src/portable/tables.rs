@@ -1,6 +1,8 @@
 //! Portable table operations are ordinary input: applied now, acknowledged later.
 use super::*;
-use crate::{DisplayUtf16Range, TableCommand, TableDescription, TableKey};
+use crate::{
+    DisplayUtf16Offset, DisplayUtf16Range, TableCommand, TableDescription, TableKey, TableOutcome,
+};
 
 /// A table key either moves the selection (nothing to append) or applies one
 /// edit and issues its request.
@@ -67,14 +69,32 @@ impl PortableSession {
     ) -> Result<Option<PortableTableStep>, PortableError> {
         let (outcome, record) =
             self.record_edit(|engine, accept| engine.table_key(expected, key, accept))?;
-        Ok(match outcome {
-            None => None,
-            Some(crate::TableOutcome::Selected(change)) => {
-                Some(PortableTableStep::Selected(change))
-            }
-            Some(crate::TableOutcome::Edited(change)) => self
+        Ok(self.issue_table_step(outcome, record))
+    }
+
+    pub fn enter_table_cell_utf16(
+        &mut self,
+        expected: Revision,
+        at: DisplayUtf16Offset,
+        column: usize,
+    ) -> Result<Option<PortableTableStep>, PortableError> {
+        let (outcome, record) = self.record_edit(|engine, accept| {
+            engine.enter_table_cell_utf16(expected, at, column, accept)
+        })?;
+        Ok(self.issue_table_step(outcome, record))
+    }
+
+    /// A table move as it is; a table edit issued with its request.
+    fn issue_table_step(
+        &mut self,
+        outcome: Option<TableOutcome>,
+        record: Option<SourceEdit>,
+    ) -> Option<PortableTableStep> {
+        match outcome? {
+            TableOutcome::Selected(change) => Some(PortableTableStep::Selected(change)),
+            TableOutcome::Edited(change) => self
                 .issue_accepted(record, Some(*change))
                 .map(|applied| PortableTableStep::Edited(Box::new(applied))),
-        })
+        }
     }
 }

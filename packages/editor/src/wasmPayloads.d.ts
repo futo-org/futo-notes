@@ -461,7 +461,10 @@ export interface TableDescription {
   controls: TableControls | null;
 }
 
-/** `table_key`: `null` when the key is not a table key. */
+/**
+ * `table_key`: `null` when the key is not a table key. `enter_table_cell_utf16`: `null` off a
+ * header or body row, or for a column past the table's.
+ */
 export type TableOutcome = { selected: SelectionChange } | { edited: Applied };
 
 // ---- Per-method results --------------------------------------------------

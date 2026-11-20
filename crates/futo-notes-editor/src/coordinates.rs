@@ -1,8 +1,8 @@
 //! The UTF-16 entry points native hosts call. Malformed text and positions
 //! that split a surrogate pair are rejected, never clamped or widened.
 use crate::{
-    DisplayOffset, DisplayRange, DisplayUtf16Range, EditorError, EditorSession, Revision,
-    SelectionChange, SourceEdit, SourceRange, SourceUtf16Range, ViewChange,
+    DisplayOffset, DisplayRange, DisplayUtf16Offset, DisplayUtf16Range, EditorError, EditorSession,
+    Revision, SelectionChange, SourceEdit, SourceRange, SourceUtf16Range, ViewChange,
 };
 
 impl EditorSession {
@@ -203,6 +203,18 @@ impl EditorSession {
     ) -> Result<Option<ViewChange>, EditorError> {
         let (range, _) = self.decode_utf16_input(expected, range, &[])?;
         self.table_command(expected, range, command, accept)
+    }
+
+    pub fn enter_table_cell_utf16(
+        &mut self,
+        expected: Revision,
+        at: DisplayUtf16Offset,
+        column: usize,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<crate::TableOutcome>, EditorError> {
+        let caret = DisplayUtf16Range { start: at, end: at };
+        let (caret, _) = self.decode_utf16_input(expected, caret, &[])?;
+        self.enter_table_cell(expected, caret.start, column, accept)
     }
 
     pub fn find_matches_utf16(
