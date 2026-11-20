@@ -222,6 +222,8 @@ internal class EditorEngine(
     // ---- internals ----
 
     internal fun input(block: () -> Unit) {
+        // A key before the whole open waits for it as a key, its update still revealing the caret it edits at.
+        if (deferredUntilOpen { input(block) }) return
         inputStartNanos = SystemClock.elapsedRealtimeNanos()
         keyed = true
         try { guarded(block) } finally { keyed = false }
