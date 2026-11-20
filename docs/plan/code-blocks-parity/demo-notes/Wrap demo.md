@@ -1,5 +1,0 @@
-Wrap
-
-gamma
-
-end

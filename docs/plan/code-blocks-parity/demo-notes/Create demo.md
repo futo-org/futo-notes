@@ -1,5 +1,0 @@
-Create
-
-alpha beta
-
-end

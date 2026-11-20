@@ -1,7 +1,0 @@
-intro
-
-```go
-first
-```
-
-end
