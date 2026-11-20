@@ -39,7 +39,7 @@ internal class WikilinkTouch(private val view: TextFirstEditText, private val op
                     return true
                 }
                 val text = view.editableText
-                view.engine?.wikilinkTarget(text.getSpanStart(link), text.getSpanEnd(link)) { open(WikilinkDestination.Missing(it)) }
+                view.engine?.wikilinkTarget(view.appliedSeq, text.getSpanStart(link), text.getSpanEnd(link)) { open(WikilinkDestination.Missing(it)) }
                 return true
             }
         }
