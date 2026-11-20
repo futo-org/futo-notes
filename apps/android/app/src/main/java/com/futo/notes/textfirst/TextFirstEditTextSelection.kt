@@ -14,12 +14,14 @@ internal fun TextFirstEditText.drawListSelection(canvas: Canvas) {
     val e = editableText ?: return
     val first = l.getLineForOffset(start)
     val last = l.getLineForOffset(end)
+    // Only the rows on screen: a whole-note selection is not walked on every frame.
+    val shownFirst = maxOf(first, l.getLineForVertical(maxOf(0, scrollY - totalPaddingTop)))
+    val shownLast = minOf(last, l.getLineForVertical(maxOf(0, scrollY - totalPaddingTop + height)))
     val save = canvas.save()
     canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
-    for (line in first..last) {
+    for (line in shownFirst..shownLast) {
         val top = l.getLineTop(line)
         var bottom = l.getLineBottom(line).toFloat()
-        if (bottom < scrollY - totalPaddingTop || top > scrollY + height - totalPaddingTop) continue
         val at = l.getLineStart(line)
         val margins = e.getSpans(at, l.getLineEnd(line), LeadingMarginSpan::class.java)
         val dir = l.getParagraphDirection(line)
