@@ -146,7 +146,9 @@ export function revealCaret(box: CaretBox, origin: HTMLElement, editor: HTMLElem
   const top = origin.getBoundingClientRect().top + box.top;
   if (top >= pane.top && top + box.height <= pane.bottom) return;
   const row = parseFloat(getComputedStyle(editor).lineHeight) || box.height;
-  reveal(top + box.height / 2, row, scroller);
+  // A caret as tall as a picture comes in whole; one taller than the pane, centred.
+  const reach = Math.min(Math.max(row, box.height / 2), pane.height / 2);
+  reveal(top + box.height / 2, reach, scroller);
 }
 
 export class Caret {

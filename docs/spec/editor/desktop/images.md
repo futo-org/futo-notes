@@ -52,7 +52,9 @@ no image rule of its own. Pasting and dropping an image: [paste.md](paste.md).
   right edge. A caret that touches a picture taller than its text, on the picture's row, is as
   tall as the picture, from the picture's top; beside a shorter picture, or one not loaded, it
   is one text line tall on the row's first line. Left and Right step over an
-  image to its other stop; Shift with them takes it whole. → lineElements.ts `pointInLine`, pictureStops.ts, caret.ts `measureCaret`, keys.ts
+  image to its other stop, and from the line above or below onto the stop beside a picture that
+  starts or ends its line, the pane scrolling only as far as brings the caret in whole (a
+  picture's height beside one); Shift with them takes it whole. → lineElements.ts `pointInLine`, pictureStops.ts, caret.ts `measureCaret`, keys.ts
   `besideAtom`
 - A click on a picture selects the image whole, whatever its click count, and a drag through it
   takes it whole; Up and Down onto a picture land on the side of it nearer the column. Any

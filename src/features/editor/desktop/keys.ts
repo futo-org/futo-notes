@@ -140,6 +140,7 @@ export class EditorKeys {
         offset: this.atomStep(from, forward) ?? from,
         rowEnd: false,
       }));
+      this.view.followCaret();
     } else if (vertical !== null) {
       event.preventDefault();
       this.vertical(vertical, event.shiftKey);
@@ -190,21 +191,33 @@ export class EditorKeys {
     }
   }
 
-  /** Whether Left or Right (with `extend`, Shift) would step over an atom, which the editor
-   *  steps itself: WebKit's own step from an item's text start does not reach the stop before
-   *  its marker, and would go into an image's or a wikilink's spelling. */
+  /** Whether Left or Right (with `extend`, Shift) would step over an atom or onto a picture's
+   *  line, which the editor steps itself: WebKit's own step from an item's text start does not
+   *  reach the stop before its marker, would go into an image's or a wikilink's spelling, and
+   *  onto a stop beside a picture scrolls the pane to the note's top. */
   private besideAtom(forward: boolean, extend: boolean): boolean {
     const ends = this.view.selection.ends();
     if (!ends || (!extend && ends.anchor !== ends.focus)) return false;
     return this.atomStep(ends.focus, forward) !== null;
   }
 
-  /** The other stop (UTF-16) of the atom a step from `from` goes over; null beside none. */
+  /** Where (UTF-16) the editor's own step from `from` stops: the other stop of the atom it
+   *  goes over, or across a line break the stop beside the picture that starts or ends the
+   *  next line; null where the step is WebKit's. */
   private atomStep(from: number, forward: boolean): number | null {
-    const line = this.view.displayLines()[this.view.lineAt(from)];
+    const lines = this.view.displayLines();
+    const index = this.view.lineAt(from);
+    const line = lines[index];
     const at = from - line.start;
     const atom = line.atoms.find((atom) => (forward ? atom.start : atom.end) === at);
-    return atom ? line.start + (forward ? atom.end : atom.start) : null;
+    if (atom) return line.start + (forward ? atom.end : atom.start);
+    const next = lines[index + (forward ? 1 : -1)];
+    if (!next || at !== (forward ? line.text.length : 0)) return null;
+    const stop = forward ? 0 : next.text.length;
+    const picture = next.atoms.some(
+      (atom) => atom.image && (forward ? atom.start : atom.end) === stop,
+    );
+    return picture ? next.start + stop : null;
   }
 
   /** Option+Arrow (Ctrl+Arrow off Apple): to the engine's next word end or previous word

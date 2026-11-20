@@ -258,6 +258,12 @@ export class EditorView {
     this.showSelectionOnFocus = true;
   }
 
+  /** Bring the caret into the pane on its next draw: after a move the editor steps itself,
+   *  where WebKit's own step would have scrolled to it. */
+  followCaret(): void {
+    this.caret.follow();
+  }
+
   /** The word a double click at UTF-16 `offset` selects (the engine's words). */
   wordAt(offset: number): DisplayRange {
     const model = this.model!;
