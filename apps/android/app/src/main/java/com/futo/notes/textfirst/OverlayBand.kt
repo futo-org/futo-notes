@@ -49,12 +49,3 @@ internal class OverlayBandScratch {
     val matrix = Matrix()
 }
 
-/**
- * How far below the middle of [paint]'s font box (ascent to descent) the middle of its letters as seen lies: a box
- * centred by its font box carries its text this much low.
- */
-internal fun lettersBelowFontBoxCentre(paint: android.graphics.Paint): Float {
-    val (seenTop, seenBottom) = visibleLineSpan(paint)
-    val font = paint.fontMetrics
-    return (seenTop + seenBottom) / 2f - (font.ascent + font.descent) / 2f
-}

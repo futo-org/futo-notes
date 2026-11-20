@@ -70,7 +70,7 @@ internal fun TextFirstEditText.drawFindMarks(canvas: Canvas) {
     canvas.restoreToCount(save)
 }
 
-/** The part of [atom]'s drawn label that [s, en) covers, on its row's [overlayBand], into [out]; false with none. */
+/** The part of [atom]'s drawn label that [s, en) covers, on its letters, into [out]; false with none. */
 private fun TextFirstEditText.wikilinkLabelMark(l: android.text.Layout, e: android.text.Spanned, atom: TfWikilink, s: Int, en: Int, out: android.graphics.Path): Boolean {
     val atomStart = e.getSpanStart(atom)
     // The drawn label ends the link's text ([[folder/Note]] draws Note, [[target|label]] its label); a hit in what
@@ -82,7 +82,8 @@ private fun TextFirstEditText.wikilinkLabelMark(l: android.text.Layout, e: andro
     val left = minOf(l.getPrimaryHorizontal(atomStart), l.getPrimaryHorizontal(atomEnd))
     atom.labelPath(atom.renderedPaint(paint), s - atomStart - labelAt, en - atomStart - labelAt, left, l.getLineBaseline(line).toFloat(), out)
     if (out.isEmpty) return false
-    fitToOverlayBand(l, e, line, out)
+    // Each of a wrapped label's own rows stays its own: moved onto its letters, not stretched over the host row.
+    out.offset(0f, lettersBelowFontBoxCentre(atom.renderedPaint(paint)))
     return true
 }
 

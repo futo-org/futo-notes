@@ -23,6 +23,7 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     }
     fun applyGeometry(geometry: TableCellGeometry) {
         typeface = if (geometry.header) noteStyle.semibold else noteStyle.regular
+        centreLetters()
         gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.START
         textAlignment = when (geometry.alignment) {
             uniffi.futo_notes_ffi.EditorTableAlignment.RIGHT -> TEXT_ALIGNMENT_TEXT_END
@@ -37,12 +38,16 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         typeface = style.regular
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
         imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI
-        // Centred on its letters as seen, where the grid draws them, not on its font box.
-        val lift = kotlin.math.round(lettersBelowFontBoxCentre(paint)).toInt()
-        setPadding(style.dp(10f).toInt(), style.dp(10f).toInt() - lift, style.dp(10f).toInt(), style.dp(10f).toInt() + lift)
+        centreLetters()
         includeFontPadding = false
         filters = arrayOf(InputFilter { _, _, _, dest, a, b -> if (applying) null else dest.subSequence(a, b) })
         importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO
+    }
+    /** Centred on its letters as seen in its face (a header's semibold), where the grid draws them, not on its font box. */
+    private fun centreLetters() {
+        val pad = noteStyle.dp(10f).toInt()
+        val lift = kotlin.math.round(lettersBelowFontBoxCentre(paint)).toInt()
+        setPadding(pad, pad - lift, pad, pad + lift)
     }
     fun updateColors() {
         setTextColor(noteStyle.textColor)
