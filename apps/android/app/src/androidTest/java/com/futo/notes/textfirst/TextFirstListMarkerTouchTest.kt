@@ -11,7 +11,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -180,7 +179,6 @@ class TextFirstListMarkerTouchTest {
         } finally { shot.recycle() }
     }
 
-    @Ignore("Engine: ToggleTask moves a caret before the marker to the item's text (Draft::map, draft.rs:121-141); sent to the desktop chat")
     @Test fun aTickWhileTheCaretIsBeforeAMarkerKeepsTheCaret() = textFirstSession(note) { c ->
         ready(c)
         val m = withContext(Dispatchers.Main) { marker(c, "task") }
@@ -189,5 +187,16 @@ class TextFirstListMarkerTouchTest {
         tap(c, (m.left + m.right) / 2, m.y)
         awaitSource(c, "the tick") { it.contains("- [x] task") }
         assertEquals("the caret stays before the marker", m.at to m.at, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
+    }
+
+    @Test fun aTickWhileTheCheckboxIsSelectedKeepsItSelected() = textFirstSession(note) { c ->
+        ready(c)
+        val m = withContext(Dispatchers.Main) { marker(c, "task") }
+        c.select(m.at, m.at + 1)
+        await("the checkbox selected") { c.view.selectionStart == m.at && c.view.selectionEnd == m.at + 1 }
+        tap(c, (m.left + m.right) / 2, m.y)
+        awaitSource(c, "the tick") { it.contains("- [x] task") }
+        delay(300)
+        assertEquals("the checkbox stays selected", m.at to m.at + 1, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
     }
 }
