@@ -63,17 +63,30 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
      * Typing made a block whose opening fence takes the next letters as its language (the third backtick on a line,
      * writes_language): its language field opens on that block, as !300 focused it. Once the block is drawn.
      */
+    /**
+     * A fence just typed or made: its language field takes the caret before the block's first frame, so no frame shows
+     * the caret in its body. Its header's targets come from drawing, so they are drawn first, on nothing.
+     */
     fun openLanguageAt(offset: Int) {
-        view.postOnAnimation {
-            view.post {
-                val e = view.editableText ?: return@post
-                val range = codeRangesNear(e, offset, offset).firstOrNull { offset in it.start..it.end } ?: return@post
-                val area = view.codeChrome.areaOf(range.start, CodeBlockAction.LANGUAGE_LABEL) ?: return@post
-                val target = view.codeChrome.targetAt(area.centerX(), area.centerY()) ?: return@post
-                val block = target.block ?: return@post
+        val observer = view.viewTreeObserver
+        observer.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                if (observer.isAlive) observer.removeOnPreDrawListener(this)
+                val e = view.editableText ?: return true
+                val range = codeRangesNear(e, offset, offset).firstOrNull { offset in it.start..it.end } ?: return true
+                android.graphics.Picture().let { picture ->
+                    view.drawCodeBlocks(picture.beginRecording(maxOf(1, view.width), maxOf(1, view.height)))
+                    picture.endRecording()
+                }
+                val area = view.codeChrome.areaOf(range.start, CodeBlockAction.LANGUAGE_LABEL) ?: return true
+                val target = view.codeChrome.targetAt(area.centerX(), area.centerY()) ?: return true
+                val block = target.block ?: return true
                 headerField.open(target.codeStart, CodeHeaderField.Kind.LANGUAGE, block.language.orEmpty(), block.name.orEmpty(), selectAll = false)
+                return true
             }
-        }
+        })
+        // A key with no text change (Shift-Tab back to the field) asks for no frame of its own.
+        view.invalidate()
     }
 
     /**

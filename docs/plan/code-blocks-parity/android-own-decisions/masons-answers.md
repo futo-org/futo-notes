@@ -91,3 +91,9 @@ So: **S2**, **L1B**, T1–T4 deferred; block drag is made solid on `play/android
 - "When I cycle to the first result in the find in note, the keyboard drops" (build `f26b323a6`).
 
 - **C1B** (2026-11-19): the lifted block's card stays at 80% of the page colour, as !716 specifies, though the independent check called it hard to read in dark mode. Asked: C1A opaque on Android, C1B keep 80%. Mason: "c1b"
+
+## S23 reports, 2026-11-20 (drag build `4e55a159b`, installed 08:38)
+
+- "dragged a block from towards the bottom of this note – under the pictures, brought it up, and the text preview in the note is not showing up anymore". His 08:39 screenshot: the gap is open under the lifted card but holds no dimmed copy of the block. After the release the text was not at the gap and the file had not been rewritten a minute later.
+- "caret placement seems off in the screeenshot I jsut took, compared to desktop at least mabye. It just doesn't seem centered properly.??" His 08:42 screenshot: the caret on an empty line between a code block and a photo starts 2 px under the block and ends 12 px above the row's end.
+- "If I enter in teh middle of the numbered list, then enter again to remove the number on that line, it stops rendering number for the atom for the item underneath."
