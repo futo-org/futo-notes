@@ -322,5 +322,27 @@
             #expect(h.tv.selectedRange == before)
             #expect(h.controller.engineSelection == before)
         }
+
+        /// In an item of either direction, or mixing both, the marker unit's rect is exactly its
+        /// marker column, beside the text and over none of it.
+        @Test(arguments: ["- [ ] 123 שלום", "- [ ] שלום", "- שלום abc", "1. abc שלום", "- abc"])
+        func aMarkerUnitIsItsColumnInAnyDirection(source: String) {
+            let h = TextFirstHarness(source + "\n")
+            h.tv.layoutIfNeeded()
+            let manager = h.tv.textLayoutManager!
+            let f = manager.textLayoutFragment(for: manager.documentRange.location)
+                as! TextFirstLayoutFragment
+            let unit = f.markerUnit!
+            let line = f.textLineFragments[0]
+            let bounds = line.typographicBounds
+            // Every text character's caret edge lies outside the unit.
+            let length = line.characterRange.length
+            let edges = (1...max(1, length - 1)).map {
+                f.layoutFragmentFrame.minX + bounds.minX + line.locationForCharacter(at: $0).x
+            }
+            #expect(abs(unit.rect.width - f.block.markerColumn) < 0.5, "\(unit)")
+            #expect(edges.allSatisfy { $0 <= unit.rect.minX + 0.5 || $0 >= unit.rect.maxX - 0.5 },
+                "\(unit) \(edges)")
+        }
     }
 #endif

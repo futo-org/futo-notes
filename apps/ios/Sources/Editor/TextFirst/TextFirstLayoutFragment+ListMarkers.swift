@@ -18,13 +18,17 @@ extension TextFirstLayoutFragment {
             let line = textLineFragments.first, line.characterRange.length > 0
         else { return nil }
         let bounds = line.typographicBounds
+        // The unit's leading edge, and which side the text is on. Its far edge is not read from
+        // character 1: in a right-to-left item that starts with digits (`123 שלום`), character
+        // 1's edge is the far side of the digits' run.
         let start = line.locationForCharacter(at: 0).x
-        let end = line.locationForCharacter(at: 1).x
+        let rightToLeft = line.locationForCharacter(at: 1).x < start
+        let width = block.markerColumn
         return (
             CGRect(
-                x: layoutFragmentFrame.minX + bounds.minX + min(start, end), y: bounds.minY,
-                width: abs(end - start), height: bounds.height),
-            end < start
+                x: layoutFragmentFrame.minX + bounds.minX + (rightToLeft ? start - width : start),
+                y: bounds.minY, width: width, height: bounds.height),
+            rightToLeft
         )
     }
 
