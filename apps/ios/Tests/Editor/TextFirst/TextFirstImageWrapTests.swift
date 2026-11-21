@@ -226,5 +226,37 @@
                     to: h.tv.position(from: h.tv.beginningOfDocument, offset: 11)!)!)
             #expect(selection.allSatisfy { $0.rect.minY < 40 }, "\(selection.map(\.rect))")
         }
+
+        /// A photo that is an item's first content stays whole beside the item's marker, inside
+        /// the row, at any width and depth: the line never breaks after the marker unit, so the
+        /// photo's hidden spelling must fit the row the marker leaves it.
+        @Test(arguments: [390.0, 220.0, 160.0])
+        func aPhotoRightAfterAListMarkerStaysWholeInsideItsRow(width: Double) async {
+            // A depth-3 item's text starts 132 pt in: in a 120 pt row its photo (40 pt at the
+            // least) overflows and its spelling splits, with or without the marker unit's break
+            // refused, so that case is held only where the row is wider than the indent.
+            let deep = "- a\n  - b\n    - c\n      - \(wide)\n"
+            for source in ["- [ ] \(wide)\n", "> - \(wide)\n"] + (width >= 220 ? [deep] : []) {
+                let h = await open(source, width: width)
+                let start = (h.tv.text as NSString).range(of: "![").location
+                let lines = shape(h, at: start)
+                #expect(
+                    lines.filter { $0.contains(wide) }.count == 1,
+                    "\(width) \(source.debugDescription): \(lines)")
+                let manager = h.tv.textLayoutManager!
+                manager.enumerateTextLayoutFragments(
+                    from: manager.documentRange.location, options: [.ensuresLayout]
+                ) { fragment in
+                    guard let f = fragment as? TextFirstLayoutFragment else { return true }
+                    for run in f.imageRuns {
+                        let rect = f.imageRect(run)!
+                        #expect(
+                            rect.maxX <= f.containerWidth + 0.5,
+                            "\(width) \(source.debugDescription): \(rect) in \(f.containerWidth)")
+                    }
+                    return true
+                }
+            }
+        }
     }
 #endif
