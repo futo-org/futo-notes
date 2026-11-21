@@ -300,5 +300,27 @@
             fresh.type("a")
             #expect(h.source == fresh.source, "typed after the tick: \(h.source.debugDescription)")
         }
+
+        /// A checkbox tap in a focused note: UIKit first moves its caret to the tap and reports it,
+        /// then the tap ticks the box and puts the caret back. The engine hears that too, so the
+        /// view and the engine keep one selection (seen on the simulator: engine {15,0}, view {9,0}).
+        @Test(arguments: [false, true])
+        func aCheckboxTapLeavesTheViewAndTheEngineOnOneSelection(boxSelectedByAHold: Bool) {
+            let h = TextFirstHarness("- one item here\n- [ ] two\n- three\n")
+            let text = h.tv.text as NSString
+            let box = text.range(of: "two").location - 1
+            let before =
+                boxSelectedByAHold
+                ? NSRange(location: box, length: 1) : NSRange(location: 9, length: 0)
+            h.tv.selectedRange = before
+            h.controller.selectionBeforeTouch = before
+            // UIKit's own tap handling puts the caret where the finger landed.
+            h.select(box + 4, box + 4)
+            #expect(h.controller.engineSelection == NSRange(location: box + 4, length: 0))
+            h.controller.toggleTask(atLineOffset: box, keeping: h.controller.selectionBeforeTouch)
+            #expect(h.source.hasPrefix("- one item here\n- [x] two"))
+            #expect(h.tv.selectedRange == before)
+            #expect(h.controller.engineSelection == before)
+        }
     }
 #endif

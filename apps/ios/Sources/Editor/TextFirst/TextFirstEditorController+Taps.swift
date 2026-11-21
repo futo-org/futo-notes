@@ -230,17 +230,19 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         suppressFocus = false
         let offset = manager.offset(
             from: manager.documentRange.location, to: f.rangeInElement.location)
-        // The text view moved its caret to the tap; the engine never heard about it.
+        // The text view may have moved its caret to the tap (and told the engine): put it back.
         toggleTask(atLineOffset: offset, keeping: selectionBeforeTouch)
     }
 
-    /// Toggle the task on the line at `offset`, leaving the view's selection at `kept` (what
-    /// it was before the touch, or before puppet's `ToggleTask`).
+    /// Toggle the task on the line at `offset`, leaving the selection at `kept` (what it was
+    /// before the touch, or before puppet's `ToggleTask`). In a focused note UIKit has already
+    /// moved the caret to the tap and reported it, so the engine is told the kept one too.
     func toggleTask(atLineOffset offset: Int, keeping kept: NSRange) {
         toggleTask(atLineOffset: offset)
         applying += 1
         textView.selectedRange = kept
         applying -= 1
+        if !closed, !engineBusy, kept != engineSelection { reportSelection(kept) }
     }
 
     func toggleTask(atLineOffset offset: Int) {
