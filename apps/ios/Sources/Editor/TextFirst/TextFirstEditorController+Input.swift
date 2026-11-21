@@ -69,6 +69,12 @@ extension TextFirstEditorController: UITextViewDelegate {
         // The touch has placed its caret; what UIKit asks about from here on is on screen.
         self.textView.fingerIsDown = false
         invalidateImageHighlights(old: lastDrawnSelection, new: textView.selectedRange)
+        // The menu shown for a marker hold or Select All is about the selection it was shown
+        // for; UIKit hides its own menu the same way when the selection or the text changes.
+        // (Select All's clipping as the note scrolls moves the selection under `applying`.)
+        if applying == 0, textView.selectedRange != lastDrawnSelection {
+            selectionMenu?.dismissMenu()
+        }
         lastDrawnSelection = textView.selectedRange
         if assertTrailingTypingAttributes() { invalidateLastParagraph() }
         syncEmptyLineTypingAttributes()

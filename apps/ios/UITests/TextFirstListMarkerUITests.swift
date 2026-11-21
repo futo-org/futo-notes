@@ -33,6 +33,11 @@ final class TextFirstListMarkerUITests: XCTestCase {
         return (app, editor, file)
     }
 
+    /// Long enough that two taps are not one double tap.
+    private func pause() {
+        _ = XCTWaiter.wait(for: [XCTestExpectation(description: "pause")], timeout: 1)
+    }
+
     private func saved(_ file: URL, _ check: @escaping (String) -> Bool) -> Bool {
         let done = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
@@ -47,26 +52,33 @@ final class TextFirstListMarkerUITests: XCTestCase {
         point(editor, x: 120, line: 0).tap()  // the keyboard comes up
         point(editor, x: 44, line: 0).tap()  // the bullet's right half
         editor.typeText("R")
-        XCTAssertTrue(saved(file) { $0.hasPrefix("- Rone\n") }, "right half: the text's start")
+        XCTAssertTrue(saved(file) { $0 == "- Rone\n- two\n" }, "right half: the text's start")
         point(editor, x: 24, line: 1).tap()  // the bullet's left half
         editor.typeText("L")
         XCTAssertTrue(
-            saved(file) { !$0.contains("- Ltwo") && $0.contains("L") },
-            "left half: before the marker, not in the text")
+            saved(file) { $0 == "- Rone\nL- two\n" }, "left half: before the marker")
     }
 
     @MainActor
     func testAHoldSelectsTheMarkerAndAHeldCheckboxIsNotTicked() throws {
-        let (app, editor, file) = try open("- one\n- [ ] two\n", named: "holds")
+        let (app, editor, file) = try open("- one\n- [ ] two\n- [ ] three\n", named: "holds")
         point(editor, x: 120, line: 0).tap()  // editing: a hold is the marker's
         point(editor, x: 35, line: 0).press(forDuration: 1.2)
-        XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 3), "the edit menu")
-        XCTAssertTrue(app.menuItems["Cut"].exists)
-        point(editor, x: 120, line: 0).tap()
+        XCTAssertTrue(app.menuItems["Cut"].waitForExistence(timeout: 3), "the edit menu")
+        app.menuItems["Copy"].tap()
+        // The marker alone was selected: typing over it takes it off.
+        editor.typeText("x")
+        XCTAssertTrue(saved(file) { $0.hasPrefix("xone\n") }, "the hold selected the marker")
+        // What Copy gives for that selection (`- `) is TextFirstListMarkerTests'; the test runner
+        // may not read the pasteboard.
+        // A held box is selected, not ticked: typing over it takes it off.
         point(editor, x: 35, line: 1).press(forDuration: 1.2)
         XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 3), "the box is selected")
-        XCTAssertTrue(saved(file) { $0 == "- one\n- [ ] two\n" }, "a hold ticks nothing")
-        point(editor, x: 35, line: 1).tap()
-        XCTAssertTrue(saved(file) { $0.contains("- [x] two") }, "a tap ticks it")
+        editor.typeText("y")
+        XCTAssertTrue(
+            saved(file) { $0 == "xone\nytwo\n- [ ] three\n" }, "a hold ticks nothing")
+        pause()
+        point(editor, x: 35, line: 2).tap()
+        XCTAssertTrue(saved(file) { $0.contains("- [x] three") }, "a tap ticks it")
     }
 }
