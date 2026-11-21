@@ -96,8 +96,9 @@
                 #expect(h.tv.selectedRange == NSRange(location: at, length: 1))
                 #expect(h.controller.engineSelection == NSRange(location: at, length: 1))
                 #expect(!h.controller.touchHitCheckbox)
-                #expect(try h.controller.selectionMarkdown(h.tv.selectedRange)
-                    == (word == "one" ? "- [ ] " : "- "))
+                #expect(
+                    try h.controller.selectionMarkdown(h.tv.selectedRange)
+                        == (word == "one" ? "- [ ] " : "- "))
             }
             #expect(h.source.hasPrefix("- [ ] one\n- two"))
             // Off the marker (on the text) nothing is selected by the hold.
@@ -110,7 +111,8 @@
             let h = TextFirstHarness("- [ ] one\n")
             let unit = unitRect(h, "one")
             #expect(h.controller.checkboxFragment(at: CGPoint(x: unit.midX, y: unit.midY)) != nil)
-            #expect(h.controller.checkboxFragment(at: CGPoint(x: unit.maxX + 4, y: unit.midY)) == nil)
+            #expect(
+                h.controller.checkboxFragment(at: CGPoint(x: unit.maxX + 4, y: unit.midY)) == nil)
         }
 
         /// A tick with the caret just before the task's marker leaves the caret there, and the

@@ -373,7 +373,8 @@ final class TextFirstLayoutDelegate: NSObject, NSTextLayoutManagerDelegate {
         else { return true }
         let offset = textLayoutManager.offset(
             from: textLayoutManager.documentRange.location, to: location)
-        return !(offset > 0 && offset <= storage.length
+        return
+            !(offset > 0 && offset <= storage.length
             && storage.attribute(.tfListMarker, at: offset - 1, effectiveRange: nil) != nil)
     }
 }

@@ -71,7 +71,8 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
     func gestureRecognizer(
         _ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer
     ) -> Bool {
-        let armed = (g === liftRecognizer && liftArmed) || (g === markerHoldRecognizer && markerHoldArmed)
+        let armed =
+            (g === liftRecognizer && liftArmed) || (g === markerHoldRecognizer && markerHoldArmed)
         return armed && other !== g && other is UILongPressGestureRecognizer
             && other.view === textView
     }
@@ -80,7 +81,8 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         // A press that may not lift is never the lift's: the platform has it from touch-down.
         if g === liftRecognizer { return liftArmed }
         if g === markerHoldRecognizer {
-            markerHoldArmed = textView.isFirstResponder
+            markerHoldArmed =
+                textView.isFirstResponder
                 && markerUnitFragment(at: touch.location(in: textView)) != nil
             return markerHoldArmed
         }

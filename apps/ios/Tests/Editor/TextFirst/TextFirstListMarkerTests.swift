@@ -187,11 +187,13 @@
 
         /// A first word wider than the row (a long link) starts on the marker's row: the line
         /// never breaks between the marker unit and the text after it.
-        @Test(arguments: ["- ", "- [ ] ", "10. ", "- a\n  - "], [
-            "https://example.com/a/very/long/path/without/any/spaces/that/is/wider/than/the/whole/column",
-            // No break opportunity anywhere in it.
-            String(repeating: "Supercalifragilistic", count: 3),
-        ])
+        @Test(
+            arguments: ["- ", "- [ ] ", "10. ", "- a\n  - "],
+            [
+                "https://example.com/a/very/long/path/without/any/spaces/that/is/wider/than/the/whole/column",
+                // No break opportunity anywhere in it.
+                String(repeating: "Supercalifragilistic", count: 3),
+            ])
         func aLongFirstWordStaysOnItsMarkersRow(prefix: String, word: String) {
             let h = TextFirstHarness(prefix + word + "\n")
             let start = (h.tv.text as NSString).range(of: word).location
@@ -207,7 +209,8 @@
             let h = TextFirstHarness(source + "\n")
             h.tv.layoutIfNeeded()
             let manager = h.tv.textLayoutManager!
-            let f = manager.textLayoutFragment(for: manager.documentRange.location)
+            let f =
+                manager.textLayoutFragment(for: manager.documentRange.location)
                 as! TextFirstLayoutFragment
             let unit = f.markerUnit!
             let line = f.textLineFragments[0]
@@ -218,7 +221,8 @@
                 f.layoutFragmentFrame.minX + bounds.minX + line.locationForCharacter(at: $0).x
             }
             #expect(abs(unit.rect.width - f.block.markerColumn) < 0.5, "\(unit)")
-            #expect(edges.allSatisfy { $0 <= unit.rect.minX + 0.5 || $0 >= unit.rect.maxX - 0.5 },
+            #expect(
+                edges.allSatisfy { $0 <= unit.rect.minX + 0.5 || $0 >= unit.rect.maxX - 0.5 },
                 "\(unit) \(edges)")
         }
 

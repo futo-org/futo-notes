@@ -165,7 +165,8 @@
             ).location
             // The text starts after the line's marker unit, if it has one.
             let textStart =
-                lineStart + (lineStart < text.length && text.character(at: lineStart) == 0xFFFC ? 1 : 0)
+                lineStart
+                + (lineStart < text.length && text.character(at: lineStart) == 0xFFFC ? 1 : 0)
             let position = h.tv.position(from: h.tv.beginningOfDocument, offset: textStart)!
             let textX = h.tv.caretRect(for: position).minX
             let scale: CGFloat = 4
