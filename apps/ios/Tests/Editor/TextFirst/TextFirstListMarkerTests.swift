@@ -344,5 +344,21 @@
             #expect(edges.allSatisfy { $0 <= unit.rect.minX + 0.5 || $0 >= unit.rect.maxX - 0.5 },
                 "\(unit) \(edges)")
         }
+
+        /// Before a long note's styling reaches it, a marker unit is a bare U+FFFC in the base
+        /// look: it takes no room and draws nothing, so no replacement glyph ever shows.
+        @Test func anUnstyledMarkerUnitTakesNoRoomAndDrawsNothing() {
+            let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 200))
+            let tv = UITextView(usingTextLayoutManager: true)
+            tv.frame = window.bounds
+            window.addSubview(tv)
+            tv.attributedText = NSAttributedString(
+                string: "\u{FFFC}item", attributes: TextFirstEditorController.baseAttributes)
+            tv.layoutIfNeeded()
+            func x(_ offset: Int) -> CGFloat {
+                tv.caretRect(for: tv.position(from: tv.beginningOfDocument, offset: offset)!).minX
+            }
+            #expect(abs(x(1) - x(0)) < 0.5, "the unit's advance: \(x(1) - x(0))")
+        }
     }
 #endif

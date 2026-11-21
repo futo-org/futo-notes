@@ -120,19 +120,17 @@
                 }
                 return pieces.joined(separator: "\n")
             }
-            /// The range's text as shown: an image as its destination, a list item's marker unit
-            /// left out (the line's `kind` and the checkbox targets report the marker).
+            /// The range's text as shown: an image as its destination, and no U+FFFC. That is a
+            /// list item's marker unit or a divider, never text, also where the note is not styled
+            /// yet (the line's `kind` and the checkbox targets report what is drawn).
             func rendered(_ range: NSRange) -> String {
                 var out = ""
-                let storage = controller.storage
-                storage.enumerateAttribute(.tfImage, in: range) { value, run, _ in
+                controller.storage.enumerateAttribute(.tfImage, in: range) { value, run, _ in
                     if let image = value as? TextFirstImageSpan {
                         out += "[image \(image.atom.destination)]"
                         return
                     }
-                    storage.enumerateAttribute(.tfListMarker, in: run) { marker, piece, _ in
-                        if marker == nil { out += text.substring(with: piece) }
-                    }
+                    out += text.substring(with: run).replacingOccurrences(of: "\u{FFFC}", with: "")
                 }
                 return out
             }
