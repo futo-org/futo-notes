@@ -141,6 +141,18 @@ final class TextFirstTextView: UITextView {
         super.replace(range, withText: text)
     }
 
+    /// Dictation puts its own U+FFFC in place of the selection. Over a selection of one U+FFFC
+    /// (a list marker or a divider) the text does not change, so nothing would tell the engine
+    /// the selection was replaced: it is deleted first, as Backspace over it does.
+    override var insertDictationResultPlaceholder: Any {
+        if selectedRange.length == 1,
+            (textStorage.string as NSString).character(at: selectedRange.location) == 0xFFFC
+        {
+            deleteBackward()
+        }
+        return super.insertDictationResultPlaceholder
+    }
+
     override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
         if let controller, controller.opening {
             controller.holdMarkedWhileOpening(markedText)
