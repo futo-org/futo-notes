@@ -250,5 +250,19 @@
             h.type("L")
             #expect(h.source.hasPrefix("- one\nL- two"))
         }
+
+        /// An indented plain line continuing a list hangs at the text of the item it continues
+        /// (its display level less one): in `- a`, `  - b`, `    - c`, `  continued`, under `a`.
+        @Test func aContinuedPlainLineHangsAtItsItemsText() {
+            let h = TextFirstHarness("- a\n  - b\n    - c\n  continued\n- d\n")
+            func style(_ word: String) -> NSParagraphStyle {
+                let at = (h.tv.text as NSString).range(of: word).location
+                return h.controller.storage.attribute(.paragraphStyle, at: at, effectiveRange: nil)
+                    as! NSParagraphStyle
+            }
+            #expect(h.block(atLineStartingWith: "continued")?.list?.level == 1)
+            #expect(style("continued").firstLineHeadIndent == style("a\n").headIndent)
+            #expect(style("continued").headIndent == style("a\n").headIndent)
+        }
     }
 #endif

@@ -60,7 +60,11 @@ enum TextFirstMetrics {
     static let numberFont = UIFont.monospacedDigitSystemFont(ofSize: 17, weight: .regular)
 
     static func listIndent(_ row: TextFirstListRow) -> CGFloat {
-        markerColumn(row) + CGFloat(row.level) * listLevel
+        // An indented plain line continues the item a level out: it hangs at that item's text.
+        if row.marker == .plain {
+            return row.level > 0 ? CGFloat(row.level - 1) * listLevel + markerStep : 0
+        }
+        return markerColumn(row) + CGFloat(row.level) * listLevel
     }
 
     /// The width of an item's marker column: one step, or a number's whole label and its gap
