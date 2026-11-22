@@ -74,7 +74,7 @@ internal fun TextFirstEditText.codeSelectionFor(anchor: Int, head: Int, settled:
     // A block selected as one object is painted as its card alone.
     if (selectedCodeBlock == (start to end)) return null
     val home = blocks.firstOrNull { it.start < it.end && start >= it.start && end <= it.end }
-    if (home == null && blocks.none { start <= it.start && end >= it.end }) return null
+    if (home == null && blocks.none { start <= it.start && end >= it.end } && start == minOf(anchor, head) && end == maxOf(anchor, head)) return null
     return CodeSelectionPaint(start, end, home, if (home == null) blocks.filter { start <= it.start && end >= it.end } else emptyList())
 }
 
