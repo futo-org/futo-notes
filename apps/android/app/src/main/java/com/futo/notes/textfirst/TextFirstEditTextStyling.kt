@@ -144,7 +144,7 @@ internal fun TextFirstEditText.requestImageLoads(from: Int = 0, to: Int = Int.MA
             val en = current.getSpanEnd(span)
             val wasApplying = applying
             applying = true
-            try { current.setSpan(span, s, en, TF_SPAN_FLAGS) } finally { applying = wasApplying }
+            try { current.setSpanRedrawingBelow(this, span, s, en, TF_SPAN_FLAGS) } finally { applying = wasApplying }
             requestLayout()
             invalidate()
         }
