@@ -101,5 +101,7 @@ internal fun TextFirstEditText.resizeEditorViewport(
         reveal.again()
         bringPointIntoView(selectionEnd)
     }
+    // A handle at a caret the keyboard now covers (a tall photo's foot) is not drawn over the keyboard (round 3, N4).
+    if (height < previousHeight) placeHandlesAgain()
     if (widthChanged) refreshWidthDependentSpans()
 }
