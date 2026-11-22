@@ -250,4 +250,18 @@ class TextFirstListMarkerTouchTest {
         }
         assertEquals("the box is drawn as on a fresh open (differing pixels)", 0, fresh.indices.count { fresh[it] != restyled[it] })
     }
+
+    /** Sol (round 5): a long click with no touch (an accessibility service's) selects no marker at the last touch's place. */
+    @Test fun aLongClickWithNoTouchSelectsNoMarkerAtTheLastTouch() = textFirstSession(note) { c ->
+        ready(c)
+        val m = withContext(Dispatchers.Main) { marker(c, "tenth") }
+        tap(c, m.left + (m.right - m.left) * 0.25f, m.y)
+        val (start, end) = withContext(Dispatchers.Main) { c.view.editableText.let { it.indexOf("bullet") to it.indexOf("bullet") + 6 } }
+        c.select(start, end)
+        await("the prose selection") { c.view.selectionStart == start && c.view.selectionEnd == end }
+        // The platform's own long click then does what it does with the range; the marker hold takes nothing.
+        val took = withContext(Dispatchers.Main) { c.view.listMarkerTouch.longPress() }
+        assertTrue("no marker taken with no touch", !took)
+        assertEquals("the prose selection stands", start to end, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
+    }
 }

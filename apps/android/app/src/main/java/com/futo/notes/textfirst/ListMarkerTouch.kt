@@ -28,7 +28,8 @@ internal class ListMarkerTouch(private val view: TextFirstEditText) {
      * keyboard and the platform's long press runs as on any text.
      */
     fun longPress(): Boolean {
-        if (!view.isFocused) return false
+        // A long click with no press (an accessibility service's) has no place: the last touch's is stale.
+        if (!view.isFocused || !view.isPressed) return false
         val start = listMarkerAt(view, downX, downY).takeIf { it >= 0 } ?: checkboxAt(view, view.style, downX, downY)
         if (start < 0) return false
         // An open text menu would make the platform take a press inside the new selection as a drag of it.
