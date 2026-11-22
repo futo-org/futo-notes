@@ -42,13 +42,26 @@
                 #expect(
                     rect.minX >= startX - 1, "Bullet beta: tint from \(rect.minX), start \(startX)")
             }
-            for word in ["Nested bullet gamma", "Third level delta"] {
+            // A row the selection holds whole is tinted from its marker through its text; the
+            // last row from its marker to where the selection ends.
+            func caretX(_ offset: Int) -> CGFloat {
+                h.tv.caretRect(for: h.tv.position(from: h.tv.beginningOfDocument, offset: offset)!)
+                    .minX
+            }
+            let gammaEnd = caretX(NSMaxRange(text.range(of: "Nested bullet gamma")))
+            for (word, end) in [
+                ("Nested bullet gamma", gammaEnd), ("Third level delta", caretX(to)),
+            ] {
                 let found = rects(h, on: word)
-                #expect(!found.isEmpty, "\(word) is tinted")
-                for rect in found {
+                let left = found.map(\.minX).min() ?? .infinity
+                let right = found.map(\.maxX).max() ?? -.infinity
+                #expect(
+                    abs(left - markerX(h, word)) < 1.5,
+                    "\(word): tint from \(left), marker at \(markerX(h, word))")
+                #expect(right >= end - 1, "\(word): tint to \(right), text to \(end)")
+                if word.hasPrefix("Third") {
                     #expect(
-                        rect.minX >= markerX(h, word) - 1,
-                        "\(word): tint from \(rect.minX), marker at \(markerX(h, word))")
+                        abs(right - end) < 1.5, "\(word): tint to \(right), selection to \(end)")
                 }
             }
         }
