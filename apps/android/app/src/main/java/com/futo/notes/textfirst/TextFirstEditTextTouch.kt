@@ -31,7 +31,19 @@ internal fun TextFirstEditText.routeTouch(event: MotionEvent): Boolean {
         MotionEvent.ACTION_MOVE -> if (checkboxDown >= 0) return true
         MotionEvent.ACTION_CANCEL -> if (checkboxDown >= 0) { checkboxDown = -1; return true }
     }
+    if (event.actionMasked == MotionEvent.ACTION_DOWN) heldInsideSelection = false
+    if (event.actionMasked == MotionEvent.ACTION_UP && heldInsideSelection) {
+        heldInsideSelection = false
+        cancelNativeTouch(event)
+        return true
+    }
     return nativeTouch(event).also {
         imageTouch.settleSelection(); codeTouch.settleTap(event); lineBelowHandle.onTouch(event); revealTappedCaret(event)
     }
+}
+
+/** End the platform's half of a press the note handled itself, so it neither places a caret nor long-presses. */
+private fun TextFirstEditText.cancelNativeTouch(event: MotionEvent) {
+    val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+    try { nativeTouch(cancel) } finally { cancel.recycle() }
 }

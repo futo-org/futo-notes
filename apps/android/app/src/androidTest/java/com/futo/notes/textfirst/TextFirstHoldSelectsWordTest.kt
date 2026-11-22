@@ -98,4 +98,29 @@ class TextFirstHoldSelectsWordTest {
         delay(300)
         assertEquals("the selection stands", "alpha beta", selected(c))
     }
+
+    /**
+     * Round 5 (tester): a hold inside a selection whose menu is open started the platform's text drag, which dropped
+     * nothing (the engine's move is not offered to this editor). The hold lifts nothing: the selection and its menu stand.
+     */
+    @Test fun aHoldInsideASelectionWithItsMenuOpenLiftsNothing() = textFirstSession(note) { c ->
+        ready(c)
+        var menus = 0
+        withContext(Dispatchers.Main) {
+            val inner = c.view.customSelectionActionModeCallback
+            c.view.customSelectionActionModeCallback = object : android.view.ActionMode.Callback {
+                override fun onCreateActionMode(mode: android.view.ActionMode, menu: android.view.Menu): Boolean { menus++; return inner?.onCreateActionMode(mode, menu) ?: true }
+                override fun onPrepareActionMode(mode: android.view.ActionMode, menu: android.view.Menu) = inner?.onPrepareActionMode(mode, menu) ?: false
+                override fun onActionItemClicked(mode: android.view.ActionMode, item: android.view.MenuItem) = inner?.onActionItemClicked(mode, item) ?: false
+                override fun onDestroyActionMode(mode: android.view.ActionMode) { menus--; inner?.onDestroyActionMode(mode) }
+            }
+        }
+        holdWord(c, "epsilon")
+        withTimeout(5_000) { while (withContext(Dispatchers.Main) { menus == 0 }) delay(20) }
+        assertEquals("epsilon", selected(c))
+        holdWord(c, "epsilon")
+        delay(300)
+        assertEquals("the selection stands", "epsilon", selected(c))
+        assertEquals("its menu is open", 1, withContext(Dispatchers.Main) { menus })
+    }
 }
