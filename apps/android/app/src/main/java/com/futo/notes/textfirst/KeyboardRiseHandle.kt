@@ -12,11 +12,14 @@ import androidx.core.view.WindowInsetsCompat
 internal fun TextFirstEditText.hideCaretHandleAsKeyboardRises() {
     ViewCompat.setWindowInsetsAnimationCallback(this, object : WindowInsetsAnimationCompat.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
         override fun onStart(animation: WindowInsetsAnimationCompat, bounds: WindowInsetsAnimationCompat.BoundsCompat): WindowInsetsAnimationCompat.BoundsCompat {
-            val rising = animation.typeMask and WindowInsetsCompat.Type.ime() != 0 &&
-                ViewCompat.getRootWindowInsets(this@hideCaretHandleAsKeyboardRises)?.isVisible(WindowInsetsCompat.Type.ime()) == true
-            if (rising) {
+            // The window's own insets, at the animation's end state: the bounds handed to a child are what is left after
+            // its parents (Compose) consumed part of the bottom inset, not the keyboard's height in the window.
+            val window = ViewCompat.getRootWindowInsets(this@hideCaretHandleAsKeyboardRises)
+            val rising = animation.typeMask and WindowInsetsCompat.Type.ime() != 0 && window?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            if (rising && window != null) {
                 val inWindow = IntArray(2).also(::getLocationInWindow)
-                hideCaretHandleBelow(rootView.height - bounds.upperBound.bottom - inWindow[1] - totalPaddingBottom)
+                val keyboard = window.getInsets(WindowInsetsCompat.Type.ime()).bottom
+                hideCaretHandleBelow(rootView.height - keyboard - inWindow[1] - totalPaddingBottom)
             }
             return bounds
         }
