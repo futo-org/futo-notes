@@ -56,4 +56,21 @@ class TextFirstCodeDragPaintTest {
         delay(300)
         assertEquals("nothing of the block is selected", next to next, view.selectionStart to view.selectionEnd)
     }
+
+    /** Sol (round 4): a range from code into a table row's middle (an accessibility service can set one) ends out of the row's hidden text. */
+    @Test fun aRangeFromCodeIntoATableRowEndsOutOfTheRowsHiddenText() = textFirstSession("```js\nconst a = 1\n```\n\n| a | b |\n| - | - |\n| cell one | two |\n\nend\n") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        val anchor = view.editableText.indexOf("a = 1")
+        val inRow = view.editableText.indexOf("cell one") + 3
+        view.setSelection(anchor, anchor)
+        delay(200)
+        view.setSelection(anchor, inRow)
+        delay(300)
+        val e = view.editableText
+        val inside = e.getSpans(0, e.length, TfTableRow::class.java).filter { val s = e.getSpanStart(it); val en = e.getSpanEnd(it); view.selectionEnd in (s + 1) until en }
+        assertEquals("the selection's end is not inside a table row's hidden text", emptyList<String>(), inside.map { "[${e.getSpanStart(it)},${e.getSpanEnd(it)}) end ${view.selectionEnd}" })
+    }
 }

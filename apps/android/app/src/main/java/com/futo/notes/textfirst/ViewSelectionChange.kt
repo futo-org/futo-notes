@@ -18,10 +18,10 @@ internal fun TextFirstEditText.selectionChanged(selStart: Int, selEnd: Int) {
     val e = editableText ?: return
     // The end sentinel is not a caret position (an empty Editable has none yet).
     val last = (e.length - 1).coerceAtLeast(0)
-    val clamped = clampSelectionOutOfAtoms(e, selStart.coerceAtMost(last), selEnd.coerceAtMost(last), shown)
     // The view's own range is the one painted (a handle carried out of a code block takes it whole): Share and the
-    // handle that was not dragged read it, as Copy reads the engine's (round 3, N1).
-    val (a, b) = painted?.let { it.start to it.end } ?: clamped
+    // handle that was not dragged read it, as Copy reads the engine's (round 3, N1). It is fitted out of objects too.
+    val (wantStart, wantEnd) = painted?.let { it.start to it.end } ?: (selStart to selEnd)
+    val (a, b) = clampSelectionOutOfAtoms(e, wantStart.coerceAtMost(last), wantEnd.coerceAtMost(last), shown)
     if (a != selStart || b != selEnd) {
         val wasApplying = applying
         applying = true
