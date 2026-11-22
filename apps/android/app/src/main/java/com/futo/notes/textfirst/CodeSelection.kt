@@ -1,7 +1,10 @@
 package com.futo.notes.textfirst
 
-/** A code block's code in display offsets: its first code line's start to its last code line's end. */
-internal data class CodeRange(val start: Int, val end: Int)
+/**
+ * A code block's code in display offsets: its first code line's start to its last code line's end, and [below], where
+ * the line after its last code line starts (past a CRLF's two characters, as the engine counts the break).
+ */
+internal data class CodeRange(val start: Int, val end: Int, val below: Int = end + 1)
 
 /**
  * The one rule for every selection near code: a selection with both ends in one block's code is a
@@ -20,7 +23,7 @@ internal fun resolveCodeSelection(anchor: Int, head: Int, blocks: List<CodeRange
         // A range that only meets a block's end starts past its line break, never holding only that break (Mason's
         // rule): the engine maps the code's end to past the closing fence, so the break is nothing to copy. This
         // repeats the engine's display-to-source mapping (source_selection) for the paint.
-        if (block.start < block.end && from == block.end && to > from) { from = block.end + 1; continue }
+        if (block.start < block.end && from == block.end && to > from) { from = minOf(block.below, to); continue }
         val reached = if (block.start == block.end) (from < block.start && to > block.start) || anchor == block.start
             else from < block.end && to > block.start
         if (!reached) continue

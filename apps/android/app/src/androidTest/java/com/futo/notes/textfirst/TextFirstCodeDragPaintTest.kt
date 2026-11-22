@@ -41,4 +41,19 @@ class TextFirstCodeDragPaintTest {
         delay(300)
         assertEquals("nothing is selected: the caret is at the line below", after to after, view.selectionStart to view.selectionEnd)
     }
+
+    /** Sol (round 4): in a CRLF note the line break is two characters, neither of them code. */
+    @Test fun aRangeFromTheCodesEndOntoTheLineBelowHoldsNothingInACrlfNote() = textFirstSession("```js\r\ncode\r\n```\r\nnext\r\n") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        val codeEnd = view.editableText.indexOf("code") + 4
+        val next = view.editableText.indexOf("next")
+        view.setSelection(codeEnd, codeEnd)
+        delay(200)
+        view.setSelection(codeEnd, next)
+        delay(300)
+        assertEquals("nothing of the block is selected", next to next, view.selectionStart to view.selectionEnd)
+    }
 }

@@ -49,4 +49,11 @@ class CodeSelectionTest {
         assertEquals(31 to 31, resolveCodeSelection(30, 31, listOf(block)))
         assertEquals(31 to 35, resolveCodeSelection(30, 35, listOf(block)))
     }
+
+    /** Sol (round 4): a CRLF break is two characters, neither of them code, as the engine counts it. */
+    @Test fun aCrlfBreakAfterTheCodeIsNotCode() {
+        val crlf = CodeRange(10, 30, below = 32)
+        assertEquals(32 to 32, resolveCodeSelection(30, 32, listOf(crlf)))
+        assertEquals(32 to 35, resolveCodeSelection(30, 35, listOf(crlf)))
+    }
 }
