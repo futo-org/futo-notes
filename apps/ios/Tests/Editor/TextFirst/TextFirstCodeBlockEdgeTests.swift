@@ -24,12 +24,18 @@
     /// below a block that ends the note, or above one that starts it, opens a line there.
     @Suite @MainActor
     struct TextFirstCodeBlockEdgeTests {
+        /// A tap as UIKit delivers it: the touch comes down, then the tap ends at once.
+        private func tap(_ h: TextFirstHarness, at point: CGPoint) {
+            h.controller.touchDown(at: point)
+            h.controller.handleTap(TappedAt(point, in: h.tv))
+        }
+
         @Test func aTapBelowABlockThatEndsTheNoteOpensALineAfterIt() async {
             let h = TextFirstHarness("```swift\nlet a = 1\n```")
             h.tv.layoutIfNeeded()
             let below = CGPoint(x: 120, y: h.point(line: 0).y + 120)
             let length = h.controller.storage.length
-            h.controller.handleTap(TappedAt(below, in: h.tv))
+            tap(h, at: below)
             // The new line is the note's last, the caret on it.
             #expect(await h.until { h.controller.storage.length == length + 1 })
             #expect(h.tv.selectedRange == NSRange(location: length + 1, length: 0))
@@ -41,7 +47,7 @@
             let h = TextFirstHarness("```swift\nlet a = 1\n```\nend")
             h.tv.layoutIfNeeded()
             let above = CGPoint(x: 120, y: h.tv.textContainerInset.top + 2)
-            h.controller.handleTap(TappedAt(above, in: h.tv))
+            tap(h, at: above)
             #expect(await h.until { h.source.hasPrefix("\n```swift") }, "\(h.source)")
             h.type("before")
             #expect(h.source == "before\n```swift\nlet a = 1\n```\nend")
@@ -63,7 +69,7 @@
             InputDriver(asking: .keyboard).apply(.mark("か"), to: h.tv)
             #expect(h.tv.markedTextRange != nil)
             let below = CGPoint(x: 120, y: h.point(line: 0).y + 120)
-            h.controller.handleTap(TappedAt(below, in: h.tv))
+            tap(h, at: below)
             #expect(await h.until { h.source.hasSuffix("```\n") || h.source.hasSuffix("```") })
             _ = await h.until(0.3) { false }
             h.type("x")
@@ -77,10 +83,22 @@
             let h = TextFirstHarness("```\n```")
             h.tv.layoutIfNeeded()
             let below = CGPoint(x: 120, y: h.tv.textContainerInset.top + 200)
-            h.controller.handleTap(TappedAt(below, in: h.tv))
+            tap(h, at: below)
             _ = await h.until(0.5) { false }
             h.type("x")
             #expect(h.source == "```\n```\nx", "\(h.source.debugDescription)")
+        }
+
+        /// Only a tap opens the line: a press held as long as a hold, then lifted, changes nothing.
+        @Test func aHoldBelowTheBlockOpensNothing() async {
+            let h = TextFirstHarness("```go\nfunc main() {\nunclosed")
+            h.tv.layoutIfNeeded()
+            let below = CGPoint(x: 120, y: h.point(line: 0).y + 160)
+            h.controller.touchDown(at: below)
+            h.controller.touchDownTime -= 0.9
+            h.controller.handleTap(TappedAt(below, in: h.tv))
+            _ = await h.until(0.5) { false }
+            #expect(h.source == "```go\nfunc main() {\nunclosed", "\(h.source.debugDescription)")
         }
     }
 #endif

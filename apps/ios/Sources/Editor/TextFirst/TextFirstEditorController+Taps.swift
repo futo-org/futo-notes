@@ -120,6 +120,9 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         }
     }
 
+    /// UIKit's own long-press threshold: a press this long is a hold, not a tap.
+    static let holdDuration: CFTimeInterval = 0.5
+
     var inset: UIEdgeInsets { textView.textContainerInset }
 
     private func fragment(at p: CGPoint) -> NSTextLayoutFragment? {
@@ -222,8 +225,9 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
             suppressFocus = false
             return
         }
+        // Only a tap opens a line there: a press held as long as a hold changes nothing.
         if g.state == .ended, let edge = codeBlockEdge(at: g.location(in: textView)) {
-            openLine(beside: edge)
+            if CACurrentMediaTime() - touchDownTime < Self.holdDuration { openLine(beside: edge) }
             return
         }
         if g.state == .ended, let hit = tableCellHit(at: g.location(in: textView)) {
