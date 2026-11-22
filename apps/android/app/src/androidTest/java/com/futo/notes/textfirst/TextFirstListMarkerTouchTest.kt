@@ -191,7 +191,8 @@ class TextFirstListMarkerTouchTest {
 
     /**
      * Tester (F1): a tick is a text change, and the platform hides a selection's handles and menu on any text change but
-     * keeps the selection, which a later hold on a word then reopens. So a tick ends a selection: the caret goes to its end.
+     * keeps the selection, which a later hold on a word then reopens. So a tick ends a selection first, the caret at its end,
+     * and its Undo and Redo record that (Sol: a Redo put the old selection back).
      */
     @Test fun aTickEndsASelectionAndAHoldOnAWordThenSelectsTheWord() = textFirstSession("- [ ] Task A\n- [ ] Task C\n  - [ ] Nested task D\n\nend") { c ->
         withContext(Dispatchers.Main) {
@@ -212,5 +213,13 @@ class TextFirstListMarkerTouchTest {
         }
         hold(c, word, d.y)
         assertEquals("a hold on a word selects the word", nested to nested + 6, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
+        // Undo and Redo bring back what the person saw around the tick, never the ended selection.
+        c.select(nested + 6)
+        c.undo()
+        awaitSource(c, "the undo") { it.startsWith("- [ ] Task A") }
+        c.redo()
+        awaitSource(c, "the redo") { it.startsWith("- [x] Task A") }
+        delay(300)
+        assertEquals("Redo puts back no selection on D's marker", d.at + 1 to d.at + 1, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
     }
 }
