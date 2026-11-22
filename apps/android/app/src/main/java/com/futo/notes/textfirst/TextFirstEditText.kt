@@ -291,12 +291,6 @@ internal class TextFirstEditText(
     }
 
 
-    /**
-     * Have the platform place its handles again, as it does when the note scrolls: one whose caret the view no longer
-     * shows is hidden. A keyboard that shrinks the note leaves its top where it was, and the platform would not look.
-     */
-    internal fun placeHandlesAgain() = onScrollChanged(scrollX, scrollY, scrollX, scrollY)
-
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         resizeEditorViewport(w != oldw, h, oldh)

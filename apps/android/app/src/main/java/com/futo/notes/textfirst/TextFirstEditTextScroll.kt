@@ -101,7 +101,20 @@ internal fun TextFirstEditText.resizeEditorViewport(
         reveal.again()
         bringPointIntoView(selectionEnd)
     }
-    // A handle at a caret the keyboard now covers (a tall photo's foot) is not drawn over the keyboard (round 3, N4).
-    if (height < previousHeight) placeHandlesAgain()
+    if (height < previousHeight) hideCaretHandleBelowView()
     if (widthChanged) refreshWidthDependentSpans()
+}
+
+/**
+ * The caret's handle hangs at its foot. A keyboard that shrinks the note under that foot (a caret beside a tall photo)
+ * leaves the note's top in place, and the platform, which places its handles again only on a scroll, kept the handle
+ * drawn over the keyboard (round 3, N4). Turning the caret off and on hides it; the caret stays.
+ */
+private fun TextFirstEditText.hideCaretHandleBelowView() {
+    if (!isFocused || selectionStart < 0 || selectionStart != selectionEnd) return
+    val l = layout ?: return
+    val foot = l.getLineBottom(l.getLineForOffset(selectionStart)) + totalPaddingTop - scrollY
+    if (foot <= height - totalPaddingBottom) return
+    isCursorVisible = false
+    isCursorVisible = true
 }
