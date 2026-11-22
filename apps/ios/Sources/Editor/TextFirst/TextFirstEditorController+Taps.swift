@@ -27,7 +27,7 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         let to = content.location(
             manager.documentRange.location, offsetBy: min(NSMaxRange(union), storage.length))
         if let from, let to, let range = NSTextRange(location: from, end: to) {
-            manager.invalidateLayout(for: range)
+            manager.invalidateRenderingAttributes(for: range)
         }
     }
 
