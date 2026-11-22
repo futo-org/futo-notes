@@ -19,8 +19,11 @@ internal class NoteScroll(private val view: TextFirstEditText) {
     private val slop = config.scaledTouchSlop
     private val scroller = OverScroller(view.context)
     private var tracker: VelocityTracker? = null
-    private var downX = 0f
-    private var downY = 0f
+    /** Where the contact went down, view coordinates. */
+    var downX = 0f
+        private set
+    var downY = 0f
+        private set
     private var lastY = 0f
     /** The finger is scrolling the note. */
     var dragging = false

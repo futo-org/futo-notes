@@ -1,0 +1,75 @@
+package com.futo.notes.textfirst
+
+import android.os.SystemClock
+import android.view.InputDevice
+import android.view.MotionEvent
+import android.view.ViewConfiguration
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import org.junit.Assert.assertEquals
+import org.junit.Test
+import uniffi.futo_notes_ffi.EditorInlineFormat
+
+/**
+ * Tester (round 3, N2): a text change that leaves a selection (an Undo restoring one, Bold on a held word) hides its
+ * handles and menu but keeps it, and the next hold on another word brought them back instead of selecting the word.
+ * A hold with the keyboard up selects the word under it, whatever selection stood.
+ */
+class TextFirstHoldSelectsWordTest {
+    private val note = "alpha beta gamma\n\ndelta epsilon zeta\n"
+
+    private fun touch(view: TextFirstEditText, down: Long, time: Long, action: Int, x: Float, y: Float) {
+        val event = MotionEvent.obtain(down, time, action, x, y, 0)
+        event.source = InputDevice.SOURCE_TOUCHSCREEN
+        try { view.dispatchTouchEvent(event) } finally { event.recycle() }
+    }
+
+    private suspend fun holdWord(c: TextFirstController, word: String) {
+        val view = c.view
+        val (x, y) = withContext(Dispatchers.Main) {
+            val at = view.editableText.indexOf(word) + 2
+            val l = view.layout
+            val line = l.getLineForOffset(at)
+            (view.totalPaddingLeft + l.getPrimaryHorizontal(at)) to (view.totalPaddingTop - view.scrollY + (l.getLineTop(line) + l.getLineBottom(line)) / 2f)
+        }
+        val down = SystemClock.uptimeMillis()
+        withContext(Dispatchers.Main) { touch(view, down, down, MotionEvent.ACTION_DOWN, x, y) }
+        delay(ViewConfiguration.getLongPressTimeout() + 300L)
+        withContext(Dispatchers.Main) { touch(view, down, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, y) }
+        delay(400)
+    }
+
+    private suspend fun selected(c: TextFirstController): String = withContext(Dispatchers.Main) { c.view.editableText.substring(c.view.selectionStart, c.view.selectionEnd) }
+
+    private suspend fun ready(c: TextFirstController) {
+        withContext(Dispatchers.Main) { c.view.isFocusableInTouchMode = true; c.view.requestFocus() }
+        withTimeout(5_000) { while (withContext(Dispatchers.Main) { c.view.layout == null }) delay(20) }
+    }
+
+    @Test fun aHoldAfterBoldOnAHeldWordSelectsTheNewWord() = textFirstSession(note) { c ->
+        ready(c)
+        holdWord(c, "beta")
+        assertEquals("beta", selected(c))
+        withContext(Dispatchers.Main) { c.toolbarFormat(EditorInlineFormat.BOLD) }
+        withTimeout(5_000) { while (!(c.sourceText() ?: "").contains("**beta**")) delay(20) }
+        delay(300)
+        assertEquals("Bold keeps the word selected", "beta", selected(c))
+        holdWord(c, "epsilon")
+        assertEquals("the hold selects the word under it", "epsilon", selected(c))
+    }
+
+    @Test fun aHoldAfterAnUndoRestoredASelectionSelectsTheNewWord() = textFirstSession(note) { c ->
+        ready(c)
+        holdWord(c, "gamma")
+        withContext(Dispatchers.Main) { c.view.onTextContextMenuItem(android.R.id.cut) }
+        withTimeout(5_000) { while ((c.sourceText() ?: "").contains("gamma")) delay(20) }
+        c.undo()
+        withTimeout(5_000) { while (!(c.sourceText() ?: "").contains("gamma")) delay(20) }
+        delay(300)
+        assertEquals("Undo restores the selection", "gamma", selected(c))
+        holdWord(c, "zeta")
+        assertEquals("the hold selects the word under it", "zeta", selected(c))
+    }
+}

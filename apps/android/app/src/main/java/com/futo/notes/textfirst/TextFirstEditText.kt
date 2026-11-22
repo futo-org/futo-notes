@@ -193,7 +193,9 @@ internal class TextFirstEditText(
 
     private fun platformLongClick(): Boolean {
         renderHold.longPressed()
-        return codeTouch.longPress() || imageTouch.longPress() || super.performLongClick()
+        if (codeTouch.longPress() || imageTouch.longPress()) return true
+        endSelectionUnderHold()
+        return super.performLongClick()
     }
 
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
