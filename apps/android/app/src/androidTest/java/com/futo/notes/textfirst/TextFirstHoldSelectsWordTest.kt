@@ -73,4 +73,29 @@ class TextFirstHoldSelectsWordTest {
         holdWord(c, "zeta")
         assertEquals("the hold selects the word under it", "zeta", selected(c))
     }
+
+    /** Sol (round 4): a hold inside a standing selection is the platform's (drag it, or its menu): the range stays. */
+    @Test fun aHoldInsideASelectionKeepsIt() = textFirstSession(note) { c ->
+        ready(c)
+        val (start, end) = withContext(Dispatchers.Main) { c.view.editableText.let { it.indexOf("alpha") to it.indexOf("gamma") + 5 } }
+        c.select(start, end)
+        withTimeout(5_000) { while (withContext(Dispatchers.Main) { c.view.selectionEnd != end }) delay(20) }
+        holdWord(c, "beta")
+        assertEquals("the selection stands", "alpha beta gamma", selected(c))
+    }
+
+    /**
+     * Sol (round 4): a long click with no press (an accessibility service's) is not a hold: the note does not end the
+     * selection at the last touch's stale position. (What the platform's own long click then does is its own.)
+     */
+    @Test fun aLongClickWithNoPressDoesNotEndTheSelection() = textFirstSession(note) { c ->
+        ready(c)
+        holdWord(c, "epsilon")
+        val (start, end) = withContext(Dispatchers.Main) { c.view.editableText.let { it.indexOf("alpha") to it.indexOf("beta") + 4 } }
+        c.select(start, end)
+        withTimeout(5_000) { while (withContext(Dispatchers.Main) { c.view.selectionStart != start }) delay(20) }
+        withContext(Dispatchers.Main) { c.view.endSelectionUnderHold() }
+        delay(300)
+        assertEquals("the selection stands", "alpha beta", selected(c))
+    }
 }
