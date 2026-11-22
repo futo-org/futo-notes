@@ -97,6 +97,43 @@
             #expect(covered, "def at \(x) in \(rects(h, on: "def"))")
         }
 
+        /// A left-to-right item's wrapped row that begins inside a right-to-left run, selected
+        /// whole: the row is tinted across all of its text, the run's far side included.
+        @Test func aWrappedRowStartingInsideARightToLeftRunIsTintedWhole() throws {
+            let hebrew = Array(repeating: "שלום עולם", count: 6).joined(separator: " ")
+            let h = TextFirstHarness("- alpha beta gamma delta epsilon \(hebrew) tail\n- next\n")
+            h.tv.layoutIfNeeded()
+            let text = h.tv.text as NSString
+            let manager = try #require(h.tv.textLayoutManager)
+            let fragment = try #require(
+                manager.textLayoutFragment(for: manager.documentRange.location))
+            let lines = fragment.textLineFragments.filter { $0.characterRange.length > 0 }
+            try #require(lines.count >= 2)
+            let second = lines[1]
+            let run = text.range(of: hebrew)
+            // The second row must begin inside the run.
+            try #require(
+                second.characterRange.location > run.location
+                    && second.characterRange.location < NSMaxRange(run) - 1)
+            let origin = CGPoint(
+                x: h.tv.textContainerInset.left + fragment.layoutFragmentFrame.minX
+                    + second.typographicBounds.minX,
+                y: h.tv.textContainerInset.top + fragment.layoutFragmentFrame.minY
+                    + second.typographicBounds.minY)
+            let xs = (second.characterRange.location..<NSMaxRange(second.characterRange)).map {
+                origin.x + second.locationForCharacter(at: $0).x
+            }
+            let midY = origin.y + second.typographicBounds.height / 2
+            h.select(1, text.range(of: "next").location + 2)
+            let rowRects = h.tv.selectionRects(for: h.tv.selectedTextRange!).map(\.rect).filter {
+                $0.width > 0 && $0.minY < midY && $0.maxY > midY
+            }
+            let left = rowRects.map(\.minX).min() ?? .infinity
+            let right = rowRects.map(\.maxX).max() ?? -.infinity
+            #expect(left <= xs.min()! + 1, "tint from \(left), row's text from \(xs.min()!)")
+            #expect(right >= xs.max()! - 1, "tint to \(right), row's text to \(xs.max()!)")
+        }
+
         /// With the selection's ends off screen, no rect on a visible list row says it holds an
         /// end: a handle is drawn only where the selection ends.
         @Test func noVisibleListRowCarriesAnEndTheSelectionDoesNotHave() {
