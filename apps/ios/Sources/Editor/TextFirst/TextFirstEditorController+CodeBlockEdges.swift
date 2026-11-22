@@ -12,8 +12,10 @@ extension TextFirstEditorController {
         guard storage.length > 0, let manager = textView.textLayoutManager else { return nil }
         let text = storage.string as NSString
         let endsWithBreak = [10, 13].contains(text.character(at: text.length - 1))
+        // The last line's start: marked text being composed at its end has no block yet.
+        let lastLine = text.paragraphRange(for: NSRange(location: text.length - 1, length: 0))
         let lastIsCode =
-            endsWithBreak ? trailingBlock?.code == true : isCode(at: text.length - 1)
+            endsWithBreak ? trailingBlock?.code == true : isCode(at: lastLine.location)
         if lastIsCode, let last = lastFragment() {
             let frame = last.layoutFragmentFrame
             let trailingBottom = last.trailingRowFrame.map { $0.top + $0.height } ?? 0
@@ -30,8 +32,10 @@ extension TextFirstEditorController {
         return nil
     }
 
-    /// Open the line `edge` names, the caret on it.
+    /// Open the line `edge` names, the caret on it. Marked text is committed first, as for every
+    /// tap-driven command.
     func openLine(beside edge: (command: EditorBlockCommand, offset: Int)) {
+        finishComposition()
         let range = EditorUtf16Range(start: UInt64(edge.offset), end: UInt64(edge.offset))
         runCommand("code block edge") { session, expected in
             try session.blockCommandUtf16(expected: expected, range: range, command: edge.command)

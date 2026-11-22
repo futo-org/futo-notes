@@ -52,5 +52,23 @@
             h.tv.layoutIfNeeded()
             #expect(h.controller.codeBlockEdge(at: CGPoint(x: 120, y: 600)) == nil)
         }
+
+        /// A tap below the block while the keyboard holds marked text commits it first, as every
+        /// other tap-driven command does, so the view and the engine stay one text.
+        @Test func aTapBelowTheBlockDuringACompositionCommitsItFirst() async {
+            let h = TextFirstHarness("```swift\nlet a = 1\n```")
+            h.tv.layoutIfNeeded()
+            let end = (h.tv.text as NSString).range(of: "1").upperBound
+            h.select(end, end)
+            InputDriver(asking: .keyboard).apply(.mark("か"), to: h.tv)
+            #expect(h.tv.markedTextRange != nil)
+            let below = CGPoint(x: 120, y: h.point(line: 0).y + 120)
+            h.controller.handleTap(TappedAt(below, in: h.tv))
+            #expect(await h.until { h.source.hasSuffix("```\n") || h.source.hasSuffix("```") })
+            _ = await h.until(0.3) { false }
+            h.type("x")
+            #expect(h.source == "```swift\nlet a = 1か\n```\nx", "\(h.source.debugDescription)")
+            #expect(h.controller.divergences.isEmpty, "\(h.controller.divergences)")
+        }
     }
 #endif
