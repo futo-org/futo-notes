@@ -63,7 +63,8 @@ class TextFirstHoldSelectsWordTest {
     @Test fun aHoldAfterAnUndoRestoredASelectionSelectsTheNewWord() = textFirstSession(note) { c ->
         ready(c)
         holdWord(c, "gamma")
-        withContext(Dispatchers.Main) { c.view.onTextContextMenuItem(android.R.id.cut) }
+        // Typed over, not Cut: the system's clipboard preview would take the window's focus from the tests after this one.
+        textFirstIme(c) { commitText("x", 1) }
         withTimeout(5_000) { while ((c.sourceText() ?: "").contains("gamma")) delay(20) }
         c.undo()
         withTimeout(5_000) { while (!(c.sourceText() ?: "").contains("gamma")) delay(20) }
