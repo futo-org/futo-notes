@@ -9,7 +9,20 @@ extension TextFirstEditorController {
     /// The line a tap at `p` (text view coordinates) opens beside a code block at the note's
     /// edge, and an offset in that block; nil anywhere else.
     func codeBlockEdge(at p: CGPoint) -> (command: EditorBlockCommand, offset: Int)? {
-        guard storage.length > 0, let manager = textView.textLayoutManager,
+        // A note that is only an empty block has no character to style: the engine says whether
+        // it is code, and its one line is the caret's row.
+        if storage.length == 0 {
+            guard !engineBusy,
+                let blocks = try? session.project(
+                    expected: rev, range: EditorByteRange(start: 0, end: 0)
+                ).codeBlocks, !blocks.isEmpty
+            else { return nil }
+            let row = textView.caretRect(for: textView.beginningOfDocument)
+            if p.y > row.maxY { return (.openLineAfterCodeBlock, 0) }
+            if p.y < row.minY { return (.openLineBeforeCodeBlock, 0) }
+            return nil
+        }
+        guard let manager = textView.textLayoutManager,
             let shown = manager.textViewportLayoutController.viewportRange
         else { return nil }
         // Only an edge on screen is asked about: laying out a fragment elsewhere would re-base
