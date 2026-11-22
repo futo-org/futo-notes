@@ -29,10 +29,16 @@ class TextFirstPasteRevealTest {
     private val note = "Spacer paragraph.\n\n" + (1..20).joinToString("\n\n") { "line $it after" }
     private val clip = (1..200).joinToString("\n") { "pasted line $it" }
 
+    /** The text menus open now (set by [holdWithMenu]). */
+    private var openMenus: () -> Int = { 0 }
+
+    private suspend fun assertMenuOpen(what: String) = assertTrue("the word's menu is open at $what", withContext(Dispatchers.Main) { openMenus() } > 0)
+
     /** Hold [word] with the note focused until its text menu is open; fails if the menu never opens. */
     private suspend fun holdWithMenu(c: TextFirstController, word: String) {
         val view = c.view
         var menus = 0
+        openMenus = { menus }
         val (x, y) = withContext(Dispatchers.Main) {
             view.isFocusableInTouchMode = true
             view.requestFocus()
@@ -41,7 +47,7 @@ class TextFirstPasteRevealTest {
                 override fun onCreateActionMode(mode: android.view.ActionMode, menu: android.view.Menu): Boolean { menus++; return inner?.onCreateActionMode(mode, menu) ?: true }
                 override fun onPrepareActionMode(mode: android.view.ActionMode, menu: android.view.Menu) = inner?.onPrepareActionMode(mode, menu) ?: false
                 override fun onActionItemClicked(mode: android.view.ActionMode, item: android.view.MenuItem) = inner?.onActionItemClicked(mode, item) ?: false
-                override fun onDestroyActionMode(mode: android.view.ActionMode) { inner?.onDestroyActionMode(mode) }
+                override fun onDestroyActionMode(mode: android.view.ActionMode) { menus--; inner?.onDestroyActionMode(mode) }
             }
             val at = view.editableText.indexOf(word) + 2
             val l = view.layout
@@ -68,6 +74,7 @@ class TextFirstPasteRevealTest {
         withTimeout(5_000) { while (withContext(Dispatchers.Main) { c.view.layout == null }) delay(20) }
         withContext(Dispatchers.Main) { c.view.context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(null, clip)) }
         holdWithMenu(c, "paragraph")
+        assertMenuOpen("the Paste")
         withContext(Dispatchers.Main) { c.view.onTextContextMenuItem(android.R.id.paste) }
         withTimeout(5_000) { while (!(c.sourceText() ?: "").contains("pasted line 200")) delay(20) }
         delay(600)
@@ -88,6 +95,7 @@ class TextFirstPasteRevealTest {
         withContext(Dispatchers.Main) { view.scrollTo(0, 0) }
         delay(300)
         holdWithMenu(c, "paragraph")
+        assertMenuOpen("the Undo")
         withContext(Dispatchers.Main) {
             for (action in listOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP)) view.dispatchKeyEvent(KeyEvent(0, 0, action, KeyEvent.KEYCODE_Z, 0, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON))
         }
