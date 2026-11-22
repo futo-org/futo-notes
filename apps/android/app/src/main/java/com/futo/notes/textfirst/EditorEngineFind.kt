@@ -1,6 +1,7 @@
 package com.futo.notes.textfirst
 
 import uniffi.futo_notes_ffi.EditorByteRange
+import uniffi.futo_notes_ffi.EditorFindLanding
 import uniffi.futo_notes_ffi.EditorFindReport
 import uniffi.futo_notes_ffi.EditorSessionException
 import uniffi.futo_notes_ffi.EditorUtf16Range
@@ -17,8 +18,8 @@ private const val FIND_REFRESH_MS = 150L
 /** Editor-thread find bookkeeping; the matches themselves live in the session. */
 internal class FindEngineState(refresh: () -> Unit) {
     var open = false
-    /** Whether a step has already landed on the current match since the query last changed. */
-    var landed = false
+    /** Whether a step has landed on the current match since the query changed, and whether an edit dropped it since. */
+    val landing = EditorFindLanding()
     /** The range the last step selected, display UTF-16, while that selection stands: a new query lets it go. */
     var landedOn: Pair<Int, Int>? = null
     var scanning = false
@@ -54,7 +55,7 @@ internal fun EditorEngine.findCommand(done: (FindSnapshot?) -> Unit, block: (Nat
 }
 
 internal fun EditorEngine.findSetQuery(query: String, done: (FindSnapshot?) -> Unit) = findCommand(done) { s ->
-    find.landed = false
+    find.landing.reset()
     // The old match's selection would stay painted (a code block's, a cell's) though the new query has no match there.
     // Let go where it stands, the reader's place kept: a caret revealed there would scroll back to the old match.
     find.landedOn?.let { (start, end) ->
@@ -67,21 +68,22 @@ internal fun EditorEngine.findSetQuery(query: String, done: (FindSnapshot?) -> U
     report to (report.reveal != null)
 }
 
-/** The first step lands on the current match; later ones move from it. Refused during composition. */
+/**
+ * The first step lands on the current match; later ones move from it, and after an edit dropped the current match Next
+ * goes to the first match at or after it (the engine's FindLanding). Refused during composition.
+ */
 internal fun EditorEngine.findStep(forward: Boolean, done: (FindSnapshot?) -> Unit) = findCommand(done) { s ->
-    if (mirror.overlay != null) return@findCommand s.findReport() to false
-    val report = if (find.landed) s.findStep(rev, forward) else s.findReport()
-    val landing = if (find.landed) report.reveal else report.currentRange
+    val step = s.findStepLanding(rev, find.landing, forward, mirror.overlay != null)
+    val landing = step.landing
     if (landing != null) {
         showDisplayRange(mirror.toUtf16(landing.start.toInt()), mirror.toUtf16(landing.end.toInt()))
-        find.landed = true
         find.landedOn = mirror.selStart to mirror.selEnd
     }
-    report to (landing != null)
+    step.report to (landing != null)
 }
 
 internal fun EditorEngine.findClose(done: (FindSnapshot?) -> Unit) = findCommand(done) { s ->
-    find.landed = false
+    find.landing.reset()
     handler.removeCallbacks(find.refresh)
     s.findClose() to false
 }
