@@ -9,20 +9,27 @@ extension TextFirstEditorController {
     /// The line a tap at `p` (text view coordinates) opens beside a code block at the note's
     /// edge, and an offset in that block; nil anywhere else.
     func codeBlockEdge(at p: CGPoint) -> (command: EditorBlockCommand, offset: Int)? {
-        guard storage.length > 0, let manager = textView.textLayoutManager else { return nil }
+        guard storage.length > 0, let manager = textView.textLayoutManager,
+            let shown = manager.textViewportLayoutController.viewportRange
+        else { return nil }
+        // Only an edge on screen is asked about: laying out a fragment elsewhere would re-base
+        // TextKit's height estimate under the reader.
+        let begin = manager.documentRange.location
+        let endShown = manager.offset(from: begin, to: shown.endLocation) >= storage.length
+        let startShown = manager.offset(from: begin, to: shown.location) == 0
         let text = storage.string as NSString
         let endsWithBreak = [10, 13].contains(text.character(at: text.length - 1))
         // The last line's start: marked text being composed at its end has no block yet.
         let lastLine = text.paragraphRange(for: NSRange(location: text.length - 1, length: 0))
         let lastIsCode =
             endsWithBreak ? trailingBlock?.code == true : isCode(at: lastLine.location)
-        if lastIsCode, let last = lastFragment() {
+        if endShown, lastIsCode, let last = lastFragment() {
             let frame = last.layoutFragmentFrame
             let trailingBottom = last.trailingRowFrame.map { $0.top + $0.height } ?? 0
             let bottom = inset.top + frame.minY + max(frame.height, trailingBottom)
             if p.y > bottom { return (.openLineAfterCodeBlock, text.length) }
         }
-        if isCode(at: 0),
+        if startShown, isCode(at: 0),
             let first = manager.textLayoutFragment(for: manager.documentRange.location),
             let line = first.textLineFragments.first,
             p.y < inset.top + first.layoutFragmentFrame.minY + line.typographicBounds.minY
