@@ -135,8 +135,7 @@ final class TextFirstEditorController: NSObject {
     /// under way came down on one (+MarkerHold).
     var markerHoldRecognizer: UILongPressGestureRecognizer?
     var markerHoldArmed = false
-    /// The touch under way came down on a list marker unit (a checkbox too), or beside a code
-    /// block at the note's edge: it opens no caret menu.
+    /// The touch under way is on a list marker or a code block's edge: it opens no caret menu.
     var touchOpensNoCaretMenu = false
     /// The long-press that lifts a block, whether the touch under way may lift, the lift it
     /// planned as it began, the drag it is running and its haptics (+BlockDrag).
@@ -273,12 +272,13 @@ final class TextFirstEditorController: NSObject {
                 slackUtf16: edit.slackUtf16, near: UInt64(replayNear))
         }
         try reconcile(edit, inserted: change.inserted, platform: platform)
+        adjustStyled(for: edit)
+        restyle(change)
+        // UIKit draws the selection on the layout of the moment: set it once styled.
         setSelection(
             NSRange(
                 location: Int(edit.selectionStart),
                 length: Int(edit.selectionEnd - edit.selectionStart)))
-        adjustStyled(for: edit)
-        restyle(change)
         syncEmptyLineTypingAttributes()
         syncToolbar()
         refreshCompletion()

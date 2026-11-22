@@ -110,8 +110,12 @@ final class TextFirstTextView: UITextView {
         if fingerIsDown, let side = side(of: range.start), side == self.side(of: range.end) {
             return []
         }
-        let rects = super.selectionRects(for: range)
-        guard let controller else { return rects }
+        guard let controller else { return super.selectionRects(for: range) }
+        let selected = NSRange(
+            location: offset(from: beginningOfDocument, to: range.start),
+            length: offset(from: range.start, to: range.end))
+        let rects = controller.listRowSelectionRects(
+            super.selectionRects(for: range), of: selected)
         // On an image's line the rects, and the handles drawn from them, are as tall as text.
         return rects.map { rect in
             controller.onImageLine(rect.rect).map { TextFirstSelectionRect(rect, drawnAs: $0) }
