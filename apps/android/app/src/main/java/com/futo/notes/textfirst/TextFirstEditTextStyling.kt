@@ -117,17 +117,22 @@ internal fun TextFirstEditText.addSpans(target: Spannable, specs: List<SpanSpec>
 }
 
 private fun setRendererSpan(target: Spannable, span: TfSpan, start: Int, end: Int) {
+    val flags = rendererSpanFlags(target, span, start, end)
+    if (target.getSpanStart(span) != start || target.getSpanEnd(span) != end || target.getSpanFlags(span) != flags) {
+        target.setSpan(span, start, end, flags)
+    }
+}
+
+/** The flags a renderer span is set with on [start, end) of [target]. */
+internal fun rendererSpanFlags(target: CharSequence, span: TfSpan, start: Int, end: Int): Int {
     val block = span is TfHeading || span is TfQuote || span is TfList || span is TfIndent || span is TfCodeBlock || span is TfMetadata
     // Composition supplies raw text without new semantic windows. Keep the
     // existing block style on text inserted at its start or unfinished end.
     // A terminating newline belongs to this span, but the next line does not.
-    val flags = when {
+    return when {
         !block -> TF_SPAN_FLAGS
         end >= target.length - 1 && (end == start || target[end - 1] != '\n') -> Spanned.SPAN_INCLUSIVE_INCLUSIVE
         else -> Spanned.SPAN_INCLUSIVE_EXCLUSIVE
-    }
-    if (target.getSpanStart(span) != start || target.getSpanEnd(span) != end || target.getSpanFlags(span) != flags) {
-        target.setSpan(span, start, end, flags)
     }
 }
 
