@@ -64,10 +64,11 @@ internal class CaretReveal {
  */
 internal fun TextFirstEditText.caretWasInView(viewHeight: Int): Boolean {
     val l = layout ?: return false
-    // A selected block is where its header is.
-    val offset = selectedCodeBlock?.first ?: selectionEnd
+    // A selected block is where its header is, a photo selected whole where its top is.
+    val offset = selectedCodeBlock?.first ?: selectedObject?.first ?: selectionEnd
     if (offset < 0) return false
     val line = l.getLineForOffset(offset)
+    if (selectedObject != null) return l.getLineTop(line) + totalPaddingTop >= scrollY && l.getLineTop(line) + totalPaddingTop + lineHeight <= scrollY + viewHeight
     return l.getLineTop(line) + totalPaddingTop >= scrollY && l.getLineBottom(line) + totalPaddingTop <= scrollY + viewHeight
 }
 
@@ -94,7 +95,7 @@ internal fun TextFirstEditText.revealCaret(offset: Int, nativeReveal: () -> Bool
 }
 
 /**
- * A caret moved onto a loaded photo's row shows the whole row, from its top when it is taller than the space, never a
+ * A caret moved onto a loaded photo's row, or the photo selected whole, shows the row ([revealPhotoRow]), never a
  * strip of the photo with the platform's margin (a quarter of the view, below a caret as tall as the photo). After
  * [typed] text it shows where the text lands: a line's height above the row's baseline down to the row's bottom, which
  * may scroll on the first character and then stays. Null off a photo's row, where the platform reveals.
@@ -102,11 +103,27 @@ internal fun TextFirstEditText.revealCaret(offset: Int, nativeReveal: () -> Bool
 private fun TextFirstEditText.photoRowReveal(offset: Int, typed: Boolean): Boolean? {
     val l = layout ?: return null
     val text = editableText ?: return null
+    selectedObject?.let { (start, _) -> return revealPhotoRow(l, l.getLineForOffset(start)) }
     if (selectionStart != selectionEnd || photoBesideCaret(l, text, offset, android.graphics.RectF(), anywhere = true) == null) return null
     val line = l.getLineForOffset(offset)
+    if (!typed) return revealPhotoRow(l, line)
+    return revealAreaAboveKeyboard((l.getLineBaseline(line) - lineHeight).toFloat(), l.getLineBottom(line).toFloat())
+}
+
+/**
+ * A photo's row, for a caret on it or the photo selected as one object (a tap), shows whole, or from its top when it is
+ * taller than the space. A top already shown stays where it is: a tap on a photo on screen moves nothing until the
+ * keyboard rises over its top.
+ */
+private fun TextFirstEditText.revealPhotoRow(l: android.text.Layout, line: Int): Boolean {
+    val top = l.getLineTop(line).toFloat()
     val bottom = l.getLineBottom(line).toFloat()
-    val top = if (typed) (l.getLineBaseline(line) - lineHeight).toFloat() else l.getLineTop(line).toFloat()
-    return revealAreaAboveKeyboard(top, bottom)
+    val visibleBottom = visibleBottomAboveKeyboard()
+    val space = visibleBottom - totalPaddingTop
+    if (bottom - top <= space) return revealAreaAboveKeyboard(top, bottom)
+    val onScreenTop = totalPaddingTop - scrollY + top
+    if (onScreenTop >= totalPaddingTop && onScreenTop + lineHeight <= visibleBottom) return false
+    return revealAreaAboveKeyboard(top, top + space)
 }
 
 /**

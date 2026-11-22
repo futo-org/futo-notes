@@ -10,7 +10,6 @@ import android.text.Spanned
 import android.text.TextPaint
 import android.text.style.CharacterStyle
 import android.text.style.LeadingMarginSpan
-import android.text.style.LineBackgroundSpan
 import android.text.style.LineHeightSpan
 import android.text.style.MetricAffectingSpan
 import android.text.style.ReplacementSpan
@@ -192,8 +191,9 @@ internal class TfList(
     }
 }
 
+/** A note's front matter, drawn as a card under the selection (drawMetadataCard): a line background would cover its tint. */
 internal class TfMetadata(private val look: TextFirstStyle) :
-    MetricAffectingSpan(), LineBackgroundSpan, LeadingMarginSpan, TfSpan {
+    MetricAffectingSpan(), LeadingMarginSpan, TfSpan {
     private val background = Paint().apply { color = look.surfaceColor }
     private val bar = Paint().apply { color = look.borderColor }
 
@@ -209,11 +209,11 @@ internal class TfMetadata(private val look: TextFirstStyle) :
         paint.color = look.mutedColor
     }
 
-    override fun drawBackground(c: Canvas, p: Paint, left: Int, right: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, lineNumber: Int) {
+    fun drawCard(c: Canvas, right: Float, top: Float, bottom: Float) {
         background.color = look.surfaceColor
         bar.color = look.borderColor
-        c.drawRect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat(), background)
-        c.drawRect(left.toFloat(), top.toFloat(), left + look.dp(3f), bottom.toFloat(), bar)
+        c.drawRect(0f, top, right, bottom, background)
+        c.drawRect(0f, top, look.dp(3f), bottom, bar)
     }
 
     override fun getLeadingMargin(first: Boolean) = look.codePadding.toInt()

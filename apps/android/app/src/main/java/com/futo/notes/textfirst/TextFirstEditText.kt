@@ -265,6 +265,7 @@ internal class TextFirstEditText(
         // Under the caret, which the TextView draws before the layout's own drawing.
         if (blockLift.drag?.drawNote(canvas) != true) {
             drawCodeBlocks(canvas)
+            drawMetadataCard(canvas)
             drawInlineCodeChips(canvas, scrollY - totalPaddingTop, scrollY - totalPaddingTop + height)
             lineBelowHandle.afterDraw()
             drawCodeSelection(canvas)
