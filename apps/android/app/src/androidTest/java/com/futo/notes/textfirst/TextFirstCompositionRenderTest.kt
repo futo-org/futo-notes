@@ -21,8 +21,11 @@ class TextFirstCompositionRenderTest {
         withTimeout(5_000) { while (withContext(Dispatchers.Main) { c.view.layout == null }) delay(20) }
     }
 
-    /** Compose "ab", then "abcd", at [at]; [rowLook] names the block span the composed text must keep; commit. */
-    private suspend fun composeAt(c: TextFirstController, at: Int, what: String, rowLook: Class<out TfSpan>) {
+    /**
+     * Compose "ab", then "abcd", at [at]; [rowLook] names the block span the composed text must keep; commit, and the
+     * note's source holds [saved] (the committed text where it was composed).
+     */
+    private suspend fun composeAt(c: TextFirstController, at: Int, what: String, rowLook: Class<out TfSpan>, saved: String) {
         c.select(at)
         withTimeout(5_000) { while (withContext(Dispatchers.Main) { c.view.selectionStart != at }) delay(20) }
         for (word in listOf("ab", "abcd")) {
@@ -38,6 +41,8 @@ class TextFirstCompositionRenderTest {
         textFirstIme(c) { commitText("abcd", 1) }
         withTimeout(5_000) { while (withContext(Dispatchers.Main) { c.view.composing != null }) delay(20) }
         assertNull("$what: no underline once committed", withContext(Dispatchers.Main) { c.view.composing })
+        withTimeout(5_000) { while (!(c.sourceText() ?: "").contains(saved)) delay(20) }
+        assertTrue("$what: the source holds \"$saved\"", (c.sourceText() ?: "").contains(saved))
         assertRendersAsFresh(c, "$what, committed")
     }
 
@@ -45,10 +50,10 @@ class TextFirstCompositionRenderTest {
 
     @Test fun composingInAListItemAHeadingAndACodeLine() = textFirstSession(note) { c ->
         ready(c)
-        composeAt(c, offset(c, "item one", 8), "list item end", TfList::class.java)
-        composeAt(c, offset(c, "Title here", 10), "heading end", TfHeading::class.java)
-        composeAt(c, offset(c, "Title"), "heading start", TfHeading::class.java)
-        composeAt(c, offset(c, "= 1", 3), "code line end", TfCodeBlock::class.java)
+        composeAt(c, offset(c, "item one", 8), "list item end", TfList::class.java, "- item oneabcd\n")
+        composeAt(c, offset(c, "Title here", 10), "heading end", TfHeading::class.java, "# Title hereabcd\n")
+        composeAt(c, offset(c, "Title"), "heading start", TfHeading::class.java, "# abcdTitle hereabcd\n")
+        composeAt(c, offset(c, "= 1", 3), "code line end", TfCodeBlock::class.java, "const a = 1abcd\n")
     }
 
     /** A composed run the engine restyles: "# " typed while composing at an empty line's start makes it a heading. */

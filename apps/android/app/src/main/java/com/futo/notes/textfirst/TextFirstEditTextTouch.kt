@@ -43,6 +43,12 @@ internal fun TextFirstEditText.routeTouch(event: MotionEvent): Boolean {
         MotionEvent.ACTION_MOVE -> if (checkboxDown >= 0) return true
         MotionEvent.ACTION_CANCEL -> if (checkboxDown >= 0) { checkboxDown = -1; return true.also { nativeTouch(event) } }
     }
+    if (event.actionMasked == MotionEvent.ACTION_DOWN) heldInsideSelection = false
+    if (event.actionMasked == MotionEvent.ACTION_UP && heldInsideSelection) {
+        heldInsideSelection = false
+        cancelNativeTouch(event)
+        return true
+    }
     return nativeTouch(event).also {
         imageTouch.settleSelection(); codeTouch.settleTap(event); lineBelowHandle.onTouch(event); revealTappedCaret(event)
     }

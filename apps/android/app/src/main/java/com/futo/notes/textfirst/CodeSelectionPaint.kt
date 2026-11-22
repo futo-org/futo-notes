@@ -56,7 +56,9 @@ internal fun codeRangesNear(e: Spanned, from: Int, to: Int): List<CodeRange> {
 /** Where a code line's text ends: its span's end without its line break (both characters of a CRLF) or the end sentinel. */
 internal fun codeLineEnd(e: Spanned, span: TfCodeBlock): Int {
     var end = codeLineBelow(e, span)
-    if (end > e.getSpanStart(span) && e[end - 1] == '\n') end--
+    if (end <= e.getSpanStart(span) || e[end - 1] != '\n') return end
+    end--
+    // Only "\n" and "\r\n" are breaks: a bare CR (at the note's end) is code, as the engine keeps it.
     if (end > e.getSpanStart(span) && e[end - 1] == '\r') end--
     return end
 }

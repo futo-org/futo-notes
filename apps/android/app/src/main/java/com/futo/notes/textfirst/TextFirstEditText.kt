@@ -68,6 +68,8 @@ internal class TextFirstEditText(
     internal var onApplyMeasured: ((KeyTimings, UiUpdate) -> Unit)? = null
 
     internal var applying = false
+    /** The current press was a hold inside a selection with its menu (HoldSelectsWord.kt): its lift is no tap. */
+    internal var heldInsideSelection = false
     /** True while the view moves its own selection (endSelectionOnBlur): not a placement by the user. */
     internal var movingSelectionItself = false
     /** True while the view takes the engine's selection: already resolved, so it is painted as it is. */
@@ -113,7 +115,6 @@ internal class TextFirstEditText(
         // A fallback font's taller metrics (Arabic, Hebrew) would grow its row past
         // that height; CSS keeps line-height fixed whatever font draws the glyphs.
         isFallbackLineSpacing = false
-        hideCaretHandleAsKeyboardRises()
         gravity = Gravity.TOP or Gravity.START
         val side = style.dp(NOTE_TEXT_INSET_DP).toInt()
         // TextView clips drawing to its padding, so no tall bottom padding here.
@@ -193,6 +194,12 @@ internal class TextFirstEditText(
     }
 
     private fun platformLongClick(): Boolean = notePlatformLongClick { super.performLongClick() }
+
+    /**
+     * The note takes no drop: the platform's would put the text into the view behind the editor's back and report it
+     * done though the note is unchanged. (Nothing in the note starts a text drag either.)
+     */
+    override fun onDragEvent(event: android.view.DragEvent): Boolean = false
 
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)

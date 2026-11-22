@@ -126,4 +126,22 @@ class TextFirstPhotoRevealTest {
         delay(400)
         assertEquals("the photo shows from its top", rect.top, view.scrollY.toFloat(), view.lineHeight.toFloat())
     }
+
+    /** Sol (round 5): a photo selected whole, then Right (the caret at its end): that caret is revealed, though at the photo's edge. */
+    @Test fun rightAfterAPhotoSelectedWholeRevealsTheCaret() = textFirstSession("$prose\n\n![t](tall.png)\n\nend", ::photos) { c ->
+        val photo = photoIn(c, "tall.png") { photo -> photo / 2 }
+        val view = c.view
+        val start = view.editableText.getSpanStart(photo)
+        val end = view.editableText.getSpanEnd(photo)
+        c.select(start, end)
+        await("the photo selected") { view.selectionStart == start && view.selectionEnd == end }
+        delay(400)
+        view.scrollTo(0, 0)
+        delay(300)
+        for (action in listOf(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.ACTION_UP)) view.dispatchKeyEvent(android.view.KeyEvent(action, android.view.KeyEvent.KEYCODE_DPAD_RIGHT))
+        await("the caret after the photo") { view.selectionStart == end && view.selectionEnd == end }
+        delay(400)
+        val rect = drawn(c, photo)
+        assertTrue("the caret's row is on screen (photo ${rect.top}..${rect.bottom}, scroll ${view.scrollY})", rect.bottom > view.scrollY && rect.top < view.scrollY + view.height)
+    }
 }

@@ -16,3 +16,17 @@ internal fun TextFirstEditText.endSelectionUnderHold() {
     renderHold.closeTextMenus()
     setSelection(at)
 }
+
+/**
+ * A hold inside a selection whose menu is open lifts nothing (round 5): the platform would start a text drag, and its
+ * drop cannot be made here (the engine's one-step move is not offered to this editor). True when the hold is that one,
+ * handled by leaving the selection and its menu as they stand.
+ */
+internal fun TextFirstEditText.holdInsideSelectionWithItsMenu(): Boolean {
+    if (!isFocused || !isPressed || selectionStart == selectionEnd || !renderHold.hasOpenTextMenu) return false
+    val at = getOffsetForPosition(scroll.downX, scroll.downY)
+    if (at !in minOf(selectionStart, selectionEnd)..maxOf(selectionStart, selectionEnd)) return false
+    // The lift that ends the hold is not a tap: the platform would put the caret there (TextFirstEditTextTouch).
+    heldInsideSelection = true
+    return true
+}

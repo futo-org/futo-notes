@@ -88,6 +88,9 @@ internal class RenderHold(private val view: TextFirstEditText) {
      */
     fun closeTextMenus() { openMenus.toList().forEach(ActionMode::finish) }
 
+    /** Whether a text menu (a selection's or the caret's) is open now. */
+    val hasOpenTextMenu: Boolean get() = openMenus.isNotEmpty()
+
     companion object {
         /** How long a long press holds background slices for a text menu that has not opened yet. */
         const val MENU_PENDING_MS = 1_500L
