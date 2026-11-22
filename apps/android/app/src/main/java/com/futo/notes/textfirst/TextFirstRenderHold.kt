@@ -74,8 +74,9 @@ internal class RenderHold(private val view: TextFirstEditText) {
         override fun onActionItemClicked(mode: ActionMode, item: MenuItem) = false
         override fun onDestroyActionMode(mode: ActionMode) {
             openMenus.remove(mode)
-            // TextView ends the range at its end next (Back, a blur); like a blur, that must not move the note.
-            if (view.selectionStart != view.selectionEnd) view.reveal.hold(view.selectionEnd)
+            // TextView ends the range at its end next (Back, a blur); like a blur, that must not move the note. An engine
+            // edit (a paste over the range) closes the menu too, with its own caret to reveal.
+            if (!view.applying && view.selectionStart != view.selectionEnd) view.reveal.hold(view.selectionEnd)
             menus = (menus - 1).coerceAtLeast(0)
             update()
         }
