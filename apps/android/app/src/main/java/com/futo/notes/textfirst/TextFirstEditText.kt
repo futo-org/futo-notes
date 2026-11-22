@@ -112,6 +112,7 @@ internal class TextFirstEditText(
         // A fallback font's taller metrics (Arabic, Hebrew) would grow its row past
         // that height; CSS keeps line-height fixed whatever font draws the glyphs.
         isFallbackLineSpacing = false
+        hideCaretHandleAsKeyboardRises()
         gravity = Gravity.TOP or Gravity.START
         val side = style.dp(NOTE_TEXT_INSET_DP).toInt()
         // TextView clips drawing to its padding, so no tall bottom padding here.
