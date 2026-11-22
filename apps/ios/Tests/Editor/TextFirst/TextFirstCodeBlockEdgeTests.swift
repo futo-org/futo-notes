@@ -77,6 +77,23 @@
             #expect(h.controller.divergences.isEmpty, "\(h.controller.divergences)")
         }
 
+        /// A commit that changes the display's length (a typed `## ` becomes a hidden heading
+        /// prefix) still opens the line after the block, at the block's end after the commit.
+        @Test func aTapBelowTheBlockAfterACommitThatShortensTheTextOpensALine() async {
+            let h = TextFirstHarness("prose\n```\ncode\n```")
+            h.tv.layoutIfNeeded()
+            h.select(0, 0)
+            InputDriver(asking: .keyboard).apply(.mark("## "), to: h.tv)
+            #expect(h.tv.markedTextRange != nil)
+            let below = CGPoint(x: 120, y: h.point(line: 0).y + 200)
+            tap(h, at: below)
+            // The heading prefix is hidden by the commit and the new last line follows the code.
+            #expect(await h.until { h.controller.storage.string == "prose\ncode\n" })
+            h.type("x")
+            #expect(h.source == "## prose\n```\ncode\n```\nx", "\(h.source.debugDescription)")
+            #expect(h.controller.divergences.isEmpty, "\(h.controller.divergences)")
+        }
+
         /// A note that is only an empty fenced block shows no characters; a tap below it still
         /// opens a line after it.
         @Test func aTapBelowANoteThatIsOnlyAnEmptyBlockOpensALine() async {

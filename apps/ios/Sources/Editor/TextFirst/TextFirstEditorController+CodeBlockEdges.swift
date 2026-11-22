@@ -7,8 +7,8 @@ import UIKit
 
 extension TextFirstEditorController {
     /// The line a tap at `p` (text view coordinates) opens beside a code block at the note's
-    /// edge, and an offset in that block; nil anywhere else.
-    func codeBlockEdge(at p: CGPoint) -> (command: EditorBlockCommand, offset: Int)? {
+    /// edge; nil anywhere else.
+    func codeBlockEdge(at p: CGPoint) -> EditorBlockCommand? {
         // A note that is only an empty block has no character to style: the engine says whether
         // it is code, and its one line is the caret's row.
         if storage.length == 0 {
@@ -18,8 +18,8 @@ extension TextFirstEditorController {
                 ).codeBlocks, !blocks.isEmpty
             else { return nil }
             let row = textView.caretRect(for: textView.beginningOfDocument)
-            if p.y > row.maxY { return (.openLineAfterCodeBlock, 0) }
-            if p.y < row.minY { return (.openLineBeforeCodeBlock, 0) }
+            if p.y > row.maxY { return .openLineAfterCodeBlock }
+            if p.y < row.minY { return .openLineBeforeCodeBlock }
             return nil
         }
         guard let manager = textView.textLayoutManager,
@@ -40,25 +40,27 @@ extension TextFirstEditorController {
             let frame = last.layoutFragmentFrame
             let trailingBottom = last.trailingRowFrame.map { $0.top + $0.height } ?? 0
             let bottom = inset.top + frame.minY + max(frame.height, trailingBottom)
-            if p.y > bottom { return (.openLineAfterCodeBlock, text.length) }
+            if p.y > bottom { return .openLineAfterCodeBlock }
         }
         if startShown, isCode(at: 0),
             let first = manager.textLayoutFragment(for: manager.documentRange.location),
             let line = first.textLineFragments.first,
             p.y < inset.top + first.layoutFragmentFrame.minY + line.typographicBounds.minY
         {
-            return (.openLineBeforeCodeBlock, 0)
+            return .openLineBeforeCodeBlock
         }
         return nil
     }
 
     /// Open the line `edge` names, the caret on it. Marked text is committed first, as for every
-    /// tap-driven command.
-    func openLine(beside edge: (command: EditorBlockCommand, offset: Int)) {
+    /// tap-driven command, and the block's end is read after it: the commit can change the
+    /// display's length (a typed `## ` becomes a hidden heading prefix).
+    func openLine(beside edge: EditorBlockCommand) {
         finishComposition()
-        let range = EditorUtf16Range(start: UInt64(edge.offset), end: UInt64(edge.offset))
+        let offset = UInt64(edge == .openLineAfterCodeBlock ? storage.length : 0)
+        let range = EditorUtf16Range(start: offset, end: offset)
         runCommand("code block edge") { session, expected in
-            try session.blockCommandUtf16(expected: expected, range: range, command: edge.command)
+            try session.blockCommandUtf16(expected: expected, range: range, command: edge)
         }
     }
 
