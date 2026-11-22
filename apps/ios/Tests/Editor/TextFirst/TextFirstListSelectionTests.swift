@@ -83,5 +83,32 @@
             let covered = rects(h, on: "def").contains { $0.minX <= x && $0.maxX >= x }
             #expect(covered, "def at \(x) in \(rects(h, on: "def"))")
         }
+
+        /// With the selection's ends off screen, no rect on a visible list row says it holds an
+        /// end: a handle is drawn only where the selection ends.
+        @Test func noVisibleListRowCarriesAnEndTheSelectionDoesNotHave() {
+            let items = (0..<120).map { "- item \($0) of a long list" }.joined(separator: "\n")
+            let h = TextFirstHarness(items + "\n")
+            h.tv.layoutIfNeeded()
+            h.tv.contentOffset.y = 1_200
+            h.tv.layoutIfNeeded()
+            let length = (h.tv.text as NSString).length
+            h.select(2, length - 2)
+            let top = h.tv.caretRect(for: h.tv.position(from: h.tv.beginningOfDocument, offset: 2)!)
+            let bottom = h.tv.caretRect(
+                for: h.tv.position(from: h.tv.beginningOfDocument, offset: length - 2)!)
+            for rect in h.tv.selectionRects(for: h.tv.selectedTextRange!) {
+                if rect.containsStart {
+                    #expect(
+                        rect.rect.minY <= top.midY && top.midY <= rect.rect.maxY,
+                        "start at \(rect.rect)")
+                }
+                if rect.containsEnd {
+                    #expect(
+                        rect.rect.minY <= bottom.midY && bottom.midY <= rect.rect.maxY,
+                        "end at \(rect.rect)")
+                }
+            }
+        }
     }
 #endif

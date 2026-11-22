@@ -239,15 +239,22 @@ final class TextFirstTextView: UITextView {
 final class TextFirstSelectionRect: UITextSelectionRect {
     private let source: UITextSelectionRect
     private let frame: CGRect
-    init(_ source: UITextSelectionRect, drawnAs frame: CGRect) {
+    private let start: Bool
+    private let end: Bool
+    init(
+        _ source: UITextSelectionRect, drawnAs frame: CGRect, containsStart: Bool? = nil,
+        containsEnd: Bool? = nil
+    ) {
         self.source = source
         self.frame = frame
+        start = containsStart ?? source.containsStart
+        end = containsEnd ?? source.containsEnd
         super.init()
     }
     override var rect: CGRect { frame }
     override var writingDirection: NSWritingDirection { source.writingDirection }
-    override var containsStart: Bool { source.containsStart }
-    override var containsEnd: Bool { source.containsEnd }
+    override var containsStart: Bool { start }
+    override var containsEnd: Bool { end }
     override var isVertical: Bool { source.isVertical }
 }
 
