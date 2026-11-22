@@ -47,10 +47,12 @@ internal class CaretReveal {
     /** While true, nothing is revealed: the selection is moving with text the stream appends. */
     var quiet = false
 
-    fun at(offset: Int, ready: Boolean, reveal: () -> Boolean): Boolean {
-        if (!ready || quiet || ((offset == this.offset || offset == other) && edits == revealedEdits)) return false
+    /** A range [offset] to [end] (an object selected whole) is the same reveal only as that whole range, never as a caret at its edge. */
+    fun at(offset: Int, ready: Boolean, end: Int = offset, reveal: () -> Boolean): Boolean {
+        val same = if (end != offset) offset == this.offset && end == other else offset == this.offset || offset == other
+        if (!ready || quiet || (same && edits == revealedEdits)) return false
         this.offset = offset
-        other = offset
+        other = end
         revealedEdits = edits
         ignoringLayout = true
         try { return reveal() } finally { ignoringLayout = false }
@@ -92,8 +94,9 @@ internal fun TextFirstEditText.revealCaret(offset: Int, nativeReveal: () -> Bool
     if (selectedObject == null && end > 0 && minOf(selectionStart, selectionEnd) == 0 && maxOf(selectionStart, selectionEnd) == end) return false
     // Typing (a key, Backspace, Enter, a paste) beside a photo reveals the typed text, not the photo's top.
     val typed = reveal.editPending
-    // A photo selected whole is revealed once for itself, keyed by its start, though the caret was revealed at its end.
-    return reveal.at(selectedObject?.first ?: offset, ready = layout != null && height > 0) { photoRowReveal(offset, typed) ?: nativeReveal() }
+    // A photo selected whole is revealed once for itself, though a caret was revealed at one of its edges.
+    val photo = selectedObject
+    return reveal.at(photo?.first ?: offset, ready = layout != null && height > 0, end = photo?.second ?: photo?.first ?: offset) { photoRowReveal(offset, typed) ?: nativeReveal() }
 }
 
 /**

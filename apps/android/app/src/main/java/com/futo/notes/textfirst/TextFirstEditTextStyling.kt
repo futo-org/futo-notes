@@ -118,6 +118,14 @@ internal fun TextFirstEditText.addSpans(target: Spannable, specs: List<SpanSpec>
 }
 
 private fun setRendererSpan(target: Spannable, span: TfSpan, start: Int, end: Int) {
+    val flags = rendererSpanFlags(target, span, start, end)
+    if (target.getSpanStart(span) != start || target.getSpanEnd(span) != end || target.getSpanFlags(span) != flags) {
+        target.setSpan(span, start, end, flags)
+    }
+}
+
+/** The flags a renderer span is set with on [start, end) of [target]. */
+internal fun rendererSpanFlags(target: CharSequence, span: TfSpan, start: Int, end: Int): Int {
     val block = span is TfHeading || span is TfQuote || span is TfList || span is TfIndent || span is TfCodeBlock || span is TfMetadata
     // Composition supplies raw text without new semantic windows. Keep the
     // existing block style on text inserted at its start or unfinished end.
@@ -129,10 +137,7 @@ private fun setRendererSpan(target: Spannable, span: TfSpan, start: Int, end: In
     }
     // A list row's look (a checked task's strike) is applied before its marker's, which keeps the box unstruck,
     // whichever of the two was set last (a restyle sets the row again after its marker).
-    val flags = if (span is TfList) extent or (1 shl Spanned.SPAN_PRIORITY_SHIFT) else extent
-    if (target.getSpanStart(span) != start || target.getSpanEnd(span) != end || target.getSpanFlags(span) != flags) {
-        target.setSpan(span, start, end, flags)
-    }
+    return if (span is TfList) extent or (1 shl Spanned.SPAN_PRIORITY_SHIFT) else extent
 }
 
 internal fun TextFirstEditText.requestImageLoads(from: Int = 0, to: Int = Int.MAX_VALUE) {

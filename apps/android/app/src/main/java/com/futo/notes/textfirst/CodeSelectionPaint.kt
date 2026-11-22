@@ -46,19 +46,23 @@ internal fun codeRangesNear(e: Spanned, from: Int, to: Int): List<CodeRange> {
         val head = spans[at]
         val tail = spans[last]
         val start = if (head.line.first) e.getSpanStart(head) else e.codeBlockRange(head).start
-        val end = if (tail.line.last) codeLineEnd(e, tail) else e.codeBlockRange(tail).end
-        ranges.add(CodeRange(start, end))
+        val range = if (tail.line.last) CodeRange(start, codeLineEnd(e, tail), codeLineBelow(e, tail)) else e.codeBlockRange(tail).let { CodeRange(start, it.end, it.below) }
+        ranges.add(range)
         at = last + 1
     }
     return ranges
 }
 
-/** Where a code line's text ends: its span's end without its line break or the note's end sentinel. */
+/** Where a code line's text ends: its span's end without its line break (both characters of a CRLF) or the end sentinel. */
 internal fun codeLineEnd(e: Spanned, span: TfCodeBlock): Int {
-    var end = minOf(e.getSpanEnd(span), e.length - TextFirstEditText.END_SENTINEL.length)
+    var end = codeLineBelow(e, span)
     if (end > e.getSpanStart(span) && e[end - 1] == '\n') end--
+    if (end > e.getSpanStart(span) && e[end - 1] == '\r') end--
     return end
 }
+
+/** Where the line after a code line starts: its span's end, its line break included, short of the end sentinel. */
+internal fun codeLineBelow(e: Spanned, span: TfCodeBlock): Int = minOf(e.getSpanEnd(span), e.length - TextFirstEditText.END_SENTINEL.length)
 
 /**
  * What [anchor] to [head] paints, or null when no block is near it (the TextView paints it). A [settled]
@@ -134,7 +138,7 @@ internal fun TextFirstEditText.drawCodeSelection(canvas: Canvas) {
     for (block in painted.whole) {
         drawSelectionRows(canvas, l, e, from, block.start, paint)
         // The card paints the block, its last line to the edge too: go on from the line after it.
-        from = if (block.end < e.length && e[block.end] == '\n') block.end + 1 else block.end
+        from = maxOf(block.end, minOf(block.below, painted.end))
     }
     drawSelectionRows(canvas, l, e, from, painted.end, paint)
     canvas.restoreToCount(save)

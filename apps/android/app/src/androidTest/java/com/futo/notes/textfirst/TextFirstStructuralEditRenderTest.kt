@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import uniffi.futo_notes_ffi.EditorBlockCommand
 
@@ -71,6 +72,7 @@ class TextFirstStructuralEditRenderTest {
         ready(c)
         assertRendersAsFresh(c, "as opened")
         for (word in listOf("Heading one", "quote one", "bullet one", "first", "task one", "const a", "a1", "---", "photo", "Closing")) {
+            var moved = 0
             for (top in listOf(true, false)) {
                 val before = c.sourceText()
                 val offset = at(c, word)
@@ -78,11 +80,13 @@ class TextFirstStructuralEditRenderTest {
                 delay(500)
                 // Already first or last: the engine moves nothing.
                 if (c.sourceText() == before) continue
+                moved++
                 assertRendersAsFresh(c, "$word moved to the ${if (top) "top" else "end"}")
                 c.undo()
                 withTimeout(5_000) { while (c.sourceText() != before) delay(20) }
                 assertRendersAsFresh(c, "$word moved back by Undo")
             }
+            assertTrue("the block of \"$word\" moved at least once", moved > 0)
         }
     }
 
