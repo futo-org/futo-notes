@@ -35,7 +35,7 @@ internal class CaretReveal {
     val editPending get() = edits != revealedEdits
 
     /** The view shrank (the keyboard rose) under a caret that was on screen: reveal it again. */
-    fun again() { offset = -1; other = -1 }
+    fun again() { offset = -1; other = -1; objectStart = -1; objectEnd = -1 }
 
     /** Count [offset] (and a range's [other] end) as revealed without scrolling: the reader was put elsewhere on purpose. */
     fun hold(offset: Int, other: Int = offset) {
@@ -47,12 +47,19 @@ internal class CaretReveal {
     /** While true, nothing is revealed: the selection is moving with text the stream appends. */
     var quiet = false
 
+    /** The object selected whole (a photo) last revealed, kept apart from the caret's: neither stands for the other. */
+    private var objectStart = -1
+    private var objectEnd = -1
+
     /** A range [offset] to [end] (an object selected whole) is the same reveal only as that whole range, never as a caret at its edge. */
     fun at(offset: Int, ready: Boolean, end: Int = offset, reveal: () -> Boolean): Boolean {
-        val same = if (end != offset) offset == this.offset && end == other else offset == this.offset || offset == other
+        val whole = end != offset
+        val same = if (whole) offset == objectStart && end == objectEnd else offset == this.offset || offset == other
         if (!ready || quiet || (same && edits == revealedEdits)) return false
-        this.offset = offset
-        other = end
+        objectStart = if (whole) offset else -1
+        objectEnd = if (whole) end else -1
+        this.offset = if (whole) -1 else offset
+        other = if (whole) -1 else end
         revealedEdits = edits
         ignoringLayout = true
         try { return reveal() } finally { ignoringLayout = false }
