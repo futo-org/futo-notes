@@ -111,7 +111,8 @@ internal fun TextFirstEditText.resizeEditorViewport(
  * drawn over the keyboard (round 3, N4). Turning the caret off and on hides it; the caret stays.
  */
 private fun TextFirstEditText.hideCaretHandleBelowView() {
-    if (!isFocused || selectionStart < 0 || selectionStart != selectionEnd) return
+    // A caret the editor hid (a block selected as one object) has no handle, and stays hidden.
+    if (!isFocused || !isCursorVisible || selectionStart < 0 || selectionStart != selectionEnd) return
     val l = layout ?: return
     val foot = l.getLineBottom(l.getLineForOffset(selectionStart)) + totalPaddingTop - scrollY
     if (foot <= height - totalPaddingBottom) return
