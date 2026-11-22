@@ -66,5 +66,22 @@
                 #expect(rect.minX >= textX - 1, "from \(rect.minX), text at \(textX)")
             }
         }
+
+        /// A selection starting inside a right-to-left run of a left-to-right item still tints
+        /// the text after that run (Copy holds it, so the tint must too).
+        @Test func aSelectionFromInsideARightToLeftRunTintsTheRestOfTheRow() throws {
+            let h = TextFirstHarness("- abc אבג def\n- next\n")
+            h.tv.layoutIfNeeded()
+            let text = h.tv.text as NSString
+            let from = text.range(of: "בג").location
+            h.select(from, text.range(of: "next").location + 2)
+            #expect(try h.controller.selectionMarkdown(h.tv.selectedRange).contains("def"))
+            let def = text.range(of: "def")
+            let x = h.tv.caretRect(
+                for: h.tv.position(from: h.tv.beginningOfDocument, offset: def.location + 1)!
+            ).midX
+            let covered = rects(h, on: "def").contains { $0.minX <= x && $0.maxX >= x }
+            #expect(covered, "def at \(x) in \(rects(h, on: "def"))")
+        }
     }
 #endif

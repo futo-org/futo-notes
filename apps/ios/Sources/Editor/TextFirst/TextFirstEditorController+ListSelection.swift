@@ -59,17 +59,26 @@ extension TextFirstEditorController {
                 let top = inset.top + frame.minY + bounds.minY
                 guard rect.minY <= top + bounds.height / 2, top + bounds.height / 2 < rect.maxY
                 else { continue }
-                let first = min(
-                    max(line.characterRange.location, selectionStart - paragraphStart),
-                    NSMaxRange(line.characterRange) - 1)
-                let edge = line.locationForCharacter(at: first).x
-                let next =
-                    line.characterRange.length > 1
-                    ? line.locationForCharacter(at: first + 1).x : edge
+                // The row's direction is its paragraph's (an item's marker unit says it), and
+                // its edge is where its text leads; the selection's start moves the edge only
+                // when that character runs the row's way (from inside a right-to-left run of a
+                // left-to-right row, the rest of the row stays tinted).
+                let range = line.characterRange
+                func x(_ i: Int) -> CGFloat { line.locationForCharacter(at: i).x }
+                let rightToLeft =
+                    (fragment as? TextFirstLayoutFragment)?.markerUnit?.rightToLeft
+                    ?? (range.length > 1 && x(range.location + 1) < x(range.location))
+                var edge = x(range.location)
+                let start = selectionStart - paragraphStart
+                if start > range.location, start < NSMaxRange(range) - 1,
+                    (x(start + 1) < x(start)) == rightToLeft
+                {
+                    edge = x(start)
+                }
                 rows.append(
                     (
                         top, bounds.height, isList, inset.left + frame.minX + bounds.minX + edge,
-                        next < edge
+                        rightToLeft
                     ))
             }
             return true
