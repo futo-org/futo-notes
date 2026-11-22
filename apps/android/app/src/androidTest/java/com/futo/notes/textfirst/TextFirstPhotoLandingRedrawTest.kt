@@ -70,7 +70,10 @@ class TextFirstPhotoLandingRedrawTest {
             val fresh = screenshot()
             try {
                 var differing = 0
-                for (y in top until bottom) for (x in 0 until live.width) if (live.getPixel(x, y) != fresh.getPixel(x, y)) differing++
+                // The rows on the screen, a short one included: rows 34-40, under the photo's row, must be among them.
+                val rows = maxOf(0, top) until minOf(bottom, live.height)
+                assertTrue("rows under the photo are on screen ($rows)", rows.last - rows.first > 200)
+                for (y in rows) for (x in 0 until live.width) if (live.getPixel(x, y) != fresh.getPixel(x, y)) differing++
                 assertEquals("rows 31-44 are drawn as a redraw from scratch draws them (differing pixels)", 0, differing)
             } finally { live.recycle(); fresh.recycle() }
         } finally {

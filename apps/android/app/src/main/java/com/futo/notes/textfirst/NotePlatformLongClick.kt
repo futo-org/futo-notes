@@ -8,6 +8,7 @@ package com.futo.notes.textfirst
 internal fun TextFirstEditText.notePlatformLongClick(platform: () -> Boolean): Boolean {
     renderHold.longPressed()
     if (codeTouch.longPress() || imageTouch.longPress()) return true
+    endSelectionUnderHold()
     listMarkerTouch.longPress()
     return platform()
 }

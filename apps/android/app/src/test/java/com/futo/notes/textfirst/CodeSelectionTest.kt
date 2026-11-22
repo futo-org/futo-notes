@@ -43,4 +43,10 @@ class CodeSelectionTest {
     @Test fun aSelectionFromTheLineBelowStartsPastTheBlocksBreak() {
         assertEquals(31 to 41, resolveCodeSelection(41, 30, listOf(block)))
     }
+
+    /** Sol (round 3): from the code's end to the line below holds nothing, as the engine maps it (an empty Copy). */
+    @Test fun aRangeFromTheCodesEndToTheLineBelowHoldsNothingOfTheBlock() {
+        assertEquals(31 to 31, resolveCodeSelection(30, 31, listOf(block)))
+        assertEquals(31 to 35, resolveCodeSelection(30, 35, listOf(block)))
+    }
 }

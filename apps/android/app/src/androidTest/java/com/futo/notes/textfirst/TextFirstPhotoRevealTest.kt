@@ -104,4 +104,21 @@ class TextFirstPhotoRevealTest {
         tapPhoto(below = space * 0.75f)
         assertEquals("tapped below its top, the photo shows from its top", rect.top, view.scrollY.toFloat(), view.lineHeight.toFloat())
     }
+
+    /** Sol (round 3): a note that is one photo; selecting the photo selects the whole note, and it is still revealed. */
+    @Test fun aTapOnTheOnlyPhotoOfANoteShowsItsTop() = textFirstSession("![t](tall.png)", ::photos) { c ->
+        val photo = photoIn(c, "tall.png") { photo -> photo / 2 }
+        val view = c.view
+        val start = view.editableText.getSpanStart(photo)
+        val end = view.editableText.getSpanEnd(photo)
+        val rect = drawn(c, photo)
+        val space = view.height - view.totalPaddingTop - view.totalPaddingBottom
+        caretAt(c, end)
+        view.scrollTo(0, (rect.top + space / 2).toInt())
+        delay(300)
+        tapNoteAt(view, view.totalPaddingLeft + rect.left + 40f, view.totalPaddingTop - view.scrollY + rect.top + space * 0.75f)
+        await("the photo selected") { view.selectionStart == start && view.selectionEnd == end }
+        delay(400)
+        assertEquals("the photo shows from its top", rect.top, view.scrollY.toFloat(), view.lineHeight.toFloat())
+    }
 }

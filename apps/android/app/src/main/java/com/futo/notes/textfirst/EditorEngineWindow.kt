@@ -12,7 +12,11 @@ internal fun EditorEngine.planStyleWindow(from: Int, to: Int): StyleWindow {
     val start = lineStartAt(mirror.text, from)
     val end = lineEndAfter(mirror.text, start, to)
     val typedDelimiterAt = if (writesDelimiterRow) mirror.selStart else -1
-    return checkNotNull(session).stylePlan(rev, mirror.byteRange(start, end)).toStyleWindow(start, end, mirror.text, typedDelimiterAt)
+    val window = checkNotNull(session).stylePlan(rev, mirror.byteRange(start, end)).toStyleWindow(start, end, mirror.text, typedDelimiterAt)
+    // The plan clips the next row's span to an empty piece at the window's end; set, it would join the row above it
+    // (a paragraph drawn as code after the block below it moved away, round 3 N5). The note's empty last line keeps its.
+    if (end >= mirror.text.length) return window
+    return StyleWindow(window.start, window.end, window.specs.filterNot { it.start == it.end && it.start == end })
 }
 
 internal fun EditorEngine.planStyleWindow(projection: EditorProjection): StyleWindow =

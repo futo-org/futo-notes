@@ -88,10 +88,12 @@ internal fun TextFirstEditText.revealCaret(offset: Int, nativeReveal: () -> Bool
     // A code block's header field has the keyboard: the note's own caret is not where the reader is (CodeHeaderField).
     if (codeTouch.headerField.openField != null) return false
     val end = (editableText?.length ?: 0) - 1
-    if (end > 0 && minOf(selectionStart, selectionEnd) == 0 && maxOf(selectionStart, selectionEnd) == end) return false
+    // A note that is one photo: the photo selected whole is the whole note, and is revealed as a photo.
+    if (selectedObject == null && end > 0 && minOf(selectionStart, selectionEnd) == 0 && maxOf(selectionStart, selectionEnd) == end) return false
     // Typing (a key, Backspace, Enter, a paste) beside a photo reveals the typed text, not the photo's top.
     val typed = reveal.editPending
-    return reveal.at(offset, ready = layout != null && height > 0) { photoRowReveal(offset, typed) ?: nativeReveal() }
+    // A photo selected whole is revealed once for itself, keyed by its start, though the caret was revealed at its end.
+    return reveal.at(selectedObject?.first ?: offset, ready = layout != null && height > 0) { photoRowReveal(offset, typed) ?: nativeReveal() }
 }
 
 /**

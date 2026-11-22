@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.os.SystemClock
 import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import kotlinx.coroutines.Dispatchers
@@ -28,16 +29,21 @@ class TextFirstPasteRevealTest {
     private val note = "Spacer paragraph.\n\n" + (1..20).joinToString("\n\n") { "line $it after" }
     private val clip = (1..200).joinToString("\n") { "pasted line $it" }
 
-    @Test fun aPasteFromTheMenuOverAHeldWordRevealsTheCaretAtItsEnd() = textFirstSession(note) { c ->
+    /** Hold [word] with the note focused until its text menu is open; fails if the menu never opens. */
+    private suspend fun holdWithMenu(c: TextFirstController, word: String) {
         val view = c.view
-        withContext(Dispatchers.Main) {
+        var menus = 0
+        val (x, y) = withContext(Dispatchers.Main) {
             view.isFocusableInTouchMode = true
             view.requestFocus()
-        }
-        withTimeout(5_000) { while (withContext(Dispatchers.Main) { view.layout == null }) delay(20) }
-        val (x, y) = withContext(Dispatchers.Main) {
-            view.context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(null, clip))
-            val at = view.editableText.indexOf("paragraph") + 3
+            val inner = view.customSelectionActionModeCallback
+            view.customSelectionActionModeCallback = object : android.view.ActionMode.Callback {
+                override fun onCreateActionMode(mode: android.view.ActionMode, menu: android.view.Menu): Boolean { menus++; return inner?.onCreateActionMode(mode, menu) ?: true }
+                override fun onPrepareActionMode(mode: android.view.ActionMode, menu: android.view.Menu) = inner?.onPrepareActionMode(mode, menu) ?: false
+                override fun onActionItemClicked(mode: android.view.ActionMode, item: android.view.MenuItem) = inner?.onActionItemClicked(mode, item) ?: false
+                override fun onDestroyActionMode(mode: android.view.ActionMode) { inner?.onDestroyActionMode(mode) }
+            }
+            val at = view.editableText.indexOf(word) + 2
             val l = view.layout
             val line = l.getLineForOffset(at)
             (view.totalPaddingLeft + l.getPrimaryHorizontal(at)) to (view.totalPaddingTop - view.scrollY + (l.getLineTop(line) + l.getLineBottom(line)) / 2f)
@@ -46,17 +52,47 @@ class TextFirstPasteRevealTest {
         withContext(Dispatchers.Main) { touch(view, down, down, MotionEvent.ACTION_DOWN, x, y) }
         delay(ViewConfiguration.getLongPressTimeout() + 300L)
         withContext(Dispatchers.Main) { touch(view, down, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, y) }
-        withTimeout(5_000) { while (withContext(Dispatchers.Main) { view.selectionStart == view.selectionEnd }) delay(20) }
-        delay(500) // the word's menu opens
-        withContext(Dispatchers.Main) { view.onTextContextMenuItem(android.R.id.paste) }
+        withTimeout(5_000) { while (withContext(Dispatchers.Main) { menus == 0 || view.selectionStart == view.selectionEnd }) delay(20) }
+    }
+
+    private suspend fun assertCaretOnScreen(c: TextFirstController) = withContext(Dispatchers.Main) {
+        val view = c.view
+        val l = view.layout
+        val line = l.getLineForOffset(view.selectionEnd)
+        val top = l.getLineTop(line) + view.totalPaddingTop
+        val bottom = l.getLineBottom(line) + view.totalPaddingTop
+        assertTrue("the caret's line ($top..$bottom) is on screen (${view.scrollY}..${view.scrollY + view.height})", top >= view.scrollY && bottom <= view.scrollY + view.height)
+    }
+
+    @Test fun aPasteFromTheMenuOverAHeldWordRevealsTheCaretAtItsEnd() = textFirstSession(note) { c ->
+        withTimeout(5_000) { while (withContext(Dispatchers.Main) { c.view.layout == null }) delay(20) }
+        withContext(Dispatchers.Main) { c.view.context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(null, clip)) }
+        holdWithMenu(c, "paragraph")
+        withContext(Dispatchers.Main) { c.view.onTextContextMenuItem(android.R.id.paste) }
         withTimeout(5_000) { while (!(c.sourceText() ?: "").contains("pasted line 200")) delay(20) }
         delay(600)
+        assertCaretOnScreen(c)
+    }
+
+    /**
+     * Sol (round 3): a hardware Ctrl+Z while a word's menu is open closes the menu as the Undo applies. The Undo's
+     * caret, at the undone edit far down the note, is revealed (a caret that moved), not held where the menu was.
+     */
+    @Test fun anUndoWhileAWordsMenuIsOpenRevealsTheUndoneEdit() = textFirstSession(note) { c ->
+        val view = c.view
+        withTimeout(5_000) { while (withContext(Dispatchers.Main) { view.layout == null }) delay(20) }
+        c.select(withContext(Dispatchers.Main) { view.editableText.indexOf("line 20 after") })
+        delay(300)
+        textFirstIme(c) { commitText("Z", 1) }
+        withTimeout(5_000) { while (!(c.sourceText() ?: "").contains("Zline 20")) delay(20) }
+        withContext(Dispatchers.Main) { view.scrollTo(0, 0) }
+        delay(300)
+        holdWithMenu(c, "paragraph")
         withContext(Dispatchers.Main) {
-            val l = view.layout
-            val line = l.getLineForOffset(view.selectionEnd)
-            val top = l.getLineTop(line) + view.totalPaddingTop
-            val bottom = l.getLineBottom(line) + view.totalPaddingTop
-            assertTrue("the caret's line ($top..$bottom) is on screen (${view.scrollY}..${view.scrollY + view.height})", top >= view.scrollY && bottom <= view.scrollY + view.height)
+            for (action in listOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP)) view.dispatchKeyEvent(KeyEvent(0, 0, action, KeyEvent.KEYCODE_Z, 0, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON))
         }
+        withTimeout(5_000) { while ((c.sourceText() ?: "").contains("Zline 20")) delay(20) }
+        delay(600)
+        assertCaretOnScreen(c)
     }
 }

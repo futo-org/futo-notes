@@ -23,6 +23,22 @@ class TextFirstCodeDragPaintTest {
         view.setSelection(anchor, handle)
         delay(300)
         assertEquals("the paint follows the handle and takes the block", codeStart to handle, view.codeSelection?.let { it.start to it.end })
-        assertEquals("the handle is at the selection's end", handle, view.selectionEnd)
+        // Round 3 (N1): the view's own range is the one painted and copied, so Share sends it and both handles sit on it.
+        assertEquals("the view's selection is the painted range", codeStart to handle, view.selectionStart to view.selectionEnd)
+    }
+
+    /** Sol (round 3): from the code's end onto the line below holds nothing, as the engine copies nothing. */
+    @Test fun aRangeFromTheCodesEndOntoTheLineBelowHoldsNothing() = textFirstSession("```js\nconst a = 1\n```\nafter\n") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        val codeEnd = view.editableText.indexOf("= 1") + 3
+        val after = view.editableText.indexOf("after")
+        view.setSelection(codeEnd, codeEnd)
+        delay(200)
+        view.setSelection(codeEnd, after)
+        delay(300)
+        assertEquals("nothing is selected: the caret is at the line below", after to after, view.selectionStart to view.selectionEnd)
     }
 }
