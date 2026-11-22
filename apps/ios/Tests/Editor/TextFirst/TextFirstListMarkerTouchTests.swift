@@ -157,19 +157,35 @@
         /// that came down on a marker unit or a checkbox gets none (seen on the simulator: a tap
         /// on the other half of the caret's own marker moved the caret and opened that menu).
         @Test func aTouchOnAMarkerOpensNoCaretMenu() {
-            let h = TextFirstHarness("- one\n")
-            let ask = { (length: Int) in
-                h.controller.textView(
-                    h.tv, editMenuForTextIn: NSRange(location: 1, length: length),
-                    suggestedActions: [
-                        UICommand(title: "Paste", action: #selector(UIResponder.paste(_:)))
-                    ])
+            let h = TextFirstHarness("- one\n- [ ] two\n")
+            for word in ["one", "two"] {
+                let unit = unitRect(h, word)
+                h.controller.touchDown(at: CGPoint(x: unit.midX, y: unit.midY))
+                #expect(caretMenu(h, 0)?.children.isEmpty == true, "no caret menu: \(word)")
+                #expect(caretMenu(h, 1) == nil, "a selection's menu stays UIKit's")
             }
-            h.controller.touchOpensNoCaretMenu = true
-            #expect(ask(0)?.children.isEmpty == true, "no caret menu after a marker touch")
-            #expect(ask(1) == nil, "a selection's menu stays UIKit's")
-            h.controller.touchOpensNoCaretMenu = false
-            #expect(ask(0) == nil, "UIKit's caret menu elsewhere")
+            let text = unitRect(h, "one").offsetBy(dx: 60, dy: 0)
+            h.controller.touchDown(at: CGPoint(x: text.midX, y: text.midY))
+            #expect(caretMenu(h, 0) == nil, "UIKit's caret menu on text")
+        }
+
+        /// Once the touch is over, a caret menu asked for with no new touch is UIKit's.
+        @Test func aCaretMenuAfterTheMarkerTouchEndedIsUIKits() async {
+            let h = TextFirstHarness("- one\n")
+            let unit = unitRect(h, "one")
+            h.controller.touchDown(at: CGPoint(x: unit.midX, y: unit.midY))
+            h.controller.touchEnded()
+            #expect(caretMenu(h, 0)?.children.isEmpty == true, "the tap's own request")
+            #expect(await h.until(2) { caretMenu(h, 0) == nil })
+        }
+
+        /// The menu the editor answers UIKit with for a selection `length` long at 1.
+        private func caretMenu(_ h: TextFirstHarness, _ length: Int) -> UIMenu? {
+            h.controller.textView(
+                h.tv, editMenuForTextIn: NSRange(location: 1, length: length),
+                suggestedActions: [
+                    UICommand(title: "Paste", action: #selector(UIResponder.paste(_:)))
+                ])
         }
     }
 #endif

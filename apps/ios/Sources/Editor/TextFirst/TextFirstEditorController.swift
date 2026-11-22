@@ -135,8 +135,9 @@ final class TextFirstEditorController: NSObject {
     /// under way came down on one (+MarkerHold).
     var markerHoldRecognizer: UILongPressGestureRecognizer?
     var markerHoldArmed = false
-    /// The touch under way is on a list marker or a code block's edge: it opens no caret menu.
+    /// The last touch is on a list marker or a code block's edge (no caret menu); when it began.
     var touchOpensNoCaretMenu = false
+    var touchDownTime: CFTimeInterval = 0
     /// The long-press that lifts a block, whether the touch under way may lift, the lift it
     /// planned as it began, the drag it is running and its haptics (+BlockDrag).
     var liftRecognizer: UILongPressGestureRecognizer?
