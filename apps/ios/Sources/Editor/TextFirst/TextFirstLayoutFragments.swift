@@ -36,7 +36,10 @@ final class TextFirstBlockAttribute: NSObject {
     var holdsMarkerUnit = false
 
     /// Where the line's text starts after its indent and marker column; wrapped rows hang here.
-    var listIndent: CGFloat { list.map(TextFirstMetrics.listIndent) ?? 0 }
+    var listIndent: CGFloat { continuedTextStart ?? list.map(TextFirstMetrics.listIndent) ?? 0 }
+    /// On an indented plain line: where the text of the item it continues starts (a wide
+    /// number's text starts further in than the list column).
+    var continuedTextStart: CGFloat?
     /// The marker column the line's first row gives its marker unit, 0 when it has none.
     var markerColumn: CGFloat {
         guard holdsMarkerUnit, let list else { return 0 }

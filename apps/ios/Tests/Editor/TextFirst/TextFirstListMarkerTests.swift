@@ -264,5 +264,21 @@
             #expect(style("continued").firstLineHeadIndent == style("a\n").headIndent)
             #expect(style("continued").headIndent == style("a\n").headIndent)
         }
+
+        /// Under a wide number the item's text starts further in; a line continuing it hangs there.
+        @Test(arguments: [
+            ("99. ninety nine\n100) Hundred item\n     continued under\n", "Hundred"),
+            ("10. Ten item\n    continued under\n", "Ten"),
+        ])
+        func aContinuedLineHangsAtAWideNumbersText(source: String, item: String) {
+            let h = TextFirstHarness(source)
+            func style(_ word: String) -> NSParagraphStyle {
+                let at = (h.tv.text as NSString).range(of: word).location
+                return h.controller.storage.attribute(.paragraphStyle, at: at, effectiveRange: nil)
+                    as! NSParagraphStyle
+            }
+            #expect(style("continued").headIndent == style(item).headIndent, "\(source)")
+            #expect(style("continued").firstLineHeadIndent == style(item).headIndent)
+        }
     }
 #endif
