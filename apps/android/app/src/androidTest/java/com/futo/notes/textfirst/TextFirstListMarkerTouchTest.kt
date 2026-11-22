@@ -189,14 +189,28 @@ class TextFirstListMarkerTouchTest {
         assertEquals("the caret stays before the marker", m.at to m.at, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
     }
 
-    @Test fun aTickWhileTheCheckboxIsSelectedKeepsItSelected() = textFirstSession(note) { c ->
-        ready(c)
-        val m = withContext(Dispatchers.Main) { marker(c, "task") }
-        c.select(m.at, m.at + 1)
-        await("the checkbox selected") { c.view.selectionStart == m.at && c.view.selectionEnd == m.at + 1 }
-        tap(c, (m.left + m.right) / 2, m.y)
-        awaitSource(c, "the tick") { it.contains("- [x] task") }
+    /**
+     * Tester (F1): a tick is a text change, and the platform hides a selection's handles and menu on any text change but
+     * keeps the selection, which a later hold on a word then reopens. So a tick ends a selection: the caret goes to its end.
+     */
+    @Test fun aTickEndsASelectionAndAHoldOnAWordThenSelectsTheWord() = textFirstSession("- [ ] Task A\n- [ ] Task C\n  - [ ] Nested task D\n\nend") { c ->
+        withContext(Dispatchers.Main) {
+            c.view.isFocusableInTouchMode = true
+            c.view.requestFocus()
+            await("a layout") { c.view.layout != null && c.view.editableText.getSpans(0, c.view.length(), TfListMarker::class.java).size == 3 }
+        }
+        val (a, d) = withContext(Dispatchers.Main) { marker(c, "Task A") to marker(c, "Nested") }
+        hold(c, (d.left + d.right) / 2, d.y)
+        assertEquals("a hold selects D's checkbox", d.at to d.at + 1, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
+        tap(c, (a.left + a.right) / 2, a.y)
+        awaitSource(c, "the tick") { it.startsWith("- [x] Task A") }
         delay(300)
-        assertEquals("the checkbox stays selected", m.at to m.at + 1, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
+        assertEquals("the selection ends at its end", d.at + 1 to d.at + 1, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
+        val (word, nested) = withContext(Dispatchers.Main) {
+            val at = c.view.editableText.indexOf("Nested")
+            (c.view.totalPaddingLeft + c.view.layout.getPrimaryHorizontal(at + 3)) to at
+        }
+        hold(c, word, d.y)
+        assertEquals("a hold on a word selects the word", nested to nested + 6, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
     }
 }

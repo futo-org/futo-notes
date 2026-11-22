@@ -32,7 +32,11 @@ internal fun TextFirstEditText.routeTouch(event: MotionEvent): Boolean {
             checkboxDown = -1
             if (listMarkerTouch.held || event.eventTime - event.downTime >= android.view.ViewConfiguration.getLongPressTimeout()) return nativeTouch(event)
             cancelNativeTouch(event)
-            if (hit == box) engine?.toggleTaskAt(hit)
+            if (hit != box) return true
+            engine?.toggleTaskAt(hit)
+            // The tick is a text change: the platform hides a selection's handles and menu but keeps it, and a later hold
+            // on a word would reopen it. So the selection ends, the caret at its end.
+            if (hasSelection()) setSelection(selectionEnd)
             return true
         }
         MotionEvent.ACTION_MOVE -> if (checkboxDown >= 0) return true
