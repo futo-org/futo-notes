@@ -161,7 +161,9 @@
             let ask = { (length: Int) in
                 h.controller.textView(
                     h.tv, editMenuForTextIn: NSRange(location: 1, length: length),
-                    suggestedActions: [UICommand(title: "Paste", action: #selector(UIResponder.paste(_:)))])
+                    suggestedActions: [
+                        UICommand(title: "Paste", action: #selector(UIResponder.paste(_:)))
+                    ])
             }
             h.controller.markerTouch = true
             #expect(ask(0)?.children.isEmpty == true, "no caret menu after a marker touch")
