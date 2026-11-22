@@ -122,11 +122,14 @@ private fun setRendererSpan(target: Spannable, span: TfSpan, start: Int, end: In
     // Composition supplies raw text without new semantic windows. Keep the
     // existing block style on text inserted at its start or unfinished end.
     // A terminating newline belongs to this span, but the next line does not.
-    val flags = when {
+    val extent = when {
         !block -> TF_SPAN_FLAGS
         end >= target.length - 1 && (end == start || target[end - 1] != '\n') -> Spanned.SPAN_INCLUSIVE_INCLUSIVE
         else -> Spanned.SPAN_INCLUSIVE_EXCLUSIVE
     }
+    // A list row's look (a checked task's strike) is applied before its marker's, which keeps the box unstruck,
+    // whichever of the two was set last (a restyle sets the row again after its marker).
+    val flags = if (span is TfList) extent or (1 shl Spanned.SPAN_PRIORITY_SHIFT) else extent
     if (target.getSpanStart(span) != start || target.getSpanEnd(span) != end || target.getSpanFlags(span) != flags) {
         target.setSpan(span, start, end, flags)
     }

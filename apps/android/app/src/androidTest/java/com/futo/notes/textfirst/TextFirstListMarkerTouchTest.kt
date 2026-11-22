@@ -222,4 +222,32 @@ class TextFirstListMarkerTouchTest {
         delay(300)
         assertEquals("Redo puts back no selection on D's marker", d.at + 1 to d.at + 1, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
     }
+
+    /**
+     * Round 3 (N6, after the fix): a checked task's row strikes its text, never its box, whichever of its spans was set
+     * last (a restyle sets the row's span again after its marker's).
+     */
+    @Test fun aCheckedTasksStrikeNeverCrossesItsBoxWhicheverSpanIsNewer() = textFirstSession("- [x] Two\n- [ ] Three\n") { c ->
+        // No caret drawn in the column looked at.
+        withContext(Dispatchers.Main) { c.view.clearFocus() }
+        await("a layout") { c.view.layout != null && c.view.editableText.getSpans(0, c.view.length(), TfListMarker::class.java).size == 2 }
+        fun column(m: MarkerRun): IntArray {
+            val view = c.view
+            val bitmap = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+            view.draw(android.graphics.Canvas(bitmap).apply { drawColor(android.graphics.Color.WHITE) })
+            val (x, y, w, h) = listOf(m.left.toInt(), m.y.toInt() - 30, (m.right - m.left).toInt(), 60)
+            return IntArray(w * h).also { bitmap.getPixels(it, 0, w, x, y, w, h); bitmap.recycle() }
+        }
+        val (fresh, restyled) = withContext(Dispatchers.Main) {
+            val m = marker(c, "Two")
+            val fresh = column(m)
+            val e = c.view.editableText
+            val row = e.getSpans(0, 1, TfList::class.java).single { e.getSpanStart(it) == 0 }
+            val (start, end, flags) = Triple(e.getSpanStart(row), e.getSpanEnd(row), e.getSpanFlags(row))
+            e.removeSpan(row)
+            e.setSpan(row, start, end, flags)
+            fresh to column(m)
+        }
+        assertEquals("the box is drawn as on a fresh open (differing pixels)", 0, fresh.indices.count { fresh[it] != restyled[it] })
+    }
 }
