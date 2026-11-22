@@ -25,7 +25,8 @@ internal fun TextFirstEditText.endSelectionUnderHold() {
 internal fun TextFirstEditText.holdInsideSelectionWithItsMenu(): Boolean {
     if (!isFocused || !isPressed || selectionStart == selectionEnd || !renderHold.hasOpenTextMenu) return false
     val at = getOffsetForPosition(scroll.downX, scroll.downY)
-    if (at !in minOf(selectionStart, selectionEnd)..maxOf(selectionStart, selectionEnd)) return false
+    // Strictly inside: a hold at the selection's edge is on what lies beside it (a list marker, the next word).
+    if (at <= minOf(selectionStart, selectionEnd) || at >= maxOf(selectionStart, selectionEnd)) return false
     // The lift that ends the hold is not a tap: the platform would put the caret there (TextFirstEditTextTouch).
     heldInsideSelection = true
     return true
