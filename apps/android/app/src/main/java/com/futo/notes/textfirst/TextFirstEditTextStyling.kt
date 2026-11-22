@@ -133,6 +133,8 @@ private fun setRendererSpan(target: Spannable, span: TfSpan, start: Int, end: In
 
 internal fun TextFirstEditText.requestImageLoads(from: Int = 0, to: Int = Int.MAX_VALUE) {
     val e = editableText ?: return
+    // Not laid out yet: a decode for no width would be kept at a pixel wide. The first width asks again (onSizeChanged).
+    if (width - totalPaddingLeft - totalPaddingRight <= 0) return
     for (span in e.getSpans(from, minOf(to, e.length), TfImage::class.java)) {
         if (span.bitmap != null || span.failed) continue
         val width = contentWidth()
