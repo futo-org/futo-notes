@@ -202,8 +202,10 @@ enum TextFirstStyler {
         }
     }
 
-    /// Where the text of the item a plain line at `level` continues starts: the nearest line
-    /// above, one level out, that is an item, as already styled (lines are styled top down).
+    /// Where the text of the item a plain line at `level` continues starts: the nearest item
+    /// above, one level out, as already styled (lines are styled top down). The engine's row
+    /// already says the line continues an item; a line between them with no row (a blank one,
+    /// which the engine keeps in the list) is passed over.
     private static func continuedTextStart(
         _ storage: NSTextStorage, before location: Int, level: Int
     ) -> CGFloat? {
@@ -212,14 +214,15 @@ enum TextFirstStyler {
         for _ in 0..<500 {
             guard end > 0 else { return nil }
             let line = text.paragraphRange(for: NSRange(location: end - 1, length: 0))
+            end = line.location
             let block =
                 storage.attribute(.tfBlock, at: line.location, effectiveRange: nil)
                 as? TextFirstBlockAttribute
-            guard let row = block?.list, row.level >= level - 1 else { return nil }
+            guard let row = block?.list else { continue }
+            guard row.level >= level - 1 else { return nil }
             if row.marker != .plain, row.level == level - 1 {
                 return TextFirstMetrics.listIndent(row)
             }
-            end = line.location
         }
         return nil
     }

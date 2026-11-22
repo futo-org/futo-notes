@@ -269,6 +269,8 @@
         @Test(arguments: [
             ("99. ninety nine\n100) Hundred item\n     continued under\n", "Hundred"),
             ("10. Ten item\n    continued under\n", "Ten"),
+            // The engine keeps the list across a blank line.
+            ("100) Hundred\n\n     continued\n", "Hundred"),
         ])
         func aContinuedLineHangsAtAWideNumbersText(source: String, item: String) {
             let h = TextFirstHarness(source)
