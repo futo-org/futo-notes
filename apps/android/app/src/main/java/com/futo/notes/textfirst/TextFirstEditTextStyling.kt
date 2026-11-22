@@ -135,10 +135,12 @@ internal fun TextFirstEditText.requestImageLoads(from: Int = 0, to: Int = Int.MA
     val e = editableText ?: return
     for (span in e.getSpans(from, minOf(to, e.length), TfImage::class.java)) {
         if (span.bitmap != null || span.failed) continue
-        images.load(span.destination, span.vault, span.remote, contentWidth()) { bitmap ->
+        val width = contentWidth()
+        images.load(span.destination, span.vault, span.remote, width) { bitmap ->
             val current = editableText
             val s = current.getSpanStart(span)
-            if (s < 0) return@load
+            // A decode for a width the view no longer has: the load asked for at the new width lands instead.
+            if (s < 0 || width != contentWidth()) return@load
             if (bitmap == null) span.failed = true else span.bitmap = bitmap
             val en = current.getSpanEnd(span)
             val wasApplying = applying
