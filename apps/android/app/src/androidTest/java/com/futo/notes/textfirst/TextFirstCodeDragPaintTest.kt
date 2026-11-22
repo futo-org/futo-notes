@@ -57,6 +57,29 @@ class TextFirstCodeDragPaintTest {
         assertEquals("nothing of the block is selected", next to next, view.selectionStart to view.selectionEnd)
     }
 
+    /** Sol (round 4): Shift+Left twice inside a code line extends the range by two, its direction kept. */
+    @Test fun shiftLeftTwiceInACodeLineExtendsTheRange() = shiftLeftTwice("```js\nconst value = 1\n```\nafter\n")
+
+    private fun shiftLeftTwice(note: String) = textFirstSession(note) { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        val caret = view.editableText.indexOf("value") + 3
+        c.select(caret)
+        withTimeout(5_000) { while (view.selectionStart != caret) delay(20) }
+        val shift = android.view.KeyEvent.META_SHIFT_ON or android.view.KeyEvent.META_SHIFT_LEFT_ON
+        fun key(action: Int, code: Int, meta: Int) = view.dispatchKeyEvent(android.view.KeyEvent(0, 0, action, code, 0, meta))
+        key(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_SHIFT_LEFT, shift)
+        repeat(2) {
+            key(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_LEFT, shift)
+            key(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_DPAD_LEFT, shift)
+            delay(300)
+        }
+        key(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_SHIFT_LEFT, 0)
+        assertEquals("two characters selected before the caret", caret - 2 to caret, minOf(view.selectionStart, view.selectionEnd) to maxOf(view.selectionStart, view.selectionEnd))
+    }
+
     /** Sol (round 4): a range from code into a table row's middle (an accessibility service can set one) ends out of the row's hidden text. */
     @Test fun aRangeFromCodeIntoATableRowEndsOutOfTheRowsHiddenText() = textFirstSession("```js\nconst a = 1\n```\n\n| a | b |\n| - | - |\n| cell one | two |\n\nend\n") { c ->
         val view = c.view
