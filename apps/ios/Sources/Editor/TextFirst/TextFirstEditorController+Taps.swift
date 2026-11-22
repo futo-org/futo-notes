@@ -88,7 +88,7 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         }
         selectionBeforeTouch = textView.selectedRange
         let p = touch.location(in: textView)
-        markerTouch = markerUnitFragment(at: p) != nil
+        touchOpensNoCaretMenu = markerUnitFragment(at: p) != nil || codeBlockEdge(at: p) != nil
         touchHitCheckbox = checkboxFragment(at: p) != nil
         // A touch on a checkbox or a link is that control's alone: the text view does not take
         // focus (no caret, no keyboard), as Android's touch handler consumes it.
@@ -202,6 +202,10 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         if engineBusy, g.state == .ended, linkTarget(at: g.location(in: textView)) == nil {
             touchHitCheckbox = false
             suppressFocus = false
+            return
+        }
+        if g.state == .ended, let edge = codeBlockEdge(at: g.location(in: textView)) {
+            openLine(beside: edge)
             return
         }
         if g.state == .ended, let hit = tableCellHit(at: g.location(in: textView)) {

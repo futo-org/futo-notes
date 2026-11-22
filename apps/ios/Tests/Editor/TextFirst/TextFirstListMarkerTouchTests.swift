@@ -165,10 +165,10 @@
                         UICommand(title: "Paste", action: #selector(UIResponder.paste(_:)))
                     ])
             }
-            h.controller.markerTouch = true
+            h.controller.touchOpensNoCaretMenu = true
             #expect(ask(0)?.children.isEmpty == true, "no caret menu after a marker touch")
             #expect(ask(1) == nil, "a selection's menu stays UIKit's")
-            h.controller.markerTouch = false
+            h.controller.touchOpensNoCaretMenu = false
             #expect(ask(0) == nil, "UIKit's caret menu elsewhere")
         }
     }
