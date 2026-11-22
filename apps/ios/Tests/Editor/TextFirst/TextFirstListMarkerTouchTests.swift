@@ -152,5 +152,22 @@
             #expect(h.tv.selectedRange == before)
             #expect(h.controller.engineSelection == before)
         }
+
+        /// UIKit asks for its caret menu (Paste, Select…) after a tap near the caret; a touch
+        /// that came down on a marker unit or a checkbox gets none (seen on the simulator: a tap
+        /// on the other half of the caret's own marker moved the caret and opened that menu).
+        @Test func aTouchOnAMarkerOpensNoCaretMenu() {
+            let h = TextFirstHarness("- one\n")
+            let ask = { (length: Int) in
+                h.controller.textView(
+                    h.tv, editMenuForTextIn: NSRange(location: 1, length: length),
+                    suggestedActions: [UICommand(title: "Paste", action: #selector(UIResponder.paste(_:)))])
+            }
+            h.controller.markerTouch = true
+            #expect(ask(0)?.children.isEmpty == true, "no caret menu after a marker touch")
+            #expect(ask(1) == nil, "a selection's menu stays UIKit's")
+            h.controller.markerTouch = false
+            #expect(ask(0) == nil, "UIKit's caret menu elsewhere")
+        }
     }
 #endif

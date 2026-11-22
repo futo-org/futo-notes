@@ -40,6 +40,16 @@ extension TextFirstEditorController: UITextViewDelegate {
         return true
     }
 
+    /// UIKit opens its caret menu (Paste, Select…) for a tap near the caret. A tap on a list
+    /// marker, or a checkbox, beside the caret moves the caret or ticks the box and opens none.
+    func textView(
+        _ textView: UITextView, editMenuForTextIn range: NSRange,
+        suggestedActions: [UIMenuElement]
+    ) -> UIMenu? {
+        guard markerTouch, range.length == 0 else { return nil }
+        return UIMenu(children: [])
+    }
+
     func textView(
         _ textView: UITextView,
         willPresentEditMenuWith animator: any UIEditMenuInteractionAnimating
