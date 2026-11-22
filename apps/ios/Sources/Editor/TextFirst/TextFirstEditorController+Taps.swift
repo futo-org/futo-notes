@@ -49,7 +49,10 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         let tracker = TextFirstTouchTracker(target: nil, action: nil)
         tracker.onChange = { [weak self] down in
             self?.textView.fingerIsDown = down
-            if !down { self?.renderHoldChanged() }
+            if !down {
+                self?.renderHoldChanged()
+                self?.touchEnded()
+            }
         }
         textView.addGestureRecognizer(tracker)
         installBlockDrag()
@@ -64,8 +67,6 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         return g is TextFirstTouchTracker || other is TextFirstTouchTracker
     }
 
-    /// While a press may lift, UIKit's long-presses on the note (the loupe, long-press
-    /// selection) wait for the lift to fail: they act only where a press lifts nothing.
     /// While a press may lift, or came down on a list marker while the note is edited, UIKit's
     /// long-presses on the note wait for ours to fail.
     func gestureRecognizer(
@@ -86,8 +87,14 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
                 && markerUnitFragment(at: touch.location(in: textView)) != nil
             return markerHoldArmed
         }
+        touchDown(at: touch.location(in: textView))
+        return true
+    }
+
+    /// What a touch coming down at `p` (text view coordinates) is on, before any recognizer acts.
+    func touchDown(at p: CGPoint) {
         selectionBeforeTouch = textView.selectedRange
-        let p = touch.location(in: textView)
+        touchDownTime = CACurrentMediaTime()
         touchOpensNoCaretMenu = markerUnitFragment(at: p) != nil || codeBlockEdge(at: p) != nil
         touchHitCheckbox = checkboxFragment(at: p) != nil
         // A touch on a checkbox or a link is that control's alone: the text view does not take
@@ -99,7 +106,18 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
                 MainActor.assumeIsolated { self?.suppressFocus = false }
             }
         }
-        return true
+    }
+
+    /// The touch ended or was cancelled. UIKit asks for its caret menu just after a tap; past
+    /// that, a menu asked for with no new touch (a hardware key, then the menu) is UIKit's.
+    func touchEnded() {
+        let touch = touchDownTime
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.touchDownTime == touch else { return }
+                self.touchOpensNoCaretMenu = false
+            }
+        }
     }
 
     var inset: UIEdgeInsets { textView.textContainerInset }
