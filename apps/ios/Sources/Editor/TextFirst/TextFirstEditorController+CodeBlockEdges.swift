@@ -9,14 +9,9 @@ extension TextFirstEditorController {
     /// The line a tap at `p` (text view coordinates) opens beside a code block at the note's
     /// edge; nil anywhere else.
     func codeBlockEdge(at p: CGPoint) -> EditorBlockCommand? {
-        // A note that is only an empty block has no character to style: the engine says whether
-        // it is code, and its one line is the caret's row.
+        // A note that is only an empty block: its one line is the caret's row.
         if storage.length == 0 {
-            guard !engineBusy,
-                let blocks = try? session.project(
-                    expected: rev, range: EditorByteRange(start: 0, end: 0)
-                ).codeBlocks, !blocks.isEmpty
-            else { return nil }
+            guard trailingBlock?.code == true else { return nil }
             let row = textView.caretRect(for: textView.beginningOfDocument)
             if p.y > row.maxY { return .openLineAfterCodeBlock }
             if p.y < row.minY { return .openLineBeforeCodeBlock }

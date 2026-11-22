@@ -165,6 +165,31 @@
             #expect(empty >= 250, "empty line \(empty) at \(lines[1].typographicBounds)")
         }
 
+        /// A note that is only an empty code block has no character to style; its one empty
+        /// line still carries the block, so it is drawn as code when it opens.
+        @Test func aNoteThatIsOnlyAnEmptyBlockOpensWithItsLineAsCode() {
+            let h = TextFirstHarness("```\n```")
+            #expect(h.controller.storage.length == 0)
+            #expect(h.controller.trailingBlock?.code == true)
+            // As tall as a code line with text, not a thin strip.
+            let typed = TextFirstHarness("```\nx\n```")
+            // The last line's height: the empty note's is its extra line fragment.
+            func height(_ h: TextFirstHarness) -> CGFloat {
+                h.tv.layoutIfNeeded()
+                let manager = h.tv.textLayoutManager!
+                var last: CGFloat = 0
+                manager.enumerateTextLayoutFragments(
+                    from: manager.documentRange.location,
+                    options: [.ensuresLayout, .ensuresExtraLineFragment]
+                ) {
+                    last = $0.layoutFragmentFrame.height
+                    return true
+                }
+                return last
+            }
+            #expect(abs(height(h) - height(typed)) <= 1, "\(height(h)) vs \(height(typed))")
+        }
+
         /// iOS sim, Tags: `#todo` was drawn as plain text. A tag is coloured, nothing else;
         /// inside inline code it is no tag.
         @Test func tagsAreColouredAndStayText() {
