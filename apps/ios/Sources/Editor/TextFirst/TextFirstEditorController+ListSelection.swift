@@ -70,6 +70,8 @@ extension TextFirstEditorController {
             }
             if inset.top + frame.maxY <= rect.minY { return true }
             let isList = (fragment as? TextFirstLayoutFragment)?.block.list != nil
+            let paragraphRightToLeft =
+                manager.baseWritingDirection(at: fragment.rangeInElement.location) == .rightToLeft
             let paragraphStart = manager.offset(
                 from: manager.documentRange.location, to: fragment.rangeInElement.location)
             for line in fragment.textLineFragments where line.characterRange.length > 0 {
@@ -77,18 +79,17 @@ extension TextFirstEditorController {
                 let top = inset.top + frame.minY + bounds.minY
                 guard rect.minY <= top + bounds.height / 2, top + bounds.height / 2 < rect.maxY
                 else { continue }
-                // The row's direction is its paragraph's (an item's marker unit says it), and
-                // its edge is its text's far side against that direction: a wrapped row that
-                // begins inside a run of the other direction has its first character at that
-                // run's far end. The selection's start moves the edge only when that character
-                // runs the row's way (from inside a right-to-left run of a left-to-right row,
-                // the rest of the row stays tinted).
+                // The row's direction is its paragraph's base direction, never its run's (a
+                // left-to-right continuation's wrapped row can begin in Hebrew), and its edge is
+                // its text's far side against that direction: a wrapped row that begins inside a
+                // run of the other direction has its first character at that run's far end.
+                // The selection's start moves the edge only when that character runs the row's
+                // way (from inside a right-to-left run of a left-to-right row, the rest of the
+                // row stays tinted).
                 let range = line.characterRange
                 func x(_ i: Int) -> CGFloat { line.locationForCharacter(at: i).x }
-                let rightToLeft =
-                    (fragment as? TextFirstLayoutFragment)?.markerUnit?.rightToLeft
-                    ?? (range.length > 1 && x(range.location + 1) < x(range.location))
-                let positions = (range.location...NSMaxRange(range)).map(x)
+                let rightToLeft = paragraphRightToLeft
+                let positions = (range.location..<NSMaxRange(range)).map(x)
                 var edge = (rightToLeft ? positions.max() : positions.min()) ?? 0
                 let start = selectionStart - paragraphStart
                 if start > range.location, start < NSMaxRange(range) - 1,

@@ -97,24 +97,26 @@
             #expect(covered, "def at \(x) in \(rects(h, on: "def"))")
         }
 
-        /// A left-to-right item's wrapped row that begins inside a right-to-left run, selected
-        /// whole: the row is tinted across all of its text, the run's far side included.
-        @Test func aWrappedRowStartingInsideARightToLeftRunIsTintedWhole() throws {
-            let hebrew = Array(repeating: "שלום עולם", count: 6).joined(separator: " ")
-            let h = TextFirstHarness("- alpha beta gamma delta epsilon \(hebrew) tail\n- next\n")
+        /// The second row of the paragraph holding `word`, which must begin inside `run`, with
+        /// all of the note selected: the x span of its text and of its tint.
+        private func secondRow(_ h: TextFirstHarness, of word: String, inside run: String)
+            throws -> (text: (CGFloat, CGFloat), tint: (CGFloat, CGFloat))
+        {
             h.tv.layoutIfNeeded()
             let text = h.tv.text as NSString
             let manager = try #require(h.tv.textLayoutManager)
-            let fragment = try #require(
-                manager.textLayoutFragment(for: manager.documentRange.location))
+            let at = try #require(
+                manager.location(
+                    manager.documentRange.location, offsetBy: text.range(of: word).location))
+            let fragment = try #require(manager.textLayoutFragment(for: at))
+            let paragraphStart = manager.offset(
+                from: manager.documentRange.location, to: fragment.rangeInElement.location)
             let lines = fragment.textLineFragments.filter { $0.characterRange.length > 0 }
             try #require(lines.count >= 2)
             let second = lines[1]
-            let run = text.range(of: hebrew)
-            // The second row must begin inside the run.
-            try #require(
-                second.characterRange.location > run.location
-                    && second.characterRange.location < NSMaxRange(run) - 1)
+            let runRange = text.range(of: run)
+            let rowStart = paragraphStart + second.characterRange.location
+            try #require(rowStart > runRange.location && rowStart < NSMaxRange(runRange) - 1)
             let origin = CGPoint(
                 x: h.tv.textContainerInset.left + fragment.layoutFragmentFrame.minX
                     + second.typographicBounds.minX,
@@ -124,14 +126,52 @@
                 origin.x + second.locationForCharacter(at: $0).x
             }
             let midY = origin.y + second.typographicBounds.height / 2
-            h.select(1, text.range(of: "next").location + 2)
+            h.select(0, text.length)
             let rowRects = h.tv.selectionRects(for: h.tv.selectedTextRange!).map(\.rect).filter {
                 $0.width > 0 && $0.minY < midY && $0.maxY > midY
             }
-            let left = rowRects.map(\.minX).min() ?? .infinity
-            let right = rowRects.map(\.maxX).max() ?? -.infinity
-            #expect(left <= xs.min()! + 1, "tint from \(left), row's text from \(xs.min()!)")
-            #expect(right >= xs.max()! - 1, "tint to \(right), row's text to \(xs.max()!)")
+            return (
+                (xs.min()!, xs.max()!),
+                (rowRects.map(\.minX).min() ?? .infinity, rowRects.map(\.maxX).max() ?? -.infinity)
+            )
+        }
+
+        /// A left-to-right item's wrapped row that begins inside a right-to-left run, selected
+        /// whole: the row is tinted across all of its text, the run's far side included.
+        @Test func aWrappedRowStartingInsideARightToLeftRunIsTintedWhole() throws {
+            let hebrew = Array(repeating: "שלום עולם", count: 6).joined(separator: " ")
+            let h = TextFirstHarness("- alpha beta gamma delta epsilon \(hebrew) tail\n- next\n")
+            let row = try secondRow(h, of: "alpha", inside: hebrew)
+            #expect(
+                row.tint.0 <= row.text.0 + 1, "tint from \(row.tint.0), text from \(row.text.0)")
+            #expect(row.tint.1 >= row.text.1 - 1, "tint to \(row.tint.1), text to \(row.text.1)")
+        }
+
+        /// A markerless continuation takes its paragraph's direction, not its wrapped run's: a
+        /// left-to-right one whose second row begins in Hebrew is tinted over its text only.
+        @Test func aContinuationRowStartingInsideARightToLeftRunIsTintedOverItsText() throws {
+            let hebrew = Array(repeating: "שלום עולם", count: 6).joined(separator: " ")
+            let h = TextFirstHarness(
+                "- item\n\n  alpha beta gamma delta epsilon \(hebrew) tail\n- next\n")
+            let row = try secondRow(h, of: "epsilon", inside: hebrew)
+            #expect(
+                abs(row.tint.0 - row.text.0) <= 1,
+                "tint from \(row.tint.0), text from \(row.text.0)")
+            #expect(row.tint.1 >= row.text.1 - 1, "tint to \(row.tint.1), text to \(row.text.1)")
+        }
+
+        /// A selection ending on the note's last list line, no line break after it: that row is
+        /// tinted from its marker to the selection's end.
+        @Test func aSelectionEndingOnTheLastListLineIsTintedFromItsMarker() {
+            let h = TextFirstHarness("- first\n- last item")
+            h.tv.layoutIfNeeded()
+            let text = h.tv.text as NSString
+            h.select(text.range(of: "first").location + 2, text.length)
+            let found = rects(h, on: "last item")
+            let left = found.map(\.minX).min() ?? .infinity
+            let end = h.tv.caretRect(for: h.tv.endOfDocument).minX
+            #expect(abs(left - markerX(h, "last item")) < 1.5, "tint from \(left)")
+            #expect((found.map(\.maxX).max() ?? 0) >= end - 1, "\(found) to \(end)")
         }
 
         /// UIKit can hand over one rect spanning two rows that holds both of the selection's
