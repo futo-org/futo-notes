@@ -23,7 +23,8 @@ class TextFirstCodeDragPaintTest {
         view.setSelection(anchor, handle)
         delay(300)
         assertEquals("the paint follows the handle and takes the block", codeStart to handle, view.codeSelection?.let { it.start to it.end })
-        assertEquals("the handle is at the selection's end", handle, view.selectionEnd)
+        // Round 3 (N1): the view's own range is the one painted and copied, so Share sends it and both handles sit on it.
+        assertEquals("the view's selection is the painted range", codeStart to handle, view.selectionStart to view.selectionEnd)
     }
 
     /** Sol (round 3): from the code's end onto the line below holds nothing, as the engine copies nothing. */
