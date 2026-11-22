@@ -11,7 +11,7 @@ extension TextFirstEditorController {
     func listRowSelectionRects(_ rects: [UITextSelectionRect], of selection: NSRange)
         -> [UITextSelectionRect]
     {
-        guard let manager = textView.textLayoutManager else { return rects }
+        guard selection.length > 0, let manager = textView.textLayoutManager else { return rects }
         return rects.flatMap { rect -> [UITextSelectionRect] in
             let rows = visualRows(in: rect.rect, from: selection.location, manager)
             guard rows.contains(where: \.isList) else { return [rect] }
@@ -33,21 +33,24 @@ extension TextFirstEditorController {
     }
 
     /// Each laid-out row the rect covers at its middle: its vertical span, whether it is a list
-    /// line's, and the leading edge of its first character at or after `selectionStart`.
+    /// line's, and the leading edge of its first character at or after `selectionStart`. Only
+    /// the viewport's laid-out rows are read: laying out text elsewhere would re-base TextKit's
+    /// height estimate under the reader, and a row off screen is not drawn.
     private func visualRows(
         in rect: CGRect, from selectionStart: Int, _ manager: NSTextLayoutManager
     )
         -> [(top: CGFloat, height: CGFloat, isList: Bool, start: CGFloat, rightToLeft: Bool)]
     {
         var rows: [(CGFloat, CGFloat, Bool, CGFloat, Bool)] = []
-        guard
-            let from = manager.textLayoutFragment(
-                for: CGPoint(x: 0, y: max(0, rect.minY - inset.top + 0.5)))
-        else { return [] }
-        manager.enumerateTextLayoutFragments(from: from.rangeInElement.location, options: []) {
-            fragment in
+        guard let shown = manager.textViewportLayoutController.viewportRange else { return [] }
+        manager.enumerateTextLayoutFragments(from: shown.location, options: []) { fragment in
             let frame = fragment.layoutFragmentFrame
-            if inset.top + frame.minY >= rect.maxY { return false }
+            if inset.top + frame.minY >= rect.maxY
+                || fragment.rangeInElement.location.compare(shown.endLocation) != .orderedAscending
+            {
+                return false
+            }
+            if inset.top + frame.maxY <= rect.minY { return true }
             let isList = (fragment as? TextFirstLayoutFragment)?.block.list != nil
             let paragraphStart = manager.offset(
                 from: manager.documentRange.location, to: fragment.rangeInElement.location)
