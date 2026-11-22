@@ -134,31 +134,32 @@
             #expect(right >= xs.max()! - 1, "tint to \(right), row's text to \(xs.max()!)")
         }
 
-        /// With the selection's ends off screen, no rect on a visible list row says it holds an
-        /// end: a handle is drawn only where the selection ends.
-        @Test func noVisibleListRowCarriesAnEndTheSelectionDoesNotHave() {
-            let items = (0..<120).map { "- item \($0) of a long list" }.joined(separator: "\n")
-            let h = TextFirstHarness(items + "\n")
+        /// UIKit can hand over one rect spanning two rows that holds both of the selection's
+        /// ends. Split per row, the start's handle stays on the start's row and the end's on
+        /// the end's, each exactly once.
+        @Test func aRectSplitAcrossRowsKeepsEachHandleOnItsEndsRow() throws {
+            let h = TextFirstHarness("- first item\n- second item\n- third\n")
             h.tv.layoutIfNeeded()
-            h.tv.contentOffset.y = 1_200
-            h.tv.layoutIfNeeded()
-            let length = (h.tv.text as NSString).length
-            h.select(2, length - 2)
-            let top = h.tv.caretRect(for: h.tv.position(from: h.tv.beginningOfDocument, offset: 2)!)
-            let bottom = h.tv.caretRect(
-                for: h.tv.position(from: h.tv.beginningOfDocument, offset: length - 2)!)
-            for rect in h.tv.selectionRects(for: h.tv.selectedTextRange!) {
-                if rect.containsStart {
-                    #expect(
-                        rect.rect.minY <= top.midY && top.midY <= rect.rect.maxY,
-                        "start at \(rect.rect)")
-                }
-                if rect.containsEnd {
-                    #expect(
-                        rect.rect.minY <= bottom.midY && bottom.midY <= rect.rect.maxY,
-                        "end at \(rect.rect)")
-                }
+            let text = h.tv.text as NSString
+            let from = text.range(of: "first").location + 2
+            let to = text.range(of: "second").location + 3
+            h.select(from, to)
+            func caret(_ offset: Int) -> CGRect {
+                h.tv.caretRect(for: h.tv.position(from: h.tv.beginningOfDocument, offset: offset)!)
             }
+            let (top, bottom) = (caret(from), caret(to))
+            let source = try #require(h.tv.selectionRects(for: h.tv.selectedTextRange!).first)
+            let both = TextFirstSelectionRect(
+                source,
+                drawnAs: CGRect(
+                    x: 0, y: top.minY, width: h.tv.bounds.width, height: bottom.maxY - top.minY),
+                containsStart: true, containsEnd: true)
+            let pieces = h.controller.listRowSelectionRects([both], of: h.tv.selectedRange)
+            let starts = pieces.filter(\.containsStart).map(\.rect)
+            let ends = pieces.filter(\.containsEnd).map(\.rect)
+            try #require(starts.count == 1 && ends.count == 1, "\(pieces.map(\.rect))")
+            #expect(starts[0].minY <= top.midY && top.midY <= starts[0].maxY, "\(starts)")
+            #expect(ends[0].minY <= bottom.midY && bottom.midY <= ends[0].maxY, "\(ends)")
         }
     }
 #endif
