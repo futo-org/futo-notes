@@ -160,6 +160,73 @@
             #expect(row.tint.1 >= row.text.1 - 1, "tint to \(row.tint.1), text to \(row.text.1)")
         }
 
+        /// A left-to-right item holding one Hebrew word long enough to fill a middle row on
+        /// its own, selected across that row: the tint starts where the item's text does,
+        /// covering the leftmost glyph whole (a character's leading edge is its right side).
+        @Test func aMiddleRowOfOneRightToLeftWordIsTintedToItsLeftmostGlyph() throws {
+            let word = String(repeating: "אבגדהוזחטיכלמנסעפצקרשת", count: 6)
+            let h = TextFirstHarness("- alpha beta \(word) tail\n- next\n")
+            h.tv.layoutIfNeeded()
+            let text = h.tv.text as NSString
+            let manager = try #require(h.tv.textLayoutManager)
+            let fragment = try #require(
+                manager.textLayoutFragment(for: manager.documentRange.location))
+            let lines = fragment.textLineFragments.filter { $0.characterRange.length > 0 }
+            try #require(lines.count >= 3)
+            let middle = lines[1]
+            let wordRange = text.range(of: word)
+            // The middle row is the word alone.
+            try #require(
+                middle.characterRange.location >= wordRange.location
+                    && NSMaxRange(middle.characterRange) < NSMaxRange(wordRange))
+            let style = try #require(
+                h.controller.storage.attribute(
+                    .paragraphStyle, at: wordRange.location, effectiveRange: nil)
+                    as? NSParagraphStyle)
+            let textLeft =
+                h.tv.textContainerInset.left + fragment.layoutFragmentFrame.minX
+                + style.headIndent
+            let midY =
+                h.tv.textContainerInset.top + fragment.layoutFragmentFrame.minY
+                + middle.typographicBounds.midY
+            h.select(0, text.length)
+            let tint = h.tv.selectionRects(for: h.tv.selectedTextRange!).map(\.rect).filter {
+                $0.width > 0 && $0.minY < midY && $0.maxY > midY
+            }
+            let left = tint.map(\.minX).min() ?? .infinity
+            #expect(left <= textLeft + 0.5, "tint from \(left), text from \(textLeft)")
+        }
+
+        /// A right-to-left item selected whole is tinted from its marker, on its right, to
+        /// the far (left) side of its text.
+        @Test func aRightToLeftItemSelectedWholeIsTintedFromItsMarker() throws {
+            let h = TextFirstHarness("- שלום עולם\n- שני\n")
+            h.tv.layoutIfNeeded()
+            let text = h.tv.text as NSString
+            let manager = try #require(h.tv.textLayoutManager)
+            let fragment = try #require(
+                manager.textLayoutFragment(for: manager.documentRange.location)
+                    as? TextFirstLayoutFragment)
+            let unit = try #require(fragment.markerUnit)
+            try #require(unit.rightToLeft)
+            let line = try #require(fragment.textLineFragments.first)
+            let inset = h.tv.textContainerInset
+            let row = (
+                left: inset.left + fragment.layoutFragmentFrame.minX
+                    + line.typographicBounds.minX,
+                midY: inset.top + fragment.layoutFragmentFrame.minY
+                    + line.typographicBounds.midY
+            )
+            h.select(0, text.range(of: "שני").location + 1)
+            let tint = h.tv.selectionRects(for: h.tv.selectedTextRange!).map(\.rect).filter {
+                $0.width > 0 && $0.minY < row.midY && $0.maxY > row.midY
+            }
+            let right = tint.map(\.maxX).max() ?? -.infinity
+            let left = tint.map(\.minX).min() ?? .infinity
+            #expect(abs(right - (inset.left + unit.rect.maxX)) < 1.5, "tint to \(right), \(unit)")
+            #expect(left <= row.left + 0.5, "tint from \(left), text from \(row.left)")
+        }
+
         /// A selection ending on the note's last list line, no line break after it: that row is
         /// tinted from its marker to the selection's end.
         @Test func aSelectionEndingOnTheLastListLineIsTintedFromItsMarker() {

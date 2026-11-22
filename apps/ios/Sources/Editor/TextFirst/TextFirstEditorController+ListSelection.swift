@@ -81,16 +81,16 @@ extension TextFirstEditorController {
                 else { continue }
                 // The row's direction is its paragraph's base direction, never its run's (a
                 // left-to-right continuation's wrapped row can begin in Hebrew), and its edge is
-                // its text's far side against that direction: a wrapped row that begins inside a
-                // run of the other direction has its first character at that run's far end.
+                // the far side of its glyphs against that direction: its typographic bounds,
+                // which hold the outermost glyph whole (a character's own edge is its leading
+                // one, the inner side of the outermost glyph in a run of the other direction).
                 // The selection's start moves the edge only when that character runs the row's
                 // way (from inside a right-to-left run of a left-to-right row, the rest of the
                 // row stays tinted).
                 let range = line.characterRange
                 func x(_ i: Int) -> CGFloat { line.locationForCharacter(at: i).x }
                 let rightToLeft = paragraphRightToLeft
-                let positions = (range.location..<NSMaxRange(range)).map(x)
-                var edge = (rightToLeft ? positions.max() : positions.min()) ?? 0
+                var edge = rightToLeft ? bounds.width : 0
                 let start = selectionStart - paragraphStart
                 if start > range.location, start < NSMaxRange(range) - 1,
                     (x(start + 1) < x(start)) == rightToLeft
