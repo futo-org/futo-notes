@@ -59,6 +59,18 @@ final class TextFirstListMarkerUITests: XCTestCase {
             saved(file) { $0 == "- Rone\nL- two\n" }, "left half: before the marker")
     }
 
+    /// The keyboard capitalises at an item's text start as at a line's start, when its own
+    /// Auto-Capitalization setting does (on in the simulator), and not in the middle of a line.
+    @MainActor
+    func testTheKeyboardShiftsAtAnItemsTextStart() throws {
+        let (app, editor, _) = try open("- one\n- two\n", named: "shift")
+        point(editor, x: 120, line: 0).tap()  // the keyboard comes up, the caret after "one"
+        XCTAssertTrue(app.keys["q"].waitForExistence(timeout: 5), "mid-line: no shift")
+        pause()
+        point(editor, x: 44, line: 1).tap()  // the bullet's right half: the text's start
+        XCTAssertTrue(app.keys["Q"].waitForExistence(timeout: 5), "an item's text start: shift")
+    }
+
     @MainActor
     func testAHoldSelectsTheMarkerAndAHeldCheckboxIsNotTicked() throws {
         let (app, editor, file) = try open("- one\n- [ ] two\n- [ ] three\n", named: "holds")

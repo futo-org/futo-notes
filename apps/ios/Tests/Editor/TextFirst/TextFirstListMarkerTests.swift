@@ -282,5 +282,32 @@
             #expect(style("continued").headIndent == style(item).headIndent, "\(source)")
             #expect(style("continued").firstLineHeadIndent == style(item).headIndent)
         }
+
+        /// The keyboard decides whether to capitalise from the text before the caret. At an
+        /// item's text start that text ends in the marker's U+FFFC, which it reads as the middle
+        /// of a sentence; it is answered as the line break the item's line starts after, so the
+        /// keyboard treats the spot as a line's start and follows the user's setting.
+        @Test(arguments: [
+            ("- Bullet text\n", "Bullet"), ("1. Number text\n", "Number"),
+            ("- [ ] Task text\n", "Task"), ("- outer\n  - Nested text\n", "Nested"),
+        ])
+        func anItemsTextStartReadsAsALineStartToTheKeyboard(source: String, word: String) {
+            let h = TextFirstHarness(source)
+            let start = (h.tv.text as NSString).range(of: word).location
+            func before(_ offset: Int) -> String? {
+                h.tv.text(
+                    in: h.tv.textRange(
+                        from: h.tv.beginningOfDocument,
+                        to: h.tv.position(from: h.tv.beginningOfDocument, offset: offset)!)!)
+            }
+            h.select(start, start)
+            #expect(before(start)?.hasSuffix("\n") == true, "\(before(start).debugDescription)")
+            // Mid-text, and a selection that holds the marker, read the text as it is.
+            h.select(start + 2, start + 2)
+            #expect(before(start + 2)?.hasSuffix(String(word.prefix(2))) == true)
+            h.select(start - 1, start)
+            #expect(
+                before(start)?.hasSuffix("\u{FFFC}") == true, "\(before(start).debugDescription)")
+        }
     }
 #endif

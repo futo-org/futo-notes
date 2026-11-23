@@ -33,7 +33,7 @@ extension TextFirstEditorController {
         return plain
     }
 
-    private func isMarkerUnit(endingAt offset: Int) -> Bool {
+    func isMarkerUnit(endingAt offset: Int) -> Bool {
         offset > 0 && offset <= storage.length
             && storage.attribute(.tfListMarker, at: offset - 1, effectiveRange: nil) != nil
     }

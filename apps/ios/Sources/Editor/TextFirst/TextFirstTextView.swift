@@ -123,6 +123,15 @@ final class TextFirstTextView: UITextView {
         }
     }
 
+    /// The keyboard reads an item's text start as a line's start (`keyboardText`).
+    override func text(in range: UITextRange) -> String? {
+        let text = super.text(in: range)
+        guard let text, let controller else { return text }
+        let start = offset(from: beginningOfDocument, to: range.start)
+        let end = offset(from: beginningOfDocument, to: range.end)
+        return controller.keyboardText(text, in: NSRange(location: start, length: end - start))
+    }
+
     // While the engine has not landed UIKit must never change the frozen view: a keyboard's
     // text, an autocorrect's replacement and a Return all reach the queue instead, and marked
     // text is held until the keyboard commits it.
