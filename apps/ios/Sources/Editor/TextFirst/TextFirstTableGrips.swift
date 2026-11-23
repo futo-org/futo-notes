@@ -345,7 +345,9 @@ final class TextFirstTableGrips: NSObject {
     /// Backspace over every cell lets the engine remove the table as one edit.
     func deleteTable() {
         guard let editor, let c = controller, !c.engineComposing, let table = describe(),
-            let first = table.rows.first?.first, let last = table.rows.last?.last
+            let first = table.rows.first?.first,
+            // A body row that is a lone `|` has no cell: the last cell is the last one anywhere.
+            let last = table.rows.last(where: { !$0.isEmpty })?.last
         else { return }
         // A selection inside a single cell edits its text. Include the leading pipe
         // when the header's only cell is the entire table.
