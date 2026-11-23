@@ -192,6 +192,9 @@ enum TextFirstStyler {
                 [.font: mono, .backgroundColor: UIColor.tertiarySystemFill], range: r)
         case .inline(let start, let end, let bold, let italic, let strike, let code):
             guard let r = range(start, end, length) else { return }
+            // A table row's text is hidden and drawn as cells: a code fill would show beside
+            // the grid, where the hidden text wraps.
+            if storage.attribute(.tfTable, at: r.location, effectiveRange: nil) != nil { return }
             if bold || italic || code { restyleFont(storage, r, bold, italic, code) }
             if strike {
                 storage.addAttribute(
