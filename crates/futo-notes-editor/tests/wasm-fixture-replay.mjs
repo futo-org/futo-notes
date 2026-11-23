@@ -37,16 +37,34 @@ const KEYS = new Set([
   'ShiftTab',
 ]);
 
-/// The cases of `file` (relative to `fixtures/engine/`) whose command the
-/// replayer runs: block commands, paragraph keys and typing.
+/// Every case of `file` (relative to `fixtures/engine/`): block commands,
+/// paragraph keys, typing, a text service's replacement, a composition's
+/// commit, paste, cut,
+/// selecting a code block, setting its header, and a selection sent again as
+/// a host's echo or as the user's own. A command the replayer cannot run fails here
+/// rather than being left out.
 export function fixtureCases(file) {
   const cases = JSON.parse(readFileSync(new URL(`fixtures/engine/${file}`, import.meta.url)));
-  return cases.filter((item) => typeof item.command === 'string' && command(item.command));
+  for (const item of cases) assert.ok(command(item.command), `${file}: ${item.name}: command`);
+  return cases;
 }
 
 function command(text) {
+  if (typeof text !== 'string') return null;
   const typed = /^type[: ]([\s\S]*)$/.exec(text);
   if (typed) return { type: typed[1] };
+  const service = /^os:([\s\S]*)$/.exec(text);
+  if (service) return { service: service[1] };
+  const committed = /^commit:([\s\S]*)$/.exec(text);
+  if (committed) return { commit: committed[1] };
+  const pasted = /^paste:([\s\S]*)$/.exec(text);
+  if (pasted) return { paste: pasted[1] };
+  if (text === 'Cut') return { cut: true };
+  if (text === 'SelectBlock') return { selectBlock: true };
+  if (text === 'Select') return { echo: true };
+  if (text === 'Place') return { place: true };
+  const header = /^header:([\s\S]*?)\|([\s\S]*)$/.exec(text);
+  if (header) return { header: { language: header[1], name: header[2] } };
   const heading = /^(Toggle)?Heading\((\d)\)$/.exec(text);
   if (heading) return { block: { [heading[1] ? 'ToggleHeading' : 'Heading']: Number(heading[2]) } };
   if (BLOCK.has(text)) return { block: text };
@@ -97,23 +115,9 @@ function worker(path, vault, source) {
   };
 }
 
-/// The page's whole display text at `revision`.
-function displayText(page, revision, source) {
-  let low = 0;
-  let high = source.length + 8;
-  while (low < high) {
-    const mid = Math.ceil((low + high) / 2);
-    let fits = true;
-    try {
-      page.utf16_to_display(revision, mid, mid);
-    } catch {
-      fits = false;
-    }
-    if (fits) low = mid;
-    else high = mid - 1;
-  }
-  const end = JSON.parse(page.utf16_to_display(revision, low, low)).end;
-  return JSON.parse(page.project(revision, 0, end));
+/// The page's whole display projected at `revision`.
+function displayText(page, revision) {
+  return JSON.parse(page.project(revision, 0, page.display_len()));
 }
 
 /// The display offset source byte `at` shows at, and the affinity that puts
@@ -133,6 +137,58 @@ function toDisplay(slice, at) {
 
 const units = (text, bytes) => Buffer.from(text).subarray(0, bytes).toString().length;
 const utf16 = (text) => Uint16Array.from({ length: text.length }, (_, i) => text.charCodeAt(i));
+
+/// Set the header of the block at display byte `at`; the edit as JSON, or
+/// null where the engine refused it with `error` or it changed no source.
+function headerSet(page, revision, header, { at, error }) {
+  try {
+    const set = page.set_code_block_header(revision, JSON.stringify({ at, ...header }));
+    assert.equal(error, undefined, `header set, wanted ${error}`);
+    return set;
+  } catch (refusal) {
+    if (refusal instanceof assert.AssertionError) throw refusal;
+    assert.ok(error && String(refusal).includes(error), `header refusal: ${refusal}`);
+    return null;
+  }
+}
+
+/// Run `run` over the selection (`a`…`b` in UTF-16 units, `bytes` in display
+/// bytes); the edit it applied as JSON, or null when it changed no source.
+function applied(page, revision, run, { a, b, bytes, at, error }) {
+  if (run.header) {
+    return headerSet(page, revision, run.header, { at: at ?? bytes.start, error });
+  }
+  if (run.echo) {
+    page.select_with_affinity(revision, bytes.start, bytes.end, page.affinity());
+    return null;
+  }
+  if (run.place) {
+    page.place_selection(revision, bytes.start, bytes.end, page.affinity());
+    return null;
+  }
+  if (run.type !== undefined) return page.replace_utf16(revision, a, b, utf16(run.type));
+  if (run.service !== undefined) {
+    return page.replace_utf16_action(revision, a, b, utf16(run.service), '"Isolated"');
+  }
+  if (run.commit !== undefined) {
+    return page.replace_utf16_action(revision, a, b, utf16(run.commit), '"CompositionCommit"');
+  }
+  if (run.paste !== undefined) {
+    return page.paste_markdown(revision, bytes.start, bytes.end, run.paste);
+  }
+  if (run.cut) {
+    const [, cut] = JSON.parse(page.cut_markdown(revision, bytes.start, bytes.end));
+    return cut === null ? null : JSON.stringify(cut);
+  }
+  if (run.selectBlock) {
+    page.select_code_block(revision, bytes.start);
+    return null;
+  }
+  if (run.block !== undefined) {
+    return page.block_command_utf16(revision, a, b, JSON.stringify(run.block));
+  }
+  return page.paragraph_key_utf16(revision, a, b, JSON.stringify(run.key));
+}
 
 /// Replay `cases`, each marked with `marks` (caret, selection start, end)
 /// unless the case names its own.
@@ -155,7 +211,7 @@ export async function replay(WasmSession, workerPath, cases, marks) {
         revision = BigInt(change.revision);
         return change;
       };
-      const slice = displayText(page, revision, before.text);
+      const slice = displayText(page, revision);
       const start = toDisplay(slice, before.from);
       const end = toDisplay(slice, before.to);
       page.select_with_affinity(
@@ -164,27 +220,30 @@ export async function replay(WasmSession, workerPath, cases, marks) {
         end.at,
         JSON.stringify(before.from === before.to ? start.affinity : 'Forward'),
       );
-      let [a, b] = [units(slice.text, start.at), units(slice.text, end.at)];
-      if (item.block) {
-        const { selection } = JSON.parse(page.select_code_block(revision, start.at));
-        [a, b] = [units(slice.text, selection.start), units(slice.text, selection.end)];
-      }
+      // The selection in display bytes, and in UTF-16 units as `a`…`b`.
+      let bytes = { start: start.at, end: end.at };
+      if (item.block) bytes = JSON.parse(page.select_code_block(revision, start.at)).selection;
+      let [a, b] = [units(slice.text, bytes.start), units(slice.text, bytes.end)];
       if (item.typed !== undefined) {
         const setup = await send(page.replace_utf16(revision, a, b, utf16(item.typed)));
         assert.ok(setup, `${item.name}: typed setup`);
-        const shown = displayText(page, revision, page.draft_text());
-        [a, b] = [units(shown.text, setup.selection.start), units(shown.text, setup.selection.end)];
+        const shown = displayText(page, revision);
+        bytes = setup.selection;
+        [a, b] = [units(shown.text, bytes.start), units(shown.text, bytes.end)];
       }
       const opening = page.draft_text();
       const run = command(item.command);
       const changed = await send(
-        run.type !== undefined
-          ? page.replace_utf16(revision, a, b, utf16(run.type))
-          : run.block !== undefined
-            ? page.block_command_utf16(revision, a, b, JSON.stringify(run.block))
-            : page.paragraph_key_utf16(revision, a, b, JSON.stringify(run.key)),
+        applied(page, revision, run, { a, b, bytes, at: item.at, error: item.error }),
       );
       assert.equal(page.draft_text(), after.text, `${item.name}: saved bytes`);
+      if (item.selected !== undefined) {
+        const selected = JSON.parse(page.selected_block()) !== null;
+        assert.equal(selected, item.selected, `${item.name}: selected block`);
+      }
+      if (item.language !== undefined || run.header || run.echo || run.place) {
+        assert.equal(page.writes_language(), item.language ?? false, `${item.name}: language`);
+      }
       if (!changed) continue;
       await send(page.undo(revision));
       assert.equal(page.draft_text(), opening, `${item.name}: undo`);

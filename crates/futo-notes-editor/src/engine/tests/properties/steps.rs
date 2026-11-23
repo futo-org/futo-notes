@@ -135,7 +135,12 @@ pub(super) fn type_step(
     // A selection's edit stays inside the source it spans: from the hidden
     // pieces at its start to those at its end.
     let spanned = engine.source_span(stop.start.0).0..engine.source_span(stop.end.0).1;
-    let reach = whole_blocks(engine, &spanned);
+    // The marker of an item the text joins goes with it (`past_joined_marker`).
+    let reach = {
+        let blocks = whole_blocks(engine, &spanned);
+        let joined = engine.past_joined_marker(engine.source_bounds(stop.start.0).1, spanned.end);
+        blocks.start..blocks.end.max(joined)
+    };
     let block_selected = engine.selected_block().is_some();
     let change = engine
         .replace(revision, selection, text, InputAction::Typing, &mut ok)

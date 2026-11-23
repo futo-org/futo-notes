@@ -222,6 +222,6 @@ fn notes_that_crashed_the_old_markdown_scans_open_and_take_input() {
         .replace(Revision(0), range(end, end), "\n- ", &mut |_| Ok(()))
         .unwrap();
     assert!(session.source_text().ends_with("56\n- \n"));
-    assert!(session.display_text().ends_with("56\n\n"));
+    assert!(session.display_text().ends_with("56\n\u{fffc}\n"));
     same(&session);
 }

@@ -12,16 +12,16 @@ fn native_clipboard_copies_cuts_and_pastes_exact_markdown() {
         .unwrap();
     let session = store.open_editor("clip".into()).unwrap();
     let at = |start, end| EditorByteRange { start, end };
-    assert_eq!(session.copy_markdown(0, at(4, 5)).unwrap(), "**d**");
+    assert_eq!(session.copy_markdown(0, at(7, 8)).unwrap(), "**d**");
     session
-        .paste_markdown(0, at(3, 3), "- x\n- y\n".into())
+        .paste_markdown(0, at(6, 6), "- x\n- y\n".into())
         .unwrap()
         .unwrap();
     assert_eq!(session.source_text().unwrap(), "- ab \n- x\n- y\n- **cd**");
-    let cut = session.cut_markdown(1, at(8, 10)).unwrap();
+    let cut = session.cut_markdown(1, at(17, 22)).unwrap();
     assert_eq!(cut.markdown, "- **cd**");
     assert!(cut.change.is_some());
-    assert_eq!(session.source_text().unwrap(), "- ab \n- x\n- y\n- ");
+    assert_eq!(session.source_text().unwrap(), "- ab \n- x\n- y\n");
     session.undo(2).unwrap().unwrap();
     session.undo(3).unwrap().unwrap();
     assert_eq!(session.source_text().unwrap(), "- ab **cd**");

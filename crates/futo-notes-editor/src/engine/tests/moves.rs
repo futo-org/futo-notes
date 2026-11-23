@@ -8,6 +8,7 @@ use std::ops::Range;
 mod arrival;
 mod corpus;
 mod images;
+mod markers;
 mod selection;
 mod slots;
 mod trial;

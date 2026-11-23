@@ -46,12 +46,8 @@ enum TextFirstStyler {
             case .quote(let start, let end, let depth):
                 here(start, end)?.quoteDepth = Int(depth)
             case .listRow(
-                let start, let end, let indent, let level, let marker, let text, let checked,
-                let first):
-                if let b = here(start, end) {
-                    b.list = (Int(indent), Int(level), marker, text, checked)
-                    b.showsMarker = first
-                }
+                let start, let end, let indent, let level, let marker, let text, let checked, _):
+                here(start, end)?.list = (Int(indent), Int(level), marker, text, checked)
             case .code(let start, let end, _, _, _, _):
                 here(start, end)?.code = true
             case .heading(let start, let end, let level):
@@ -119,11 +115,13 @@ enum TextFirstStyler {
             indent(storage, r)
             storage.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: r)
         case .listRow(
-            let start, let end, let columns, let level, let marker, let text, let checked,
-            let first):
+            let start, let end, let columns, let level, let marker, let text, let checked, _):
             guard let r = range(start, end, length) else { return }
             block(storage, r).list = (Int(columns), Int(level), marker, text, checked)
-            block(storage, r).showsMarker = first
+            if marker == .plain, level > 0 {
+                block(storage, r).continuedTextStart = continuedTextStart(
+                    storage, before: r.location, level: Int(level))
+            }
             indent(storage, r)
             if marker == .task && checked {
                 storage.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: r)
@@ -141,6 +139,20 @@ enum TextFirstStyler {
             paragraph.minimumLineHeight = 28
             storage.addAttributes(
                 [.paragraphStyle: paragraph, .foregroundColor: UIColor.clear], range: r)
+        case .listMarker(let start, let end):
+            // After its row's span (the plan lists atoms last), so its look wins over the row's.
+            guard let r = range(start, end, length) else { return }
+            let b = block(storage, r)
+            b.holdsMarkerUnit = true
+            storage.addAttributes(
+                [
+                    .font: TextFirstEditorController.bodyFont,
+                    .foregroundColor: UIColor.clear,
+                    // Typeset as a clear attachment one marker column wide
+                    // (`TextFirstTypesetDelegate`).
+                    .tfListMarker: true,
+                ], range: r)
+            indent(storage, (storage.string as NSString).paragraphRange(for: r))
         case .image(let start, let end, let destination, let alt, let vault, let remote):
             guard let r = range(start, end, length) else { return }
             images.style(
@@ -190,6 +202,31 @@ enum TextFirstStyler {
         }
     }
 
+    /// Where the text of the item a plain line at `level` continues starts: the nearest item
+    /// above, one level out, as already styled (lines are styled top down). The engine's row
+    /// already says the line continues an item; a line between them with no row (a blank one,
+    /// which the engine keeps in the list) is passed over.
+    private static func continuedTextStart(
+        _ storage: NSTextStorage, before location: Int, level: Int
+    ) -> CGFloat? {
+        let text = storage.string as NSString
+        var end = location
+        for _ in 0..<500 {
+            guard end > 0 else { return nil }
+            let line = text.paragraphRange(for: NSRange(location: end - 1, length: 0))
+            end = line.location
+            let block =
+                storage.attribute(.tfBlock, at: line.location, effectiveRange: nil)
+                as? TextFirstBlockAttribute
+            guard let row = block?.list else { continue }
+            guard row.level >= level - 1 else { return nil }
+            if row.marker != .plain, row.level == level - 1 {
+                return TextFirstMetrics.listIndent(row)
+            }
+        }
+        return nil
+    }
+
     /// The one drawing record of this line, shared by every span that touches it.
     private static func block(_ storage: NSTextStorage, _ r: NSRange) -> TextFirstBlockAttribute {
         if let existing = storage.attribute(.tfBlock, at: r.location, effectiveRange: nil)
@@ -202,7 +239,7 @@ enum TextFirstStyler {
         return made
     }
 
-    /// Head indent from the line's quote depth and own indent (the markers live in the gutter).
+    /// Head indent from the line's quote depth, own indent and marker column.
     private static func indent(_ storage: NSTextStorage, _ r: NSRange) {
         storage.addAttribute(
             .paragraphStyle, value: paragraphStyle(for: block(storage, r)), range: r)
@@ -223,7 +260,8 @@ enum TextFirstStyler {
         } else {
             paragraph.lineSpacing = 4
         }
-        paragraph.firstLineHeadIndent = indent
+        // The first row starts at the marker unit, which is as wide as the marker column.
+        paragraph.firstLineHeadIndent = indent - b.markerColumn
         paragraph.headIndent = indent
         return paragraph
     }

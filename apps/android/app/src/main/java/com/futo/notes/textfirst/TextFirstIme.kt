@@ -40,11 +40,22 @@ internal fun TextFirstEditText.populateEngineEditorInfo(info: EditorInfo, state:
 
 internal const val IME_CAPS_MODES = TextUtils.CAP_MODE_CHARACTERS or TextUtils.CAP_MODE_WORDS or TextUtils.CAP_MODE_SENTENCES
 
+/**
+ * Whether the keyboard must be told again: the engine rewrote the text under a caret that did not move (typing `- ` at a
+ * line's start becomes a list marker), so the caps the keyboard last read are stale and, the selection being the same,
+ * `updateSelection` is dropped by the framework. A restart makes it read them again.
+ */
+internal fun capsChangedUnderTheSameCaret(previous: EngineImeState?, next: EngineImeState): Boolean =
+    previous != null && previous.capsModes != next.capsModes &&
+        previous.selectionStart == next.selectionStart && previous.selectionEnd == next.selectionEnd &&
+        previous.composingStart == next.composingStart && previous.composingEnd == next.composingEnd
+
 /** TextView paints a clipped selection; only this publisher reports coordinates to the IME. */
 internal class NativeImePublisher(private val view: TextFirstEditText) {
     private var connectedOwner: EditorEngine? = null
+    private var reported: EngineImeState? = null
 
-    fun release() { connectedOwner = null }
+    fun release() { connectedOwner = null; reported = null }
 
     fun publish(state: EngineImeState) {
         val owner = view.engine ?: return
@@ -53,8 +64,10 @@ internal class NativeImePublisher(private val view: TextFirstEditText) {
         connectedOwner = owner
         if (!view.isFocused) return
         val manager = view.context.getSystemService(InputMethodManager::class.java)
+        val previous = reported
+        reported = state
         // A focused view may have requested a connection while its source was loading.
-        if (firstReady) manager.restartInput(view)
+        if (firstReady || capsChangedUnderTheSameCaret(previous, state)) manager.restartInput(view)
         manager.updateSelection(view, state.selectionStart, state.selectionEnd, state.composingStart, state.composingEnd)
     }
 }

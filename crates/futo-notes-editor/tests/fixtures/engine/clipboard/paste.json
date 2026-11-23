@@ -612,5 +612,61 @@
     "text": "- a\n- b",
     "after": "- a\n- b\n- a\n- b^\n\n| a | b |\n|---|---|\n| 1 | 2 |",
     "marks": "^{}"
+  },
+  {
+    "name": "paste: text over a selected marker writes it in the marker's place",
+    "marks": "^{}",
+    "before": "{10. }a",
+    "command": "paste",
+    "text": "x",
+    "after": "x^a"
+  },
+  {
+    "name": "paste: a marker over a selected marker makes that item",
+    "marks": "^{}",
+    "before": "> {- [ ] }a",
+    "command": "paste",
+    "text": "5. ",
+    "after": "> 5. ^a"
+  },
+  {
+    "name": "paste: before an item's marker the text leads the line",
+    "marks": "^{}",
+    "before": "  ^- a",
+    "command": "paste",
+    "text": "x",
+    "after": "  x^- a"
+  },
+  {
+    "name": "paste: a copied number marker at a line's start makes an item, nothing moved",
+    "marks": "^{}",
+    "before": "^foo",
+    "command": "paste",
+    "text": "10. ",
+    "after": "10. ^foo"
+  },
+  {
+    "name": "paste: a copied marker mid-line is its characters",
+    "marks": "^{}",
+    "before": "ab^cd",
+    "command": "paste",
+    "text": "10. ",
+    "after": "ab10. ^cd"
+  },
+  {
+    "name": "paste: a copied task marker at a line's start makes a task",
+    "marks": "^{}",
+    "before": "^foo\r\nbar",
+    "command": "paste",
+    "text": "- [ ] ",
+    "after": "- [ ] ^foo\r\nbar"
+  },
+  {
+    "name": "paste: a copied bullet marker in a quote stays on the line",
+    "marks": "^{}",
+    "before": "> ^foo",
+    "command": "paste",
+    "text": "- ",
+    "after": "> - ^foo"
   }
 ]

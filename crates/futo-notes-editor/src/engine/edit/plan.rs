@@ -124,6 +124,8 @@ impl Engine {
     /// so does a table it covers every cell of (`whole_tables`).
     /// Every plan, so every input, key and command, first takes `range`'s
     /// ends out of images and wikilinks (`plan_writing`).
+    /// Deleting exactly a list item's marker takes it off as Backspace after
+    /// it does (`commands/lists/marker.rs`).
     pub(crate) fn plan(&self, range: DisplayRange, text: &str) -> Plan {
         self.plan_writing(range, text, !text.is_empty())
     }
@@ -142,6 +144,19 @@ impl Engine {
     /// No plan writes front matter (`in_body`).
     fn plan_writing(&self, range: DisplayRange, text: &str, writes: bool) -> Plan {
         let range = self.whole_tables(self.outside_atoms(self.in_body(range)));
+        let removal = text
+            .is_empty()
+            .then(|| self.selected_marker(range))
+            .flatten();
+        if let Some(removal) = removal.and_then(|index| self.marker_removal(index)) {
+            return Plan {
+                range: removal.edit.range,
+                inserted: removal.edit.text,
+                caret: removal.caret,
+                parsed: 0,
+                carry: None,
+            };
+        }
         let plan = self.replacement(range, text, writes);
         // A deletion keeps a span's format when it leaves a space at its
         // edge (inline family, `commands/inline/typing.rs`).
@@ -218,7 +233,10 @@ impl Engine {
         let (_, hi_e) = self.source_span(e);
         let (from, to) = match &reach {
             Some(reach) => (reach.start, self.kept_break(reach.start, reach.end, writes)),
-            None => (self.source_bounds(s).1, self.source_bounds(e).0),
+            None => {
+                let from = self.source_bounds(s).1;
+                (from, self.past_joined_marker(from, self.source_bounds(e).0))
+            }
         };
         let lo_s = lo_s.min(from);
         let hi_e = hi_e.max(to);

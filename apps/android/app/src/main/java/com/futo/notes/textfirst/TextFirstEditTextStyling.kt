@@ -99,6 +99,7 @@ internal fun TextFirstEditText.restyleMarked(e: Editable, start: Int, composingE
 }
 
 internal fun TextFirstEditText.addSpans(target: Spannable, specs: List<SpanSpec>, previousPhotos: List<TfImage> = emptyList()) {
+    storeListMarkerUnits(target, specs)
     val mintedKeys = mintedTableKeys(specs)
     for (spec in specs) {
         if (spec.end < spec.start || spec.end > target.length - 1) continue
@@ -129,11 +130,14 @@ internal fun rendererSpanFlags(target: CharSequence, span: TfSpan, start: Int, e
     // Composition supplies raw text without new semantic windows. Keep the
     // existing block style on text inserted at its start or unfinished end.
     // A terminating newline belongs to this span, but the next line does not.
-    return when {
+    val extent = when {
         !block -> TF_SPAN_FLAGS
         end >= target.length - 1 && (end == start || target[end - 1] != '\n') -> Spanned.SPAN_INCLUSIVE_INCLUSIVE
         else -> Spanned.SPAN_INCLUSIVE_EXCLUSIVE
     }
+    // A list row's look (a checked task's strike) is applied before its marker's, which keeps the box unstruck,
+    // whichever of the two was set last (a restyle sets the row again after its marker).
+    return if (span is TfList) extent or (1 shl Spanned.SPAN_PRIORITY_SHIFT) else extent
 }
 
 internal fun TextFirstEditText.requestImageLoads(from: Int = 0, to: Int = Int.MAX_VALUE) {

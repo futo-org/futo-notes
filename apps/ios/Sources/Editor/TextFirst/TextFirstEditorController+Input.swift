@@ -40,6 +40,17 @@ extension TextFirstEditorController: UITextViewDelegate {
         return true
     }
 
+    /// UIKit opens its caret menu (Paste, Select…) for a tap near the caret. A tap on a list
+    /// marker, or a checkbox, beside the caret moves the caret or ticks the box, and a tap
+    /// beside a code block at the note's edge opens a line there; they open no menu.
+    func textView(
+        _ textView: UITextView, editMenuForTextIn range: NSRange,
+        suggestedActions: [UIMenuElement]
+    ) -> UIMenu? {
+        guard touchOpensNoCaretMenu, range.length == 0 else { return nil }
+        return UIMenu(children: [])
+    }
+
     func textView(
         _ textView: UITextView,
         willPresentEditMenuWith animator: any UIEditMenuInteractionAnimating
@@ -68,11 +79,17 @@ extension TextFirstEditorController: UITextViewDelegate {
         selectionChanges += 1
         // The touch has placed its caret; what UIKit asks about from here on is on screen.
         self.textView.fingerIsDown = false
-        invalidateMarkerHighlights(old: lastDrawnSelection, new: textView.selectedRange)
+        invalidateImageHighlights(old: lastDrawnSelection, new: textView.selectedRange)
+        // The menu shown for a marker hold or Select All is about the selection it was shown
+        // for; UIKit hides its own menu the same way when the selection or the text changes.
+        // (Select All's clipping as the note scrolls moves the selection under `applying`.)
+        if applying == 0, textView.selectedRange != lastDrawnSelection {
+            selectionMenu?.dismissMenu()
+        }
         lastDrawnSelection = textView.selectedRange
         if assertTrailingTypingAttributes() { invalidateLastParagraph() }
         syncEmptyLineTypingAttributes()
-        syncImageTypingAttributes()
+        syncAtomTypingAttributes()
         if opening {
             // The keyboard reads the caret at once; the engine takes it when it lands.
             if applying == 0, !closed { queueSelectionWhileOpening(textView.selectedRange) }

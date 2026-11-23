@@ -1,27 +1,9 @@
 import UIKit
 
 // A tap on a task's checkbox toggles it through the engine (`ToggleTask`) and leaves the caret
-// and the keyboard where they were; the checkbox is drawn by a layout fragment, not a character.
+// and the keyboard where they were; the checkbox is drawn over the item's marker unit.
 
 extension TextFirstEditorController: UIGestureRecognizerDelegate {
-    /// The text of `fragment`'s row spans the selection: a non-empty selection that starts at or
-    /// before the row's first character and ends at or after its last (its line break aside).
-    func selectionRange(for fragment: NSTextLayoutFragment, in manager: NSTextLayoutManager)
-        -> NSRange?
-    {
-        let selected = textView.selectedRange
-        guard selected.length > 0 else { return nil }
-        let start = manager.offset(
-            from: manager.documentRange.location, to: fragment.rangeInElement.location)
-        let end =
-            start
-            + manager.offset(
-                from: fragment.rangeInElement.location, to: fragment.rangeInElement.endLocation)
-        let text = storage.string as NSString
-        let rowEnd = (end > start && text.character(at: end - 1) == 0x0A) ? end - 1 : end
-        return selected.location <= start && NSMaxRange(selected) >= rowEnd ? selected : nil
-    }
-
     /// Whether the selection covers all of `run`, a glyph run in `fragment`'s paragraph.
     func selectionCovers(
         _ run: NSRange, in fragment: NSTextLayoutFragment, _ manager: NSTextLayoutManager
@@ -34,8 +16,8 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
             && NSMaxRange(selected) >= start + NSMaxRange(run)
     }
 
-    /// Repaint the rows whose marker highlight may change with the selection.
-    func invalidateMarkerHighlights(old: NSRange, new: NSRange) {
+    /// Repaint the rows whose image tint may change with the selection.
+    func invalidateImageHighlights(old: NSRange, new: NSRange) {
         guard old.length > 0 || new.length > 0, let manager = textView.textLayoutManager,
             let content = manager.textContentManager
         else { return }
@@ -45,15 +27,16 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         let to = content.location(
             manager.documentRange.location, offsetBy: min(NSMaxRange(union), storage.length))
         if let from, let to, let range = NSTextRange(location: from, end: to) {
-            manager.invalidateLayout(for: range)
+            manager.invalidateRenderingAttributes(for: range)
         }
     }
 
     func installTapRecognizer() {
+        installMarkerHold()
         layoutDelegate.host = self
         textView.textLayoutManager?.delegate = layoutDelegate
         (textView.textLayoutManager?.textContentManager as? NSTextContentStorage)?.delegate =
-            imageBreakDelegate
+            typesetDelegate
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         tap.cancelsTouchesInView = false
         tap.delegate = self
@@ -66,7 +49,10 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         let tracker = TextFirstTouchTracker(target: nil, action: nil)
         tracker.onChange = { [weak self] down in
             self?.textView.fingerIsDown = down
-            if !down { self?.renderHoldChanged() }
+            if !down {
+                self?.renderHoldChanged()
+                self?.touchEnded()
+            }
         }
         textView.addGestureRecognizer(tracker)
         installBlockDrag()
@@ -81,20 +67,38 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         return g is TextFirstTouchTracker || other is TextFirstTouchTracker
     }
 
-    /// While a press may lift, UIKit's long-presses on the note (the loupe, long-press
-    /// selection) wait for the lift to fail: they act only where a press lifts nothing.
+    /// While a press may lift, or came down on a list marker while the note is edited, UIKit's
+    /// long-presses on the note wait for ours to fail.
     func gestureRecognizer(
         _ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer
     ) -> Bool {
-        g === liftRecognizer && liftArmed && other !== g
-            && other is UILongPressGestureRecognizer && other.view === textView
+        let armed =
+            (g === liftRecognizer && liftArmed) || (g === markerHoldRecognizer && markerHoldArmed)
+        return armed && other !== g && other is UILongPressGestureRecognizer
+            && other.view === textView
     }
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         // A press that may not lift is never the lift's: the platform has it from touch-down.
         if g === liftRecognizer { return liftArmed }
+        if g is TextFirstMarkerDoubleTap {
+            return isMarkerDoubleTapTouch(at: touch.location(in: textView))
+        }
+        if g === markerHoldRecognizer {
+            markerHoldArmed =
+                textView.isFirstResponder
+                && markerUnitFragment(at: touch.location(in: textView)) != nil
+            return markerHoldArmed
+        }
+        touchDown(at: touch.location(in: textView))
+        return true
+    }
+
+    /// What a touch coming down at `p` (text view coordinates) is on, before any recognizer acts.
+    func touchDown(at p: CGPoint) {
         selectionBeforeTouch = textView.selectedRange
-        let p = touch.location(in: textView)
+        touchDownTime = CACurrentMediaTime()
+        touchOpensNoCaretMenu = markerUnitFragment(at: p) != nil || codeBlockEdge(at: p) != nil
         touchHitCheckbox = checkboxFragment(at: p) != nil
         // A touch on a checkbox or a link is that control's alone: the text view does not take
         // focus (no caret, no keyboard), as Android's touch handler consumes it.
@@ -105,8 +109,22 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
                 MainActor.assumeIsolated { self?.suppressFocus = false }
             }
         }
-        return true
     }
+
+    /// The touch ended or was cancelled. UIKit asks for its caret menu just after a tap; past
+    /// that, a menu asked for with no new touch (a hardware key, then the menu) is UIKit's.
+    func touchEnded() {
+        let touch = touchDownTime
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.touchDownTime == touch else { return }
+                self.touchOpensNoCaretMenu = false
+            }
+        }
+    }
+
+    /// UIKit's own long-press threshold: a press this long is a hold, not a tap.
+    static let holdDuration: CFTimeInterval = 0.5
 
     var inset: UIEdgeInsets { textView.textContainerInset }
 
@@ -115,16 +133,19 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
             for: CGPoint(x: p.x - inset.left, y: p.y - inset.top))
     }
 
-    /// The fragment whose checkbox (with a generous touch margin) holds `p`.
-    func checkboxFragment(at p: CGPoint) -> TextFirstLayoutFragment? {
-        guard let f = fragment(at: p) as? TextFirstLayoutFragment, let box = f.checkboxRect
-        else {
-            return nil
-        }
-        let frame = f.layoutFragmentFrame
-        let rect = box.offsetBy(dx: inset.left, dy: frame.minY + inset.top).insetBy(
-            dx: -12, dy: -12)
+    /// The fragment whose list marker unit holds `p`: across the unit, from where the item's
+    /// text starts to the far edge of its marker column, and the row's height with a margin.
+    func markerUnitFragment(at p: CGPoint) -> TextFirstLayoutFragment? {
+        guard let f = fragment(at: p) as? TextFirstLayoutFragment, let unit = f.markerUnit
+        else { return nil }
+        let rect = unit.rect.offsetBy(dx: inset.left, dy: f.layoutFragmentFrame.minY + inset.top)
+            .insetBy(dx: 0, dy: -8)
         return rect.contains(p) ? f : nil
+    }
+
+    /// The fragment whose task checkbox (its marker unit) holds `p`.
+    func checkboxFragment(at p: CGPoint) -> TextFirstLayoutFragment? {
+        markerUnitFragment(at: p).flatMap { $0.block.list?.marker == .task ? $0 : nil }
     }
 
     /// The storage range of the image whose drawn rect holds `p`, if any.
@@ -207,6 +228,11 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
             suppressFocus = false
             return
         }
+        // Only a tap opens a line there: a press held as long as a hold changes nothing.
+        if g.state == .ended, let edge = codeBlockEdge(at: g.location(in: textView)) {
+            if CACurrentMediaTime() - touchDownTime < Self.holdDuration { openLine(beside: edge) }
+            return
+        }
         if g.state == .ended, let hit = tableCellHit(at: g.location(in: textView)) {
             suppressFocus = false
             openCellEditor(hit)
@@ -236,17 +262,19 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
         suppressFocus = false
         let offset = manager.offset(
             from: manager.documentRange.location, to: f.rangeInElement.location)
-        // The text view moved its caret to the tap; the engine never heard about it.
+        // The text view may have moved its caret to the tap (and told the engine): put it back.
         toggleTask(atLineOffset: offset, keeping: selectionBeforeTouch)
     }
 
-    /// Toggle the task on the line at `offset`, leaving the view's selection at `kept` (what
-    /// it was before the touch, or before puppet's `ToggleTask`).
+    /// Toggle the task on the line at `offset`, leaving the selection at `kept` (what it was
+    /// before the touch, or before puppet's `ToggleTask`). In a focused note UIKit has already
+    /// moved the caret to the tap and reported it, so the engine is told the kept one too.
     func toggleTask(atLineOffset offset: Int, keeping kept: NSRange) {
         toggleTask(atLineOffset: offset)
         applying += 1
         textView.selectedRange = kept
         applying -= 1
+        if !closed, !engineBusy, kept != engineSelection { reportSelection(kept) }
     }
 
     func toggleTask(atLineOffset offset: Int) {

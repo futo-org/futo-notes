@@ -223,7 +223,8 @@ fn with_range(spec: &StyleSpec, start: usize, end: usize, first: bool) -> StyleS
             start: s, end: e, ..
         }
         | StyleSpec::Tag { start: s, end: e }
-        | StyleSpec::Divider { start: s, end: e } => (*s, *e) = (start, end),
+        | StyleSpec::Divider { start: s, end: e }
+        | StyleSpec::ListMarker { start: s, end: e } => (*s, *e) = (start, end),
         StyleSpec::ListRow {
             start: s,
             end: e,
@@ -342,7 +343,7 @@ fn a_list_row_straddling_the_window_start_stays_one_piece_without_a_second_marke
     let session = EditorSession::open("- abcdefgh\n- x\n");
     let display = session.display_text();
     let mirror = DisplayMirror::new(&display);
-    let rows: Vec<_> = windowed(&session, &mirror, 7, 11)
+    let rows: Vec<_> = windowed(&session, &mirror, 10, 17)
         .into_iter()
         .filter_map(|s| match s {
             StyleSpec::ListRow {
@@ -353,7 +354,7 @@ fn a_list_row_straddling_the_window_start_stays_one_piece_without_a_second_marke
         .collect();
     // The marker row began before the window: its tail is one piece, not the first; the next row
     // is whole.
-    assert_eq!(rows, vec![(7, 9, false), (9, 11, true)]);
+    assert_eq!(rows, vec![(8, 10, false), (10, 13, true)]);
 }
 
 #[test]
@@ -373,9 +374,9 @@ fn every_window_of_a_crlf_note_matches_the_whole_plan() {
 #[test]
 fn a_crlf_line_owns_its_whole_break_so_an_empty_row_has_a_span() {
     // An empty row is only its line break: a span that stops before the `\r` is zero-length, and
-    // the host never styles it.
+    // the host never styles it. An empty item is never empty: it shows its marker unit.
     let (display, spans) = plan("- [ ] a\r\n- [ ] \r\n- [ ] b");
-    assert_eq!(display, "a\r\n\r\nb");
+    assert_eq!(display, "\u{fffc}a\r\n\u{fffc}\r\n\u{fffc}b");
     let rows: Vec<_> = spans
         .iter()
         .filter_map(|s| match s {
@@ -383,7 +384,7 @@ fn a_crlf_line_owns_its_whole_break_so_an_empty_row_has_a_span() {
             _ => None,
         })
         .collect();
-    assert_eq!(rows, vec![(0, 3), (3, 5), (5, 6)]);
+    assert_eq!(rows, vec![(0, 4), (4, 7), (7, 9)]);
     let (display, spans) = plan("> a\r\n> \r\n> b");
     assert_eq!(display, "a\r\n\r\nb");
     let quotes: Vec<_> = spans
@@ -398,15 +399,16 @@ fn a_crlf_line_owns_its_whole_break_so_an_empty_row_has_a_span() {
 
 #[test]
 fn an_empty_last_row_is_a_zero_length_span_at_the_end_of_the_display() {
-    // No line break follows it, so it stays zero-length: the host draws it from the span's
-    // marker facts, not its range.
+    // No line break follows it, so it stays zero-length. An empty last item is not empty: its row
+    // and its marker atom cover its one unit.
     let (display, spans) = plan("abc\r\n- [ ] ");
-    assert_eq!(display, "abc\r\n");
+    assert_eq!(display, "abc\r\n\u{fffc}");
+    assert!(spans.contains(&StyleSpec::ListMarker { start: 5, end: 6 }));
     assert!(spans.iter().any(|s| matches!(
         s,
         StyleSpec::ListRow {
             start: 5,
-            end: 5,
+            end: 6,
             marker: ListMarker::Task,
             first: true,
             ..

@@ -154,16 +154,17 @@ fn insertion_is_one_history_action_with_the_caret_after_the_image() {
         ("", (0, 0), "![](image-9.png)", "![](image-9.png)"),
         // In a list item the image stays inline (a plain line gives it a
         // line of its own, `fixtures/engine/images.json`).
+        // The item's marker is one unit of 3 bytes at its display start.
         (
             "- ab cd",
-            (2, 2),
+            (5, 5),
             "- ab![](image-9.png) cd",
             "![](image-9.png)",
         ),
         // A selection is replaced by the image.
         (
             "- ab cd",
-            (1, 4),
+            (4, 7),
             "- a![](image-9.png)d",
             "![](image-9.png)",
         ),
@@ -194,7 +195,11 @@ fn insertion_is_one_history_action_with_the_caret_after_the_image() {
         assert_eq!(editor.source_text(), saved, "{source:?}");
         assert_eq!(records.len(), 1, "one recovery record");
         assert_eq!(view.text, editor.display_text());
-        let found = atoms(&editor);
+        // A list item's marker is an atom of its own.
+        let found: Vec<_> = atoms(&editor)
+            .into_iter()
+            .filter(|atom| atom.kind == AtomKind::Image)
+            .collect();
         assert_eq!(found.len(), 1);
         assert_eq!(
             &editor.display_text()[found[0].range.start.0..found[0].range.end.0],

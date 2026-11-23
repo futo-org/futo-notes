@@ -142,5 +142,17 @@
             let selected = blue(fragment(h))
             #expect(selected > plain + 20, "blue \(plain) -> \(selected)")
         }
+
+        /// The tint is repainted, not relaid: relaying the selected lines left the screen's top
+        /// unlaid after an Undo, and TextKit moved the page to the first laid line below them.
+        @Test func aSelectionChangeLeavesItsLinesLaidOut() async throws {
+            let (h, _) = await open("above\n\n![](line-a.png)\n\nbelow", ["line-a.png": (120, 80)])
+            h.tv.selectedRange = NSRange(location: 0, length: (h.tv.text! as NSString).length)
+            let manager = try #require(h.tv.textLayoutManager)
+            manager.enumerateTextLayoutFragments(from: manager.documentRange.location) {
+                #expect($0.state == .layoutAvailable, "\($0.rangeInElement)")
+                return true
+            }
+        }
     }
 #endif

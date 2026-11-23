@@ -60,7 +60,9 @@ final class TextFirstSelectionUITests: XCTestCase {
         editor.typeText("Nested")
         let before = try XCTUnwrap(editor.value as? String)
         XCTAssertTrue(before.contains("Nested") && before.contains("Elements"))
-        let line = try XCTUnwrap(before.components(separatedBy: "\n").firstIndex(of: "Elements"))
+        // Each item's line starts with its marker unit.
+        let line = try XCTUnwrap(
+            before.components(separatedBy: "\n").firstIndex { $0.hasSuffix("Elements") })
         let y = 4 + CGFloat(line) * (UIFont.systemFont(ofSize: 17).lineHeight + 4) + 10
         for x in [82.0, 98.0, 119.0] {
             editor.coordinate(withNormalizedOffset: .zero)

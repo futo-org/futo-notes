@@ -95,7 +95,7 @@ fn tables_project_cells_and_alignment_and_only_real_tables() {
         let session = EditorSession::open(plain);
         assert!(
             session
-                .inspect_table(Revision(0), range(2, 2))
+                .inspect_table(Revision(0), range(4, 4))
                 .unwrap()
                 .is_none(),
             "{plain:?}"

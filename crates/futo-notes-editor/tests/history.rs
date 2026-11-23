@@ -33,8 +33,8 @@ fn undo_after_a_typed_heading_in_an_item_walks_back_through_typed_states() {
     use futo_notes_editor::{InputAction, ParagraphKey};
     let clock = Arc::new(Clock::default());
     let mut s = EditorSession::open_with_clock("1. first step\n2. second step", clock);
-    let mut view = ReferenceView::new("first step\nsecond step");
-    s.select(s.revision(), range(11, 11)).unwrap();
+    let mut view = ReferenceView::new("\u{fffc}first step\n\u{fffc}second step");
+    s.select(s.revision(), range(17, 17)).unwrap();
     let mut states = vec![(s.source_text(), s.selection())];
     for _ in 0..2 {
         view.apply(
@@ -67,7 +67,10 @@ fn undo_after_a_typed_heading_in_an_item_walks_back_through_typed_states() {
         "1. first step\n2. \n3. \n4. ## Sub headingsecond step"
     );
     // A list item holds no heading: `## ` after a number is the item's text.
-    assert_eq!(view.text, "first step\n\n\n## Sub headingsecond step");
+    assert_eq!(
+        view.text,
+        "\u{fffc}first step\n\u{fffc}\n\u{fffc}\n\u{fffc}## Sub headingsecond step"
+    );
     for (source, selection) in states.into_iter().rev() {
         view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), source);
@@ -77,7 +80,7 @@ fn undo_after_a_typed_heading_in_an_item_walks_back_through_typed_states() {
         }
     }
     assert_eq!(s.source_text(), "1. first step\n2. second step");
-    assert_eq!(view.text, "first step\nsecond step");
+    assert_eq!(view.text, "\u{fffc}first step\n\u{fffc}second step");
 }
 
 #[test]

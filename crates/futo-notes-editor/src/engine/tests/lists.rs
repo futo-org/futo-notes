@@ -9,6 +9,7 @@ use crate::{Affinity, BlockCommand, DisplayRange, InputAction, ParagraphKey};
 use serde::Deserialize;
 use std::ops::Range;
 
+mod marker_input;
 mod work;
 
 #[derive(Deserialize)]
@@ -42,7 +43,7 @@ fn unmark(marked: &str) -> (String, Range<usize>) {
 }
 
 /// Select source `selected`: a caret at exactly that source offset.
-fn select_source(engine: &mut Engine, selected: Range<usize>) {
+pub(super) fn select_source(engine: &mut Engine, selected: Range<usize>) {
     let (start, end) = (
         engine.display_of(selected.start),
         engine.display_of(selected.end),
@@ -120,6 +121,7 @@ fn list_cases() {
         include_str!("../../../tests/fixtures/engine/lists/indent.json"),
         include_str!("../../../tests/fixtures/engine/lists/toggles.json"),
         include_str!("../../../tests/fixtures/engine/lists/typed.json"),
+        include_str!("../../../tests/fixtures/engine/lists/marker.json"),
     ]
     .into_iter()
     .flat_map(|file| serde_json::from_str::<Vec<Case>>(file).unwrap())
@@ -205,6 +207,49 @@ fn the_checkbox_toggle_keeps_the_selection_on_another_line() {
     }
 }
 
+/// A host points the checkbox toggle at the first task's line; a caret
+/// before a marker, or a selection of exactly a marker, on that line or the
+/// next, stays where it was, through Undo and Redo.
+#[test]
+fn the_checkbox_toggle_keeps_a_caret_or_selection_at_a_marker() {
+    let source = "- [ ] a\n- [ ] b";
+    let second = Engine::open(source).display_text().find('\n').unwrap() + 1;
+    let unit = crate::engine::line::ATOM_TEXT.len();
+    for (start, end, affinity) in [
+        (0, 0, Affinity::Forward),
+        (0, unit, Affinity::Forward),
+        (second, second, Affinity::Forward),
+        (second, second + unit, Affinity::Forward),
+    ] {
+        let mut engine = Engine::open(source);
+        super::select(&mut engine, start, end, affinity);
+        let now = |engine: &Engine| {
+            (
+                engine.selection(),
+                engine.affinity(),
+                engine.caret_source(),
+                engine.selected_marker(engine.selection()),
+            )
+        };
+        let kept = now(&engine);
+        engine
+            .block(
+                engine.revision(),
+                range(0, 0),
+                BlockCommand::ToggleTask,
+                &mut ok,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(engine.source_text(), "- [x] a\n- [ ] b");
+        assert_eq!(now(&engine), kept, "after the toggle, at {start}..{end}");
+        engine.undo(engine.revision(), &mut ok).unwrap().unwrap();
+        assert_eq!(now(&engine), kept, "after Undo, at {start}..{end}");
+        engine.redo(engine.revision(), &mut ok).unwrap().unwrap();
+        assert_eq!(now(&engine), kept, "after Redo, at {start}..{end}");
+    }
+}
+
 #[test]
 fn the_toolbar_offers_indent_on_items_and_outdent_on_indented_items() {
     for (source, caret, indents) in [
@@ -214,8 +259,8 @@ fn the_toolbar_offers_indent_on_items_and_outdent_on_indented_items() {
         ("- item", 0, (true, false)),
         ("1. item", 0, (true, false)),
         ("> - item", 0, (true, false)),
-        ("- a\n\t- b", 2, (true, true)),
-        ("- a\n  - [ ] b", 2, (true, true)),
+        ("- a\n\t- b", 5, (true, true)),
+        ("- a\n  - [ ] b", 5, (true, true)),
     ] {
         let mut engine = Engine::open(source);
         super::select(&mut engine, caret, caret, Affinity::Forward);

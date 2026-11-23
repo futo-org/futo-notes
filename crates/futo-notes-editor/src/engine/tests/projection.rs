@@ -32,15 +32,18 @@ fn list_lines_report_their_own_indent_and_marker_as_typed() {
         lists,
         [
             Some((0, 0, "3)", true, None)),
-            Some((6, 2, "-", false, None)),
-            Some((17, 5, "*", false, None)),
-            Some((22, 4, "+", false, None)),
-            Some((26, 0, "-", false, Some(true))),
-            Some((31, 2, "", false, None)),
+            Some((9, 2, "-", false, None)),
+            Some((23, 5, "*", false, None)),
+            Some((31, 4, "+", false, None)),
+            Some((38, 0, "-", false, Some(true))),
+            Some((46, 2, "", false, None)),
             None,
         ]
     );
-    assert_eq!(slice.text, "three\ntwo spaces\nfive\ntab\ndone\nplain\nnot");
+    assert_eq!(
+        slice.text,
+        "\u{fffc}three\n\u{fffc}two spaces\n\u{fffc}five\n\u{fffc}tab\n\u{fffc}done\nplain\nnot"
+    );
 }
 
 #[test]
@@ -116,7 +119,7 @@ fn a_projection_describes_each_line_from_its_reading() {
 fn an_empty_last_line_and_an_empty_code_block_keep_their_blocks() {
     let slice = projected("- a\n- ");
     let last = slice.blocks.last().unwrap();
-    assert_eq!(last.range, range(2, 2));
+    assert_eq!(last.range, range(5, 8));
     assert_eq!(last.list.as_ref().unwrap().marker, "-");
     let slice = projected("```js\n```");
     assert_eq!(slice.blocks.len(), 1);
@@ -330,7 +333,7 @@ fn code_facts(slice: &crate::ProjectionSlice) -> (Vec<String>, Vec<String>) {
 #[test]
 fn a_fence_under_an_item_hides_its_indent_on_code_lines() {
     let slice = projected("- item\n  ```js\n  code\n    more\n less\n  ```");
-    assert_eq!(slice.text, "item\ncode\n  more\n less");
+    assert_eq!(slice.text, "\u{fffc}item\ncode\n  more\n less");
     let hidden: Vec<_> = slice
         .correspondence
         .iter()
@@ -375,7 +378,8 @@ fn code_lines_know_their_block() {
         (
             "- item\n  ```js\n  code\n  ```\n- next",
             &["1<>"],
-            &["5..9 js x1"],
+            // The item's marker unit is three bytes of display before "item".
+            &["8..12 js x1"],
         ),
         (
             "```go name:api handlers.go hl:1,3 ll:2-3\none\ntwo\nthree\nfour\n```",

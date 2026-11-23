@@ -135,10 +135,10 @@ impl Engine {
         let glyphs = glyphs(entry);
         let at = glyphs.partition_point(|glyph| before.display + glyph.display < caret);
         if range.start == range.end {
-            if self.quote_space(self.input_at(range), text) {
-                return quote_typed(entry, before.source, text, formats);
-            }
             let pin = self.input_at(range) - before.source;
+            if let Some(typed) = self.edge_typed(entry, before.source, pin, text, formats) {
+                return typed;
+            }
             let mut places = gap(entry, &glyphs, at);
             places.sort_by_key(|&place| place != pin);
             let typed = typed_in(
@@ -310,6 +310,67 @@ fn quote_typed(entry: &Entry, start: usize, text: &str, formats: &[InlineFormat]
         inserted: format!(" {}", typed.inserted),
         parsed: typed.parsed + parsed,
         ..typed
+    })
+}
+
+impl Engine {
+    /// Typing at a caret that changes how its line reads: on an empty quote
+    /// line that needs its space (`quote_typed`), or just before a list
+    /// item's marker (`before_marker_typed`). `None` elsewhere.
+    fn edge_typed(
+        &self,
+        entry: &Entry,
+        start: usize,
+        pin: usize,
+        text: &str,
+        formats: &[InlineFormat],
+    ) -> Option<Option<Typed>> {
+        if self.quote_space(start + pin, text) {
+            return Some(quote_typed(entry, start, text, formats));
+        }
+        let before_marker = entry.marker_unit().is_some_and(|unit| unit.start == pin);
+        before_marker.then(|| before_marker_typed(entry, start, pin, text, formats))
+    }
+}
+
+/// Text typed just before a list item's marker, at line offset `pin`: the
+/// line then reads as the file does (`x- a` is plain), so its marker shows
+/// as text. A placeholder written there plainly reads that line; the typed
+/// text takes its place in the carried formats.
+fn before_marker_typed(
+    entry: &Entry,
+    start: usize,
+    pin: usize,
+    text: &str,
+    formats: &[InlineFormat],
+) -> Option<Typed> {
+    let mut line = entry.text.clone();
+    line.insert(pin, 'a');
+    let mut parsed = 0;
+    let shown = Draft::of(entry).with_text(line).read(&mut parsed);
+    let shown_glyphs = glyphs(&shown);
+    let at = shown_glyphs.iter().position(|glyph| glyph.src == pin)?;
+    let typed = typed_in(
+        &shown,
+        start,
+        &shown_glyphs,
+        at..at + 1,
+        &[pin],
+        text,
+        formats,
+    )?;
+    let mut written = shown.text.clone();
+    written.replace_range(
+        typed.range.start - start..typed.range.end - start,
+        &typed.inserted,
+    );
+    let (range, inserted) = difference(start, &entry.text, &written);
+    Some(Typed {
+        range,
+        inserted,
+        caret: typed.caret,
+        parsed: typed.parsed + parsed,
+        carry: None,
     })
 }
 

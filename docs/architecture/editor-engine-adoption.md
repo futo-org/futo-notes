@@ -51,10 +51,19 @@ The authoritative definitions are `crates/futo-notes-editor/src/types.rs`,
   `first`. `indent` and `level` are different: use `level` for nesting geometry and preserve
   the typed marker; do not derive either from a sequence number. An indented plain line has
   an empty marker. Older `depth`/`number` consumers need adaptation.
+- A list item's marker is in the display text as one U+FFFC at the item's display start (the
+  indent and quote markers before it stay hidden). It stands for the marker's source through
+  the space after it, a task's box included, and is reported as an atom of kind `ListMarker`
+  whose range is that one character; caret stops are before and after it, never inside. The
+  item's block range starts at it, and every display offset after it on the line is one
+  character further than before. A view draws the marker over the unit from the block's
+  `ListDescription` (the unit's own glyph is never shown) and lets the user select, delete and
+  type over it as one character; the engine gives each of those its list meaning.
 - Native style plans expose `ListRow` with `indent`, `level`, marker kind, literal `text`,
-  `checked` and `first`; `Plain` is a marker kind with no marker to draw. The `Tag` span
-  marks the visible `#tag` as ordinary text to decorate. Exhaustive enum consumers must handle
-  both additions. iOS draws list levels and marker text from these values.
+  `checked` and `first`; `Plain` is a marker kind with no marker to draw. A `ListMarker` span
+  covers each marker unit, the way `Divider` covers a divider's. The `Tag` span marks the
+  visible `#tag` as ordinary text to decorate. Exhaustive enum consumers must handle these
+  additions. iOS draws list levels and marker text from these values.
 - A code line's block description carries `code`: its 1-based `line_number`, `first`, `last`
   and `hl:`/`ll:` `mark`. The projection's `code_blocks` (style plan: one `CodeBlock` span per
   window) give each block whole: range, optional `language` (case kept), `name` and

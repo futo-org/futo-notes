@@ -65,10 +65,13 @@ internal class WikilinkTouch(private val view: TextFirstEditText, private val op
     }
 }
 
-/** Reserve only the current paragraph's usable width, including list/quote margins. */
+/**
+ * Reserve only the current paragraph's usable width, including list/quote margins. A list item's text has its hanging
+ * margin on every row: on the first, the marker unit takes the rest of it.
+ */
 internal fun wikilinkContentWidth(view: TextFirstEditText, span: TfWikilink, width: Int): Int {
     val text = view.editableText
     val start = text.getSpanStart(span).coerceAtLeast(0)
-    val margins = text.getSpans(start, start, LeadingMarginSpan::class.java).sumOf { it.getLeadingMargin(true) }
+    val margins = text.getSpans(start, start, LeadingMarginSpan::class.java).sumOf { it.getLeadingMargin(false) }
     return maxOf(1, width - margins)
 }

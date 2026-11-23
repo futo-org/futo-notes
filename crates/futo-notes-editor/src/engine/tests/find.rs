@@ -177,11 +177,12 @@ fn input_carries_matches_without_scanning_and_refuses_stale_scans() {
     // Host matches out of order, overlapping, empty, out of range or inside
     // a character are refused.
     let ours = mine.find_scan_request().unwrap().run();
+    let past_end = mine.display_len() + 1;
     for matches in [
         vec![range(9, 12), range(0, 3)],
         vec![range(0, 3), range(2, 5)],
         vec![range(3, 3)],
-        vec![range(0, source.len() + 1)],
+        vec![range(0, past_end)],
     ] {
         let forged = FindScanResult {
             matches,

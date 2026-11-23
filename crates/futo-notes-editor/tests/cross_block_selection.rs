@@ -19,12 +19,12 @@ fn replaced(note: &str, a: usize, b: usize, input: Input) -> String {
 
 #[test]
 fn every_input_replaces_a_selection_from_a_paragraph_into_a_code_block() {
-    // `[71,176)`: from `note]].` in the intro, which takes the wikilink
+    // `[71,197)`: from `note]].` in the intro, which takes the wikilink
     // whole, to `let ` in the code block.
     for input in Input::ALL {
-        replaced(NOTE, 71, 176, input);
+        replaced(NOTE, 71, 197, input);
     }
-    let source = replaced(NOTE, 71, 176, Input::Type("d"));
+    let source = replaced(NOTE, 71, 197, Input::Type("d"));
     assert!(source.contains(" and d\n\n| A | B |"), "{source:?}");
 }
 
@@ -129,8 +129,8 @@ fn the_mr_634_review_repros_land_and_keep_every_other_line() {
     for (note, a, b, input, expected) in [
         (
             "- a\n- b\n\n```\nc\nd\n```\n",
-            4,
-            6,
+            10,
+            12,
             Input::Enter,
             "- a\n- b\n\n\n",
         ),
@@ -170,12 +170,12 @@ fn the_mr_634_review_repros_land_and_keep_every_other_line() {
             "para\n```\ncode\n```\ntail\n",
         ),
         // M2: the line after the block stays where it is. A code line shows
-        // its indent, so `[4,8)` ends after `c` of `c1` (fences.json "#348 3"),
+        // its indent, so `[7,11)` ends after `c` of `c1` (fences.json "#348 3"),
         // and the block goes whole.
         (
             "- item\n  ```\n  c1\n  c2\n  ```\nplain text here\n",
-            4,
-            8,
+            7,
+            11,
             Input::Paste("pp"),
             "- itempp\nplain text here\n",
         ),
@@ -242,7 +242,7 @@ fn a_text_service_replacement_is_checked_as_one_input() {
         range: range(a, b),
         inserted: text.into(),
     };
-    let runs = [run(4, 12, "d"), run(12, 21, "e")];
+    let runs = [run(7, 18, "d"), run(18, 27, "e")];
     assert!(s.replace_many(s.revision(), &runs, &mut |_| Ok(())).is_ok());
     assert_eq!(s.source_text(), "3) thred\n```\ne\ny = 2\nz = 3\n```");
     // W1, in Linedown (a fence after a task marker is task text): a run that

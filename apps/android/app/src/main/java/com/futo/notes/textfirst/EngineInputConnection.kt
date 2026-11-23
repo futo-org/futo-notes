@@ -135,7 +135,7 @@ internal open class EngineInputConnection(
     override fun getCursorCapsMode(reqModes: Int): Int {
         flushCollapse()
         return if (cell) TextUtils.getCapsMode(engine.text.subSequence(low, high), (selectionStart - low).coerceIn(0, high - low), reqModes)
-        else TextUtils.getCapsMode(engine.text, selectionStart.coerceIn(0, engine.text.length), reqModes)
+        else noteCapsMode(engine.text, selectionStart, reqModes)
     }
 
     override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? {

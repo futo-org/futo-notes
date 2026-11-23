@@ -382,6 +382,10 @@ pub struct ProjectionSlice {
 pub enum AtomKind {
     Image,
     Divider,
+    /// A list item's marker (`-`, `10.`, `- [ ]`) through the space after it,
+    /// shown as one U+FFFC at the item's display start; its block's
+    /// `ListDescription` says what to draw.
+    ListMarker,
 }
 
 /// A non-text atom. `range` covers its visible glyphs (an image keeps its
@@ -471,7 +475,7 @@ pub struct NoteIdWork {
 /// A boundary between lines, as a renderer places it: above the line shown
 /// from display offset `at`, or, when `end`, below the note's last line (`at`
 /// is then the display's end). Around a last line that shows no characters
-/// (an empty task) the boundary above it and the note's end share `at`;
+/// (an empty heading) the boundary above it and the note's end share `at`;
 /// `end` keeps them apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockBoundary {

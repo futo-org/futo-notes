@@ -1,12 +1,16 @@
 //! Words, as a double click, Option+Arrow and Option+Backspace read them: ICU4X's word
 //! segmenter with its full dictionaries, so Chinese, Japanese and Southeast Asian scripts
 //! split as macOS splits them (the smaller LSTM models split Thai and Lao wrongly). A word
-//! never crosses a line break, so each look segments one display line.
+//! never crosses a line break, so each look segments one display line. An inline code
+//! span's edges are word edges too, so ``foo`bar`baz`` is three words; other marks are not.
 //!
 //! `host::DisplayMirror::word_stop` is a different rule on purpose: it maps a native
 //! view's own word delete onto the engine (UAX #29 without dictionaries, a punctuation
-//! run is a stop, never past a line edge), so it stays with what that view deleted.
+//! run is a stop, never past a line edge, blind to code edges), so it stays with what that
+//! view deleted.
+use super::line::Role;
 use super::{store, Engine};
+use crate::lines::SpanKind;
 use crate::{CaretDirection, DisplayOffset, DisplayRange, EditorError, Revision};
 use icu_segmenter::{options::WordBreakInvariantOptions, WordSegmenter};
 use std::ops::Range;
@@ -30,6 +34,25 @@ fn segments(text: &str, start: usize) -> Vec<Segment> {
                 range: start + segment_start..start + to,
                 is_word: kind.is_word_like(),
             })
+        })
+        .collect()
+}
+
+/// `segment` cut at each of `edges` strictly inside it when it is a word; every part is a word.
+fn split_at_edges(segment: Segment, edges: &[usize]) -> Vec<Segment> {
+    if !segment.is_word {
+        return vec![segment];
+    }
+    let Range { start, end } = segment.range;
+    let inside = edges.iter().copied().filter(|&at| start < at && at < end);
+    let cuts: Vec<usize> = std::iter::once(start)
+        .chain(inside)
+        .chain(std::iter::once(end))
+        .collect();
+    cuts.windows(2)
+        .map(|pair| Segment {
+            range: pair[0]..pair[1],
+            is_word: true,
         })
         .collect()
 }
@@ -62,7 +85,39 @@ impl Engine {
         if self.on_delimiter_row(line.start) {
             return Vec::new();
         }
+        let edges = self.code_edges(line.clone());
         segments(&self.display_slice(line.clone()), line.start)
+            .into_iter()
+            .flat_map(|segment| split_at_edges(segment, &edges))
+            .collect()
+    }
+
+    /// The display offsets where inline code starts or ends on display line `line`, sorted.
+    fn code_edges(&self, line: Range<usize>) -> Vec<usize> {
+        let (index, before) = self.line_at_display(store::display, line.start);
+        let mut display = before.display;
+        let mut edges = Vec::new();
+        for entry in self.store.iter_from(index) {
+            if display > line.end {
+                break;
+            }
+            if entry.view.role == Role::Text {
+                let code = entry
+                    .spans
+                    .iter()
+                    .filter(|span| span.kind == SpanKind::Code);
+                edges.extend(code.flat_map(|span| {
+                    [span.open.end, span.close.start].map(|at| display + entry.to_display(at))
+                }));
+            }
+            if entry.view.ending {
+                break;
+            }
+            display += entry.size.display;
+        }
+        edges.sort_unstable();
+        edges.dedup();
+        edges
     }
 
     /// Display offset `offset`, checked, and moved out of a CRLF as a caret is.

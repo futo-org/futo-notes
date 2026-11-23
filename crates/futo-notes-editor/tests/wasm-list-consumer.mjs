@@ -8,7 +8,7 @@ import { fixtureCases, replay } from './wasm-fixture-replay.mjs';
 const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 
 let count = 0;
-for (const file of ['enter', 'indent', 'toggles', 'backspace-delete', 'typed']) {
+for (const file of ['enter', 'indent', 'toggles', 'backspace-delete', 'typed', 'marker']) {
   const cases = fixtureCases(`lists/${file}.json`);
   await replay(WasmSession, process.argv[3], cases, ['‸', '«', '»']);
   count += cases.length;

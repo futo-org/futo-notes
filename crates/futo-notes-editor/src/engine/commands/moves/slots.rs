@@ -6,7 +6,7 @@
 //!
 //! A renderer names a boundary by its display offset and whether it is the
 //! note's end (`BlockBoundary`): around a last line that shows no characters
-//! (an empty task) the boundary above it and the note's end share an offset.
+//! (an empty heading) the boundary above it and the note's end share an offset.
 use super::super::super::command::trial::Dashes;
 use super::super::super::store;
 use super::{quoted, Lifted};

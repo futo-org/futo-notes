@@ -376,8 +376,12 @@ fn random_outside_changes_keep_every_contribution_and_exact_undo() {
         "adopted {adopted}, refused {refused} ({refused_next_to} next to the edits), skipped {skipped}"
     );
     eprintln!("{counts}");
+    // The generator's own guard: most cases adopt. Refusals are mostly the front-matter
+    // history policy, and how many notes get front matter depends on the seed: over 100
+    // seeds they ran 11 of 300 on average and 20 at most, before and after list markers
+    // took a place in the display.
     assert!(
-        adopted > cases() / 2 && refused < cases() / 20 && refused_next_to <= adopted / 100,
+        adopted > cases() / 2 && refused < cases() / 10 && refused_next_to <= adopted / 100,
         "{counts}"
     );
 }

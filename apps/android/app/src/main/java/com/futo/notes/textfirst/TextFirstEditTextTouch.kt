@@ -6,6 +6,7 @@ import android.view.MotionEvent
 internal fun TextFirstEditText.routeTouch(event: MotionEvent): Boolean {
     if (event.actionMasked == MotionEvent.ACTION_DOWN) { restoring = null; stopPinning(); scroll.down(event) } else scroll.track(event)
     caretEdge.onNoteTouch(event)
+    listMarkerTouch.onTouch(event)
     // Any lift may leave handles the platform shows anew (a tap, a swipe that brings a selection back on screen).
     if (event.actionMasked == MotionEvent.ACTION_UP) handleWatch.searchAfterLift()
     // A scroll that claims the contact keeps it: no block lifts from it (BlockLift.kt).
@@ -18,18 +19,29 @@ internal fun TextFirstEditText.routeTouch(event: MotionEvent): Boolean {
     if (lineTouch.onTouch(event)) return true
     if (codeTouch.onTouch(event)) return true
     when (event.actionMasked) {
+        // The platform sees a checkbox press too, so a hold selects the box (ListMarkerTouch); a tap ticks it and the
+        // platform's tap is cancelled, so it places no caret. A press held as long as a long press ticks nothing, whatever
+        // took the hold (the box selected, a lift, another field's keyboard).
         MotionEvent.ACTION_DOWN -> {
             checkboxDown = checkboxAt(this, style, event.x, event.y)
-            if (checkboxDown >= 0) return true
+            if (checkboxDown >= 0) return true.also { nativeTouch(event) }
         }
         MotionEvent.ACTION_UP -> if (checkboxDown >= 0) {
             val hit = checkboxAt(this, style, event.x, event.y)
-            if (hit == checkboxDown) engine?.toggleTaskAt(hit)
+            val box = checkboxDown
             checkboxDown = -1
+            if (listMarkerTouch.held || event.eventTime - event.downTime >= android.view.ViewConfiguration.getLongPressTimeout()) return nativeTouch(event)
+            cancelNativeTouch(event)
+            if (hit != box) return true
+            // The tick is a text change: the platform hides a selection's handles and menu but keeps it, and a later hold
+            // on a word would reopen it. So the selection ends first, the caret at its end, and the tick's Undo and Redo
+            // record that.
+            if (hasSelection()) setSelection(selectionEnd)
+            engine?.toggleTaskAt(hit)
             return true
         }
         MotionEvent.ACTION_MOVE -> if (checkboxDown >= 0) return true
-        MotionEvent.ACTION_CANCEL -> if (checkboxDown >= 0) { checkboxDown = -1; return true }
+        MotionEvent.ACTION_CANCEL -> if (checkboxDown >= 0) { checkboxDown = -1; return true.also { nativeTouch(event) } }
     }
     if (event.actionMasked == MotionEvent.ACTION_DOWN) heldInsideSelection = false
     if (event.actionMasked == MotionEvent.ACTION_UP && heldInsideSelection) {

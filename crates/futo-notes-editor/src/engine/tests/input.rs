@@ -201,3 +201,70 @@ impl Engine {
         self.replace_runs(expected, &runs, accept)
     }
 }
+
+/// A text service's replacement and a composition see an item's marker as one
+/// unit: kept when the new text keeps it, never split, never written as U+FFFC.
+#[test]
+fn text_services_and_compositions_see_a_list_marker_as_one_unit() {
+    for (source, fixed) in [
+        ("- teh", "- the"),
+        ("> \t10. teh", "> \t10. the"),
+        ("- [x] teh", "- [x] the"),
+    ] {
+        let mut engine = Engine::open(source);
+        engine
+            .replace(
+                engine.revision(),
+                range(0, 6),
+                "\u{fffc}the",
+                InputAction::Isolated,
+                &mut ok,
+            )
+            .unwrap();
+        assert_eq!(engine.source_text(), fixed);
+        assert!(undo(&mut engine));
+        // A composition replacing the marker writes its text in the marker's place.
+        engine
+            .compose(engine.revision(), range(0, 3), "5. ")
+            .unwrap();
+        engine
+            .commit_composition(engine.revision(), None, &mut ok)
+            .unwrap();
+        let prefix = &source[..source.len() - "teh".len()];
+        let marker = prefix.trim_start_matches(['>', ' ', '\t']);
+        let kept = &prefix[..prefix.len() - marker.len()];
+        assert_eq!(engine.source_text(), format!("{kept}5. teh"), "{source:?}");
+    }
+    // Transpose never swaps a marker with the text after it.
+    let mut engine = Engine::open("- ab");
+    select(&mut engine, 3, 3, Affinity::Forward);
+    assert!(engine
+        .key(
+            engine.revision(),
+            range(3, 3),
+            crate::ParagraphKey::Transpose,
+            &mut ok
+        )
+        .unwrap()
+        .is_none());
+    assert_eq!(engine.source_text(), "- ab");
+}
+
+/// Replacing a list marker atom's range with nothing takes the marker off as
+/// Backspace after it does (images.md): the line stays plain.
+#[test]
+fn deleting_a_list_marker_atom_by_input_takes_the_marker_off() {
+    let mut engine = Engine::open("- # x");
+    engine
+        .replace(
+            engine.revision(),
+            range(0, 3),
+            "",
+            InputAction::Typing,
+            &mut ok,
+        )
+        .unwrap();
+    assert_eq!(engine.source_text(), "\\# x");
+    assert!(undo(&mut engine));
+    assert_eq!(engine.source_text(), "- # x");
+}

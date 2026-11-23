@@ -39,6 +39,7 @@ internal class TextFirstEditText(
     var onOpenUrl: ((String) -> Boolean)? = null
     internal val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
     internal val imageTouch = ImageTouch(this)
+    internal val listMarkerTouch = ListMarkerTouch(this)
     @Volatile override var renderedSelection: Long = Long.MIN_VALUE
         internal set
     @Volatile override var selectedObject: Pair<Int, Int>? = null
@@ -84,8 +85,12 @@ internal class TextFirstEditText(
     internal val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, { invalidateTableScroll(it) })
     internal val marks = FindMarks()
     internal val scroll = NoteScroll(this)
-    internal val spans = TfSpanFactory(style, marks, { contentWidth() }) { span ->
+    internal val spans = TfSpanFactory(style, marks, { contentWidth() }, { span ->
         wikilinkContentWidth(this, span, contentWidth())
+    }) { indent ->
+        val e = editableText
+        val at = e?.getSpanStart(indent) ?: -1
+        if (at < 0) null else continuedTextStart(e, at, indent.depth)
     }
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */
     internal var composing: Any? = null
@@ -192,12 +197,7 @@ internal class TextFirstEditText(
         return platformLongClick()
     }
 
-    private fun platformLongClick(): Boolean {
-        renderHold.longPressed()
-        if (codeTouch.longPress() || imageTouch.longPress() || holdInsideSelectionWithItsMenu()) return true
-        endSelectionUnderHold()
-        return super.performLongClick()
-    }
+    private fun platformLongClick(): Boolean = notePlatformLongClick { super.performLongClick() }
 
     /**
      * The note takes no drop: the platform's would put the text into the view behind the editor's back and report it
@@ -282,7 +282,6 @@ internal class TextFirstEditText(
             drawCodeSelection(canvas)
             drawTextSelection(canvas)
             drawTableSelectionUnder(canvas)
-            drawListSelection(canvas)
             drawFindMarks(canvas)
             val e = editableText as? ChunkedEditable
             e?.drawWindow = visibleChars()

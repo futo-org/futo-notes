@@ -51,8 +51,8 @@ fn the_open_run_and_its_candidates() {
         // The query is the source after `[[`; a wikilink's text is not Markdown.
         ("[[*zz", 5, Some((0, 5, "*zz", vec![]))),
         ("[[Roé", 4, Some((0, 4, "Ro", roadmap()))),
-        // Display offsets: the list marker and indent are hidden.
-        ("- [[Ro", 4, Some((0, 4, "Ro", roadmap()))),
+        // Display offsets: the list marker is one unit, an indent is hidden.
+        ("- [[Ro", 7, Some((3, 7, "Ro", roadmap()))),
         ("    [[Ro", 4, Some((0, 4, "Ro", roadmap()))),
         ("<div>\n[[Ro", 10, Some((6, 10, "Ro", roadmap()))),
         ("`[[Ro", 5, Some((1, 5, "Ro", roadmap()))),

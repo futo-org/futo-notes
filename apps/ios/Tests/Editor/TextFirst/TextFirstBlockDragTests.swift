@@ -205,14 +205,14 @@
         }
 
         @Test func anEmptyTaskOnTheLastLineLiftsAndADropAfterItLandsAfterIt() throws {
-            // The task draws a box and no characters: the display is `a\nb\n`, and the
-            // boundary above the task and the note's end are both at 4, drawn at the top and
-            // the bottom of the task's row.
+            // The task is its marker unit alone: the display is `a\nb\n\u{FFFC}`, the boundary
+            // above the task is at 4 and the note's end at 5, drawn at the top and the bottom
+            // of the task's row.
             let h = TextFirstHarness("a\nb\n- [ ] ", focused: false)
-            let task = try #require(h.controller.liftPlan(at: trailingLine(h)))
-            #expect(task.block == NSRange(location: 4, length: 0))
+            let task = try #require(h.controller.liftPlan(at: h.point(line: 2)))
+            #expect(task.block == NSRange(location: 4, length: 1))
             #expect(task.frame.height > 10)
-            #expect(task.frame.contains(CGPoint(x: 60, y: trailingLine(h).y)))
+            #expect(task.frame.contains(CGPoint(x: 60, y: h.point(line: 2).y)))
             // Over its own row it drops nowhere; above `b` it lands there.
             #expect(task.targets.slot(nearest: task.frame.midY) == nil)
             let aboveB = task.targets.slot(nearest: h.point(line: 1, fraction: 0.2).y)
@@ -220,7 +220,7 @@
             // `a` may land above the task or after it, two targets one row apart.
             let a = try #require(h.controller.liftPlan(at: h.point(line: 0)))
             let above = TextFirstBlockSlot(offset: 4, end: false)
-            let end = TextFirstBlockSlot(offset: 4, end: true)
+            let end = TextFirstBlockSlot(offset: 5, end: true)
             let ys = Dictionary(uniqueKeysWithValues: a.targets.slots.map { ($0.slot, $0.y) })
             let (top, bottom) = (try #require(ys[above]), try #require(ys[end]))
             #expect(top == task.frame.minY && bottom == task.frame.maxY)

@@ -19,44 +19,13 @@
 use super::super::super::super::command::Edit;
 use super::super::draft::diff;
 use super::super::number::{ordinal, spell, step, Level, Step};
+use super::super::written::{marker_start, Written};
 use super::{Arriving, Landing};
 use crate::engine::Engine;
 use crate::lines::block::width;
 use crate::lines::Kind;
 use std::collections::BTreeMap;
 use std::ops::Range;
-
-/// A line as a move writes it: its new body, where the text before
-/// `old_cut` in the old line became the text before `new_cut`, with one `\`
-/// written at `escape` (relative to the cut) when one was needed.
-#[derive(Clone, Debug)]
-pub(in crate::engine::commands) struct Written {
-    pub body: String,
-    pub old_cut: usize,
-    pub new_cut: usize,
-    pub escape: Option<usize>,
-}
-
-impl Written {
-    fn kept(body: &str) -> Self {
-        Self {
-            body: body.to_owned(),
-            old_cut: 0,
-            new_cut: 0,
-            escape: None,
-        }
-    }
-
-    /// Where old line-relative offset `at` (inside the old body) lands: a
-    /// position in the rewritten prefix lands where the text starts.
-    pub fn map(&self, at: usize) -> usize {
-        if at <= self.old_cut {
-            return self.new_cut;
-        }
-        let into = at - self.old_cut;
-        self.new_cut + into + usize::from(self.escape.is_some_and(|k| into > k))
-    }
-}
 
 /// What a move writes besides moving the lines.
 pub(in crate::engine::commands) struct Arrival {
@@ -151,6 +120,8 @@ impl Engine {
                         old_cut: cut,
                         new_cut: prefix.len(),
                         escape: None,
+                        markers: marker_start(&entry.line)
+                            .map(|old| (old, prefix.len() - (cut - old))),
                     },
                     None => Written::kept(entry.body()),
                 },

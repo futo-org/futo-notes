@@ -73,13 +73,15 @@ struct NativeEditorContractSurfaceTests {
             }
             #expect(found == "x a **bo**ld Bold\r\n\r\nBOLD")
 
+            // Display bytes: each item starts with its marker unit, U+FFFC (3 bytes).
             let clipped = try Self.scenario("- ab **cd**") { _, s in
-                #expect(try s.copyMarkdown(expected: 0, range: Self.at(4, 5)) == "**d**")
+                #expect(try s.copyMarkdown(expected: 0, range: Self.at(7, 8)) == "**d**")
                 _ = try #require(
-                    try s.pasteMarkdown(expected: 0, range: Self.at(3, 3), text: "- x\n- y\n"))
+                    try s.pasteMarkdown(expected: 0, range: Self.at(6, 6), text: "- x\n- y\n"))
                 #expect(try s.sourceText() == "- ab \n- x\n- y\n- **cd**")
-                let cut = try s.cutMarkdown(expected: 1, range: Self.at(8, 10))
-                #expect(cut.markdown == "- **cd**")
+                // The last item's text, from its text start: its marker stays.
+                let cut = try s.cutMarkdown(expected: 1, range: Self.at(20, 22))
+                #expect(cut.markdown == "**cd**")
                 #expect(cut.change != nil)
             }
             #expect(clipped == "- ab \n- x\n- y\n- ")

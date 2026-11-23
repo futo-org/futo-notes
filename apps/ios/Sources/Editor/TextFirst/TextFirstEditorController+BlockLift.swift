@@ -190,7 +190,7 @@ extension TextFirstEditorController {
     }
 
     /// The fragment of the note's last paragraph, which holds its empty last line.
-    private func lastFragment() -> TextFirstLayoutFragment? {
+    func lastFragment() -> TextFirstLayoutFragment? {
         guard storage.length > 0, let manager = textView.textLayoutManager,
             let location = manager.textContentManager?.location(
                 manager.documentRange.location, offsetBy: characterStart(storage.length - 1))

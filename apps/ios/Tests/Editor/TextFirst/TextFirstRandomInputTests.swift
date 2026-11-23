@@ -266,7 +266,8 @@
                     Issue.record(Comment(rawValue: failure.description))
                 }
             }
-            #expect(run.h.source.contains("|---|---|"))
+            // The ops may edit the table itself; no dash may become U+2014.
+            #expect(!run.h.source.contains("\u{2014}"))
         }
 
         /// A row with `knownIssue` must still fail (the item is open); any other row must pass

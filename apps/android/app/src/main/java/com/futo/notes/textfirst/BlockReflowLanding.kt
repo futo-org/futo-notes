@@ -62,11 +62,11 @@ internal class ReflowCapture(private val tiles: SliceTiles, private val stretch:
         /** The landing ends at most this long after the release. */
         const val LANDING_CAP_MS = 400L
 
-        /** A paragraph's start, as read to recognise it: list numbers, markers and leading space left out (a move may rewrite them). */
+        /** A paragraph's start, as read to recognise it: list numbers, markers (a list item's marker unit too) and leading space left out (a move may rewrite them). */
         fun probe(text: CharSequence, at: Int, last: Int): String {
             var i = at
             val end = minOf(last, at + 200)
-            while (i < end && text[i] != '\n' && (text[i].isWhitespace() || text[i].isDigit() || text[i] in "-*+[]xX>#.)")) i++
+            while (i < end && text[i] != '\n' && (text[i].isWhitespace() || text[i].isDigit() || text[i] in "-*+[]xX>#.)\uFFFC")) i++
             val out = StringBuilder()
             while (i < end && text[i] != '\n' && out.length < 24) out.append(text[i++])
             return out.toString()

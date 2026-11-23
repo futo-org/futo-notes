@@ -148,41 +148,33 @@ internal fun leadingSpan(x: Int, dir: Int, from: Float, to: Float): Pair<Float, 
 
 internal enum class ListMarker { Bullet, Ordered, Task }
 
-// The own marker column supplies level one. Add three full steps and
-// four half steps, then retain a complete marker at the capped body edge.
-private fun listLead(look: TextFirstStyle, depth: Int): Float =
-    look.listIndent * (depth.coerceIn(0, 3) + (depth - 3).coerceIn(0, 4) * 0.5f)
+internal class TfIndent(private val look: TextFirstStyle, val depth: Int, private val itemTextStart: (TfIndent) -> Int? = { null }) : LeadingMarginSpan, TfSpan {
+    override fun slice(head: Boolean): TfSpan = if (head) this else TfIndent(look, depth, itemTextStart)
 
-internal class TfIndent(private val look: TextFirstStyle, val depth: Int) : LeadingMarginSpan, TfSpan {
-    override fun slice(head: Boolean): TfSpan = if (head) this else TfIndent(look, depth)
-    override fun getLeadingMargin(first: Boolean) = listLead(look, depth).toInt()
+    // The line starts at the text of the item it continues, whatever the width of that item's number; a list step when none shows.
+    override fun getLeadingMargin(first: Boolean) = itemTextStart(this) ?: listLead(look, depth).toInt()
     override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) = Unit
 }
 
+/**
+ * A list item's row: its nesting and, for a checked task, muted struck text. Its marker is the item's first character
+ * (TfListMarker), as wide as the marker column, so the first row's margin is the nesting alone and wrapped rows hang
+ * past the column, at the text; the row draws the marker in that column.
+ */
 internal class TfList(
     private val look: TextFirstStyle,
     val depth: Int,
     val marker: ListMarker,
     val label: String,
     val checked: Boolean,
-    /** This row opens its item (draw the marker); continuation rows only indent. */
+    /** The first piece of the item's row span; a piece split off by a restyle window only continues it. */
     val first: Boolean,
 ) : CharacterStyle(), LeadingMarginSpan, UpdateAppearance, TfSpan {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    // Keep the nesting step; reserve enough of this item's column for its
-    // complete number before TextView clips drawing to the content padding.
-    private val markerColumn = if (marker == ListMarker.Ordered) {
-        paint.textSize = look.textSizePx
-        paint.typeface = look.regular
-        val required = paint.measureText(label) + look.dp(5f)
-        if (required > look.listIndent) kotlin.math.ceil(required) else look.listIndent
-    } else look.listIndent
-
     private val markerLead = listLead(look, depth)
+    /** Where the item's text starts, from the row's left edge before its quotes: the marker unit's column ends here. */
+    val hanging = (markerLead + listMarkerColumn(look, marker, label)).toInt()
 
     override fun slice(head: Boolean): TfSpan = if (head) this else TfList(look, depth, marker, label, checked, false)
-
-    fun sameAs(other: TfList) = depth == other.depth && marker == other.marker && label == other.label && checked == other.checked && first == other.first
 
     override fun updateDrawState(tp: TextPaint) {
         if (marker == ListMarker.Task && checked) {
@@ -191,72 +183,20 @@ internal class TfList(
         }
     }
 
-    override fun getLeadingMargin(first: Boolean) = (markerLead + markerColumn).toInt()
+    // Only the item's own first row holds its marker unit; a piece that continues the item hangs at its text throughout.
+    override fun getLeadingMargin(first: Boolean) = if (first && this.first) markerLead.toInt() else hanging
 
-    /** Dynamic selection is painted by the view, outside Layout's cached glyph drawing. */
-    fun drawSelectedMargin(c: Canvas, x: Int, dir: Int, top: Float, bottom: Float) {
-        val lead = markerLead
-        val unit = markerColumn
-        paint.color = look.selectionColor
-        paint.style = Paint.Style.FILL
-        paint.textSize = look.textSizePx
-        paint.typeface = look.regular
-        val numberStart = if (marker == ListMarker.Ordered) lead + unit - look.dp(5f) - paint.measureText(label) else lead
-        // Layout starts the native body highlight at the integer leading margin.
-        // A fractional gutter end would blend over its first pixel a second time.
-        val (left, right) = leadingSpan(x, dir, minOf(lead, numberStart), getLeadingMargin(true).toFloat())
-        c.drawRect(left, top, right, bottom, paint)
-    }
-
+    // The item's marker is drawn in its marker unit's column, beside the text on the side the layout reads from. Layout hands
+    // each margin span the edge left by the spans before it; this one draws first, so the margins of the spans after it
+    // (a quote's, which the text also starts past) are added to find the text's edge.
     override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) {
         if (!first || !this.first) return
         val spanned = text as? Spanned ?: return
         if (spanned.getSpanStart(this) != start) return
-        // Offsets below run from the paragraph's leading edge [x] in direction [dir]:
-        // an RTL paragraph's markers sit at its right, beside where its text starts.
-        val lead = markerLead
-        val unit = markerColumn
-        paint.color = look.textColor
-        paint.textSize = look.textSizePx
-        paint.typeface = look.regular
-        when (marker) {
-            ListMarker.Bullet -> {
-                val radius = look.textSizePx * 2.6f / 17f
-                val cy = baseline - look.textSizePx * 0.32f
-                paint.style = Paint.Style.FILL
-                if (depth % 2 == 1) { paint.style = Paint.Style.STROKE; paint.strokeWidth = look.textSizePx * 1.2f / 17f }
-                c.drawCircle(leadingX(x, dir, lead + unit * 0.45f), cy, radius, paint)
-            }
-            ListMarker.Ordered -> {
-                // The number ends beside the text, whichever side that is.
-                paint.textAlign = if (dir < 0) Paint.Align.LEFT else Paint.Align.RIGHT
-                paint.color = look.mutedColor
-                c.drawText(label, leadingX(x, dir, lead + unit - look.dp(5f)), baseline.toFloat(), paint)
-                paint.textAlign = Paint.Align.LEFT
-            }
-            ListMarker.Task -> {
-                val size = look.textSizePx * 0.95f
-                val cy = baseline - look.textSizePx * 0.35f
-                val (boxLeft, boxRight) = leadingSpan(x, dir, lead + unit - size - look.dp(6f), lead + unit - look.dp(6f))
-                val box = RectF(boxLeft, cy - size / 2, boxRight, cy + size / 2)
-                paint.strokeWidth = look.dp(1.5f)
-                if (checked) {
-                    paint.style = Paint.Style.FILL
-                    paint.color = look.linkColor
-                    c.drawRoundRect(box, look.dp(3f), look.dp(3f), paint)
-                    paint.style = Paint.Style.STROKE
-                    paint.color = 0xFFFFFFFF.toInt()
-                    paint.strokeWidth = look.dp(2f)
-                    c.drawLine(box.left + size * 0.22f, cy, box.left + size * 0.42f, cy + size * 0.2f, paint)
-                    c.drawLine(box.left + size * 0.42f, cy + size * 0.2f, box.right - size * 0.2f, cy - size * 0.22f, paint)
-                } else {
-                    paint.style = Paint.Style.STROKE
-                    paint.color = look.mutedColor
-                    c.drawRoundRect(box, look.dp(3f), look.dp(3f), paint)
-                }
-                paint.style = Paint.Style.FILL
-            }
-        }
+        val margins = spanned.getSpans(start, end, LeadingMarginSpan::class.java)
+        val after = margins.indexOf(this).let { at -> if (at < 0) 0 else (at + 1 until margins.size).sumOf { margins[it].getLeadingMargin(true) } }
+        val near = leadingX(x, dir, (hanging + after).toFloat())
+        drawListMarker(c, look, this, near, dir < 0, baseline, (hanging - markerLead.toInt()).toFloat())
     }
 }
 
@@ -383,10 +323,12 @@ internal class TfImage(
         fm.bottom = fm.descent
     }
 
+    /** Whether the photo is all its row shows: after a list item's marker unit (an image-only task) too. */
     fun fillsPhotoRow(text: Spanned, start: Int, end: Int): Boolean {
         var contentEnd = end
         while (contentEnd > start && text[contentEnd - 1] in PHOTO_ROW_ENDINGS) contentEnd--
-        return text.getSpanStart(this) == start && text.getSpanEnd(this) == contentEnd
+        val marker = start < end && text.getSpans(start, start + 1, TfListMarker::class.java).any { text.getSpanStart(it) == start }
+        return text.getSpanStart(this) == (if (marker) start + 1 else start) && text.getSpanEnd(this) == contentEnd
     }
 
     override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {

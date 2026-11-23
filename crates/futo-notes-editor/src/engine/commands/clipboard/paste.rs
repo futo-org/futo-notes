@@ -84,6 +84,15 @@ fn is_block(line: &Line) -> bool {
         )
 }
 
+/// Whether `text`, read alone as `line`, is one list marker and nothing
+/// else (`10. `, `- [ ] `), as a copied marker unit is: it pastes inline, as
+/// typing it would.
+fn is_lone_marker(line: &Line, text: &str) -> bool {
+    line.quote == 0
+        && matches!(line.kind, Kind::List { indent: 0, .. })
+        && line.content.start == text.len()
+}
+
 /// Whether `text`, read alone as `line`, holds a link.
 fn has_link(line: &Line, text: &str) -> bool {
     line_spans(text, line)
@@ -167,7 +176,12 @@ impl Engine {
         }
         let pasted: Vec<&str> = text.split(newline.as_str()).collect();
         let first = read_alone(pasted[0]);
-        let shaped = pasted.len() > 1 || is_block(&first);
+        // A lone marker, and any one line over a selected list marker, lands
+        // as typing does, so a pasted marker takes its place at the caret.
+        let shaped = pasted.len() > 1
+            || (is_block(&first)
+                && !is_lone_marker(&first, pasted[0])
+                && self.selected_marker(range).is_none());
         if !shaped {
             if let Some(mut command) = self.carried_paste(range, &text) {
                 command.typed = true;

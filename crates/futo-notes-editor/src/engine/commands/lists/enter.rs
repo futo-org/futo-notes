@@ -1,11 +1,11 @@
-//! Enter and Backspace on list items.
+//! Enter on list items.
 use super::super::super::command::{Command, Edit};
-use super::super::super::line::{Cut, Entry, Role};
-use super::super::super::{store, Engine};
+use super::super::super::line::{Cut, Entry};
+use super::super::super::Engine;
 use super::super::marks::split;
 use super::draft::{diff, Draft};
 use super::number::{ordinal, spell, Level};
-use super::{is_item, lifted, parts, Parts};
+use super::{is_item, parts, Parts};
 use crate::lines::Kind;
 use crate::{DisplayRange, EditorError};
 use std::ops::Range;
@@ -17,6 +17,9 @@ impl Engine {
     /// it opens an empty item above. On an empty item it outdents an
     /// indented item, else takes the marker off. A selection's text goes
     /// first; one spanning lines leaves the line it ends on its own block.
+    /// With the caret before the marker it opens an empty line above the
+    /// item, which keeps its indent and quotes; a selection starting there
+    /// is replaced as typing replaces it.
     pub(super) fn list_enter(&self, range: DisplayRange) -> Result<Option<Command>, EditorError> {
         let selected = self.source_selection(range);
         let first = self.line_of(selected.start);
@@ -40,6 +43,23 @@ impl Engine {
         let body = entry.body();
         let part = parts(body, &entry.line);
         let start = self.line_start(first);
+        // Where the item's text shows: after its marker, before any marks it opens with.
+        let text_start = self.display_of(start + part.content);
+        if range.start.0 < text_start {
+            if range.start != range.end {
+                return Ok(None);
+            }
+            let ending = match entry.ending() {
+                "" => self.empty_line_ending(first),
+                ending => ending.to_owned(),
+            };
+            let caret = selected.start + ending.len();
+            return Ok(Some(Command::new(
+                vec![Edit::insert(start, ending)],
+                first..first + 1,
+                caret..caret,
+            )));
+        }
         let empty = body[part.content..].trim_matches([' ', '\t']).is_empty();
         if range.start == range.end && empty {
             if matches!(entry.line.kind, Kind::List { indent, .. } if indent > 0) {
@@ -67,7 +87,7 @@ impl Engine {
             ending => ending.to_owned(),
         };
         let (right, opens) = right_part(entry, selected.end - start);
-        let at_start = range.start.0 == self.store.before(first).display;
+        let at_start = range.start.0 == text_start;
         let (text, caret) = if at_start {
             // An empty item above; this one keeps its state and moves down.
             let above = item_prefix(body, &entry.line, &part, number.map(|(n, _)| n));
@@ -100,14 +120,24 @@ impl Engine {
         let (a, b) = (self.line(first), self.line(last));
         let start = self.line_start(first);
         let b_start = self.line_start(last);
-        let left = left_part(a, selected.start - start);
+        let from = selected.start - start;
+        // A selection that starts at or before the first line's marker
+        // takes the marker with it; `left_part` would keep it.
+        let left = match a.marker_unit() {
+            Some(unit) if from <= unit.start => a.body()[..from].to_owned(),
+            _ => left_part(a, from),
+        };
         let end = selected.end - b_start;
-        // The line keeps its hidden marker; on a line with no text (a blank
-        // line, a divider) the bytes after the selection stay as typed.
-        let kept = match b.view.cuts.first() {
+        // The line keeps its hidden marker and its list marker unit, whole
+        // even when the selection ends before the unit, where the caret
+        // stays; on a line with no text (a blank line, a divider) the bytes
+        // after the selection stay as typed.
+        let hidden = match b.view.cuts.first() {
             Some((marker, Cut::Marker)) => marker.end,
             _ => 0,
         };
+        let unit = b.marker_unit();
+        let kept = unit.as_ref().map_or(hidden.min(end), |unit| unit.end);
         let (right, opens) = if b.line.content.is_empty() {
             (b.body()[end.max(kept)..].to_owned(), 0)
         } else {
@@ -115,7 +145,11 @@ impl Engine {
         };
         let text = format!("{left}{}{}{right}", a.ending(), &b.body()[..kept]);
         let old = self.source_slice(start..b_start + b.body_len());
-        let caret = start + left.len() + a.ending().len() + kept.min(end) + opens;
+        let before_unit = unit.filter(|unit| end <= unit.start);
+        let caret = start
+            + left.len()
+            + a.ending().len()
+            + before_unit.map_or(kept + opens, |unit| unit.start);
         let edits: Vec<Edit> = diff(start, &old, &text).into_iter().collect();
         // A command with no edits sets the selection (`surface.rs` `key`):
         // when nothing changes, the selection stays.
@@ -125,29 +159,6 @@ impl Engine {
             caret..caret
         };
         Command::new(edits, first..last + 1, selection)
-    }
-
-    /// Backspace with the caret at a list item's text start takes the
-    /// marker (and task box) off: the line stays, as plain text at its own
-    /// indent inside its quotes. An emptied item becomes an empty line.
-    pub(super) fn list_backspace(
-        &self,
-        range: DisplayRange,
-    ) -> Result<Option<Command>, EditorError> {
-        if range.start != range.end {
-            return Ok(None);
-        }
-        let (index, before) = self.line_at_display(store::display, range.start.0);
-        let entry = self.line(index);
-        if !is_item(&entry.line) || before.display != range.start.0 || entry.view.role != Role::Text
-        {
-            return Ok(None);
-        }
-        let (written, prefix, _) = lifted(entry.body(), &entry.line, &entry.carry);
-        let start = self.line_start(index);
-        let caret = start + prefix;
-        Ok(diff(start, entry.body(), &written)
-            .map(|edit| Command::new(vec![edit], index..index + 1, caret..caret)))
     }
 }
 
