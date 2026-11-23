@@ -236,8 +236,9 @@ extension TextFirstEditorController {
             let change: EditorViewChange?
             if var label, !destination.isEmpty {
                 guard !label.isEmpty else { return }
-                // editLink's custom-label path rejects an unescaped pipe in a cell.
-                if cellOpen { label = Self.escapingPipes(label) }
+                // editLink's custom-label path rejects an unescaped pipe in a cell. An unchanged
+                // label goes as displayed (no escape) so the engine keeps its formatting.
+                if cellOpen, label != displayedText(range) { label = Self.escapingPipes(label) }
                 // The engine decides what was typed: a note that exists stays a note link;
                 // otherwise a web address is saved as `https://…`, and anything it is unsure
                 // of as typed.
@@ -253,6 +254,14 @@ extension TextFirstEditorController {
 }
 
 extension TextFirstEditorController {
+    /// The displayed text of `range`, or nil when it cannot be read.
+    private func displayedText(_ range: EditorByteRange) -> String? {
+        guard let from = try? mirror.byteToUtf16(byte: range.start),
+            let to = try? mirror.byteToUtf16(byte: range.end)
+        else { return nil }
+        return try? mirror.sliceUtf16(start: from, end: to)
+    }
+
     /// `text` with each `|` that has no backslash before it written `\|`.
     static func escapingPipes(_ text: String) -> String {
         var out = ""
