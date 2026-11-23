@@ -103,8 +103,11 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
             if (!sameText) replaceDiff(update.text)
             val e = editableText
             e.getSpans(0, e.length, UnderlineSpan::class.java).forEach(e::removeSpan)
-            if (update.composingStart >= 0 && update.composingEnd > update.composingStart) {
-                e.setSpan(UnderlineSpan(), update.composingStart, update.composingEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE or Spanned.SPAN_COMPOSING)
+            // The composing range is the engine's, in the window's offsets: clamped, so a window that came out shorter never throws.
+            val composeStart = update.composingStart.coerceIn(0, e.length)
+            val composeEnd = update.composingEnd.coerceIn(0, e.length)
+            if (update.composingStart >= 0 && composeEnd > composeStart) {
+                e.setSpan(UnderlineSpan(), composeStart, composeEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE or Spanned.SPAN_COMPOSING)
             }
             val start = update.selectionStart.coerceIn(0, e.length)
             val end = update.selectionEnd.coerceIn(0, e.length)

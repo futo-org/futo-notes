@@ -33,6 +33,36 @@ class TextFirstTableEditingTest {
         assertEquals("But you let me ".length, c.cellView!!.selectionStart)
     }
 
+    /** A Backspace shrinks the content; the row's own padding space must not become field text. */
+    @Test fun aBackspaceDoesNotPullTheRowsPaddingIntoTheField() = textFirstSession(
+        "| h |\n| --- |\n| abc |\n",
+    ) { c ->
+        val at = c.view.text.toString().indexOf("abc")
+        assertTrue(c.selectDisplayRange(at + 3, at + 3))
+        textFirstIme(c, cell = true) { deleteSurroundingText(1, 0) }
+        assertEquals("ab", c.cellView!!.text.toString())
+        assertTrue(c.selectDisplayRange(at + 2, at + 2))
+        textFirstIme(c, cell = true) { commitText("X", 1) }
+        assertEquals("| h |\n| --- |\n| abX |\n", c.sourceText())
+    }
+
+    /** Selecting the whole field, trailing space included, and composing over it: the window cannot index past the text. */
+    @Test fun composingOverASelectedCellWithATrailingSpaceDoesNotCrash() = textFirstSession(
+        "| h |\n| --- |\n| Word |\n",
+    ) { c ->
+        val at = c.view.text.toString().indexOf("Word")
+        assertTrue(c.selectDisplayRange(at + 4, at + 4))
+        textFirstIme(c, cell = true) { commitText(" ", 1) }
+        textFirstIme(c, cell = true) { setSelection(0, 5) }
+        textFirstIme(c, cell = true) { setComposingText("x", 1) }
+        val field = c.cellView!!
+        val text = field.text.toString()
+        assertTrue("The field holds the composition: '$text' / source ${c.sourceText()?.replace("\n", "/")}", text.contains("x"))
+        val composing = field.editableText.getSpans(0, text.length, android.text.style.UnderlineSpan::class.java)
+        for (span in composing) assertTrue(field.editableText.getSpanEnd(span) <= text.length)
+        textFirstIme(c, cell = true) { finishComposingText() }
+    }
+
     @Test fun aRowActionAndItsUndoAreOneStepEachAndDeleteTableComesBackWithItsCell() = textFirstSession(
         "Top\n\n| h1 | h2 |\n| --- | --- |\n| d1 | d2 |\n\nEnd\n",
     ) { c ->

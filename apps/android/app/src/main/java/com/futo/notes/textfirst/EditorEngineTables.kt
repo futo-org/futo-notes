@@ -42,6 +42,14 @@ internal class CellWindow {
     fun clear() { row = -1; column = -1; text = ""; anchor = 0; length = 0; contentEnd = 0 }
 }
 
+/** How many spaces or tabs run from [at] in [step] direction (1: forward, -1: back from the character before [at]). */
+private fun blankRun(text: CharSequence, at: Int, step: Int): Int {
+    var n = 0
+    var i = if (step > 0) at else at - 1
+    while (i in text.indices && (text[i] == ' ' || text[i] == '\t')) { n++; i += step }
+    return n
+}
+
 private fun blank(text: CharSequence, from: Int, to: Int): Boolean {
     if (from < 0 || from > to || to > text.length) return false
     for (i in from until to) if (text[i] != ' ' && text[i] != '\t') return false
@@ -160,8 +168,11 @@ internal fun EditorEngine.publishCell() {
     val selected = checkNotNull(focus)
     val rowStart = mirror.toUtf16(checkNotNull(table).rowLines[selected.row.toInt()].start.toInt())
     val canonical = s.displayToUtf16(rev, cell.content)
-    val start = canonical.start.toInt()
-    val end = canonical.end.toInt() + (overlay?.let { it.marked.length - it.original.length } ?: 0)
+    // A composition replaces what was selected, edge spaces the engine's content leaves out included: the window
+    // always covers the marked text (it would otherwise come out empty, with the composition outside it).
+    val start = minOf(canonical.start.toInt(), overlay?.start ?: Int.MAX_VALUE)
+    val end = maxOf(canonical.end.toInt() + (overlay?.let { it.marked.length - it.original.length } ?: 0),
+        overlay?.let { it.start + it.marked.length } ?: 0)
     val text = mirror.text
     val w = cellWindow
     val row = selected.row.toInt()
@@ -170,13 +181,17 @@ internal fun EditorEngine.publishCell() {
     // The field keeps the spaces typed at the cell's edges: its extent stays put while the display over it
     // still reads as that extent around the engine's content; otherwise it is rebuilt around the content,
     // keeping the edge spaces the field showed or that the caret stands in (one padding space aside).
-    val keep = same && w.anchor <= start && end <= w.anchor + w.length && w.anchor + w.length <= text.length &&
-        mirror.selStart >= w.anchor && mirror.selEnd <= w.anchor + w.length &&
+    val held = same && w.anchor <= start && end <= w.anchor + w.length && w.anchor + w.length <= text.length &&
         blank(text, w.anchor, start) && blank(text, end, w.anchor + w.length)
+    // Of the spaces around the content, the row's own padding (one each side) is never the field's: only the ones
+    // beyond it were typed here. A content that shrank (a Backspace) leaves the old window over that padding.
+    val keptFrom = if (held) maxOf(w.anchor, start - maxOf(0, blankRun(text, start, -1) - 1)) else start
+    val keptTo = if (held) minOf(w.anchor + w.length, end + maxOf(0, blankRun(text, end, 1) - 1)) else end
+    val keep = held && mirror.selStart >= keptFrom && mirror.selEnd <= keptTo
     var from = start
     var to = end
     if (keep) {
-        from = w.anchor; to = w.anchor + w.length
+        from = keptFrom; to = keptTo
     } else if (same) {
         val old = w.text
         val trail = old.length - old.trimEnd(' ', '\t').length
@@ -191,7 +206,7 @@ internal fun EditorEngine.publishCell() {
     cellRange = from..to
     val update = CellUpdate(from, to, shown, mirror.selStart - from, mirror.selEnd - from,
         if (overlay != null) overlay.start - from else -1, if (overlay != null) overlay.start - from + overlay.marked.length else -1,
-        seq, rowStart, column, contentStart = start,
+        seq, rowStart, column, contentStart = canonical.start.toInt(),
         tableStart = mirror.toUtf16(table.display.start.toInt()), controls = table.controls)
     ui.post { sink.onCell(update) }
 }
