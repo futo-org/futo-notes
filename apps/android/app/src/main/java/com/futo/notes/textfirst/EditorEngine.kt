@@ -293,7 +293,9 @@ internal class EditorEngine(
         }
         if (finishTail && b > tailStart() && streaming) finishStreaming()
         val selectedBefore = mirror.selectedBlock
-        val change = if (placed) s.placeSelection(rev, mirror.byteRange(a, b), EditorAffinity.FORWARD) else s.selectUtf16(rev, EditorUtf16Range(a.toULong(), b.toULong()))
+        // The affinity a plain selection takes (`select`): after hidden syntax at the note's start, otherwise before it, so
+        // text typed where a span ends lands inside it (interpretation-and-input.md).
+        val change = if (placed) s.placeSelection(rev, mirror.byteRange(a, b), if (a == 0) EditorAffinity.FORWARD else EditorAffinity.BACKWARD) else s.selectUtf16(rev, EditorUtf16Range(a.toULong(), b.toULong()))
         applySelectionChange(change)
         if (settle || echo || !fromView || mirror.selStart != a || mirror.selEnd != b || mirror.selectedBlock != selectedBefore) postUpdate(emptyList(), emptyList()) else publishSelection()
         scheduleCaretState()
