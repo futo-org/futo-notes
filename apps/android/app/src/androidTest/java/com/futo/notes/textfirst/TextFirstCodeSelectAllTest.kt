@@ -19,6 +19,19 @@ class TextFirstCodeSelectAllTest {
         assertEquals("the second block is not painted whole", true, view.isCodeBlockTakenWhole(view.editableText.indexOf("let b")))
     }
 
+    /** S30 (mr-729 QA): an empty block ending the note starts where Select All ends, and deleting the selection takes it: it is painted whole. */
+    @Test fun selectAllTakesAnEmptyBlockAtTheEndOfTheNoteWhole() = textFirstSession("a\n```\n```") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        view.engine!!.selectAll()
+        withTimeout(5_000) { while (view.selectionEnd - view.selectionStart < 2) delay(20) }
+        delay(300)
+        val block = view.editableText.getSpans(0, view.editableText.length, TfCodeBlock::class.java).first()
+        assertEquals("the empty block is not painted whole", true, view.isCodeBlockTakenWhole(view.editableText.getSpanStart(block)))
+    }
+
     @Test fun selectAllPaintsNoBandBesideABlocksLastLine() = textFirstSession("intro line\n```js\nconst a = 1\nconst b = 2\n```\nouter line") { c ->
         val view = c.view
         view.isFocusableInTouchMode = true
