@@ -235,4 +235,25 @@ impl NativeEditorSession {
                 .map(Into::into))
         })
     }
+
+    /// Put the caret in cell `column` (from 0) of the header or body row at display byte `at`:
+    /// a selection move when the row has the cell, else one edit giving the row empty cells up
+    /// to it. `None` off a header or body row and for a column past the table's count.
+    pub fn enter_table_cell(
+        &self,
+        expected: u64,
+        at: u64,
+        column: u32,
+    ) -> Result<Option<EditorTableOutcome>, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            let at = usize::try_from(at).map_err(|_| EditorSessionError::InvalidRange)?;
+            Ok(session
+                .enter_table_cell(
+                    Revision(expected),
+                    editor::DisplayOffset(at),
+                    column as usize,
+                )?
+                .map(Into::into))
+        })
+    }
 }
