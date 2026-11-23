@@ -368,6 +368,18 @@ impl LocalNoteStore {
         self.search.notify(&change);
     }
 
+    /// A move of `from` to `to` that the file watcher could not confirm
+    /// because `from` was written again first. Only an editor's own recreation
+    /// of `from` is adopted (`editor_session::follow_recreated_rename`); the
+    /// search index and the pages hear the edits the watcher reported.
+    pub fn observe_recreated_move(&self, from: &str, to: &str) {
+        if let Err(error) = editor_session::follow_recreated_rename(self, from, to) {
+            futo_notes_core::log_to_stderr!(
+                "an editor could not follow {from:?} moved to {to:?}: {error}"
+            );
+        }
+    }
+
     /// Destructive local reset. Session/sync shutdown ordering remains a shell
     /// responsibility; once called, this removes every vault entry, including
     /// images and hidden app-data, and reconciles search from the empty tree.

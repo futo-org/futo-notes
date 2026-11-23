@@ -70,12 +70,44 @@ pub(crate) fn follow_external_rename(
     follow_external_rename_locked(store, &from, &to)
 }
 
+/// A rename the file watcher could not confirm: the old name was written
+/// again before the halves were read (an open note's own save recreates it),
+/// so a backend without a rename cookie (FSEvents, ReadDirectoryChangesW)
+/// cannot tell the old half from a new note, and the move was never reported.
+/// Followed only as [`follow_external_rename`] adopts a recreation: `from` must
+/// hold what the attachment last wrote there and `to` what `from` held before.
+/// Anything else, a guessed pair of two unrelated names included, changes
+/// nothing.
+pub(crate) fn follow_recreated_rename(
+    store: &LocalNoteStore,
+    from: &str,
+    to: &str,
+) -> Result<(), String> {
+    let (Some(from), Some(to)) = (note_id_from_filename(from), note_id_from_filename(to)) else {
+        return Ok(());
+    };
+    let _gate = store.lock_gate()?;
+    let _vault = vault_mutation_guard()?;
+    follow_renamed(store, &from, &to, true)
+}
+
 /// [`follow_external_rename`] by note ids, for a caller that holds the store
 /// gate and the vault guard.
 pub(crate) fn follow_external_rename_locked(
     store: &LocalNoteStore,
     from: &str,
     to: &str,
+) -> Result<(), String> {
+    follow_renamed(store, from, to, false)
+}
+
+/// `recreation_only`: the move is a guess, so only the adoption of the
+/// attachment's own recreation of `from` may follow it.
+fn follow_renamed(
+    store: &LocalNoteStore,
+    from: &str,
+    to: &str,
+    recreation_only: bool,
 ) -> Result<(), String> {
     let (from, to) = (from.to_owned(), to.to_owned());
     let root = &store.root;
@@ -93,6 +125,7 @@ pub(crate) fn follow_external_rename_locked(
     let from_remains =
         collision_key(&from) != collision_key(&to) && vault_fs::exists(root, &from_file)?;
     let adopted = match (from_remains, attachment.recreated_over.clone()) {
+        (false, _) if recreation_only => return Ok(()),
         (false, _) => None,
         (true, Some(before))
             if String::from_utf8(vault_fs::read(root, &from_file)?)

@@ -37,6 +37,32 @@ fn a_cookieless_rename_is_paired_by_which_path_still_exists() {
     );
 }
 
+/// An open note's own save writes the old name again before FSEvents' halves
+/// are read, so neither half names a path that is gone and the rename cannot be
+/// confirmed. Both names are reported as edits, as before, and the pair is
+/// offered to the store, which follows it only for an editor's own recreation.
+#[test]
+fn a_cookieless_rename_whose_old_name_was_written_again_is_offered_to_the_store() {
+    let root = temp_vault("recreated");
+    std::fs::write(root.join("Draft.md"), "draft, newest").unwrap();
+    std::fs::write(root.join("Draft renamed.md"), "draft").unwrap();
+    let (processor, recorder) = recording_processor(&root);
+
+    processor.process(rename_half(RenameMode::Any, root.join("Draft.md")));
+    processor.process(rename_half(RenameMode::Any, root.join("Draft renamed.md")));
+
+    let seen = recorder.take();
+    std::fs::remove_dir_all(&root).unwrap();
+    assert_eq!(
+        seen,
+        vec![
+            "change Draft.md",
+            "change Draft renamed.md",
+            "recreated Draft.md -> Draft renamed.md",
+        ]
+    );
+}
+
 /// Windows (ReadDirectoryChangesW) reports the old then the new name, also
 /// without a cookie; the same arrival-order pairing makes it one rename
 /// instead of a removal and an add.
@@ -72,6 +98,30 @@ fn a_cookie_paired_rename_is_exact_even_when_the_old_name_is_occupied_again() {
     let seen = recorder.take();
     std::fs::remove_dir_all(&root).unwrap();
     assert_eq!(seen, vec!["rename A.md -> A 2.md"]);
+}
+
+/// The same pair on Windows, where the halves say which is which: the old name
+/// being occupied again leaves it unconfirmed, and it is offered to the store.
+#[test]
+fn a_cookieless_old_then_new_name_with_the_old_one_written_again_is_offered_to_the_store() {
+    let root = temp_vault("from-to-recreated");
+    std::fs::write(root.join("Note.md"), "newest").unwrap();
+    std::fs::write(root.join("Moved.md"), "moved").unwrap();
+    let (processor, recorder) = recording_processor(&root);
+
+    processor.process(rename_half(RenameMode::From, root.join("Note.md")));
+    processor.process(rename_half(RenameMode::To, root.join("Moved.md")));
+
+    let seen = recorder.take();
+    std::fs::remove_dir_all(&root).unwrap();
+    assert_eq!(
+        seen,
+        vec![
+            "change Note.md",
+            "add Moved.md",
+            "recreated Note.md -> Moved.md"
+        ]
+    );
 }
 
 /// An old name whose new half never comes (moved out of the vault — the
