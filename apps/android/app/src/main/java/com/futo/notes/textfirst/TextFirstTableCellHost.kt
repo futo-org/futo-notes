@@ -41,7 +41,7 @@ internal class TextFirstTableCellHost(
     private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent) = true
         private fun outside(e: MotionEvent): Boolean = cell != null && !note.scroll.stoppingTouch &&
-            note.tableRowAt(e.y - note.top)?.let { note.tableCellAt(it, e.x - note.left) } == null
+            note.tableRowAt(e.y - note.top)?.let { note.tableBoxAt(it, e.x - note.left) } != true
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             if (outside(e)) finishCell()
             return false
@@ -125,7 +125,7 @@ internal class TextFirstTableCellHost(
         stopObserving()
         setCell(null)
         grips.remove()
-        note.systemGestureExclusionRects = emptyList()
+        androidx.core.view.ViewCompat.setSystemGestureExclusionRects(note, emptyList())
         removeView(note)
         onBoundsChanged = {}
     }

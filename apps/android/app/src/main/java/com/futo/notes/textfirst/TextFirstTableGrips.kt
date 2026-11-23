@@ -164,7 +164,10 @@ internal class TableGrips(
         columnGrip.pillCenterY = pillY - colY
         place(columnGrip, (colMin + colMax) / 2 - hit / 2, colY, hit, colH)
         columnGrip.invalidate()
-        all.forEach { it.bringToFront() }
+        // bringToFront asks for a layout and a redraw: only when the grips are not already the top two children, or this
+        // runs every frame and an idle open cell never lets the display rest.
+        val top = host.childCount
+        if (host.getChildAt(top - 1) !== columnGrip || host.getChildAt(top - 2) !== rowGrip) all.forEach { it.bringToFront() }
     }
 
     private fun setMenuShowing(showing: Boolean) {

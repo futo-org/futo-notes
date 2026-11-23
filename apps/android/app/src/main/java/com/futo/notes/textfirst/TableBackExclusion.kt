@@ -37,7 +37,7 @@ internal class TableBackExclusion(private val note: TextFirstEditText) {
                 line++
             }
         }
-        note.systemGestureExclusionRects = rects
+        androidx.core.view.ViewCompat.setSystemGestureExclusionRects(note, rects)
     }
 
     private companion object {

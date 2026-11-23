@@ -191,6 +191,23 @@ class TextFirstTableSceneTest {
         }
     }
 
+    /** A tap on the empty box of a short row, with a cell already open, creates that cell and stays in the table. */
+    @Test
+    fun tappingAShortRowsEmptyBoxWithACellOpenEntersItAndKeepsTheFieldOpen() = compose.withTextFirstScreen(
+        "| Name | Owner | Role |\n| - | - | - |\n| one | two | three |\n| short |\n\n" + "ordinary note text ".repeat(10) + "\n",
+        nativeTheme = tableSceneTheme,
+    ) { view, _ ->
+        val scene = TableCellScene(view, compose.activity) { action -> compose.runOnUiThread(action) }
+        compose.runOnUiThread { view.revealRange(0, 0) }
+        scene.tap(scene.pointAt("Name", 0))
+        compose.waitUntil(10_000) { scene.field()?.isFocused == true && scene.keyboardVisible() }
+        scene.tap(scene.pointAt("short", 1))
+        compose.waitUntil(10_000) { scene.field()?.placementTarget(view)?.column == 1 }
+        compose.waitForIdle()
+        assertNotNull("The cell it created stays open", scene.field())
+        assertEquals("The field is on the box that was tapped", 1, scene.field()!!.placementTarget(view)!!.column)
+    }
+
     @Test
     fun openingACellTransfersTheAlreadyVisibleNoteKeyboard() = compose.withTextFirstScreen(
         "| Name | Owner |\n| - | - |\n| one | two |\n\n" + "ordinary note text ".repeat(10) + "\n",

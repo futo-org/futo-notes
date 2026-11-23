@@ -79,3 +79,10 @@ internal fun TextFirstEditText.tableTapAt(row: TfTableRow, x: Float, y: Float): 
     val caret = cell?.let { (it.start + row.offsetIn(column, x - left, y - top)).coerceIn(it.start, it.end) } ?: 0
     return TableTap(column, cell, link, caret)
 }
+
+/** Whether [x] (in the note view) is over one of the table's boxes, one a short row lacks included. */
+internal fun TextFirstEditText.tableBoxAt(row: TfTableRow, x: Float): Boolean {
+    val l = layout ?: return false
+    val start = editableText?.getSpanStart(row)?.takeIf { it >= 0 } ?: return false
+    return row.columnAt(x - totalPaddingLeft + scrollX - l.getLineLeft(l.getLineForOffset(start))) >= 0
+}
