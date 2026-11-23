@@ -123,6 +123,12 @@ internal class TfTableRow(
         }
         canvas.restoreToCount(save)
     }
+    /** The caret offset in cell [column]'s text for a point [x],[y] in that cell's box (its padding included). */
+    fun offsetIn(column: Int, x: Float, y: Float): Int {
+        val layout = layouts.getOrNull(column) ?: return 0
+        val line = layout.getLineForVertical((y - padding).toInt().coerceIn(0, layout.height))
+        return layout.getOffsetForHorizontal(line, x - padding)
+    }
     fun cellAt(x: Float): GridCell? = if (x < 0f || x >= width()) null
         else row.cells.getOrNull(((x + scroll.x) / cellWidth).toInt())
     /** Scroll the grid so the cell holding [offset] shows; true when it moved. */

@@ -70,6 +70,7 @@ internal class EditorEngine(
     internal var editingCell = false
     internal val find = FindEngineState { refreshFind() }
     internal var cellRange: IntRange? = null
+    internal val cellWindow = CellWindow()
     internal var seq = 0
     /** The display edits each posted update carried, for view selections made behind them. */
     internal val viewEdits = ViewEditJournal()
@@ -217,6 +218,7 @@ internal class EditorEngine(
         tailLength = 0
         editingCell = false
         cellRange = null
+        cellWindow.clear()
         dismissedCompletionStart = null
         publishedSelection = 0L
         publishedIme = null

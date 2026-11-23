@@ -82,7 +82,7 @@ internal class TextFirstEditText(
     internal var onViewportReady: (() -> Unit)? = null
     /** Paste and keyboard content; its [TextFirstClipboard.onImageContent] owner saves images. */
     val clipboard = TextFirstClipboard(context) { engine }
-    internal val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, { invalidateTableScroll(it) })
+    internal val tableTouch = TableGridTouch(this, { _, caret -> onTableCell?.invoke(caret, caret, appliedSeq) }, { invalidateTableScroll(it) })
     internal val marks = FindMarks()
     internal val scroll = NoteScroll(this)
     internal val spans = TfSpanFactory(style, marks, { contentWidth() }) { span ->

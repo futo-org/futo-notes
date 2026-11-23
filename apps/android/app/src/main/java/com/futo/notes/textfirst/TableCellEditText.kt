@@ -37,7 +37,8 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         textSize = style.textSizePx / resources.displayMetrics.scaledDensity
         typeface = style.regular
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
-        imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI
+        // Enter is the table's key (the cell below, a new row on the last), never a Done action.
+        imeOptions = EditorInfo.IME_ACTION_NONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI
         centreLetters()
         includeFontPadding = false
         filters = arrayOf(InputFilter { _, _, _, dest, a, b -> if (applying) null else dest.subSequence(a, b) })
@@ -59,12 +60,14 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     // A cell is note text, never a form field: no "Autofill" item over its selection menu.
     override fun getAutofillType() = AUTOFILL_TYPE_NONE
     fun apply(update: CellUpdate) {
-        val sameWindow = current?.let { it.start == update.start && it.end == update.end && it.text == update.text } == true
+        val previous = current
+        val sameWindow = previous?.let { it.start == update.start && it.end == update.end && it.text == update.text } == true
         val sameText = text.toString() == update.text
+        val moved = previous != null && (previous.rowStart != update.rowStart || previous.column != update.column)
         current = update
         applying = true
         try {
-            if (!sameText) editableText.replace(0, editableText.length, update.text)
+            if (!sameText) replaceDiff(update.text)
             val e = editableText
             e.getSpans(0, e.length, UnderlineSpan::class.java).forEach(e::removeSpan)
             if (update.composingStart >= 0 && update.composingEnd > update.composingStart) {
@@ -76,6 +79,22 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
             if (!sameWindow || !sameText || minOf(selectionStart, selectionEnd) != minOf(start, end) ||
                 maxOf(selectionStart, selectionEnd) != maxOf(start, end)) Selection.setSelection(e, start, end)
         } finally { applying = false }
+        // The app moved the caret to another cell: the keyboard re-reads its context (capitalisation, suggestions).
+        if (moved) restartKeyboard()
+    }
+
+    /** Rewrite only what differs, so the keyboard's spans, the composing mark and the caret outside it survive. */
+    private fun replaceDiff(next: String) {
+        val e = editableText
+        val old = e.toString()
+        var prefix = 0
+        val most = minOf(old.length, next.length)
+        while (prefix < most && old[prefix] == next[prefix]) prefix++
+        if (prefix > 0 && Character.isHighSurrogate(old[prefix - 1])) prefix--
+        var suffix = 0
+        while (suffix < most - prefix && old[old.length - 1 - suffix] == next[next.length - 1 - suffix]) suffix++
+        if (suffix > 0 && Character.isLowSurrogate(old[old.length - suffix])) suffix--
+        e.replace(prefix, old.length - suffix, next, prefix, next.length - suffix)
     }
     override fun onSelectionChanged(a: Int, b: Int) {
         super.onSelectionChanged(a, b)
@@ -87,9 +106,7 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     }
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
         super.onCreateInputConnection(outAttrs)
-        // Android adds this flag for any multiline field. Cell text wraps, but
-        // its explicit Done action still returns to the note; Rust owns Enter.
-        outAttrs.imeOptions = outAttrs.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION.inv()
+        // Android adds IME_FLAG_NO_ENTER_ACTION for a multiline field: Enter stays a key, and Rust owns it.
         outAttrs.initialSelStart = selectionStart; outAttrs.initialSelEnd = selectionEnd
         return engineInputConnection(editor, this, cell = true)
     }

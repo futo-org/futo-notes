@@ -7,7 +7,7 @@ import kotlin.math.abs
 /** Native grid gestures: tap one cell, scroll columns together, or scroll through the note vertically. */
 internal class TableGridTouch(
     private val view: TextFirstEditText,
-    private val edit: (GridCell) -> Unit,
+    private val edit: (GridCell, Int) -> Unit,
     private val redraw: (TableScroll) -> Unit,
 ) {
     private var down: TfTableRow? = null
@@ -30,7 +30,7 @@ internal class TableGridTouch(
             MotionEvent.ACTION_UP -> {
                 val row = down ?: return false
                 if (!moved) view.tableCellAt(row, event.x)?.let { cell ->
-                    edit(cell)
+                    edit(cell, view.tableTapOffset(row, cell, event.x, event.y))
                 }
                 down = null
                 if (moved && vertical) view.scroll.release()

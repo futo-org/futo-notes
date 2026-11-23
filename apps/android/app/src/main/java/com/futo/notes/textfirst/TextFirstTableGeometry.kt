@@ -39,7 +39,7 @@ internal fun TextFirstEditText.tableCellGeometry(target: CellUpdate, revealRow: 
     } ?: return null
     val column = target.column
     val cell = row.row.cells.getOrNull(column) ?: return null
-    if (cell.start + rowStart - row.displayStart != target.start) return null
+    if (cell.start + rowStart - row.displayStart != target.contentStart) return null
     if (revealRow) revealLine(rowStart)
     if (revealColumn && row.revealColumn(column)) redrawTableRows { it.scroll === row.scroll }
     l = layout ?: return null
@@ -48,4 +48,18 @@ internal fun TextFirstEditText.tableCellGeometry(target: CellUpdate, revealRow: 
     val top = totalPaddingTop + l.getLineTop(line) - scrollY
     return TableCellGeometry(RectF(left, top.toFloat(), left + row.cellWidth,
         (totalPaddingTop + l.getLineBottom(line) - scrollY).toFloat()), row.row.header, row.row.cells[column].alignment)
+}
+
+/** The display offset a tap at ([x], [y]) puts the caret at inside [cell] of [row]: at the tap, never a selection. */
+internal fun TextFirstEditText.tableTapOffset(row: TfTableRow, cell: GridCell, x: Float, y: Float): Int {
+    val l = layout ?: return cell.end
+    val e = editableText ?: return cell.end
+    val start = e.getSpanStart(row)
+    if (start < 0) return cell.end
+    val line = l.getLineForOffset(start)
+    val column = row.row.cells.indexOfFirst { it.start + (start - row.displayStart) == cell.start }
+    if (column < 0) return cell.end
+    val left = totalPaddingLeft + l.getLineLeft(line) + column * row.cellWidth - row.scroll.x - scrollX
+    val top = totalPaddingTop + l.getLineTop(line) - scrollY
+    return (cell.start + row.offsetIn(column, x - left, y - top)).coerceIn(cell.start, cell.end)
 }

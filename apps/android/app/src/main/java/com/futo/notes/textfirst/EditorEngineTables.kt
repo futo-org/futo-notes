@@ -8,8 +8,31 @@ import uniffi.futo_notes_ffi.EditorUtf16Range
 /** Display coordinates supplied by Rust. Never source coordinates or Markdown fragments. */
 internal data class GridCell(val start: Int, val end: Int, val text: String, val alignment: EditorTableAlignment)
 internal data class GridRow(val cells: List<GridCell>, val columns: Int, val header: Boolean, val tableStart: Int)
+/**
+ * The field's window onto the note: [start]..[end] is the display slice the field's [text] shows, and every
+ * offset below is relative to [start]. [contentStart] is where the engine's cell content (edge spaces
+ * excluded) starts. The keyboard reads the same window (EngineInputConnection), so it and the field agree.
+ */
 internal data class CellUpdate(val start: Int, val end: Int, val text: String, val selectionStart: Int, val selectionEnd: Int,
-    val composingStart: Int, val composingEnd: Int, val viewSeq: Int, val rowStart: Int, val column: Int)
+    val composingStart: Int, val composingEnd: Int, val viewSeq: Int, val rowStart: Int, val column: Int, val contentStart: Int = start)
+
+/** What the field last showed, on the editor thread: its extent keeps the spaces typed at the cell's edges. */
+internal class CellWindow {
+    var anchor = 0
+    var length = 0
+    var row = -1
+    var column = -1
+    var text = ""
+    /** The engine's content end for the open cell: where a cell entered by a key puts the caret. */
+    var contentEnd = 0
+    fun clear() { row = -1; column = -1; text = ""; anchor = 0; length = 0; contentEnd = 0 }
+}
+
+private fun blank(text: CharSequence, from: Int, to: Int): Boolean {
+    if (from < 0 || from > to || to > text.length) return false
+    for (i in from until to) if (text[i] != ' ' && text[i] != '\t') return false
+    return true
+}
 
 /**
  * Used by a grid tap and Find alike: the selected range is the actual displayed range.
@@ -38,6 +61,7 @@ internal fun EditorEngine.showDisplayRange(start: Int, end: Int) {
     val s = checkNotNull(session)
     val table = s.inspectTable(rev, mirror.byteRange(start, end))
     editingCell = table?.focus != null
+    if (!editingCell) cellWindow.clear()
     select(start, end, fromView = false)
     if (editingCell) publishCell() else { cellRange = null; ui.post { sink.onCell(null) } }
 }
@@ -46,6 +70,7 @@ internal fun EditorEngine.finishCellEditing() = command {
     if (mirror.overlay != null) commitComposition(null)
     editingCell = false
     cellRange = null
+    cellWindow.clear()
     ui.post { sink.onCell(null) }
 }
 
@@ -61,7 +86,7 @@ internal fun EditorEngine.leaveTableBelow() = command {
     val tableStart = mirror.toUtf16(table.display.start.toInt())
     var tableEnd = mirror.toUtf16(table.display.end.toInt())
     if (tableEnd > tableStart && text[tableEnd - 1] == '\n') tableEnd--
-    editingCell = false
+    editingCell = false; cellWindow.clear()
     cellRange = null
     ui.post { sink.onCell(null) }
     if (tableEnd >= text.length) {
@@ -86,7 +111,15 @@ internal fun EditorEngine.tableTab(shift: Boolean): Boolean {
         applySelectionChange(it)
         postUpdate(emptyList(), emptyList())
     }
+    collapseCellCaret()
     return true
+}
+
+/** A cell the keys arrive in has its caret at the end of its text, nothing selected (as a tap leaves a caret, not a range). */
+internal fun EditorEngine.collapseCellCaret() {
+    if (!editingCell || mirror.overlay != null) return
+    val end = cellWindow.contentEnd
+    if (mirror.selStart != end || mirror.selEnd != end) select(end, end, fromView = false)
 }
 
 /** Reinspect after accepted edits/Undo/adoption; composition only shifts the displayed cell end. */
@@ -100,7 +133,7 @@ internal fun EditorEngine.publishCell() {
     val focus = table?.focus
     val cell = focus?.let { table.rows.getOrNull(it.row.toInt())?.getOrNull(it.column.toInt()) }
     if (cell == null) {
-        editingCell = false; cellRange = null
+        editingCell = false; cellRange = null; cellWindow.clear()
         val toNote = writesDelimiterRow
         ui.post { sink.onCell(null, toNote) }
         return
@@ -110,8 +143,34 @@ internal fun EditorEngine.publishCell() {
     val canonical = s.displayToUtf16(rev, cell.content)
     val start = canonical.start.toInt()
     val end = canonical.end.toInt() + (overlay?.let { it.marked.length - it.original.length } ?: 0)
-    cellRange = start..end
-    val update = CellUpdate(start, end, mirror.text.substring(start, end), mirror.selStart - start, mirror.selEnd - start,
-        if (overlay != null) overlay.start - start else -1, if (overlay != null) overlay.start - start + overlay.marked.length else -1, seq, rowStart, selected.column.toInt())
+    val text = mirror.text
+    val w = cellWindow
+    val row = selected.row.toInt()
+    val column = selected.column.toInt()
+    val same = w.row == row && w.column == column
+    // The field keeps the spaces typed at the cell's edges: its extent stays put while the display over it
+    // still reads as that extent around the engine's content; otherwise it is rebuilt around the content,
+    // keeping the edge spaces the field showed or that the caret stands in (one padding space aside).
+    val keep = same && w.anchor <= start && end <= w.anchor + w.length && w.anchor + w.length <= text.length &&
+        blank(text, w.anchor, start) && blank(text, end, w.anchor + w.length)
+    var from = start
+    var to = end
+    if (keep) {
+        from = w.anchor; to = w.anchor + w.length
+    } else if (same) {
+        val old = w.text
+        val trail = old.length - old.trimEnd(' ', '\t').length
+        val lead = if (trail == old.length) 0 else old.length - old.trimStart(' ', '\t').length
+        val left = maxOf(lead, start - mirror.selStart)
+        val right = maxOf(trail, mirror.selEnd - end)
+        if (left > 0 && blank(text, start - left - 1, start)) from = start - left
+        if (right > 0 && blank(text, end, end + right + 1)) to = end + right
+    }
+    val shown = text.substring(from, to)
+    w.row = row; w.column = column; w.anchor = from; w.length = to - from; w.text = shown; w.contentEnd = end
+    cellRange = from..to
+    val update = CellUpdate(from, to, shown, mirror.selStart - from, mirror.selEnd - from,
+        if (overlay != null) overlay.start - from else -1, if (overlay != null) overlay.start - from + overlay.marked.length else -1,
+        seq, rowStart, column, contentStart = start)
     ui.post { sink.onCell(update) }
 }
