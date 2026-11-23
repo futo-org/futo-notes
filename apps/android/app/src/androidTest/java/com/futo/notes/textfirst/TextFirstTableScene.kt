@@ -81,8 +81,7 @@ internal class TableCellScene(
         ui {
             val info = EditorInfo()
             result = checkNotNull(fieldInWindow()).onCreateInputConnection(info)
-            assertEquals("a wrapped cell keeps the explicit Done action", EditorInfo.IME_ACTION_DONE, info.imeOptions and EditorInfo.IME_MASK_ACTION)
-            assertEquals("Gboard should expose Done rather than a newline", 0, info.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION)
+            assertEquals("Enter is the table's key, never a Done action", EditorInfo.IME_ACTION_NONE, info.imeOptions and EditorInfo.IME_MASK_ACTION)
         }
         return result
     }

@@ -23,7 +23,7 @@ import uniffi.futo_notes_ffi.NoteStore
 
 /** Real native cell input, canonical session and persisted source; no Markdown implementation mocks. */
 class TextFirstTableTest {
-    @Test fun hardwareEnterKeepsSelectedCellTextAndSelectsTheCellBelow() = textFirstSession(
+    @Test fun hardwareEnterKeepsCellTextAndPutsTheCaretAtTheEndOfTheCellBelow() = textFirstSession(
         "| h1 | h2 |\n| --- | --- |\n| d1 | d2 |\n| d3 | d4 |\n",
     ) { c ->
         val source = c.sourceText()
@@ -37,7 +37,7 @@ class TextFirstTableTest {
             hardwareCellEnter(c, code, meta)
             assertEquals("Enter must preserve the selected cell", source, c.sourceText())
             assertEquals("d3", c.cellView!!.text.toString())
-            assertEquals(0, c.cellView!!.selectionStart)
+            assertEquals("A cell entered by a key has its caret at the end, nothing selected", 2, c.cellView!!.selectionStart)
             assertEquals(2, c.cellView!!.selectionEnd)
         }
     }
@@ -51,12 +51,12 @@ class TextFirstTableTest {
         textFirstIme(c, cell = true) { sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_TAB)) }
         assertEquals(source, c.sourceText())
         assertEquals("d2", c.cellView!!.text.toString())
-        assertEquals(0, c.cellView!!.selectionStart)
+        assertEquals(2, c.cellView!!.selectionStart)
         assertEquals(2, c.cellView!!.selectionEnd)
         hardwareCellEnter(c)
         assertEquals(source, c.sourceText())
         assertEquals("d4", c.cellView!!.text.toString())
-        assertEquals(0, c.cellView!!.selectionStart)
+        assertEquals(2, c.cellView!!.selectionStart)
         assertEquals(2, c.cellView!!.selectionEnd)
         textFirstIme(c, cell = true) { setSelection(2, 2) }
         hardwareCellEnter(c)
@@ -201,9 +201,9 @@ class TextFirstTableTest {
                 assertTrue(controller.selectDisplayRange(header, header + 2))
                 cellKey(KeyEvent.KEYCODE_TAB)
                 assertEquals("Value", controller.cellView?.text.toString())
-                assertEquals(display.indexOf("Value"), controller.view.selectionStart)
+                assertEquals(display.indexOf("Value") + 5, controller.view.selectionStart)
                 assertEquals(display.indexOf("Value") + 5, controller.view.selectionEnd)
-                assertEquals(0, controller.cellView!!.selectionStart)
+                assertEquals(5, controller.cellView!!.selectionStart)
                 assertEquals(5, controller.cellView!!.selectionEnd)
                 cellKey(KeyEvent.KEYCODE_TAB, shift = true)
                 assertEquals("名称", controller.cellView?.text.toString())
@@ -212,13 +212,18 @@ class TextFirstTableTest {
                 assertTrue(controller.selectDisplayRange(header, header + 2))
                 cellKey(KeyEvent.KEYCODE_NUMPAD_ENTER)
                 assertEquals("café|茶", controller.cellView?.text.toString())
-                val doneConnection = controller.cellView!!.onCreateInputConnection(EditorInfo())
-                suspendCancellableCoroutine<Unit> { done -> doneConnection.handler!!.post {
-                    doneConnection.performEditorAction(EditorInfo.IME_ACTION_DONE)
+                // The soft Enter key is the table's Enter, never a Done action: the cell stays open.
+                assertTrue(controller.selectDisplayRange(header, header + 2))
+                val enterConnection = controller.cellView!!.onCreateInputConnection(EditorInfo())
+                suspendCancellableCoroutine<Unit> { done -> enterConnection.handler!!.post {
+                    enterConnection.performEditorAction(EditorInfo.IME_ACTION_NONE)
                     done.resume(Unit)
                 } }
                 assertEquals(source, controller.sourceText())
-                assertNull("Done returns to the note", controller.cellView)
+                assertNotNull("Enter stays in the table", controller.cellView)
+                controller.finishCellEditing()
+                controller.sourceText()
+                assertNull("Leaving returns to the note", controller.cellView)
                 val at = display.indexOf("old")
                 assertTrue(controller.selectDisplayRange(at, at + 3))
                 val field = controller.cellView!!

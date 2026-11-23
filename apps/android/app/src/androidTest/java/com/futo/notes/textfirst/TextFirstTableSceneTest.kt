@@ -93,8 +93,8 @@ class TextFirstTableSceneTest {
         assertEquals("leaving a cell changes no note text", before, readOnMainThread { view.text.toString() })
         scene.tap(scene.pointAt("Name", 0))
         compose.waitUntil(10_000) { scene.field() != null }
-        val done = Localization.fromGeneratedCatalogs(listOf("en"), "en-US").localizedText("common.actions.done")
-        compose.onNodeWithText(done).performClick()
+        val hide = Localization.fromGeneratedCatalogs(listOf("en"), "en-US").localizedText("editor.toolbar.dismissKeyboard")
+        compose.onNodeWithContentDescription(hide).performClick()
         compose.waitUntil(10_000) { scene.field() == null }
         assertEquals("Done changes no note text", before, readOnMainThread { view.text.toString() })
     }
@@ -136,7 +136,7 @@ class TextFirstTableSceneTest {
         finishFrameCheck()
     }
     @Test
-    fun doneClosesTheFocusedCellAndItsKeyboard() = compose.withTextFirstScreen(
+    fun hidingTheKeyboardClosesTheFocusedCellAndItsKeyboard() = compose.withTextFirstScreen(
         "| Name | Owner |\n| - | - |\n| one | two |\n\n" + "ordinary note text ".repeat(10) + "\n",
         nativeTheme = tableSceneTheme,
     ) { view, _ ->
@@ -145,11 +145,11 @@ class TextFirstTableSceneTest {
         scene.tap(scene.pointAt("Name", 0))
         compose.waitUntil(10_000) { scene.field()?.isFocused == true && scene.keyboardVisible() }
         val before = readOnMainThread { view.text.toString() }
-        val done = Localization.fromGeneratedCatalogs(listOf("en"), "en-US").localizedText("common.actions.done")
-        compose.onNodeWithText(done).performClick()
+        val hide = Localization.fromGeneratedCatalogs(listOf("en"), "en-US").localizedText("editor.toolbar.dismissKeyboard")
+        compose.onNodeWithContentDescription(hide).performClick()
         compose.waitUntil(10_000) { scene.field() == null }
         compose.waitUntil(10_000) { !scene.keyboardVisible() }
-        assertEquals("Done preserves note text", before, readOnMainThread { view.text.toString() })
+        assertEquals("Leaving the cell preserves note text", before, readOnMainThread { view.text.toString() })
     }
 
     @Test
