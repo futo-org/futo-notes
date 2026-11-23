@@ -264,4 +264,27 @@ class TextFirstListMarkerTouchTest {
         assertTrue("no marker taken with no touch", !took)
         assertEquals("the prose selection stands", start to end, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
     }
+
+    /**
+     * Mason (iPhone; Android had it too): a double tap on a marker's trailing half selected the item's first word, the
+     * platform's word at the nearer offset. A double tap anywhere on a marker's column selects the marker alone.
+     */
+    @Test fun aDoubleTapOnEitherHalfOfAMarkerSelectsTheMarker() = textFirstSession(note) { c ->
+        ready(c)
+        for (word in listOf("bullet", "nested", "tenth")) for (half in listOf(0.25f, 0.75f)) {
+            withContext(Dispatchers.Main) { c.view.setSelection(c.view.length() - 1) }
+            delay(300)
+            val m = withContext(Dispatchers.Main) { marker(c, word) }
+            val x = m.left + (m.right - m.left) * half
+            repeat(2) {
+                val down = SystemClock.uptimeMillis()
+                withContext(Dispatchers.Main) { send(c, down, down, MotionEvent.ACTION_DOWN, x, m.y) }
+                delay(40)
+                withContext(Dispatchers.Main) { send(c, down, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, m.y) }
+                delay(90)
+            }
+            delay(500)
+            assertEquals("$word, a double tap at $half of its marker selects the marker", m.at to m.at + 1, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
+        }
+    }
 }

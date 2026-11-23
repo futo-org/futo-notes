@@ -1,6 +1,7 @@
 package com.futo.notes.textfirst
 
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 
 /**
  * A hold on a list item's marker with the keyboard up selects the marker alone, as one character, with the handles and
@@ -15,11 +16,35 @@ internal class ListMarkerTouch(private val view: TextFirstEditText) {
     var held = false
         private set
 
+    private var lastUpTime = Long.MIN_VALUE / 2
+    private var lastUpX = 0f
+    private var lastUpY = 0f
+
     fun onTouch(event: MotionEvent) {
+        if (event.actionMasked == MotionEvent.ACTION_UP) { lastUpTime = event.eventTime; lastUpX = event.x; lastUpY = event.y }
         if (event.actionMasked != MotionEvent.ACTION_DOWN) return
         downX = event.x
         downY = event.y
         held = false
+        if (isSecondTapOfADoubleTap(event)) selectMarkerUnderDoubleTap(event)
+    }
+
+    private fun isSecondTapOfADoubleTap(event: MotionEvent): Boolean {
+        val slop = ViewConfiguration.get(view.context).scaledDoubleTapSlop
+        return event.eventTime - lastUpTime <= ViewConfiguration.getDoubleTapTimeout() &&
+            kotlin.math.abs(event.x - lastUpX) <= slop && kotlin.math.abs(event.y - lastUpY) <= slop
+    }
+
+    /**
+     * A double tap anywhere on a marker's column selects the marker alone (Mason): the platform's double tap selects the
+     * word at the nearer offset, the item's first word on the marker's trailing half. Selected first, the marker is the
+     * selection the platform keeps, with its handles and menu, as for a hold. A checkbox's taps stay its own (ticks).
+     */
+    private fun selectMarkerUnderDoubleTap(event: MotionEvent) {
+        if (checkboxAt(view, view.style, event.x, event.y) >= 0) return
+        val start = listMarkerAt(view, event.x, event.y).takeIf { it >= 0 } ?: return
+        view.renderHold.closeTextMenus()
+        view.setSelection(start, start + 1)
     }
 
     /**
