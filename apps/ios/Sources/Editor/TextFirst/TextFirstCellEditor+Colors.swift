@@ -12,8 +12,14 @@ extension TextFirstCellEditor {
             let base = UIColor(Theme.background).resolvedColor(with: trait)
             guard header else { return base }
             let fill = UIColor.tertiarySystemFill.resolvedColor(with: trait)
-            var br: CGFloat = 0, bg: CGFloat = 0, bb: CGFloat = 0, ba: CGFloat = 0
-            var fr: CGFloat = 0, fg: CGFloat = 0, fb: CGFloat = 0, fa: CGFloat = 0
+            var br: CGFloat = 0
+            var bg: CGFloat = 0
+            var bb: CGFloat = 0
+            var ba: CGFloat = 0
+            var fr: CGFloat = 0
+            var fg: CGFloat = 0
+            var fb: CGFloat = 0
+            var fa: CGFloat = 0
             base.getRed(&br, green: &bg, blue: &bb, alpha: &ba)
             fill.getRed(&fr, green: &fg, blue: &fb, alpha: &fa)
             let mix = { (b: CGFloat, f: CGFloat) in b * (1 - fa) + f * fa }

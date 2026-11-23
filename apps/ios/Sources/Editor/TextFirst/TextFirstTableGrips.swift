@@ -129,8 +129,11 @@ final class TextFirstTableGrips: NSObject {
     /// A grip's menu is showing: the keyboard toolbar behind it is inert.
     private(set) var menuShowing = false
 
+    private let localization: Localization
+
     init(editor: TextFirstCellEditor) {
         self.editor = editor
+        localization = editor.controller.linkLocalization ?? Localization.system()
         super.init()
         rowGrip.drawn = CGSize(width: 14, height: 26)
         rowGrip.across = 2
@@ -140,8 +143,10 @@ final class TextFirstTableGrips: NSObject {
         for grip in [rowGrip, columnGrip] {
             grip.onMenuShowing = { [weak self] showing in self?.menuShowing = showing }
         }
-        rowGrip.accessibilityLabel = "Row actions"
-        columnGrip.accessibilityLabel = "Column actions"
+        rowGrip.accessibilityLabel = localization.localizedText(
+            "editor.tableGrips.rowOptionsAccessibilityLabel")
+        columnGrip.accessibilityLabel = localization.localizedText(
+            "editor.tableGrips.columnOptionsAccessibilityLabel")
         rowGrip.menu = UIMenu(children: [
             UIDeferredMenuElement.uncached { [weak self] done in done(self?.menu(row: true) ?? []) }
         ])
@@ -155,7 +160,7 @@ final class TextFirstTableGrips: NSObject {
     private var controller: TextFirstEditorController? { editor?.controller }
 
     func remove() {
-        all.forEach { $0.removeFromSuperview() }
+        for grip in all { grip.removeFromSuperview() }
         installed = false
     }
 
@@ -195,11 +200,11 @@ final class TextFirstTableGrips: NSObject {
             let firstStart = utf16(firstCell.content.start),
             let top = c.cellFrame(start: firstStart)?.minY
         else {
-            all.forEach { $0.isHidden = true }
+            for grip in all { grip.isHidden = true }
             return
         }
         if !installed {
-            all.forEach { c.textView.addSubview($0) }
+            for grip in all { c.textView.addSubview(grip) }
             installed = true
         }
         let left = c.inset.left
@@ -221,7 +226,7 @@ final class TextFirstTableGrips: NSObject {
         let colMax = min(field.maxX, visibleRight)
         // The pair belongs to the open cell: both go while less than 20 pt of it is in view
         // (scrolled sideways past either edge of the table), so neither sits by nothing.
-        all.forEach { $0.isHidden = colMax - colMin < 20 }
+        for grip in all { grip.isHidden = colMax - colMin < 20 }
         // Column grip: wide, but only `Self.reach` taller than its pill, so it leaves the line
         // above the table and the header's text to the caret. It sits on the table's top edge;
         // the text view clips anything above the top of what shows, so the pill is pushed down
@@ -246,9 +251,11 @@ final class TextFirstTableGrips: NSObject {
             x: (colMin + colMax) / 2 - Self.columnHitWidth / 2, y: colY,
             width: Self.columnHitWidth, height: colH)
         columnGrip.pillCenter = CGPoint(x: Self.columnHitWidth / 2, y: pillY - colY)
-        all.forEach { $0.setNeedsLayout() }
         // Above the field (never move the field itself: it is the first responder).
-        all.forEach { c.textView.bringSubviewToFront($0) }
+        for grip in all {
+            grip.setNeedsLayout()
+            c.textView.bringSubviewToFront(grip)
+        }
     }
 
     // MARK: menus
@@ -256,14 +263,16 @@ final class TextFirstTableGrips: NSObject {
     /// The grip's menu, built as it opens: three engine commands, then Delete table.
     private func menu(row: Bool) -> [UIMenuElement] {
         let can = describe()?.controls
+        func text(_ key: String) -> String { localization.localizedText("editor.table.\(key)") }
+        // The identifier stays English (puppet and UI tests find a menu item by it).
         func item(
-            _ title: String, _ symbol: String, _ command: EditorTableCommand, _ enabled: Bool?,
-            destructive: Bool = false
+            _ key: String, _ id: String, _ symbol: String, _ command: EditorTableCommand,
+            _ enabled: Bool?, destructive: Bool = false
         ) -> UIAction {
-            let action = UIAction(title: title, image: UIImage(systemName: symbol)) {
+            let action = UIAction(title: text(key), image: UIImage(systemName: symbol)) {
                 [weak self] _ in self?.run(command)
             }
-            action.accessibilityIdentifier = "table-menu-\(title)"
+            action.accessibilityIdentifier = "table-menu-\(id)"
             if enabled != true { action.attributes.insert(.disabled) }
             if destructive { action.attributes.insert(.destructive) }
             return action
@@ -271,23 +280,29 @@ final class TextFirstTableGrips: NSObject {
         let commands =
             row
             ? [
-                item("Add above", "arrow.up.to.line", .insertRowAbove, can?.insertRowAbove),
-                item("Add below", "arrow.down.to.line", .insertRowBelow, can?.insertRowBelow),
-                item("Delete row", "trash", .deleteRow, can?.deleteRow, destructive: true),
+                item(
+                    "addRowAbove", "Add above", "arrow.up.to.line", .insertRowAbove,
+                    can?.insertRowAbove),
+                item(
+                    "addRowBelow", "Add below", "arrow.down.to.line", .insertRowBelow,
+                    can?.insertRowBelow),
+                item(
+                    "deleteRow", "Delete row", "trash", .deleteRow, can?.deleteRow,
+                    destructive: true),
             ]
             : [
                 item(
-                    "Add to left", "arrow.left.to.line", .insertColumnLeft, can?.insertColumnLeft
-                ),
+                    "addColumnLeft", "Add to left", "arrow.left.to.line", .insertColumnLeft,
+                    can?.insertColumnLeft),
                 item(
-                    "Add to right", "arrow.right.to.line", .insertColumnRight,
+                    "addColumnRight", "Add to right", "arrow.right.to.line", .insertColumnRight,
                     can?.insertColumnRight),
                 item(
-                    "Delete column", "trash", .deleteColumn, can?.deleteColumn,
+                    "deleteColumn", "Delete column", "trash", .deleteColumn, can?.deleteColumn,
                     destructive: true),
             ]
         let delete = UIAction(
-            title: "Delete table", image: UIImage(systemName: "trash"),
+            title: text("deleteTable"), image: UIImage(systemName: "trash"),
             attributes: can == nil ? [.destructive, .disabled] : [.destructive]
         ) { [weak self] _ in self?.deleteTable() }
         delete.accessibilityIdentifier = "table-menu-Delete table"

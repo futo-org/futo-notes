@@ -617,7 +617,14 @@
         "languagePlaceholder": "language"
       },
       "table": {
-        "editCell": "Edit cell"
+        "editCell": "Edit cell",
+        "addRowAbove": "Add above",
+        "addRowBelow": "Add below",
+        "deleteRow": "Delete row",
+        "addColumnLeft": "Add to left",
+        "addColumnRight": "Add to right",
+        "deleteColumn": "Delete column",
+        "deleteTable": "Delete table"
       }
     },
     "sync": {

@@ -40,9 +40,13 @@ extension TextFirstTableMetrics {
                             range: r, bold: bold, italic: italic, strike: strike, code: code))
                 }
             case .link(let s, let e, let destination):
-                if let r = clip(s, e) { out.append(TextFirstCellRun(range: r, link: .url(destination))) }
+                if let r = clip(s, e) {
+                    out.append(TextFirstCellRun(range: r, link: .url(destination)))
+                }
             case .wikilink(let s, let e, _, let noteId):
-                if let r = clip(s, e) { out.append(TextFirstCellRun(range: r, link: .wiki(noteId))) }
+                if let r = clip(s, e) {
+                    out.append(TextFirstCellRun(range: r, link: .wiki(noteId)))
+                }
             default: break
             }
         }
@@ -65,8 +69,11 @@ extension TextFirstTableMetrics {
                 if run.bold { traits.insert(.traitBold) }
                 if run.italic { traits.insert(.traitItalic) }
                 var face = base
-                if run.code { face = .monospacedSystemFont(ofSize: base.pointSize - 2, weight: .regular) }
-                let descriptor = face.fontDescriptor.withSymbolicTraits(traits) ?? face.fontDescriptor
+                if run.code {
+                    face = .monospacedSystemFont(ofSize: base.pointSize - 2, weight: .regular)
+                }
+                let descriptor =
+                    face.fontDescriptor.withSymbolicTraits(traits) ?? face.fontDescriptor
                 text.addAttribute(
                     .font, value: UIFont(descriptor: descriptor, size: face.pointSize), range: r)
             }
@@ -86,7 +93,8 @@ extension TextFirstTableMetrics {
                     ], range: r)
             case .wiki(let id):
                 text.addAttribute(
-                    .foregroundColor, value: id == nil ? UIColor.secondaryLabel : UIColor(Theme.primary),
+                    .foregroundColor,
+                    value: id == nil ? UIColor.secondaryLabel : UIColor(Theme.primary),
                     range: r)
             case nil: break
             }
@@ -158,7 +166,8 @@ extension TextFirstEditorController {
             let glyphs = layout.glyphRange(forCharacterRange: run.range, actualCharacterRange: nil)
             var on = false
             layout.enumerateEnclosingRects(
-                forGlyphRange: glyphs, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
+                forGlyphRange: glyphs,
+                withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
                 in: container
             ) { r, _ in if r.contains(local) { on = true } }
             guard on else { continue }

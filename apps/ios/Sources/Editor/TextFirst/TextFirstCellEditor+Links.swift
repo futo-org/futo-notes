@@ -68,7 +68,8 @@ extension TextFirstCellEditor {
     }
 
     @objc func linkTapped(_ g: UIGestureRecognizer) {
-        guard g.state == .ended, let view = g.view, let target = linkTarget(at: g.location(in: view))
+        guard g.state == .ended, let view = g.view,
+            let target = linkTarget(at: g.location(in: view))
         else { return }
         controller.open(target)
     }
