@@ -183,11 +183,17 @@ internal class TfList(
     // Only the item's own first row holds its marker unit; a piece that continues the item hangs at its text throughout.
     override fun getLeadingMargin(first: Boolean) = if (first && this.first) markerLead.toInt() else hanging
 
-    // The item's marker is drawn in its marker unit's column, beside the text on the side the layout reads from.
+    // The item's marker is drawn in its marker unit's column, beside the text on the side the layout reads from. Layout hands
+    // each margin span the edge left by the spans before it; this one draws first, so the margins of the spans after it
+    // (a quote's, which the text also starts past) are added to find the text's edge.
     override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) {
         if (!first || !this.first) return
-        if ((text as? Spanned)?.getSpanStart(this) != start) return
-        drawListMarker(c, look, this, leadingX(x, dir, hanging.toFloat()), dir < 0, baseline, (hanging - markerLead.toInt()).toFloat())
+        val spanned = text as? Spanned ?: return
+        if (spanned.getSpanStart(this) != start) return
+        val margins = spanned.getSpans(start, end, LeadingMarginSpan::class.java)
+        val after = margins.indexOf(this).let { at -> if (at < 0) 0 else (at + 1 until margins.size).sumOf { margins[it].getLeadingMargin(true) } }
+        val near = leadingX(x, dir, (hanging + after).toFloat())
+        drawListMarker(c, look, this, near, dir < 0, baseline, (hanging - markerLead.toInt()).toFloat())
     }
 }
 
