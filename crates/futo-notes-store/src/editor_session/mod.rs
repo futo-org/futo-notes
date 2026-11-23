@@ -26,7 +26,8 @@ mod tables;
 mod tags;
 pub use clock::EditorClock;
 pub(crate) use identity::{
-    follow_external_rename, follow_external_rename_locked, IdentityTransition,
+    follow_external_rename, follow_external_rename_locked, follow_recreated_rename,
+    IdentityTransition,
 };
 use lease::EditorLease;
 pub(crate) use lease::{refuse_attached, terminate_deleted};

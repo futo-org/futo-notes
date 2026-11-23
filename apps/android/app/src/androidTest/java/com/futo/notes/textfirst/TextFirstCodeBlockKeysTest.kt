@@ -59,6 +59,19 @@ class TextFirstCodeBlockKeysTest {
         assertEquals("```py\ndef f():\n    z\n    return x\n```\n\nend", c.sourceText())
     }
 
+    /** S33 (mr-729 QA): at the start of the prose line right after a block, Ctrl+Enter is prose's: it opens a line below that line. */
+    @Test fun ctrlEnterAtTheStartOfTheLineAfterABlockOpensALineBelowIt() = textFirstSession("```q\n```\nprose") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        view.setSelection(view.editableText.indexOf("prose"))
+        delay(200)
+        view.onKeyDown(KeyEvent.KEYCODE_ENTER, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0, KeyEvent.META_CTRL_ON))
+        withTimeout(5_000) { while (c.sourceText() == "```q\n```\nprose") delay(50) }
+        assertEquals("```q\n```\nprose\n", c.sourceText())
+    }
+
     /** Ctrl+Enter mid-line opens an indented line below, the caret on it. */
     @Test fun ctrlEnterOpensAnIndentedLineBelow() = textFirstSession("```py\ndef f():\n    return x\n```\n\nend") { c ->
         val view = c.view

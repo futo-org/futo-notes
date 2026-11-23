@@ -25,7 +25,7 @@ final class TextFirstClosedLine {
     private let fragments: [NSTextLayoutFragment]
     /// Retained: the stack holds its delegates weakly.
     private let layoutDelegate = TextFirstLayoutDelegate()
-    private let breakDelegate = TextFirstImageBreakDelegate()
+    private let typesetDelegate = TextFirstTypesetDelegate()
 
     /// The display line `line` (UTF-16, its line ending included when it has one) of `storage`
     /// without `photo`, and `photo` as a line of its own, laid out `width` wide. Nil when
@@ -57,7 +57,7 @@ final class TextFirstClosedLine {
         whole.append(storage.attributedSubstring(from: photo))
         whole.append(NSAttributedString(string: "\nx", attributes: Self.plain))
         content = NSTextContentStorage()
-        content.delegate = breakDelegate
+        content.delegate = typesetDelegate
         manager = NSTextLayoutManager()
         manager.delegate = layoutDelegate
         content.addTextLayoutManager(manager)

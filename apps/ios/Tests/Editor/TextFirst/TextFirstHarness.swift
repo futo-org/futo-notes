@@ -88,6 +88,13 @@
 
         func select(_ a: Int, _ b: Int) { tv.selectedRange = NSRange(location: a, length: b - a) }
 
+        /// The drawing record of the line holding the first `word` of the display.
+        func block(atLineStartingWith word: String) -> TextFirstBlockAttribute? {
+            let at = (tv.text as NSString).range(of: word).location
+            return controller.storage.attribute(.tfBlock, at: at, effectiveRange: nil)
+                as? TextFirstBlockAttribute
+        }
+
         /// The laid-out heights of the visual lines of the paragraph holding UTF-16 offset `i`.
         func lineHeights(at i: Int = 0) -> [CGFloat] {
             tv.layoutIfNeeded()

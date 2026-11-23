@@ -241,6 +241,29 @@ pub(super) fn rename_local(root: &Path, source: &str, destination: &str) -> Resu
     Ok(moved)
 }
 
+/// The note moves to a destination that already holds its bytes: the source is
+/// removed and the move reported ([`note_moved`]) under the same guard hold.
+/// Nothing is written, so no content can be lost; a destination that changed
+/// since the caller read it refuses instead.
+pub(super) fn adopt_local(
+    root: &Path,
+    source: &str,
+    destination: &str,
+    expected_hash: &str,
+) -> Result<bool, String> {
+    let _vault_mutation = vault_mutation_guard()?;
+    if content_hash(root, destination).as_deref() != Some(expected_hash) {
+        return Err(format!(
+            "adopted destination changed before the move: {destination}"
+        ));
+    }
+    let removed = vault_fs::remove(root, source)?;
+    if removed {
+        note_moved(root, source, destination);
+    }
+    Ok(removed)
+}
+
 pub(super) fn conflict_date() -> String {
     futo_notes_core::conflict_names::current_conflict_date()
 }

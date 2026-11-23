@@ -10,7 +10,8 @@ import android.text.Spanned
  * The TextView fills every middle row of a selection from the note's left edge to its right, past a list's or quote's
  * hanging indent where no text is (Mason, S23), and on its text box, high on the letters. A text selection is painted
  * here instead, each row over its own text on its [overlayBand] ([drawTextSelectionRow]). Code, table rows and objects
- * keep their own painters, whose prose rows use the same row; list markers are drawListSelection's.
+ * keep their own painters, whose prose rows use the same row. A list's marker is its item's first character, tinted
+ * here like any other.
  */
 internal fun TextFirstEditText.isTextSelectionPainted(): Boolean {
     val start = minOf(selectionStart, selectionEnd)

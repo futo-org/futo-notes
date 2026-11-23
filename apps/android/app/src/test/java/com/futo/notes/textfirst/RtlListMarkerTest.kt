@@ -5,16 +5,16 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** A right-to-left list item (Hebrew, Arabic) keeps its marker beside its text, on the right. */
+/** A right-to-left list item (Hebrew, Arabic) keeps its checkbox beside its text, on the right; a quote bar sits in its leading margin. */
 class RtlListMarkerTest {
     private val width = 700
     private val indent = 24f
 
-    @Test fun markerSpanSitsInsideTheLeadingMarginInEitherDirection() {
+    @Test fun aQuoteBarSitsInsideTheLeadingMarginInEitherDirection() {
         // Layout draws an LTR margin from x = 0 rightward and an RTL margin from x = width leftward.
         assertEquals(10f to 20f, leadingSpan(0, 1, 10f, 20f))
         assertEquals(680f to 690f, leadingSpan(width, -1, 10f, 20f))
-        // Every point of the RTL marker is on the canvas, none past its left edge.
+        // Every point of an RTL quote bar is on the canvas, none past its left edge.
         assertTrue(leadingX(width, -1, indent * 0.45f) in 0f..width.toFloat())
     }
 

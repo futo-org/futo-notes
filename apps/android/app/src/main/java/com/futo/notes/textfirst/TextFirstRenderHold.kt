@@ -74,8 +74,9 @@ internal class RenderHold(private val view: TextFirstEditText) {
         override fun onActionItemClicked(mode: ActionMode, item: MenuItem) = false
         override fun onDestroyActionMode(mode: ActionMode) {
             openMenus.remove(mode)
-            // TextView ends the range at its end next (Back, a blur); like a blur, that must not move the note.
-            if (view.selectionStart != view.selectionEnd) view.reveal.hold(view.selectionEnd)
+            // TextView ends the range at its end next (Back, a blur); like a blur, that must not move the note. An engine
+            // edit (a paste over the range) closes the menu too, with its own caret to reveal.
+            if (!view.applying && view.selectionStart != view.selectionEnd) view.reveal.hold(view.selectionEnd)
             menus = (menus - 1).coerceAtLeast(0)
             update()
         }
@@ -86,6 +87,9 @@ internal class RenderHold(private val view: TextFirstEditText) {
      * the platform ends it later, when another menu starts, by collapsing whatever is selected then to its end.
      */
     fun closeTextMenus() { openMenus.toList().forEach(ActionMode::finish) }
+
+    /** Whether a text menu (a selection's or the caret's) is open now. */
+    val hasOpenTextMenu: Boolean get() = openMenus.isNotEmpty()
 
     companion object {
         /** How long a long press holds background slices for a text menu that has not opened yet. */

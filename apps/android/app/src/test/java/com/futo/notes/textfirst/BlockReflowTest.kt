@@ -121,15 +121,17 @@ class BlockReflowTest {
         assertEquals("settled, the painted middle is the target's", below, all.walk(below, 135f))
     }
 
-    /** `a\nb\n` with an empty task last: its row is a paragraph of its own (review finding 4). */
+    /** `a\nb\n` with an empty last line: its row is a paragraph of its own (review finding 4). */
     @Test
-    fun anEmptyLastTaskCountsAsAParagraphAtTheEndSlot() {
+    fun anEmptyLastLineCountsAsAParagraphAtTheEndSlot() {
         val text = "a\nb\n"
-        assertEquals("above the task", 1, reflowParagraphs(text, 2, 4, 4, toEnd = false))
-        assertEquals("after the task", 2, reflowParagraphs(text, 2, 4, 4, toEnd = true))
-        assertEquals("the task itself, lifted", 1, reflowParagraphs(text, 4, 4, 4, toEnd = true))
+        assertEquals("above the empty line", 1, reflowParagraphs(text, 2, 4, 4, toEnd = false))
+        assertEquals("after the empty line", 2, reflowParagraphs(text, 2, 4, 4, toEnd = true))
+        assertEquals("the empty line itself, lifted", 1, reflowParagraphs(text, 4, 4, 4, toEnd = true))
+        // An empty task shows its marker unit: its last line has a character, like any other.
+        assertEquals("after an empty task", 2, reflowParagraphs("a\nb\n\uFFFC", 2, 5, 5, toEnd = true))
         assertEquals("a last line with text", 2, reflowParagraphs("a\nb", 0, 3, 3, toEnd = true))
-        // `a` dropped after the task lands third.
+        // `a` dropped after the empty line lands third.
         assertEquals(2, ReflowMove(photo = false, below = true, block = 1, between = reflowParagraphs(text, 2, 4, 4, toEnd = true)).moved)
     }
 
@@ -145,12 +147,20 @@ class BlockReflowTest {
         assertEquals("home again", stops.home, stops.walk(above, 320f, restTop = 300f))
     }
 
-    /** `A\nB\n- [ ] `: B ends where the empty task starts, so B's bottom is the task's top, not the note's end (review !716). */
+    /** `A\nB\n` and an empty last line: B ends where that line starts, so B's bottom is its top, not the note's end (review !716). */
     @Test
-    fun aParagraphBeforeAnEmptyLastTaskEndsAtTheTasksTop() {
+    fun aParagraphBeforeAnEmptyLastLineEndsAtItsTop() {
         val text = "A\nB\n"
         assertEquals(false, endsAtNoteEnd(text, 2, 4, 4))
-        assertEquals("the empty task itself", true, endsAtNoteEnd(text, 4, 4, 4))
+        assertEquals("the empty line itself", true, endsAtNoteEnd(text, 4, 4, 4))
+        assertEquals("before an empty task, which shows its marker unit", false, endsAtNoteEnd("A\nB\n\uFFFC", 2, 4, 5))
         assertEquals("a last line with text", true, endsAtNoteEnd("A\nB", 2, 3, 3))
+    }
+
+    /** A landing recognises an item by its text: its marker unit, like a typed marker, is left out. */
+    @Test
+    fun theLandingProbeReadsAnItemsTextPastItsMarkerUnit() {
+        assertEquals("task", ReflowCapture.probe("\uFFFCtask\nnext", 0, 10))
+        assertEquals("next", ReflowCapture.probe("\uFFFCtask\nnext", 6, 10))
     }
 }

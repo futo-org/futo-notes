@@ -12,9 +12,13 @@ extension TextFirstEditorController {
         scheduleNextSlice()
     }
 
-    /// Style the next `units` UTF-16 units from `styledThrough`.
+    /// Style the next `units` UTF-16 units from `styledThrough`. An empty display is styled
+    /// once too: its one line's block (a note that is only an empty code block) is known only
+    /// from the engine's spans at the end.
     private func styleSlice(units: Int) {
-        guard !closed, !engineBusy, styledThrough < mirrorLength else { return }
+        guard !closed, !engineBusy, styledThrough < mirrorLength || mirrorLength == 0 else {
+            return
+        }
         let from = styledThrough
         do {
             // The engine's rule for a slice's end (a blank line, so no table is cut in two:

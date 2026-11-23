@@ -46,19 +46,25 @@ internal fun codeRangesNear(e: Spanned, from: Int, to: Int): List<CodeRange> {
         val head = spans[at]
         val tail = spans[last]
         val start = if (head.line.first) e.getSpanStart(head) else e.codeBlockRange(head).start
-        val end = if (tail.line.last) codeLineEnd(e, tail) else e.codeBlockRange(tail).end
-        ranges.add(CodeRange(start, end))
+        val range = if (tail.line.last) CodeRange(start, codeLineEnd(e, tail), codeLineBelow(e, tail)) else e.codeBlockRange(tail).let { CodeRange(start, it.end, it.below) }
+        ranges.add(range)
         at = last + 1
     }
     return ranges
 }
 
-/** Where a code line's text ends: its span's end without its line break or the note's end sentinel. */
+/** Where a code line's text ends: its span's end without its line break (both characters of a CRLF) or the end sentinel. */
 internal fun codeLineEnd(e: Spanned, span: TfCodeBlock): Int {
-    var end = minOf(e.getSpanEnd(span), e.length - TextFirstEditText.END_SENTINEL.length)
-    if (end > e.getSpanStart(span) && e[end - 1] == '\n') end--
+    var end = codeLineBelow(e, span)
+    if (end <= e.getSpanStart(span) || e[end - 1] != '\n') return end
+    end--
+    // Only "\n" and "\r\n" are breaks: a bare CR (at the note's end) is code, as the engine keeps it.
+    if (end > e.getSpanStart(span) && e[end - 1] == '\r') end--
     return end
 }
+
+/** Where the line after a code line starts: its span's end, its line break included, short of the end sentinel. */
+internal fun codeLineBelow(e: Spanned, span: TfCodeBlock): Int = minOf(e.getSpanEnd(span), e.length - TextFirstEditText.END_SENTINEL.length)
 
 /**
  * What [anchor] to [head] paints, or null when no block is near it (the TextView paints it). A [settled]
@@ -73,9 +79,8 @@ internal fun TextFirstEditText.codeSelectionFor(anchor: Int, head: Int, settled:
     val (start, end) = if (settled) minOf(anchor, head) to maxOf(anchor, head) else resolveCodeSelection(anchor, head, blocks)
     // A block selected as one object is painted as its card alone.
     if (selectedCodeBlock == (start to end)) return null
-    val home = if (settled) blocks.firstOrNull { it.start < it.end && start >= it.start && end <= it.end }
-        else blocks.firstOrNull { it.start < it.end && anchor >= it.start && anchor <= it.end }
-    if (home == null && blocks.none { start <= it.start && end >= it.end }) return null
+    val home = blocks.firstOrNull { it.start < it.end && start >= it.start && end <= it.end }
+    if (home == null && blocks.none { start <= it.start && end >= it.end } && start == minOf(anchor, head) && end == maxOf(anchor, head)) return null
     return CodeSelectionPaint(start, end, home, if (home == null) blocks.filter { start <= it.start && end >= it.end } else emptyList())
 }
 
@@ -119,7 +124,9 @@ internal fun TextFirstEditText.refreshCodeHighlight() {
 /** Whether the painted selection takes the block whose code starts at [codeStart] whole. */
 internal fun TextFirstEditText.isCodeBlockTakenWhole(codeStart: Int): Boolean {
     val painted = codeSelection ?: return false
-    return painted.home == null && painted.start < painted.end && codeStart >= painted.start && codeStart < painted.end
+    // An empty block that ends the note starts where the selection ends, yet deleting it takes the block whole.
+    val reached = codeStart < painted.end || painted.whole.any { it.start == codeStart && it.start == it.end }
+    return painted.home == null && painted.start < painted.end && codeStart >= painted.start && reached
 }
 
 /** The rows of [codeSelection] outside the blocks it takes whole, under the text. */
@@ -135,7 +142,7 @@ internal fun TextFirstEditText.drawCodeSelection(canvas: Canvas) {
     for (block in painted.whole) {
         drawSelectionRows(canvas, l, e, from, block.start, paint)
         // The card paints the block, its last line to the edge too: go on from the line after it.
-        from = if (block.end < e.length && e[block.end] == '\n') block.end + 1 else block.end
+        from = maxOf(block.end, minOf(block.below, painted.end))
     }
     drawSelectionRows(canvas, l, e, from, painted.end, paint)
     canvas.restoreToCount(save)

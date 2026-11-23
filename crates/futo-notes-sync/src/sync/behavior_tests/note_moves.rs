@@ -308,20 +308,21 @@ fn a_save_between_a_pulled_rename_and_its_write_is_not_overwritten() {
     assert_eq!(mapped(&state), ["new.md"]);
 }
 
-/// An unmapped file at the target already holds the pulled bytes, which
-/// `preserve_unmapped_target` accepts: the rename refuses to replace it, and
-/// this cycle changes nothing.
+/// An unmapped file at the target already holds the pulled bytes (a second tool
+/// mirroring the vault): the note is adopted there and the old name removed.
+/// The rename used to refuse it every cycle, and the push then uploaded the
+/// target as a second object.
 #[test]
-fn a_pulled_rename_onto_a_file_holding_its_bytes_changes_nothing() {
+fn a_pulled_rename_onto_a_file_holding_its_bytes_adopts_it() {
     let root = TempRoot::new();
     let mut state = connected();
     std::fs::write(root.path().join("old.md"), "body").unwrap();
     std::fs::write(root.path().join("new.md"), "edited").unwrap();
     let mapping = entry("object", Some(&hash_sha256("body")));
-    state.object_map.insert("old.md".into(), mapping.clone());
+    state.object_map.insert("old.md".into(), mapping);
 
     let mut summary = SyncSummary::default();
-    let failed = apply_remote(
+    apply_remote(
         &mut state,
         root.path(),
         &remote("object", "new.md", "edited"),
@@ -329,20 +330,37 @@ fn a_pulled_rename_onto_a_file_holding_its_bytes_changes_nothing() {
         false,
         &no_pre,
         &mut summary,
-    );
+    )
+    .unwrap();
 
-    assert!(failed.is_err());
-    assert_eq!(read_content(root.path(), "old.md").unwrap(), "body");
+    assert!(!root.path().join("old.md").exists());
     assert_eq!(read_content(root.path(), "new.md").unwrap(), "edited");
-    assert_eq!(
-        state.object_map,
-        HashMap::from([("old.md".into(), mapping)])
-    );
-    assert_eq!(
-        format!("{summary:?}"),
-        format!("{:?}", SyncSummary::default())
-    );
-    assert!(moves_in(&root).is_empty());
+    assert_eq!(mapped(&state), ["new.md"]);
+    assert_eq!(summary.renamed.len(), 1);
+    assert_eq!(summary.renamed[0].from_id, "old");
+    assert_eq!(summary.renamed[0].to_id, "new");
+    assert_eq!(moves_in(&root), [("old.md".into(), "new.md".into(), true)]);
+    assert_push_plans_nothing(&state, &root);
+}
+
+/// A target holding other bytes than the pulled ones is never adopted: it is
+/// kept as a conflict copy and the note moves there.
+#[test]
+fn a_pulled_rename_onto_a_file_holding_other_bytes_keeps_that_file() {
+    let root = TempRoot::new();
+    let mut state = connected();
+    std::fs::write(root.path().join("old.md"), "body").unwrap();
+    std::fs::write(root.path().join("new.md"), "mine").unwrap();
+    state
+        .object_map
+        .insert("old.md".into(), entry("object", Some(&hash_sha256("body"))));
+
+    pull(&mut state, &root, &remote("object", "new.md", "edited"));
+
+    assert_eq!(read_content(root.path(), "new.md").unwrap(), "edited");
+    let copy = collision_conflict_filename("new.md", "object");
+    assert_eq!(read_content(root.path(), &copy).unwrap(), "mine");
+    assert!(!root.path().join("old.md").exists());
 }
 
 /// A case-only rename on a volume that folds case names one file twice: the

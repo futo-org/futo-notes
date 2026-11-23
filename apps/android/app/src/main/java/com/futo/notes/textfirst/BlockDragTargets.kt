@@ -11,7 +11,7 @@ import kotlin.math.abs
 /**
  * A boundary a block may land on: above the line starting at [offset], or, when [end], below
  * the note's last line ([offset] is then the display's end). Around a last line that shows no
- * characters (an empty task) the two share [offset]; [end] tells them apart.
+ * characters (an empty line) the two share [offset]; [end] tells them apart.
  */
 internal data class BlockSlot(val offset: Int, val end: Boolean) : Comparable<BlockSlot> {
     override fun compareTo(other: BlockSlot): Int =

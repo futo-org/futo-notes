@@ -98,7 +98,7 @@ impl NoteStoreState {
     }
 
     /// The store, the registry lock released: following waits for its gate.
-    fn active_store(&self) -> Option<Arc<LocalNoteStore>> {
+    pub(crate) fn active_store(&self) -> Option<Arc<LocalNoteStore>> {
         let active = self.active.lock().ok()?;
         active.as_ref().map(|active| active.store.clone())
     }

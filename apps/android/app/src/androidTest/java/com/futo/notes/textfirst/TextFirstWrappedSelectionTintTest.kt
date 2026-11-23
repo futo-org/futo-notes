@@ -62,7 +62,7 @@ class TextFirstWrappedSelectionTintTest {
         for (line in first..last) {
             val textLeft = s.x(l.getLineStart(line))
             val inset = c.view.style.dp(2f).toInt()
-            // The first row's left is its marker, tinted with the line (drawListSelection); a wrapped row's left is margin.
+            // The first row's left is its marker unit, a character tinted with the line; a wrapped row's left is margin.
             if (line > first) assertEquals("row ${line - first + 1} tinted left of its text", 0, s.tinted(c.view.totalPaddingLeft, s.rowTop(line) + inset, textLeft - 2, s.rowBottom(line) - inset))
             val middle = s.x((l.getLineStart(line) + l.getLineVisibleEnd(line)) / 2)
             assertTrue("row ${line - first + 1} is tinted over its text", s.tinted(middle - 4, s.rowTop(line) + inset, middle + 4, s.rowBottom(line) - inset) > 0)

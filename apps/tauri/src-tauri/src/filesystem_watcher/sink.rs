@@ -7,6 +7,11 @@ use super::*;
 pub(super) trait ChangeSink: Clone + Send + Sync + 'static {
     fn change(&self, kind: &str, relative_path: &str);
     fn rename(&self, from: &str, to: &str);
+    /// A move whose old name was written again before the halves were read, so
+    /// no backend without a rename cookie can confirm it. The edits of both
+    /// names were reported; this only lets an editor open on `from` follow
+    /// the note (`LocalNoteStore::observe_recreated_move`).
+    fn recreated_move(&self, from: &str, to: &str);
 }
 
 #[derive(Clone)]
@@ -29,6 +34,12 @@ impl ChangeSink for EventSink {
             "fs:change",
             serde_json::json!({ "type": kind, "filename": relative_path }),
         );
+    }
+
+    fn recreated_move(&self, from: &str, to: &str) {
+        if let Some(store) = self.app.state::<AppState>().notes.active_store() {
+            store.observe_recreated_move(from, to);
+        }
     }
 
     fn rename(&self, from: &str, to: &str) {

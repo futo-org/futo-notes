@@ -12,7 +12,7 @@ internal fun Spanned.codeBlockRange(line: TfCodeBlock): CodeRange {
     while (!head.line.first) head = neighbourCodeLine(head, before = true) ?: break
     var tail = line
     while (!tail.line.last) tail = neighbourCodeLine(tail, before = false) ?: break
-    return CodeRange(getSpanStart(head), codeLineEnd(this, tail))
+    return CodeRange(getSpanStart(head), codeLineEnd(this, tail), codeLineBelow(this, tail))
 }
 
 /** The block whose code starts at [codeStart], if a block's first code line starts there. */

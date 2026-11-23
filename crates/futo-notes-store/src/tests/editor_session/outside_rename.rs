@@ -10,6 +10,12 @@ fn watcher_saw(store: &LocalNoteStore, from: &str, to: &str) {
     });
 }
 
+/// The watcher's report of a move it could not confirm, the old name having
+/// been written again before its halves were read.
+fn watcher_guessed(store: &LocalNoteStore, from: &str, to: &str) {
+    store.observe_recreated_move(&format!("{from}.md"), &format!("{to}.md"));
+}
+
 fn sync_reported(store: &LocalNoteStore, from: &str, to: &str) {
     let rename = crate::NoteRename {
         from: from.into(),
@@ -120,6 +126,55 @@ fn a_save_that_recreated_the_old_name_first_is_adopted() {
     );
     assert_eq!(store.read("finder").unwrap(), "base draft");
     assert!(conflict_copies(&store).is_empty());
+}
+
+/// FSEvents and ReadDirectoryChangesW pair a rename's halves by which name is
+/// gone, so a save that recreated the old name hid the move from the store: the
+/// open note stayed on the old name, and both files stayed on disk.
+#[test]
+fn a_move_the_watcher_could_only_guess_adopts_the_recreation() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let mut editor = draft(&store);
+    rename_outside(&root, "plain", "finder");
+    assert_eq!(
+        editor.checkpoint().unwrap().disposition,
+        FlushDisposition::Recreated
+    );
+
+    watcher_guessed(&store, "plain", "finder");
+
+    assert_eq!(editor.id(), "finder");
+    assert!(!root.0.join("plain.md").exists());
+    assert_eq!(
+        editor.checkpoint().unwrap().disposition,
+        FlushDisposition::Wrote
+    );
+    assert_eq!(store.read("finder").unwrap(), "base draft");
+    assert!(conflict_copies(&store).is_empty());
+}
+
+/// A guess is never a rename: a name that is simply gone, or an old name that
+/// another program wrote, moves no editor.
+#[test]
+fn a_move_the_watcher_guessed_changes_nothing_unless_it_is_the_recreation() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let mut editor = draft(&store);
+    std::fs::write(root.0.join("copy.md"), "base").unwrap();
+    // The old name still holds the attachment's baseline: not a recreation.
+    watcher_guessed(&store, "plain", "copy");
+    assert_eq!(editor.id(), "plain");
+
+    rename_outside(&root, "plain", "finder");
+    watcher_guessed(&store, "plain", "finder");
+    assert_eq!(editor.id(), "plain");
+
+    editor.checkpoint().unwrap();
+    std::fs::write(root.0.join("plain.md"), "written elsewhere").unwrap();
+    watcher_guessed(&store, "plain", "finder");
+    assert_eq!(editor.id(), "plain");
+    assert_eq!(store.read("plain").unwrap(), "written elsewhere");
 }
 
 #[test]

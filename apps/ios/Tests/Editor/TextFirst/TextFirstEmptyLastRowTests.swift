@@ -46,14 +46,15 @@
             let (middle, last) = (boxes[1], boxes[2])
             let length = h.controller.storage.length
             let task = try #require(h.controller.liftPlan(at: CGPoint(x: 120, y: last.midY)))
-            #expect(task.block == NSRange(location: length, length: 0))
+            // The empty last task is its marker unit alone, the note's last character.
+            #expect(task.block == NSRange(location: length - 1, length: 1))
             #expect(task.frame.minY <= last.minY && task.frame.maxY >= last.maxY, "\(task.frame)")
             #expect(task.frame.minY >= middle.maxY, "\(task.frame) reaches \(middle)")
             let above = try #require(h.controller.liftPlan(at: CGPoint(x: 120, y: middle.maxY)))
             #expect(above.block.location < length, "the row above lifts its own task")
             let ys = Dictionary(uniqueKeysWithValues: milk.targets.slots.map { ($0.slot, $0.y) })
             let after = try #require(ys[TextFirstBlockSlot(offset: length, end: true)])
-            let before = try #require(ys[TextFirstBlockSlot(offset: length, end: false)])
+            let before = try #require(ys[TextFirstBlockSlot(offset: length - 1, end: false)])
             #expect(after >= last.maxY, "after the task at \(after), its box ends \(last.maxY)")
             #expect(before <= last.minY && before >= middle.maxY, "above it at \(before)")
         }
@@ -63,7 +64,8 @@
         private func gutterBands(_ h: TextFirstHarness) -> [CGRect] {
             h.tv.tintColor = .clear  // the caret is ink too
             h.tv.layoutIfNeeded()
-            let position = h.tv.position(from: h.tv.beginningOfDocument, offset: 0)!
+            // The first item's text starts after its marker unit.
+            let position = h.tv.position(from: h.tv.beginningOfDocument, offset: 1)!
             let textX = h.tv.caretRect(for: position).minX
             let scale: CGFloat = 4
             let format = UIGraphicsImageRendererFormat()
