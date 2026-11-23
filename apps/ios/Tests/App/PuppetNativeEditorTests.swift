@@ -153,7 +153,7 @@
             defer { unmount() }
             let adapter = PuppetNativeEditor()
             adapter.attach(inserted.controller, title: { "note" })
-            let result = await adapter.perform("Insert", arguments: ["at": 4, "text": "\nnext"])
+            let result = await adapter.perform("Insert", arguments: ["at": 5, "text": "\nnext"])
             #expect(result.status == 200)
             #expect(inserted.source == "- item\nnext")
             inserted.controller.undo()

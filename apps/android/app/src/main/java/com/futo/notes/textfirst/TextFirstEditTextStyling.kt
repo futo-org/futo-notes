@@ -99,6 +99,7 @@ internal fun TextFirstEditText.restyleMarked(e: Editable, start: Int, composingE
 }
 
 internal fun TextFirstEditText.addSpans(target: Spannable, specs: List<SpanSpec>, previousPhotos: List<TfImage> = emptyList()) {
+    storeListMarkerUnits(target, specs)
     val mintedKeys = mintedTableKeys(specs)
     for (spec in specs) {
         if (spec.end < spec.start || spec.end > target.length - 1) continue
@@ -117,33 +118,45 @@ internal fun TextFirstEditText.addSpans(target: Spannable, specs: List<SpanSpec>
 }
 
 private fun setRendererSpan(target: Spannable, span: TfSpan, start: Int, end: Int) {
-    val block = span is TfHeading || span is TfQuote || span is TfList || span is TfIndent || span is TfCodeBlock || span is TfMetadata
-    // Composition supplies raw text without new semantic windows. Keep the
-    // existing block style on text inserted at its start or unfinished end.
-    // A terminating newline belongs to this span, but the next line does not.
-    val flags = when {
-        !block -> TF_SPAN_FLAGS
-        end >= target.length - 1 && (end == start || target[end - 1] != '\n') -> Spanned.SPAN_INCLUSIVE_INCLUSIVE
-        else -> Spanned.SPAN_INCLUSIVE_EXCLUSIVE
-    }
+    val flags = rendererSpanFlags(target, span, start, end)
     if (target.getSpanStart(span) != start || target.getSpanEnd(span) != end || target.getSpanFlags(span) != flags) {
         target.setSpan(span, start, end, flags)
     }
 }
 
+/** The flags a renderer span is set with on [start, end) of [target]. */
+internal fun rendererSpanFlags(target: CharSequence, span: TfSpan, start: Int, end: Int): Int {
+    val block = span is TfHeading || span is TfQuote || span is TfList || span is TfIndent || span is TfCodeBlock || span is TfMetadata
+    // Composition supplies raw text without new semantic windows. Keep the
+    // existing block style on text inserted at its start or unfinished end.
+    // A terminating newline belongs to this span, but the next line does not.
+    val extent = when {
+        !block -> TF_SPAN_FLAGS
+        end >= target.length - 1 && (end == start || target[end - 1] != '\n') -> Spanned.SPAN_INCLUSIVE_INCLUSIVE
+        else -> Spanned.SPAN_INCLUSIVE_EXCLUSIVE
+    }
+    // A list row's look (a checked task's strike) is applied before its marker's, which keeps the box unstruck,
+    // whichever of the two was set last (a restyle sets the row again after its marker).
+    return if (span is TfList) extent or (1 shl Spanned.SPAN_PRIORITY_SHIFT) else extent
+}
+
 internal fun TextFirstEditText.requestImageLoads(from: Int = 0, to: Int = Int.MAX_VALUE) {
     val e = editableText ?: return
+    // Not laid out yet: a decode for no width would be kept at a pixel wide. The first width asks again (onSizeChanged).
+    if (width - totalPaddingLeft - totalPaddingRight <= 0) return
     for (span in e.getSpans(from, minOf(to, e.length), TfImage::class.java)) {
         if (span.bitmap != null || span.failed) continue
-        images.load(span.destination, span.vault, span.remote, contentWidth()) { bitmap ->
+        val width = contentWidth()
+        images.load(span.destination, span.vault, span.remote, width) { bitmap ->
             val current = editableText
             val s = current.getSpanStart(span)
-            if (s < 0) return@load
+            // A decode for a width the view no longer has: the load asked for at the new width lands instead.
+            if (s < 0 || width != contentWidth()) return@load
             if (bitmap == null) span.failed = true else span.bitmap = bitmap
             val en = current.getSpanEnd(span)
             val wasApplying = applying
             applying = true
-            try { current.setSpan(span, s, en, TF_SPAN_FLAGS) } finally { applying = wasApplying }
+            try { current.setSpanRedrawingBelow(this, span, s, en, TF_SPAN_FLAGS) } finally { applying = wasApplying }
             requestLayout()
             invalidate()
         }

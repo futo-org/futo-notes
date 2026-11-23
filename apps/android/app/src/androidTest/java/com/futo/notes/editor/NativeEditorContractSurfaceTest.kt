@@ -59,11 +59,12 @@ class NativeEditorContractSurfaceTest {
             assertEquals(3uL to false, rescanned.total to rescanned.stale)
             assertFalse(s.findClose().open)
         })
-        assertEquals("- ab \n- x\n- y\n- ", scenario("- ab **cd**") { _, s ->
-            assertEquals("**d**", s.copyMarkdown(0uL, at(4, 5)))
-            checkNotNull(s.pasteMarkdown(0uL, at(3, 3), "- x\n- y\n"))
+        // Each item's marker is one display character (U+FFFC, three bytes) before its text.
+        assertEquals("- ab \n- x\n- y\n", scenario("- ab **cd**") { _, s ->
+            assertEquals("**d**", s.copyMarkdown(0uL, at(7, 8)))
+            checkNotNull(s.pasteMarkdown(0uL, at(6, 6), "- x\n- y\n"))
             assertEquals("- ab \n- x\n- y\n- **cd**", s.sourceText())
-            val cut = s.cutMarkdown(1uL, at(8, 10))
+            val cut = s.cutMarkdown(1uL, at(17, 22))
             assertEquals("- **cd**", cut.markdown)
             assertNotNull(cut.change)
         })

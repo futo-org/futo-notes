@@ -84,7 +84,9 @@
                 Row(
                     name: "an empty CRLF task in the middle",
                     source: "- [ ] a\r\n- [ ] \r\n- [ ] b",
-                    at: { ($0 as NSString).range(of: "\r\n\r\n").location + 2 }, action: .none,
+                    // After the empty task's marker unit.
+                    at: { ($0 as NSString).range(of: "\r\n\u{FFFC}\r\n").location + 3 },
+                    action: .none,
                     band: 1),
                 // The empty task is the note's last line: the empty line after the display's
                 // final CRLF.
@@ -161,7 +163,11 @@
             let lineStart = text.lineRange(
                 for: NSRange(location: min(selection.location, text.length), length: 0)
             ).location
-            let position = h.tv.position(from: h.tv.beginningOfDocument, offset: lineStart)!
+            // The text starts after the line's marker unit, if it has one.
+            let textStart =
+                lineStart
+                + (lineStart < text.length && text.character(at: lineStart) == 0xFFFC ? 1 : 0)
+            let position = h.tv.position(from: h.tv.beginningOfDocument, offset: textStart)!
             let textX = h.tv.caretRect(for: position).minX
             let scale: CGFloat = 4
             let format = UIGraphicsImageRendererFormat()

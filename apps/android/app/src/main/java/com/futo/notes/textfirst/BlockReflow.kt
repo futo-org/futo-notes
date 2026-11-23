@@ -141,7 +141,7 @@ internal class ReflowMove(private val photo: Boolean, private val below: Boolean
 /**
  * Paragraphs in display range [a, b) of [text] whose last line ends at [last]. [toEnd] when [b]
  * is the note's end slot: the last line counts then even when it shows no characters (an empty
- * task), whose top boundary shares its offset.
+ * line; an empty list item shows its marker unit), whose top boundary shares its offset.
  */
 internal fun reflowParagraphs(text: CharSequence, a: Int, b: Int, last: Int, toEnd: Boolean): Int {
     var n = 0
@@ -153,7 +153,7 @@ internal fun reflowParagraphs(text: CharSequence, a: Int, b: Int, last: Int, toE
 /**
  * Whether a landing paragraph from [from] to [to] of [text] (last line ending at [last]) is
  * bottomed by the note's end slot: only when it is the last line itself, never a paragraph that
- * ends where an empty last line (an empty task) starts, whose bottom is that line's top.
+ * ends where an empty last line starts, whose bottom is that line's top.
  */
 internal fun endsAtNoteEnd(text: CharSequence, from: Int, to: Int, last: Int): Boolean =
     to >= last && !(from < last && last > 0 && text[last - 1] == '\n')

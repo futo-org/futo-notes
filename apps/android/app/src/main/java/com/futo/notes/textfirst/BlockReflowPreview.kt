@@ -266,7 +266,7 @@ internal class BlockReflowPreview private constructor(
             val firstVisible = l.getLineStart(l.getLineForVertical((a - view.totalPaddingTop).toInt().coerceAtLeast(0)))
             var p = maxOf(key.offset, e.lastIndexOf('\n', firstVisible - 1) + 1)
             val stop = minOf(run.endKey.offset, next(l.getLineStart(l.getLineForVertical((b - view.totalPaddingTop).toInt() - 1).coerceAtLeast(0))))
-            // Each paragraph that shows; an empty last line (an empty task) only where the run reaches the note's end.
+            // Each paragraph that shows; an empty last line only where the run reaches the note's end.
             while (p < stop || (p == last && p == stop && emptyLast && run.endKey.end)) {
                 val n = next(p)
                 val y = topPadding.boundaryY(BlockSlot(p, false)) ?: break

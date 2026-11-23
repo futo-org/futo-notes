@@ -61,7 +61,7 @@
             let h = TextFirstHarness("first\ncaption\n- [ ] ", focused: false)
             let lift = try #require(h.controller.liftPlan(at: h.point(line: 1)))
             let block = lift.block
-            #expect(NSMaxRange(block) == h.controller.storage.length, "it ends above the task")
+            #expect(NSMaxRange(block) == h.controller.storage.length - 1, "it ends above the task")
             let layout = try #require(
                 TextFirstBlockLayout(
                     h.controller.storage, block: block, width: h.tv.textContainer.size.width,
@@ -85,20 +85,13 @@
             ] {
                 let h = TextFirstHarness(note, focused: false)
                 let length = h.controller.storage.length
-                let point: CGPoint
-                if line >= 0 {
-                    // The line's own row (an empty last task is drawn in its fragment, below).
-                    point = h.point(line: line, fraction: 0.15)
-                } else {
-                    let milk = h.point(line: 1)
-                    point = try #require(
-                        stride(from: milk.y, to: milk.y + 60, by: 2).lazy.map {
-                            CGPoint(x: 120, y: $0)
-                        }.first { h.controller.liftPlan(at: $0)?.block.length == 0 })
-                }
+                // The empty task is its marker unit alone, on a row of its own.
+                let point = h.point(line: line < 0 ? 2 : line, fraction: 0.15)
                 let lift = try #require(h.controller.liftPlan(at: point), "\(note)")
                 #expect(lift.book.block.toEnd == toEnd, "\(note)")
-                #expect((lift.block.length == 0) == (line < 0), "\(note): \(lift.block)")
+                #expect(
+                    (lift.block == NSRange(location: length - 1, length: 1)) == (line < 0),
+                    "\(note): \(lift.block)")
                 let block = lift.block
                 let layout = try #require(
                     TextFirstBlockLayout(
@@ -111,21 +104,23 @@
                         TextFirstBlockSlot(offset: block.location, end: false), in: laidOut))
                 let foot = try #require(
                     h.controller.boundaryY(
-                        TextFirstBlockSlot(offset: length, end: toEnd), in: laidOut))
+                        toEnd
+                            ? TextFirstBlockSlot(offset: length, end: true)
+                            : TextFirstBlockSlot(offset: NSMaxRange(block), end: false),
+                        in: laidOut))
                 #expect(abs(layout.height - (foot - top)) < 0.5, "\(note): \(layout.height)")
-                // The task's box drawn with the block, as its last row, exactly when it carries
-                // the task; else nothing drawn below the block's foot.
+                // The task's box drawn with the block, as its last row, when it carries the
+                // task. (A task the block does not carry is an ordinary line below its foot.)
+                guard toEnd else { continue }
                 let painter = TextFirstSlicePainter(textView: h.tv)
-                let row =
-                    toEnd
-                    ? (layout.height - 24)...layout.height : layout.height...(layout.height + 24)
+                let row = (layout.height - 24)...layout.height
                 let image = try #require(
                     layout.paint(
                         CGRect(
                             x: 0, y: row.lowerBound, width: h.tv.bounds.width,
                             height: row.upperBound - row.lowerBound),
                         blockTop: 0, with: painter), "\(note)")
-                #expect(Self.marked(image, below: 0, h) == toEnd, "\(note): the task's box")
+                #expect(Self.marked(image, below: 0, h), "\(note): the task's box")
             }
         }
 

@@ -67,7 +67,7 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
             try {
                 e.withRendererUpdate(this, update, windows) { change ->
                     val previousPhotos = e.photoSpansToReuse(change, windows)
-                    for (edit in update.edits) e.replace(edit.start, edit.end, edit.text)
+                    for (edit in update.edits) if (windows.isEmpty()) e.replace(edit.start, edit.end, edit.text) else e.replaceKeepingRowSpans(edit)
                     t1 = System.nanoTime()
                     editsEnd = android.os.SystemClock.elapsedRealtimeNanos()
                     for (window in windows) restyle(e, window, previousPhotos)

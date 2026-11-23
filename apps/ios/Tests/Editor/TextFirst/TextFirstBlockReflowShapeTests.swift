@@ -93,17 +93,16 @@
             let lines = (0..<120).map { "line \($0)" }
             let h = TextFirstHarness(
                 (lines + ["- [ ] milk", "- [ ] "]).joined(separator: "\n"), focused: false)
-            h.tv.contentOffset.y = h.tv.contentSize.height - h.tv.bounds.height
-            h.tv.layoutIfNeeded()
+            // Twice: the first layout settles the content height the first scroll estimated, and
+            // the task's row, a line of its own, must be on screen to be pressed.
+            for _ in 0..<2 {
+                h.tv.contentOffset.y = h.tv.contentSize.height - h.tv.bounds.height
+                h.tv.layoutIfNeeded()
+            }
             let length = h.controller.storage.length
-            // The task's row, below `milk`'s: where a press lifts it.
-            let milk = h.point(line: 120)
-            let row = try #require(
-                stride(from: milk.y, to: milk.y + 60, by: 2).first {
-                    h.controller.liftPlan(at: CGPoint(x: 120, y: $0))?.block.length == 0
-                })
-            let drag = try begin(h, at: CGPoint(x: 120, y: row))
-            #expect(drag.lift.block == NSRange(location: length, length: 0))
+            // The task's own row, below `milk`'s.
+            let drag = try begin(h, at: h.point(line: 121))
+            #expect(drag.lift.block == NSRange(location: length - 1, length: 1))
             hold(h, at: 30)
             let from = h.tv.contentOffset.y
             #expect(await h.until(4) { h.tv.contentOffset.y < from - 2 * h.tv.bounds.height })

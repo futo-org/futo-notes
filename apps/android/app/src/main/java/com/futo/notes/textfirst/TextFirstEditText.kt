@@ -5,7 +5,6 @@ import android.content.Context
 import android.text.Editable
 import android.text.InputFilter
 import android.text.InputType
-import android.text.Selection
 import android.text.Spannable
 import android.util.TypedValue
 import android.view.Gravity
@@ -40,8 +39,9 @@ internal class TextFirstEditText(
     var onOpenUrl: ((String) -> Boolean)? = null
     internal val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
     internal val imageTouch = ImageTouch(this)
+    internal val listMarkerTouch = ListMarkerTouch(this)
     @Volatile override var renderedSelection: Long = Long.MIN_VALUE
-        private set
+        internal set
     @Volatile override var selectedObject: Pair<Int, Int>? = null
     internal val linkTouch = ExternalLinkTouch(this, { onOpenUrl?.invoke(it) ?: false }, ::nativeTouch)
     internal val lineTouch = LineSelectTouch(this)
@@ -68,6 +68,8 @@ internal class TextFirstEditText(
     internal var onApplyMeasured: ((KeyTimings, UiUpdate) -> Unit)? = null
 
     internal var applying = false
+    /** The current press was a hold inside a selection with its menu (HoldSelectsWord.kt): its lift is no tap. */
+    internal var heldInsideSelection = false
     /** True while the view moves its own selection (endSelectionOnBlur): not a placement by the user. */
     internal var movingSelectionItself = false
     /** True while the view takes the engine's selection: already resolved, so it is painted as it is. */
@@ -83,8 +85,12 @@ internal class TextFirstEditText(
     internal val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, { invalidateTableScroll(it) })
     internal val marks = FindMarks()
     internal val scroll = NoteScroll(this)
-    internal val spans = TfSpanFactory(style, marks, { contentWidth() }) { span ->
+    internal val spans = TfSpanFactory(style, marks, { contentWidth() }, { span ->
         wikilinkContentWidth(this, span, contentWidth())
+    }) { indent ->
+        val e = editableText
+        val at = e?.getSpanStart(indent) ?: -1
+        if (at < 0) null else continuedTextStart(e, at, indent.depth)
     }
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */
     internal var composing: Any? = null
@@ -191,10 +197,13 @@ internal class TextFirstEditText(
         return platformLongClick()
     }
 
-    private fun platformLongClick(): Boolean {
-        renderHold.longPressed()
-        return codeTouch.longPress() || imageTouch.longPress() || super.performLongClick()
-    }
+    private fun platformLongClick(): Boolean = notePlatformLongClick { super.performLongClick() }
+
+    /**
+     * The note takes no drop: the platform's would put the text into the view behind the editor's back and report it
+     * done though the note is unchanged. (Nothing in the note starts a text drag either.)
+     */
+    override fun onDragEvent(event: android.view.DragEvent): Boolean = false
 
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
@@ -267,12 +276,12 @@ internal class TextFirstEditText(
         // Under the caret, which the TextView draws before the layout's own drawing.
         if (blockLift.drag?.drawNote(canvas) != true) {
             drawCodeBlocks(canvas)
+            drawMetadataCard(canvas)
             drawInlineCodeChips(canvas, scrollY - totalPaddingTop, scrollY - totalPaddingTop + height)
             lineBelowHandle.afterDraw()
             drawCodeSelection(canvas)
             drawTextSelection(canvas)
             drawTableSelectionUnder(canvas)
-            drawListSelection(canvas)
             drawFindMarks(canvas)
             val e = editableText as? ChunkedEditable
             e?.drawWindow = visibleChars()
@@ -298,24 +307,7 @@ internal class TextFirstEditText(
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
         super.onSelectionChanged(selStart, selEnd)
-        if (coversImage(selStart, selEnd) || coversImage((renderedSelection shr 32).toInt(), renderedSelection.toInt())) invalidate()
-        val shown = renderedSelection
-        renderedSelection = (selStart.toLong() shl 32) or (selEnd.toLong() and 0xffffffffL)
-        selectedObject = imageSelectedWhole(selStart, selEnd)
-        // A loading note clamps the block to the text it has; the block stays selected.
-        selectedCodeBlock = selectedCodeBlock?.takeIf { it.first == selStart && (it.second == selEnd || !contentComplete && selEnd <= it.second) }
-        val painted = paintCodeSelection(selStart, selEnd, settled = settlingFromEngine)
-        if (applying) return
-        val e = editableText ?: return
-        // The end sentinel is not a caret position (an empty Editable has none yet).
-        val last = (e.length - 1).coerceAtLeast(0)
-        val (a, b) = clampSelectionOutOfAtoms(e, selStart.coerceAtMost(last), selEnd.coerceAtMost(last), shown)
-        if (a != selStart || b != selEnd) {
-            val wasApplying = applying
-            applying = true
-            try { Selection.setSelection(e, a, b) } finally { applying = wasApplying }
-        }
-        engine?.viewSelection(appliedSeq, painted?.start ?: a, painted?.end ?: b, placed = !movingSelectionItself)
+        selectionChanged(selStart, selEnd)
     }
 
     @SuppressLint("ClickableViewAccessibility")

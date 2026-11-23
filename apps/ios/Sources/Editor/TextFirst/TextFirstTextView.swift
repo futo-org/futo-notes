@@ -110,13 +110,26 @@ final class TextFirstTextView: UITextView {
         if fingerIsDown, let side = side(of: range.start), side == self.side(of: range.end) {
             return []
         }
-        let rects = super.selectionRects(for: range)
-        guard let controller else { return rects }
+        guard let controller else { return super.selectionRects(for: range) }
+        let selected = NSRange(
+            location: offset(from: beginningOfDocument, to: range.start),
+            length: offset(from: range.start, to: range.end))
+        let rects = controller.listRowSelectionRects(
+            super.selectionRects(for: range), of: selected)
         // On an image's line the rects, and the handles drawn from them, are as tall as text.
         return rects.map { rect in
             controller.onImageLine(rect.rect).map { TextFirstSelectionRect(rect, drawnAs: $0) }
                 ?? rect
         }
+    }
+
+    /// The keyboard reads an item's text start as a line's start (`keyboardText`).
+    override func text(in range: UITextRange) -> String? {
+        let text = super.text(in: range)
+        guard let text, let controller else { return text }
+        let start = offset(from: beginningOfDocument, to: range.start)
+        let end = offset(from: beginningOfDocument, to: range.end)
+        return controller.keyboardText(text, in: NSRange(location: start, length: end - start))
     }
 
     // While the engine has not landed UIKit must never change the frozen view: a keyboard's
@@ -139,6 +152,18 @@ final class TextFirstTextView: UITextView {
             return
         }
         super.replace(range, withText: text)
+    }
+
+    /// Dictation puts its own U+FFFC in place of the selection. Over a selection of one U+FFFC
+    /// (a list marker or a divider) the text does not change, so nothing would tell the engine
+    /// the selection was replaced: it is deleted first, as Backspace over it does.
+    override var insertDictationResultPlaceholder: Any {
+        if selectedRange.length == 1,
+            (textStorage.string as NSString).character(at: selectedRange.location) == 0xFFFC
+        {
+            deleteBackward()
+        }
+        return super.insertDictationResultPlaceholder
     }
 
     override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
@@ -223,15 +248,22 @@ final class TextFirstTextView: UITextView {
 final class TextFirstSelectionRect: UITextSelectionRect {
     private let source: UITextSelectionRect
     private let frame: CGRect
-    init(_ source: UITextSelectionRect, drawnAs frame: CGRect) {
+    private let start: Bool
+    private let end: Bool
+    init(
+        _ source: UITextSelectionRect, drawnAs frame: CGRect, containsStart: Bool? = nil,
+        containsEnd: Bool? = nil
+    ) {
         self.source = source
         self.frame = frame
+        start = containsStart ?? source.containsStart
+        end = containsEnd ?? source.containsEnd
         super.init()
     }
     override var rect: CGRect { frame }
     override var writingDirection: NSWritingDirection { source.writingDirection }
-    override var containsStart: Bool { source.containsStart }
-    override var containsEnd: Bool { source.containsEnd }
+    override var containsStart: Bool { start }
+    override var containsEnd: Bool { end }
     override var isVertical: Bool { source.isVertical }
 }
 

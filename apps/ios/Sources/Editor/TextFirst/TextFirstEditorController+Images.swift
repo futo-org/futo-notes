@@ -239,7 +239,7 @@ extension TextFirstEditorController {
     }
 
     /// The image whose last glyph is just before `offset`, with the glyph run it covers.
-    private func image(endingAt offset: Int) -> (range: NSRange, span: TextFirstImageSpan)? {
+    func image(endingAt offset: Int) -> (range: NSRange, span: TextFirstImageSpan)? {
         guard offset > 0, offset <= storage.length,
             storage.attribute(.tfImage, at: offset - 1, effectiveRange: nil)
                 is TextFirstImageSpan
@@ -254,34 +254,6 @@ extension TextFirstEditorController {
             NSMaxRange(run) == offset
         else { return nil }
         return (run, span)
-    }
-
-    /// A caret just after an image is offered the hidden spelling's attributes (0.01 pt, clear,
-    /// widened by the image's kern), and UIKit drops the `.tfImage` key from them, so they
-    /// cannot be recognised by it. Marked text (an IME's composition, dictation) is drawn with
-    /// them until it is committed, so it is invisible. The look is the image's, never the text's.
-    func syncImageTypingAttributes() {
-        let caret = textView.selectedRange
-        guard caret.length == 0, image(endingAt: caret.location) != nil else { return }
-        textView.typingAttributes = Self.withoutImageSpelling(textView.typingAttributes)
-    }
-
-    /// `attributes` without what hides an image's spelling; anything else (a toolbar toggle's
-    /// bold, a paragraph's indent) is kept.
-    static func withoutImageSpelling(_ attributes: [NSAttributedString.Key: Any])
-        -> [NSAttributedString.Key: Any]
-    {
-        var plain = attributes
-        if let font = plain[.font] as? UIFont, font.pointSize <= 1 {
-            plain[.font] = bodyFont
-        }
-        if (plain[.foregroundColor] as? UIColor) == UIColor.clear {
-            plain[.foregroundColor] = baseAttributes[.foregroundColor]
-        }
-        plain[.kern] = nil
-        plain[.baselineOffset] = nil
-        plain[.tfImage] = nil
-        return plain
     }
 
     /// A text-height rect standing on the baseline of the image-bearing line that holds the

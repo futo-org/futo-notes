@@ -59,8 +59,9 @@ extension TextFirstEditorController {
     private func updateTypingAttributes(_ active: Set<String>) {
         guard textView.selectedRange.length == 0 else { return }
         var attributes = textView.typingAttributes
-        // After an image the view offers its hidden glyphs' attributes; text typed there is plain.
-        attributes = Self.withoutImageSpelling(attributes)
+        // After an image or a list marker the view offers its hidden glyphs' attributes; text
+        // typed there is plain.
+        attributes = Self.withoutAtomLook(attributes)
         let base = (attributes[.font] as? UIFont) ?? Self.bodyFont
         var traits = base.fontDescriptor.symbolicTraits
         if active.contains("bold") {

@@ -32,6 +32,22 @@ class EngineStyleSpansTest {
         assertEquals(6, specs.size)
     }
 
+    // "10. a\n  - [x] b" shows as "\uFFFCa\n\uFFFCb": each marker is its item's first character and draws with its row's facts.
+    @Test fun aListMarkerUnitTakesItsItemRowsFacts() {
+        val spans = listOf(
+            listRow(0, 3, level = 0, EditorListMarker.ORDERED, "10."),
+            EditorStyleSpan.ListMarker(0uL, 1uL),
+            listRow(3, 5, level = 1, EditorListMarker.TASK, "-", checked = true),
+            EditorStyleSpan.ListMarker(3uL, 4uL),
+        )
+        val markers = spans.toStyleWindow(0, 5, "\uFFFCa\n\uFFFCb").specs.filterIsInstance<SpanSpec.ListItemMarker>()
+        assertEquals(listOf(0 to 1, 3 to 4), markers.map { it.start to it.end })
+        assertEquals(listOf(ListMarker.Ordered, ListMarker.Task), markers.map { it.marker })
+        assertEquals(listOf("10.", "-"), markers.map { it.label })
+        assertEquals(listOf(0, 1), markers.map { it.depth })
+        assertEquals(listOf(false, true), markers.map { it.checked })
+    }
+
     // "```js name:a.js hl:2\nx\ny\n```\n```\nw\n```" shows as "x\ny\nw".
     @Test fun aCodeLineCarriesItsNumberEdgesAndTheWholeBlocksFacts() {
         val spans = listOf(

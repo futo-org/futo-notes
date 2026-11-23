@@ -74,4 +74,74 @@ class TextFirstPhotoRevealTest {
         delay(400)
         assertEquals("the next character keeps the scroll", scroll, view.scrollY)
     }
+
+    /**
+     * Tester (round 2, F5): a tap on the top of a photo taller than the space jumped the page to the photo's bottom.
+     * A tap selects it and moves nothing while its top shows; tapped below a top out of view, it shows its top first.
+     */
+    @Test fun aTapOnAPhotoTallerThanTheSpaceShowsItsTopAndNeverJumps() = textFirstSession("$prose\n\n![t](tall.png)\n\nend", ::photos) { c ->
+        val photo = photoIn(c, "tall.png") { photo -> photo / 2 }
+        val view = c.view
+        val start = view.editableText.getSpanStart(photo)
+        val end = view.editableText.getSpanEnd(photo)
+        val rect = drawn(c, photo)
+        val space = view.height - view.totalPaddingTop - view.totalPaddingBottom
+        suspend fun tapPhoto(below: Float) {
+            tapNoteAt(view, view.totalPaddingLeft + rect.left + 40f, view.totalPaddingTop - view.scrollY + rect.top + below)
+            await("the photo selected") { view.selectionStart == start && view.selectionEnd == end }
+            delay(400)
+        }
+        // The keyboard down: the tap focuses the note and puts a caret on the photo's row before it selects the photo.
+        view.clearFocus()
+        view.scrollTo(0, (rect.top - space / 3).toInt())
+        delay(300)
+        val scroll = view.scrollY
+        tapPhoto(below = 60f)
+        assertEquals("a tap on a photo whose top shows moves nothing", scroll, view.scrollY)
+        caretAt(c, view.length() - 1)
+        view.scrollTo(0, (rect.top + space / 2).toInt())
+        delay(300)
+        tapPhoto(below = space * 0.75f)
+        assertEquals("tapped below its top, the photo shows from its top", rect.top, view.scrollY.toFloat(), view.lineHeight.toFloat())
+    }
+
+    /** Sol (round 3): a note that is one photo; selecting the photo selects the whole note, and it is still revealed. */
+    @Test fun aTapOnTheOnlyPhotoOfANoteShowsItsTop() = onlyPhotoTapped(caretAtEnd = true)
+
+    /** Sol (round 4): the caret revealed before the photo first, at the reveal key the selected photo uses. */
+    @Test fun aTapOnTheOnlyPhotoAfterACaretBeforeItShowsItsTop() = onlyPhotoTapped(caretAtEnd = false)
+
+    private fun onlyPhotoTapped(caretAtEnd: Boolean) = textFirstSession("![t](tall.png)", ::photos) { c ->
+        val photo = photoIn(c, "tall.png") { photo -> photo / 2 }
+        val view = c.view
+        val start = view.editableText.getSpanStart(photo)
+        val end = view.editableText.getSpanEnd(photo)
+        val rect = drawn(c, photo)
+        val space = view.height - view.totalPaddingTop - view.totalPaddingBottom
+        caretAt(c, if (caretAtEnd) end else start)
+        view.scrollTo(0, (rect.top + space / 2).toInt())
+        delay(300)
+        tapNoteAt(view, view.totalPaddingLeft + rect.left + 40f, view.totalPaddingTop - view.scrollY + rect.top + space * 0.75f)
+        await("the photo selected") { view.selectionStart == start && view.selectionEnd == end }
+        delay(400)
+        assertEquals("the photo shows from its top", rect.top, view.scrollY.toFloat(), view.lineHeight.toFloat())
+    }
+
+    /** Sol (round 5): a photo selected whole, then Right (the caret at its end): that caret is revealed, though at the photo's edge. */
+    @Test fun rightAfterAPhotoSelectedWholeRevealsTheCaret() = textFirstSession("$prose\n\n![t](tall.png)\n\nend", ::photos) { c ->
+        val photo = photoIn(c, "tall.png") { photo -> photo / 2 }
+        val view = c.view
+        val start = view.editableText.getSpanStart(photo)
+        val end = view.editableText.getSpanEnd(photo)
+        c.select(start, end)
+        await("the photo selected") { view.selectionStart == start && view.selectionEnd == end }
+        delay(400)
+        view.scrollTo(0, 0)
+        delay(300)
+        for (action in listOf(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.ACTION_UP)) view.dispatchKeyEvent(android.view.KeyEvent(action, android.view.KeyEvent.KEYCODE_DPAD_RIGHT))
+        await("the caret after the photo") { view.selectionStart == end && view.selectionEnd == end }
+        delay(400)
+        val rect = drawn(c, photo)
+        assertTrue("the caret's row is on screen (photo ${rect.top}..${rect.bottom}, scroll ${view.scrollY})", rect.bottom > view.scrollY && rect.top < view.scrollY + view.height)
+    }
 }

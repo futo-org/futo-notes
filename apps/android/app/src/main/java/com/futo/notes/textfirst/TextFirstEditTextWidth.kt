@@ -102,7 +102,7 @@ internal fun TextFirstEditText.refreshWidthDependentSpans() {
     try {
         for (atom in e.getSpans(0, e.length, TfAtom::class.java)) {
             if (atom !is TfImage && atom !is TfDivider && atom !is TfWikilink) continue
-            e.setSpan(atom, e.getSpanStart(atom), e.getSpanEnd(atom), e.getSpanFlags(atom))
+            e.setSpanRedrawingBelow(this, atom, e.getSpanStart(atom), e.getSpanEnd(atom), e.getSpanFlags(atom))
         }
     } finally {
         applying = wasApplying

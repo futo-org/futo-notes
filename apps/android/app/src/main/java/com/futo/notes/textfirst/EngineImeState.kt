@@ -32,7 +32,8 @@ internal data class ImeContextWindow(val text: String, val start: Int, val selec
             // Context is allowed to be shorter than requested, but never half a UTF-16 scalar.
             if (from > low && from < start && Character.isLowSurrogate(text[from]) && Character.isHighSurrogate(text[from - 1])) from++
             if (to < high && to > end && Character.isHighSurrogate(text[to - 1]) && Character.isLowSurrogate(text[to])) to--
-            return ImeContextWindow(text.subSequence(from, to).toString(), from - low, start - from, end - from)
+            val shown = keyboardTextBefore(text, start, text.subSequence(from, start).toString()) + text.subSequence(start, to)
+            return ImeContextWindow(shown, from - low, start - from, end - from)
         }
     }
 }
@@ -43,7 +44,7 @@ internal fun imeTextBefore(text: CharSequence, start: Int, low: Int, requested: 
     if (start < low) return ""
     var from = maxOf(low, start - minOf(requested, IME_CONTEXT_CHARS))
     if (from > low && from < start && Character.isLowSurrogate(text[from]) && Character.isHighSurrogate(text[from - 1])) from++
-    return text.subSequence(from, start).toString()
+    return keyboardTextBefore(text, start, text.subSequence(from, start).toString())
 }
 
 internal fun imeTextAfter(text: CharSequence, end: Int, high: Int, requested: Int): CharSequence {

@@ -1,8 +1,8 @@
 import UIKit
 
 // Bullets, numbers, checkboxes, quote bars, code backgrounds and dividers, drawn by
-// NSTextLayoutFragment subclasses from the block facts the engine sent. None of these are
-// characters in the text: the display holds only the words.
+// NSTextLayoutFragment subclasses from the block facts the engine sent. A list item's marker
+// and a divider are each one hidden U+FFFC in the text; the art is drawn where it is laid out.
 
 extension NSAttributedString.Key {
     /// `TextFirstBlockAttribute` on every character of a drawn line (including its newline).
@@ -14,6 +14,9 @@ extension NSAttributedString.Key {
     static let tfLinkURL = NSAttributedString.Key("futo.tf.linkURL")
     /// A resolved wikilink's note id, on its glyphs.
     static let tfWikilink = NSAttributedString.Key("futo.tf.wikilink")
+    /// On a list item's marker unit: the U+FFFC the engine puts at the item's start, hidden and
+    /// widened to the item's marker column, where its bullet, number or checkbox is drawn.
+    static let tfListMarker = NSAttributedString.Key("futo.tf.listMarker")
 }
 
 /// What the engine said about one line that draws something besides text.
@@ -28,11 +31,20 @@ final class TextFirstBlockAttribute: NSObject {
     /// A list line, or an indented plain line (`.plain`): the line's own indent in columns
     /// and its marker as typed, as the engine reports them.
     var list: TextFirstListRow?
-    /// False on a row's later lines (a loose list's blank line): they indent but draw no marker.
-    var showsMarker = true
+    /// The line starts with its item's marker unit, so its first row starts a marker column
+    /// before the text (a loose list's blank line and an indented plain line have none).
+    var holdsMarkerUnit = false
 
-    /// Where the line's text starts after its indent and marker gutter.
-    var listIndent: CGFloat { list.map(TextFirstMetrics.listIndent) ?? 0 }
+    /// Where the line's text starts after its indent and marker column; wrapped rows hang here.
+    var listIndent: CGFloat { continuedTextStart ?? list.map(TextFirstMetrics.listIndent) ?? 0 }
+    /// On an indented plain line: where the text of the item it continues starts (a wide
+    /// number's text starts further in than the list column).
+    var continuedTextStart: CGFloat?
+    /// The marker column the line's first row gives its marker unit, 0 when it has none.
+    var markerColumn: CGFloat {
+        guard holdsMarkerUnit, let list else { return 0 }
+        return TextFirstMetrics.markerColumn(list)
+    }
     /// A list item, which draws a marker (an indented plain line draws only its indent).
     var isItem: Bool { list.map { $0.marker != .plain } ?? false }
 }
@@ -44,8 +56,30 @@ typealias TextFirstListRow = (
 enum TextFirstMetrics {
     /// The engine's nesting level determines layout, independent of source whitespace.
     static let listLevel: CGFloat = 24
+    /// A bullet's or checkbox's column, and the narrowest a number's.
+    static let markerStep: CGFloat = 30
+    /// The gap between a number and its item's text.
+    static let numberGap: CGFloat = 6
+    static let numberFont = UIFont.monospacedDigitSystemFont(ofSize: 17, weight: .regular)
+
     static func listIndent(_ row: TextFirstListRow) -> CGFloat {
-        (row.marker == .plain ? 0 : 30) + CGFloat(row.level) * listLevel
+        // An indented plain line continues the item a level out: it hangs at that item's text.
+        if row.marker == .plain {
+            return row.level > 0 ? CGFloat(row.level - 1) * listLevel + markerStep : 0
+        }
+        return markerColumn(row) + CGFloat(row.level) * listLevel
+    }
+
+    /// The width of an item's marker column: one step, or a number's whole label and its gap
+    /// when that is wider, so a long number never runs into the indent before it.
+    static func markerColumn(_ row: TextFirstListRow) -> CGFloat {
+        switch row.marker {
+        case .plain: return 0
+        case .ordered:
+            let label = NSAttributedString(string: row.text, attributes: [.font: numberFont])
+            return max(markerStep, (label.size().width + numberGap).rounded(.up))
+        case .bullet, .task: return markerStep
+        }
     }
     static func quoteIndent(depth: Int) -> CGFloat {
         depth > 0 ? 14 + CGFloat(depth - 1) * 14 : 0
@@ -147,7 +181,7 @@ final class TextFirstLayoutFragment: NSTextLayoutFragment {
     /// The paragraph's own block, over its first line and the whole fragment except the
     /// note's empty last line, which TextKit lays out at the end of the last paragraph's
     /// fragment: that line is not this paragraph's (its block, if any, is `trailingBlock`).
-    private var ownRow: Row {
+    var ownRow: Row {
         let font =
             textLineFragments.first.flatMap { line in
                 line.attributedString.length > 0
@@ -240,29 +274,10 @@ final class TextFirstLayoutFragment: NSTextLayoutFragment {
         return CGRect(x: x, y: top, width: width, height: bottom - top)
     }
 
-    /// The checkbox's rect: x in container coordinates, y relative to the fragment.
-    var checkboxRect: CGRect? { checkboxRect(of: block, row: ownRow) }
-
-    /// The marker's gutter, in the fragment's coordinates, when the selection covers the whole
-    /// row (so the highlight reaches the rendered bullet, number or box); nil for a caret or a
-    /// partial selection.
-    var highlightedMarkerRect: CGRect? {
-        guard block.isItem, block.showsMarker, let host, let manager = textLayoutManager,
-            MainActor.assumeIsolated({ host.selectionRange(for: self, in: manager) }) != nil
-        else { return nil }
-        let line = firstLine
-        return CGRect(
-            x: textIndent(of: block) - 26, y: line.minY, width: 26, height: line.height)
-    }
-
     override func draw(at pointIn: CGPoint, in context: CGContext) {
         let point = CGPoint(x: pointIn.x - layoutFragmentFrame.minX, y: pointIn.y)
         drawBlockArt(block, row: ownRow, at: point, in: context)
-        if let marker = highlightedMarkerRect {
-            (MainActor.assumeIsolated { host?.textView.tintColor } ?? accent)
-                .withAlphaComponent(0.2).setFill()
-            context.fill(marker.offsetBy(dx: point.x, dy: point.y))
-        }
+        drawListMarker(at: point, in: context)
         // The empty last line's own block, which no paragraph carries.
         if let trailing = trailingBlock,
             let row = trailingRow(of: trailing)
@@ -275,7 +290,7 @@ final class TextFirstLayoutFragment: NSTextLayoutFragment {
         drawTables(at: point, in: context)
     }
 
-    /// A block's code background, divider, quote bars and list marker against `row`.
+    /// A block's code background, divider and quote bars against `row`.
     private func drawBlockArt(
         _ block: TextFirstBlockAttribute, row: Row, at point: CGPoint, in context: CGContext
     ) {
@@ -318,9 +333,6 @@ final class TextFirstLayoutFragment: NSTextLayoutFragment {
                 context.fill(decorationRect(at: point, row: row, x: x, width: 3))
             }
         }
-        if let list = block.list, block.isItem, block.showsMarker {
-            drawListMarker(list, of: block, row: row, at: point, in: context)
-        }
     }
 
 }
@@ -353,5 +365,23 @@ final class TextFirstLayoutDelegate: NSObject, NSTextLayoutManagerDelegate {
             return fragment
         }
         return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
+    }
+
+    /// Never between a list item's marker unit and its text: an attachment is a break
+    /// opportunity (UAX #14 class CB), so a first word wider than the row would leave the marker
+    /// alone on its row. The word wraps by character beside the marker instead.
+    func textLayoutManager(
+        _ textLayoutManager: NSTextLayoutManager, shouldBreakLineBefore location: NSTextLocation,
+        hyphenating: Bool
+    ) -> Bool {
+        guard
+            let storage = (textLayoutManager.textContentManager as? NSTextContentStorage)?
+                .textStorage
+        else { return true }
+        let offset = textLayoutManager.offset(
+            from: textLayoutManager.documentRange.location, to: location)
+        return
+            !(offset > 0 && offset <= storage.length
+            && storage.attribute(.tfListMarker, at: offset - 1, effectiveRange: nil) != nil)
     }
 }

@@ -26,6 +26,11 @@
         }
         private nonisolated static let end: @Sendable (String) -> Int = { ($0 as NSString).length }
         private nonisolated static let backspace = "\u{8}"
+        /// The line start `at`, past the line's list marker unit if it starts with one.
+        private nonisolated static func afterMarker(_ text: String, _ at: Int) -> Int {
+            let display = text as NSString
+            return at < display.length && display.character(at: at) == 0xFFFC ? at + 1 : at
+        }
 
         private nonisolated static func rows() -> [Row] {
             var rows: [Row] = []
@@ -47,11 +52,11 @@
                         at: { ($0 as NSString).range(of: "one").upperBound }, keys: ["\n", "\n"]),
                     Row(
                         name: "backspace on an empty \(kind) alone in the note", source: marker,
-                        at: { _ in 0 }, keys: [backspace]),
+                        at: { afterMarker($0, 0) }, keys: [backspace]),
                     Row(
                         name: "backspace on an empty \(kind) mid-note",
                         source: "intro\n\n\(marker)\n\nafter",
-                        at: { ($0 as NSString).range(of: "\n\n").location + 2 },
+                        at: { afterMarker($0, ($0 as NSString).range(of: "\n\n").location + 2) },
                         keys: [backspace]),
                     Row(
                         name: "toolbar \(kind), typed, enter twice in an empty note", source: "",

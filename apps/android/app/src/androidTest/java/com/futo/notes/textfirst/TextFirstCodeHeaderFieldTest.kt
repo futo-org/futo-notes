@@ -39,6 +39,24 @@ class TextFirstCodeHeaderFieldTest {
         assertEquals(false, field.isAttachedToWindow)
     }
 
+    /**
+     * S05 (mr-729 QA): keys typed faster than the engine's updates come back are written against a view that has not
+     * caught up, so the engine refuses them; the field's whole text must still reach the fence once the view has.
+     */
+    @Test fun aBurstOfKeysInTheLanguageFieldAllReachTheFence() = textFirstSession("```\nconst a = 1\n```\n\nafter") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        withTimeout(5_000) { while (view.layout == null || view.codeChrome.areaOf(0, CodeBlockAction.LANGUAGE_LABEL) == null) delay(20) }
+        val area = view.codeChrome.areaOf(0, CodeBlockAction.LANGUAGE_LABEL)!!
+        holdNoteAt(view, view.totalPaddingLeft + area.centerX(), view.totalPaddingTop - view.scrollY + area.centerY())
+        val field = openHeaderField(view)
+        val input = field.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!
+        // The main thread is held between keys, so each is typed before the update for the last has been applied.
+        for (letter in "python") { input.commitText(letter.toString(), 1); Thread.sleep(40) }
+        withTimeout(5_000) { while (c.sourceText() != "```python\nconst a = 1\n```\n\nafter") delay(50) }
+        assertEquals("python", field.text.toString())
+    }
+
     /** Sol review (job 14): the header stands past the text column, and a hold on that left edge opens its name. */
     @Test fun aHoldOnTheHeadersLeftEdgePastTheTextOpensTheName() = textFirstSession("```js name:demo.js\nconst a = 1\n```\n\nafter") { c ->
         val view = c.view

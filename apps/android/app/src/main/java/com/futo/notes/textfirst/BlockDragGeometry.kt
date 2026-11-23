@@ -96,7 +96,7 @@ internal fun TextFirstEditText.drawLayoutRegion(canvas: Canvas, start: Int, end:
 }
 
 /**
- * Draw the note laid out from content y [top] to [bottom], as the view draws it there: code
+ * Draw the note laid out from content y [top] to [bottom], as the view draws it there: code and front-matter
  * backgrounds, find marks, then the layout's lines (their line backgrounds, list markers, quote
  * bars, photos and tables). The reflow preview (BlockReflowPreview.kt) draws each slice with it
  * under its own clip and translation; unlike TextView.onDraw it is not clipped to where the view
@@ -111,6 +111,7 @@ internal fun TextFirstEditText.drawNoteRegion(canvas: Canvas, top: Float, bottom
     try {
         canvas.clipRect(0f, top, (width + scrollX).toFloat(), bottom)
         drawCodeBlocksForDrag(canvas, from, to)
+        drawMetadataCard(canvas)
         drawInlineCodeChips(canvas, from, to)
         drawFindMarks(canvas, from, to)
         val e = editableText as? ChunkedEditable

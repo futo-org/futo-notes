@@ -51,8 +51,7 @@
         }
 
         @Test func aPhotoBeforeAnEmptyLastTaskOpensItsGapsWhereTheyLand() async throws {
-            // The task draws a box and no characters: the photo's line ends at the text's end,
-            // above the task, which still has its own row.
+            // The task is its marker unit alone, the note's last character, on its own row.
             let h = TextFirstHarness(
                 "first\nHere![](pic.png)\n- [ ] ",
                 files: ["pic.png": TextFirstHarness.png(900, 600)],
@@ -66,7 +65,8 @@
             let end = try #require(drag.lift.targets.slots.first { $0.slot.end }).y
             drag.follow(CGPoint(x: 60, y: end - 3))
             #expect(
-                drag.slot == TextFirstBlockSlot(offset: h.controller.storage.length, end: false))
+                drag.slot
+                    == TextFirstBlockSlot(offset: h.controller.storage.length - 1, end: false))
             drag.follow(CGPoint(x: 60, y: end + 30))
             #expect(drag.slot?.end == true)
             let preview = try #require(drag.preview)

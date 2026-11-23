@@ -35,9 +35,9 @@ class TextFirstLineBreakCopyTest {
     }
 
     @Test fun cutTakesTheBreakAfterAListItem() = textFirstSession(note) { c ->
-        val at = c.view.editableText.indexOf("one")
-        // The engine copies list items with their markers: the next item's comes with the break.
-        assertEquals("- one\n- ", selectAndCopy(c, at, at + "one\n".length, cut = true))
+        // From the item's marker unit through its break: the item's Markdown, marker and break included.
+        val at = c.view.editableText.indexOf("one") - 1
+        assertEquals("- one\n", selectAndCopy(c, at, at + "\uFFFCone\n".length, cut = true))
         withTimeout(5_000) { while (c.sourceText()!!.contains("one")) delay(20) }
         assertEquals("alpha\n\nbeta\n\n- two\n", c.sourceText())
     }

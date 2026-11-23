@@ -22,6 +22,8 @@ internal class PhotoCacheFixture(loader: ImageLoader) {
     @Suppress("UNCHECKED_CAST")
     val bitmaps = loaderField(loader, "cache") as LruCache<String, Bitmap>
     private val executor = loaderField(loader, "executor") as ExecutorService
+    /** The sizes the loader remembers per photo for the session; a reopened note's loader starts with none. */
+    val photoSizes = loaderField(loader, "photoSizes") as java.util.concurrent.ConcurrentHashMap<*, *>
     private val decodeGate = CountDownLatch(1)
 
     fun pauseDecodes(): Unit = executor.execute { check(decodeGate.await(10, TimeUnit.SECONDS)) }
