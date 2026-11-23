@@ -20,7 +20,23 @@ enum TextFirstStyler {
             location: window.location, length: min(window.length, length - window.location))
         if window.length > 0 {
             storage.beginEditing()
+            // Capture the live header before resetting the window. Its scroll identity
+            // follows it when an edit higher up moves the table in the storage.
+            let tables = specs.compactMap { spec -> (NSRange, Int, TextFirstTableRowSpan?)? in
+                guard case .table(let start, let end, let columns, _) = spec,
+                    let extent = range(start, end, length)
+                else { return nil }
+                let header =
+                    storage.attribute(.tfTable, at: extent.location, effectiveRange: nil)
+                    as? TextFirstTableRowSpan
+                return (extent, Int(columns), header?.header == true ? header : nil)
+            }
             storage.setAttributes(TextFirstEditorController.baseAttributes, range: window)
+            for (extent, columns, header) in tables {
+                images.controller?.styleTable(
+                    extent, columns: columns, header: header, window: window)
+            }
+            TextFirstTableMetrics.windowSpecs = TextFirstSpanIndex(specs)
             for spec in specs { apply(spec, to: storage, length: length, images: images) }
             storage.endEditing()
         }
@@ -171,6 +187,9 @@ enum TextFirstStyler {
                 [.font: mono, .backgroundColor: UIColor.tertiarySystemFill], range: r)
         case .inline(let start, let end, let bold, let italic, let strike, let code):
             guard let r = range(start, end, length) else { return }
+            // A table row's text is hidden and drawn as cells: a code fill would show beside
+            // the grid, where the hidden text wraps.
+            if storage.attribute(.tfTable, at: r.location, effectiveRange: nil) != nil { return }
             if bold || italic || code { restyleFont(storage, r, bold, italic, code) }
             if strike {
                 storage.addAttribute(

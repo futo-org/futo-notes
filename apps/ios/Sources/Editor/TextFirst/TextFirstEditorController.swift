@@ -107,7 +107,8 @@ final class TextFirstEditorController: NSObject {
     let imageRoot: URL
     /// The container width the table rows' kern was last set for (`tablesWidthChanged`).
     var tablesWidth: CGFloat = 0
-    /// Each table's sideways scroll, by the display offset its table starts at.
+    /// Scroll keys follow their table's attributed range through edits above it.
+    var nextTableID = 0
     var tableScroll: [Int: CGFloat] = [:]
     var cellEditor: TextFirstCellEditor?
     /// Find in note: the bar's model and the engine-side bookkeeping.
@@ -149,6 +150,8 @@ final class TextFirstEditorController: NSObject {
     /// Outside writes heard of and not yet taken in by their checkpoint (+BlockDrag).
     var outsideChangesPending = 0
     let dragHaptics = TextFirstDragHaptics()
+    /// The caret is on a table's delimiter row the person is typing (+Missing).
+    var writesDelimiterRow = false
     /// A drop whose preview is still settling over the moved note (+BlockLanding), and how long
     /// the last one covered the note from its release (debug readout).
     var reflowLanding: TextFirstReflowLanding?
@@ -287,6 +290,7 @@ final class TextFirstEditorController: NSObject {
         checkDivergence()
         scheduleFindRefresh()
         onAccepted?()
+        openCellAfterDelimiterRow(change)
     }
 
     /// The engine answered a platform edit with no change (a dictation placeholder, an
@@ -425,17 +429,11 @@ final class TextFirstEditorController: NSObject {
         } catch {
             recover(error, context: redo ? "redo" : "undo")
         }
+        // Undo of Delete table (done in the note) puts the caret back in a cell.
+        if cellEditor == nil { openCellEditorAtSelection() }
     }
 
     static func range(_ r: NSRange) -> EditorUtf16Range {
         EditorUtf16Range(start: UInt64(r.location), end: UInt64(NSMaxRange(r)))
     }
-}
-
-extension String {
-    /// Whether both strings are the same UTF-16 code units. Swift's `==` is canonical
-    /// equivalence (precomposed `é` equals `e` plus U+0301), but the engine, the mirror and
-    /// the view address text in exact UTF-16 units, so any text they must agree on is
-    /// compared with this.
-    func isSameUtf16(as other: String) -> Bool { utf16.elementsEqual(other.utf16) }
 }

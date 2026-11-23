@@ -1,7 +1,7 @@
 //! Table cell queries and commands remain canonical editor operations; the
 //! store applies each edit in memory before returning the delta.
 use super::*;
-use futo_notes_editor::{TableCommand, TableDescription, TableKey, TableOutcome};
+use futo_notes_editor::{DisplayOffset, TableCommand, TableDescription, TableKey, TableOutcome};
 
 impl StoreEditorSession<'_> {
     pub fn inspect_table(
@@ -45,6 +45,15 @@ impl StoreEditorSession<'_> {
         key: TableKey,
     ) -> Result<Option<TableOutcome>, EditorStoreError> {
         self.table_edit(|session, accept| session.table_key(expected, key, accept))
+    }
+
+    pub fn enter_table_cell(
+        &mut self,
+        expected: Revision,
+        at: DisplayOffset,
+        column: usize,
+    ) -> Result<Option<TableOutcome>, EditorStoreError> {
+        self.table_edit(|session, accept| session.enter_table_cell(expected, at, column, accept))
     }
 
     fn table_edit<T>(

@@ -79,7 +79,8 @@ extension TextFirstLayoutFragment {
                     (
                         cell.column,
                         TextFirstTableMetrics.markRects(
-                            in: cell, range: local, header: run.span.header), current
+                            in: cell, range: local, header: run.span.header,
+                            columns: run.span.columns), current
                     ))
             }
         }
@@ -102,20 +103,9 @@ extension TextFirstTableMetrics {
     /// Where `range` of a cell's text lands inside the cell's padded text box, laid out as the
     /// grid draws it (width, font, alignment); rects are relative to that box's origin.
     static func markRects(
-        in cell: TextFirstTableRowSpan.Cell, range: NSRange, header: Bool
+        in cell: TextFirstTableRowSpan.Cell, range: NSRange, header: Bool, columns: Int
     ) -> [CGRect] {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment =
-            cell.alignment == .right ? .right : cell.alignment == .center ? .center : .natural
-        let storage = NSTextStorage(
-            string: cell.text,
-            attributes: [.font: font(header: header), .paragraphStyle: paragraph])
-        let manager = NSLayoutManager()
-        let container = NSTextContainer(
-            size: CGSize(width: cellWidth - padding * 2, height: .greatestFiniteMagnitude))
-        container.lineFragmentPadding = 0
-        manager.addTextContainer(container)
-        storage.addLayoutManager(manager)
+        let (storage, manager, container) = layout(cell, header: header, columns: columns)
         let glyphs = manager.glyphRange(
             forCharacterRange: NSIntersectionRange(
                 range, NSRange(location: 0, length: storage.length)),
