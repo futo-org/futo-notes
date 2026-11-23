@@ -11,7 +11,8 @@ use crate::sync::encrypted_note::{state_from_remote, RemoteNote};
 use crate::sync::object_map::{mapped_name, object_is_current};
 use crate::sync::outcome::note_id;
 use crate::sync::vault::{
-    content_hash, park_local, path_exists, rename_local, write_content_if_changed, PulledWrite,
+    adopt_local, content_hash, park_local, path_exists, rename_local, write_content_if_changed,
+    PulledWrite,
 };
 use crate::sync::vault_fs;
 use crate::sync::{
@@ -154,8 +155,8 @@ fn reconcile_bootstrap_ancestry(
 /// note moves there (`rename_local`, which reports the move under its guard
 /// hold) and takes its mapping along, so `commit_remote_file` fast-forwards it
 /// from the mapped hash. Every step leaves one mapped name holding the note on
-/// disk: a refused rename (a target already holding the pulled bytes, which
-/// `preserve_unmapped_target` accepts, included) changes nothing, a failed
+/// disk: a refused rename changes nothing, a target already holding the pulled
+/// bytes (which `preserve_unmapped_target` accepts) is adopted, a failed
 /// write leaves the target
 /// mapped at the previous version for the next pull, and a save landing in
 /// between makes the write refuse instead of overwrite. Written to the target
@@ -183,12 +184,23 @@ fn move_mapped_note(
             park_moved(context, remote, &old_name)?;
         } else {
             // A case-only move on a volume that folds case names one file twice.
-            if !vault_fs::same_file(root, &old_name, target) {
+            let one_file = vault_fs::same_file(root, &old_name, target);
+            if !one_file {
                 preserve_unmapped_target(context, remote, target, remote_hash)?;
             }
             pre_write(&old_name);
             pre_write(target);
-            if rename_local(root, &old_name, target)? {
+            // An unmapped target already holding the pulled bytes is adopted:
+            // the old name is removed instead of moved onto it.
+            let adopts = !one_file
+                && !context.state.object_map.contains_key(target)
+                && content_hash(root, target).as_deref() == Some(remote_hash);
+            let moved = if adopts {
+                adopt_local(root, &old_name, target, remote_hash)?
+            } else {
+                rename_local(root, &old_name, target)?
+            };
+            if moved {
                 context.state.object_map.insert(target.to_owned(), entry);
             }
         }
