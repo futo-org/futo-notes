@@ -38,4 +38,21 @@ class TextFirstEmptyBlockClipboardTest {
         val copied = withContext(Dispatchers.Main) { clipboard.primaryClip?.getItemAt(0)?.text?.toString() }
         assertEquals("```js\n```", copied?.trim())
     }
+
+    /** S09 (mr-729 QA): Enter in the language field of a selected empty block leaves the selection; the next letter is code, not a replacement of the block. */
+    @Test fun enterInTheLanguageFieldOfASelectedEmptyBlockTypesIntoIt() = textFirstSession("```\n```") { c ->
+        selectTheEmptyBlock(c)
+        val view = c.view
+        val start = (0..view.length()).first { view.codeChrome.areaOf(it, CodeBlockAction.LANGUAGE_LABEL) != null }
+        val area = view.codeChrome.areaOf(start, CodeBlockAction.LANGUAGE_LABEL)!!
+        withContext(Dispatchers.Main) { holdNoteAt(view, view.totalPaddingLeft + area.centerX(), view.totalPaddingTop - view.scrollY + area.centerY()) }
+        val field = withContext(Dispatchers.Main) { openHeaderField(view) }
+        withContext(Dispatchers.Main) {
+            field.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ENTER))
+        }
+        c.sourceText()
+        withTimeout(5_000) { while (view.selectedCodeBlock != null) delay(20) }
+        textFirstIme(c) { commitText("z", 1) }
+        assertEquals("```\nz\n```", c.sourceText()!!.trimEnd('\n'))
+    }
 }
