@@ -21,9 +21,15 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     fun placementTarget(note: TextFirstEditText): CellUpdate? = current?.takeIf {
         note.engine === editor && note.appliedSeq == it.viewSeq
     }
+    private var header = false
+    /** The text changed under the styling last set: the host styles it again. */
+    var styleStale = true; private set
     fun applyGeometry(geometry: TableCellGeometry) {
         typeface = if (geometry.header) noteStyle.semibold else noteStyle.regular
         centreLetters()
+        if (header != geometry.header) { header = geometry.header; updateColors() }
+        applyRuns(geometry.runs, geometry.runShift)
+        styleStale = false
         gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.START
         textAlignment = when (geometry.alignment) {
             uniffi.futo_notes_ffi.EditorTableAlignment.RIGHT -> TEXT_ALIGNMENT_TEXT_END
@@ -54,7 +60,24 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         setTextColor(noteStyle.textColor)
         highlightColor = noteStyle.selectionColor
         tintCaretAndSelectionHandles(noteStyle.linkColor)
-        setBackgroundColor(noteStyle.codeBackground)
+        // The note's own background with an accent outline; a header cell keeps the header fill.
+        background = android.graphics.drawable.GradientDrawable().apply {
+            setColor(if (header) noteStyle.codeBackground else noteStyle.pageColor)
+            setStroke(noteStyle.dp(2f).toInt(), noteStyle.linkColor)
+        }
+    }
+
+    /** The engine's inline styling over the field's text, the same runs the closed grid draws. */
+    private fun applyRuns(runs: List<CellRun>, shift: Int) {
+        val e = editableText
+        applying = true
+        try {
+            for (span in e.getSpans(0, e.length, TfSpan::class.java)) e.removeSpan(span)
+            val styled = styledCellText(noteStyle, e.toString(), runs, shift)
+            for (span in styled.getSpans(0, styled.length, TfSpan::class.java)) {
+                e.setSpan(span, styled.getSpanStart(span), styled.getSpanEnd(span), styled.getSpanFlags(span))
+            }
+        } finally { applying = false }
     }
     override fun isSuggestionsEnabled() = false
     // A cell is note text, never a form field: no "Autofill" item over its selection menu.
@@ -65,6 +88,7 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         val sameText = text.toString() == update.text
         val moved = previous != null && (previous.rowStart != update.rowStart || previous.column != update.column)
         current = update
+        if (!sameText) styleStale = true
         applying = true
         try {
             if (!sameText) replaceDiff(update.text)

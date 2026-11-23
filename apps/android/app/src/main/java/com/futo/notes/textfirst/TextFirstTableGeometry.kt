@@ -4,7 +4,11 @@ import android.graphics.RectF
 import uniffi.futo_notes_ffi.EditorTableAlignment
 
 /** Geometry of the existing native grid, in the note view's viewport coordinates. */
-internal data class TableCellGeometry(val bounds: RectF, val header: Boolean, val alignment: EditorTableAlignment)
+internal data class TableCellGeometry(val bounds: RectF, val header: Boolean, val alignment: EditorTableAlignment,
+    /** The cell's inline styling, and where the field's text starts in the cell's own text. */
+    val runs: List<CellRun> = emptyList(), val runShift: Int = 0,
+    /** The table's visible horizontal extent in the note view's coordinates: the open cell is clipped to it. */
+    val visibleLeft: Float = 0f, val visibleRight: Float = 0f)
 
 internal fun TextFirstEditText.tableRowAt(y: Float): TfTableRow? {
     val l = layout ?: return null
@@ -46,8 +50,10 @@ internal fun TextFirstEditText.tableCellGeometry(target: CellUpdate, revealRow: 
     val line = l.getLineForOffset(rowStart)
     val left = totalPaddingLeft + l.getLineLeft(line) + column * row.cellWidth - row.scroll.x - scrollX
     val top = totalPaddingTop + l.getLineTop(line) - scrollY
+    val tableLeft = totalPaddingLeft + l.getLineLeft(line) - scrollX
     return TableCellGeometry(RectF(left, top.toFloat(), left + row.cellWidth,
-        (totalPaddingTop + l.getLineBottom(line) - scrollY).toFloat()), row.row.header, row.row.cells[column].alignment)
+        (totalPaddingTop + l.getLineBottom(line) - scrollY).toFloat()), row.row.header, row.row.cells[column].alignment,
+        cell.runs, (target.contentStart - target.start).coerceAtLeast(0), tableLeft, tableLeft + row.viewportWidth)
 }
 
 /** The display offset a tap at ([x], [y]) puts the caret at inside [cell] of [row]: at the tap, never a selection. */

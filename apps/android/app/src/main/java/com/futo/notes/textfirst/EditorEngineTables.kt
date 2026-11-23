@@ -6,7 +6,10 @@ import uniffi.futo_notes_ffi.EditorTableKey
 import uniffi.futo_notes_ffi.EditorUtf16Range
 
 /** Display coordinates supplied by Rust. Never source coordinates or Markdown fragments. */
-internal data class GridCell(val start: Int, val end: Int, val text: String, val alignment: EditorTableAlignment)
+internal data class GridCell(val start: Int, val end: Int, val text: String, val alignment: EditorTableAlignment, val runs: List<CellRun> = emptyList())
+/** The engine's inline styling over part of a cell's text, relative to the cell's start; a link or wikilink says where it goes. */
+internal data class CellRun(val start: Int, val end: Int, val bold: Boolean = false, val italic: Boolean = false, val strike: Boolean = false,
+    val code: Boolean = false, val link: String? = null, val wiki: Boolean = false, val noteId: String? = null)
 internal data class GridRow(val cells: List<GridCell>, val columns: Int, val header: Boolean, val tableStart: Int)
 /**
  * The field's window onto the note: [start]..[end] is the display slice the field's [text] shows, and every

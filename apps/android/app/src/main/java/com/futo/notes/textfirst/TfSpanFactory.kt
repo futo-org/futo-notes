@@ -3,6 +3,10 @@ package com.futo.notes.textfirst
 /** Builds the renderer span for a [SpanSpec], and tells whether an existing span already is it. */
 internal class TfSpanFactory(private val style: TextFirstStyle, private val marks: FindMarks, private val contentWidth: () -> Int, private val wikilinkWidth: (TfWikilink) -> Int) {
     private val tableScroll = mutableMapOf<Int, TableScroll>()
+    /** Tables whose column count changed under rows that were not rebuilt; each is returned once. */
+    fun takeDirtyTables(): Set<TableScroll> =
+        tableScroll.values.filter { it.dirty }.onEach { it.dirty = false }.toSet()
+
     fun create(spec: SpanSpec): TfSpan = when (spec) {
         is SpanSpec.Inline -> TfInline(style, spec.bold, spec.italic, spec.strike, spec.code)
         is SpanSpec.Heading -> TfHeading(style, spec.level)

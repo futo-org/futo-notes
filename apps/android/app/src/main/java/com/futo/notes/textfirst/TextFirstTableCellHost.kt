@@ -139,7 +139,7 @@ internal class TextFirstTableCellHost(
                 return
             }
             anchor = nextAnchor
-            if (styled != geometry) { field.applyGeometry(geometry); styled = geometry }
+            if (styled != geometry || field.styleStale) { field.applyGeometry(geometry); styled = geometry }
             val rect = geometry.bounds
             val x = note.left + rect.left.roundToInt()
             val y = note.top + rect.top.roundToInt()
@@ -154,6 +154,11 @@ internal class TextFirstTableCellHost(
             if (field.left != x || field.top != y || field.right != x + w || field.bottom != y + h || needsLayout) {
                 field.layout(x, y, x + w, y + h)
             }
+            // Clipped at the table's visible edges when the table is scrolled sideways.
+            val clipLeft = (geometry.visibleLeft - rect.left).roundToInt().coerceIn(0, w)
+            val clipRight = (geometry.visibleRight - rect.left).roundToInt().coerceIn(0, w)
+            val clip = if (clipLeft > 0 || clipRight < w) Rect(clipLeft, 0, maxOf(clipLeft, clipRight), h) else null
+            if (field.clipBounds != clip) field.clipBounds = clip
             if (!asked && (yielded || !field.isFocused && rootView.findFocus()?.let { it.onCheckIsTextEditor() && it !== note && it.parent !== this } == true)) {
                 yielded = true
                 field.alpha = 0f

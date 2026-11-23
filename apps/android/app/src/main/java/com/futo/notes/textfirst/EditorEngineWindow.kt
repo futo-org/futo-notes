@@ -30,3 +30,37 @@ private fun lineEndAfter(text: CharSequence, start: Int, offset: Int): Int {
     val lineBreak = text.indexOf('\n', offset)
     return if (lineBreak < 0) text.length else lineBreak + 1
 }
+
+/**
+ * The inline styling the plan puts over each table cell, kept on the cell: a grid row draws its own
+ * text, so the plain spans inside it never reach the Editable (the filter above), and the closed grid,
+ * the row height and the open field are all styled from these runs.
+ */
+internal fun withCellRuns(grid: List<SpanSpec>, planned: List<SpanSpec>): List<SpanSpec> {
+    if (grid.none { it is SpanSpec.TableRow }) return grid
+    val inline = planned.filter { it is SpanSpec.Inline || it is SpanSpec.Link || it is SpanSpec.Wikilink }.sortedBy { it.start }
+    if (inline.isEmpty()) return grid
+    return grid.map { spec ->
+        if (spec !is SpanSpec.TableRow) return@map spec
+        var first = inline.binarySearchBy(spec.start) { it.start }.let { if (it >= 0) it else -it - 1 }
+        while (first > 0 && inline[first - 1].start == spec.start) first--
+        val cells = spec.row.cells.map { cell ->
+            val runs = ArrayList<CellRun>(0)
+            var i = first
+            while (i < inline.size && inline[i].start < spec.end) {
+                val s = inline[i++]
+                if (s.start >= cell.end || s.end <= cell.start) continue
+                val a = maxOf(s.start, cell.start) - cell.start
+                val b = minOf(s.end, cell.end) - cell.start
+                runs += when (s) {
+                    is SpanSpec.Inline -> CellRun(a, b, bold = s.bold, italic = s.italic, strike = s.strike, code = s.code)
+                    is SpanSpec.Link -> CellRun(a, b, link = s.destination)
+                    is SpanSpec.Wikilink -> CellRun(a, b, wiki = true, noteId = s.noteId)
+                    else -> continue
+                }
+            }
+            if (runs.isEmpty()) cell else cell.copy(runs = runs)
+        }
+        SpanSpec.TableRow(spec.start, spec.end, spec.row.copy(cells = cells))
+    }
+}
