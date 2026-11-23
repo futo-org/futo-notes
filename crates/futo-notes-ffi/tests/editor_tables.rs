@@ -115,3 +115,27 @@ fn a_keystroke_in_a_big_table_restyles_only_the_rows_near_it() {
         .iter()
         .any(|span| matches!(span, EditorStyleSpan::TableDelimiter { .. })));
 }
+
+/// A host enters a cell by its row and column: one a short row lacks is added in one edit.
+#[test]
+fn native_enter_table_cell_adds_a_short_rows_cells_in_one_edit() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note(
+            "grid".into(),
+            "".into(),
+            "| a | b |\n|---|---|\n| c |\n".into(),
+        )
+        .unwrap();
+    let session = store.open_editor("grid".into()).unwrap();
+    let at = session.display_text().unwrap().find("| c").unwrap() as u64;
+    assert!(session.enter_table_cell(0, 0, 5).unwrap().is_none());
+    let outcome = session.enter_table_cell(0, at, 1).unwrap().unwrap();
+    assert!(outcome.edited.is_some() && outcome.selected.is_none());
+    assert_eq!(
+        session.source_text().unwrap(),
+        "| a | b |\n|---|---|\n| c |  |\n"
+    );
+}

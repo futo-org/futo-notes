@@ -61,11 +61,26 @@ extension TextFirstEditorController {
     /// A table key (Tab, Enter, ...): a selection move or one accepted edit. True when handled.
     @discardableResult
     func tableKey(_ key: EditorTableKey) -> Bool {
-        guard !closed, !engineComposing else { return false }
+        apply("table key") { try session.tableKey(expected: rev, key: key) }
+    }
+
+    /// Put the caret in cell `column` of the table row whose line starts at storage offset
+    /// `lineStart`: a selection move, or one edit that gives a short row the cells up to it.
+    /// True when the engine did it.
+    @discardableResult
+    func enterTableCell(lineStart: Int, column: Int) -> Bool {
+        guard !closed, !engineComposing,
+            let byte = try? mirror.utf16ToByte(unit: UInt64(lineStart))
+        else { return false }
+        return apply("enter cell") {
+            try session.enterTableCell(expected: rev, at: byte, column: UInt32(column))
+        }
+    }
+
+    /// Apply the engine's table outcome. False when it had nothing to do.
+    private func apply(_ context: String, _ call: () throws -> EditorTableOutcome?) -> Bool {
         do {
-            guard let outcome = try session.tableKey(expected: rev, key: key) else {
-                return false
-            }
+            guard let outcome = try call() else { return false }
             if let change = outcome.edited {
                 try accept(change)
             } else if let moved = outcome.selected {
@@ -77,7 +92,7 @@ extension TextFirstEditorController {
             }
             return true
         } catch {
-            recover(error, context: "table key")
+            recover(error, context: context)
             return true
         }
     }

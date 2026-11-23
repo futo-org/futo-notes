@@ -192,14 +192,21 @@
             }
         }
 
-        @Test func aMissingCellCanOnlyBeReachedFromItsOwnTable() throws {
+        @Test func aMissingCellIsEnteredInItsOwnTableOnly() throws {
             let h = TextFirstHarness(
                 "| a | b | c |\n|---|---|---|\n| 1 | 2 | 3 |\n\n| h |\n|---|\n| x | y | z |\n| last |\n"
             )
             let before = h.source
+            let firstTable = "| a | b | c |\n|---|---|---|\n| 1 | 2 | 3 |\n\n"
+            // The second table's header lacks two cells: the engine gives it, and its delimiter
+            // row, those cells (one edit), and the first table is left alone.
             #expect(h.controller.openMissingCell(at: point(h, row: 2, column: 2)))
+            #expect(h.source.hasPrefix(firstTable))
+            #expect(h.source.contains("| h |  |  |\n"))
+            let header = try #require(h.controller.cellEditor)
+            #expect(header.cell?.row == 0 && header.cell?.column == 2)
+            h.controller.undo()
             #expect(h.source == before)
-            #expect(h.controller.cellEditor == nil)
             #expect(h.controller.openMissingCell(at: point(h, row: 4, column: 2)))
             let editor = try #require(h.controller.cellEditor)
             #expect(editor.cell?.row == 2 && editor.cell?.column == 2)
