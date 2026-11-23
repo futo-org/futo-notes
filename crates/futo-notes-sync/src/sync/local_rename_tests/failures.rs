@@ -174,8 +174,12 @@ async fn scan_mid_rename(root: &TempRoot, state: &ConnectedState) -> ConnectedSt
     // this cycle's claim waits on the vault guard until it has committed.
     crate::sync::push::scan_hook::on_scan(move |point| match point {
         "before" => {
-            let (staged, resume_rx, vault) =
-                (staged_tx.take().unwrap(), resume_rx.clone(), vault.clone());
+            // Only the cycle's first push scan races the rename: a copy held
+            // back until the pull is pushed by a second one.
+            let Some(staged) = staged_tx.take() else {
+                return;
+            };
+            let (resume_rx, vault) = (resume_rx.clone(), vault.clone());
             *slot.lock().unwrap() = Some(std::thread::spawn(move || {
                 futo_notes_store::rename_journal::tests_support::on_step(move |step| {
                     if step == "stage" {
