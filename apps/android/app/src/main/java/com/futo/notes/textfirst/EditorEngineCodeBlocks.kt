@@ -40,9 +40,9 @@ internal fun EditorEngine.copyCodeBlock(codeStart: Int, deliver: (String) -> Boo
  * `set_code_block_header`). A value the fence cannot hold is refused and the fence keeps its last good one; the field
  * keeps showing what was typed until it closes, and the drawn label then shows the fence's value.
  */
-internal fun EditorEngine.writeCodeBlockHeader(offset: Int, language: String, name: String, seenSeq: Int, onStale: () -> Unit) = command {
+internal fun EditorEngine.writeCodeBlockHeader(offset: Int, language: String, name: String, seenSeq: Int, onStale: (engineSeq: Int) -> Unit) = command {
     // Written against the view the field last saw: an update still on its way would move the offset under it.
-    if (seq != seenSeq) { ui.post(onStale); return@command }
+    if (seq != seenSeq) { val engineSeq = seq; ui.post { onStale(engineSeq) }; return@command }
     if (mirror.overlay != null) commitComposition(null)
     val s = session ?: return@command
     val header = EditorCodeBlockHeader(mirror.toByte(offset).toULong(), language, name)
