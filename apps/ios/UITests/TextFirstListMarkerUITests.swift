@@ -59,6 +59,27 @@ final class TextFirstListMarkerUITests: XCTestCase {
             saved(file) { $0 == "- Rone\nL- two\n" }, "left half: before the marker")
     }
 
+    /// A double tap on either half of a marker's column selects the marker alone, as a hold
+    /// does; UIKit's own double tap on the right half selected the item's first word.
+    @MainActor
+    func testADoubleTapOnEitherHalfOfAMarkerSelectsIt() throws {
+        let (app, editor, file) = try open("- one\n- two\n1. three\n", named: "doubles")
+        point(editor, x: 120, line: 0).tap()  // the keyboard comes up
+        pause()
+        point(editor, x: 44, line: 0).doubleTap()  // the bullet's right half
+        XCTAssertTrue(app.menuItems["Cut"].waitForExistence(timeout: 3), "the edit menu")
+        editor.typeText("x")
+        XCTAssertTrue(saved(file) { $0 == "xone\n- two\n1. three\n" }, "right half: the marker")
+        pause()
+        point(editor, x: 26, line: 1).doubleTap()  // the bullet's left half
+        editor.typeText("y")
+        XCTAssertTrue(saved(file) { $0 == "xone\nytwo\n1. three\n" }, "left half: the marker")
+        pause()
+        point(editor, x: 44, line: 2).doubleTap()  // a number's right half
+        editor.typeText("z")
+        XCTAssertTrue(saved(file) { $0 == "xone\nytwo\nzthree\n" }, "a number: the marker")
+    }
+
     /// The keyboard capitalises at an item's text start as at a line's start, when its own
     /// Auto-Capitalization setting does (on in the simulator), and not in the middle of a line.
     @MainActor

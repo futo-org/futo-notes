@@ -81,6 +81,9 @@ extension TextFirstEditorController: UIGestureRecognizerDelegate {
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         // A press that may not lift is never the lift's: the platform has it from touch-down.
         if g === liftRecognizer { return liftArmed }
+        if g is TextFirstMarkerDoubleTap {
+            return isMarkerDoubleTapTouch(at: touch.location(in: textView))
+        }
         if g === markerHoldRecognizer {
             markerHoldArmed =
                 textView.isFirstResponder

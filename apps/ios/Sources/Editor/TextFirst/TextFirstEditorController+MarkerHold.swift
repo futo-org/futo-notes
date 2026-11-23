@@ -3,7 +3,13 @@ import UIKit
 // A hold on a list item's marker while the note is edited selects the marker alone, as the one
 // character it is, with UIKit's handles and the Cut and Copy menu. A held checkbox is selected
 // and not ticked. With the keyboard down a hold lifts the block instead (+BlockDrag), and a tap
-// on a bullet or number is UIKit's: the caret goes to the nearer side of the marker.
+// on a bullet or number is UIKit's: the caret goes to the nearer side of the marker. A double tap
+// on either half of a bullet's or number's column selects the marker as a hold does; UIKit's own
+// double tap took the word on the side the point is nearer, the item's first word on the right.
+
+/// The double tap on a bullet's or number's column. It receives only touches there and
+/// recognises beside UIKit's, then replaces UIKit's word selection with the marker.
+final class TextFirstMarkerDoubleTap: UITapGestureRecognizer {}
 
 extension TextFirstEditorController {
     func installMarkerHold() {
@@ -12,6 +18,26 @@ extension TextFirstEditorController {
         hold.delegate = self
         textView.addGestureRecognizer(hold)
         markerHoldRecognizer = hold
+        let double = TextFirstMarkerDoubleTap(
+            target: self, action: #selector(handleMarkerDoubleTap(_:)))
+        double.numberOfTapsRequired = 2
+        double.delegate = self
+        textView.addGestureRecognizer(double)
+    }
+
+    /// Whether a touch at `p` may be a marker double tap's: on a bullet's or number's column.
+    /// A checkbox keeps its taps (each one ticks).
+    func isMarkerDoubleTapTouch(at p: CGPoint) -> Bool {
+        markerUnitFragment(at: p) != nil && checkboxFragment(at: p) == nil
+    }
+
+    @objc func handleMarkerDoubleTap(_ g: UITapGestureRecognizer) {
+        guard g.state == .ended else { return }
+        let p = g.location(in: textView)
+        // After UIKit's own double tap has selected its word.
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated { _ = self?.selectMarkerUnit(at: p) }
+        }
     }
 
     @objc func handleMarkerHold(_ g: UILongPressGestureRecognizer) {
