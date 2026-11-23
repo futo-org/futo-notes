@@ -75,8 +75,9 @@ internal fun TextFirstEditText.tableTapAt(row: TfTableRow, x: Float, y: Float): 
     val cell = row.row.cells.getOrNull(column)?.let { it.copy(start = it.start + shift, end = it.end + shift) }
     val left = totalPaddingLeft + l.getLineLeft(line) + column * row.cellWidth - row.scroll.x - scrollX
     val top = totalPaddingTop + l.getLineTop(line) - scrollY
-    val link = row.linkAt(column, x - left, y - top)
-    val caret = cell?.let { (it.start + row.offsetIn(column, x - left, y - top)).coerceIn(it.start, it.end) } ?: 0
+    val rowHeight = l.getLineBottom(line) - l.getLineTop(line)
+    val link = row.linkAt(column, x - left, y - top, rowHeight)
+    val caret = cell?.let { (it.start + row.offsetIn(column, x - left, y - top, rowHeight)).coerceIn(it.start, it.end) } ?: 0
     return TableTap(column, cell, link, caret)
 }
 

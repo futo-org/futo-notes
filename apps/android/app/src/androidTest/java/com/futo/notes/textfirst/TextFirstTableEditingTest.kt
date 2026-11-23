@@ -105,6 +105,25 @@ class TextFirstTableEditingTest {
         assertEquals("The first table reopens on the cell it was deleted from, not its header", "b2", c.cellView?.text.toString())
     }
 
+    @Test fun aLinkInARowSetTallByItsNeighbourIsHitWhereItIsDrawnNotAtTheRowTop() = textFirstSession(
+        "| h1 | h2 |\n| --- | --- |\n| ${"tall ".repeat(60)}| [lnk](https://example.com) |\n",
+    ) { c ->
+        val view = c.view
+        kotlinx.coroutines.withTimeout(5_000) { while (view.layout == null || view.editableText.getSpans(0, view.editableText.length, TfTableRow::class.java).isEmpty()) kotlinx.coroutines.delay(20) }
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            val e = view.editableText
+            val row = e.getSpans(0, e.length, TfTableRow::class.java).single { !it.row.header }
+            val l = view.layout
+            val line = l.getLineForOffset(e.getSpanStart(row))
+            val top = view.totalPaddingTop + l.getLineTop(line) - view.scrollY
+            val height = l.getLineBottom(line) - l.getLineTop(line)
+            val x = view.totalPaddingLeft + l.getLineLeft(line) + row.cellWidth + view.style.dp(10f) + view.style.dp(8f) - view.scrollX
+            assertTrue("the neighbour sets a tall row: $height", height > view.style.dp(120f))
+            assertNotNull("The link is hit at the middle of the row, where it is drawn", view.tableTapAt(row, x, top + height / 2f)?.link)
+            assertNull("The row's top is blank space beside the link", view.tableTapAt(row, x, top + view.style.dp(12f))?.link)
+        }
+    }
+
     @Test fun aTypedPipeWidensEveryRowOfTheTableAndItsUndoNarrowsThem() = textFirstSession(
         "| h1 | h2 |\n| --- | --- |\n| d1 | d2 |\n| d3 | d4 |\n",
     ) { c ->

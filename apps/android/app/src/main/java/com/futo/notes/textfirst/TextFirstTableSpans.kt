@@ -146,7 +146,7 @@ internal class TfTableRow(
             layout.paint.color = look.textColor
             val cellSave = canvas.save()
             // The cell's letters as seen centred, not its font box (which carried them low).
-            canvas.translate(left + padding, top + (bottom - top - layout.height) / 2f - lettersBelowFontBoxCentre(layout.paint))
+            canvas.translate(left + padding, top + layoutTop(layout, bottom - top))
             val cell = row.cells[column]
             val shift = start - displayStart
             marks.drawCell(canvas, layout, cell.start + shift, cell.end + shift, look)
@@ -155,18 +155,20 @@ internal class TfTableRow(
         }
         canvas.restoreToCount(save)
     }
-    /** The caret offset in cell [column]'s text for a point [x],[y] in that cell's box (its padding included). */
-    fun offsetIn(column: Int, x: Float, y: Float): Int {
+    /** Where a cell's [layout] is drawn from the row's top: centred in the row's [rowHeight], by its letters as seen. */
+    private fun layoutTop(layout: StaticLayout, rowHeight: Int): Float = (rowHeight - layout.height) / 2f - lettersBelowFontBoxCentre(layout.paint)
+    /** The caret offset in cell [column]'s text for a point [x],[y] in that cell's box of a row [rowHeight] tall. */
+    fun offsetIn(column: Int, x: Float, y: Float, rowHeight: Int): Int {
         val layout = build().layouts.getOrNull(column) ?: return 0
-        val line = layout.getLineForVertical((y - padding).toInt().coerceIn(0, layout.height))
+        val line = layout.getLineForVertical((y - layoutTop(layout, rowHeight)).toInt().coerceIn(0, layout.height))
         return layout.getOffsetForHorizontal(line, x - padding)
     }
-    /** The link run under a point [x],[y] in cell [column]'s box: only the glyphs of the link itself, as a paragraph link. */
-    fun linkAt(column: Int, x: Float, y: Float): CellRun? {
+    /** The link run under a point [x],[y] in cell [column]'s box of a row [rowHeight] tall: only the glyphs of the link itself, as a paragraph link. */
+    fun linkAt(column: Int, x: Float, y: Float, rowHeight: Int): CellRun? {
         val layout = build().layouts.getOrNull(column) ?: return null
         val cell = row.cells.getOrNull(column) ?: return null
         val lx = x - padding
-        val ly = y - padding
+        val ly = y - layoutTop(layout, rowHeight)
         if (ly < 0 || ly >= layout.height) return null
         val line = layout.getLineForVertical(ly.toInt())
         if (lx < layout.getLineLeft(line) || lx > layout.getLineRight(line)) return null
