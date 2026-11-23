@@ -224,7 +224,7 @@ internal fun EditorEngine.deleteTable() = command {
     editingCell = false
     cellRange = null
     cellWindow.clear()
-    ui.post { sink.onCell(null) }
+    ui.post { sink.onCell(null, true) }
     // The range goes to the key itself, so the caret stays in the cell the table is deleted from: Undo puts it back there.
     checkNotNull(fast).paragraphKey(rev, start, end, EditorParagraphKey.BACKSPACE_JOINING_HEADING)?.let(::accept)
 }
