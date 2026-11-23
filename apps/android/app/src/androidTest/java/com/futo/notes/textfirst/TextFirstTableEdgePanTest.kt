@@ -6,7 +6,7 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 
-/** A pan that starts at either edge of the note over the open cell's row is the table's. */
+/** The open cell's row: a pan from either edge of the note is the table's, and both grips go once the cell is out of view. */
 class TextFirstTableEdgePanTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
@@ -85,5 +85,36 @@ class TextFirstTableEdgePanTest {
             val row = view.editableText.getSpans(0, view.length(), TfTableRow::class.java).last { !it.row.header }
             assertTrue("the pan scrolled the table left ($before -> ${row.scroll.x})", row.scroll.x > before)
         }
+    }
+
+    /** Both grips go while less than 20 dp of the open cell is in view: scrolled away vertically, the header's column grip too. */
+    @Test
+    fun theGripsGoWhenTheNoteScrollsTheOpenCellOutOfView() = compose.withTextFirstScreen(
+        "| h1 | h2 |\n| - | - |\n" + (1..40).joinToString("") { "| r$it | s$it |\n" } + "\n" + "ordinary note text ".repeat(10) + "\n",
+        nativeTheme = tableSceneTheme,
+    ) { view, _ ->
+        val scene = TableCellScene(view, compose.activity) { action -> compose.runOnUiThread(action) }
+        compose.runOnUiThread { val at = view.text.toString().indexOf("r30 "); view.revealRange(at, at) }
+        compose.waitForIdle()
+        scene.tap(scene.pointAt("r30 ", 0))
+        compose.waitUntil(10_000) { scene.field()?.isFocused == true && scene.keyboardIdle() }
+        fun grips(root: android.view.View): List<TableGripView> = when (root) {
+            is TableGripView -> listOf(root)
+            is android.view.ViewGroup -> (0 until root.childCount).flatMap { grips(root.getChildAt(it)) }
+            else -> emptyList()
+        }
+        fun showing() = readOnMainThread { grips(compose.activity.window.decorView).count { it.visibility == android.view.View.VISIBLE } }
+        compose.waitUntil(10_000) { showing() == 2 }
+        // The reader's own swipes, down the note, until its top shows.
+        val shown = readOnMainThread { android.graphics.Rect().also { view.getGlobalVisibleRect(it) } }
+        repeat(20) {
+            if (readOnMainThread { view.scrollY } > 0) scene.drag(shown.centerX().toFloat() to shown.top + 40f, shown.centerX().toFloat() to shown.bottom - 40f)
+        }
+        compose.waitForIdle()
+        Thread.sleep(500)
+        assertEquals("the open cell is far below the view", true, readOnMainThread {
+            scene.fieldInWindow()!!.let { it.top > view.height }
+        }.also { if (!it) throw AssertionError(readOnMainThread { "scrollY=${view.scrollY} fieldTop=${scene.fieldInWindow()?.top} h=${view.height} alpha=${scene.fieldInWindow()?.alpha}" }) })
+        assertEquals("no grip is left on screen for a cell that is not", 0, showing())
     }
 }

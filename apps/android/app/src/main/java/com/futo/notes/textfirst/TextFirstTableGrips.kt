@@ -136,8 +136,8 @@ internal class TableGrips(
         val tableRight = geometry.visibleRight
         val colMin = maxOf(cell.left, tableLeft)
         val colMax = minOf(cell.right, tableRight)
-        // The pair belongs to the open cell: both go while less than 20 dp of it is in view.
-        val visible = colMax - colMin >= look.dp(20f)
+        // The pair belongs to the open cell: both go while less than 20 dp of it is in view, sideways or down the note.
+        val visible = colMax - colMin >= look.dp(20f) && minOf(cell.bottom, viewHeight) - maxOf(cell.top, noteTop) >= look.dp(20f)
         all.forEach { it.visibility = if (visible) View.VISIBLE else View.GONE }
         if (!visible) return
 
@@ -156,7 +156,7 @@ internal class TableGrips(
         val pillY = maxOf(header, noteTop + pillHalf + 1)
         val colY = maxOf(noteTop, pillY - pillHalf - reach)
         val colH = pillY + pillHalf + reach - colY
-        if (pillY > header && (cell.top + look.dp(10f) < colY + colH || cell.bottom < noteTop || cell.top > viewHeight)) {
+        if (pillY > header && cell.top + look.dp(10f) < colY + colH) {
             columnGrip.visibility = View.GONE
         }
         val hit = look.dp(COLUMN_HIT)
