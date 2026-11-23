@@ -49,12 +49,13 @@ internal fun TextFirstEditText.boundForRelayout(): Boolean {
     restoring = anchor
     contentComplete = false
     awaitingRelayout = true
+    val wasApplying = applying
     applying = true
     try {
         setText(e.prefix(keep, TextFirstEditText.END_SENTINEL), BufferType.EDITABLE)
         Selection.setSelection(editableText, selStart.coerceIn(0, keep), selEnd.coerceIn(0, keep))
     } finally {
-        applying = false
+        applying = wasApplying
     }
     // Until the reader's line is laid out again the prefix shows from its top, never blank space past its end.
     scrollTo(scrollX, 0)
@@ -96,14 +97,17 @@ private fun lineEndAfter(e: CharSequence, target: Int, limit: Int): Int {
 /** Refresh width-sensitive spans after layout; the height-only path stays untouched. */
 internal fun TextFirstEditText.refreshWidthDependentSpans() {
     val e = editableText ?: return
+    val wasApplying = applying
     applying = true
     try {
         for (atom in e.getSpans(0, e.length, TfAtom::class.java)) {
             if (atom !is TfImage && atom !is TfDivider && atom !is TfWikilink) continue
-            e.setSpan(atom, e.getSpanStart(atom), e.getSpanEnd(atom), e.getSpanFlags(atom))
+            e.setSpanRedrawingBelow(this, atom, e.getSpanStart(atom), e.getSpanEnd(atom), e.getSpanFlags(atom))
         }
     } finally {
-        applying = false
+        applying = wasApplying
     }
     requestImageLoads()
 }
+
+internal fun TextFirstEditText.contentWidth(): Int = maxOf(1, width - totalPaddingLeft - totalPaddingRight)

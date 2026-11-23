@@ -21,26 +21,16 @@ import uniffi.futo_notes_ffi.NoteStore
  * and composing (marked) text in the formats it will have once committed.
  */
 class TextFirstBlockIndicatorTest {
-    @Test fun selectAllCodeBlockKeepsMixedNoteTextAndUndoesInOneStep() = withController(
+    /** fenced-code.md (engine 3f61dd0a1): a selection holding a block and lines outside it is never put in a new fence. */
+    @Test fun selectAllCodeBlockOverANoteWithABlockChangesNothing() = withController(
         "# heading\n\n**bold** and *italic*\n\n- item\n\n```\ncode\n```\n\n| a | b |\n| --- | --- |\n| c | d |\n",
     ) { controller ->
         val view = controller.view
         val original = controller.sourceText()!!
         assertTrue(controller.selectDisplayRange(0, view.length() - 1))
         runToolbar(controller, "code-block")
-        val wrapped = controller.sourceText()!!
-        assertEquals("all selected lines share one opening and closing fence", 2,
-            wrapped.lineSequence().count { it == "```" })
-        assertTrue(wrapped.startsWith("```\n"))
-        assertTrue(wrapped.endsWith("\n```\n"))
-        // Code shows every wrapped line as written, markers included; the old block's own fence
-        // lines go (fenced-code.md).
-        assertEquals("the code block shows every written line as typed",
-            original.replace("```\ncode\n```", "code") + TextFirstEditText.END_SENTINEL,
-            view.editableText.toString())
-        assertEquals("whole-note conversion is accepted", 0, controller.imeResets)
-        controller.undo()
-        assertEquals("one Undo restores exact mixed Markdown", original, controller.sourceText())
+        assertEquals("a block is never put inside another", original, controller.sourceText())
+        assertEquals(0, controller.imeResets)
     }
 
     @Test fun repeatedFormatTogglesKeepComposedHeadingInput() = formatThenCompose("# heading")

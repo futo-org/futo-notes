@@ -10,44 +10,10 @@ import android.text.Spanned
 import android.text.TextPaint
 import android.text.style.CharacterStyle
 import android.text.style.LeadingMarginSpan
-import android.text.style.LineBackgroundSpan
 import android.text.style.LineHeightSpan
 import android.text.style.MetricAffectingSpan
 import android.text.style.ReplacementSpan
 import android.text.style.UpdateAppearance
-
-/**
- * The look of the text-first editor, matched to the Milkdown surface
- * (milkdownEditor.surface.css): 17px Barlow at 1.55 line height, headings at
- * 1.7/1.4/1.2em weight 650, muted quotes behind a 3px rule, monospace code at
- * 0.9em on the code background. Pixel values are resolved once per view.
- */
-internal class TextFirstStyle(
-    val density: Float,
-    val textSizePx: Float,
-    val regular: Typeface,
-    val semibold: Typeface,
-    val bold: Typeface,
-    val mono: Typeface,
-    var textColor: Int,
-    var mutedColor: Int,
-    var linkColor: Int,
-    var borderColor: Int,
-    var codeBackground: Int,
-    var surfaceColor: Int,
-    val italic: Typeface = regular,
-    val boldItalic: Typeface = bold,
-    val semiboldItalic: Typeface = Typeface.create(italic, 600, true),
-) {
-    fun dp(value: Float) = value * density
-    val listIndent = textSizePx * 1.4f
-    val quoteIndent = dp(3f) + textSizePx * 0.9f
-    val codePadding = dp(12f)
-    val selectionColor get() = (linkColor and 0x00ffffff) or 0x40000000
-
-    /** Find-match highlight: the link colour, stronger for the current match. */
-    fun findMarkColor(current: Boolean) = (linkColor and 0x00ffffff) or (if (current) 0x99000000.toInt() else 0x40000000)
-}
 
 /** Every span the renderer owns; anything else on the Editable belongs to the platform or the IME. */
 internal interface TfSpan {
@@ -74,11 +40,11 @@ internal class TfInline(
         // pushed glyphs past their advance, so the caret overlapped them. Code stays upright.
         val face = when {
             code -> look.mono
-            italic && bold -> look.boldItalic
-            italic && (base === look.semibold || base === look.semiboldItalic) -> look.semiboldItalic
-            italic -> look.italic
-            bold -> look.bold
-            else -> base ?: look.regular
+            !bold && !italic -> base ?: look.regular
+            else -> {
+                val weight = (base ?: look.regular).weight
+                look.faceForWeight(if (bold) look.boldWeightOver(weight) else weight, italic || base?.isItalic == true)
+            }
         }
         paint.typeface = face
         if (code) paint.textSize *= 0.9f
@@ -89,7 +55,6 @@ internal class TfInline(
     override fun updateDrawState(paint: TextPaint) {
         apply(paint)
         if (strike) paint.isStrikeThruText = true
-        if (code) paint.bgColor = look.codeBackground
     }
 }
 
@@ -97,31 +62,55 @@ internal class TfHeading(private val look: TextFirstStyle, val level: Int) :
     MetricAffectingSpan(), LineHeightSpan, TfSpan {
     override fun slice(head: Boolean): TfSpan = if (head) this else TfHeading(look, level)
 
-    private val scale = when (level) { 1 -> 1.7f; 2 -> 1.4f; 3 -> 1.2f; else -> 1.05f }
+    private val scale = when (level) { 1 -> 1.5f; 2 -> 1.375f; 3 -> 1.25f; 4 -> 1.1875f; 5 -> 1.125f; else -> 1.0625f }
+    private val weight = when (level) { 1, 2 -> 700; 3, 4 -> 600; else -> 500 }
 
+    // A retained inline span may run before or after this one: a run it already made heavier than
+    // the body's regular face is bold, and the heading makes it heavier than its own weight.
     private fun apply(paint: TextPaint) {
-        val base = paint.typeface
-        // A restyle can replace the heading after retaining its inline spans.
-        // Compose in either order: the block supplies size and base weight,
-        // while a stronger weight, italic face or code face stays on its run.
+        val base = paint.typeface ?: look.regular
         paint.textSize = look.textSizePx * scale * if (base === look.mono) 0.9f else 1f
-        paint.typeface = when (base) {
-            look.bold, look.boldItalic, look.semiboldItalic, look.mono -> base
-            look.italic -> look.semiboldItalic
-            else -> look.semibold
-        }
+        if (base === look.mono) return
+        val bold = base.weight > look.regular.weight
+        paint.typeface = look.faceForWeight(if (bold) look.boldWeightOver(weight) else weight, base.isItalic)
     }
 
     override fun updateMeasureState(paint: TextPaint) = apply(paint)
     override fun updateDrawState(paint: TextPaint) = apply(paint)
 
-    // CSS margin-top: 1.2em above a heading — but not when it opens the note.
+    /**
+     * Every row of an h1 or h2 is 1.25 times its font size tall and every row of an h3 to h6 one body line, whatever
+     * runs it mixes (inline code, bold, a link), with its letters as seen (capital tops to descender bottoms) centred in
+     * it and no room above or below the heading: space around it is empty lines (Mason). The TextView adds
+     * [TextFirstStyle.bodyLineSpacing] below each row afterwards, so that is counted in the row. A wikilink whose label
+     * wraps keeps the rows its label needs above its last one.
+     */
     override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
-        val spanStart = (text as Spanned).getSpanStart(this)
-        if (start != spanStart || spanStart == 0) return
-        val extra = (look.textSizePx * 0.6f).toInt()
-        fm.ascent -= extra
-        fm.top -= extra
+        val wrappedLabel = if (text is android.text.Spanned && text.getSpans(start, end, TfWikilink::class.java).isNotEmpty()) {
+            minOf(0, fm.ascent - naturalAscent)
+        } else 0
+        fm.ascent = rowTop + wrappedLabel
+        fm.top = fm.ascent
+        fm.descent = rowTop + rowHeight - look.bodyLineSpacing
+        fm.bottom = fm.descent
+    }
+
+    private val rowHeight = if (level <= 2) kotlin.math.round(ROW_EMS * look.textSizePx * scale).toInt() else look.bodyLineHeight
+
+    private val headingPaint = TextPaint().apply { typeface = look.regular; textSize = look.textSizePx }.also(::apply)
+
+    /** The row's top from the baseline: half a row above the middle of the heading's capitals and descenders. */
+    private val rowTop: Int = run {
+        val (seenTop, seenBottom) = visibleLineSpan(headingPaint)
+        kotlin.math.round((seenTop + seenBottom) / 2f - rowHeight / 2f).toInt()
+    }
+
+    /** The heading font's own ascent: a line's ascent beyond it is a wrapped label's rows. */
+    private val naturalAscent = headingPaint.fontMetricsInt.ascent
+
+    private companion object {
+        /** An h1's or h2's row pitch, in its own font size. */
+        const val ROW_EMS = 1.25f
     }
 }
 
@@ -232,10 +221,10 @@ internal class TfList(
         paint.typeface = look.regular
         when (marker) {
             ListMarker.Bullet -> {
-                val radius = look.dp(2.6f)
+                val radius = look.textSizePx * 2.6f / 17f
                 val cy = baseline - look.textSizePx * 0.32f
                 paint.style = Paint.Style.FILL
-                if (depth % 2 == 1) { paint.style = Paint.Style.STROKE; paint.strokeWidth = look.dp(1.2f) }
+                if (depth % 2 == 1) { paint.style = Paint.Style.STROKE; paint.strokeWidth = look.textSizePx * 1.2f / 17f }
                 c.drawCircle(leadingX(x, dir, lead + unit * 0.45f), cy, radius, paint)
             }
             ListMarker.Ordered -> {
@@ -271,29 +260,9 @@ internal class TfList(
     }
 }
 
-/**
- * A code line's monospace face and inset. Its background is not a
- * LineBackgroundSpan: the TextView draws the caret before the layout's line
- * backgrounds, so an opaque one would cover the caret on a code line. The view
- * paints it first instead (`drawCodeBackgrounds`).
- */
-internal class TfCodeBlock(private val look: TextFirstStyle) :
-    MetricAffectingSpan(), LeadingMarginSpan, TfSpan {
-    override fun slice(head: Boolean): TfSpan = if (head) this else TfCodeBlock(look)
-
-    override fun updateMeasureState(paint: TextPaint) {
-        paint.typeface = look.mono
-        paint.textSize = look.textSizePx * 0.85f
-    }
-
-    override fun updateDrawState(paint: TextPaint) = updateMeasureState(paint)
-
-    override fun getLeadingMargin(first: Boolean) = look.codePadding.toInt()
-    override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) = Unit
-}
-
+/** A note's front matter, drawn as a card under the selection (drawMetadataCard): a line background would cover its tint. */
 internal class TfMetadata(private val look: TextFirstStyle) :
-    MetricAffectingSpan(), LineBackgroundSpan, LeadingMarginSpan, TfSpan {
+    MetricAffectingSpan(), LeadingMarginSpan, TfSpan {
     private val background = Paint().apply { color = look.surfaceColor }
     private val bar = Paint().apply { color = look.borderColor }
 
@@ -309,11 +278,11 @@ internal class TfMetadata(private val look: TextFirstStyle) :
         paint.color = look.mutedColor
     }
 
-    override fun drawBackground(c: Canvas, p: Paint, left: Int, right: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, lineNumber: Int) {
+    fun drawCard(c: Canvas, right: Float, top: Float, bottom: Float) {
         background.color = look.surfaceColor
         bar.color = look.borderColor
-        c.drawRect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat(), background)
-        c.drawRect(left.toFloat(), top.toFloat(), left + look.dp(3f), bottom.toFloat(), bar)
+        c.drawRect(0f, top, right, bottom, background)
+        c.drawRect(0f, top, look.dp(3f), bottom, bar)
     }
 
     override fun getLeadingMargin(first: Boolean) = look.codePadding.toInt()
@@ -327,6 +296,12 @@ internal class TfLink(private val look: TextFirstStyle, val destination: String)
         tp.color = look.linkColor
         tp.isUnderlineText = true
     }
+}
+
+/** Colour only, so typing in a tag never shifts the line (tags.md). */
+internal class TfTag(private val look: TextFirstStyle) : CharacterStyle(), UpdateAppearance, TfSpan {
+    override fun slice(head: Boolean): TfSpan = if (head) this else TfTag(look)
+    override fun updateDrawState(tp: TextPaint) { tp.color = look.linkColor }
 }
 
 /** Atoms: one drawn unit whose caret stops are only its two ends (images.md). */
@@ -350,6 +325,9 @@ internal class TfDivider(private val look: TextFirstStyle, private val width: ()
  * place); the view re-sets the span when the bitmap lands, which re-lays out
  * only this paragraph.
  */
+/** The room above and below a photo's row: half of what its row once had all below it (4 dp and the line spacing). */
+private fun photoRowRoom(look: TextFirstStyle): Int = (look.dp(4f).toInt() + look.bodyLineSpacing) / 2
+
 internal class TfImage(
     private val look: TextFirstStyle,
     val destination: String,
@@ -357,28 +335,58 @@ internal class TfImage(
     val vault: Boolean,
     val remote: Boolean,
     private val maxWidth: () -> Int,
-) : ReplacementSpan(), TfAtom {
+) : ReplacementSpan(), LineHeightSpan, TfAtom {
     @Volatile var bitmap: Bitmap? = null
+    var rememberedSize: PhotoSize? = null
     var failed = false
     private val placeholder = Paint().apply { color = look.surfaceColor }
 
-    private fun drawSize(): Pair<Int, Int> {
+    private companion object {
+        val PHOTO_ROW_ENDINGS: String = "\r\n" + TextFirstEditText.END_SENTINEL
+    }
+
+    fun drawSize(): Pair<Int, Int> {
         val bmp = bitmap
         val limit = maxOf(1, maxWidth())
-        if (bmp == null) return limit to if (failed) look.dp(28f).toInt() else look.dp(48f).toInt()
-        val w = minOf(limit, bmp.width)
-        return w to (bmp.height.toLong() * w / maxOf(1, bmp.width)).toInt()
+        val reserved = rememberedSize.takeUnless { failed }
+        val width = bmp?.width ?: reserved?.width
+            ?: return limit to if (failed) look.dp(28f).toInt() else look.dp(48f).toInt()
+        val height = bmp?.height ?: checkNotNull(reserved).height
+        val drawnWidth = minOf(limit, width)
+        return drawnWidth to (height.toLong() * drawnWidth / width).toInt()
     }
 
     override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
         val (w, h) = drawSize()
         if (fm != null) {
+            // Sharing its row (text, another photo), the photo takes only its own height; alone, chooseHeight sets the row.
             fm.ascent = -h
-            fm.top = -h
+            fm.top = fm.ascent
             fm.descent = look.dp(4f).toInt()
             fm.bottom = fm.descent
         }
         return w
+    }
+
+    /**
+     * A photo alone on its row owns the row: as much room above the photo as below it (the line break's own font would
+     * otherwise set the room below). The TextView adds the line spacing below the row, so it is counted in.
+     */
+    override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
+        val spanned = text as? Spanned ?: return
+        if (!fillsPhotoRow(spanned, start, end)) return
+        val h = drawSize().second
+        fm.ascent = -h - photoRowRoom(look)
+        fm.top = fm.ascent
+        // The note's last row gets no line spacing from the TextView.
+        fm.descent = photoRowRoom(look) - if (end >= text.length) 0 else look.bodyLineSpacing
+        fm.bottom = fm.descent
+    }
+
+    fun fillsPhotoRow(text: Spanned, start: Int, end: Int): Boolean {
+        var contentEnd = end
+        while (contentEnd > start && text[contentEnd - 1] in PHOTO_ROW_ENDINGS) contentEnd--
+        return text.getSpanStart(this) == start && text.getSpanEnd(this) == contentEnd
     }
 
     override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {

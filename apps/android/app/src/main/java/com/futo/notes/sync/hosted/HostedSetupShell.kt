@@ -33,4 +33,7 @@ interface HostedSetupShell {
     fun share(text: String)
 
     fun announce(message: LocalizedMessage)
+
+    /** Whether the system confirms a clipboard copy itself (Android 13 and later), so no message of the app's follows. */
+    val confirmsCopies: Boolean get() = false
 }

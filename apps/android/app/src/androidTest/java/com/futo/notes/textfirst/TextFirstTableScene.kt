@@ -109,40 +109,6 @@ internal class TableCellScene(
         val viewport = Rect().also { view.getGlobalVisibleRect(it) }
         assertTrue("the wrapped caret is reachable in the note viewport", viewport.contains(x.toInt(), y.toInt()))
     }
-    /** Inspect the actual window pixels, including the field above the table's cached span. */
-    fun assertNoFindPaint() {
-        lateinit var bitmap: android.graphics.Bitmap
-        val copied = java.util.concurrent.CountDownLatch(1)
-        var status = -1
-        ui {
-            val field = checkNotNull(fieldInWindow())
-            assertFalse("the query, not the cell selection, owns focus", field.isFocused)
-            val at = IntArray(2).also(field::getLocationInWindow)
-            bitmap = android.graphics.Bitmap.createBitmap(field.width, field.height, android.graphics.Bitmap.Config.ARGB_8888)
-            android.view.PixelCopy.request(activity.window, Rect(at[0], at[1], at[0] + field.width, at[1] + field.height), bitmap,
-                { result -> status = result; copied.countDown() }, android.os.Handler(android.os.Looper.getMainLooper()))
-        }
-        assertTrue("the actual cell window is captured", copied.await(5, java.util.concurrent.TimeUnit.SECONDS))
-        assertEquals(android.view.PixelCopy.SUCCESS, status)
-        try {
-            val pixels = IntArray(bitmap.width * bitmap.height)
-            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-            fun markPixels(active: Boolean): Int {
-                val color = androidx.core.graphics.ColorUtils.compositeColors(view.style.findMarkColor(active), view.style.codeBackground)
-                // Hardware alpha blending can round a channel one value above ColorUtils' integer floor.
-                fun channelNear(a: Int, b: Int) = kotlin.math.abs(a - b) <= 1
-                return pixels.count { pixel ->
-                    android.graphics.Color.alpha(pixel) == 255 &&
-                        channelNear(android.graphics.Color.red(pixel), android.graphics.Color.red(color)) &&
-                        channelNear(android.graphics.Color.green(pixel), android.graphics.Color.green(color)) &&
-                        channelNear(android.graphics.Color.blue(pixel), android.graphics.Color.blue(color))
-                }
-            }
-            for (active in listOf(true, false)) {
-                assertEquals("the open cell omits ${if (active) "current" else "ordinary"} Find marks", 0, markPixels(active))
-            }
-        } finally { bitmap.recycle() }
-    }
     fun assertWrapped() = ui {
         val field = checkNotNull(fieldInWindow())
         assertTrue("an in-place field wraps its cell text like the grid", field.layout.lineCount > 1)

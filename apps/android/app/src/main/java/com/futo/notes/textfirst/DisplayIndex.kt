@@ -187,33 +187,3 @@ internal class DisplayIndex(text: CharSequence) {
         }
     }
 }
-
-/** Byte → UTF-16 within one projection's text, which starts at a known offset. */
-internal class LocalOffsets(
-    private val text: String,
-    private val startByte: Int,
-    private val startUtf16: Int,
-    /** Converts an offset outside this text: a block may extend past its projection's window. */
-    private val outside: (Int) -> Int = { error("byte $it outside the projection") },
-) {
-    private val ascii = text.length == DisplayIndex.utf8Length(text, 0, text.length)
-    private val endByte = startByte + if (ascii) text.length else DisplayIndex.utf8Length(text, 0, text.length)
-    private var cursorByte = 0
-    private var cursorChar = 0
-
-    fun utf16(byte: Int): Int {
-        if (byte < startByte || byte > endByte) return outside(byte)
-        val local = byte - startByte
-        if (ascii) return startUtf16 + local
-        if (local < cursorByte) { cursorByte = 0; cursorChar = 0 }
-        while (cursorByte < local) {
-            val c = text[cursorChar]
-            if (Character.isHighSurrogate(c) && cursorChar + 1 < text.length && Character.isLowSurrogate(text[cursorChar + 1])) {
-                cursorByte += 4; cursorChar += 2
-            } else {
-                cursorByte += DisplayIndex.utf8Width(c); cursorChar += 1
-            }
-        }
-        return startUtf16 + cursorChar
-    }
-}

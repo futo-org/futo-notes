@@ -191,8 +191,9 @@ class TextFirstLinkTest {
                 val layout = view.layout
                 val available = width - view.compoundPaddingLeft - view.compoundPaddingRight
                 for (line in 0 until layout.lineCount) {
-                    assertTrue("line $line extends beyond the viewport: ${layout.getLineWidth(line)} > $available",
-                        layout.getLineWidth(line) <= available + 1)
+                    // The trailing space after a label that fills the column is not drawn: what is drawn is the line's max.
+                    assertTrue("line $line extends beyond the viewport: ${layout.getLineMax(line)} > $available",
+                        layout.getLineMax(line) <= available + 1)
                 }
                 assertTrue("a long linked label must occupy multiple visible lines", layout.lineCount >= 3)
                 assertEquals(source, controller.sourceText())
@@ -245,7 +246,7 @@ class TextFirstLinkTest {
                 val tall = view.layout.getLineBottom(row) - view.layout.getLineTop(row)
                 assertTrue("wrapped label reserves its full visual height", tall > view.paint.fontSpacing * 2)
                 val opened = mutableListOf<String>()
-                view.onOpenWikilink = { opened.add(it) }
+                view.onOpenWikilink = { opened.add((it as WikilinkDestination.Note).id) }
                 val x = view.totalPaddingLeft + view.paint.textSize
                 val firstY = view.totalPaddingTop + view.layout.getLineTop(row) + view.paint.textSize
                 val lastY = view.totalPaddingTop + view.layout.getLineBaseline(row) - view.paint.textSize / 2

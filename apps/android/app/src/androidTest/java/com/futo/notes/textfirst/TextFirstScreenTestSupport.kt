@@ -22,6 +22,7 @@ internal fun AndroidComposeTestRule<ActivityScenarioRule<ComponentActivity>, Com
     note: String,
     nativeTheme: Int? = null,
     darkTheme: () -> Boolean = { false },
+    otherNotes: Map<String, String> = emptyMap(),
     check: (TextFirstEditText, InputConnection) -> Unit,
 ) {
     NoteScrollMemory.clear()
@@ -29,6 +30,7 @@ internal fun AndroidComposeTestRule<ActivityScenarioRule<ComponentActivity>, Com
     val scratch = File(context.cacheDir, "caret-follow-${UUID.randomUUID()}").apply { check(mkdirs()) }
     val root = File(scratch, "vault").apply { check(mkdirs()) }
     File(root, "draft.md").writeText(note)
+    for ((title, body) in otherNotes) File(root, "$title.md").writeText(body)
     lateinit var store: NotesStore
     runOnUiThread {
         nativeTheme?.let {
@@ -47,7 +49,7 @@ internal fun AndroidComposeTestRule<ActivityScenarioRule<ComponentActivity>, Com
                 if (nativeTheme != null) com.futo.notes.ui.components.ClearFocusOnImeDismiss(
                     com.futo.notes.ui.components.imeTargetVisible(),
                 )
-                TextFirstEditorScreen(store, "draft", false, dark, {}, {}, registerLeave = { {} })
+                TextFirstEditorScreen(store, "draft", false, dark, {}, {}, {}, registerLeave = { {} })
             }
         }
     }
@@ -71,6 +73,6 @@ internal fun AndroidComposeTestRule<ActivityScenarioRule<ComponentActivity>, Com
         editor.engine!!.hostSelect(editor.length() - 1, editor.length() - 1)
         connection = checkNotNull(editor.onCreateInputConnection(EditorInfo()))
     }
-    waitUntil(5_000) { editor.selectionStart == editor.length() - 1 && editor.selectionEnd == editor.length() - 1 }
+    waitUntil(5_000) { readOnMainThread { editor.selectionStart == editor.length() - 1 && editor.selectionEnd == editor.length() - 1 } }
     check(editor, connection)
 }

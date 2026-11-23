@@ -48,6 +48,7 @@ internal class FastSession private constructor(session: NativeEditorSession) : A
             EditorInputAction.TYPING -> 0
             EditorInputAction.ISOLATED -> 1
             EditorInputAction.COMPOSITION_COMMIT -> 2
+            EditorInputAction.PAIRED_TYPING -> 3
         })))
 
     fun paragraphKey(rev: ULong, start: Int, end: Int, key: EditorParagraphKey): EditorViewChange? =
@@ -59,6 +60,7 @@ internal class FastSession private constructor(session: NativeEditorSession) : A
             EditorParagraphKey.TAB -> 4
             EditorParagraphKey.SHIFT_TAB -> 5
             EditorParagraphKey.BACKSPACE_JOINING_HEADING -> 6
+            EditorParagraphKey.PAIRED_BACKSPACE -> 7
         }))
 
     private fun liveHandle(): Long {

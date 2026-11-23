@@ -65,9 +65,11 @@ class TextFirstRemoteImageTest {
                 assertNull(opened.await())
             }
             compose.waitUntil(10_000) {
-                controller.view.text!!.getSpans(0, controller.view.length(), TfImage::class.java).singleOrNull()?.let {
-                    it.bitmap != null || it.failed
-                } == true
+                readOnMainThread {
+                    controller.view.text!!.getSpans(0, controller.view.length(), TfImage::class.java).singleOrNull()?.let {
+                        it.bitmap != null || it.failed
+                    } == true
+                }
             }
             compose.runOnUiThread {
                 val image = controller.view.text!!.getSpans(0, controller.view.length(), TfImage::class.java).single()
@@ -113,7 +115,7 @@ class TextFirstRemoteImageTest {
                 assertNull(opened.await())
             }
             compose.waitUntil(10_000) {
-                controller.view.text!!.getSpans(0, controller.view.length(), TfImage::class.java).singleOrNull()?.failed == true
+                readOnMainThread { controller.view.text!!.getSpans(0, controller.view.length(), TfImage::class.java).singleOrNull()?.failed == true }
             }
             compose.runOnUiThread {
                 val image = controller.view.text!!.getSpans(0, controller.view.length(), TfImage::class.java).single()

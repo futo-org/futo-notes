@@ -23,16 +23,16 @@ import org.junit.Assert.*
 import org.junit.Test
 import uniffi.futo_notes_ffi.NoteStore
 
-/** A tap inside a wrapped wikilink atom puts the caret at the nearest edge of its visual run. */
+/** A tap on the text of any row of a wrapped wikilink to a missing note follows it, hit-tested against the link's own layout. */
 class TextFirstLinkTapTest {
     private val label = "A very long wikilink label that should wrap across multiple visible lines and remain readable while editing"
 
     @Test
-    fun tapInsideWrappedLinkPlacesCaretAtNearestAtomEdge() = exercise("Before [[$label]] after")
+    fun tapOnAnyRowOfAWrappedLinkFollowsIt() = exercise("Before [[$label]] after")
 
     /** The atom is drawn with the heading's scale, so a tap must be hit-tested against that layout. */
     @Test
-    fun tapInsideWrappedLinkInAHeadingPlacesCaretAtNearestAtomEdge() = exercise("# [[$label]] after")
+    fun tapOnAnyRowOfAWrappedLinkInAHeadingFollowsIt() = exercise("# [[$label]] after")
 
     private fun exercise(source: String) = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -58,19 +58,20 @@ class TextFirstLinkTapTest {
                 // The atom's caret stops are display offsets; a heading hides its marker, shifting them.
                 val link = view.editableText.getSpans(0, view.editableText.length, TfWikilink::class.java).single()
                 val start = view.editableText.getSpanStart(link)
-                val end = view.editableText.getSpanEnd(link)
                 val row = view.layout.getLineForOffset(start)
                 val top = view.totalPaddingTop + view.layout.getLineTop(row)
                 val tall = view.layout.getLineBottom(row) - view.layout.getLineTop(row)
                 assertTrue("label wraps over at least three lines", tall > view.paint.fontSpacing * 3)
                 val left = view.totalPaddingLeft + 2f
-                val right = width - view.totalPaddingRight - 2f
+                // Inside the label's rows: each wrapped row starts at the note's left and its text ends before the right edge.
+                val inside = left + view.paint.textSize * 2
+                val followed = mutableListOf<WikilinkDestination>()
+                view.onOpenWikilink = { followed.add(it) }
                 // Taps this close in time and place are a double-tap: the platform selects the word, and its
-                // selection can land long after the tap (hundreds of ms on a loaded CI emulator), over the caret
-                // a later tap placed. Stamp each tap past the double-tap window so every one is a single tap.
+                // selection can land long after the tap (hundreds of ms on a loaded CI emulator). Stamp each tap
+                // past the double-tap window so every one is a single tap (main, 0751ad118).
                 var clock = SystemClock.uptimeMillis()
-                suspend fun tap(x: Float, fraction: Float): Int {
-                    view.setSelection(0)
+                fun tap(x: Float, fraction: Float) {
                     clock += ViewConfiguration.getDoubleTapTimeout() + 100
                     val down = clock
                     val y = top + tall * fraction
@@ -78,14 +79,14 @@ class TextFirstLinkTapTest {
                         val e = MotionEvent.obtain(down, at, action, x, y, 0)
                         try { view.dispatchTouchEvent(e) } finally { e.recycle() }
                     }
-                    controller.sourceText()
-                    return view.selectionStart
                 }
-                assertEquals("first line, start side", start, tap(left, 0.12f))
-                assertEquals("middle line, first third of the run", start, tap(left, 0.5f))
-                assertEquals("middle line, past half of the run", end, tap(right, 0.5f))
-                assertEquals("last line, start side is past half of the run", end, tap(left, 0.85f))
-                assertEquals("last line, end side", end, tap(right, 0.85f))
+                tap(left, 0.12f)
+                tap(left, 0.5f)
+                tap(inside, 0.5f)
+                tap(left, 0.85f)
+                tap(inside, 0.85f)
+                withTimeout(5_000) { while (followed.size < 5) delay(20) }
+                assertEquals("every visual line of the link follows it", List(5) { WikilinkDestination.Missing(label) }, followed)
             }
         } finally {
             withContext(Dispatchers.Main) { controller.discard(); controller.dispose() }

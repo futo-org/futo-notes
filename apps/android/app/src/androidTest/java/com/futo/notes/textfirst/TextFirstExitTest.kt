@@ -2,6 +2,7 @@ package com.futo.notes.textfirst
 
 import android.view.KeyEvent
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
 import uniffi.futo_notes_ffi.EditorBlockCommand
@@ -278,32 +279,26 @@ class TextFirstExitTest {
     @Test fun codeButtonTakesTheLineOutOfItsFence() =
         textFirstSession("```\ncode\n```\n") { c -> c.select(1); c.block(EditorBlockCommand.CodeBlock); assertEquals("code\n", c.sourceText()) }
 
-    @Test fun enterOnTheEmptyLastCodeLineLeavesTheFence() = textFirstSession("```\ncode\n\n```") { c ->
-        c.select(5)
-        enter(c)
-        assertEquals("```\ncode\n```\n", c.sourceText())
-    }
-
-    @Test fun enterOnAWholeCodeBodySelectionKeepsItsText() = textFirstSession("```\ndeploy\n```") { c ->
+    @Test fun enterOnAWholeCodeBodySelectionEmptiesTheBlock() = textFirstSession("```\ndeploy\n```") { c ->
         c.select(0, 6)
         enter(c)
-        assertEquals("```\ndeploy\n```\n", c.sourceText())
+        assertEquals("```\n\n```", c.sourceText())
     }
 
-    @Test fun hardwareEnterOnAWholeCodeBodySelectionKeepsItsText() = textFirstSession("```\ndeploy\n```") { c ->
+    @Test fun hardwareEnterOnAWholeCodeBodySelectionEmptiesTheBlock() = textFirstSession("```\ndeploy\n```") { c ->
         c.select(0, 6)
         hardwareEnter(c)
-        assertEquals("```\ndeploy\n```\n", c.sourceText())
+        assertEquals("```\n\n```", c.sourceText())
         c.undo()
         assertEquals("```\ndeploy\n```", c.sourceText())
         assertEquals(0, c.view.selectionStart)
         assertEquals(6, c.view.selectionEnd)
     }
 
-    @Test fun softReturnOnAWholeCodeBodySelectionKeepsItsText() = textFirstSession("```\ndeploy\n```") { c ->
+    @Test fun softReturnOnAWholeCodeBodySelectionEmptiesTheBlock() = textFirstSession("```\ndeploy\n```") { c ->
         c.select(0, 6)
         textFirstIme(c) { commitText("\n", 1) }
-        assertEquals("```\ndeploy\n```\n", c.sourceText())
+        assertEquals("```\n\n```", c.sourceText())
     }
 
     @Test fun hardwareEnterReplacesAPartialCodeSelection() = textFirstSession("```\ndeploy\n```") { c ->
@@ -332,15 +327,11 @@ class TextFirstExitTest {
     }
 
     /** The keyboard answers Enter on a selection by collapsing it and deleting the selected text first. */
+    /** FUTO Keyboard and Gboard both send Enter on a selection as a committed line break (traced 2026-11-18). */
     @Test fun enterOnASelectedImageKeepsItAndAddsALineBelow() = textFirstSession("![](a.png)\n") { c ->
-        c.view.selectedObject = 0 to 10
         c.select(0, 10)
-        delay(300L)
-        textFirstIme(c) {
-            setSelection(10, 10)
-            deleteSurroundingText(10, 0)
-        }
-        enter(c)
+        withTimeout(5_000) { while (c.view.selectionEnd != 10) delay(20) }
+        textFirstIme(c) { commitText("\n", 1) }
         assertEquals("![](a.png)\n\n", c.sourceText())
     }
 

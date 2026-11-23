@@ -1,11 +1,9 @@
 package com.futo.notes.textfirst
 
 import android.graphics.Canvas
-import android.graphics.Path
-import android.graphics.RectF
 import android.text.style.LeadingMarginSpan
 
-/** Native selection fills middle rows; its first and last visual rows can omit list gutters. */
+/** A list row the selection covers whole has its marker gutter tinted too (lists.md); the rows' text is TextSelectionPaint's. */
 internal fun TextFirstEditText.drawListSelection(canvas: Canvas) {
     val start = minOf(selectionStart, selectionEnd)
     val end = maxOf(selectionStart, selectionEnd)
@@ -14,13 +12,13 @@ internal fun TextFirstEditText.drawListSelection(canvas: Canvas) {
     val e = editableText ?: return
     val first = l.getLineForOffset(start)
     val last = l.getLineForOffset(end)
-    val lines = if (first == last) intArrayOf(first) else intArrayOf(first, last)
+    // Only the rows on screen: a whole-note selection is not walked on every frame.
+    val shownFirst = maxOf(first, l.getLineForVertical(maxOf(0, scrollY - totalPaddingTop)))
+    val shownLast = minOf(last, l.getLineForVertical(maxOf(0, scrollY - totalPaddingTop + height)))
     val save = canvas.save()
     canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
-    for (line in lines) {
-        val top = l.getLineTop(line)
-        var bottom = l.getLineBottom(line).toFloat()
-        if (bottom < scrollY - totalPaddingTop || top > scrollY + height - totalPaddingTop) continue
+    for (line in shownFirst..shownLast) {
+        val (top, bottom) = overlayBand(l, e, line)
         val at = l.getLineStart(line)
         val margins = e.getSpans(at, l.getLineEnd(line), LeadingMarginSpan::class.java)
         val dir = l.getParagraphDirection(line)
@@ -35,12 +33,7 @@ internal fun TextFirstEditText.drawListSelection(canvas: Canvas) {
                 val selectedEnd = if (bodyEnd > at) bodyEnd
                     else if (rowEnd > at && e[rowEnd - 1] == '\n') rowEnd else at
                 if (start <= at && selectedEnd > at && end >= selectedEnd) {
-                    if (line == last) {
-                        // Match the final native highlight's exclusion of extra line spacing.
-                        val path = Path().also { l.getSelectionPath(at, end, it) }
-                        bottom = minOf(bottom, RectF().also { path.computeBounds(it, true) }.bottom)
-                    }
-                    margin.drawSelectedMargin(canvas, x, dir, top.toFloat(), bottom)
+                    margin.drawSelectedMargin(canvas, x, dir, top, bottom)
                 }
             }
             x += dir * margin.getLeadingMargin(true)

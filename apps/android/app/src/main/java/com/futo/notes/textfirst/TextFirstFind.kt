@@ -1,6 +1,7 @@
 package com.futo.notes.textfirst
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import com.futo.notes.localization.Localization
 import com.futo.notes.localization.LocalLocalization
@@ -14,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -33,10 +35,15 @@ private fun stepFindVerb(step: suspend (forward: Boolean) -> Unit) = PuppetVerb(
     mapOf("direction" to direction)
 }
 
+/** Desktop's find chords on a hardware keyboard: Ctrl+F opens, Ctrl+G and Ctrl+Shift+G step while the bar is open. */
+internal enum class FindShortcut { OPEN, NEXT, PREVIOUS }
+
 /** The note screen's find bar state: it drives the controller and holds only the typed query. */
 internal class TextFirstFind(private val controller: TextFirstController, private val scope: CoroutineScope, private val focus: FocusManager) {
     var visible by mutableStateOf(false); private set
     var query by mutableStateOf(""); private set
+    /** Its query field holds focus: no press lifts a block then. */
+    var focused by mutableStateOf(false)
     val state: FindSnapshot? get() = controller.find
 
     fun open() { visible = true; scope.launch { controller.findSetQuery(query) } }
@@ -46,6 +53,26 @@ internal class TextFirstFind(private val controller: TextFirstController, privat
     fun type(value: String) { scope.launch { setQuery(value) } }
 
     fun step(forward: Boolean) { scope.launch { controller.findStep(forward) } }
+
+    fun shortcut(key: FindShortcut) {
+        when (key) {
+            FindShortcut.OPEN -> openFromSelection()
+            FindShortcut.NEXT -> if (visible) step(forward = true)
+            FindShortcut.PREVIOUS -> if (visible) step(forward = false)
+        }
+    }
+
+    /** The selection's text when it lies within one line; a multi-line selection opens it empty; none keeps the last query. */
+    private fun openFromSelection() {
+        val view = controller.view
+        val start = minOf(view.selectionStart, view.selectionEnd)
+        val end = maxOf(view.selectionStart, view.selectionEnd)
+        if (start in 0 until end) {
+            val selected = view.editableText.subSequence(start, end).toString()
+            query = if ('\n' in selected) "" else selected
+        }
+        open()
+    }
 
     fun close() {
         // The note and its in-place cell share a window. Keep their input;
@@ -63,7 +90,12 @@ internal class TextFirstFind(private val controller: TextFirstController, privat
 internal fun rememberTextFirstFind(controller: TextFirstController, key: Any): TextFirstFind {
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
-    return remember(key) { TextFirstFind(controller, scope, focus) }
+    val find = remember(key) { TextFirstFind(controller, scope, focus) }
+    DisposableEffect(find) {
+        controller.view.keyHooks.find = find::shortcut
+        onDispose { controller.view.keyHooks.find = null }
+    }
+    return find
 }
 
 /** The find bar's verbs exist only while it is up, for the visible native editor. */
@@ -87,12 +119,12 @@ internal fun TextFirstFindVerbs(find: TextFirstFind, enabled: Boolean) {
 @Composable
 internal fun TextFirstFindBar(find: TextFirstFind) {
     if (!find.visible) return
-    FindInNoteBar(
+    androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.onFocusChanged { find.focused = it.hasFocus }) { FindInNoteBar(
         query = find.query,
         label = findLabel(LocalLocalization.current, find.state),
         total = find.state?.total ?: 0,
         onQueryChange = find::type,
         onStep = { direction -> find.step(direction > 0) },
         onClose = find::close,
-    )
+    ) }
 }

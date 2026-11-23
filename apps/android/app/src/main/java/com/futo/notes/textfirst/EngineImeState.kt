@@ -37,8 +37,10 @@ internal data class ImeContextWindow(val text: String, val start: Int, val selec
     }
 }
 
+/** A cell's connection whose selection has left its cell (the engine moved it, the field not yet closed) reads nothing. */
 internal fun imeTextBefore(text: CharSequence, start: Int, low: Int, requested: Int): CharSequence {
     require(requested >= 0)
+    if (start < low) return ""
     var from = maxOf(low, start - minOf(requested, IME_CONTEXT_CHARS))
     if (from > low && from < start && Character.isLowSurrogate(text[from]) && Character.isHighSurrogate(text[from - 1])) from++
     return text.subSequence(from, start).toString()
@@ -46,6 +48,7 @@ internal fun imeTextBefore(text: CharSequence, start: Int, low: Int, requested: 
 
 internal fun imeTextAfter(text: CharSequence, end: Int, high: Int, requested: Int): CharSequence {
     require(requested >= 0)
+    if (end > high) return ""
     var to = end + minOf(high - end, minOf(requested, IME_CONTEXT_CHARS))
     if (to < high && to > end && Character.isHighSurrogate(text[to - 1]) && Character.isLowSurrogate(text[to])) to--
     return text.subSequence(end, to).toString()

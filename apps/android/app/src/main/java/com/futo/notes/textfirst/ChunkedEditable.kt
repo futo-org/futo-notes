@@ -22,7 +22,7 @@ import android.text.style.LineBackgroundSpan
  *
  * So the text is split into chunks of whole lines, each its own small
  * builder holding the spans that START in it. Renderer spans never cross a
- * line (planSpans cuts them per line), so an edit touches one chunk; a
+ * line (the engine's style plan cuts them per line), so an edit touches one chunk; a
  * query skips chunks that hold no span of the asked-for kind. Watchers that
  * TextView and its layout attach live outside the chunks and hear only what
  * actually happened: the replaced range, and spans explicitly set or

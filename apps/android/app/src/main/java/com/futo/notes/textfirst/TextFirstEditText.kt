@@ -5,17 +5,15 @@ import android.content.Context
 import android.text.Editable
 import android.text.InputFilter
 import android.text.InputType
-import android.text.Selection
 import android.text.Spannable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
-import android.view.inputmethod.InputMethodManager
 import androidx.appcompat.widget.AppCompatEditText
-import uniffi.futo_notes_ffi.EditorParagraphKey
 
 /**
  * The platform text view. It holds display text only and never edits it on
@@ -31,19 +29,37 @@ internal class TextFirstEditText(
 ) : AppCompatEditText(context), EngineInputConnection.ViewSide {
     var engine: EditorEngine? = null
         set(value) {
+            if (value == null) blockLift.interrupt()
             field = value
             if (renderHold.held) value?.holdRender(true)
         }
     internal val imePublisher = NativeImePublisher(this)
-    var onOpenWikilink: ((String) -> Unit)? = null
+    var onOpenWikilink: ((WikilinkDestination) -> Unit)? = null
+    internal val keyHooks = HardwareKeyHooks()
     var onOpenUrl: ((String) -> Boolean)? = null
-    private val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
-    private val imageTouch = ImageTouch(this)
+    internal val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
+    internal val imageTouch = ImageTouch(this)
     @Volatile override var renderedSelection: Long = Long.MIN_VALUE
-        private set
+        internal set
     @Volatile override var selectedObject: Pair<Int, Int>? = null
-    private val linkTouch = ExternalLinkTouch(this, { onOpenUrl?.invoke(it) ?: false }, ::nativeTouch)
-    private val lineTouch = LineSelectTouch(this)
+    internal val linkTouch = ExternalLinkTouch(this, { onOpenUrl?.invoke(it) ?: false }, ::nativeTouch)
+    internal val lineTouch = LineSelectTouch(this)
+    internal val codeTouch = CodeBlockTouch(this)
+    internal val lineBelowHandle = CodeLineBelowHandle(this)
+    /** A code block selected as one object: its card shows the selection, so the text highlight is hidden. */
+    internal var selectedCodeBlock: Pair<Int, Int>? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            refreshCodeInput()
+            // A selected empty block is a collapsed range, but it is the object: no caret or handle in it, as on !300.
+            isCursorVisible = value == null || value.first != value.second
+            // Undo selects a block after its edits painted the same range as a band; the card alone shows it (12.5).
+            if (value != null) codeSelectionTracker.painted = null
+            refreshCodeHighlight()
+            codeTouch.callout.onSelectedBlockChanged(value)
+            invalidate()
+        }
     /** The first draw after a keyed update, with where that key's time went. */
     var onFrameDrawn: ((KeyTimings) -> Unit)? = null
     /** Optional benchmark observer for every apply, including progressive append work. */
@@ -51,15 +67,21 @@ internal class TextFirstEditText(
     internal var onApplyMeasured: ((KeyTimings, UiUpdate) -> Unit)? = null
 
     internal var applying = false
+    /** The current press was a hold inside a selection with its menu (HoldSelectsWord.kt): its lift is no tap. */
+    internal var heldInsideSelection = false
+    /** True while the view moves its own selection (endSelectionOnBlur): not a placement by the user. */
+    internal var movingSelectionItself = false
+    /** True while the view takes the engine's selection: already resolved, so it is painted as it is. */
+    internal var settlingFromEngine = false
     internal var appliedSeq = 0
     internal var pendingTimings: KeyTimings? = null
-    private var checkboxDown = -1
+    internal var checkboxDown = -1
     var onTableCell: ((Int, Int, Int) -> Unit)? = null
     /** The cell host settles against Android's final layout/caret reveal before drawing. */
     internal var onViewportReady: (() -> Unit)? = null
     /** Paste and keyboard content; its [TextFirstClipboard.onImageContent] owner saves images. */
     val clipboard = TextFirstClipboard(context) { engine }
-    private val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, ::invalidateTableScroll)
+    internal val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, { invalidateTableScroll(it) })
     internal val marks = FindMarks()
     internal val scroll = NoteScroll(this)
     internal val spans = TfSpanFactory(style, marks, { contentWidth() }) { span ->
@@ -67,24 +89,33 @@ internal class TextFirstEditText(
     }
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */
     internal var composing: Any? = null
-    private var codeInput = false
+    internal var codeInput = false
+    internal var codeCaret = false
     /** The view cut itself to a prefix for a new width; engine updates wait for the engine's reset (TextFirstEditTextWidth.kt). */
     internal var awaitingRelayout = false
     internal val renderHold = RenderHold(this)
+    /** The long-press block drag (BlockDrag.kt); it sees every touch first. */
+    internal val blockLift = BlockLift(this)
+    internal val caretEdge = CaretEdgeScroll(this)
+    internal val handleWatch = HandleWatch(this, caretEdge)
+    /** Whether the note's screen lets a press lift a block: the note is open and no other field of the screen holds focus. */
+    var liftAllowed: () -> Boolean = { false }
 
     init {
         background = null
+        // With no background, Android draws its focus highlight, a grey film over the whole note, out of touch mode.
+        defaultFocusHighlightEnabled = false
         setTextColor(style.textColor)
         setTextSize(TypedValue.COMPLEX_UNIT_PX, style.textSizePx)
         typeface = style.regular
         // CSS line-height 1.55 is 1.55 × the font size; Android's multiplier
         // would scale Barlow's taller full height instead.
-        lineHeight = (style.textSizePx * 1.55f).toInt()
+        lineHeight = style.bodyLineHeight
         // A fallback font's taller metrics (Arabic, Hebrew) would grow its row past
         // that height; CSS keeps line-height fixed whatever font draws the glyphs.
         isFallbackLineSpacing = false
         gravity = Gravity.TOP or Gravity.START
-        val side = style.dp(18f).toInt()
+        val side = style.dp(NOTE_TEXT_INSET_DP).toInt()
         // TextView clips drawing to its padding, so no tall bottom padding here.
         setPadding(side, style.dp(14f).toInt(), side, style.dp(24f).toInt())
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or
@@ -100,6 +131,8 @@ internal class TextFirstEditText(
         importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
         if (android.os.Build.VERSION.SDK_INT >= 30) importantForContentCapture = IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS
         highlightColor = style.selectionColor
+        fitCaretToItsText()
+        tintCaretAndSelectionHandles(style.linkColor)
         filters = arrayOf(InputFilter { source, _, _, dest, dstart, dend ->
             if (applying) null else dest.subSequence(dstart, dend)
         })
@@ -154,14 +187,34 @@ internal class TextFirstEditText(
     }
 
     override fun performLongClick(): Boolean {
+        // A press that may lift a block waits for the engine; one that lifted has no platform long press.
+        if (blockLift.holdsLongPress(::platformLongClick)) return true
+        return platformLongClick()
+    }
+
+    private fun platformLongClick(): Boolean {
         renderHold.longPressed()
+        if (codeTouch.longPress() || imageTouch.longPress() || holdInsideSelectionWithItsMenu()) return true
+        endSelectionUnderHold()
         return super.performLongClick()
     }
 
-    internal fun setCodeInput(code: Boolean) {
-        if (codeInput == code) return
-        codeInput = code
-        if (isFocused) restartKeyboard()
+    /**
+     * The note takes no drop: the platform's would put the text into the view behind the editor's back and report it
+     * done though the note is unchanged. (Nothing in the note starts a text drag either.)
+     */
+    override fun onDragEvent(event: android.view.DragEvent): Boolean = false
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        // A call, a system dialog, the app leaving the foreground: a drag ends with nothing moved.
+        if (!hasWindowFocus) blockLift.interrupt()
+    }
+
+    override fun onDetachedFromWindow() {
+        blockLift.interrupt()
+        handleWatch.detach()
+        super.onDetachedFromWindow()
     }
 
     // ---- engine → view ----
@@ -191,9 +244,8 @@ internal class TextFirstEditText(
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)
-        val anchor = pinned ?: return
-        val y = anchorY(anchor) ?: return
-        if (y != scrollY) scrollTo(scrollX, y)
+        blockLift.relayout()
+        restorePinnedViewport()
     }
 
 
@@ -208,6 +260,9 @@ internal class TextFirstEditText(
     override fun getExtendedPaddingBottom(): Int = if (drawing) 0 else super.getExtendedPaddingBottom()
 
     internal val reveal = CaretReveal()
+    internal val codeCardPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    internal val codeChrome by lazy { CodeBlockChrome(style) }
+    internal val codeSelectionTracker = CodeSelectionTracker()
 
     override fun bringPointIntoView(offset: Int): Boolean = revealCaret(offset) { super.bringPointIntoView(offset) }
 
@@ -219,13 +274,22 @@ internal class TextFirstEditText(
         val timings = pendingTimings
         if (timings != null) timings.drawStart = android.os.SystemClock.elapsedRealtimeNanos()
         // Under the caret, which the TextView draws before the layout's own drawing.
-        drawCodeBackgrounds(canvas)
-        drawListSelection(canvas)
-        drawFindMarks(canvas)
-        val e = editableText as? ChunkedEditable
-        e?.drawWindow = visibleChars()
-        drawing = true
-        try { super.onDraw(canvas); drawTopPaddingBand(canvas); drawScrollEdge(canvas) } finally { drawing = false; e?.drawWindow = null }
+        if (blockLift.drag?.drawNote(canvas) != true) {
+            drawCodeBlocks(canvas)
+            drawMetadataCard(canvas)
+            drawInlineCodeChips(canvas, scrollY - totalPaddingTop, scrollY - totalPaddingTop + height)
+            lineBelowHandle.afterDraw()
+            drawCodeSelection(canvas)
+            drawTextSelection(canvas)
+            drawTableSelectionUnder(canvas)
+            drawListSelection(canvas)
+            drawFindMarks(canvas)
+            val e = editableText as? ChunkedEditable
+            e?.drawWindow = visibleChars()
+            drawing = true
+            try { super.onDraw(canvas); drawTopPaddingBand(canvas); drawCurrentMatchText(canvas); drawSelectedImageTint(canvas); drawTableSelectionOver(canvas); drawCaretBesidePhoto(canvas); drawScrollEdge(canvas) } finally { drawing = false; e?.drawWindow = null }
+        }
+        blockLift.drag?.draw(canvas)
         if (timings != null) {
             timings.drawEnd = android.os.SystemClock.elapsedRealtimeNanos()
             pendingTimings = null
@@ -235,94 +299,42 @@ internal class TextFirstEditText(
     }
 
 
-    internal fun contentWidth(): Int = maxOf(1, width - totalPaddingLeft - totalPaddingRight - style.dp(4f).toInt())
-
-    // Images and dividers size to the content width; a new width re-measures
-    // their lines (one measured while the view was not laid out yet would
-    // otherwise keep a stale height).
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        if (h > oldh) clampScrollToNote()
-        if (h < oldh && caretWasInView(oldh)) { reveal.again(); bringPointIntoView(selectionEnd) }
-        if (w != oldw) refreshWidthDependentSpans()
+        resizeEditorViewport(w != oldw, h, oldh)
     }
 
     // ---- view → engine ----
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
         super.onSelectionChanged(selStart, selEnd)
-        renderedSelection = (selStart.toLong() shl 32) or (selEnd.toLong() and 0xffffffffL)
-        selectedObject = selectedObject?.takeIf { it.first == selStart && it.second == selEnd }
-        if (applying) return
-        val e = editableText ?: return
-        // The end sentinel is not a caret position (an empty Editable has none yet).
-        val last = (e.length - 1).coerceAtLeast(0)
-        val (a, b) = clampOutOfAtoms(e, selStart.coerceAtMost(last), selEnd.coerceAtMost(last))
-        if (a != selStart || b != selEnd) {
-            applying = true
-            try { Selection.setSelection(e, a, b) } finally { applying = false }
-        }
-        engine?.viewSelection(appliedSeq, a, b)
-    }
-
-    /** Atoms have caret stops only at their two ends (images.md). */
-    private fun clampOutOfAtoms(e: Editable, start: Int, end: Int): Pair<Int, Int> {
-        fun clamp(p: Int): Int {
-            for (atom in e.getSpans(p, p, TfAtom::class.java)) {
-                val s = e.getSpanStart(atom)
-                val en = e.getSpanEnd(atom)
-                if (p in (s + 1) until en) return if (p - s <= en - p) s else en
-            }
-            return p
-        }
-        return clamp(start) to clamp(end)
+        selectionChanged(selStart, selEnd)
     }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN) { restoring = null; stopPinning(); scroll.down(event) } else scroll.track(event)
-        if (!scroll.stoppingTouch && tableTouch.onTouch(event)) return true
-        if (scroll.own(event) { super.onTouchEvent(it) }) return true
-        if (onOpenUrl != null && linkTouch.onTouch(event)) return true
-        if (wikilinkTouch.onTouch(event)) return true
-        imageTouch.onTouch(event)
-        // After the links, so a third quick tap on a link still opens it.
-        if (lineTouch.onTouch(event)) return true
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                checkboxDown = checkboxAt(this, style, event.x, event.y)
-                if (checkboxDown >= 0) return true
-            }
-            MotionEvent.ACTION_UP -> if (checkboxDown >= 0) {
-                val hit = checkboxAt(this, style, event.x, event.y)
-                if (hit == checkboxDown) engine?.toggleTaskAt(hit)
-                checkboxDown = -1
-                return true
-            }
-            MotionEvent.ACTION_MOVE -> if (checkboxDown >= 0) return true
-            MotionEvent.ACTION_CANCEL -> if (checkboxDown >= 0) { checkboxDown = -1; return true }
-        }
-        return super.onTouchEvent(event).also { wikilinkTouch.settleCaret(); imageTouch.settleSelection() }
+        if (blockLift.onTouch(event)) return true
+        return routeTouch(event)
     }
 
-    private fun nativeTouch(event: MotionEvent) { super.onTouchEvent(event) }
+    /** The platform's own touch handling, under the note's handlers (TextFirstEditTextTouch.kt). */
+    internal fun nativeTouch(event: MotionEvent): Boolean = super.onTouchEvent(event)
+
+    override fun performHapticFeedback(feedbackConstant: Int, flags: Int): Boolean {
+        if (feedbackConstant == HapticFeedbackConstants.TEXT_HANDLE_MOVE && caretEdge.isDriving) return false
+        return super.performHapticFeedback(feedbackConstant, flags)
+    }
 
     override fun computeScroll() {
         super.computeScroll()
         scroll.step()
     }
 
-    /** TextView caches drawing separately: changing span data also invalidates its text display list. */
-    private fun invalidateTableScroll(scroll: TableScroll) {
-        redrawTableRows { it.scroll === scroll }
-        invalidate()
-    }
-
     // Hardware Enter must reach the engine with its original selection. Gboard
     // otherwise deletes the selection before forwarding the key, losing the
     // whole-code-body Enter intent and splitting its Undo action.
     override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
-        if (engine != null && (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+        if (engine != null && (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER || isHistoryChord(keyCode, event))) {
             return when (event.action) {
                 KeyEvent.ACTION_DOWN -> onKeyDown(keyCode, event)
                 KeyEvent.ACTION_UP -> true
@@ -334,37 +346,9 @@ internal class TextFirstEditText(
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val engine = engine ?: return super.onKeyDown(keyCode, event)
-        if (event.isCtrlPressed) {
-            when (keyCode) {
-                KeyEvent.KEYCODE_Z -> { if (event.isShiftPressed) engine.redo() else engine.undo(); return true }
-                KeyEvent.KEYCODE_Y -> { engine.redo(); return true }
-                KeyEvent.KEYCODE_B -> { engine.toggleFormat(uniffi.futo_notes_ffi.EditorInlineFormat.BOLD); return true }
-                KeyEvent.KEYCODE_I -> { engine.toggleFormat(uniffi.futo_notes_ffi.EditorInlineFormat.ITALIC); return true }
-                KeyEvent.KEYCODE_A -> { engine.selectAll(); return true }
-                KeyEvent.KEYCODE_C -> { onTextContextMenuItem(android.R.id.copy); return true }
-                KeyEvent.KEYCODE_X -> { onTextContextMenuItem(android.R.id.cut); return true }
-                KeyEvent.KEYCODE_V -> { onTextContextMenuItem(android.R.id.paste); return true }
-            }
-        }
-        val paragraphKey = when (keyCode) {
-            KeyEvent.KEYCODE_DEL -> EditorParagraphKey.BACKSPACE
-            KeyEvent.KEYCODE_FORWARD_DEL -> EditorParagraphKey.DELETE
-            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
-                if (event.isShiftPressed) EditorParagraphKey.SHIFT_ENTER else EditorParagraphKey.ENTER
-            KeyEvent.KEYCODE_TAB -> if (event.isShiftPressed) EditorParagraphKey.SHIFT_TAB else EditorParagraphKey.TAB
-            else -> null
-        }
-        if (paragraphKey != null) {
-            engine.handler.post { engine.key(paragraphKey) }
-            return true
-        }
-        val char = event.unicodeChar
-        if (char != 0 && !event.isCtrlPressed && !event.isAltPressed) {
-            val typed = String(Character.toChars(char))
-            engine.handler.post { engine.imeCommit(typed) }
-            return true
-        }
-        return super.onKeyDown(keyCode, event)
+        if (selectedBlockKey(keyCode, event) || codeLineKey(keyCode, event) || codeStartBackTab(keyCode, event) || downOutOfLastBlock(keyCode, event)) return true
+        if (completionKey(keyCode, event) || shortcutKey(engine, keyCode, event) || engineKey(engine, keyCode, event)) return true
+        return super.onKeyDown(keyCode, event) || keyCode in NOTE_MOVE_KEYS
     }
 
     override fun onTextContextMenuItem(id: Int): Boolean {
@@ -389,20 +373,6 @@ internal class TextFirstEditText(
                 KeyEvent.ACTION_UP -> super.onKeyUp(event.keyCode, event)
             }
         }
-    }
-
-    fun showKeyboard() {
-        requestFocus()
-        context.getSystemService(InputMethodManager::class.java).showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
-    }
-
-    fun hideKeyboard() {
-        context.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(windowToken, 0)
-        clearFocus()
-    }
-
-    fun restartKeyboard() {
-        context.getSystemService(InputMethodManager::class.java).restartInput(this)
     }
 
     companion object {

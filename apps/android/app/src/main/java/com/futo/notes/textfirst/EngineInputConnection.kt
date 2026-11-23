@@ -40,7 +40,16 @@ internal open class EngineInputConnection(
     }
 
     private var batch = 0
-    private data class Collapse(val seq: Int, val revision: ULong, val start: Int, val end: Int, val at: Int)
+    /**
+     * A keyboard's collapse of a range, held until its next call shows whether it deletes the range. [keep]: an object
+     * (an image, a code block) selected as one; if no deletion follows, the object stays selected instead of the caret
+     * moving to [at]. [deleted]: inside a batch the delete is held, since a commit that follows replaces the object (one
+     * Undo step); a batch that ends without one was a Backspace.
+     */
+    private data class Collapse(
+        val seq: Int, val revision: ULong, val start: Int, val end: Int, val at: Int,
+        val keep: Boolean = false, val deleted: Boolean = false,
+    )
     private var collapse: Collapse? = null
     private data class Replacement(val seq: Int, val revision: ULong, val caret: Int, val start: Int, val end: Int)
     private var replacement: Replacement? = null
@@ -50,7 +59,7 @@ internal open class EngineInputConnection(
 
     private fun resetIme() { engine.ui.post { engine.sink.onImeReset() } }
 
-    /** Gboard deletes a selection as one batch: collapse to its end, then delete backwards. */
+    /** Gboard (in a batch) and FUTO Keyboard (not) delete a selection as a collapse to its end, then a delete backwards. */
     private fun selectedDeletion(before: Int, after: Int, codePoints: Boolean = false): Boolean {
         val pending = collapse ?: return false
         val unchanged = pending.revision == engine.rev && pending.start == engine.selStart && pending.end == engine.selEnd
@@ -59,6 +68,10 @@ internal open class EngineInputConnection(
         val backwards = pending.at == pending.end && before == length && after == 0
         val forwards = pending.at == pending.start && before == 0 && after == length
         if (!unchanged || (!backwards && !forwards)) return false
+        if (pending.keep && batch > 0) {
+            collapse = pending.copy(deleted = true, at = if (backwards) pending.end else pending.start)
+            return true
+        }
         collapse = null
         engine.key(if (backwards) EditorParagraphKey.BACKSPACE else EditorParagraphKey.DELETE)
         return true
@@ -70,11 +83,13 @@ internal open class EngineInputConnection(
             if (current(pending)) engine.selectFromView(pending.seq, pending.start, pending.end, force = true)
             else resetIme()
         }
-        flushCollapse()
+        collapse?.let { if (it.keep) collapse = null else flushCollapse() }
     }
 
+    /** Reads flush an ordinary collapse; an object's waits for the write that follows. */
     private fun flushCollapse() {
         val pending = collapse ?: return
+        if (pending.keep) return
         collapse = null
         engine.selectFromView(pending.seq, pending.at, pending.at, force = true)
     }
@@ -146,6 +161,10 @@ internal open class EngineInputConnection(
         if (cell && !engine.editingCell) return true
         if (selectedDeletion(beforeLength, afterLength)) return true
         flushSelection()
+        if (beforeLength > 0 && afterLength == 0 && takesBackFinishedDelimiterRow()) {
+            engine.key(EditorParagraphKey.BACKSPACE)
+            return true
+        }
         trace("deleteSurroundingText(" + "beforeLength=" + beforeLength + " " + "afterLength=" + afterLength + ")")
         engine.imeDeleteSurrounding(minOf(beforeLength, engine.selStart - low), minOf(afterLength, high - engine.selEnd))
         return true
@@ -192,7 +211,8 @@ internal open class EngineInputConnection(
     }
 
     override fun finishComposingText(): Boolean {
-        flushSelection()
+        // FUTO Keyboard finishes composing between an object's collapse and its delete; with nothing composing it is not a write.
+        if (collapse?.keep != true || engine.mirror.overlay != null) flushSelection()
         trace("finishComposingText(" + "" + ")")
         engine.imeFinishComposing()
         return true
@@ -253,8 +273,11 @@ internal open class EngineInputConnection(
             return true
         }
         if (start == end) {
-            val selected = if (cell) null else view.selectedObject
-            if (selected != null && selected.first == engine.selStart && selected.second == engine.selEnd && from == selected.second) return true
+            val selected = if (cell) null else view.selectedObject ?: engine.mirror.selectedBlock
+            if (selected != null && selected.first == engine.selStart && selected.second == engine.selEnd && (from == selected.first || from == selected.second)) {
+                collapse = Collapse(engine.seq, engine.rev, engine.selStart, engine.selEnd, from, keep = true)
+                return true
+            }
             if (batch > 0 && engine.mirror.overlay == null && engine.selStart != engine.selEnd &&
                 (from == engine.selStart || from == engine.selEnd)) {
                 collapse = Collapse(engine.seq, engine.rev, engine.selStart, engine.selEnd, from)
@@ -281,9 +304,22 @@ internal open class EngineInputConnection(
     override fun beginBatchEdit(): Boolean { batch += 1; return true }
     override fun endBatchEdit(): Boolean {
         batch = maxOf(0, batch - 1)
+        // An object's held delete that no commit followed in its batch was the keyboard's Backspace (or Delete).
+        val held = collapse?.takeIf { batch == 0 && it.keep && it.deleted }
+        if (held != null) {
+            collapse = null
+            engine.key(if (held.at == held.end) EditorParagraphKey.BACKSPACE else EditorParagraphKey.DELETE)
+        }
         if (batch == 0) flushSelection()
         return batch > 0
     }
+
+    /**
+     * A Backspace in the cell straight after the keystroke that finished a typed delimiter row is the note's Backspace
+     * key, which takes that keystroke back (tables.md); the cell's own delete stops at the cell's start.
+     */
+    private fun takesBackFinishedDelimiterRow(): Boolean =
+        cell && engine.selStart == engine.selEnd && engine.selStart == engine.delimiterRowFinishedAt
 
     override fun sendKeyEvent(event: KeyEvent): Boolean {
         flushSelection()
@@ -294,7 +330,7 @@ internal open class EngineInputConnection(
             return true
         }
         if (event.action != KeyEvent.ACTION_DOWN) return true
-        if (cell && event.keyCode == KeyEvent.KEYCODE_DEL && engine.selStart == low && engine.selEnd == low) return true
+        if (cell && event.keyCode == KeyEvent.KEYCODE_DEL && engine.selStart == low && engine.selEnd == low && !takesBackFinishedDelimiterRow()) return true
         if (cell && event.keyCode == KeyEvent.KEYCODE_FORWARD_DEL && engine.selStart == high && engine.selEnd == high) return true
         when (event.keyCode) {
             KeyEvent.KEYCODE_DEL -> engine.key(EditorParagraphKey.BACKSPACE)

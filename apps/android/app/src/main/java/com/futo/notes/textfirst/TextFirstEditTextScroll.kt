@@ -8,10 +8,11 @@ internal fun TextFirstEditText.anchorY(anchor: ScrollAnchor): Int? {
     return (l.getLineTop(line) + anchor.intoLine + totalPaddingTop).coerceIn(0, maxScrollY())
 }
 
-/** The furthest the note scrolls: its last line (and the padding under it) at the bottom edge. */
+/** The furthest the note scrolls: its last line (and the padding under it) at the bottom edge, as a block drag's preview draws it. */
 internal fun TextFirstEditText.maxScrollY(): Int {
     val l = layout ?: return 0
-    return (l.height + totalPaddingTop + totalPaddingBottom - height).coerceAtLeast(0)
+    val preview = blockLift.drag?.reflow?.extraHeight() ?: 0
+    return (l.height + preview + totalPaddingTop + totalPaddingBottom - height).coerceAtLeast(0)
 }
 
 /**
@@ -36,7 +37,9 @@ internal fun TextFirstEditText.scrollAnchor(): ScrollAnchor? {
     restoring?.let { return it }
     val l = layout ?: return null
     val y = scrollY - totalPaddingTop
-    if (y <= 0) return ScrollAnchor(0, 0)
+    // Within the top padding the anchor keeps the exact offset (negative into the first line), or a
+    // restyle there would scroll the note down by the padding.
+    if (y <= 0) return ScrollAnchor(0, y)
     val line = l.getLineForVertical(y)
     return ScrollAnchor(l.getLineStart(line), (y - l.getLineTop(line)).coerceAtLeast(0))
 }
@@ -79,4 +82,40 @@ internal fun TextFirstEditText.visibleChars(): IntRange? {
     val first = l.getLineForVertical(maxOf(0, top - height))
     val last = l.getLineForVertical(top + 2 * height)
     return l.getLineStart(first)..l.getLineEnd(last)
+}
+
+internal fun TextFirstEditText.restorePinnedViewport(): Unit {
+    val anchor = pinned ?: return
+    val y = anchorY(anchor) ?: return
+    if (y != scrollY) scrollTo(scrollX, y)
+}
+
+/** Images and dividers need remeasuring at the new width, or their lines keep stale heights. */
+internal fun TextFirstEditText.resizeEditorViewport(
+    widthChanged: Boolean,
+    height: Int,
+    previousHeight: Int,
+): Unit {
+    if (height > previousHeight) clampScrollToNote()
+    if (height < previousHeight && isFocused && caretWasInView(previousHeight)) {
+        reveal.again()
+        bringPointIntoView(selectionEnd)
+    }
+    if (height < previousHeight) hideCaretHandleBelowView()
+    if (widthChanged) refreshWidthDependentSpans()
+}
+
+/**
+ * The caret's handle hangs at its foot. A keyboard that shrinks the note under that foot (a caret beside a tall photo)
+ * leaves the note's top in place, and the platform, which places its handles again only on a scroll, kept the handle
+ * drawn over the keyboard (round 3, N4). Turning the caret off and on hides it; the caret stays.
+ */
+private fun TextFirstEditText.hideCaretHandleBelowView() {
+    // A caret the editor hid (a block selected as one object) has no handle, and stays hidden.
+    if (!isFocused || !isCursorVisible || selectionStart < 0 || selectionStart != selectionEnd) return
+    val l = layout ?: return
+    val foot = l.getLineBottom(l.getLineForOffset(selectionStart)) + totalPaddingTop - scrollY
+    if (foot <= height - totalPaddingBottom) return
+    isCursorVisible = false
+    isCursorVisible = true
 }

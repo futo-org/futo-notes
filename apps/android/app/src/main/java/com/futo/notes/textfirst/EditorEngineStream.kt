@@ -61,23 +61,18 @@ internal fun EditorEngine.stopStreaming() {
     renderWork.reset()
 }
 
-internal fun EditorEngine.projectWindow(from: Int, end: Int): StyleWindow {
-    val s = checkNotNull(session)
-    return window(s.project(rev, mirror.byteRange(from, end)))
-}
-
 internal fun EditorEngine.showNextRenderSlice() {
     if (closed || renderWork.awaitingUi || renderWork.held || mirror.overlay != null) return
     try {
         if (renderWork.stylesPending) {
             val from = renderWork.styleStart
             val end = minOf(renderWork.styleEnd, OpenSlices.sliceEnd(mirror.text, from, OpenSlices.NEXT_CHARS))
-            val window = projectWindow(from, end)
+            val window = planStyleWindow(from, end)
             renderWork.styleStart = end
             postRenderUpdate(UiUpdate(
                 seq, null, emptyList(), mirror.selStart, mirror.selEnd,
                 mirror.composingStart, mirror.composingEnd, listOf(window), 0L,
-                complete = !streaming && !renderWork.stylesPending, styleOnly = true,
+                complete = !streaming && !renderWork.stylesPending, styleOnly = true, revision = rev,
             ))
         } else showNextSlice()
     } catch (error: EditorSessionException) {
@@ -93,7 +88,7 @@ internal fun EditorEngine.showNextSlice(chars: Int = OpenSlices.NEXT_CHARS, forc
     val from = tailStart()
     val end = OpenSlices.sliceEnd(mirror.text, from, chars)
     try {
-        val window = projectWindow(from, end)
+        val window = planStyleWindow(from, end)
         tailLength = mirror.text.length - end
         postAppend(listOf(TextEdit(from, from, mirror.text.substring(from, end))), listOf(window))
     } catch (e: EditorSessionException) {
@@ -115,7 +110,7 @@ internal fun EditorEngine.resetViewProgressively(edits: List<TextEdit> = emptyLi
     renderWork.reset()
     val shown = OpenSlices.sliceEnd(mirror.text, 0, OpenSlices.FIRST_CHARS + through)
     tailLength = mirror.text.length - shown
-    postUpdate(edits, listOf(projectWindow(0, shown)), reset = mirror.text.substring(0, shown), sourceChanged = sourceChanged, preserveScroll = true, paced = true)
+    postUpdate(edits, listOf(planStyleWindow(0, shown)), reset = mirror.text.substring(0, shown), sourceChanged = sourceChanged, preserveScroll = true, paced = true)
 }
 
 /** Oversized marked text stays provisional: show a raw bounded prefix without querying committed offsets. */
@@ -133,7 +128,7 @@ internal fun EditorEngine.postAppend(edits: List<TextEdit>, windows: List<StyleW
     postRenderUpdate(UiUpdate(
         seq, null, edits, mirror.selStart, mirror.selEnd,
         mirror.composingStart, mirror.composingEnd, windows, 0L,
-        append = true, complete = !streaming && !renderWork.stylesPending,
+        append = true, complete = !streaming && !renderWork.stylesPending, revision = rev,
     ))
 }
 

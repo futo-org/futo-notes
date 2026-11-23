@@ -154,7 +154,7 @@ class TextFirstCaretFollowTest {
         val readingAt = view.scrollY
         assertTrue("the reader is in the middle of the note", readingAt > 0)
         compose.runOnUiThread { view.engine!!.selectAll() }
-        compose.waitUntil(5_000) { view.selectionStart == 0 && view.selectionEnd == view.length() - 1 }
+        compose.waitUntil(5_000) { readOnMainThread { view.selectionStart == 0 && view.selectionEnd == view.length() - 1 } }
         // TextView's reveal normally runs at pre-draw, after the engine's selection echo.
         compose.waitForIdle()
         compose.runOnUiThread { view.bringPointIntoView(view.selectionEnd) }
@@ -205,7 +205,7 @@ class TextFirstCaretFollowTest {
         compose.runOnUiThread {
             view.engine!!.selectAll()
         }
-        compose.waitUntil(5_000) { view.selectionStart == 0 && view.selectionEnd == view.length() - 1 }
+        compose.waitUntil(5_000) { readOnMainThread { view.selectionStart == 0 && view.selectionEnd == view.length() - 1 } }
         compose.runOnUiThread {
             // Put the top edge inside a selected line, away from the document's own first-line padding.
             view.scrollTo(0, view.layout.getLineTop(8) + view.totalPaddingTop / 2)
@@ -213,7 +213,7 @@ class TextFirstCaretFollowTest {
             bitmap.eraseColor(android.graphics.Color.WHITE)
             val canvas = android.graphics.Canvas(bitmap)
             canvas.translate(0f, -view.scrollY.toFloat())
-            view.drawTopPaddingBand(canvas)
+            view.draw(canvas)
             val space = view.layout.getLineStart(8) + 4
             val x = view.totalPaddingLeft + ((view.layout.getPrimaryHorizontal(space) + view.layout.getPrimaryHorizontal(space + 1)) / 2).toInt()
             val nativePath = android.graphics.Path().also { view.layout.getSelectionPath(view.selectionStart, view.selectionEnd, it) }

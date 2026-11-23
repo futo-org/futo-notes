@@ -162,7 +162,19 @@ class NativeEditorSessionTest {
                         fail("Invalid range was accepted")
                     } catch (_: EditorSessionException.InvalidRange) {}
                 }
-                val change = session.replaceUtf16(0uL, EditorUtf16Range(1uL, 3uL), "🇯🇵\u0000".map { it.code.toUShort() })
+                // interpretation-and-input.md: typed text lands without its control characters (other than tab and line
+                // feed), and typed text that is nothing else is refused; an isolated replacement keeps them.
+                store.createNote("typed", "", "ab\n")
+                store.openEditor("typed").use { typed ->
+                    try {
+                        typed.replaceUtf16(0uL, EditorUtf16Range(1uL, 1uL), listOf(0u.toUShort()))
+                        fail("Typed control character alone was accepted")
+                    } catch (_: EditorSessionException.InvalidText) {}
+                    typed.replaceUtf16(0uL, EditorUtf16Range(1uL, 1uL), "🇯🇵\u0000".map { it.code.toUShort() })
+                    assertEquals("a🇯🇵b\n", typed.sourceText())
+                    typed.detach()
+                }
+                val change = session.replaceUtf16Action(0uL, EditorUtf16Range(1uL, 3uL), "🇯🇵\u0000".map { it.code.toUShort() }, EditorInputAction.ISOLATED)
                 val delay = checkNotNull(session.saveDelay())
                 assertFalse(delay.isNegative)
                 assertTrue(delay <= java.time.Duration.ofMillis(500))

@@ -18,6 +18,9 @@ internal class DisplayMirror {
     var selStart = 0
     var selEnd = 0
     var overlay: Overlay? = null
+    /** The code block the engine reports selected as one object, while the selection still equals it. */
+    var selectedBlock: Pair<Int, Int>? = null
+        get() = field?.takeIf { it.first == selStart && it.second == selEnd }
 
     val composingStart get() = overlay?.start ?: -1
     val composingEnd get() = overlay?.let { it.start + it.marked.length } ?: -1
@@ -37,6 +40,7 @@ internal class DisplayMirror {
         selStart = 0
         selEnd = 0
         overlay = null
+        selectedBlock = null
     }
 
     fun toUtf16(byte: Int): Int = index.byteToUtf16(text, byte)
@@ -50,6 +54,8 @@ internal class DisplayMirror {
 
     fun byteRange(start: Int, end: Int) =
         EditorByteRange(toByte(start).toULong(), toByte(end).toULong())
+
+    fun toUtf16Range(range: EditorByteRange): Pair<Int, Int> = toUtf16(range.start.toInt()) to toUtf16(range.end.toInt())
 
     fun previousGrapheme(offset: Int): Int {
         if (offset == 0) return 0

@@ -1,6 +1,7 @@
 package com.futo.notes.textfirst
 
 import android.graphics.Color
+import android.os.Looper
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import androidx.activity.ComponentActivity
@@ -20,6 +21,17 @@ import kotlinx.coroutines.withContext
 import org.junit.Assert.assertNull
 import uniffi.futo_notes_ffi.NoteStore
 
+/**
+ * [read] on the main thread, where the note view's Editable is written. Read from the test thread,
+ * a ChunkedEditable can pair one chunk's offset with another chunk's position.
+ */
+internal fun <T> readOnMainThread(read: () -> T): T {
+    if (Looper.myLooper() == Looper.getMainLooper()) return read()
+    var result: Result<T>? = null
+    InstrumentationRegistry.getInstrumentation().runOnMainSync { result = runCatching(read) }
+    return checkNotNull(result).getOrThrow()
+}
+
 /** The editor under test, styled like the app, for the classes that drive it through a bare activity. */
 internal fun createTextFirstController(activity: ComponentActivity, core: () -> NoteStore, root: File, storageGate: StorageMigrationGate? = null): TextFirstController {
     val metrics = activity.resources.displayMetrics
@@ -33,6 +45,10 @@ internal fun createTextFirstController(activity: ComponentActivity, core: () -> 
         italic = ResourcesCompat.getFont(activity, R.font.barlow_italic)!!,
         boldItalic = ResourcesCompat.getFont(activity, R.font.barlow_bold_italic)!!,
         semiboldItalic = ResourcesCompat.getFont(activity, R.font.barlow_semibold_italic)!!,
+        medium = ResourcesCompat.getFont(activity, R.font.barlow_medium)!!,
+        mediumItalic = ResourcesCompat.getFont(activity, R.font.barlow_medium_italic)!!,
+        extraBold = ResourcesCompat.getFont(activity, R.font.barlow_extrabold)!!,
+        extraBoldItalic = ResourcesCompat.getFont(activity, R.font.barlow_extrabold_italic)!!,
     ), storageGate = storageGate)
 }
 
@@ -48,9 +64,10 @@ internal suspend fun textFirstIme(c: TextFirstController, cell: Boolean = false,
     }
 }
 
-internal fun textFirstSession(raw: String, body: suspend (TextFirstController) -> Unit) = runBlocking {
+internal fun textFirstSession(raw: String, vaultFiles: (File) -> Unit = {}, body: suspend (TextFirstController) -> Unit) = runBlocking {
     val context = InstrumentationRegistry.getInstrumentation().targetContext
     val root = File(context.cacheDir, "exit-${UUID.randomUUID()}").apply { check(mkdirs()) }
+    vaultFiles(root)
     val scenario = ActivityScenario.launch(ComponentActivity::class.java)
     val store = NoteStore(root.path)
     lateinit var controller: TextFirstController

@@ -20,7 +20,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+
+internal data class PhotoSize(val width: Int, val height: Int)
 
 /**
  * Decodes vault images for image atoms, off the UI and editor threads. The
@@ -45,9 +48,19 @@ internal class ImageLoader(private val context: android.content.Context, private
         override fun sizeOf(key: String, value: Bitmap) = value.byteCount
     }
 
+    private val photoSizes = ConcurrentHashMap<String, PhotoSize>()
+
+    fun rememberedPhotoSize(destination: String, maxWidth: Int): PhotoSize? =
+        photoSizes[photoCacheKey(destination, maxWidth)]
+
+    private fun rememberBitmap(key: String, bitmap: Bitmap) {
+        photoSizes[key] = PhotoSize(bitmap.width, bitmap.height)
+        cache.put(key, bitmap)
+    }
+
     /** [vault] and [remote] are the engine's classification of the destination; anything else never loads. */
     fun load(destination: String, vault: Boolean, remote: Boolean, maxWidth: Int, done: (Bitmap?) -> Unit) {
-        val key = "$destination@$maxWidth"
+        val key = photoCacheKey(destination, maxWidth)
         cache.get(key)?.let { done(it); return }
         if (!vault) {
             if (remote) loadRemote(destination, key, maxWidth, done) else done(null)
@@ -55,7 +68,7 @@ internal class ImageLoader(private val context: android.content.Context, private
         }
         executor.execute {
             val bitmap = runCatching { decode(resolve(destination), maxWidth) }.getOrNull()
-            if (bitmap != null) cache.put(key, bitmap)
+            if (bitmap != null) rememberBitmap(key, bitmap)
             main.post { done(bitmap) }
         }
     }
@@ -67,7 +80,7 @@ internal class ImageLoader(private val context: android.content.Context, private
                     .size(Size(maxWidth, Dimension.Undefined)).allowHardware(false).build()
                 (remote.execute(request) as? SuccessResult)?.image?.toBitmap()
             } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
-            if (bitmap != null) cache.put(key, bitmap)
+            if (bitmap != null) rememberBitmap(key, bitmap)
             done(bitmap)
         }
     }
@@ -108,3 +121,5 @@ internal class ImageLoader(private val context: android.content.Context, private
         remoteScope.cancel()
     }
 }
+
+private fun photoCacheKey(destination: String, maxWidth: Int): String = "$destination@$maxWidth"

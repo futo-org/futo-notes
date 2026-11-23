@@ -30,9 +30,9 @@ class TextFirstThemeTest {
             compose.waitUntil(10_000) { scene.field()?.isFocused == true }
             val field = checkNotNull(scene.field())
             val engine = view.engine
-            val text = view.text.toString()
-            val selection = view.selectionStart to view.selectionEnd
-            val cellSelection = field.selectionStart to field.selectionEnd
+            val text = readOnMainThread { view.text.toString() }
+            val selection = readOnMainThread { view.selectionStart to view.selectionEnd }
+            val cellSelection = readOnMainThread { field.selectionStart to field.selectionEnd }
             for (isDark in listOf(true, false)) {
                 compose.runOnUiThread { dark.value = isDark }
                 compose.waitForIdle()

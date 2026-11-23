@@ -5,7 +5,8 @@ import uniffi.futo_notes_ffi.FlushDraftResult
 
 internal interface EngineSink {
     fun onImeState(state: EngineImeState) {}
-    fun onCell(update: CellUpdate?) {}
+    /** [toNote]: the caret left the cell for a delimiter row being typed, so the note takes the keyboard. */
+    fun onCell(update: CellUpdate?, toNote: Boolean = false) {}
     fun onUpdate(update: UiUpdate)
     fun onCompletion(draft: CompletionDraft?) {}
     fun onFind(snapshot: FindSnapshot) {}

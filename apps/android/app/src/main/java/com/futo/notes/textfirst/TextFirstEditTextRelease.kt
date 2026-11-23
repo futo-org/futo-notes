@@ -11,6 +11,7 @@ internal fun TextFirstEditText.releasePayload() {
     onRenderFrame = null
     onApplyMeasured = null
     onOpenWikilink = null
+    keyHooks.clear()
     onOpenUrl = null
     onTableCell = null
     setOnFocusChangeListener(null)
@@ -21,6 +22,7 @@ internal fun TextFirstEditText.releasePayload() {
     pendingTimings = null
     composing = null
     contentComplete = true
+    val wasApplying = applying
     applying = true
     try {
         // Replace the buffer itself. Deleting its text would reflow and retain
@@ -28,5 +30,5 @@ internal fun TextFirstEditText.releasePayload() {
         setText(ChunkedEditable.from(TextFirstEditText.END_SENTINEL), BufferType.EDITABLE)
         Selection.setSelection(editableText, 0)
         scrollTo(0, 0)
-    } finally { applying = false }
+    } finally { applying = wasApplying }
 }

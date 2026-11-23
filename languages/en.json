@@ -609,6 +609,13 @@
       "android": {
         "clipboardTooLarge": "Too much text to copy. Select less and try again."
       },
+      "codeBlock": {
+        "addLineAbove": "add a line above",
+        "addLineBelow": "add a line below",
+        "copied": "Copied to clipboard",
+        "namePlaceholder": "name",
+        "languagePlaceholder": "language"
+      },
       "table": {
         "editCell": "Edit cell"
       }

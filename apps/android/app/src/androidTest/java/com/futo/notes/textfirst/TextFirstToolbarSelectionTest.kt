@@ -76,6 +76,12 @@ class TextFirstToolbarSelectionTest {
             compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription(label("bold")).fetchSemanticsNodes().isEmpty() }
             compose.runOnUiThread { controller.view.showKeyboard() }
             compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription(label("bold")).fetchSemanticsNodes().isNotEmpty() }
+            // The kept bar shows at once and rides the rising keyboard: its pixels are read once it stands still.
+            var last: androidx.compose.ui.geometry.Rect? = null
+            compose.waitUntil(10_000) {
+                val now = compose.onAllNodesWithContentDescription(label("bold")).fetchSemanticsNodes().first().boundsInWindow
+                (now == last).also { last = now; if (!it) Thread.sleep(100) }
+            }
         }
         fun assertActive(key: String) {
             val node = compose.onNodeWithContentDescription(label(key))

@@ -1,6 +1,7 @@
 package com.futo.notes.textfirst
 
 import android.text.Editable
+import android.text.Spannable
 import android.text.TextPaint
 import android.text.style.CharacterStyle
 import android.widget.TextView
@@ -20,10 +21,10 @@ internal data class RendererChange(val start: Int, val before: Int, val after: I
  * (and touch, caret and scroll) hold the new one. [view] lets this notice that
  * and ask for the lines below to be redrawn where they now are.
  */
-internal fun Editable.withRendererUpdate(view: TextView, update: UiUpdate, windows: List<StyleWindow> = update.windows, block: () -> Unit) {
+internal fun Editable.withRendererUpdate(view: TextView, update: UiUpdate, windows: List<StyleWindow> = update.windows, block: (RendererChange?) -> Unit) {
     val chunked = this as? ChunkedEditable
     val change = rendererChange(length, update.edits, windows)
-    if (chunked == null || change == null) { block(); return }
+    if (chunked == null || change == null) { block(change); return }
     check(chunked.rendererChange == null) { "Nested renderer update" }
     val oldLength = length
     val layoutBefore = view.layout
@@ -38,7 +39,7 @@ internal fun Editable.withRendererUpdate(view: TextView, update: UiUpdate, windo
     try {
         for (watcher in watchers) watcher.beforeTextChanged(this, change.start, change.before, change.after)
         began = true
-        block()
+        block(change)
     } catch (error: Throwable) {
         primary = error
         throw error
@@ -98,6 +99,23 @@ internal fun rendererChange(length: Int, edits: List<TextEdit>, windows: List<St
     if (start == Int.MAX_VALUE) return null
     require(start in 0..end && end <= finalLength) { "Renderer footprint outside the Editable" }
     return RendererChange(start, end - start - delta, end - start)
+}
+
+/**
+ * Set [span] on [e] again over [start, end) (a photo that decoded, an atom measured at a new width), and when the reflow
+ * keeps the line count but moves the lines below, have them redrawn where they now are, as [withRendererUpdate] does:
+ * the TextView keeps drawing a block of lines it recorded, and a photo that landed above the screen after a reopen left
+ * every row below drawn one photo-height off.
+ */
+internal fun Spannable.setSpanRedrawingBelow(view: TextView, span: Any, start: Int, end: Int, flags: Int) {
+    val layoutBefore = view.layout
+    val linesBefore = layoutBefore?.lineCount ?: 0
+    val heightBefore = layoutBefore?.height ?: 0
+    setSpan(span, start, end, flags)
+    val layoutAfter = view.layout
+    if (layoutAfter != null && layoutAfter === layoutBefore && layoutAfter.lineCount == linesBefore && layoutAfter.height != heightBefore) {
+        (this as? ChunkedEditable)?.redrawFrom(start)
+    }
 }
 
 /**
