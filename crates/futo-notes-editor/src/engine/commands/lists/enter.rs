@@ -120,7 +120,13 @@ impl Engine {
         let (a, b) = (self.line(first), self.line(last));
         let start = self.line_start(first);
         let b_start = self.line_start(last);
-        let left = left_part(a, selected.start - start);
+        let from = selected.start - start;
+        // A selection that starts at or before the first line's marker
+        // takes the marker with it; `left_part` would keep it.
+        let left = match a.marker_unit() {
+            Some(unit) if from <= unit.start => a.body()[..from].to_owned(),
+            _ => left_part(a, from),
+        };
         let end = selected.end - b_start;
         // The line keeps its hidden marker and its list marker unit, whole
         // even when the selection ends before the unit, where the caret

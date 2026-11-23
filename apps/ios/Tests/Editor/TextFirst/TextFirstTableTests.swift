@@ -170,6 +170,8 @@
                 ("intro\r\n", "| H | B |\r\n|---|---|\r\n| é |", "\r\n# Heading\r\n"),
                 ("---\ntags: [sample]\n---\n", "| H |\n|---|\n| é |", "\nafter\n"),
                 ("", "| H |\n|---|", "\n# Heading\n"),
+                // A last body row that is a lone pipe has no cell.
+                ("head\n\n", "| a | b |\n| --- | --- |\n| 1 | 2 |\n|", "\n\nend\n"),
             ] {
                 let h = TextFirstHarness(prefix + table + suffix)
                 let before = try h.controller.session.sourceText()

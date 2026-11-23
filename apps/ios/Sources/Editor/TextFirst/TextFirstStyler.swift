@@ -36,12 +36,7 @@ enum TextFirstStyler {
                 images.controller?.styleTable(
                     extent, columns: columns, header: header, window: window)
             }
-            TextFirstTableMetrics.windowSpecs = specs.filter {
-                switch $0 {
-                case .inline, .link, .wikilink: return true
-                default: return false
-                }
-            }
+            TextFirstTableMetrics.windowSpecs = TextFirstSpanIndex(specs)
             for spec in specs { apply(spec, to: storage, length: length, images: images) }
             storage.endEditing()
         }

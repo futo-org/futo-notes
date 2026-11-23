@@ -138,6 +138,12 @@ internal class EditorEngine(
     /** A selection the host chooses (restoring the caret after a reload). */
     fun hostSelect(start: Int, end: Int) = command { select(start, end, fromView = false) }
 
+    /**
+     * The caret a header field hands back to the code: the user's own placement, so the same offset still ends a selected
+     * block and a language caret (typing writes the code, not the info string or over the block).
+     */
+    fun placeCaret(offset: Int) = command { select(offset, offset, fromView = false, placed = true) }
+
     /** While the view is touched or shows its text menu, background slices wait (TextFirstEditText). */
     fun holdRender(held: Boolean) = handler.post {
         if (closed) return@post
@@ -289,7 +295,9 @@ internal class EditorEngine(
         }
         if (finishTail && b > tailStart() && streaming) finishStreaming()
         val selectedBefore = mirror.selectedBlock
-        val change = if (placed) s.placeSelection(rev, mirror.byteRange(a, b), EditorAffinity.FORWARD) else s.selectUtf16(rev, EditorUtf16Range(a.toULong(), b.toULong()))
+        // The affinity a plain selection takes (`select`): after hidden syntax at the note's start, otherwise before it, so
+        // text typed where a span ends lands inside it (interpretation-and-input.md).
+        val change = if (placed) s.placeSelection(rev, mirror.byteRange(a, b), if (a == 0) EditorAffinity.FORWARD else EditorAffinity.BACKWARD) else s.selectUtf16(rev, EditorUtf16Range(a.toULong(), b.toULong()))
         applySelectionChange(change)
         if (settle || echo || !fromView || mirror.selStart != a || mirror.selEnd != b || mirror.selectedBlock != selectedBefore) postUpdate(emptyList(), emptyList()) else publishSelection()
         scheduleCaretState()

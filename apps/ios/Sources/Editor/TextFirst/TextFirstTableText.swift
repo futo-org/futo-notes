@@ -20,7 +20,15 @@ struct TextFirstCellRun {
 extension TextFirstTableMetrics {
     /// The styled spans of the window being styled (`TextFirstStyler.apply`), for the cells of
     /// the table rows it meets.
-    nonisolated(unsafe) static var windowSpecs: [EditorStyleSpan] = []
+    nonisolated(unsafe) static var windowSpecs = TextFirstSpanIndex([])
+
+    /// The runs of the indexed spans that fall in `[origin, origin + length)`, relative to
+    /// `origin`: the cells of a long table each read only the spans near them.
+    static func runs(from index: TextFirstSpanIndex, origin: Int, length: Int)
+        -> [TextFirstCellRun]
+    {
+        runs(from: index.overlapping(origin..<origin + length), origin: origin, length: length)
+    }
 
     /// The runs of `specs` that fall in `[origin, origin + length)`, relative to `origin`.
     static func runs(from specs: [EditorStyleSpan], origin: Int, length: Int) -> [TextFirstCellRun]
@@ -179,5 +187,52 @@ extension TextFirstEditorController {
             }
         }
         return nil
+    }
+}
+
+/// The inline, link and wikilink spans of a styled window, found by the range they cover
+/// rather than by a scan of all of them.
+struct TextFirstSpanIndex {
+    private let entries: [(start: Int, end: Int, order: Int, spec: EditorStyleSpan)]
+    /// `reach[i]` is the furthest end among `entries[0...i]`, so it never decreases.
+    private let reach: [Int]
+
+    init(_ specs: [EditorStyleSpan]) {
+        var found: [(start: Int, end: Int, order: Int, spec: EditorStyleSpan)] = []
+        for (order, spec) in specs.enumerated() {
+            switch spec {
+            case .inline(let s, let e, _, _, _, _), .link(let s, let e, _),
+                .wikilink(let s, let e, _, _):
+                found.append((Int(s), Int(e), order, spec))
+            default: break
+            }
+        }
+        found.sort { ($0.start, $0.order) < ($1.start, $1.order) }
+        entries = found
+        var furthest = 0
+        reach = found.map {
+            furthest = max(furthest, $0.end)
+            return furthest
+        }
+    }
+
+    /// The spans that touch `range`, in the order they were given.
+    func overlapping(_ range: Range<Int>) -> [EditorStyleSpan] {
+        // The first entry that can reach past the range's start.
+        var low = 0
+        var high = reach.count
+        while low < high {
+            let mid = (low + high) / 2
+            if reach[mid] > range.lowerBound { high = mid } else { low = mid + 1 }
+        }
+        var hits: [(order: Int, spec: EditorStyleSpan)] = []
+        var i = low
+        while i < entries.count, entries[i].start < range.upperBound {
+            if entries[i].end > range.lowerBound {
+                hits.append((entries[i].order, entries[i].spec))
+            }
+            i += 1
+        }
+        return hits.sorted { $0.order < $1.order }.map(\.spec)
     }
 }

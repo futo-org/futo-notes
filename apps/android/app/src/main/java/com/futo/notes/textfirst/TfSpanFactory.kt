@@ -1,7 +1,7 @@
 package com.futo.notes.textfirst
 
 /** Builds the renderer span for a [SpanSpec], and tells whether an existing span already is it. */
-internal class TfSpanFactory(private val style: TextFirstStyle, private val marks: FindMarks, private val contentWidth: () -> Int, private val wikilinkWidth: (TfWikilink) -> Int) {
+internal class TfSpanFactory(private val style: TextFirstStyle, private val marks: FindMarks, private val contentWidth: () -> Int, private val wikilinkWidth: (TfWikilink) -> Int, private val itemTextStart: (TfIndent) -> Int? = { null }) {
     private val tableScroll = mutableMapOf<Int, TableScroll>()
     /** Tables whose column count changed under rows that were not rebuilt; each is returned once. */
     fun takeDirtyTables(): Set<TableScroll> =
@@ -13,7 +13,7 @@ internal class TfSpanFactory(private val style: TextFirstStyle, private val mark
         is SpanSpec.Quote -> TfQuote(style, spec.depth)
         is SpanSpec.ListRow -> TfList(style, spec.depth, spec.marker, spec.label, spec.checked, spec.first)
         is SpanSpec.ListItemMarker -> TfListMarker(style, spec.depth, spec.marker, spec.label, spec.checked)
-        is SpanSpec.Indent -> TfIndent(style, spec.depth)
+        is SpanSpec.Indent -> TfIndent(style, spec.depth, itemTextStart)
         is SpanSpec.Code -> TfCodeBlock(style, spec.line)
         is SpanSpec.Metadata -> TfMetadata(style)
         is SpanSpec.Link -> TfLink(style, spec.destination)
