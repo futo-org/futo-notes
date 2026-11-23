@@ -436,5 +436,17 @@
     "before": "- a«\n```js\n»x",
     "command": "Enter",
     "after": "- a«\n```js\n»x"
+  },
+  {
+    "name": "Enter over an item's marker, text and line break leaves only the line break",
+    "before": "«- one\n»plain",
+    "command": "Enter",
+    "after": "\n‸plain"
+  },
+  {
+    "name": "Enter over a numbered item's marker and text into a quoted line keeps the quote",
+    "before": "«1. one\n> »q",
+    "command": "Enter",
+    "after": "\n> ‸q"
   }
 ]
