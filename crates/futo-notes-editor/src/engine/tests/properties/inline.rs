@@ -52,10 +52,7 @@ pub(super) fn inline_step(
     engine.formats = None;
     match result {
         Ok(Some(change)) => {
-            view.text
-                .replace_range(change.range.start.0..change.range.end.0, &change.inserted);
-            view.restyled
-                .push(change.projection.range.start.0..change.projection.range.end.0);
+            apply_view_change(view, &change);
             assert_eq!(change.revision, engine.revision(), "{name}");
             if pick < 4 {
                 assert_eq!(engine.display_text(), shown, "{name} changed the display");
@@ -113,7 +110,7 @@ fn typing_under_carried_formats_shows_exactly_what_was_typed() {
                 let shown = engine.display_text();
                 let caret = engine.selection();
                 // A caret inside an image types at its nearer edge.
-                let stop = engine.outside_images(caret);
+                let stop = engine.outside_atoms(caret);
                 let plain = {
                     let mut plain = engine.source_text();
                     let at = if stop == caret {

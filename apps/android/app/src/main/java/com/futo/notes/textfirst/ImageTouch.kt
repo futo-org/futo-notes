@@ -1,17 +1,18 @@
 package com.futo.notes.textfirst
 
+import android.text.style.ReplacementSpan
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import kotlin.math.abs
 
 /**
- * A short tap on an image selects it as one object (its two caret stops, start
+ * A short tap on an image or a divider selects it as one object (its two caret stops, start
  * to end). Enter then acts after it, which is how a caret gets past a last
- * image. Scrolling and long-press selection stay native.
+ * image. Scrolling and long-press selection stay native. A divider taken by a tap is desktop's rule.
  */
 internal class ImageTouch(private val view: TextFirstEditText) {
     private val slop = ViewConfiguration.get(view.context).scaledTouchSlop
-    private var pressed: TfImage? = null
+    private var pressed: ReplacementSpan? = null
     private var select: Pair<Int, Int>? = null
     private var downX = 0f
     private var downY = 0f
@@ -20,7 +21,6 @@ internal class ImageTouch(private val view: TextFirstEditText) {
     fun settleSelection() {
         val range = select ?: return
         select = null
-        view.selectedObject = range
         view.setSelection(range.first, range.second)
     }
 
@@ -45,19 +45,35 @@ internal class ImageTouch(private val view: TextFirstEditText) {
         }
     }
 
-    private fun hit(x: Float, y: Float): TfImage? {
+    /**
+     * A long-press on an image (or a divider) selects it as one object too, never the platform's word selection, which
+     * took the line break after an image that ends its line. The lift that ends the press settles the same selection.
+     */
+    fun longPress(): Boolean {
+        val atom = pressed ?: return false
+        pressed = null
+        val text = view.editableText
+        val range = text.getSpanStart(atom) to text.getSpanEnd(atom)
+        if (range.first < 0) return false
+        select = range
+        view.setSelection(range.first, range.second)
+        return true
+    }
+
+    private fun hit(x: Float, y: Float): ReplacementSpan? {
         val layout = view.layout ?: return null
         val text = view.editableText ?: return null
         val localX = x - view.totalPaddingLeft + view.scrollX
         val localY = y - view.totalPaddingTop + view.scrollY
         if (localY < 0 || localY >= layout.height) return null
         val line = layout.getLineForVertical(localY.toInt())
-        for (image in text.getSpans(layout.getLineStart(line), layout.getLineEnd(line), TfImage::class.java)) {
-            val start = text.getSpanStart(image)
+        for (atom in text.getSpans(layout.getLineStart(line), layout.getLineEnd(line), ReplacementSpan::class.java)) {
+            if (atom !is TfImage && atom !is TfDivider) continue
+            val start = text.getSpanStart(atom)
             if (layout.getLineForOffset(start) != line) continue
             val left = layout.getPrimaryHorizontal(start)
-            val width = image.getSize(view.paint, text, start, text.getSpanEnd(image), null)
-            if (localX >= left && localX < left + width) return image
+            val width = atom.getSize(view.paint, text, start, text.getSpanEnd(atom), null)
+            if (localX >= left && localX < left + width) return atom
         }
         return null
     }

@@ -306,10 +306,16 @@ fn portable_grouped_undo_is_one_request_and_displays_at_once() {
     let mut page =
         PortableSession::open_with_clock(SessionToken(20), "__a__", Revision(0), clock.clone());
     let mut view = ReferenceView::new("a");
-    let first = page.replace(Revision(0), range(1, 1), "b").unwrap();
+    let first = page
+        .replace(Revision(0), range(1, 1), "b")
+        .unwrap()
+        .unwrap();
     view.apply(first.change);
     clock.0.store(499, Ordering::Relaxed);
-    let second = page.replace(Revision(1), range(2, 2), "c").unwrap();
+    let second = page
+        .replace(Revision(1), range(2, 2), "c")
+        .unwrap()
+        .unwrap();
     view.apply(second.change);
     // No acknowledgement has arrived; undo still works and shows now.
     let undo = page.undo(Revision(2)).unwrap().unwrap();

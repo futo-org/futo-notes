@@ -2,6 +2,7 @@
 //! one extended grapheme.
 use super::line::Entry;
 use super::{store, Engine};
+use crate::backspace_length::backspace_length;
 use crate::{
     Affinity, CaretDirection, DisplayOffset, DisplayRange, EditorError, Revision, SelectionChange,
 };
@@ -70,6 +71,9 @@ impl Engine {
         self.select_with_affinity(expected, range, affinity)
     }
 
+    /// A host's selection. The same range again (a host's echo of the
+    /// engine's own selection) keeps a selected block, and with the same
+    /// affinity keeps the caret where it maps (a language caret included).
     pub fn select_with_affinity(
         &mut self,
         expected: Revision,
@@ -79,6 +83,9 @@ impl Engine {
         self.check_revision(expected)?;
         self.check_display_range(range)?;
         let range = self.outside_metadata(self.outside_crlf(range));
+        if self.composition.is_none() && self.selection != range {
+            self.block_selected = false;
+        }
         if self.composition.is_none() && (self.selection != range || self.affinity != affinity) {
             self.typing = None;
             self.formats = None;
@@ -86,14 +93,45 @@ impl Engine {
             self.selection = range;
             self.affinity = affinity;
         }
-        Ok(SelectionChange {
-            revision: self.revision,
-            selection: self.selection,
-            affinity: self.affinity,
-        })
+        Ok(self.selection_change())
     }
 
-    /// Move one extended grapheme, collapsing a selection to its edge first.
+    /// The user placed this selection: as `select_with_affinity`, but the
+    /// same range also ends a selected block and a language caret, leaving
+    /// an ordinary selection (on a block, a caret on its first code line).
+    /// It is fitted out of images as input is (`outside_images`) and off
+    /// table delimiter rows (`off_delimiter_rows`).
+    pub fn place_selection(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        affinity: Affinity,
+    ) -> Result<SelectionChange, EditorError> {
+        self.check_revision(expected)?;
+        self.check_display_range(range)?;
+        let range = self.off_delimiter_rows(self.outside_images(range));
+        if self.composition.is_none() {
+            self.block_selected = false;
+            self.pin = None;
+            self.typing = None;
+            self.formats = None;
+        }
+        self.select_with_affinity(expected, range, affinity)
+    }
+
+    pub(crate) fn selection_change(&self) -> SelectionChange {
+        SelectionChange {
+            revision: self.revision,
+            selection: self.selection,
+            selected_block: self.selected_block(),
+            writes_language: self.writes_language(),
+            writes_delimiter_row: self.writes_delimiter_row(),
+            affinity: self.affinity,
+        }
+    }
+
+    /// Move one extended grapheme, collapsing a selection to its edge first;
+    /// a step onto a table's delimiter row goes past it (`past_delimiter_row`).
     pub fn move_caret(
         &mut self,
         expected: Revision,
@@ -110,7 +148,7 @@ impl Engine {
         } else {
             self.grapheme_edge(from, direction)
         };
-        let at = DisplayOffset(to);
+        let at = DisplayOffset(self.past_delimiter_row(to, direction));
         self.select_with_affinity(
             expected,
             DisplayRange { start: at, end: at },
@@ -137,6 +175,23 @@ impl Engine {
         match direction {
             CaretDirection::Backward => start,
             CaretDirection::Forward => end,
+        }
+    }
+
+    /// What Backspace or Delete at a collapsed caret at display offset `at`
+    /// removes: one extended grapheme forward, and backward what
+    /// `backspace_length` takes of the grapheme before it.
+    pub(crate) fn caret_deletion(&self, at: usize, direction: CaretDirection) -> DisplayRange {
+        let stop = self.grapheme_stop(at, direction);
+        if direction == CaretDirection::Forward {
+            return DisplayRange {
+                start: DisplayOffset(at),
+                end: DisplayOffset(stop),
+            };
+        }
+        DisplayRange {
+            start: DisplayOffset(at - backspace_length(&self.display_slice(stop..at))),
+            end: DisplayOffset(at),
         }
     }
 

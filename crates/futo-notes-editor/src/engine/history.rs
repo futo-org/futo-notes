@@ -12,6 +12,8 @@ pub(crate) struct Point {
     /// The exact source offset of a collapsed caret, when the display offset
     /// alone cannot say which side of hidden syntax it is on.
     pub pin: Option<usize>,
+    /// Whether the selection is the code block it covers, as one object.
+    pub block_selected: bool,
 }
 
 /// One text edit: at `start`, `removed` became `inserted`.

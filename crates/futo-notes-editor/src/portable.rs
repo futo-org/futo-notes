@@ -2,18 +2,22 @@
 //! worker a request to mirror it; acknowledgements arrive later and never gate
 //! the page. No callback here performs I/O.
 mod clipboard;
+mod code_blocks;
 mod composition;
 mod find;
 mod images;
+mod input;
 mod links;
 mod tables;
 mod tags;
 mod wikilink_completion;
+mod words;
 use serde::{Deserialize, Serialize};
 pub use tables::PortableTableStep;
 
 use crate::{
-    DisplayRange, DisplayUtf16Range, EditorError, EditorSession, Revision, SourceEdit, ViewChange,
+    DisplayOffset, DisplayRange, DisplayUtf16Range, EditorError, EditorSession, Revision,
+    SourceEdit, ViewChange,
 };
 
 /// Host-issued incarnation, unique across note switches and page reloads.
@@ -120,6 +124,8 @@ pub enum PortableError {
     InvalidAcknowledgement,
     SequenceExhausted,
 }
+
+type Accept<'a> = dyn FnMut(&SourceEdit) -> Result<(), String> + 'a;
 
 impl From<EditorError> for PortableError {
     fn from(error: EditorError) -> Self {
@@ -237,8 +243,22 @@ impl PortableSession {
             .select_with_affinity(expected, range, affinity)?)
     }
 
+    /// The user placed this selection; see `EditorSession::place_selection`.
+    pub fn place_selection(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        affinity: crate::Affinity,
+    ) -> Result<crate::SelectionChange, PortableError> {
+        Ok(self.engine.place_selection(expected, range, affinity)?)
+    }
+
     pub fn active_formats(&self) -> Result<Vec<crate::InlineFormat>, PortableError> {
         Ok(self.engine.active_formats())
+    }
+
+    pub fn toolbar_state(&self) -> crate::ToolbarState {
+        self.engine.toolbar_state()
     }
 
     pub fn toggle_format(
@@ -246,17 +266,22 @@ impl PortableSession {
         expected: Revision,
         format: crate::InlineFormat,
     ) -> Result<Option<Applied>, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let change = self.engine.toggle_format(expected, format, &mut |edit| {
-            record = Some(edit.clone());
-            Ok(())
-        })?;
-        Ok(change.map(|change| self.issue(record.unwrap(), change)))
+        self.apply_input(|engine, accept| engine.toggle_format(expected, format, accept))
     }
 
     pub fn draft_text(&self) -> String {
         self.engine.source_text()
+    }
+    pub fn display_len(&self) -> usize {
+        self.engine.display_len()
+    }
+    pub fn selection(&self) -> DisplayRange {
+        self.engine.selection()
+    }
+    /// The caret's side. An input that only moves the caret returns no change,
+    /// so a view reads the side here, with `selection`.
+    pub fn affinity(&self) -> crate::Affinity {
+        self.engine.affinity()
     }
     pub fn status(&self) -> PortableStatus {
         PortableStatus {
@@ -287,118 +312,6 @@ impl PortableSession {
         }
     }
 
-    pub fn block_command_utf16(
-        &mut self,
-        expected: Revision,
-        range: DisplayUtf16Range,
-        command: crate::BlockCommand,
-    ) -> Result<Option<Applied>, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let change = self
-            .engine
-            .block_command_utf16(expected, range, command, &mut |edit| {
-                record = Some(edit.clone());
-                Ok(())
-            })?;
-        Ok(change.map(|change| self.issue(record.unwrap(), change)))
-    }
-
-    pub fn paragraph_key_utf16(
-        &mut self,
-        expected: Revision,
-        range: DisplayUtf16Range,
-        key: crate::ParagraphKey,
-    ) -> Result<Option<Applied>, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let change = self
-            .engine
-            .paragraph_key_utf16(expected, range, key, &mut |edit| {
-                record = Some(edit.clone());
-                Ok(())
-            })?;
-        Ok(change.map(|change| self.issue(record.unwrap(), change)))
-    }
-
-    pub fn replace(
-        &mut self,
-        expected: Revision,
-        range: DisplayRange,
-        inserted: &str,
-    ) -> Result<Applied, PortableError> {
-        self.replace_action(expected, range, inserted, crate::InputAction::Typing)
-    }
-
-    pub fn replace_action(
-        &mut self,
-        expected: Revision,
-        range: DisplayRange,
-        inserted: &str,
-        action: crate::InputAction,
-    ) -> Result<Applied, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let change =
-            self.engine
-                .replace_action(expected, range, inserted, action, &mut |edit| {
-                    record = Some(edit.clone());
-                    Ok(())
-                })?;
-        Ok(self.issue(record.unwrap(), change))
-    }
-
-    pub fn replace_many(
-        &mut self,
-        expected: Revision,
-        replacements: &[crate::DisplayReplacement],
-    ) -> Result<Applied, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let change = self
-            .engine
-            .replace_many(expected, replacements, &mut |edit| {
-                record = Some(edit.clone());
-                Ok(())
-            })?;
-        Ok(self.issue(record.unwrap(), change))
-    }
-
-    pub fn replace_utf16(
-        &mut self,
-        expected: Revision,
-        range: DisplayUtf16Range,
-        inserted: &[u16],
-    ) -> Result<Applied, PortableError> {
-        self.ready()?;
-        let (range, inserted) = self.engine.decode_utf16_input(expected, range, inserted)?;
-        self.replace(expected, range, &inserted)
-    }
-
-    pub fn replace_utf16_action(
-        &mut self,
-        expected: Revision,
-        range: DisplayUtf16Range,
-        inserted: &[u16],
-        action: crate::InputAction,
-    ) -> Result<Applied, PortableError> {
-        self.ready()?;
-        let (range, inserted) = self.engine.decode_utf16_input(expected, range, inserted)?;
-        self.replace_action(expected, range, &inserted, action)
-    }
-
-    pub fn replace_many_utf16(
-        &mut self,
-        expected: Revision,
-        replacements: &[crate::DisplayUtf16Replacement],
-    ) -> Result<Applied, PortableError> {
-        self.ready()?;
-        let replacements = self
-            .engine
-            .decode_utf16_replacements(expected, replacements)?;
-        self.replace_many(expected, &replacements)
-    }
-
     pub fn undo(&mut self, expected: Revision) -> Result<Option<Applied>, PortableError> {
         self.history(expected, false)
     }
@@ -410,19 +323,49 @@ impl PortableSession {
         expected: Revision,
         redo: bool,
     ) -> Result<Option<Applied>, PortableError> {
+        self.apply_input(|engine, accept| {
+            if redo {
+                engine.redo(expected, accept)
+            } else {
+                engine.undo(expected, accept)
+            }
+        })
+    }
+
+    /// Run an input and issue the request for the edit it accepted.
+    fn apply_input<C: Into<Option<ViewChange>>>(
+        &mut self,
+        operation: impl FnOnce(&mut EditorSession, &mut Accept<'_>) -> Result<C, EditorError>,
+    ) -> Result<Option<Applied>, PortableError> {
+        let (change, record) = self.record_edit(operation)?;
+        Ok(self.issue_accepted(record, change.into()))
+    }
+
+    /// Run an engine operation, keeping the edit it handed the host.
+    fn record_edit<T>(
+        &mut self,
+        operation: impl FnOnce(&mut EditorSession, &mut Accept<'_>) -> Result<T, EditorError>,
+    ) -> Result<(T, Option<SourceEdit>), PortableError> {
         self.ready()?;
         let mut record = None;
-        let mut capture = |edit: &SourceEdit| {
+        let result = operation(&mut self.engine, &mut |edit| {
             record = Some(edit.clone());
             Ok(())
-        };
-        let change = if redo {
-            self.engine.redo(expected, &mut capture)?
-        } else {
-            self.engine.undo(expected, &mut capture)?
-        };
-        Ok(change.map(|change| self.issue(record.unwrap(), change)))
+        })?;
+        Ok((result, record))
     }
+
+    /// `None` when the engine accepted no edit: the input changed no source,
+    /// so there is nothing to send, even when the engine answered with a view
+    /// change at the same revision (a selection it moved; read `selection`).
+    fn issue_accepted(
+        &mut self,
+        record: Option<SourceEdit>,
+        change: Option<ViewChange>,
+    ) -> Option<Applied> {
+        Some(self.issue(record?, change?))
+    }
+
     /// Record an edit the engine already applied and issue its request.
     /// `ready` has checked the sequence, so numbering cannot overflow here.
     fn issue(&mut self, edit: SourceEdit, change: ViewChange) -> Applied {
@@ -462,14 +405,9 @@ impl PortableSession {
         if offer.revision != self.engine.revision() || self.engine.composition().is_some() {
             return Ok(None);
         }
-        let mut record = None;
-        let change = self
-            .engine
-            .apply_own_relink(offer.revision, &offer.source, &mut |edit| {
-                record = Some(edit.clone());
-                Ok(())
-            })?;
-        Ok(change.map(|change| self.issue(record.unwrap(), change)))
+        self.apply_input(|engine, accept| {
+            engine.apply_own_relink(offer.revision, &offer.source, accept)
+        })
     }
 
     /// Ask the worker for its current state; also the way out of a pause.

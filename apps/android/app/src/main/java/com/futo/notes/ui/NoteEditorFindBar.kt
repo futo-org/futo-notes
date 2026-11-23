@@ -79,7 +79,19 @@ internal class FindQueryEditText(context: Context) : EditText(context) {
         return true
     }
 
-    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean = findEnter(event) || super.onKeyDown(keyCode, event)
+    /** Desktop's find chords work in the query too: Ctrl+G and Ctrl+Shift+G step, Ctrl+F selects the query again. */
+    private fun findChord(keyCode: Int, event: KeyEvent): Boolean {
+        if (!event.isCtrlPressed || event.isAltPressed) return false
+        when (keyCode) {
+            KeyEvent.KEYCODE_G -> onStep(if (event.isShiftPressed) -1 else 1)
+            KeyEvent.KEYCODE_F -> selectAll()
+            else -> return false
+        }
+        return true
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean =
+        findEnter(event) || findChord(keyCode, event) || super.onKeyDown(keyCode, event)
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean = findEnter(event) || super.onKeyUp(keyCode, event)
 
     fun applyQuery(query: String) {

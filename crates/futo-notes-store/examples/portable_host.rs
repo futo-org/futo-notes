@@ -62,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .and_then(|value| value.as_str())
                 .ok_or("merge source missing")?;
             store.write(&host.id(), remote, None)?;
-            serde_json::to_value(host.checkpoint_merged()?)?
+            serde_json::to_value(host.checkpoint()?)?
         } else if value.get("checkpoint").is_some() {
             host.checkpoint()?;
             serde_json::json!({"id": host.id()})

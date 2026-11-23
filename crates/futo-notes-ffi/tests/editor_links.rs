@@ -217,6 +217,13 @@ fn native_edit_link_is_atomic_revision_bound_and_durable() {
             .destination,
         "/new"
     );
+    assert_eq!(
+        reopened
+            .link_label(0, EditorByteRange { start: 4, end: 7 })
+            .unwrap()
+            .as_deref(),
+        Some("雪 [x]")
+    );
 }
 
 #[test]

@@ -1,33 +1,50 @@
-//! Tables: the literal cases in `tests/fixtures/engine/tables.json`. Random
-//! tables are in `random.rs`, the work at 20,000 rows in `work.rs` and the
-//! session surface in `surface.rs`.
+//! Tables: the literal cases in `tests/fixtures/engine/tables/`. Random
+//! tables are in `random.rs`, a delimiter row being typed in
+//! `delimiter_row.rs`, the work at 20,000 rows in `work.rs`, the session
+//! surface in `surface.rs`, cut and paste over a whole table in
+//! `whole_tables.rs` and a host entering a cell in `enter_cell.rs`.
 //!
 //! A case's `before` and `after` are source text with the selection marked:
 //! `‸` is a caret, `«` and `»` bound a selection (a table's `|` cannot mark
 //! one). `command` is a table key (`Tab`, `ShiftTab`, `Enter`, `ShiftEnter`,
-//! `ModEnter`), `key <ParagraphKey>`, a `TableCommand` name, `type <text>`,
+//! `ModEnter`), `key <ParagraphKey>`, `block <BlockCommand as JSON>`, a
+//! `TableCommand` name, `type <text>`,
 //! `service <text>` (a text service's or dictation's insert), `commit <text>`
-//! (marked text over the selection, committed) or `paste <text>`. `after:
+//! (marked text over the selection, committed), `paste <text>`, `place` (the
+//! selection placed by the user), `select` (a host's echo of it) or `move
+//! Forward`/`move Backward` (one caret step). `after:
 //! null` means nothing changes: no edit, no history, the same selection;
 //! `error` names the error instead. Every case that edits is undone (bytes
 //! and selection back) and redone. `inspect` describes the
 //! table `inspect_table` finds at the selection (`null`: none); `tables`
-//! lists `[columns, rows]` of each table `inspect_tables` finds in the note.
+//! lists `[columns, rows]` of each table `inspect_tables` finds in the note
+//! (after the command, when there is one), which the projection describes.
+mod delimiter_row;
+mod enter_cell;
+pub(super) mod projection;
 mod random;
 mod surface;
+mod whole_tables;
 mod work;
 
 use super::super::command::Command;
 use super::super::Engine;
 use super::ok;
 use crate::{
-    DisplayOffset, DisplayRange, EditorError, InputAction, ParagraphKey, TableAlignment,
-    TableCommand, TableKey, TableOutcome,
+    CaretDirection, DisplayOffset, DisplayRange, EditorError, InputAction, ParagraphKey,
+    TableAlignment, TableCommand, TableKey, TableOutcome,
 };
 use serde_json::Value;
 use std::ops::Range;
 
-const CASES: &str = include_str!("../../../../tests/fixtures/engine/tables.json");
+const CASES: [&str; 6] = [
+    include_str!("../../../../tests/fixtures/engine/tables/inspect.json"),
+    include_str!("../../../../tests/fixtures/engine/tables/keys.json"),
+    include_str!("../../../../tests/fixtures/engine/tables/cell-text.json"),
+    include_str!("../../../../tests/fixtures/engine/tables/commands.json"),
+    include_str!("../../../../tests/fixtures/engine/tables/delimiter-row.json"),
+    include_str!("../../../../tests/fixtures/engine/tables/whole-table.json"),
+];
 
 /// Source text and the source selection its markers stand for.
 fn marked(text: &str) -> (String, Range<usize>) {
@@ -112,6 +129,10 @@ pub(super) fn run(engine: &mut Engine, command: &str) -> Result<bool, EditorErro
             .run_table_command(revision, selection, command, &mut ok)?
             .is_some());
     }
+    if let Some(block) = command.strip_prefix("block ") {
+        let block = serde_json::from_str(block).expect("a BlockCommand");
+        return Ok(engine.block(revision, selection, block, &mut ok)?.is_some());
+    }
     if let Some(key) = command.strip_prefix("key ") {
         let change = engine.key(revision, selection, paragraph_key(key), &mut ok)?;
         return Ok(change.is_some_and(|change| change.revision != revision));
@@ -128,6 +149,22 @@ pub(super) fn run(engine: &mut Engine, command: &str) -> Result<bool, EditorErro
         engine.compose(revision, selection, text)?;
         engine.commit_composition(revision, None, &mut ok)?;
         return Ok(engine.revision() != revision);
+    }
+    if command == "place" {
+        engine.place_selection(revision, selection, engine.affinity())?;
+        return Ok(false);
+    }
+    if command == "select" {
+        engine.select(revision, selection)?;
+        return Ok(false);
+    }
+    if let Some(direction) = command.strip_prefix("move ") {
+        let direction = match direction {
+            "Forward" => CaretDirection::Forward,
+            _ => CaretDirection::Backward,
+        };
+        engine.move_caret(revision, direction)?;
+        return Ok(false);
     }
     if let Some(text) = command.strip_prefix("paste ") {
         let change = engine.run(
@@ -186,6 +223,10 @@ fn check_edit(case: &Value) {
         Engine::open(&want).display_text(),
         "{name}: display"
     );
+    if case.get("tables").is_some() {
+        check_tables(case, &engine);
+        projection::check_table_facts(&engine, name);
+    }
     if !edited {
         assert!(!engine.can_undo(), "{name}: a move leaves no history");
         return;
@@ -293,9 +334,8 @@ fn check_inspect(case: &Value) {
     assert_eq!(all[0].rows, table.rows, "{name}");
 }
 
-fn check_tables(case: &Value) {
+fn check_tables(case: &Value, engine: &Engine) {
     let name = case["name"].as_str().unwrap();
-    let engine = open(case["before"].as_str().unwrap());
     let whole = DisplayRange {
         start: DisplayOffset(0),
         end: DisplayOffset(engine.display_len()),
@@ -312,13 +352,15 @@ fn check_tables(case: &Value) {
 
 #[test]
 fn the_literal_table_cases() {
-    let file: Value = serde_json::from_str(CASES).unwrap();
-    let cases = file["cases"].as_array().unwrap();
-    for case in cases {
+    let cases: Vec<Value> = CASES
+        .iter()
+        .flat_map(|file| serde_json::from_str::<Vec<Value>>(file).unwrap())
+        .collect();
+    for case in &cases {
         if case.get("inspect").is_some() {
             check_inspect(case);
-        } else if case.get("tables").is_some() {
-            check_tables(case);
+        } else if case.get("command").is_none() {
+            check_tables(case, &open(case["before"].as_str().unwrap()));
         } else {
             check_edit(case);
         }

@@ -193,6 +193,48 @@ impl StoreEditorSession<'_> {
         })
     }
 
+    pub fn select_code_block(
+        &mut self,
+        expected: Revision,
+        at: futo_notes_editor::DisplayOffset,
+    ) -> Result<SelectionChange, EditorStoreError> {
+        self.live(|state| {
+            state
+                .engine
+                .select_code_block(expected, at)
+                .map_err(EditorStoreError::Editor)
+        })
+    }
+
+    /// A code block's language and `name:` from its header fields, as one
+    /// edit; refused (`InvalidText`, nothing changed) when they would not
+    /// read back.
+    pub fn set_code_block_header(
+        &mut self,
+        expected: Revision,
+        header: &futo_notes_editor::CodeBlockHeader,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.live(|state| {
+            state.edit(|engine, accept| engine.set_code_block_header(expected, header, accept))
+        })
+    }
+
+    /// The user placed this selection: the same range also ends a selected
+    /// block and a language caret.
+    pub fn place_selection(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        affinity: Affinity,
+    ) -> Result<SelectionChange, EditorStoreError> {
+        self.live(|state| {
+            state
+                .engine
+                .place_selection(expected, range, affinity)
+                .map_err(EditorStoreError::Editor)
+        })
+    }
+
     pub fn toggle_format(
         &mut self,
         expected: Revision,
@@ -252,6 +294,15 @@ impl StoreEditorSession<'_> {
         command: futo_notes_editor::BlockCommand,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.live(|state| state.block_command_utf16(expected, range, command))
+    }
+
+    pub fn block_command_removing_utf16(
+        &mut self,
+        expected: Revision,
+        removed: DisplayUtf16Range,
+        command: futo_notes_editor::BlockCommand,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.live(|state| state.block_command_removing_utf16(expected, removed, command))
     }
 
     pub fn paragraph_key_utf16(
@@ -321,16 +372,6 @@ impl StoreEditorSession<'_> {
     pub fn checkpoint(&mut self) -> Result<FlushDraftResult, EditorStoreError> {
         self.mutate(|state, store| {
             let result = state.checkpoint(store);
-            state.lease.bind(&self.state);
-            result
-        })
-    }
-
-    pub(super) fn checkpoint_merged(
-        &mut self,
-    ) -> Result<crate::MergedDraftResult, EditorStoreError> {
-        self.mutate(|state, store| {
-            let result = state.checkpoint_merged(store, true);
             state.lease.bind(&self.state);
             result
         })

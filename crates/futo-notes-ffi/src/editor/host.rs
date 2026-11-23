@@ -4,12 +4,12 @@
 use std::sync::{Arc, Mutex};
 
 use futo_notes_editor::host::{
-    plan_styles, plan_tables, toolbar_highlights, DisplayMirror, FindSnapshot, ListMarker,
-    MirrorEdit, MirrorError, StyleSpec,
+    plan_styles, table_window, toolbar_highlights, DisplayMirror, FindSnapshot, MirrorEdit,
+    MirrorError,
 };
 use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 
-use super::tables::EditorTableAlignment;
+use super::style_span::EditorStyleSpan;
 use super::{EditorByteRange, EditorSessionError, EditorUtf16Range, NativeEditorSession};
 
 /// A coordinate the mirror refused; nothing changed.
@@ -223,241 +223,6 @@ impl From<FindSnapshot> for EditorFindSnapshot {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
-pub enum EditorListMarker {
-    Bullet,
-    Ordered,
-    Task,
-    /// An indented plain line: drawn at its indent, with no marker.
-    Plain,
-}
-
-/// One styled stretch of the display in UTF-16 units (see `futo_notes_editor::host::StyleSpec`).
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
-pub enum EditorStyleSpan {
-    Inline {
-        start: u64,
-        end: u64,
-        bold: bool,
-        italic: bool,
-        strike: bool,
-        code: bool,
-    },
-    Heading {
-        start: u64,
-        end: u64,
-        level: u8,
-    },
-    Quote {
-        start: u64,
-        end: u64,
-        depth: u64,
-    },
-    /// `indent` is the line's own leading whitespace in columns; `text` the marker as typed.
-    ListRow {
-        start: u64,
-        end: u64,
-        indent: u64,
-        level: u64,
-        marker: EditorListMarker,
-        text: String,
-        checked: bool,
-        first: bool,
-    },
-    Code {
-        start: u64,
-        end: u64,
-    },
-    Metadata {
-        start: u64,
-        end: u64,
-    },
-    Link {
-        start: u64,
-        end: u64,
-        destination: String,
-    },
-    Wikilink {
-        start: u64,
-        end: u64,
-        label: String,
-        note_id: Option<String>,
-    },
-    /// A `#tag`, `#` included: coloured, still plain text.
-    Tag {
-        start: u64,
-        end: u64,
-    },
-    Divider {
-        start: u64,
-        end: u64,
-    },
-    Image {
-        start: u64,
-        end: u64,
-        destination: String,
-        alt: String,
-        vault: bool,
-        remote: bool,
-    },
-    TableRow {
-        start: u64,
-        end: u64,
-        columns: u64,
-        header: bool,
-        table_start: u64,
-        cells: Vec<EditorStyleCell>,
-    },
-    TableDelimiter {
-        start: u64,
-        end: u64,
-    },
-}
-
-/// One cell of a table row span: its content's UTF-16 range, column and alignment.
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
-pub struct EditorStyleCell {
-    pub column: u64,
-    pub start: u64,
-    pub end: u64,
-    pub alignment: EditorTableAlignment,
-}
-
-impl From<StyleSpec> for EditorStyleSpan {
-    fn from(spec: StyleSpec) -> Self {
-        let u = |v: usize| v as u64;
-        match spec {
-            StyleSpec::Inline {
-                start,
-                end,
-                bold,
-                italic,
-                strike,
-                code,
-            } => Self::Inline {
-                start: u(start),
-                end: u(end),
-                bold,
-                italic,
-                strike,
-                code,
-            },
-            StyleSpec::Heading { start, end, level } => Self::Heading {
-                start: u(start),
-                end: u(end),
-                level,
-            },
-            StyleSpec::Quote { start, end, depth } => Self::Quote {
-                start: u(start),
-                end: u(end),
-                depth: u(depth),
-            },
-            StyleSpec::ListRow {
-                start,
-                end,
-                indent,
-                level,
-                marker,
-                text,
-                checked,
-                first,
-            } => Self::ListRow {
-                start: u(start),
-                end: u(end),
-                indent: u(indent),
-                level: u(level),
-                marker: match marker {
-                    ListMarker::Bullet => EditorListMarker::Bullet,
-                    ListMarker::Ordered => EditorListMarker::Ordered,
-                    ListMarker::Task => EditorListMarker::Task,
-                    ListMarker::Plain => EditorListMarker::Plain,
-                },
-                text,
-                checked,
-                first,
-            },
-            StyleSpec::Code { start, end } => Self::Code {
-                start: u(start),
-                end: u(end),
-            },
-            StyleSpec::Metadata { start, end } => Self::Metadata {
-                start: u(start),
-                end: u(end),
-            },
-            StyleSpec::Link {
-                start,
-                end,
-                destination,
-            } => Self::Link {
-                start: u(start),
-                end: u(end),
-                destination,
-            },
-            StyleSpec::Wikilink {
-                start,
-                end,
-                label,
-                note_id,
-            } => Self::Wikilink {
-                start: u(start),
-                end: u(end),
-                label,
-                note_id,
-            },
-            StyleSpec::Tag { start, end } => Self::Tag {
-                start: u(start),
-                end: u(end),
-            },
-            StyleSpec::Divider { start, end } => Self::Divider {
-                start: u(start),
-                end: u(end),
-            },
-            StyleSpec::TableRow {
-                start,
-                end,
-                columns,
-                header,
-                table_start,
-                cells,
-            } => Self::TableRow {
-                start: u(start),
-                end: u(end),
-                columns: u(columns),
-                header,
-                table_start: u(table_start),
-                cells: cells
-                    .into_iter()
-                    .map(|cell| EditorStyleCell {
-                        column: u(cell.column),
-                        start: u(cell.start),
-                        end: u(cell.end),
-                        alignment: cell.alignment.into(),
-                    })
-                    .collect(),
-            },
-            StyleSpec::TableDelimiter { start, end } => Self::TableDelimiter {
-                start: u(start),
-                end: u(end),
-            },
-            StyleSpec::Image {
-                start,
-                end,
-                destination,
-                alt,
-                vault,
-                remote,
-            } => Self::Image {
-                start: u(start),
-                end: u(end),
-                destination,
-                alt,
-                vault,
-                remote,
-            },
-        }
-    }
-}
-
 #[uniffi::export]
 impl NativeEditorSession {
     /// The spans to draw for a display range, in UTF-16 units of the whole display. Hosts call
@@ -468,8 +233,14 @@ impl NativeEditorSession {
         range: EditorByteRange,
     ) -> Result<Vec<EditorStyleSpan>, EditorSessionError> {
         self.with_revision(expected, |session| {
-            let display: DisplayRange = range.try_into()?;
-            let slice = session.project(Revision(expected), display)?;
+            let window: DisplayRange = range.try_into()?;
+            let slice = session.project(Revision(expected), window)?;
+            let display = table_window(&slice);
+            let slice = if display == window {
+                slice
+            } else {
+                session.project(Revision(expected), display)?
+            };
             let mut to_utf16 = |byte: usize| {
                 let at = DisplayRange {
                     start: DisplayOffset(byte),
@@ -480,9 +251,7 @@ impl NativeEditorSession {
                     .map_or(0, |r| r.start.0)
             };
             let start = to_utf16(display.start.0);
-            let mut spans = plan_styles(&slice, start, &mut to_utf16);
-            let tables = session.inspect_tables(Revision(expected), display)?;
-            spans.extend(plan_tables(&tables, display, &mut to_utf16));
+            let spans = plan_styles(&slice, start, &mut to_utf16);
             Ok(spans.into_iter().map(Into::into).collect())
         })
     }

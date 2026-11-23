@@ -1,13 +1,14 @@
 //! Image insertion and the keys around an image. The literal cases are
 //! `tests/fixtures/engine/images.json`: `before` and `after` are source with
 //! the selection marked by `‸` (a caret) or `«…»` (a range), since `|`, `[`
-//! and `]` are Markdown here.
+//! and `]` are Markdown here. `paste` pastes `reference`; `cut` copies `alt`;
+//! `Place` places the selection as the user's own (`after` omitted: it stays).
 use super::super::Engine;
 use super::{ok, range};
 use crate::lines::Kind;
 use crate::{
-    AtomKind, DisplayRange, EditorError, EditorSession, ImageClaim, ParagraphKey, Revision,
-    ViewChange,
+    AtomKind, BlockCommand, DisplayRange, EditorError, EditorSession, ImageClaim, ParagraphKey,
+    Revision, ViewChange,
 };
 use serde::Deserialize;
 
@@ -53,6 +54,13 @@ fn run(engine: &mut Engine, case: &Case) -> Result<Option<ViewChange>, EditorErr
     let selection = engine.selection();
     let key = match case.command.as_str() {
         "insert" => return engine.insert_image(revision, &case.reference, &case.alt, &mut ok),
+        "Divider" => return engine.block(revision, selection, BlockCommand::Divider, &mut ok),
+        "paste" => return engine.paste_markdown(revision, selection, &case.reference, &mut ok),
+        "cut" => {
+            let (copied, change) = engine.cut_markdown(revision, selection, &mut ok)?;
+            assert_eq!(copied, case.alt, "{}: what Cut copies", case.name);
+            return Ok(change);
+        }
         "Backspace" => ParagraphKey::Backspace,
         "Delete" => ParagraphKey::Delete,
         "Enter" => ParagraphKey::Enter,
@@ -77,6 +85,17 @@ fn image_cases() {
             before_marked, case.before,
             "{name}: the case's selection lands"
         );
+        if case.command == "Place" {
+            let revision = engine.revision();
+            let change = engine
+                .place_selection(revision, before, engine.affinity())
+                .unwrap_or_else(|error| panic!("{name}: {error:?}"));
+            let after = case.after.as_ref().unwrap_or(&case.before);
+            assert_eq!(marking(&engine), *after, "{name}");
+            assert_eq!(change.selection, engine.selection(), "{name}: the answer");
+            assert!(!engine.can_undo(), "{name}: no history");
+            continue;
+        }
         let result = run(&mut engine, case);
         match (&case.error, &case.after) {
             (Some(error), _) => {

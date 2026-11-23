@@ -10,21 +10,21 @@ impl PortableSession {
         Ok(self.engine.inspect_link(expected, range)?)
     }
 
+    pub fn link_label(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<Option<String>, PortableError> {
+        Ok(self.engine.link_label(expected, range)?)
+    }
+
     pub fn set_link(
         &mut self,
         expected: Revision,
         range: DisplayRange,
         destination: &str,
     ) -> Result<Option<Applied>, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let change = self
-            .engine
-            .set_link(expected, range, destination, &mut |edit| {
-                record = Some(edit.clone());
-                Ok(())
-            })?;
-        Ok(change.map(|change| self.issue(record.unwrap(), change)))
+        self.apply_input(|engine, accept| engine.set_link(expected, range, destination, accept))
     }
 
     pub fn edit_link(
@@ -34,15 +34,21 @@ impl PortableSession {
         label: &str,
         destination: &str,
     ) -> Result<Option<Applied>, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let change = self
-            .engine
-            .edit_link(expected, range, label, destination, &mut |edit| {
-                record = Some(edit.clone());
-                Ok(())
-            })?;
-        Ok(change.map(|change| self.issue(record.unwrap(), change)))
+        self.apply_input(|engine, accept| {
+            engine.edit_link(expected, range, label, destination, accept)
+        })
+    }
+
+    /// The note a tapped schemeless link `destination` names, among the
+    /// delivered note ids, from the folder of the note `current_id`.
+    pub fn resolve_note_link(&self, current_id: &str, destination: &str) -> Option<String> {
+        self.engine.resolve_note_link(current_id, destination)
+    }
+
+    /// The destination the link prompt of the note `current_id` saves for
+    /// `typed` (link_target.rs).
+    pub fn normalize_link_destination(&self, current_id: &str, typed: &str) -> String {
+        self.engine.normalize_link_destination(current_id, typed)
     }
 
     /// Note ids never append; like a query they never wait on acknowledgements.

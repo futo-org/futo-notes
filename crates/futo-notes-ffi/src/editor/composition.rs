@@ -1,6 +1,13 @@
 //! Foreign calls validate fixed-width ranges, then forward to the store owner.
 use super::*;
 
+/// Whether `text` is one character paired typing acts on (a backtick, `*`, `~`, `[` or `]`),
+/// from the engine's own table: a host splitting a text service's commit asks this.
+#[uniffi::export]
+pub fn editor_is_paired_typing_key(text: String) -> bool {
+    futo_notes_editor::is_paired_typing_key(&text)
+}
+
 #[uniffi::export]
 impl NativeEditorSession {
     pub fn composition(&self) -> Result<Option<EditorComposition>, EditorSessionError> {

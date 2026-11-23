@@ -10,6 +10,7 @@
 //! build) calls this module until the surface moves onto it.
 #![allow(dead_code)]
 
+mod code_block;
 mod command;
 mod commands;
 mod edit;
@@ -21,10 +22,13 @@ mod read;
 mod selection;
 mod store;
 mod surface;
+mod table_block;
 #[cfg(test)]
 mod tests;
 mod utf16;
+mod words;
 
+pub use commands::is_paired_typing_key;
 pub(crate) use edit::Marked;
 pub(crate) use external::Adoption;
 
@@ -37,6 +41,19 @@ use line::{Entry, Role};
 use std::sync::Arc;
 use store::{Size, Store};
 
+/// A keystroke that took the caret off a delimiter row being typed (the one
+/// finishing it, or Enter or Tab on it), which a Backspace right after takes
+/// back (`commands/tables/delimiter_row.rs`): the revision and caret it
+/// left, the caret on the row before it, and whether it wrote (then it is
+/// the last Undo step).
+#[derive(Clone)]
+pub(crate) struct RowExit {
+    revision: Revision,
+    caret: DisplayRange,
+    before: history::Point,
+    wrote: bool,
+}
+
 pub(crate) struct Engine {
     store: Store,
     revision: Revision,
@@ -47,6 +64,13 @@ pub(crate) struct Engine {
     /// The collapsed caret's exact source offset after an edit, kept while
     /// the selection stays where the edit left it.
     pin: Option<usize>,
+    /// Whether the selection is the code block it covers, selected as one
+    /// object (`commands/fences/selected.rs`).
+    block_selected: bool,
+    typed_table: Option<RowExit>,
+    /// The revision and caret typing left on a delimiter row
+    /// (`writes_delimiter_row`).
+    writing_row: Option<(Revision, DisplayRange)>,
     history: History,
     clock: Arc<dyn HistoryClock>,
     typing: Option<TypingRun>,
@@ -82,6 +106,9 @@ impl Engine {
             affinity: Affinity::Forward,
             formats: None,
             pin: None,
+            block_selected: false,
+            typed_table: None,
+            writing_row: None,
             history: History::default(),
             clock,
             typing: None,
@@ -108,6 +135,30 @@ impl Engine {
 
     pub fn affinity(&self) -> Affinity {
         self.affinity
+    }
+
+    /// The code block selected as one object: the selection's range.
+    pub fn selected_block(&self) -> Option<DisplayRange> {
+        self.block_selected.then_some(self.selection)
+    }
+
+    /// Whether the caret writes its code block's language: it is pinned at
+    /// the opening fence's hidden end, as typing the fence leaves it, so the
+    /// next letters land in the info string and Enter starts the code.
+    pub fn writes_language(&self) -> bool {
+        self.pin.is_some_and(|at| {
+            let (index, before) = read::line_at(&self.store, at);
+            code_block::is_opening_fence_end(self.store.get(index), at - before.source)
+        })
+    }
+
+    /// Whether the caret writes a table's delimiter row: typing on its line
+    /// left the caret on it and nothing has moved it or edited the note
+    /// since. A host draws the row only while this holds; any other caret
+    /// is kept off it (`commands/tables/delimiter_row.rs`).
+    pub fn writes_delimiter_row(&self) -> bool {
+        self.writing_row == Some((self.revision, self.selection))
+            && self.on_delimiter_row(self.selection.start.0)
     }
 
     /// Explicit whole-text query; never called by the input path.
@@ -319,14 +370,27 @@ impl Engine {
         })
     }
 
-    /// A selection with no end resting in metadata, unless it covers it all.
+    /// A selection with no end resting in metadata, unless it covers it all
+    /// (Select All, which Copy copies whole).
     fn outside_metadata(&self, range: DisplayRange) -> DisplayRange {
+        if self.covers_metadata(range) {
+            return range;
+        }
+        self.in_body(range)
+    }
+
+    /// Whether `range` covers all of the shown front matter.
+    pub(crate) fn covers_metadata(&self, range: DisplayRange) -> bool {
+        self.metadata_end()
+            .is_some_and(|body| range.start.0 == 0 && range.end.0 >= body && body > 0)
+    }
+
+    /// The part of `range` an edit changes: front matter is never edited,
+    /// so a range covering it (Select All) edits from the body's start.
+    pub(crate) fn in_body(&self, range: DisplayRange) -> DisplayRange {
         let Some(body) = self.metadata_end() else {
             return range;
         };
-        if range.start.0 == 0 && range.end.0 >= body && body > 0 {
-            return range;
-        }
         let snap = |at: DisplayOffset| DisplayOffset(at.0.max(body));
         DisplayRange {
             start: snap(range.start),

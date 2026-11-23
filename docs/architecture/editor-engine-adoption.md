@@ -27,12 +27,12 @@ show it differently during development; a client cutover must account for that b
 
 ## Client status
 
-| Client     | Current integration                                                                                                                                                                                                         | Work before adoption                                                                                                                                                                                      |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Rust/store | `EditorSession` owns exact source and editing; `StoreEditorSession` owns the attachment and saving.                                                                                                                         | Embed through the session and store contracts; use the returned projection and changes.                                                                                                                   |
-| iOS | TextKit 2 renders `NativeEditorSession` in debug and Release. | Run native acceptance when changing the engine or renderer. |
-| Android | Native views render `NativeEditorSession` in both distribution flavors, debug and release. | Run native acceptance when changing the engine or renderer. |
-| Desktop | The shipped UI remains Milkdown. | Native mobile cleanup does not change the desktop renderer. |
+| Client     | Current integration                                                                                 | Work before adoption                                                                    |
+| ---------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Rust/store | `EditorSession` owns exact source and editing; `StoreEditorSession` owns the attachment and saving. | Embed through the session and store contracts; use the returned projection and changes. |
+| iOS        | TextKit 2 renders `NativeEditorSession` in debug and Release.                                       | Run native acceptance when changing the engine or renderer.                             |
+| Android    | Native views render `NativeEditorSession` in both distribution flavors, debug and release.          | Run native acceptance when changing the engine or renderer.                             |
+| Desktop    | The shipped UI remains Milkdown.                                                                    | Native mobile cleanup does not change the desktop renderer.                             |
 
 Mobile has one renderer; old editor-selection preferences and launch flags have no effect.
 Mobile builds do not bundle `editor.html` or instantiate a web editor host.
@@ -55,9 +55,20 @@ The authoritative definitions are `crates/futo-notes-editor/src/types.rs`,
   `checked` and `first`; `Plain` is a marker kind with no marker to draw. The `Tag` span
   marks the visible `#tag` as ordinary text to decorate. Exhaustive enum consumers must handle
   both additions. iOS draws list levels and marker text from these values.
-- A code block description carries optional `language`, the first info-string word in its
-  original case. It is a rendering description, not a request to rewrite the fence. A renderer
-  can draw a label from it; iOS draws it once per code block.
+- A code line's block description carries `code`: its 1-based `line_number`, `first`, `last`
+  and `hl:`/`ll:` `mark`. The projection's `code_blocks` (style plan: one `CodeBlock` span per
+  window) give each block whole: range, optional `language` (case kept), `name` and
+  `line_count`. They describe rendering, never a request to rewrite the fence. A change's
+  projection holds the lines it read again, the code line after them when its `first` changed,
+  and each block those lines are in; applied, it leaves stale only the numbers and marks of code
+  lines it did not describe (a line added or removed above them in their block, or the block
+  split or joined), so restyle the block's range from its entry to redraw them.
+- A table line's block description carries `table`: its `role`, `row`, each cell's content
+  range and its `pipes`; the projection's `tables` (style plan: one `Table` span per window) give
+  each table whole: range, `columns` (its widest row) and `alignments`. `TableRow` gained `row`
+  and `pipes`, and the style plan now draws rows from the projection, not from table inspection.
+  After a row is added or removed, or a `Table` span's columns or alignments change, restyle the
+  table's range from its entry to redraw the rows below or around the change.
 - Display changes and projection changes must both be applied even when the visible replacement
   is empty. Respect revisions, selection affinity and the UTF-8/UTF-16 boundaries in the
   [handoff](text-first-editor-host.md); do not recreate Markdown interpretation in a shell.

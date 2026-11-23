@@ -11,9 +11,11 @@ import java.io.File
 import java.util.UUID
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
 import uniffi.futo_notes_ffi.NoteStore
@@ -110,6 +112,55 @@ class TextFirstCompletionTest {
                 assertNull(controller.completionDraft())
                 controller.select(11)
                 assertNotNull("Returning to the run permits completion again", controller.completionDraft())
+                assertNotNull(controller.close())
+            }
+        } finally {
+            withContext(Dispatchers.Main) { controller.discard(); controller.dispose() }
+            scenario.close()
+            store.destroy()
+            root.deleteRecursively()
+        }
+    }
+
+    /** A note created while the keyboard composes resolves the link once the composition ends, not before. */
+    @Test
+    fun aVaultChangeDuringCompositionResolvesTheLinkAfterIt() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "completion-vault-${UUID.randomUUID()}").apply { check(mkdirs()) }
+        val scenario = ActivityScenario.launch(ComponentActivity::class.java)
+        val store = NoteStore(root.path)
+        lateinit var controller: TextFirstController
+        try {
+            val filler = "a line of filler that keeps the link far from the typing\n".repeat(80)
+            store.createNote("links", "", "see [[Missing]]\n" + filler + "plain line\n")
+            withContext(Dispatchers.Main) {
+                suspendCancellableCoroutine<Unit> { done ->
+                    scenario.onActivity { activity ->
+                        controller = createTextFirstController(activity, { store }, root)
+                        activity.setContentView(controller.view)
+                        controller.open("links") { assertNull(it); done.resume(Unit) }
+                    }
+                }
+                val view = controller.view
+                fun linkTarget(): String? = view.editableText!!.getSpans(0, view.length(), TfWikilink::class.java).single().noteId
+                assertNull("the link starts unresolved", linkTarget())
+                controller.select(view.text.toString().indexOf("plain line") + "plain line".length)
+                val connection = view.onCreateInputConnection(EditorInfo())!!
+                suspendCancellableCoroutine<Unit> { done ->
+                    connection.handler!!.post { connection.setComposingText("ab", 1); done.resume(Unit) }
+                }
+                store.createNote("Missing", "", "target")
+                controller.refreshCompletionNoteIds()
+                controller.completionDraft()
+                assertEquals("the marked text is still uncommitted", "see [[Missing]]\n" + filler + "plain line\n", controller.sourceText())
+                assertTrue("the marked text still shows", view.text.toString().contains("plain lineab"))
+                assertNull("the link waits for the composition to end", linkTarget())
+                suspendCancellableCoroutine<Unit> { done ->
+                    connection.handler!!.post { connection.finishComposingText(); done.resume(Unit) }
+                }
+                withTimeout(5_000) { while (linkTarget() == null) delay(20L) }
+                assertEquals("Missing", linkTarget())
+                assertEquals("see [[Missing]]\n" + filler + "plain lineab\n", controller.sourceText())
                 assertNotNull(controller.close())
             }
         } finally {

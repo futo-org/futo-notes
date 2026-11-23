@@ -19,10 +19,15 @@ internal class NoteScroll(private val view: TextFirstEditText) {
     private val slop = config.scaledTouchSlop
     private val scroller = OverScroller(view.context)
     private var tracker: VelocityTracker? = null
-    private var downX = 0f
-    private var downY = 0f
+    /** Where the contact went down, view coordinates. */
+    var downX = 0f
+        private set
+    var downY = 0f
+        private set
     private var lastY = 0f
-    private var dragging = false
+    /** The finger is scrolling the note. */
+    var dragging = false
+        private set
     /** The gesture began on a coasting note: it only stops the note, and is never a tap. */
     private var stopping = false
 
@@ -37,8 +42,7 @@ internal class NoteScroll(private val view: TextFirstEditText) {
         view.postInvalidateOnAnimation()
     }
 
-    private fun maxScroll() =
-        ((view.layout?.height ?: 0) + view.totalPaddingTop + view.totalPaddingBottom - view.height).coerceAtLeast(0)
+    private fun maxScroll() = view.maxScrollY()
 
     /** Move the note by [dy] (positive = further down the note). */
     fun dragBy(dy: Int) {

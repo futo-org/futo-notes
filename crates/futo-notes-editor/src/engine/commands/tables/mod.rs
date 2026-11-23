@@ -6,9 +6,11 @@
 //! its widest row; a shorter row is padded, and a cell past the header is a
 //! column like any other. Cells project onto the note's own display, so one
 //! selection serves the note and a cell view.
+mod delimiter_row;
 mod keys;
 mod paste;
 mod structure;
+mod whole_tables;
 
 use super::super::line::Entry;
 use super::super::Engine;
@@ -39,7 +41,7 @@ pub(in crate::engine) struct Row {
 }
 
 impl Row {
-    fn read(entry: &Entry, index: usize, start: usize) -> Self {
+    pub(in crate::engine) fn read(entry: &Entry, index: usize, start: usize) -> Self {
         let body = entry.body();
         let cells = lines::table::cells(body);
         // A table line starts with its first pipe.
@@ -139,7 +141,7 @@ impl Table {
 
     /// An empty row as wide as the table.
     fn blank_row(&self) -> String {
-        format!("|{}", "  |".repeat(self.width))
+        new_row(EMPTY_CELL, self.width)
     }
 
     pub(in crate::engine) fn controls(&self, row: usize) -> TableControls {
@@ -154,6 +156,15 @@ impl Table {
     }
 }
 
+/// A new empty cell, and a new delimiter row's cell.
+pub(in crate::engine) const EMPTY_CELL: &str = "  ";
+pub(in crate::engine) const DELIMITER_CELL: &str = " --- ";
+
+/// A new line of `columns` cells, each `cell`: `|`, then `cell|` per column.
+pub(in crate::engine) fn new_row(cell: &str, columns: usize) -> String {
+    format!("|{}", format!("{cell}|").repeat(columns))
+}
+
 fn alignment(cell: &str) -> TableAlignment {
     let cell = cell.trim_matches([' ', '\t']);
     match (cell.starts_with(':'), cell.len() > 1 && cell.ends_with(':')) {
@@ -162,6 +173,25 @@ fn alignment(cell: &str) -> TableAlignment {
         (false, true) => TableAlignment::Right,
         (false, false) => TableAlignment::None,
     }
+}
+
+/// `width` columns' alignments, from the cells of `delimiter`, line `entry`.
+pub(in crate::engine) fn alignments(
+    delimiter: &Row,
+    entry: &Entry,
+    width: usize,
+) -> Vec<TableAlignment> {
+    let text = entry.body();
+    (0..width)
+        .map(|column| {
+            delimiter
+                .cells
+                .get(column)
+                .map_or(TableAlignment::None, |cell| {
+                    alignment(&text[cell.start - delimiter.start..cell.end - delimiter.start])
+                })
+        })
+        .collect()
 }
 
 /// A cell a display range lies in.
@@ -208,18 +238,7 @@ impl Engine {
             .map(|(_, line)| line.cells.len())
             .max()
             .unwrap_or(0);
-        let delimiter = &lines[1];
-        let text = self.line(delimiter.index).body();
-        let alignments = (0..width)
-            .map(|column| {
-                delimiter
-                    .cells
-                    .get(column)
-                    .map_or(TableAlignment::None, |cell| {
-                        alignment(&text[cell.start - delimiter.start..cell.end - delimiter.start])
-                    })
-            })
-            .collect();
+        let alignments = alignments(&lines[1], self.line(lines[1].index), width);
         Some(Table {
             lines,
             width,
@@ -245,13 +264,26 @@ impl Engine {
     /// line, inside one cell's text between its pipes.
     fn cell_at(&self, range: DisplayRange) -> Option<Cell> {
         let (index, column) = self.column_at(range)?;
+        let (table, row) = self.table_row(index)?;
+        Some(Cell { table, row, column })
+    }
+
+    /// The table and row of the header or body line display `range` starts
+    /// on, wherever on that line it starts.
+    fn row_at(&self, range: DisplayRange) -> Option<(Table, usize)> {
+        let index = self.line_of(self.source_selection(range).start);
+        if !matches!(role(self.line(index))?, TableRole::Header | TableRole::Row) {
+            return None;
+        }
+        self.table_row(index)
+    }
+
+    /// The table holding line `index` and that line's row: the header is 0,
+    /// the first line under the delimiter row 1.
+    fn table_row(&self, index: usize) -> Option<(Table, usize)> {
         let table = self.table_at(index)?;
-        let row = index - table.lines[0].index;
-        Some(Cell {
-            table,
-            row: row.saturating_sub(1),
-            column,
-        })
+        let row = (index - table.lines[0].index).saturating_sub(1);
+        Some((table, row))
     }
 
     /// The line and column of the cell display `range` lies in, as

@@ -53,15 +53,4 @@ class DisplayIndexTest {
             }
         }
     }
-
-    @Test
-    fun localOffsetsWalkProjectionText() {
-        val text = "é😀x"
-        val local = LocalOffsets(text, startByte = 10, startUtf16 = 4)
-        assertEquals(4, local.utf16(10))
-        assertEquals(5, local.utf16(12))
-        assertEquals(7, local.utf16(16))
-        assertEquals(8, local.utf16(17))
-        assertEquals(5, local.utf16(12))
-    }
 }

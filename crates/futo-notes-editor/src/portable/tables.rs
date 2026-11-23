@@ -1,8 +1,8 @@
 //! Portable table operations are ordinary input: applied now, acknowledged later.
 use super::*;
-use crate::{DisplayUtf16Range, TableCommand, TableDescription, TableKey};
-
-type Accept<'a> = dyn FnMut(&SourceEdit) -> Result<(), String> + 'a;
+use crate::{
+    DisplayUtf16Offset, DisplayUtf16Range, TableCommand, TableDescription, TableKey, TableOutcome,
+};
 
 /// A table key either moves the selection (nothing to append) or applies one
 /// edit and issues its request.
@@ -12,6 +12,12 @@ pub enum PortableTableStep {
 }
 
 impl PortableSession {
+    /// Whether the caret writes a table's delimiter row. An input that
+    /// changes no source returns no change, so a view reads it here.
+    pub fn writes_delimiter_row(&self) -> bool {
+        self.engine.writes_delimiter_row()
+    }
+
     pub fn inspect_table(
         &self,
         expected: Revision,
@@ -42,7 +48,7 @@ impl PortableSession {
         range: DisplayRange,
         command: TableCommand,
     ) -> Result<Option<Applied>, PortableError> {
-        self.apply_table(|engine, accept| engine.table_command(expected, range, command, accept))
+        self.apply_input(|engine, accept| engine.table_command(expected, range, command, accept))
     }
 
     pub fn table_command_utf16(
@@ -51,7 +57,7 @@ impl PortableSession {
         range: DisplayUtf16Range,
         command: TableCommand,
     ) -> Result<Option<Applied>, PortableError> {
-        self.apply_table(|engine, accept| {
+        self.apply_input(|engine, accept| {
             engine.table_command_utf16(expected, range, command, accept)
         })
     }
@@ -63,39 +69,32 @@ impl PortableSession {
     ) -> Result<Option<PortableTableStep>, PortableError> {
         let (outcome, record) =
             self.record_edit(|engine, accept| engine.table_key(expected, key, accept))?;
-        Ok(match outcome {
-            None => None,
-            Some(crate::TableOutcome::Selected(change)) => {
-                Some(PortableTableStep::Selected(change))
-            }
-            Some(crate::TableOutcome::Edited(change)) => Some(PortableTableStep::Edited(Box::new(
-                self.issue(record.unwrap(), *change),
-            ))),
-        })
+        Ok(self.issue_table_step(outcome, record))
     }
 
-    fn apply_table(
+    pub fn enter_table_cell_utf16(
         &mut self,
-        operation: impl FnOnce(
-            &mut EditorSession,
-            &mut Accept,
-        ) -> Result<Option<ViewChange>, EditorError>,
-    ) -> Result<Option<Applied>, PortableError> {
-        let (change, record) = self.record_edit(operation)?;
-        Ok(change.map(|change| self.issue(record.unwrap(), change)))
-    }
-
-    /// Run an engine operation, keeping the edit it handed the host.
-    fn record_edit<T>(
-        &mut self,
-        operation: impl FnOnce(&mut EditorSession, &mut Accept<'_>) -> Result<T, EditorError>,
-    ) -> Result<(T, Option<SourceEdit>), PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let result = operation(&mut self.engine, &mut |edit| {
-            record = Some(edit.clone());
-            Ok(())
+        expected: Revision,
+        at: DisplayUtf16Offset,
+        column: usize,
+    ) -> Result<Option<PortableTableStep>, PortableError> {
+        let (outcome, record) = self.record_edit(|engine, accept| {
+            engine.enter_table_cell_utf16(expected, at, column, accept)
         })?;
-        Ok((result, record))
+        Ok(self.issue_table_step(outcome, record))
+    }
+
+    /// A table move as it is; a table edit issued with its request.
+    fn issue_table_step(
+        &mut self,
+        outcome: Option<TableOutcome>,
+        record: Option<SourceEdit>,
+    ) -> Option<PortableTableStep> {
+        match outcome? {
+            TableOutcome::Selected(change) => Some(PortableTableStep::Selected(change)),
+            TableOutcome::Edited(change) => self
+                .issue_accepted(record, Some(*change))
+                .map(|applied| PortableTableStep::Edited(Box::new(applied))),
+        }
     }
 }

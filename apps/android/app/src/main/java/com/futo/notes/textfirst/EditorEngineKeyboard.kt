@@ -4,8 +4,10 @@ import uniffi.futo_notes_ffi.EditorInlineFormat
 import uniffi.futo_notes_ffi.EditorInputAction
 import uniffi.futo_notes_ffi.EditorMarkedRun
 import uniffi.futo_notes_ffi.EditorParagraphKey
+import uniffi.futo_notes_ffi.EditorStyleSpan
 import uniffi.futo_notes_ffi.EditorUtf16Range
 import uniffi.futo_notes_ffi.EditorUtf16Replacement
+import uniffi.futo_notes_ffi.editorIsPairedTypingKey
 
 // Keyboard input for [EditorEngine]: called on the editor thread by the input
 // connection. Marked text is an engine-owned overlay (interpretation spec,
@@ -20,12 +22,34 @@ internal fun EditorEngine.replace(start: Int, end: Int, value: String, action: E
 
 internal fun EditorEngine.imeCommit(value: String) = input {
     val o = mirror.overlay
+    val typedAfter = pairKeyAfterCorrection(value)
     when {
+        // A keyboard's correction can carry the pair key the user typed after the word ("world*"): the word commits,
+        // then that key is typed as a key, so it still steps out of or into a pair (FUTO Keyboard).
+        o != null && typedAfter != null -> {
+            commitComposition(value.dropLast(typedAfter.length))
+            replace(mirror.selStart, mirror.selEnd, typedAfter, EditorInputAction.PAIRED_TYPING)
+        }
         o != null -> commitComposition(value)
         value == "\n" -> key(EditorParagraphKey.ENTER)
-        else -> replace(mirror.selStart, mirror.selEnd, value, EditorInputAction.TYPING)
+        else -> replace(mirror.selStart, mirror.selEnd, value, typedAction(value))
     }
 }
+
+/** The pair key a composition's commit ends with, after at least one other character; null otherwise. */
+private fun pairKeyAfterCorrection(value: String): String? {
+    if (value.codePointCount(0, value.length) < 2) return null
+    val last = value.substring(value.offsetByCodePoints(value.length, -1))
+    return last.takeIf { editorIsPairedTypingKey(it) }
+}
+
+/**
+ * The one place a phone decides how text it was handed was typed: one character with no composition open is a plain
+ * typed key, so it goes as paired typing (a backtick, `*`, `~`, `[`, `]` pair; the engine types anything else as
+ * typing). A longer commit is typed as given; compositions, paste and text-service replacements go their own ways.
+ */
+private fun typedAction(value: String): EditorInputAction =
+    if (value.codePointCount(0, value.length) == 1) EditorInputAction.PAIRED_TYPING else EditorInputAction.TYPING
 
 /** A keyboard correction addresses a range without changing its opening history selection. */
 internal fun EditorEngine.imeReplace(start: Int, end: Int, value: String) = input {
@@ -66,6 +90,12 @@ internal fun EditorEngine.imeFinishComposing() = input {
 }
 
 internal fun EditorEngine.imeDeleteSurrounding(before: Int, after: Int) = input {
+    // A keyboard's one-step delete over a range is its Backspace or Delete key on the selection (FUTO Keyboard sends it
+    // so): it removes the selection, a selected block whole, not the character beside it.
+    if (mirror.selStart != mirror.selEnd && mirror.overlay == null) {
+        if (before == 1 && after == 0) return@input key(EditorParagraphKey.BACKSPACE)
+        if (before == 0 && after == 1) return@input key(EditorParagraphKey.DELETE)
+    }
     if (mirror.selStart == mirror.selEnd && mirror.overlay == null) {
         if (after == 0 && before > 0 && mirror.selStart - before == mirror.previousGrapheme(mirror.selStart)) {
             return@input key(EditorParagraphKey.BACKSPACE)
@@ -89,8 +119,12 @@ internal fun EditorEngine.imeDeleteSurrounding(before: Int, after: Int) = input 
     }
 }
 
+/**
+ * A keyboard's move (a cursor swipe on the space bar) is the user's own, so the engine places it, using where the
+ * selection was to pass a delimiter row; a restatement of the selection is not a move.
+ */
 internal fun EditorEngine.imeSetSelection(start: Int, end: Int) = input {
-    select(start, end, fromView = false)
+    select(start, end, fromView = false, placed = start != mirror.selStart || end != mirror.selEnd)
 }
 
 internal fun EditorEngine.key(key: EditorParagraphKey) = input {
@@ -98,11 +132,32 @@ internal fun EditorEngine.key(key: EditorParagraphKey) = input {
     if (mirror.overlay != null) commitComposition(null)
     if (editingCell && (key == EditorParagraphKey.TAB || key == EditorParagraphKey.SHIFT_TAB) &&
         tableTab(key == EditorParagraphKey.SHIFT_TAB)) return@input
+    imageBesideCaret(key)?.let { image -> return@input select(image.start.toInt(), image.end.toInt(), fromView = false) }
     val intent = if (key == EditorParagraphKey.BACKSPACE) EditorParagraphKey.BACKSPACE_JOINING_HEADING else key
     val change = checkNotNull(fast).paragraphKey(rev, mirror.selStart, mirror.selEnd, intent)
     if (change != null) accept(change)
 }
 
+
+/**
+ * The image a collapsed Backspace would reach from after it, or Delete from before it: it is selected first and the
+ * next press deletes it (Mason's desktop rule; the engine deletes an image at once).
+ */
+private fun EditorEngine.imageBesideCaret(key: EditorParagraphKey): EditorStyleSpan.Image? {
+    val caret = mirror.selStart
+    if (caret != mirror.selEnd || mirror.overlay != null) return null
+    val (from, to) = when (key) {
+        EditorParagraphKey.BACKSPACE -> caret - 1 to caret
+        EditorParagraphKey.DELETE -> caret to caret + 1
+        else -> return null
+    }
+    if (from < 0 || to > mirror.text.length) return null
+    // An image's shown spelling starts `!` and ends `)`: any other character costs no engine call.
+    if (mirror.text[from] != if (key == EditorParagraphKey.BACKSPACE) ')' else '!') return null
+    return checkNotNull(session).stylePlan(rev, mirror.byteRange(from, to)).filterIsInstance<EditorStyleSpan.Image>().firstOrNull {
+        if (key == EditorParagraphKey.BACKSPACE) it.end.toInt() == caret else it.start.toInt() == caret
+    }
+}
 
 internal fun EditorEngine.commitComposition(value: String?) {
     val s = session ?: return
@@ -117,7 +172,7 @@ internal fun EditorEngine.commitComposition(value: String?) {
         mirror.overlay = null
         mirror.selStart = o.start + o.original.length; mirror.selEnd = mirror.selStart
         if (edits.any { it.text.length > OpenSlices.NEXT_CHARS * 2 || it.end > tailStart() }) resetViewProgressively(edits)
-        else postUpdate(edits, listOf(projectWindow(o.start, (o.start + o.original.length).coerceAtMost(tailStart()))))
+        else postUpdate(edits, listOf(planStyleWindow(o.start, (o.start + o.original.length).coerceAtMost(tailStart()))))
     }
     streamTail(0)
 }

@@ -28,6 +28,32 @@ fn native_clipboard_copies_cuts_and_pastes_exact_markdown() {
 }
 
 #[test]
+fn native_paste_of_a_selected_block_over_itself_moves_the_caret_below_at_the_same_revision() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    let original = "a\n```js\nx\n```\nb";
+    store
+        .create_note("same".into(), "".into(), original.into())
+        .unwrap();
+    let session = store.open_editor("same".into()).unwrap();
+    let at = |start, end| EditorByteRange { start, end };
+    let selected = session.select_code_block(0, 2).unwrap();
+    let copied = session
+        .copy_markdown(0, selected.selection.clone())
+        .unwrap();
+    let change = session
+        .paste_markdown(0, selected.selection, copied)
+        .unwrap()
+        .unwrap();
+    assert_eq!(change.revision, 0);
+    assert_eq!(change.selection, at(4, 4));
+    assert_eq!(change.selected_block, None);
+    assert_eq!(session.source_text().unwrap(), original);
+    assert!(session.undo(0).unwrap().is_none());
+}
+
+#[test]
 fn native_block_paste_in_an_empty_fence_stays_literal() {
     let tree = TempTree::new();
     std::fs::create_dir_all(tree.path("vault")).unwrap();
@@ -99,10 +125,10 @@ fn native_named_link_paste_maps_visible_caret_and_survives_history_and_reopen() 
     );
 }
 
-/// Pasting over a selection from a block's code past it writes what typing
-/// writes: the frame stays and the pasted line is code (fenced-code.md).
+/// Pasting over a selection from a block's code past it takes the block
+/// whole, as typing does (fenced-code.md): the paste lands as prose.
 #[test]
-fn native_block_paste_from_code_over_prose_keeps_the_frame() {
+fn native_block_paste_from_code_over_prose_takes_the_block_whole() {
     let tree = TempTree::new();
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
@@ -119,18 +145,102 @@ fn native_block_paste_from_code_over_prose_keeps_the_frame() {
         .paste_markdown(0, at(0, 8), "# h".into())
         .unwrap()
         .unwrap();
-    assert_eq!(change.selection, at(3, 3));
-    assert_eq!(session.source_text().unwrap(), "```\n# h\n```");
-    assert_eq!(session.display_text().unwrap(), "# h");
+    assert_eq!(change.selection, at(1, 1));
+    assert_eq!(session.source_text().unwrap(), "# h");
+    assert_eq!(session.display_text().unwrap(), "h");
     let toolbar = session.toolbar_state().unwrap();
-    assert!(toolbar.code);
-    assert_eq!(toolbar.heading, None);
+    assert!(!toolbar.code);
+    assert_eq!(toolbar.heading, Some(1));
     assert_eq!(session.undo(1).unwrap().unwrap().selection, at(0, 8));
     assert_eq!(session.source_text().unwrap(), original);
-    assert_eq!(session.redo(2).unwrap().unwrap().selection, at(3, 3));
+    assert_eq!(session.redo(2).unwrap().unwrap().selection, at(1, 1));
     session.checkpoint().unwrap();
     drop(session);
     let reopened = store.open_editor("selected-code".into()).unwrap();
-    assert_eq!(reopened.source_text().unwrap(), "```\n# h\n```");
-    assert_eq!(reopened.display_text().unwrap(), "# h");
+    assert_eq!(reopened.source_text().unwrap(), "# h");
+    assert_eq!(reopened.display_text().unwrap(), "h");
+}
+
+/// A block selected as one object reports itself on the selection change
+/// and on every change after it, and Cut takes it with its fences.
+#[test]
+fn native_selected_code_block_shows_on_each_change() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("block".into(), "".into(), "a\n```js\nx\n```\nb".into())
+        .unwrap();
+    let session = store.open_editor("block".into()).unwrap();
+    let at = |start, end| EditorByteRange { start, end };
+    let selected = session.select_code_block(0, 2).unwrap();
+    assert_eq!(selected.selected_block, Some(at(2, 3)));
+    assert_eq!(selected.selection, at(2, 3));
+    let echoed = session
+        .select_with_affinity(0, at(2, 3), futo_notes_ffi::EditorAffinity::Backward)
+        .unwrap();
+    assert_eq!(echoed.selected_block, Some(at(2, 3)));
+    let cut = session.cut_markdown(0, at(2, 3)).unwrap();
+    assert_eq!(cut.markdown, "```js\nx\n```");
+    let change = cut.change.unwrap();
+    assert_eq!(change.selected_block, None);
+    assert_eq!(session.source_text().unwrap(), "a\n\nb");
+    let undone = session.undo(1).unwrap().unwrap();
+    assert_eq!(undone.selected_block, Some(at(2, 3)));
+}
+
+/// A header field writes the opening fence's info string as one Undo step;
+/// a value that would not read back is refused. Typing a fence reports the
+/// language caret, which the user's own placement of the caret ends.
+#[test]
+fn native_code_block_header_and_language_caret() {
+    use futo_notes_ffi::{EditorAffinity, EditorCodeBlockHeader, EditorSessionError};
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("header".into(), "".into(), "```js hl:1\nx\n```\n".into())
+        .unwrap();
+    let session = store.open_editor("header".into()).unwrap();
+    let at = |start, end| EditorByteRange { start, end };
+    let header = |language: &str, name: &str| EditorCodeBlockHeader {
+        at: 0,
+        language: language.into(),
+        name: name.into(),
+    };
+    let written = session.set_code_block_header(0, header("go", "main.go"));
+    let written = written.unwrap().unwrap();
+    assert_eq!(written.selection, at(0, 0));
+    assert!(!written.writes_language);
+    let source = "```go name:main.go hl:1\nx\n```\n";
+    assert_eq!(session.source_text().unwrap(), source);
+    assert!(session
+        .set_code_block_header(1, header("go", "main.go"))
+        .unwrap()
+        .is_none());
+    let refused = session.set_code_block_header(1, header("c sharp", ""));
+    assert!(matches!(refused, Err(EditorSessionError::InvalidText)));
+    let language = futo_notes_ffi::editor_typed_code_block_language(" c sharp`".into());
+    assert_eq!(language, "c-sharp");
+    let picked = futo_notes_ffi::editor_typed_code_block_language("Python ".into());
+    assert_eq!(picked, "Python ");
+    let name = futo_notes_ffi::editor_typed_code_block_name("a`\tb ".into());
+    assert_eq!(name, "a b ");
+    session.undo(1).unwrap().unwrap();
+    assert_eq!(session.source_text().unwrap(), "```js hl:1\nx\n```\n");
+
+    store
+        .create_note("fence".into(), "".into(), "a".into())
+        .unwrap();
+    let typing = store.open_editor("fence".into()).unwrap();
+    typing
+        .select_with_affinity(0, at(1, 1), EditorAffinity::Backward)
+        .unwrap();
+    let range = futo_notes_ffi::EditorUtf16Range { start: 1, end: 1 };
+    let typed = typing.replace_utf16(0, range, "\n```".encode_utf16().collect());
+    assert!(typed.unwrap().writes_language);
+    let echoed = typing.select_with_affinity(1, at(2, 2), EditorAffinity::Backward);
+    assert!(echoed.unwrap().writes_language);
+    let placed = typing.place_selection(1, at(2, 2), EditorAffinity::Backward);
+    assert!(!placed.unwrap().writes_language);
 }

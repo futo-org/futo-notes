@@ -3,28 +3,25 @@
 //! edits the lines it names and nothing else (renumbering a numbered list is
 //! the one exception, and names the lines it bumps).
 //!
-//! `run` applies a command as one action behind one guard: after the edits,
-//! the lines around them are read forward until the reader's carry settles.
+//! `run` (`command/run.rs`) applies a command as one action behind one
+//! guard: after the edits, the lines around them are read forward until the
+//! reader's carry settles.
 //! If a line the command did not name now reads as a different kind of
 //! block (a fence or front matter opened or closed, a table header gained or
 //! lost), the command is cancelled: no edit, no history entry. A command can
 //! also hold named lines to their kind (`Command::same_kind`). Typing never
 //! goes through the guard.
 mod kept_line;
+mod run;
 pub(crate) mod trial;
 
-pub(crate) use kept_line::kept_line;
-
-use super::edit::{Batch, Change};
-use super::history::Group;
 use super::line::Entry;
 use super::{read, store, Engine};
 use crate::lines::{block, Carry, FenceRole, FrontMatterRole, Kind, TableRole};
-use crate::{
-    Affinity, DisplayOffset, DisplayRange, EditorError, InlineFormat, InputAction, Revision,
-    SourceEdit,
-};
+use crate::{Affinity, DisplayOffset, DisplayRange, EditorError, InlineFormat};
 use std::ops::Range;
+
+pub(crate) use kept_line::kept_line;
 
 /// One text edit, in source offsets of the text before the command.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,6 +61,9 @@ pub(crate) struct Command {
     /// A deletion's formats the caret keeps where it no longer reads them
     /// (`Engine::carry_deleted`).
     pub carry: Option<Vec<InlineFormat>>,
+    /// The selection lands on the code block holding its start, selected as
+    /// one object.
+    pub selects_block: bool,
     /// Named lines that must still read as the same kind of block after the
     /// edits, as (index before, index after): a block move's lines change
     /// place, never kind.
@@ -94,6 +94,7 @@ impl Command {
             affinity: None,
             typed: false,
             carry: None,
+            selects_block: false,
             same_kind: Vec::new(),
             image: None,
         }
@@ -314,161 +315,6 @@ impl Engine {
         true
     }
 
-    /// Run the command `build` makes from the engine's state, as one action
-    /// behind the guard. Pending marked text commits first, in the same
-    /// acceptance and as its own undo step, and `build` reads the note with
-    /// it in place. `None` when nothing changed or the guard cancelled.
-    pub(crate) fn run(
-        &mut self,
-        expected: Revision,
-        build: impl FnOnce(&Engine) -> Result<Option<Command>, EditorError>,
-        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
-    ) -> Result<Option<Change>, EditorError> {
-        self.check_revision(expected)?;
-        let opening = self.point();
-        let marked = self.composition.take();
-        let mut batch = Batch::default();
-        let mut committed = None;
-        if let Some(marked) = &marked {
-            self.adopt_marked_caret(marked.range);
-            let commit = self.plan_input(
-                self.outside_crlf(marked.range),
-                &marked.text,
-                InputAction::CompositionCommit,
-            );
-            self.raw(&mut batch, commit.range.clone(), &commit.inserted);
-            self.caret_at(commit.caret);
-            committed = Some((batch.records.len(), self.point()));
-        }
-        let restore = |engine: &mut Self, batch: Batch| {
-            engine.revert(batch);
-            engine.restore(&opening);
-            engine.composition = marked.clone();
-        };
-        let command = match build(self) {
-            Ok(command) => command,
-            Err(error) => {
-                restore(self, batch);
-                return Err(error);
-            }
-        };
-        let mut applied = false;
-        if let Some(command) = &command {
-            match self.apply(&mut batch, command) {
-                Ok(true) => applied = true,
-                Ok(false) => {
-                    // Cancelled: keep only the commit, if there is one.
-                    restore(self, batch);
-                    if marked.is_none() {
-                        return Ok(None);
-                    }
-                    self.composition = None;
-                    batch = Batch::default();
-                    let marked = marked.as_ref().expect("marked text");
-                    self.adopt_marked_caret(marked.range);
-                    let commit = self.plan_input(
-                        self.outside_crlf(marked.range),
-                        &marked.text,
-                        InputAction::CompositionCommit,
-                    );
-                    self.raw(&mut batch, commit.range.clone(), &commit.inserted);
-                    self.caret_at(commit.caret);
-                }
-                Err(error) => {
-                    restore(self, batch);
-                    return Err(error);
-                }
-            }
-        }
-        let accepted = match self.accept(batch, accept) {
-            Ok(accepted) => accepted,
-            Err(error) => {
-                self.restore(&opening);
-                self.composition = marked;
-                return Err(error);
-            }
-        };
-        let Some((edit, shown, mut records)) = accepted else {
-            // Marked text that committed unchanged still leaves the caret at
-            // its end; otherwise nothing moved.
-            if committed.is_none() || applied {
-                self.restore(&opening);
-            }
-            return Ok(None);
-        };
-        self.typing = None;
-        self.formats = None;
-        self.history.redo.clear();
-        let mut before = opening;
-        if let Some((count, after_commit)) = committed {
-            let rest = records.split_off(count);
-            if records.iter().any(|r| r.removed != r.inserted) {
-                self.history.undo.push(Group {
-                    records,
-                    before,
-                    after: after_commit.clone(),
-                });
-                before = after_commit;
-            }
-            records = rest;
-        }
-        if applied {
-            let command = command.expect("an applied command");
-            self.land(command.selection, command.affinity);
-            self.carry_deleted(command.carry);
-        }
-        if !records.is_empty() {
-            self.history.undo.push(Group {
-                records,
-                before,
-                after: self.point(),
-            });
-        }
-        Ok(Some(self.change(edit, shown)))
-    }
-
-    /// Apply `command`'s edits to `batch`, then the guard. `false` when the
-    /// guard fails, `InvalidText` when the image it writes does not read
-    /// back (the edits stay in `batch` for the caller to revert).
-    fn apply(&mut self, batch: &mut Batch, command: &Command) -> Result<bool, EditorError> {
-        let mut edits = command.edits.clone();
-        edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
-        for edit in &edits {
-            if edit.range.start > edit.range.end {
-                return Err(EditorError::InvalidRange);
-            }
-            self.check_source(edit.range.start)?;
-            self.check_source(edit.range.end)?;
-        }
-        if edits
-            .windows(2)
-            .any(|pair| pair[0].range.end > pair[1].range.start)
-        {
-            return Err(EditorError::InvalidRange);
-        }
-        let before = if command.typed {
-            None
-        } else {
-            Some(self.before_command(command, &edits)?)
-        };
-        let same_kind: Vec<_> = command
-            .same_kind
-            .iter()
-            .map(|&(old, new)| (class(&self.store.get(old).line.kind), new))
-            .collect();
-        self.raw_edits(batch, &edits);
-        if let Some(image) = &command.image {
-            if !self.reads_as_image(image) {
-                return Err(EditorError::InvalidText);
-            }
-        }
-        let count = self.store.len();
-        let kinds_kept = same_kind
-            .iter()
-            .all(|&(was, new)| new < count && class(&self.store.get(new).line.kind) == was);
-        Ok(kinds_kept && before.is_none_or(|before| self.guard_holds(&before)))
-    }
-
     /// Put the selection at source `range` of the current text.
     pub(crate) fn land(&mut self, range: Range<usize>, affinity: Option<Affinity>) {
         if range.start == range.end {
@@ -481,6 +327,7 @@ impl Engine {
             return;
         }
         self.pin = None;
+        self.block_selected = false;
         let selection = DisplayRange {
             start: DisplayOffset(self.display_of(range.start)),
             end: DisplayOffset(self.display_of(range.end)),

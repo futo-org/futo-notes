@@ -13,9 +13,11 @@
 //!   opens whole.
 //! - A table is described whole (its rows and extent), so the shown lines
 //!   never end inside one: a table at the cut is left for the whole open.
+//! - So is a code block (its extent and line count): one whose closing line
+//!   was not read is left for the whole open.
 
 use crate::engine::Engine;
-use crate::lines::Kind;
+use crate::lines::{FenceRole, Kind};
 use crate::{ProjectionSlice, TableDescription};
 
 /// How many leading bytes of a note a host reads for its first screens.
@@ -57,6 +59,15 @@ pub(crate) fn shown_len(engine: &Engine) -> Option<usize> {
     let first = engine.line(0);
     if without_ending(&first.text) == "---" && !matches!(first.line.kind, Kind::FrontMatter(_)) {
         return None;
+    }
+    let fence_role = |index: usize| match engine.line(index).line.kind {
+        Kind::Fence { role, .. } => Some(role),
+        _ => None,
+    };
+    if fence_role(shown) == Some(FenceRole::Code) {
+        while shown > 0 && fence_role(shown) != Some(FenceRole::Open) {
+            shown -= 1;
+        }
     }
     while shown > 0 && matches!(engine.line(shown - 1).line.kind, Kind::Table { .. }) {
         shown -= 1;
@@ -117,5 +128,7 @@ pub fn shown_projection(mut slice: ProjectionSlice) -> ProjectionSlice {
     slice.wikilinks.retain(|link| link.range.start.0 < end);
     slice.atoms.retain(|atom| atom.range.start.0 < end);
     slice.tags.retain(|tag| tag.start.0 < end);
+    slice.code_blocks.retain(|block| block.range.start.0 < end);
+    slice.tables.retain(|table| table.range.start.0 < end);
     slice
 }

@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.util.Log
 import com.futo.notes.storage.GateAccess
 import com.futo.notes.storage.StorageMigrationGate
+import uniffi.futo_notes_ffi.EditorAffinity
 import uniffi.futo_notes_ffi.EditorBlockCommand
 import uniffi.futo_notes_ffi.EditorByteRange
 import uniffi.futo_notes_ffi.EditorInlineFormat
@@ -52,6 +53,14 @@ internal class EditorEngine(
     internal var fast: FastSession? = null
     internal var dismissedCompletionStart: ULong? = null
     internal var rev: ULong = 0u
+    /** The last change made a block whose opening fence takes the next letters as its language (writes_language). */
+    internal var writesLanguage = false
+    /** The caret is on a table's delimiter row while the person types it (writes_delimiter_row): the row is drawn as text. */
+    internal var writesDelimiterRow = false
+    /** Where the caret left a typed delimiter row with no edit: that line is restyled with the next update. */
+    private var delimiterRowLeftAt = -1
+    /** Where the keystroke that finished a typed delimiter row put the caret, until anything else happens. */
+    internal var delimiterRowFinishedAt = -1
     internal val mirror = DisplayMirror()
 
     /** The keyboard's view, read by the input connection on this thread. */
@@ -68,8 +77,11 @@ internal class EditorEngine(
     /** A committed external event must survive migration admission or a failed write. */
     internal var reconcilePending = false
     internal var closed = false
-    private val toolbarCommands = ToolbarCommandQueue(handler) { executeCommand({}, it) }
+    internal val toolbarCommands = ToolbarCommandQueue(handler) { executeCommand({}, it) }
     private var inputStartNanos = 0L
+    /** While a key or the keyboard's input runs: its updates reveal the caret they edit at. */
+    /** The change being made is the reader's input at the caret (a key, the keyboard, a paste): the view reveals it. */
+    internal var keyed = false
     internal var engineNanos = 0L
     /** Characters at the end of the display the view has not been given yet (progressive open). */
     internal var tailLength = 0
@@ -85,9 +97,10 @@ internal class EditorEngine(
         private set
     @Volatile var publishedIme: EngineImeState? = null
         private set
+    /** Rides on the next posted update: a dropped block landing (EditorEngineBlocks.kt). */
+    internal var pendingDrop: DropHold? = null
     /** The display offset at the top of the view's screen, written by the view as it scrolls. */
     @Volatile var screenStart = 0
-
 
     // ---- view and toolbar (posted from the UI thread) ----
 
@@ -97,31 +110,18 @@ internal class EditorEngine(
      * still on their way to the view (a long command ran first), so it is
      * carried through their edits and echoed back, never dropped.
      */
-    fun viewSelection(viewSeq: Int, start: Int, end: Int) = handler.post {
+    /** [placed]: the user put it there; false when the view moved it itself (it ends the selection on blur). */
+    fun viewSelection(viewSeq: Int, start: Int, end: Int, placed: Boolean = true) = handler.post {
         if (closed || selectWhileOpening(viewSeq, start, end)) return@post
-        selectFromView(viewSeq, start, end)
+        selectFromView(viewSeq, start, end, placed = placed)
     }
 
-    internal fun selectFromView(viewSeq: Int, start: Int, end: Int, force: Boolean = false) {
+    internal fun selectFromView(viewSeq: Int, start: Int, end: Int, force: Boolean = false, placed: Boolean = true) {
         val (a, b) = viewEdits.map(viewSeq, start, end) ?: return
-        if (!force && a == mirror.selStart && b == mirror.selEnd) return
-        guarded { select(a, b, fromView = true, echo = force || viewSeq != seq) }
-    }
-
-    fun toggleFormat(format: EditorInlineFormat) = toolbarCommands.post {
-        if (mirror.overlay != null) commitComposition(null)
-        session?.toggleFormat(rev, format)?.let(::accept)
-    }
-
-    /** A toolbar tap: a caret inside a word or at its start formats the whole word. */
-    fun toggleToolbarFormat(format: EditorInlineFormat) = toolbarCommands.post {
-        if (mirror.overlay != null) commitComposition(null)
-        session?.toggleToolbarFormat(rev, format)?.let(::accept)
-    }
-
-    fun blockCommand(command: EditorBlockCommand) = toolbarCommands.post {
-        if (mirror.overlay != null) commitComposition(null)
-        session?.blockCommandUtf16(rev, EditorUtf16Range(mirror.selStart.toULong(), mirror.selEnd.toULong()), command)?.let(::accept)
+        // A selection the reader placed is theirs, not find's, even on the same characters: a new query leaves it.
+        if (placed && !force) find.landedOn = null
+        if (!force && a == mirror.selStart && b == mirror.selEnd && mirror.selectedBlock == null) return
+        guarded { select(a, b, fromView = true, echo = force || viewSeq != seq, placed = placed && !force) }
     }
 
     fun toggleTaskAt(offset: Int) = command {
@@ -132,38 +132,16 @@ internal class EditorEngine(
         if (change != null) accept(change) else if (keepStart != mirror.selStart || keepEnd != mirror.selEnd) postUpdate(emptyList(), emptyList())
     }
 
-    fun undo() = toolbarCommands.post {
-        if (mirror.overlay != null) commitComposition(null)
-        session?.undo(rev)?.let(::accept)
-    }
-
-    fun redo() = toolbarCommands.post {
-        if (mirror.overlay != null) commitComposition(null)
-        session?.redo(rev)?.let(::accept)
-    }
-
-    fun paste(markdown: String) = command {
-        if (mirror.overlay != null) commitComposition(null)
-        session?.pasteMarkdown(rev, mirror.byteRange(mirror.selStart, mirror.selEnd), markdown)?.let(::accept)
-    }
-
-    /**
-     * [deliver] runs on this thread and says whether the clipboard took the text. A cut
-     * removes the selection only after it did: the system clipboard refuses a large one.
-     */
-    fun copy(cut: Boolean, deliver: (String) -> Boolean) = command {
-        if (mirror.overlay != null) commitComposition(null)
-        val s = session ?: return@command
-        if (mirror.selStart == mirror.selEnd) return@command
-        val range = mirror.byteRange(mirror.selStart, mirror.selEnd)
-        if (!deliver(s.copyMarkdown(rev, range)) || !cut) return@command
-        s.cutMarkdown(rev, range).change?.let(::accept)
-    }
-
     fun selectAll() = command { select(0, mirror.text.length, fromView = false, finishTail = false); streamTail(0) }
 
     /** A selection the host chooses (restoring the caret after a reload). */
     fun hostSelect(start: Int, end: Int) = command { select(start, end, fromView = false) }
+
+    /**
+     * The caret a header field hands back to the code: the user's own placement, so the same offset still ends a selected
+     * block and a language caret (typing writes the code, not the info string or over the block).
+     */
+    fun placeCaret(offset: Int) = command { select(offset, offset, fromView = false, placed = true) }
 
     /** While the view is touched or shows its text menu, background slices wait (TextFirstEditText). */
     fun holdRender(held: Boolean) = handler.post {
@@ -184,46 +162,6 @@ internal class EditorEngine(
             if (closed || session == null) return@whenOpen
             if (mirror.overlay != null) resetMarkedView(emptyList()) else resetViewProgressively(through = through)
         }
-    }
-
-    /** Own-action changes (a relink after rename) the Store queued for this session. */
-    fun drainCoordinatedChanges() = command {
-        val s = session ?: return@command
-        for (change in s.takeCoordinatedChanges()) {
-            if (change.previousRevision != rev) {
-                Log.w(TAG, "coordinated change ${change.previousRevision}->${change.revision} at $rev; reloading view")
-                reloadFromEngine()
-                return@command
-            }
-            accept(change)
-        }
-    }
-
-    /**
-     * Save the draft as Markdown now, ahead of the debounce (on pause). [done]
-     * runs on the UI thread with the result, or null when nothing was unsaved
-     * or the save failed (reported through the sink).
-     */
-    fun checkpoint(done: ((FlushDraftResult?) -> Unit)? = null) = handler.post {
-        val result = if (closed || session == null) null else save(force = true)
-        if (done != null) ui.post { done(result) }
-    }
-
-    /** Sync already applied its authoritative mutation, including attachment identity.
-     * Reconcile on the input thread, after accepted typing, without replacing the session. */
-    fun reconcileExternalChanges(done: () -> Unit) = handler.post {
-        if (!closed && session != null) {
-            val id = session!!.noteId()
-            ui.post { sink.onAttachmentId(id) }
-            save(force = true, external = true)
-        }
-        ui.post(done)
-    }
-
-    /** The current exact source, for the screen's rename/draft paths. */
-    fun sourceText(done: (String?) -> Unit) = handler.post {
-        val source = try { session?.sourceText() } catch (e: EditorSessionException) { null }
-        ui.post { done(source) }
     }
 
     /** Save before releasing. A failed detach leaves the exact session editable and retryable.
@@ -295,8 +233,11 @@ internal class EditorEngine(
     // ---- internals ----
 
     internal fun input(block: () -> Unit) {
+        // A key before the whole open waits for it as a key, its update still revealing the caret it edits at.
+        if (deferredUntilOpen { input(block) }) return
         inputStartNanos = SystemClock.elapsedRealtimeNanos()
-        guarded(block)
+        keyed = true
+        try { guarded(block) } finally { keyed = false }
     }
 
     internal fun command(onUnavailable: () -> Unit = {}, block: () -> Unit) = handler.post {
@@ -332,7 +273,8 @@ internal class EditorEngine(
     }
 
     /** [echo]: updates still in flight to the view would overwrite this view selection. */
-    internal fun select(start: Int, end: Int, fromView: Boolean, finishTail: Boolean = true, echo: Boolean = false) {
+    /** [placed]: the user put it there (a press, a drag), so the same range still ends a selected block. */
+    internal fun select(start: Int, end: Int, fromView: Boolean, finishTail: Boolean = true, echo: Boolean = false, placed: Boolean = false) {
         val s = session ?: return
         var a = minOf(start, end).coerceIn(0, mirror.text.length)
         var b = maxOf(start, end).coerceIn(0, mirror.text.length)
@@ -350,16 +292,24 @@ internal class EditorEngine(
             ui.post { sink.onImeReset() }
         }
         if (finishTail && b > tailStart() && streaming) finishStreaming()
-        val change = s.selectUtf16(rev, EditorUtf16Range(a.toULong(), b.toULong()))
+        val selectedBefore = mirror.selectedBlock
+        // The affinity a plain selection takes (`select`): after hidden syntax at the note's start, otherwise before it, so
+        // text typed where a span ends lands inside it (interpretation-and-input.md).
+        val change = if (placed) s.placeSelection(rev, mirror.byteRange(a, b), if (a == 0) EditorAffinity.FORWARD else EditorAffinity.BACKWARD) else s.selectUtf16(rev, EditorUtf16Range(a.toULong(), b.toULong()))
         applySelectionChange(change)
-        if (settle || echo || !fromView || mirror.selStart != a || mirror.selEnd != b) postUpdate(emptyList(), emptyList()) else publishSelection()
+        if (settle || echo || !fromView || mirror.selStart != a || mirror.selEnd != b || mirror.selectedBlock != selectedBefore) postUpdate(emptyList(), emptyList()) else publishSelection()
         scheduleCaretState()
     }
 
     internal fun applySelectionChange(change: EditorSelectionChange) {
+        val before = mirror.selStart
+        delimiterRowFinishedAt = -1
         rev = change.revision
         mirror.selStart = mirror.toUtf16(change.selection.start.toInt())
         mirror.selEnd = mirror.toUtf16(change.selection.end.toInt())
+        mirror.selectedBlock = change.selectedBlock?.let(mirror::toUtf16Range)
+        if (writesDelimiterRow && !change.writesDelimiterRow) delimiterRowLeftAt = before
+        writesDelimiterRow = change.writesDelimiterRow
     }
 
     /** Apply one accepted engine change to its authoritative mirror and bounded view projection. */
@@ -373,6 +323,8 @@ internal class EditorEngine(
     }
 
     internal fun postUpdate(edits: List<TextEdit>, windows: List<StyleWindow>, reset: String? = null, sourceChanged: Boolean = false, preserveScroll: Boolean = false, paced: Boolean = false, marked: List<SpanSpec.Inline>? = null) {
+        val left = delimiterRowLeftAt.also { delimiterRowLeftAt = -1 }
+        if (left >= 0 && edits.isEmpty() && reset == null) return postUpdate(edits, windows + planStyleWindow(left, left), preserveScroll = preserveScroll, paced = paced, marked = marked)
         seq += 1
         viewEdits.record(seq, edits)
         val update = UiUpdate(
@@ -390,6 +342,11 @@ internal class EditorEngine(
             complete = session != null && !streaming && !renderWork.stylesPending,
             sourceChanged = sourceChanged, preserveScroll = preserveScroll,
             marked = marked,
+            selectedBlock = mirror.selectedBlock,
+            writesLanguage = writesLanguage.also { writesLanguage = false },
+            drop = pendingDrop.also { pendingDrop = null },
+            revision = rev,
+            keyed = keyed,
         )
         publishSelection()
         publishCell()
@@ -406,7 +363,6 @@ internal class EditorEngine(
         publishedIme = state
         ui.post { sink.onImeState(state) }
     }
-
 
     // ---- saving ----
 
@@ -438,7 +394,6 @@ internal class EditorEngine(
         handler.removeCallbacks(caretRunnable)
         handler.postDelayed(caretRunnable, CARET_STATE_DELAY_MS)
     }
-
 
     internal fun units(value: String): List<UShort> = List(value.length) { value[it].code.toUShort() }
 

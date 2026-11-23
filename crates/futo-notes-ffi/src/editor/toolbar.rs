@@ -8,6 +8,49 @@ pub enum EditorToolbarList {
     Task,
 }
 
+/// A command a toolbar offers (`EditorToolbarSnapshot::allowed`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum EditorToolbarCommand {
+    Bold,
+    Italic,
+    Strike,
+    Code,
+    Link,
+    /// The heading toggle, at every level alike.
+    Heading,
+    Quote,
+    BulletList,
+    OrderedList,
+    TaskList,
+    CodeBlock,
+    Divider,
+    Table,
+    /// `insert_image` at the selection.
+    Image,
+}
+
+impl From<futo_notes_editor::ToolbarCommand> for EditorToolbarCommand {
+    fn from(command: futo_notes_editor::ToolbarCommand) -> Self {
+        use futo_notes_editor::ToolbarCommand;
+        match command {
+            ToolbarCommand::Bold => Self::Bold,
+            ToolbarCommand::Italic => Self::Italic,
+            ToolbarCommand::Strike => Self::Strike,
+            ToolbarCommand::Code => Self::Code,
+            ToolbarCommand::Link => Self::Link,
+            ToolbarCommand::Heading => Self::Heading,
+            ToolbarCommand::Quote => Self::Quote,
+            ToolbarCommand::BulletList => Self::BulletList,
+            ToolbarCommand::OrderedList => Self::OrderedList,
+            ToolbarCommand::TaskList => Self::TaskList,
+            ToolbarCommand::CodeBlock => Self::CodeBlock,
+            ToolbarCommand::Divider => Self::Divider,
+            ToolbarCommand::Table => Self::Table,
+            ToolbarCommand::Image => Self::Image,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorToolbarSnapshot {
     pub formats: Vec<EditorInlineFormat>,
@@ -21,6 +64,9 @@ pub struct EditorToolbarSnapshot {
     pub can_outdent: bool,
     pub can_undo: bool,
     pub can_redo: bool,
+    /// The commands that would act at the selection now; a button whose
+    /// command is left out would change nothing.
+    pub allowed: Vec<EditorToolbarCommand>,
 }
 
 impl From<futo_notes_editor::ToolbarState> for EditorToolbarSnapshot {
@@ -41,6 +87,7 @@ impl From<futo_notes_editor::ToolbarState> for EditorToolbarSnapshot {
             can_outdent: state.can_outdent,
             can_undo: state.can_undo,
             can_redo: state.can_redo,
+            allowed: state.allowed.into_iter().map(Into::into).collect(),
         }
     }
 }

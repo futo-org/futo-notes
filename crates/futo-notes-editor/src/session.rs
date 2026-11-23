@@ -4,18 +4,21 @@
 mod commands;
 mod external;
 mod find;
+mod moves;
 mod types;
 
 pub use external::ExternalSourceAdoption;
 pub use find::{FindReport, FindScanRequest, FindScanResult, FindWork};
-pub use types::{BlockCommand, Composition, MarkedRun, ParagraphKey, ToolbarList, ToolbarState};
+pub use types::{
+    BlockCommand, Composition, MarkedRun, ParagraphKey, ToolbarCommand, ToolbarList, ToolbarState,
+};
 
 use crate::engine::Engine;
 use crate::history::{HistoryClock, MonotonicClock};
 use crate::{
-    Affinity, BlockBoundary, BlockSlots, CaretDirection, DisplayOffset, DisplayRange,
-    DisplayReplacement, EditorError, InlineFormat, InputAction, LiftedBlock, ProjectionSlice,
-    Revision, SelectionChange, SourceEdit, SourceOffset, ViewChange,
+    Affinity, CaretDirection, CodeBlockHeader, DisplayOffset, DisplayRange, DisplayReplacement,
+    EditorError, InlineFormat, InputAction, ProjectionSlice, Revision, SelectionChange, SourceEdit,
+    SourceOffset, ViewChange,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -93,8 +96,49 @@ impl EditorSession {
         self.engine.display_text()
     }
 
+    /// The display text's length in bytes.
+    pub fn display_len(&self) -> usize {
+        self.engine.display_len()
+    }
+
     pub fn selection(&self) -> DisplayRange {
         self.engine.selection()
+    }
+
+    /// The code block selected as one object, as changes report it.
+    pub fn selected_block(&self) -> Option<DisplayRange> {
+        self.engine.selected_block()
+    }
+
+    /// Whether the caret writes its code block's language, as changes report
+    /// it (`writes_language`).
+    pub fn writes_language(&self) -> bool {
+        self.engine.writes_language()
+    }
+
+    /// Whether the caret writes a table's delimiter row, as changes report
+    /// it (`writes_delimiter_row`).
+    pub fn writes_delimiter_row(&self) -> bool {
+        self.engine.writes_delimiter_row()
+    }
+
+    /// The word a double click at `offset` selects (`engine/words.rs`).
+    pub fn word_at(
+        &self,
+        expected: Revision,
+        offset: DisplayOffset,
+    ) -> Result<DisplayRange, EditorError> {
+        self.engine.word_at(expected, offset)
+    }
+
+    /// Where Option+Arrow from `offset` stops (`engine/words.rs`).
+    pub fn word_stop(
+        &self,
+        expected: Revision,
+        offset: DisplayOffset,
+        direction: CaretDirection,
+    ) -> Result<DisplayOffset, EditorError> {
+        self.engine.word_stop(expected, offset, direction)
     }
 
     pub fn affinity(&self) -> Affinity {
@@ -134,6 +178,41 @@ impl EditorSession {
         affinity: Affinity,
     ) -> Result<SelectionChange, EditorError> {
         self.run(|e| e.select_with_affinity(expected, range, affinity))
+    }
+
+    /// Select, as one object, the code block whose code shows at display
+    /// offset `at` (a host's tap on the block's header). The state shows on
+    /// every change as `selected_block` until another selection or an edit.
+    pub fn select_code_block(
+        &mut self,
+        expected: Revision,
+        at: DisplayOffset,
+    ) -> Result<SelectionChange, EditorError> {
+        self.run(|e| e.select_code_block(expected, at))
+    }
+
+    /// Write a code block's language and `name:` from its header fields, as
+    /// one Undo step that keeps the selection. `None` when it already has
+    /// them; `InvalidText` (nothing changed) when they would not read back.
+    pub fn set_code_block_header(
+        &mut self,
+        expected: Revision,
+        header: &CodeBlockHeader,
+        accept: Accept,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.run(|e| e.set_code_block_header(expected, header, accept))
+    }
+
+    /// The user placed this selection (a press, a drag): unlike a host's
+    /// echo through `select_with_affinity`, the same range ends a selected
+    /// block and a language caret.
+    pub fn place_selection(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        affinity: Affinity,
+    ) -> Result<SelectionChange, EditorError> {
+        self.run(|e| e.place_selection(expected, range, affinity))
     }
 
     /// Move one extended grapheme in the requested direction, collapsing a
@@ -315,45 +394,19 @@ impl EditorSession {
         self.run(|e| e.block(expected, range, command, accept))
     }
 
-    /// What a press at display position `at` (the one under the finger)
-    /// lifts for a move: an image there that shares its line with other
-    /// content alone, else the block its line lifts. `None` for a blank line,
-    /// front matter or code nothing closes.
-    pub fn block_at(
-        &self,
-        expected: Revision,
-        at: DisplayOffset,
-    ) -> Result<Option<LiftedBlock>, EditorError> {
-        self.engine.block_at(expected, at)
-    }
-
-    /// Where that block may land inside display range `within` (both ends
-    /// included): each slot a move the engine accepts. A renderer asks for
-    /// what is near the screen, and again as it scrolls; the work grows with
-    /// the range, not the note. Empty when nothing lifts. Nothing changes.
-    pub fn block_slots(
-        &self,
-        expected: Revision,
-        at: DisplayOffset,
-        within: DisplayRange,
-    ) -> Result<BlockSlots, EditorError> {
-        self.engine.block_slots_at(expected, at, within)
-    }
-
-    /// Move that block to its slot `to` as one accepted edit and one Undo
-    /// step. `None` is a refusal that changed nothing: no block, or `to` is
-    /// not one of its slots.
-    pub fn move_block(
+    /// `removed` (typed text on one line, such as a `/` menu's query)
+    /// removed, then a toolbar block command at the caret left: one
+    /// acceptance and one Undo step. The removal alone when the command
+    /// changes nothing there; `None`, and nothing removed, for a range across
+    /// lines, an image or a wikilink, or on a code line or in front matter.
+    pub fn block_command_removing(
         &mut self,
         expected: Revision,
-        at: DisplayOffset,
-        to: BlockBoundary,
+        removed: DisplayRange,
+        command: BlockCommand,
         accept: Accept,
     ) -> Result<Option<ViewChange>, EditorError> {
-        self.run(|e| {
-            let change = e.move_block(expected, at, to, accept)?;
-            Ok(change.map(|change| e.view(change)))
-        })
+        self.run(|e| e.block_removing(expected, removed, command, accept))
     }
 
     /// Selection-wide formats and common blocks, plus command eligibility.

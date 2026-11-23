@@ -96,7 +96,7 @@ const shape = (type, json) => {
 };
 
 const source =
-  '---\ntitle: x\n---\n# Head\n\n**bé** [l](http://x.test "t") [[Road]] ![alt](img.png)\n\n- [ ] task\n1. num\n\n| a | b |\n| --- | --- |\n| c | d |\n\n```rust\ncode\n```\n---\n';
+  '---\ntitle: x\n---\n# Head\n\n**bé** [l](http://x.test "t") [[Road]] ![alt](img.png)\n\n- [ ] task\n1. num\n\n| a | b |\n| --- | --- |\n| c | d |\n\n```rust hl:1\ncode\n```\n---\n';
 const session = new WasmSession(1n, source, 0n);
 session.update_note_ids('["Road"]');
 let length = Buffer.byteLength(session.draft_text());
@@ -109,16 +109,31 @@ while (length > 0) {
   }
 }
 const slice = shape('ProjectionSlice', session.project(0n, 0, length));
-assert.ok(slice.blocks.some((b) => b.metadata && b.code === false));
-assert.ok(slice.blocks.some((b) => b.list && b.code === false) && slice.atoms.length > 0);
+assert.ok(slice.blocks.some((b) => b.metadata && b.code === null));
+assert.ok(slice.blocks.some((b) => b.list && b.code === null) && slice.atoms.length > 0);
 assert.ok(slice.links.length && slice.wikilinks.some((w) => w.note_id === 'Road'));
-assert.ok(slice.atoms.some((a) => a.image) && slice.blocks.some((b) => b.language === 'rust'));
+assert.ok(slice.atoms.some((a) => a.image) && slice.code_blocks.some((b) => b.language === 'rust'));
+assert.ok(slice.blocks.some((b) => b.code?.line_number === 1 && b.code.mark === 'Highlight'));
+assert.deepEqual(
+  slice.tables.map((t) => [t.columns, t.alignments]),
+  [[2, ['None', 'None']]],
+);
+assert.ok(slice.blocks.some((b) => b.table?.role === 'Row' && b.table.row === 1));
 shape('NoteIdChange', session.update_note_ids('["Road","Other"]'));
 shape('NoteIdChange', session.update_note_ids('[]'));
+const rust = slice.code_blocks.find((b) => b.language === 'rust');
+const selectedBlock = JSON.parse(session.select_code_block(0n, rust.range.start));
+assert.deepEqual(selectedBlock.selected_block, rust.range);
+shape('SelectionChange', JSON.stringify(selectedBlock));
+assert.deepEqual(shape('DisplayRange | null', session.selected_block()), rust.range);
 shape('SelectionChange', session.select_with_affinity(0n, 3, 3, '"Forward"'));
 shape(
   'LinkDescription | null',
   session.inspect_link(0n, slice.links[0].range.start, slice.links[0].range.end),
+);
+shape(
+  'string | null',
+  session.link_label(0n, slice.links[0].range.start, slice.links[0].range.end),
 );
 shape('PortableStatus', session.status());
 shape('Composition | null', session.composition());
@@ -141,9 +156,31 @@ const cell = table.rows[0][0].content;
 session.select_with_affinity(0n, cell.end, cell.end, '"Forward"');
 assert.ok(shape('TableDescription', session.inspect_table(0n, cell.end, cell.end)).focus);
 shape('TableOutcome | null', session.table_key(0n, 'Tab'));
+shape('TableOutcome | null', session.enter_table_cell_utf16(0n, slice.text.indexOf('c'), 0));
 shape('string', JSON.stringify(session.copy_markdown(0n, 0, 4)));
 shape('[string, Applied | null]', session.cut_markdown(0n, 0, 0));
+
+const words = new WasmSession(4n, 'one **two** three', 0n);
+assert.equal(words.display_len(), 13);
+shape('DisplayRange', words.word_at(0n, 5));
+assert.equal(words.word_stop(0n, 0, true), 3);
+shape('DisplayRange', words.selection());
+shape('Applied[]', words.move_markdown(0n, 4, 7, 13));
+assert.equal(words.draft_text(), 'one  three**two**');
 assert.equal(typeof session.image_claim(), 'bigint');
+
+const toolbar = new WasmSession(10n, '## a\n> b\n\n| x |\n| --- |', 0n);
+toolbar.select_with_affinity(0n, 0, 1, '"Forward"');
+assert.equal(shape('ToolbarState', toolbar.toolbar_state()).heading, 2);
+toolbar.select_with_affinity(0n, 0, 3, '"Forward"');
+assert.equal(shape('ToolbarState', toolbar.toolbar_state()).heading, null);
+const cells = new WasmSession(11n, '| x |\n| --- |', 0n);
+cells.select_with_affinity(0n, 0, 1, '"Forward"');
+const tableToolbar = shape('ToolbarState', cells.toolbar_state());
+assert.equal(tableToolbar.heading_allowed, false);
+assert.equal(tableToolbar.quote_allowed, false);
+assert.equal(tableToolbar.heading, null);
+assert.deepEqual(tableToolbar.allowed, []);
 
 const completion = new WasmSession(2n, '[[Ro', 0n);
 completion.update_note_ids('["Road"]');
@@ -194,10 +231,40 @@ shape('HostSnapshot', snapshot);
 WasmSession.restore(JSON.stringify(snapshot)).free();
 const block = new WasmSession(5n, 'abc', 0n);
 shape('Applied | null', block.block_command_utf16(0n, 0, 0, '{"Heading":2}'));
+const toggled = new WasmSession(9n, '## abc', 0n);
+const toggleHeading = '{"ToggleHeading":2}';
+shape('BlockCommand', toggleHeading);
+shape('Applied | null', toggled.block_command_utf16(0n, 0, 0, toggleHeading));
+assert.equal(toggled.draft_text(), 'abc');
+// A `/` menu's pick: the typed query removed and a table written, one request and one Undo step.
+const picked = new WasmSession(12n, 'a\n/ta', 0n);
+const tableCommand = '{"Table":{"rows":2,"columns":2}}';
+shape('BlockCommand', tableCommand);
+shape('Applied | null', picked.block_command_removing_utf16(0n, 2, 5, tableCommand));
+assert.equal(picked.draft_text(), 'a\n|  |  |\n| --- | --- |\n|  |  |');
+picked.undo(1n);
+assert.equal(picked.draft_text(), 'a\n/ta');
 shape('HostRequest', new WasmSession(6n, 'abc', 0n).resume());
+const fenced = new WasmSession(8n, '```rust hl:1\ncode\n```', 0n);
+const header = shape('CodeBlockHeader', { at: 0, language: 'go', name: 'main.go' });
+const headed = shape('Applied | null', fenced.set_code_block_header(0n, JSON.stringify(header)));
+assert.equal(fenced.draft_text(), '```go name:main.go hl:1\ncode\n```');
+assert.equal(headed.change.writes_language, false);
+assert.equal(fenced.set_code_block_header(1n, JSON.stringify(header)), 'null');
+const spaced = JSON.stringify({ ...header, language: 'a b' });
+assert.throws(() => fenced.set_code_block_header(1n, spaced), /InvalidText/);
+assert.equal(fenced.writes_language(), false);
+shape('SelectionChange', fenced.place_selection(1n, 0, 0, '"Forward"'));
 const compose = new WasmSession(7n, 'abc', 0n);
 shape('Composition', compose.compose_utf16(0n, 1, 1, Uint16Array.of(0x65e5)));
 shape('Composition | null', compose.composition());
+const paired = new WasmSession(9n, 'a ``', 0n);
+const pairedKey = JSON.stringify(shape('ParagraphKey', JSON.stringify('PairedBackspace')));
+shape('Applied', paired.paragraph_key_utf16(0n, 3, 3, pairedKey));
+assert.equal(paired.draft_text(), 'a ');
+shape('Applied', paired.paragraph_key_utf16(1n, 2, 2, pairedKey));
+assert.equal(paired.draft_text(), 'a');
+paired.free();
 session.free();
 
 console.log('Compiled WASM payload shapes match packages/editor/src/wasmPayloads.d.ts.');

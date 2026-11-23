@@ -1,13 +1,17 @@
 //! What a view draws: each line's reading described in display offsets.
 //! Every description comes from one line's reading; nothing looks across
-//! lines except the fence language a code line carries.
+//! lines except a code line's block (`code_block.rs`) and a table line's
+//! table (`table_block.rs`).
+use super::code_block::{is_code_line, CodeBlock};
 use super::line::{Cut, Entry, Role, DIVIDER};
+use super::table_block::{table_role, TableBlock};
 use super::Engine;
-use crate::lines::{FenceRole, FrontMatterRole, Kind, SpanKind};
+use crate::lines::{reading_spans, FrontMatterRole, Kind, SpanKind};
 use crate::{
-    AtomDescription, AtomKind, BlockDescription, Correspondence, CorrespondenceKind, DisplayOffset,
-    DisplayRange, ImageDescription, InlineFormat, LinkDescription, ListDescription,
-    ProjectionSlice, SemanticRun, SourceOffset, SourceRange, WikilinkDescription,
+    AtomDescription, AtomKind, BlockDescription, CodeLineDescription, Correspondence,
+    CorrespondenceKind, DisplayOffset, DisplayRange, ImageDescription, InlineFormat,
+    LinkDescription, ListDescription, ProjectionSlice, SemanticRun, SourceOffset, SourceRange,
+    TableLineDescription, WikilinkDescription,
 };
 use futo_notes_wikilinks::WikilinkIndex;
 
@@ -49,6 +53,8 @@ impl Engine {
             wikilinks: Vec::new(),
             atoms: Vec::new(),
             tags: Vec::new(),
+            code_blocks: Vec::new(),
+            tables: Vec::new(),
         };
         let (first, before) = self.line_at_display(super::store::display, a);
         let first = (0..first)
@@ -63,7 +69,9 @@ impl Engine {
             self.store.before(first).display
         };
         debug_assert!(display <= before.display);
-        for entry in self.store.iter_from(first) {
+        let mut block: Option<CodeBlock> = None;
+        let mut table: Option<TableBlock> = None;
+        for (index, entry) in (first..).zip(self.store.iter_from(first)) {
             if display > b {
                 break;
             }
@@ -72,12 +80,60 @@ impl Engine {
                 || (entry.shown_len() == 0 && display >= a && display <= b)
                 || (a == b && display <= a && a < end);
             if touches {
-                describe(entry, source, display, &self.notes, &mut slice);
+                let mut described = block_of(entry, display, entry.shown_len());
+                described.code = self.code_line(index, entry, &mut block, &mut slice);
+                described.table = self.table_line(index, entry, display, &mut table, &mut slice);
+                describe(entry, described, source, display, &self.notes, &mut slice);
             }
             source += entry.size.source;
             display = end;
         }
         slice
+    }
+
+    /// Line `index`'s place in its code block, when it shows as code. `block`
+    /// is the last block described; a new one joins `slice`.
+    fn code_line(
+        &self,
+        index: usize,
+        entry: &Entry,
+        block: &mut Option<CodeBlock>,
+        slice: &mut ProjectionSlice,
+    ) -> Option<CodeLineDescription> {
+        if !is_code_line(entry) {
+            return None;
+        }
+        let block = match block {
+            Some(known) if known.holds(index) => known,
+            _ => {
+                let found = CodeBlock::holding(&self.store, index);
+                slice.code_blocks.push(found.description.clone());
+                block.insert(found)
+            }
+        };
+        Some(block.line(index))
+    }
+
+    /// Line `index`'s place in its table, when it is a table line, shown at
+    /// `display`. `table` is the last table described; a new one joins `slice`.
+    fn table_line(
+        &self,
+        index: usize,
+        entry: &Entry,
+        display: usize,
+        table: &mut Option<TableBlock>,
+        slice: &mut ProjectionSlice,
+    ) -> Option<TableLineDescription> {
+        table_role(entry)?;
+        let table = match table {
+            Some(known) if known.holds(index) => known,
+            _ => {
+                let found = TableBlock::holding(&self.store, index);
+                slice.tables.push(found.description.clone());
+                table.insert(found)
+            }
+        };
+        Some(table.line(index, entry, display))
     }
 
     /// The formats typing at the caret carries; over a selection, those
@@ -96,14 +152,11 @@ impl Engine {
     pub(crate) fn formats_at(&self, at: usize) -> Vec<InlineFormat> {
         let (index, before) = super::read::line_at(&self.store, at);
         let local = at - before.source;
-        let mut formats: Vec<InlineFormat> = self
-            .store
-            .get(index)
-            .spans
-            .iter()
-            .filter(|span| span.open.end <= local && local <= span.close.start)
-            .filter_map(|span| format_of(&span.kind))
-            .collect();
+        let mut formats: Vec<InlineFormat> = reading_spans(&self.store.get(index).spans, |span| {
+            span.open.end <= local && local <= span.close.start
+        })
+        .filter_map(|span| format_of(&span.kind))
+        .collect();
         formats.sort();
         formats.dedup();
         formats
@@ -124,18 +177,18 @@ impl Engine {
     }
 }
 
-/// Add line `entry`'s descriptions, the line starting at `source` and
-/// `display`, to `slice`; its wikilinks resolve against `notes`.
+/// Add line `entry`'s descriptions, its block facts `block`, the line
+/// starting at `source` and `display`, to `slice`; its wikilinks resolve
+/// against `notes`.
 fn describe(
     entry: &Entry,
+    block: BlockDescription,
     source: usize,
     display: usize,
     notes: &WikilinkIndex,
     slice: &mut ProjectionSlice,
 ) {
     let view = &entry.view;
-    let shown = entry.shown_len();
-    let block = block_of(entry, display, shown);
     if view.role != Role::Text {
         let hidden = SourceRange {
             start: SourceOffset(source),
@@ -218,7 +271,8 @@ pub(crate) fn resolve(target: &str, notes: &WikilinkIndex) -> (String, Option<St
     }
 }
 
-/// The block facts of line `entry`, shown at `display` for `shown` bytes.
+/// The block facts line `entry` holds alone, shown at `display` for `shown`
+/// bytes: those of its code block and table are the caller's.
 fn block_of(entry: &Entry, display: usize, shown: usize) -> BlockDescription {
     let line = &entry.line;
     let mut block = BlockDescription {
@@ -227,8 +281,8 @@ fn block_of(entry: &Entry, display: usize, shown: usize) -> BlockDescription {
         quote_depth: line.quote,
         divider: false,
         list: None,
-        code: false,
-        language: None,
+        code: None,
+        table: None,
         metadata: false,
     };
     match &line.kind {
@@ -259,24 +313,7 @@ fn block_of(entry: &Entry, display: usize, shown: usize) -> BlockDescription {
                 first: true,
             });
         }
-        Kind::Fence { role, .. } => {
-            // An opening fence shows only as an empty code block's line.
-            block.code = *role == FenceRole::Code || entry.view.role == Role::Empty;
-            block.language = entry
-                .carry
-                .fence
-                .as_ref()
-                .and_then(|fence| fence.language.clone())
-                .or_else(|| match &line.kind {
-                    Kind::Fence {
-                        language: Some(language),
-                        ..
-                    } => Some(entry.text[language.clone()].to_owned()),
-                    _ => None,
-                });
-        }
         Kind::FrontMatter(FrontMatterRole::Body) => block.metadata = true,
-        Kind::FrontMatter(_) => block.metadata = entry.view.role == Role::Empty,
         _ => {}
     }
     block
@@ -350,25 +387,23 @@ fn correspond(entry: &Entry, source: usize, display: usize, slice: &mut Projecti
 
 /// Line `entry`'s inline formats: each visible stretch between format edges is one run.
 fn runs(entry: &Entry, to_display: &dyn Fn(usize) -> usize, slice: &mut ProjectionSlice) {
-    let formatted: Vec<_> = entry
-        .spans
-        .iter()
-        .filter_map(|span| format_of(&span.kind).map(|f| (span.open.end..span.close.start, f)))
-        .collect();
-    if !formatted.is_empty() {
-        let mut edges: Vec<usize> = formatted
+    let formatted = |span: &&crate::lines::Span| format_of(&span.kind).is_some();
+    if entry.spans.iter().any(|span| formatted(&span)) {
+        let mut edges: Vec<usize> = entry
+            .spans
             .iter()
-            .flat_map(|(range, _)| [range.start, range.end])
+            .filter(formatted)
+            .flat_map(|span| [span.open.end, span.close.start])
             .collect();
         edges.sort_unstable();
         edges.dedup();
         for pair in edges.windows(2) {
             let (from, to) = (pair[0], pair[1]);
-            let mut formats: Vec<InlineFormat> = formatted
-                .iter()
-                .filter(|(range, _)| range.start <= from && to <= range.end)
-                .map(|(_, f)| *f)
-                .collect();
+            let mut formats: Vec<InlineFormat> = reading_spans(&entry.spans, |span| {
+                span.open.end <= from && to <= span.close.start
+            })
+            .filter_map(|span| format_of(&span.kind))
+            .collect();
             let (start, end) = (to_display(from), to_display(to));
             if formats.is_empty() || start >= end {
                 continue;

@@ -7,7 +7,8 @@ internal data class LinkDraft(
     val owner: EditorEngine,
     val revision: ULong,
     val range: EditorByteRange,
-    val label: String,
+    /** The engine's `link_label`; null where a label edit would write nothing (across table cells): destination only. */
+    val label: String?,
     val destination: String,
     val existing: Boolean,
 )
@@ -20,9 +21,7 @@ internal fun EditorEngine.linkDraft(deliver: (LinkDraft?) -> Unit) = command(onU
         val range = mirror.byteRange(minOf(selStart, selEnd), maxOf(selStart, selEnd))
         val link = session?.inspectLink(rev, range)
         val target = link?.range ?: range
-        draft = LinkDraft(this, rev, target,
-            text.subSequence(mirror.toUtf16(target.start.toInt()), mirror.toUtf16(target.end.toInt())).toString(),
-            link?.destination ?: "", link != null)
+        draft = LinkDraft(this, rev, target, session?.linkLabel(rev, range), link?.destination ?: "", link != null)
     } finally {
         val result = draft
         ui.post { deliver(result) }
@@ -43,6 +42,25 @@ internal fun EditorEngine.removeLink(draft: LinkDraft, done: (Boolean) -> Unit) 
 
 internal fun EditorEngine.editLink(draft: LinkDraft, label: String, destination: String, done: (Boolean) -> Unit) = ackedCommand(done) {
     val current = draft.owner === this && draft.revision == rev && mirror.overlay == null
-    if (current) session?.editLink(rev, draft.range, label, destination)?.let(::accept)
+    // A typed address is saved as desktop saves it (`example.com` becomes `https://example.com`).
+    if (current) session?.let {
+        val normalized = it.normalizeLinkDestination(destination)
+        if (draft.label == null) it.setLink(rev, draft.range, normalized) else it.editLink(rev, draft.range, label, normalized)
+    }?.let(::accept)
     current
+}
+
+/** The target the engine parsed for the wikilink drawn over [start, end) (what a note it names is called). */
+internal fun EditorEngine.wikilinkTarget(viewSeq: Int, start: Int, end: Int, deliver: (String) -> Unit) = command {
+    // A word still being composed is committed first, as a checkbox tap does: the view already shows it, so its offsets
+    // are the engine's once it is in.
+    val composing = mirror.overlay != null
+    if (composing) commitComposition(null)
+    val s = session ?: return@command
+    // Otherwise the view may show text an edit since has changed: its offsets are mapped to the engine's own, as a tap's are.
+    val (a, b) = (if (composing) start to end else viewEdits.map(viewSeq, start, end)) ?: return@command
+    val tapped = mirror.byteRange(a, b)
+    // The projection holds every wikilink of the range's paragraph, not only the tapped one.
+    val target = s.project(rev, tapped).wikilinks.firstOrNull { it.range.start < tapped.end && it.range.end > tapped.start }?.target
+    if (target != null) ui.post { deliver(target) }
 }

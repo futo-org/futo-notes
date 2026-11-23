@@ -6,7 +6,7 @@ use super::super::super::command::Command;
 use super::super::super::line::Entry;
 use super::super::super::{store, Engine};
 use super::draft::{glyph_range, glyphs, inside, matches, shape, Draft, Expect, LINK, URL};
-use super::Accept;
+use super::{Accept, Body};
 use crate::lines::{Span, SpanKind};
 use crate::{
     Affinity, DisplayOffset, DisplayRange, EditorError, LinkDescription, Revision, ViewChange,
@@ -156,6 +156,48 @@ impl Engine {
                 title,
             }
         }))
+    }
+
+    /// The label a Link form starts with for display `range`: the text of
+    /// the link holding it, else the range's display text. `None` where the
+    /// link command writes no label (`link_command`): a range touching a
+    /// table line outside one cell, whose link goes on each cell's text or
+    /// on the lines outside the table, so a form asks only a destination.
+    pub(crate) fn link_label(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<Option<String>, EditorError> {
+        self.check_revision(expected)?;
+        self.check_display_range(range)?;
+        if let Some(found) = self.link_at(range) {
+            return Ok(Some(
+                self.display_slice(found.label.start.0..found.label.end.0),
+            ));
+        }
+        if self.outside_one_cell(range) {
+            return Ok(None);
+        }
+        Ok(Some(self.display_slice(range.start.0..range.end.0)))
+    }
+
+    /// Whether `set_link_view` at the selection would act with a destination
+    /// its link there does not have; `bodies` are the selected lines.
+    pub(super) fn link_acts(&self, bodies: &[Body]) -> bool {
+        let current = self.link_at(self.selection).map(|found| found.span.kind);
+        if current.is_none() && self.selection.start != self.selection.end {
+            return self.links_any(bodies, "https://example.com");
+        }
+        let destination = match current {
+            Some(SpanKind::Link { destination, .. } | SpanKind::Url { destination })
+                if destination == "https://example.com" =>
+            {
+                "https://example.org"
+            }
+            _ => "https://example.com",
+        };
+        let built = self.link_command(self.selection, None, destination, &mut 0);
+        self.changes_source(built)
     }
 
     /// Set the destination of the link at `range`, or link the selected

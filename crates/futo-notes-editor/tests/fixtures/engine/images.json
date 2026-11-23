@@ -1,77 +1,631 @@
 [
-  {"name": "into an empty note", "before": "‸", "command": "insert", "reference": "image-9.png", "after": "![](image-9.png)‸"},
-  {"name": "mid-line on a plain line, between the two halves, the spaces at the split ending the first", "before": "ab‸ cd", "command": "insert", "reference": "image-9.png", "after": "ab \n![](image-9.png)\n‸cd"},
-  {"name": "at a plain line's end, on a line of its own after it, the caret on a new line below", "before": "ab‸\ncd", "command": "insert", "reference": "image-9.png", "after": "ab\n![](image-9.png)\n‸\ncd"},
-  {"name": "at a plain line's start, on a line of its own before it", "before": "a\n‸bc", "command": "insert", "reference": "image-9.png", "after": "a\n![](image-9.png)\n‸bc"},
-  {"name": "over a selection at a line's start, the spaces after it ending the image's line", "before": "«ab» cd", "command": "insert", "reference": "image-9.png", "after": "![](image-9.png) \n‸cd"},
-  {"name": "at a heading's start, on a line of its own before it", "before": "# ‸Title", "command": "insert", "reference": "image-9.png", "after": "![](image-9.png)\n# ‸Title"},
-  {"name": "a CRLF note takes CRLF", "before": "ab‸\r\ncd", "command": "insert", "reference": "image-9.png", "after": "ab\r\n![](image-9.png)\r\n‸\r\ncd"},
-  {"name": "beside a link with no text, which shows nothing, inline", "before": "[](u)‸", "command": "insert", "reference": "image-9.png", "after": "[](u)![](image-9.png)‸"},
-  {"name": "after an escaped character, which shows, on a line of its own", "before": "\\*‸", "command": "insert", "reference": "image-9.png", "after": "\\*\n![](image-9.png)\n‸"},
-  {"name": "on an empty line, inline as before", "before": "a\n‸\nb", "command": "insert", "reference": "image-9.png", "after": "a\n![](image-9.png)‸\nb"},
-  {"name": "a whitespace-only line is empty, inline", "before": "a\n  ‸", "command": "insert", "reference": "image-9.png", "after": "a\n  ![](image-9.png)‸"},
-  {"name": "over a selection", "before": "a«b c»d", "command": "insert", "reference": "image-9.png", "after": "a\n![](image-9.png)\n‸d"},
-  {"name": "over a selection across lines", "before": "a«b\nc»d\ne", "command": "insert", "reference": "image-9.png", "after": "a\n![](image-9.png)\n‸d\ne"},
-  {"name": "over a selection ending inside bold, the photo itself is outside it and goes on a line of its own", "before": "«a **b»c**d", "command": "insert", "reference": "image-9.png", "after": "![](image-9.png)\n‸**c**d"},
-  {"name": "over a selection ending inside a link's text, the photo outside it goes on a line of its own", "before": "«x [a»b](u) y", "command": "insert", "reference": "image-9.png", "after": "![](image-9.png)\n‸[b](u) y"},
-  {"name": "over a selection from text into bold, after the text before it", "before": "pre «a **b»c**d", "command": "insert", "reference": "image-9.png", "after": "pre \n![](image-9.png)\n‸**c**d"},
-  {"name": "inside bold, where the caret stands, inline: a split would undo the bold", "before": "**ab‸** cd", "command": "insert", "reference": "image-9.png", "after": "**ab![](image-9.png)‸** cd"},
-  {"name": "after bold, where the caret stands", "before": "**ab**‸ cd", "command": "insert", "reference": "image-9.png", "after": "**ab** \n![](image-9.png)\n‸cd"},
-  {"name": "a reference with spaces and parentheses goes in angle brackets", "before": "‸", "command": "insert", "reference": "pics/my pic (1).PNG", "alt": "a *b*", "after": "![a *b*](<pics/my pic (1).PNG>)‸"},
-  {"name": "brackets in the alt are refused though they would read back", "before": "x ‸", "command": "insert", "reference": "image-9.png", "alt": "a [x]", "error": "InvalidText"},
-  {"name": "an alt that would make a wikilink", "before": "x ‸", "command": "insert", "reference": "image-9.png", "alt": "[x]", "error": "InvalidText"},
-  {"name": "a backslash in the reference is refused though it would read back", "before": "‸", "command": "insert", "reference": "a\\b.png", "error": "InvalidText"},
-  {"name": "a reference with a pipe outside a table", "before": "x‸", "command": "insert", "reference": "a|b.png", "after": "x\n![](a|b.png)\n‸"},
-  {"name": "at a heading's end, on a line of its own after it", "before": "# Title‸", "command": "insert", "reference": "image-9.png", "after": "# Title\n![](image-9.png)\n‸"},
-  {"name": "a heading split whose second half would read as a task keeps the image inline", "before": "# Title‸ - [ ] ship", "command": "insert", "reference": "image-9.png", "after": "# Title![](image-9.png)‸ - [ ] ship"},
-  {"name": "a plain line split whose second half would read as a heading keeps the image inline", "before": "ab‸ # cd", "command": "insert", "reference": "image-9.png", "after": "ab![](image-9.png)‸ # cd"},
-  {"name": "a plain line split whose second half would read as a quote keeps the image inline", "before": "ab‸ > cd", "command": "insert", "reference": "image-9.png", "after": "ab![](image-9.png)‸ > cd"},
-  {"name": "a plain line split whose second half would read as a list item keeps the image inline", "before": "ab‸ 1. cd", "command": "insert", "reference": "image-9.png", "after": "ab![](image-9.png)‸ 1. cd"},
-  {"name": "a plain line split whose second half would read as a divider keeps the image inline", "before": "ab‸ ***", "command": "insert", "reference": "image-9.png", "after": "ab![](image-9.png)‸ ***"},
-  {"name": "a split whose second half would make a table header with the row below keeps the image inline", "before": "ab ‸| c |\n|---|", "command": "insert", "reference": "image-9.png", "after": "ab ![](image-9.png)‸| c |\n|---|"},
-  {"name": "a split whose first half would read as a divider keeps the image inline", "before": "---‸x", "command": "insert", "reference": "image-9.png", "after": "---![](image-9.png)‸x"},
-  {"name": "a split whose first half would open front matter keeps the image inline", "before": "---«x»---", "command": "insert", "reference": "image-9.png", "after": "---![](image-9.png)‸---"},
-  {"name": "a line left after an image put before it that would read as a list item keeps the image inline", "before": "«ab» - cd", "command": "insert", "reference": "image-9.png", "after": "![](image-9.png)‸ - cd"},
-  {"name": "a list item stays a list item", "before": "- item ‸", "command": "insert", "reference": "image-9.png", "after": "- item ![](image-9.png)‸"},
-  {"name": "a task stays a task", "before": "- [ ] ‸", "command": "insert", "reference": "image-9.png", "after": "- [ ] ![](image-9.png)‸"},
-  {"name": "a quote stays a quote", "before": "> quoted ‸", "command": "insert", "reference": "image-9.png", "after": "> quoted ![](image-9.png)‸"},
-  {"name": "an indented plain line is not code, and keeps it inline", "before": "    a‸b", "command": "insert", "reference": "image-1.png", "after": "    a![](image-1.png)‸b"},
-  {"name": "a table header cell", "before": "| a‸ | b |\n|---|---|\n| 1 | 2 |", "command": "insert", "reference": "image-9.png", "after": "| a![](image-9.png)‸ | b |\n|---|---|\n| 1 | 2 |"},
-  {"name": "a table row cell", "before": "| a | b |\n|---|---|\n| 1‸ | 2 |", "command": "insert", "reference": "image-9.png", "after": "| a | b |\n|---|---|\n| 1![](image-9.png)‸ | 2 |"},
-  {"name": "a pipe in a cell would split the image", "before": "| a | b |\n|---|---|\n| 1‸ | 2 |", "command": "insert", "reference": "a|b.png", "error": "InvalidText"},
-  {"name": "a pipe in a header cell would split the image", "before": "| a‸ | b |\n|---|---|", "command": "insert", "reference": "a|b.png", "error": "InvalidText"},
-  {"name": "the body after front matter closed on the last line", "before": "---\na: 1\n---‸", "command": "insert", "reference": "image-1.png", "after": "---\na: 1\n---\n![](image-1.png)‸"},
-  {"name": "inside a link's text, inline", "before": "[a‸b](u)", "command": "insert", "reference": "image-1.png", "after": "[a![](image-1.png)‸b](u)"},
-  {"name": "inside a wikilink the image would be its text", "before": "[[no‸te]]", "command": "insert", "reference": "image-1.png", "error": "InvalidText"},
-  {"name": "inside a code block nothing is inserted", "before": "```\na‸b\n```", "command": "insert", "reference": "image-1.png"},
-  {"name": "inside inline code nothing is inserted", "before": "`a‸b`", "command": "insert", "reference": "image-1.png"},
-  {"name": "a selection reaching into a code block inserts nothing", "before": "a«b\n```\nc»d\n```", "command": "insert", "reference": "image-1.png"},
-  {"name": "after a backslash the image would read as text", "before": "a\\‸", "command": "insert", "reference": "image-1.png", "error": "InvalidText"},
-  {"name": "a backtick in the alt that pairs with a later one", "before": "x‸ and `code`", "command": "insert", "reference": "image-1.png", "alt": "a`b", "error": "InvalidText"},
-  {"name": "a backtick in the alt is refused though it pairs with nothing", "before": "x‸ and more", "command": "insert", "reference": "image-1.png", "alt": "a`b", "error": "InvalidText"},
-  {"name": "a remote source is not a vault image", "before": "ab‸", "command": "insert", "reference": "https://x.test/a.png", "error": "InvalidText"},
-  {"name": "a note is not an image", "before": "ab‸", "command": "insert", "reference": "note.md", "error": "InvalidText"},
-  {"name": "an empty reference", "before": "ab‸", "command": "insert", "reference": "", "error": "InvalidText"},
-  {"name": "a line break in the reference", "before": "ab‸", "command": "insert", "reference": "a\nb.png", "error": "InvalidText"},
-  {"name": "a lone CR in the reference", "before": "ab‸", "command": "insert", "reference": "a\rb.png", "error": "InvalidText"},
-  {"name": "an escape the reader would remove", "before": "ab‸", "command": "insert", "reference": "a\\_b.png", "error": "InvalidText"},
-  {"name": "an angle bracket in the reference", "before": "ab‸", "command": "insert", "reference": "a<b.png", "error": "InvalidText"},
-  {"name": "an angle bracket inside angle brackets", "before": "ab‸", "command": "insert", "reference": "my <pic.png", "error": "InvalidText"},
-  {"name": "a closing bracket in the alt", "before": "ab‸", "command": "insert", "reference": "image-1.png", "alt": "x]", "error": "InvalidText"},
-  {"name": "a line break in the alt", "before": "ab‸", "command": "insert", "reference": "image-1.png", "alt": "x\n", "error": "InvalidText"},
-
-  {"name": "Backspace after an image removes it whole", "before": "a ![alt](p.png)‸ b", "command": "Backspace", "after": "a ‸ b"},
-  {"name": "Delete before an image removes it whole", "before": "a ‸![alt](p.png) b", "command": "Delete", "after": "a ‸ b"},
-  {"name": "Backspace inside an image's spelling removes it whole", "before": "![al‸t](p.png)", "command": "Backspace", "after": "‸"},
-  {"name": "Backspace between two characters and an image", "before": "x![](p.png)‸y", "command": "Backspace", "after": "x‸y"},
-  {"name": "Backspace on an image in bold drops the emptied bold", "before": "a **![](p.png)**‸", "command": "Backspace", "after": "a ‸"},
-  {"name": "Backspace on an image in a list item keeps the item", "before": "- ![](p.png)‸", "command": "Backspace", "after": "- ‸"},
-  {"name": "Backspace in a table cell keeps the table", "before": "| ![](p.png)‸ | b |\n|---|---|", "command": "Backspace", "after": "| ‸ | b |\n|---|---|"},
-  {"name": "ordinary text keeps one-grapheme Backspace", "before": "xa‸ ![alt](p.png) b", "command": "Backspace", "after": "x‸ ![alt](p.png) b"},
-  {"name": "Backspace at a line start joins lines and keeps the image above", "before": "![](p.png)\n‸b", "command": "Backspace", "after": "![](p.png)‸b"},
-  {"name": "Delete at a line end joins lines and keeps the image below", "before": "a‸\n![](p.png)", "command": "Delete", "after": "a‸![](p.png)"},
-  {"name": "Backspace over a selection that ends in an image deletes the whole image", "before": "a«b ![](p.p»ng)", "command": "Backspace", "after": "a‸"},
-  {"name": "Enter on a selected last image adds a line below", "before": "x\n\n«![](a.png)»", "command": "Enter", "after": "x\n\n![](a.png)\n‸"},
-  {"name": "Enter on a selected first image adds a line below it", "before": "«![](a.png)»\n\ny", "command": "Enter", "after": "![](a.png)\n‸\n\ny"},
-  {"name": "Enter on a selection wider than the image replaces it", "before": "«![](a.png) »x", "command": "Enter", "after": "\n‸x"}
+  {
+    "name": "into an empty note",
+    "before": "‸",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "![](image-9.png)‸"
+  },
+  {
+    "name": "mid-line on a plain line, between the two halves, the spaces at the split ending the first",
+    "before": "ab‸ cd",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "ab \n![](image-9.png)\n‸cd"
+  },
+  {
+    "name": "at a plain line's end, on a line of its own after it, the caret on a new line below",
+    "before": "ab‸\ncd",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "ab\n![](image-9.png)\n‸\ncd"
+  },
+  {
+    "name": "at a plain line's start, on a line of its own before it",
+    "before": "a\n‸bc",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "a\n![](image-9.png)\n‸bc"
+  },
+  {
+    "name": "over a selection at a line's start, the spaces after it ending the image's line",
+    "before": "«ab» cd",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "![](image-9.png) \n‸cd"
+  },
+  {
+    "name": "at a heading's start, on a line of its own before it",
+    "before": "# ‸Title",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "![](image-9.png)\n# ‸Title"
+  },
+  {
+    "name": "a CRLF note takes CRLF",
+    "before": "ab‸\r\ncd",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "ab\r\n![](image-9.png)\r\n‸\r\ncd"
+  },
+  {
+    "name": "beside a link with no text, which shows nothing, inline",
+    "before": "[](u)‸",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "[](u)![](image-9.png)‸"
+  },
+  {
+    "name": "after an escaped character, which shows, on a line of its own",
+    "before": "\\*‸",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "\\*\n![](image-9.png)\n‸"
+  },
+  {
+    "name": "on an empty line, inline as before",
+    "before": "a\n‸\nb",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "a\n![](image-9.png)‸\nb"
+  },
+  {
+    "name": "a whitespace-only line is empty, inline",
+    "before": "a\n  ‸",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "a\n  ![](image-9.png)‸"
+  },
+  {
+    "name": "over a selection",
+    "before": "a«b c»d",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "a\n![](image-9.png)\n‸d"
+  },
+  {
+    "name": "over a selection across lines",
+    "before": "a«b\nc»d\ne",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "a\n![](image-9.png)\n‸d\ne"
+  },
+  {
+    "name": "over a selection ending inside bold, the photo itself is outside it and goes on a line of its own",
+    "before": "«a **b»c**d",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "![](image-9.png)\n‸**c**d"
+  },
+  {
+    "name": "over a selection ending inside a link's text, the photo outside it goes on a line of its own",
+    "before": "«x [a»b](u) y",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "![](image-9.png)\n‸[b](u) y"
+  },
+  {
+    "name": "over a selection from text into bold, after the text before it",
+    "before": "pre «a **b»c**d",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "pre \n![](image-9.png)\n‸**c**d"
+  },
+  {
+    "name": "inside bold, where the caret stands, inline: a split would undo the bold",
+    "before": "**ab‸** cd",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "**ab![](image-9.png)‸** cd"
+  },
+  {
+    "name": "after bold, where the caret stands",
+    "before": "**ab**‸ cd",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "**ab** \n![](image-9.png)\n‸cd"
+  },
+  {
+    "name": "a reference with spaces and parentheses goes in angle brackets",
+    "before": "‸",
+    "command": "insert",
+    "reference": "pics/my pic (1).PNG",
+    "alt": "a *b*",
+    "after": "![a *b*](<pics/my pic (1).PNG>)‸"
+  },
+  {
+    "name": "brackets in the alt are refused though they would read back",
+    "before": "x ‸",
+    "command": "insert",
+    "reference": "image-9.png",
+    "alt": "a [x]",
+    "error": "InvalidText"
+  },
+  {
+    "name": "an alt that would make a wikilink",
+    "before": "x ‸",
+    "command": "insert",
+    "reference": "image-9.png",
+    "alt": "[x]",
+    "error": "InvalidText"
+  },
+  {
+    "name": "a backslash in the reference is refused though it would read back",
+    "before": "‸",
+    "command": "insert",
+    "reference": "a\\b.png",
+    "error": "InvalidText"
+  },
+  {
+    "name": "a reference with a pipe outside a table",
+    "before": "x‸",
+    "command": "insert",
+    "reference": "a|b.png",
+    "after": "x\n![](a|b.png)\n‸"
+  },
+  {
+    "name": "at a heading's end, on a line of its own after it",
+    "before": "# Title‸",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "# Title\n![](image-9.png)\n‸"
+  },
+  {
+    "name": "a heading split whose second half would read as a task keeps the image inline",
+    "before": "# Title‸ - [ ] ship",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "# Title![](image-9.png)‸ - [ ] ship"
+  },
+  {
+    "name": "a plain line split whose second half would read as a heading keeps the image inline",
+    "before": "ab‸ # cd",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "ab![](image-9.png)‸ # cd"
+  },
+  {
+    "name": "a plain line split whose second half would read as a quote keeps the image inline",
+    "before": "ab‸ > cd",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "ab![](image-9.png)‸ > cd"
+  },
+  {
+    "name": "a plain line split whose second half would read as a list item keeps the image inline",
+    "before": "ab‸ 1. cd",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "ab![](image-9.png)‸ 1. cd"
+  },
+  {
+    "name": "a plain line split whose second half would read as a divider keeps the image inline",
+    "before": "ab‸ ***",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "ab![](image-9.png)‸ ***"
+  },
+  {
+    "name": "a split whose second half would make a table header with the row below keeps the image inline",
+    "before": "ab ‸| c |\n|---|",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "ab ![](image-9.png)‸| c |\n|---|"
+  },
+  {
+    "name": "a split whose first half would read as a divider keeps the image inline",
+    "before": "---‸x",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "---![](image-9.png)‸x"
+  },
+  {
+    "name": "a split whose first half would open front matter keeps the image inline",
+    "before": "---«x»---",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "---![](image-9.png)‸---"
+  },
+  {
+    "name": "a line left after an image put before it that would read as a list item keeps the image inline",
+    "before": "«ab» - cd",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "![](image-9.png)‸ - cd"
+  },
+  {
+    "name": "a list item stays a list item",
+    "before": "- item ‸",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "- item ![](image-9.png)‸"
+  },
+  {
+    "name": "a task stays a task",
+    "before": "- [ ] ‸",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "- [ ] ![](image-9.png)‸"
+  },
+  {
+    "name": "a quote stays a quote",
+    "before": "> quoted ‸",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "> quoted ![](image-9.png)‸"
+  },
+  {
+    "name": "an indented plain line is not code, and keeps it inline",
+    "before": "    a‸b",
+    "command": "insert",
+    "reference": "image-1.png",
+    "after": "    a![](image-1.png)‸b"
+  },
+  {
+    "name": "a table header cell",
+    "before": "| a‸ | b |\n|---|---|\n| 1 | 2 |",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "| a![](image-9.png)‸ | b |\n|---|---|\n| 1 | 2 |"
+  },
+  {
+    "name": "a table row cell",
+    "before": "| a | b |\n|---|---|\n| 1‸ | 2 |",
+    "command": "insert",
+    "reference": "image-9.png",
+    "after": "| a | b |\n|---|---|\n| 1![](image-9.png)‸ | 2 |"
+  },
+  {
+    "name": "a pipe in a cell would split the image",
+    "before": "| a | b |\n|---|---|\n| 1‸ | 2 |",
+    "command": "insert",
+    "reference": "a|b.png",
+    "error": "InvalidText"
+  },
+  {
+    "name": "a pipe in a header cell would split the image",
+    "before": "| a‸ | b |\n|---|---|",
+    "command": "insert",
+    "reference": "a|b.png",
+    "error": "InvalidText"
+  },
+  {
+    "name": "the body after front matter closed on the last line",
+    "before": "---\na: 1\n---‸",
+    "command": "insert",
+    "reference": "image-1.png",
+    "after": "---\na: 1\n---\n![](image-1.png)‸"
+  },
+  {
+    "name": "inside a link's text, inline",
+    "before": "[a‸b](u)",
+    "command": "insert",
+    "reference": "image-1.png",
+    "after": "[a![](image-1.png)‸b](u)"
+  },
+  {
+    "name": "inside a wikilink the image would be its text",
+    "before": "[[no‸te]]",
+    "command": "insert",
+    "reference": "image-1.png",
+    "error": "InvalidText"
+  },
+  {
+    "name": "inside a code block nothing is inserted",
+    "before": "```\na‸b\n```",
+    "command": "insert",
+    "reference": "image-1.png"
+  },
+  {
+    "name": "inside inline code nothing is inserted",
+    "before": "`a‸b`",
+    "command": "insert",
+    "reference": "image-1.png"
+  },
+  {
+    "name": "a selection reaching into a code block inserts nothing",
+    "before": "a«b\n```\nc»d\n```",
+    "command": "insert",
+    "reference": "image-1.png"
+  },
+  {
+    "name": "after a backslash the image would read as text",
+    "before": "a\\‸",
+    "command": "insert",
+    "reference": "image-1.png",
+    "error": "InvalidText"
+  },
+  {
+    "name": "a backtick in the alt that pairs with a later one",
+    "before": "x‸ and `code`",
+    "command": "insert",
+    "reference": "image-1.png",
+    "alt": "a`b",
+    "error": "InvalidText"
+  },
+  {
+    "name": "a backtick in the alt is refused though it pairs with nothing",
+    "before": "x‸ and more",
+    "command": "insert",
+    "reference": "image-1.png",
+    "alt": "a`b",
+    "error": "InvalidText"
+  },
+  {
+    "name": "a remote source is not a vault image",
+    "before": "ab‸",
+    "command": "insert",
+    "reference": "https://x.test/a.png",
+    "error": "InvalidText"
+  },
+  {
+    "name": "a note is not an image",
+    "before": "ab‸",
+    "command": "insert",
+    "reference": "note.md",
+    "error": "InvalidText"
+  },
+  {
+    "name": "an empty reference",
+    "before": "ab‸",
+    "command": "insert",
+    "reference": "",
+    "error": "InvalidText"
+  },
+  {
+    "name": "a line break in the reference",
+    "before": "ab‸",
+    "command": "insert",
+    "reference": "a\nb.png",
+    "error": "InvalidText"
+  },
+  {
+    "name": "a lone CR in the reference",
+    "before": "ab‸",
+    "command": "insert",
+    "reference": "a\rb.png",
+    "error": "InvalidText"
+  },
+  {
+    "name": "an escape the reader would remove",
+    "before": "ab‸",
+    "command": "insert",
+    "reference": "a\\_b.png",
+    "error": "InvalidText"
+  },
+  {
+    "name": "an angle bracket in the reference",
+    "before": "ab‸",
+    "command": "insert",
+    "reference": "a<b.png",
+    "error": "InvalidText"
+  },
+  {
+    "name": "an angle bracket inside angle brackets",
+    "before": "ab‸",
+    "command": "insert",
+    "reference": "my <pic.png",
+    "error": "InvalidText"
+  },
+  {
+    "name": "a closing bracket in the alt",
+    "before": "ab‸",
+    "command": "insert",
+    "reference": "image-1.png",
+    "alt": "x]",
+    "error": "InvalidText"
+  },
+  {
+    "name": "a line break in the alt",
+    "before": "ab‸",
+    "command": "insert",
+    "reference": "image-1.png",
+    "alt": "x\n",
+    "error": "InvalidText"
+  },
+  {
+    "name": "Backspace after an image removes it whole",
+    "before": "a ![alt](p.png)‸ b",
+    "command": "Backspace",
+    "after": "a ‸ b"
+  },
+  {
+    "name": "Delete before an image removes it whole",
+    "before": "a ‸![alt](p.png) b",
+    "command": "Delete",
+    "after": "a ‸ b"
+  },
+  {
+    "name": "Backspace inside an image's spelling removes it whole",
+    "before": "![al‸t](p.png)",
+    "command": "Backspace",
+    "after": "‸"
+  },
+  {
+    "name": "Backspace between two characters and an image",
+    "before": "x![](p.png)‸y",
+    "command": "Backspace",
+    "after": "x‸y"
+  },
+  {
+    "name": "Backspace on an image in bold drops the emptied bold",
+    "before": "a **![](p.png)**‸",
+    "command": "Backspace",
+    "after": "a ‸"
+  },
+  {
+    "name": "Backspace on an image in a list item keeps the item",
+    "before": "- ![](p.png)‸",
+    "command": "Backspace",
+    "after": "- ‸"
+  },
+  {
+    "name": "Backspace in a table cell keeps the table",
+    "before": "| ![](p.png)‸ | b |\n|---|---|",
+    "command": "Backspace",
+    "after": "| ‸ | b |\n|---|---|"
+  },
+  {
+    "name": "ordinary text keeps one-grapheme Backspace",
+    "before": "xa‸ ![alt](p.png) b",
+    "command": "Backspace",
+    "after": "x‸ ![alt](p.png) b"
+  },
+  {
+    "name": "Backspace at a line start joins lines and keeps the image above",
+    "before": "![](p.png)\n‸b",
+    "command": "Backspace",
+    "after": "![](p.png)‸b"
+  },
+  {
+    "name": "Delete at a line end joins lines and keeps the image below",
+    "before": "a‸\n![](p.png)",
+    "command": "Delete",
+    "after": "a‸![](p.png)"
+  },
+  {
+    "name": "Backspace over a selection that ends in an image deletes the whole image",
+    "before": "a«b ![](p.p»ng)",
+    "command": "Backspace",
+    "after": "a‸"
+  },
+  {
+    "name": "Enter on a selected last image adds a line below",
+    "before": "x\n\n«![](a.png)»",
+    "command": "Enter",
+    "after": "x\n\n![](a.png)\n‸"
+  },
+  {
+    "name": "Enter on a selected first image adds a line below it",
+    "before": "«![](a.png)»\n\ny",
+    "command": "Enter",
+    "after": "![](a.png)\n‸\n\ny"
+  },
+  {
+    "name": "Enter on a selection wider than the image replaces it",
+    "before": "«![](a.png) »x",
+    "command": "Enter",
+    "after": "\n‸x"
+  },
+  {
+    "name": "a selection ending inside an image takes it whole: Enter on a list item (it kept t](p.png))",
+    "before": "- a«b![al»t](p.png) z",
+    "command": "Enter",
+    "after": "- a\n- ‸ z"
+  },
+  {
+    "name": "a selection ending inside an image takes it whole: Enter on a heading",
+    "before": "# a«b![al»t](p.png) z",
+    "command": "Enter",
+    "after": "# a\n ‸z"
+  },
+  {
+    "name": "a selection starting inside an image takes it whole: Enter",
+    "before": "ab![al«t](p.png) z»",
+    "command": "Enter",
+    "after": "ab\n‸"
+  },
+  {
+    "name": "a selection ending inside an image takes it whole: the divider",
+    "before": "a«b![al»t](p.png) z",
+    "command": "Divider",
+    "after": "a\n---\n ‸z"
+  },
+  {
+    "name": "a selection ending inside an image takes it whole: paste",
+    "before": "a«b![al»t](p.png) z",
+    "command": "paste",
+    "reference": "q",
+    "after": "aq‸ z"
+  },
+  {
+    "name": "a selection ending inside an image takes it whole: Backspace",
+    "before": "a«b![al»t](p.png) z",
+    "command": "Backspace",
+    "after": "a‸ z"
+  },
+  {
+    "name": "a selection ending inside an image takes it whole: Cut copies what it removes",
+    "before": "a«b![al»t](p.png) z",
+    "command": "cut",
+    "alt": "b![alt](p.png)",
+    "after": "a‸ z"
+  },
+  {
+    "name": "a selection reaching into a wikilink takes it whole: Cut copies what it removes",
+    "before": "a«b [[no»te]] z",
+    "command": "cut",
+    "alt": "b [[note]]",
+    "after": "a‸ z"
+  },
+  {
+    "name": "a selection inside a wikilink's brackets stays: Cut copies its text",
+    "before": "[[«no»te]]",
+    "command": "cut",
+    "alt": "no",
+    "after": "[[‸te]]"
+  },
+  {
+    "name": "a selection from inside a wikilink to its edge takes it whole: Cut copies it",
+    "before": "a [[my «note]]» z",
+    "command": "cut",
+    "alt": "[[my note]]",
+    "after": "a ‸ z"
+  },
+  {
+    "name": "place: a caret placed inside an image lands on its nearer edge, before",
+    "before": "x ![](a‸bcdefgh.png) y",
+    "command": "Place",
+    "after": "x ‸![](abcdefgh.png) y"
+  },
+  {
+    "name": "place: a caret placed inside an image lands on its nearer edge, after",
+    "before": "x ![](abcdefgh.p‸ng) y",
+    "command": "Place",
+    "after": "x ![](abcdefgh.png)‸ y"
+  },
+  {
+    "name": "place: a caret placed at an image's middle lands after it",
+    "before": "x ![](ab‸c.png) y",
+    "command": "Place",
+    "after": "x ![](abc.png)‸ y"
+  },
+  {
+    "name": "place: a caret placed at an image's edge stays",
+    "before": "x ‸![](abc.png) y",
+    "command": "Place"
+  },
+  {
+    "name": "place: a range starting inside an image takes it whole",
+    "before": "x ![](a«bc.png) y»z",
+    "command": "Place",
+    "after": "x «![](abc.png) y»z"
+  },
+  {
+    "name": "place: a range ending inside an image takes it whole",
+    "before": "«x ![](ab»c.png) y",
+    "command": "Place",
+    "after": "«x ![](abc.png)» y"
+  },
+  {
+    "name": "place: a range inside an image takes it whole",
+    "before": "x ![](a«b»c.png) y",
+    "command": "Place",
+    "after": "x «![](abc.png)» y"
+  },
+  {
+    "name": "place: a caret placed inside a wikilink stays",
+    "before": "a [[no‸te]] b",
+    "command": "Place"
+  },
+  {
+    "name": "place: a range reaching into a wikilink stays",
+    "before": "«a [[no»te]] b",
+    "command": "Place"
+  },
+  {
+    "name": "place: a range inside a wikilink stays",
+    "before": "a [[«no»te]] b",
+    "command": "Place"
+  }
 ]

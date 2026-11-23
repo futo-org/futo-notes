@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.futo.notes.storage.GateAccess
 import uniffi.futo_notes_ffi.EditorSessionException
+import uniffi.futo_notes_ffi.EditorUtf16Range
 import uniffi.futo_notes_ffi.FlushDraftResult
 import uniffi.futo_notes_ffi.NativeEditorSession
 
@@ -72,19 +73,19 @@ internal fun EditorEngine.showQuickOpen() {
     if (closed || session != null) return
     val began = SystemClock.elapsedRealtimeNanos()
     val quick = try {
-        store().quickOpenEditor(noteId)
+        store().run { readForEditor(noteId).use { quickOpenView(it) } }
     } catch (failure: Exception) {
         Log.w(EditorEngine.TAG, "quick open $noteId failed", failure)
         null
     } ?: return
-    val display = quick.projection.text
+    val display = quick.display
     // A reader returning deep into the note waits for the whole open, which reaches their line.
     if (openThrough > display.length) return
     mirror.reset(display)
     mirror.selStart = 0; mirror.selEnd = 0
     viewEdits.discontinue()
     quickDisplay = display
-    postUpdate(reset = display, edits = emptyList(), windows = listOf(window(quick.projection, tableSpans(quick.tables))))
+    postUpdate(reset = display, edits = emptyList(), windows = listOf(quick.spans.toStyleWindow(0, display.length, mirror.text)))
     Log.i(EditorEngine.TAG, "quick open ${display.length} chars in ${(SystemClock.elapsedRealtimeNanos() - began) / 1000} us")
 }
 
@@ -98,7 +99,16 @@ private fun EditorEngine.install(opened: NativeEditorSession): Throwable? = try 
     val quick = quickDisplay
     quickDisplay = null
     mirror.reset(display)
+    if (quick == null || !display.startsWith(quick)) { mirror.selStart = 0; mirror.selEnd = 0 }
+    // The session keeps a caret out of what cannot hold one (a note's front matter): the view starts where the session
+    // has it, or the first command would move it there, a caret move the view then revealed (Mason: a checkbox tap
+    // put the note at its top).
+    val viewCaret = mirror.selStart to mirror.selEnd
+    applySelectionChange(opened.selectUtf16(rev, EditorUtf16Range(mirror.selStart.toULong(), mirror.selEnd.toULong())))
     if (quick != null && display.startsWith(quick)) {
+        // A view kept from the quick open still shows the caret the session just moved: it takes the session's now.
+        // Not revealed: the reader may be reading the front matter it left (Sol review, batch 1, 9).
+        if (viewCaret != (mirror.selStart to mirror.selEnd)) postUpdate(emptyList(), emptyList(), preserveScroll = true)
         // The view already shows these screens with these styles; it keeps
         // them, and its caret, and the rest follows in slices.
         tailLength = display.length - quick.length
@@ -109,9 +119,7 @@ private fun EditorEngine.install(opened: NativeEditorSession): Throwable? = try 
         // The first screens now, the rest in slices (EditorEngineStream.kt).
         val shown = OpenSlices.sliceEnd(mirror.text, 0, OpenSlices.FIRST_CHARS + openThrough.coerceIn(0, OpenSlices.REACH_BACK_CHARS))
         tailLength = mirror.text.length - shown
-        val projection = opened.project(rev, mirror.byteRange(0, shown))
-        mirror.selStart = 0; mirror.selEnd = 0
-        postUpdate(reset = display.substring(0, shown), edits = emptyList(), windows = listOf(window(projection)), paced = true)
+        postUpdate(reset = display.substring(0, shown), edits = emptyList(), windows = listOf(planStyleWindow(0, shown)), paced = true)
     }
     Log.i(EditorEngine.TAG, "installed ${display.length} chars in ${(SystemClock.elapsedRealtimeNanos() - began) / 1000} us")
     // Taps, keys and commands made while it opened, in order.
@@ -226,4 +234,44 @@ private fun EditorEngine.streamAfterUi() {
             }
         }
     }
+}
+
+/** Own-action changes (a relink after rename) the Store queued for this session. */
+internal fun EditorEngine.drainCoordinatedChanges() = command {
+    val s = session ?: return@command
+    for (change in s.takeCoordinatedChanges()) {
+        if (change.previousRevision != rev) {
+            Log.w(EditorEngine.TAG, "coordinated change ${change.previousRevision}->${change.revision} at $rev; reloading view")
+            reloadFromEngine()
+            return@command
+        }
+        accept(change)
+    }
+}
+
+/**
+ * Save the draft as Markdown now, ahead of the debounce (on pause). [done]
+ * runs on the UI thread with the result, or null when nothing was unsaved
+ * or the save failed (reported through the sink).
+ */
+internal fun EditorEngine.checkpoint(done: ((FlushDraftResult?) -> Unit)? = null) = handler.post {
+    val result = if (closed || session == null) null else save(force = true)
+    if (done != null) ui.post { done(result) }
+}
+
+/** Sync already applied its authoritative mutation, including attachment identity.
+ * Reconcile on the input thread, after accepted typing, without replacing the session. */
+internal fun EditorEngine.reconcileExternalChanges(done: () -> Unit) = handler.post {
+    if (!closed && session != null) {
+        val id = session!!.noteId()
+        ui.post { sink.onAttachmentId(id) }
+        save(force = true, external = true)
+    }
+    ui.post(done)
+}
+
+/** The current exact source, for the screen's rename/draft paths. */
+internal fun EditorEngine.sourceText(done: (String?) -> Unit) = handler.post {
+    val source = try { session?.sourceText() } catch (e: EditorSessionException) { null }
+    ui.post { done(source) }
 }

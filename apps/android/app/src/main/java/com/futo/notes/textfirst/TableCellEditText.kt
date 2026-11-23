@@ -23,7 +23,8 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     }
     fun applyGeometry(geometry: TableCellGeometry) {
         typeface = if (geometry.header) noteStyle.semibold else noteStyle.regular
-        gravity = android.view.Gravity.TOP or android.view.Gravity.START
+        centreLetters()
+        gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.START
         textAlignment = when (geometry.alignment) {
             uniffi.futo_notes_ffi.EditorTableAlignment.RIGHT -> TEXT_ALIGNMENT_TEXT_END
             uniffi.futo_notes_ffi.EditorTableAlignment.CENTER -> TEXT_ALIGNMENT_CENTER
@@ -37,14 +38,21 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         typeface = style.regular
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
         imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI
-        setPadding(style.dp(10f).toInt(), style.dp(10f).toInt(), style.dp(10f).toInt(), style.dp(10f).toInt())
+        centreLetters()
         includeFontPadding = false
         filters = arrayOf(InputFilter { _, _, _, dest, a, b -> if (applying) null else dest.subSequence(a, b) })
         importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO
     }
+    /** Centred on its letters as seen in its face (a header's semibold), where the grid draws them, not on its font box. */
+    private fun centreLetters() {
+        val pad = noteStyle.dp(10f).toInt()
+        val lift = kotlin.math.round(lettersBelowFontBoxCentre(paint)).toInt()
+        setPadding(pad, pad - lift, pad, pad + lift)
+    }
     fun updateColors() {
         setTextColor(noteStyle.textColor)
         highlightColor = noteStyle.selectionColor
+        tintCaretAndSelectionHandles(noteStyle.linkColor)
         setBackgroundColor(noteStyle.codeBackground)
     }
     override fun isSuggestionsEnabled() = false
@@ -100,6 +108,9 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     }
     // Like the note view, keep hardware Enter's selection out of Gboard's
     // collapse-and-delete fallback: the table key only navigates.
+    /** Ctrl+Enter: leave the table for the line after it (the controller owns both this field and the note). */
+    var onLeaveTable: () -> Unit = {}
+
     override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
             return when (event.action) {
@@ -118,6 +129,7 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         if (event.isCtrlPressed) {
             when (keyCode) {
                 KeyEvent.KEYCODE_Z -> { if (event.isShiftPressed) editor.redo() else editor.undo(); return true }
+                KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> { onLeaveTable(); return true }
                 KeyEvent.KEYCODE_Y -> { editor.redo(); return true }
                 KeyEvent.KEYCODE_A -> { onTextContextMenuItem(android.R.id.selectAll); return true }
                 KeyEvent.KEYCODE_C -> { onTextContextMenuItem(android.R.id.copy); return true }

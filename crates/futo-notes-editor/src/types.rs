@@ -79,6 +79,18 @@ pub struct ViewChange {
     pub range: DisplayRange,
     pub inserted: String,
     pub selection: DisplayRange,
+    /// The code block selected as one object, when the selection is one: its
+    /// whole display range, which `selection` then equals.
+    #[serde(default)]
+    pub selected_block: Option<DisplayRange>,
+    /// The caret stands at a code block's hidden opening fence end, where
+    /// letters write the block's language (shown in its header), not code.
+    #[serde(default)]
+    pub writes_language: bool,
+    /// The caret is writing a table's delimiter row: typing on that line
+    /// left it there. A host draws the row only while this holds.
+    #[serde(default)]
+    pub writes_delimiter_row: bool,
     pub work: EditWork,
     pub affinity: Affinity,
     /// Semantic replacement for the reparsed paragraph window, including
@@ -97,6 +109,15 @@ pub enum CaretDirection {
 pub struct SelectionChange {
     pub revision: Revision,
     pub selection: DisplayRange,
+    /// As `ViewChange::selected_block`.
+    #[serde(default)]
+    pub selected_block: Option<DisplayRange>,
+    /// As `ViewChange::writes_language`.
+    #[serde(default)]
+    pub writes_language: bool,
+    /// As `ViewChange::writes_delimiter_row`.
+    #[serde(default)]
+    pub writes_delimiter_row: bool,
     pub affinity: Affinity,
 }
 
@@ -246,13 +267,89 @@ pub struct BlockDescription {
     pub quote_depth: usize,
     pub divider: bool,
     pub list: Option<ListDescription>,
-    pub code: bool,
-    /// First info-string word, preserving its case; rendering never rewrites source.
-    pub language: Option<String>,
+    /// A line of fenced code; its block is in `ProjectionSlice::code_blocks`.
+    pub code: Option<CodeLineDescription>,
+    /// A line of a table; its table is in `ProjectionSlice::tables`.
+    #[serde(default)]
+    pub table: Option<TableLineDescription>,
     /// Leading front matter, shown verbatim as inert metadata (no Markdown,
     /// no caret, no edits except a selection covering all of it).
     #[serde(default)]
     pub metadata: bool,
+}
+
+/// One shown line of a fenced code block. An empty block shows one line, which
+/// is both its first and last.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeLineDescription {
+    /// 1-based within its block.
+    pub line_number: u32,
+    pub first: bool,
+    pub last: bool,
+    pub mark: Option<CodeLineMark>,
+}
+
+/// A line mark from the opening fence's `hl:` and `ll:` options.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CodeLineMark {
+    Highlight,
+    Lowlight,
+}
+
+/// What `set_code_block_header` writes: the language and `name:` of the code
+/// block whose code shows at `at`. An empty one is cleared.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeBlockHeader {
+    pub at: DisplayOffset,
+    pub language: String,
+    pub name: String,
+}
+
+/// A fenced code block, whole even where a projection holds only part of it.
+/// `range` runs from its first code line's start to its last code line's end
+/// (that line's break excluded). Rendering never rewrites the info string.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeBlockDescription {
+    pub range: DisplayRange,
+    /// The info string's first word, case kept.
+    pub language: Option<String>,
+    /// The `name:` option.
+    pub name: Option<String>,
+    /// Lines shown: an empty block shows one.
+    pub line_count: u32,
+}
+
+/// What a table line is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TableLineRole {
+    Header,
+    Delimiter,
+    Row,
+}
+
+/// One line of a table, read from that line alone (its row number aside).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableLineDescription {
+    pub role: TableLineRole,
+    /// As `TableCell::row` counts: the header is 0, the first row under the
+    /// delimiter row 1. The delimiter row is 0, the header's.
+    pub row: usize,
+    /// Each cell's content, as `TableCell::content`.
+    pub cells: Vec<DisplayRange>,
+    /// Where each pipe that bounds a cell shows; an escaped pipe is text.
+    pub pipes: Vec<DisplayOffset>,
+}
+
+/// A table, whole even where a projection holds only part of it. `range`
+/// runs from its header's start to its last line's end (that line's break
+/// excluded).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableBlockDescription {
+    pub range: DisplayRange,
+    /// Cells in its widest row, the delimiter row aside.
+    pub columns: usize,
+    /// One per column, from the delimiter row's cells.
+    pub alignments: Vec<crate::TableAlignment>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -272,6 +369,12 @@ pub struct ProjectionSlice {
     /// nothing else (it stays plain text).
     #[serde(default)]
     pub tags: Vec<DisplayRange>,
+    /// Each code block the slice's lines belong to, in order.
+    #[serde(default)]
+    pub code_blocks: Vec<CodeBlockDescription>,
+    /// Each table the slice's lines belong to, in order.
+    #[serde(default)]
+    pub tables: Vec<TableBlockDescription>,
 }
 
 /// What an atom is. Renderers draw it as one unit and keep the caret outside it.

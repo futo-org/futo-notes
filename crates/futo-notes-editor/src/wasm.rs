@@ -1,7 +1,10 @@
 //! JSON wire facade. Edits return `{change, request}` (or null); the request goes to the native host, which owns persistence.
 use wasm_bindgen::prelude::*;
 mod clipboard;
+mod code_blocks;
+mod links;
 mod tables;
+mod words;
 
 use crate::{
     DisplayOffset, DisplayRange, DisplayUtf16Offset, DisplayUtf16Range, PortableSession, Revision,
@@ -10,6 +13,13 @@ use crate::{
 
 #[wasm_bindgen]
 pub struct WasmSession(PortableSession);
+
+/// Whether `text` is one character paired typing acts on (a backtick, `*`,
+/// `~`, `[` or `]`), from the engine's own table.
+#[wasm_bindgen]
+pub fn is_paired_typing_key(text: &str) -> bool {
+    crate::is_paired_typing_key(text)
+}
 
 fn error(error: impl std::fmt::Debug) -> JsValue {
     JsValue::from_str(&format!("{error:?}"))
@@ -140,91 +150,26 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
-    pub fn inspect_link(&self, revision: u64, start: usize, end: usize) -> Result<String, JsValue> {
-        json(
-            &self
-                .0
-                .inspect_link(
-                    Revision(revision),
-                    DisplayRange {
-                        start: DisplayOffset(start),
-                        end: DisplayOffset(end),
-                    },
-                )
-                .map_err(error)?,
-        )
-    }
-    pub fn set_link(
+    /// The user placed this selection: as `select_with_affinity`, but the
+    /// same range ends a selected block and a language caret.
+    pub fn place_selection(
         &mut self,
         revision: u64,
         start: usize,
         end: usize,
-        destination: &str,
+        affinity: &str,
     ) -> Result<String, JsValue> {
+        let affinity = serde_json::from_str(affinity).map_err(error)?;
         json(
             &self
                 .0
-                .set_link(
+                .place_selection(
                     Revision(revision),
                     DisplayRange {
                         start: DisplayOffset(start),
                         end: DisplayOffset(end),
                     },
-                    destination,
-                )
-                .map_err(error)?,
-        )
-    }
-    pub fn edit_link(
-        &mut self,
-        revision: u64,
-        start: usize,
-        end: usize,
-        label: &str,
-        destination: &str,
-    ) -> Result<String, JsValue> {
-        json(
-            &self
-                .0
-                .edit_link(
-                    Revision(revision),
-                    DisplayRange {
-                        start: DisplayOffset(start),
-                        end: DisplayOffset(end),
-                    },
-                    label,
-                    destination,
-                )
-                .map_err(error)?,
-        )
-    }
-    pub fn wikilink_completion(&self, revision: u64) -> Result<String, JsValue> {
-        json(
-            &self
-                .0
-                .wikilink_completion(Revision(revision))
-                .map_err(error)?,
-        )
-    }
-    pub fn accept_wikilink_completion(
-        &mut self,
-        revision: u64,
-        start: usize,
-        end: usize,
-        query: &str,
-        note_id: &str,
-    ) -> Result<String, JsValue> {
-        json(
-            &self
-                .0
-                .accept_wikilink_completion(
-                    Revision(revision),
-                    DisplayRange {
-                        start: DisplayOffset(start),
-                        end: DisplayOffset(end),
-                    },
-                    query,
-                    note_id,
+                    affinity,
                 )
                 .map_err(error)?,
         )
@@ -348,6 +293,9 @@ impl WasmSession {
     pub fn active_formats(&self) -> Result<String, JsValue> {
         json(&self.0.active_formats().map_err(error)?)
     }
+    pub fn toolbar_state(&self) -> Result<String, JsValue> {
+        json(&self.0.toolbar_state())
+    }
     pub fn toggle_format(&mut self, revision: u64, format: &str) -> Result<String, JsValue> {
         let format = serde_json::from_str(format).map_err(error)?;
         json(
@@ -360,6 +308,16 @@ impl WasmSession {
 
     pub fn draft_text(&self) -> String {
         self.0.draft_text()
+    }
+    pub fn display_len(&self) -> usize {
+        self.0.display_len()
+    }
+    /// The selection in display bytes.
+    pub fn selection(&self) -> Result<String, JsValue> {
+        json(&self.0.selection())
+    }
+    pub fn affinity(&self) -> Result<String, JsValue> {
+        json(&self.0.affinity())
     }
     pub fn status(&self) -> Result<String, JsValue> {
         json(&self.0.status())
@@ -385,6 +343,28 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
+    /// `block_command_utf16` at the caret left once UTF-16 `start..end`
+    /// (typed text on one line) is removed: one request, one Undo step.
+    pub fn block_command_removing_utf16(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        command: &str,
+    ) -> Result<String, JsValue> {
+        let command = serde_json::from_str(command).map_err(error)?;
+        let removed = DisplayUtf16Range {
+            start: DisplayUtf16Offset(start),
+            end: DisplayUtf16Offset(end),
+        };
+        json(
+            &self
+                .0
+                .block_command_removing_utf16(Revision(revision), removed, command)
+                .map_err(error)?,
+        )
+    }
+
     pub fn block_command_utf16(
         &mut self,
         revision: u64,

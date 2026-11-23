@@ -16,6 +16,18 @@ impl NativeEditorSession {
         })
     }
 
+    /// The label a Link form starts with; `None` when the link goes on each
+    /// table cell's text and the form asks only a destination (`set_link`).
+    pub fn link_label(
+        &self,
+        expected: u64,
+        range: EditorByteRange,
+    ) -> Result<Option<String>, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            Ok(session.link_label(Revision(expected), range.try_into()?)?)
+        })
+    }
+
     pub fn set_link(
         &self,
         expected: u64,

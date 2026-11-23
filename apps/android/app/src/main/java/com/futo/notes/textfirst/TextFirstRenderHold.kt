@@ -20,7 +20,10 @@ internal class RenderHold(private val view: TextFirstEditText) {
     var held = false
         private set
     private var touching = false
+    /** A block drag owns the touch: no text menu can open, so the touch holds nothing back. */
+    private var dragging = false
     private var menus = 0
+    private val openMenus = mutableListOf<ActionMode>()
     private var menuPending = false
     private val menuGaveUp = Runnable { menuPending = false; update() }
 
@@ -35,6 +38,12 @@ internal class RenderHold(private val view: TextFirstEditText) {
         }
     }
 
+    fun dragging(on: Boolean) {
+        if (dragging == on) return
+        dragging = on
+        update()
+    }
+
     fun longPressed() {
         menuPending = true
         view.removeCallbacks(menuGaveUp)
@@ -43,7 +52,7 @@ internal class RenderHold(private val view: TextFirstEditText) {
     }
 
     private fun update() {
-        val now = touching || menuPending || menus > 0
+        val now = (touching && !dragging) || menuPending || menus > 0
         if (now == held) return
         held = now
         view.engine?.holdRender(now)
@@ -52,6 +61,9 @@ internal class RenderHold(private val view: TextFirstEditText) {
     /** Set as the view's selection and insertion action-mode callbacks; it only watches. */
     inner class MenuWatch : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+            openMenus.add(mode)
+            // A selection's handles show with its menu.
+            view.post { view.handleWatch.look() }
             menus++
             menuPending = false
             view.removeCallbacks(menuGaveUp)
@@ -61,12 +73,23 @@ internal class RenderHold(private val view: TextFirstEditText) {
         override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
         override fun onActionItemClicked(mode: ActionMode, item: MenuItem) = false
         override fun onDestroyActionMode(mode: ActionMode) {
-            // TextView ends the range at its end next (Back, a blur); like a blur, that must not move the note.
-            if (view.selectionStart != view.selectionEnd) view.reveal.hold(view.selectionEnd)
+            openMenus.remove(mode)
+            // TextView ends the range at its end next (Back, a blur); like a blur, that must not move the note. An engine
+            // edit (a paste over the range) closes the menu too, with its own caret to reveal.
+            if (!view.applying && view.selectionStart != view.selectionEnd) view.reveal.hold(view.selectionEnd)
             menus = (menus - 1).coerceAtLeast(0)
             update()
         }
     }
+
+    /**
+     * Ends the TextView's open text menus. A gesture the TextView never sees (a header tap) leaves its menu open, and
+     * the platform ends it later, when another menu starts, by collapsing whatever is selected then to its end.
+     */
+    fun closeTextMenus() { openMenus.toList().forEach(ActionMode::finish) }
+
+    /** Whether a text menu (a selection's or the caret's) is open now. */
+    val hasOpenTextMenu: Boolean get() = openMenus.isNotEmpty()
 
     companion object {
         /** How long a long press holds background slices for a text menu that has not opened yet. */

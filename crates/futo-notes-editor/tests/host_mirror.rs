@@ -233,6 +233,32 @@ fn a_deletion_at_a_caret_is_one_grapheme_of_the_engines_text_not_the_views_width
 }
 
 #[test]
+fn a_backspace_after_a_zero_width_non_joiner_is_only_the_non_joiner() {
+    // Whether the view asked for the non-joiner alone or for the letter with it, the engine's
+    // range is the non-joiner alone.
+    let m = DisplayMirror::new("\u{6cc}\u{200c}");
+    assert_eq!(m.at_caret((1, 2), (2, 2), (2, 2), Some("\u{200c}")), (1, 2));
+    assert_eq!(
+        m.at_caret((0, 2), (2, 2), (2, 2), Some("\u{6cc}\u{200c}")),
+        (1, 2)
+    );
+    // Forward Delete still takes the letter with its non-joiner.
+    assert_eq!(
+        m.at_caret((0, 2), (0, 0), (0, 0), Some("\u{6cc}\u{200c}")),
+        (0, 2)
+    );
+    // A letter after the non-joiner goes alone, as before.
+    let m = DisplayMirror::new("\u{6cc}\u{200c}\u{62e}");
+    assert_eq!(m.at_caret((2, 3), (3, 3), (3, 3), Some("\u{62e}")), (2, 3));
+    // A word delete is unchanged: the whole word, its non-joiner included.
+    let m = DisplayMirror::new("ab \u{645}\u{6cc}\u{200c}");
+    assert_eq!(
+        m.at_caret((3, 6), (6, 6), (6, 6), Some("\u{645}\u{6cc}\u{200c}")),
+        (3, 6)
+    );
+}
+
+#[test]
 fn a_delete_of_more_than_one_character_at_a_caret_is_a_word_delete_on_the_engines_text() {
     // "hello world" + a typed "s" (the engine's caret is at 12): the view asked for "world".
     let m = DisplayMirror::new("hello worlds");

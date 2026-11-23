@@ -13,7 +13,55 @@ import console from 'node:console';
 import { setTimeout, clearTimeout } from 'node:timers';
 import { runMergeRegressions } from './wasm-merge-consumer.mjs';
 import { runBlockRegressions } from './wasm-block-consumer.mjs';
-const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
+const { WasmSession, is_paired_typing_key, typed_code_block_language, typed_code_block_name } =
+  await import(pathToFileURL(process.argv[2]).href);
+
+// A host reads which characters pair from the engine's own table.
+for (const text of ['`', '*', '~', '[', ']']) assert.equal(is_paired_typing_key(text), true);
+for (const text of ['(', '_', '**', 'a', '']) assert.equal(is_paired_typing_key(text), false);
+
+// A host reads what a code block's header fields keep from the engine's own rule.
+assert.equal(typed_code_block_language(' c sharp`'), 'c-sharp');
+assert.equal(typed_code_block_name('a`\tb '), 'a b ');
+
+// A host draws a delimiter row only while the caret is writing it.
+{
+  const table = new WasmSession(11n, '| a | b |\n|', 0n);
+  table.select_with_affinity(0n, 11, 11, '"Backward"');
+  const dash = Uint16Array.of(45);
+  const typed = JSON.parse(table.replace_utf16_action(0n, 11, 11, dash, '"Typing"'));
+  assert.equal(typed.change.writes_delimiter_row, true);
+  assert.equal(table.writes_delimiter_row(), true);
+}
+
+// Input that changes no source returns null, sends nothing, collapses the selection to the
+// end of its text and leaves the session taking input.
+{
+  const opening = { token: 1, source: 'ab cd', revision: 0, paused: false };
+  const session = WasmSession.restore(JSON.stringify(opening));
+  const unchanged = (json, selection) => {
+    assert.equal(JSON.parse(json), null);
+    assert.deepEqual(JSON.parse(session.selection()), selection);
+    assert.equal(JSON.parse(session.status()).outstanding, 0);
+    assert.equal(session.draft_text(), 'ab cd');
+  };
+  session.select_with_affinity(0n, 1, 2, '"Backward"');
+  unchanged(session.replace_utf16_action(0n, 1, 2, new Uint16Array([98]), '"Typing"'), {
+    start: 2,
+    end: 2,
+  });
+  unchanged(session.replace(0n, 0, 2, 'ab'), { start: 2, end: 2 });
+  const runs = [
+    { range: { start: 0, end: 2 }, inserted: [97, 98] },
+    { range: { start: 3, end: 5 }, inserted: [99, 100] },
+  ];
+  unchanged(session.replace_many_utf16(0n, JSON.stringify(runs)), { start: 5, end: 5 });
+  unchanged(session.replace(0n, 0, 0, ''), { start: 5, end: 5 });
+  assert.equal(JSON.parse(session.undo(0n)), null);
+  assert.equal(JSON.parse(session.replace(0n, 5, 5, '!')).change.revision, 1);
+  assert.equal(session.draft_text(), 'ab cd!');
+  session.free();
+}
 
 (async () => {
   const vault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-'));
@@ -117,6 +165,9 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
       assert.deepEqual(JSON.parse(page.select_with_affinity(5n, 3, 3, JSON.stringify(affinity))), {
         revision: 5,
         selection: { start: 3, end: 3 },
+        selected_block: null,
+        writes_language: false,
+        writes_delimiter_row: false,
         affinity,
       });
     }
@@ -183,6 +234,12 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     assert.equal(page.draft_text(), '__~~😀z日 b~~__\r\n');
     assert.equal(text, '😀z日 b\r\n');
     assert.deepEqual(new Set(JSON.parse(page.active_formats())), new Set(['Bold', 'Strike']));
+    // The toolbar reads the engine's state for the selection, the same formats included.
+    const toolbar = JSON.parse(page.toolbar_state());
+    assert.deepEqual(new Set(toolbar.formats), new Set(['Bold', 'Strike']));
+    assert.equal(toolbar.heading, 0);
+    assert.equal(toolbar.heading_allowed, true);
+    assert.equal(toolbar.quote, false);
     // Paragraph keys use the supplied UTF-16 range despite a distant stored
     // caret, and cross the same store acknowledgement boundary as text input.
     page.select_with_affinity(16n, 0, 0, '"Forward"');

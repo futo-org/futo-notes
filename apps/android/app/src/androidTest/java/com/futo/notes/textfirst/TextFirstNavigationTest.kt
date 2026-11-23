@@ -47,7 +47,7 @@ class TextFirstNavigationTest {
                     AppNavigation(hasBootstrapped = false, availableFolderPaths = emptyList()) { screen, nav, _ ->
                         navigator = nav
                         if (screen is Screen.Editor) TextFirstEditorScreen(
-                            store, screen.noteId, false, false, nav::goBack, nav::openNote,
+                            store, screen.noteId, false, false, nav::goBack, nav::openNote, nav::openCreatedNote,
                             registerLeave = { handler -> nav.registerEditorLeave(screen, handler) },
                         ) else Text("Note list")
                     }
@@ -58,7 +58,7 @@ class TextFirstNavigationTest {
         compose.waitUntil(10_000) {
             var found: TextFirstEditText? = null
             compose.runOnUiThread { found = findEditor(compose.activity.window.decorView) }
-            found?.let { editor = it; it.text.toString().startsWith("base") } == true
+            found?.let { editor = it; readOnMainThread { it.text.toString().startsWith("base") } } == true
         }
     }
 

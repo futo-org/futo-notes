@@ -4,7 +4,7 @@ use super::super::super::super::line::Entry;
 use super::super::super::super::Engine;
 use super::super::draft::{glyph_range, glyphs, inside, regions, shape, Draft, Expect, LINK, URL};
 use super::super::format::{wrap_marks, Marks};
-use super::super::trimmed;
+use super::super::{trimmed, Body};
 use super::{destination_in, links_to, spellings, Found};
 use crate::lines::SpanKind;
 use crate::{DisplayRange, EditorError};
@@ -23,47 +23,16 @@ impl Engine {
         let mut refused = false;
         let mut any = false;
         for body in self.bodies(range) {
-            let regions = regions(body.entry);
-            let mut draft = (Draft::of(body.entry), body.entry.clone());
-            let mut expect: Vec<Expect> = body.glyphs.iter().map(Expect::same).collect();
-            let line_shape = shape(body.entry);
-            let mut ok = true;
-            for region in &regions {
-                let inside_region = glyph_range(&body.glyphs, region);
-                let chosen: Vec<usize> = inside_region
-                    .clone()
-                    .filter(|&i| body.selected[i])
-                    .collect();
-                let (Some(&a), Some(&z)) = (chosen.first(), chosen.last()) else {
-                    continue;
-                };
-                let mut run = trimmed(&body.glyphs, a..z + 1);
-                if run.is_empty() {
-                    continue;
-                }
-                any = true;
-                match self.link_run(
-                    &draft.0,
-                    &draft.1,
-                    &mut run,
-                    &mut expect,
-                    destination,
-                    &line_shape,
-                    work,
-                ) {
-                    Some(next) => draft = next,
-                    None => {
-                        ok = false;
-                        break;
-                    }
-                }
-            }
-            if !ok {
-                refused = true;
+            let Some(linked) = self.linked_line(&body, destination, work) else {
                 continue;
-            }
-            if draft.0.text != body.entry.text {
-                edited.insert(body.index, draft);
+            };
+            any = true;
+            match linked {
+                Some(draft) if draft.0.text != body.entry.text => {
+                    edited.insert(body.index, draft);
+                }
+                Some(_) => {}
+                None => refused = true,
             }
         }
         if edited.is_empty() {
@@ -74,6 +43,61 @@ impl Engine {
             };
         }
         Ok(self.rewrite(range, edited))
+    }
+
+    /// Whether `link_selection` would change a line of `bodies` (the
+    /// selection's): the lines linked one at a time until one changes.
+    pub(super) fn links_any(&self, bodies: &[Body], destination: &str) -> bool {
+        bodies.iter().any(|body| {
+            let linked = self.linked_line(body, destination, &mut 0);
+            linked
+                .flatten()
+                .is_some_and(|draft| draft.0.text != body.entry.text)
+        })
+    }
+
+    /// `body`'s line with each region's selected text linked: `None` when it
+    /// selects no text, `Some(None)` when a region cannot be linked.
+    fn linked_line(
+        &self,
+        body: &Body,
+        destination: &str,
+        work: &mut usize,
+    ) -> Option<Option<(Draft, Entry)>> {
+        let regions = regions(body.entry);
+        let mut draft = (Draft::of(body.entry), body.entry.clone());
+        let mut expect: Vec<Expect> = body.glyphs.iter().map(Expect::same).collect();
+        let line_shape = shape(body.entry);
+        let mut any = false;
+        for region in &regions {
+            let inside_region = glyph_range(&body.glyphs, region);
+            let chosen: Vec<usize> = inside_region
+                .clone()
+                .filter(|&i| body.selected[i])
+                .collect();
+            let (Some(&a), Some(&z)) = (chosen.first(), chosen.last()) else {
+                continue;
+            };
+            let mut run = trimmed(&body.glyphs, a..z + 1);
+            if run.is_empty() {
+                continue;
+            }
+            any = true;
+            let linked = self.link_run(
+                &draft.0,
+                &draft.1,
+                &mut run,
+                &mut expect,
+                destination,
+                &line_shape,
+                work,
+            );
+            match linked {
+                Some(next) => draft = next,
+                None => return Some(None),
+            }
+        }
+        any.then_some(Some(draft))
     }
 
     /// Wrap glyphs `run` of a line in one link to `destination`. A run that

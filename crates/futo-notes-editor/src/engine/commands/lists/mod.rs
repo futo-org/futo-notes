@@ -38,9 +38,6 @@ impl Engine {
         command: BlockCommand,
     ) -> Result<Option<Command>, EditorError> {
         let range = self.outside_crlf(range);
-        if self.touches_metadata(range) {
-            return Ok(None);
-        }
         match command {
             BlockCommand::Indent => self.indent_command(range, false),
             BlockCommand::Outdent => self.indent_command(range, true),
@@ -60,14 +57,11 @@ impl Engine {
         key: ParagraphKey,
     ) -> Result<Option<Command>, EditorError> {
         let range = self.outside_crlf(range);
-        if self.touches_metadata(range) {
-            return Ok(None);
-        }
         match key {
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => self.list_enter(range),
-            ParagraphKey::Backspace | ParagraphKey::BackspaceJoiningHeading => {
-                self.list_backspace(range)
-            }
+            ParagraphKey::Backspace
+            | ParagraphKey::BackspaceJoiningHeading
+            | ParagraphKey::PairedBackspace => self.list_backspace(range),
             ParagraphKey::Tab | ParagraphKey::ShiftTab => {
                 let touches_list = self
                     .lines_of(range)
@@ -77,7 +71,7 @@ impl Engine {
                 }
                 self.indent_command(range, key == ParagraphKey::ShiftTab)
             }
-            ParagraphKey::Delete => Ok(None),
+            ParagraphKey::Delete | ParagraphKey::Transpose => Ok(None),
         }
     }
 

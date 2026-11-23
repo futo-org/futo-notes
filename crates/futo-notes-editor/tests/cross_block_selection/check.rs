@@ -170,7 +170,7 @@ pub(crate) fn lines(source: &str) -> Vec<(String, Kind)> {
             .blocks
             .iter()
             .find(|block| block.range.start.0 <= start && start <= block.range.end.0);
-        let code = block.is_some_and(|block| block.code);
+        let code = block.is_some_and(|block| block.code.is_some());
         let list = block.and_then(|block| block.list.as_ref());
         let item = list.filter(|list| !list.marker.is_empty());
         if !text.trim().is_empty() {
@@ -229,12 +229,77 @@ pub(crate) fn checked_as(
         "{label}\nreopened {source:?}"
     );
     if exact() {
+        let writes = !matches!(input, Input::Backspace | Input::Delete);
+        let (a, b) = taken(note, &old, a, b, writes);
         exactly_replaced(note, &old, a, b, input, &source, &shown, &label);
     }
     s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
     assert_eq!(s.source_text(), note, "{label}: Undo");
     assert_eq!(s.selection(), range(a, b), "{label}: Undo selection");
     Some(source)
+}
+
+/// The display `[a, b)` of `note` (showing `old`) an input takes: a wikilink
+/// it reaches the edge of from inside goes whole (wikilinks.md); a code
+/// block it reaches into or out of goes whole (fenced-code.md), except that a
+/// range from a block's code to the start of the line after it stays in the
+/// code, one from the end of a block's code starts after its line break, and
+/// one ending where a block's code starts touches none of it and keeps the
+/// line break above it unless it removes (`writes` false) whole lines.
+pub(crate) fn taken(note: &str, old: &str, a: usize, b: usize, writes: bool) -> (usize, usize) {
+    if a == b {
+        return (a, b);
+    }
+    let blocks: Vec<(usize, usize)> = fresh(note)
+        .code_blocks
+        .iter()
+        .map(|block| (block.range.start.0, block.range.end.0))
+        .collect();
+    let holding = |at: usize| blocks.iter().copied().find(|&(s, e)| s <= at && at <= e);
+    let break_after = |at: usize| {
+        if old[at..].starts_with("\r\n") {
+            2
+        } else {
+            usize::from(old[at..].starts_with('\n'))
+        }
+    };
+    let (mut a, mut b) = (a, b);
+    // A range reaching a wikilink's edge from inside takes it whole (wikilinks.md).
+    for link in &fresh(note).wikilinks {
+        let (start, end) = (link.range.start.0, link.range.end.0);
+        let within = start < a && b < end;
+        if !within && start < b && a < end {
+            (a, b) = (a.min(start), b.max(end));
+        }
+    }
+    let mut inside = holding(a);
+    if let Some((_, e)) = inside.filter(|&(s, e)| s < e && a == e && b >= e + break_after(e)) {
+        a = e + break_after(e);
+        inside = holding(a);
+    }
+    if let Some((s, e)) = inside.filter(|&(_, e)| b > e) {
+        if s < e && b <= e + break_after(e) {
+            b = e;
+        } else {
+            a = s;
+        }
+    }
+    if let Some((s, e)) = holding(b).filter(|&block| a < block.0 && Some(block) != inside) {
+        if b == s && b < old.len() {
+            let session = EditorSession::open(note);
+            let from = session
+                .source_at(session.revision(), DisplayOffset(a), Affinity::Forward)
+                .unwrap()
+                .0;
+            let whole = from == note[..from].rfind('\n').map_or(0, |end| end + 1);
+            if writes || !whole {
+                b -= if old[..b].ends_with("\r\n") { 2 } else { 1 };
+            }
+        } else {
+            b = e;
+        }
+    }
+    (a, b.max(a))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -356,7 +421,7 @@ fn formatted(source: &str) -> Vec<(char, u8)> {
                 .blocks
                 .iter()
                 .find(line)
-                .is_some_and(|block| block.code)
+                .is_some_and(|block| block.code.is_some())
             {
                 flags |= CODE_LINE;
             }

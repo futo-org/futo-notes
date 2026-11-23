@@ -1,0 +1,195 @@
+//! Images and wikilinks as one unit: a range touching part of one takes it
+//! whole, and Backspace or Delete reaching into one removes it whole. A
+//! wikilink edits as text from a caret inside its brackets, where hosts draw
+//! it as typed while it is written.
+use super::super::command::{Command, Edit};
+use super::super::{store, Engine};
+use crate::lines::SpanKind;
+use crate::{CaretDirection, DisplayOffset, DisplayRange, EditorError, ParagraphKey};
+
+/// An image or a wikilink on a line, by its display range.
+struct Atom {
+    range: DisplayRange,
+    wikilink: bool,
+}
+
+impl Atom {
+    fn overlaps(&self, start: usize, end: usize) -> bool {
+        self.range.start.0 < end && start < self.range.end.0
+    }
+
+    fn holds(&self, at: usize) -> bool {
+        self.range.start.0 < at && at < self.range.end.0
+    }
+}
+
+/// `range` out of the images among `atoms`: a caret strictly inside one
+/// moves to its nearer edge (after, on a tie), and a range touching part of
+/// one includes it whole.
+fn out_of_images(range: DisplayRange, atoms: &[Atom]) -> DisplayRange {
+    let mut images = atoms.iter().filter(|atom| !atom.wikilink);
+    if range.start != range.end {
+        let mut whole = range;
+        for image in images.filter(|image| image.overlaps(range.start.0, range.end.0)) {
+            whole.start.0 = whole.start.0.min(image.range.start.0);
+            whole.end.0 = whole.end.0.max(image.range.end.0);
+        }
+        return whole;
+    }
+    let at = range.start.0;
+    let Some(image) = images.find(|image| image.holds(at)) else {
+        return range;
+    };
+    let edge = if at - image.range.start.0 < image.range.end.0 - at {
+        image.range.start
+    } else {
+        image.range.end
+    };
+    DisplayRange {
+        start: edge,
+        end: edge,
+    }
+}
+
+impl Engine {
+    /// Keys around an atom: a caret's Backspace or Delete whose one-grapheme
+    /// step reaches into an image or a wikilink removes it whole (not a
+    /// wikilink the caret is inside); Enter on a selection that is exactly
+    /// one image acts after it.
+    pub(super) fn atom_key(
+        &self,
+        range: DisplayRange,
+        key: ParagraphKey,
+    ) -> Result<Option<Command>, EditorError> {
+        match key {
+            ParagraphKey::Enter | ParagraphKey::ShiftEnter => {
+                let is_image = range.start != range.end
+                    && self
+                        .atoms_in(range.start.0, range.end.0)
+                        .iter()
+                        .any(|atom| !atom.wikilink && atom.range == range);
+                if !is_image {
+                    return Ok(None);
+                }
+                let after = DisplayRange {
+                    start: range.end,
+                    end: range.end,
+                };
+                match self.key_command(after, key)? {
+                    Some(command) => Ok(Some(command)),
+                    None => self.typed_key(after, key),
+                }
+            }
+            ParagraphKey::Backspace
+            | ParagraphKey::BackspaceJoiningHeading
+            | ParagraphKey::PairedBackspace
+            | ParagraphKey::Delete
+                if range.start == range.end =>
+            {
+                let direction = if key == ParagraphKey::Delete {
+                    CaretDirection::Forward
+                } else {
+                    CaretDirection::Backward
+                };
+                let caret = range.start.0;
+                let deletion = self.caret_deletion(caret, direction);
+                let (mut start, mut end) = (deletion.start.0, deletion.end.0);
+                let mut found = false;
+                for atom in self.atoms_in(start, end) {
+                    if atom.overlaps(start, end) && !atom.holds(caret) {
+                        start = start.min(atom.range.start.0);
+                        end = end.max(atom.range.end.0);
+                        found = true;
+                    }
+                }
+                if !found {
+                    return Ok(None);
+                }
+                let whole = DisplayRange {
+                    start: DisplayOffset(start),
+                    end: DisplayOffset(end),
+                };
+                let plan = self.plan(whole, "");
+                let first = self.line_of(plan.range.start);
+                let last = self.line_of(plan.range.end);
+                Ok(Some(Command::new(
+                    vec![Edit::new(plan.range, plan.inserted)],
+                    first..last + 1,
+                    plan.caret..plan.caret,
+                )))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// `range` with its ends out of atoms. A caret strictly inside an image
+    /// moves to the image's nearer edge (after, on a tie): its only caret
+    /// stops are before and after it, so input at a caret never lands in its
+    /// hidden source. A caret inside a wikilink stays: it edits the link as
+    /// text. A range touching part of an image includes the whole image,
+    /// and one reaching a wikilink's edge from inside it the whole wikilink.
+    /// A range strictly inside a wikilink's brackets stays, as does any range
+    /// within it while the caret is inside it (a Backspace or Delete step
+    /// from there).
+    pub(crate) fn outside_atoms(&self, range: DisplayRange) -> DisplayRange {
+        let atoms = self.atoms_in(range.start.0, range.end.0);
+        let mut whole = out_of_images(range, &atoms);
+        if range.start == range.end {
+            return whole;
+        }
+        let caret = (self.selection.start == self.selection.end).then_some(self.selection.start.0);
+        for atom in atoms.iter().filter(|atom| atom.wikilink) {
+            let (start, end) = (atom.range.start.0, atom.range.end.0);
+            let within = start <= range.start.0 && range.end.0 <= end;
+            let strictly_within = start < range.start.0 && range.end.0 < end;
+            let edits_text = strictly_within || (within && caret.is_some_and(|at| atom.holds(at)));
+            if atom.overlaps(range.start.0, range.end.0) && !edits_text {
+                whole.start.0 = whole.start.0.min(start);
+                whole.end.0 = whole.end.0.max(end);
+            }
+        }
+        whole
+    }
+
+    /// `range` out of images only, as `outside_atoms` fits it; a wikilink is
+    /// left as it is.
+    pub(crate) fn outside_images(&self, range: DisplayRange) -> DisplayRange {
+        out_of_images(range, &self.atoms_in(range.start.0, range.end.0))
+    }
+
+    /// Whether display `range` holds part of an image or a wikilink, or is a
+    /// caret strictly inside one.
+    pub(crate) fn touches_atom(&self, range: DisplayRange) -> bool {
+        let (start, end) = (range.start.0, range.end.0);
+        self.atoms_in(start, end)
+            .iter()
+            .any(|atom| atom.overlaps(start, end) || atom.holds(start))
+    }
+
+    /// The images and wikilinks on the lines showing display offsets
+    /// `start` and `end`.
+    fn atoms_in(&self, start: usize, end: usize) -> Vec<Atom> {
+        let (first, _) = self.line_at_display(store::display, start);
+        let (last, _) = self.line_at_display(store::display, end);
+        let mut atoms = Vec::new();
+        for index in first..=last {
+            let entry = self.line(index);
+            let before = self.store.before(index);
+            for span in &entry.spans {
+                let wikilink = match span.kind {
+                    SpanKind::Image { .. } => false,
+                    SpanKind::Wikilink { .. } => true,
+                    _ => continue,
+                };
+                atoms.push(Atom {
+                    range: DisplayRange {
+                        start: DisplayOffset(before.display + entry.to_display(span.range.start)),
+                        end: DisplayOffset(before.display + entry.to_display(span.range.end)),
+                    },
+                    wikilink,
+                });
+            }
+        }
+        atoms
+    }
+}

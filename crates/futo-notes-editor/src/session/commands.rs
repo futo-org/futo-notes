@@ -2,8 +2,8 @@
 //! its work to the core's command family of the same name.
 use super::{Accept, EditorSession};
 use crate::{
-    DisplayRange, EditorError, ImageClaim, LinkDescription, NoteIdChange, Revision, TableCommand,
-    TableDescription, TableKey, TableOutcome, ViewChange, WikilinkCompletion,
+    DisplayOffset, DisplayRange, EditorError, ImageClaim, LinkDescription, NoteIdChange, Revision,
+    TableCommand, TableDescription, TableKey, TableOutcome, ViewChange, WikilinkCompletion,
 };
 
 impl EditorSession {
@@ -17,6 +17,20 @@ impl EditorSession {
         accept: Accept,
     ) -> Result<Option<TableOutcome>, EditorError> {
         self.run(|e| e.press_table_key(expected, key, accept))
+    }
+
+    /// Put the caret in cell `column` (from 0) of the header or body row at
+    /// display `at`. A row that lacks the cell gains empty cells up to it in
+    /// one edit, as Tab gives them. `None` off a header or body row (the
+    /// delimiter row included), and for a column past the table's count.
+    pub fn enter_table_cell(
+        &mut self,
+        expected: Revision,
+        at: DisplayOffset,
+        column: usize,
+        accept: Accept,
+    ) -> Result<Option<TableOutcome>, EditorError> {
+        self.run(|e| e.enter_table_cell(expected, at, column, accept))
     }
 
     /// Structural command addressed by any range inside the target cell.
@@ -89,6 +103,19 @@ impl EditorSession {
         self.run(|e| e.paste_markdown(expected, range, text, accept))
     }
 
+    /// Drag-to-move: cut display `range` and paste it at display `to` (an
+    /// offset before the move), left selected, as one Undo step. Each half is
+    /// its own accepted edit; a paste that cannot land takes the cut back.
+    pub fn move_markdown(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        to: DisplayOffset,
+        accept: Accept,
+    ) -> Result<Vec<ViewChange>, EditorError> {
+        self.run(|e| e.move_markdown(expected, range, to, accept))
+    }
+
     /// Inspect the contiguous run containing the complete selection. A caret at
     /// a run boundary follows the session's explicit neighbor affinity.
     pub fn inspect_link(
@@ -97,6 +124,16 @@ impl EditorSession {
         range: DisplayRange,
     ) -> Result<Option<LinkDescription>, EditorError> {
         self.engine.inspect_link(expected, range)
+    }
+
+    /// The label a Link form starts with; `None` when the link goes on each
+    /// table cell's text and the form asks only a destination (`set_link`).
+    pub fn link_label(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<Option<String>, EditorError> {
+        self.engine.link_label(expected, range)
     }
 
     /// Set the selected link destination, expanding an interior selection to

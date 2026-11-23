@@ -51,7 +51,11 @@ fn close_saves_accepted_edits_and_reopening_reads_them() {
     let (opened, mut page) = open(&hosts, &store);
     assert_eq!(opened.snapshot.source, "ab");
     assert_eq!(opened.note_ids, ["plain"]);
-    let edit = page.replace(Revision(0), at(2), "c").unwrap().request;
+    let edit = page
+        .replace(Revision(0), at(2), "c")
+        .unwrap()
+        .unwrap()
+        .request;
     let ack = exchange(&hosts, opened.token, &mut page, edit);
     assert_eq!((ack.accepted, ack.error), (Revision(1), None));
     // Accepting an edit writes nothing; the save timer or close does.
@@ -75,7 +79,11 @@ fn checkpoint_saves_now_and_failed_close_keeps_the_note_attached() {
     let (root, store) = vault("ab");
     let hosts = EditorHostState::default();
     let (opened, mut page) = open(&hosts, &store);
-    let edit = page.replace(Revision(0), at(2), "c").unwrap().request;
+    let edit = page
+        .replace(Revision(0), at(2), "c")
+        .unwrap()
+        .unwrap()
+        .request;
     exchange(&hosts, opened.token, &mut page, edit);
     hosts.checkpoint(opened.token).unwrap();
     assert_eq!(
@@ -84,7 +92,11 @@ fn checkpoint_saves_now_and_failed_close_keeps_the_note_attached() {
     );
 
     // A directory where the note file belongs makes the next save fail.
-    let edit = page.replace(Revision(1), at(3), "d").unwrap().request;
+    let edit = page
+        .replace(Revision(1), at(3), "d")
+        .unwrap()
+        .unwrap()
+        .request;
     exchange(&hosts, opened.token, &mut page, edit);
     let note = root.join("plain.md");
     std::fs::remove_file(&note).unwrap();
@@ -92,7 +104,11 @@ fn checkpoint_saves_now_and_failed_close_keeps_the_note_attached() {
     assert!(hosts.close(opened.token).is_err());
     // Still attached: the lease is held and requests are still routed.
     assert!(store.open_editor("plain").is_err());
-    let edit = page.replace(Revision(2), at(4), "e").unwrap().request;
+    let edit = page
+        .replace(Revision(2), at(4), "e")
+        .unwrap()
+        .unwrap()
+        .request;
     let ack = exchange(&hosts, opened.token, &mut page, edit);
     assert_eq!(ack.accepted, Revision(3));
     std::fs::remove_dir(&note).unwrap();
@@ -112,7 +128,11 @@ fn stale_tokens_are_refused_and_close_releases_the_lease() {
     // A second store handle cannot attach while the host holds the lease.
     assert!(store.open_editor("plain").is_err());
     let (second, _) = open(&hosts, &store);
-    let edit = page.replace(Revision(0), at(0), "x").unwrap().request;
+    let edit = page
+        .replace(Revision(0), at(0), "x")
+        .unwrap()
+        .unwrap()
+        .request;
     assert_eq!(
         hosts.request(first.token, edit.clone()),
         Err("stale editor session".into())
@@ -143,7 +163,11 @@ fn legacy_save_is_refused_while_attached() {
     let (root, store) = vault("ab");
     let hosts = EditorHostState::default();
     let (opened, mut page) = open(&hosts, &store);
-    let edit = page.replace(Revision(0), at(2), "c").unwrap().request;
+    let edit = page
+        .replace(Revision(0), at(2), "c")
+        .unwrap()
+        .unwrap()
+        .request;
     exchange(&hosts, opened.token, &mut page, edit);
     // The Store refuses by lease, under its gate, whatever the key's case.
     let refusal = store.save_unattached(None, "PLAIN", "x", None).unwrap_err();
@@ -170,7 +194,11 @@ fn worker_saves_when_the_timer_fires_and_reports_it() {
         })
         .unwrap();
     let mut page = PortableSession::from_snapshot(opened.snapshot.clone()).unwrap();
-    let edit = page.replace(Revision(0), at(2), "c").unwrap().request;
+    let edit = page
+        .replace(Revision(0), at(2), "c")
+        .unwrap()
+        .unwrap()
+        .request;
     exchange(&hosts, opened.token, &mut page, edit);
     let event = saved.recv_timeout(Duration::from_secs(5)).unwrap();
     assert_eq!(event.token, opened.token);

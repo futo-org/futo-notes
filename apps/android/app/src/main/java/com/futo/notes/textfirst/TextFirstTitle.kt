@@ -78,7 +78,7 @@ internal fun TextFirstTitle(
         placeholder = localization.localizedText("notes.untitledPlaceholder"),
         onReturn = onReturn,
         onTyped = onTyped,
-        modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 4.dp)
+        modifier = Modifier.fillMaxWidth().padding(start = NOTE_TEXT_INSET_DP.dp, end = NOTE_TEXT_INSET_DP.dp, top = 4.dp)
             .onFocusChanged { focus -> titleField.focusChanged(focus.isFocused) },
     )
     titleWarning?.let { warning ->
@@ -86,7 +86,7 @@ internal fun TextFirstTitle(
             localization.localizedText(warning.path, warning.arguments),
             style = FutoType.caption,
             color = c.danger,
-            modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 2.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = NOTE_TEXT_INSET_DP.dp, end = NOTE_TEXT_INSET_DP.dp, top = 2.dp),
         )
     }
 }

@@ -1,14 +1,26 @@
 package com.futo.notes.textfirst
 
+import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.Constraints
 import com.futo.notes.puppet.PuppetVerb
 import com.futo.notes.puppet.PuppetVerbScope
 import kotlinx.coroutines.launch
@@ -24,6 +36,11 @@ import uniffi.futo_notes_ffi.EditorInlineFormat
  * up. Its own composable so the keyboard's per-frame inset animation
  * recomposes only this slot, not the whole note screen (measured: the screen
  * recomposing every animation frame dominated keyboard open/close).
+ *
+ * Composed once the note has opened and kept, unplaced, while it is hidden.
+ * Composed with the keyboard, it held the keyboard's first animation frame for
+ * 50-100 ms; composed at the tap, it held the main thread past the moment the
+ * keyboard was ready to rise. Either way the keyboard stalled before it moved.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -32,10 +49,31 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
     var draft by remember(controller) { mutableStateOf<LinkDraft?>(null) }
     var opening by remember(controller) { mutableStateOf(false) }
     val visible = controller.cellView == null && controller.focused && WindowInsets.isImeVisible
+    var composed by remember(controller) { mutableStateOf(false) }
+    LaunchedEffect(controller.opened, controller.focused) { if (controller.opened || controller.focused) composed = true }
+    // A hidden bar is never told a finger lifted, so a press or drag it hid under stayed live in it: a button drawn
+    // pressed, a bar that no longer scrolled. Hidden under a touch, it is composed anew, as every bar once was.
+    var touched by remember { mutableStateOf(false) }
+    var generation by remember { mutableIntStateOf(0) }
+    // Each opening starts at the leading items. Above user input, so it also ends a fling or a drag the hiding
+    // interrupted (a drag outranks a plain scrollTo, which it would refuse).
+    val scroll = rememberScrollState()
+    LaunchedEffect(visible) {
+        if (visible) return@LaunchedEffect
+        if (touched) {
+            touched = false
+            generation++
+        }
+        scroll.scroll(MutatePriority.PreventUserInput) { scrollBy(-scroll.value.toFloat()) }
+    }
     suspend fun openLink() {
         if (opening || draft != null) return
         opening = true
         try { draft = controller.linkDraft() } finally { opening = false }
+    }
+    DisposableEffect(controller) {
+        controller.view.keyHooks.link = { if (controller.opened) scope.launch { openLink() } }
+        onDispose { controller.view.keyHooks.link = null }
     }
     PuppetVerbScope {
         if (!visible || !controller.opened || opening || draft != null) emptyList() else listOf(
@@ -43,8 +81,12 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
         )
     }
     val caret = controller.caret
-    if (controller.cellView != null) TextFirstTableCellControls(controller)
-    else if (visible) EditorToolbar(
+    if (controller.cellFocused) TextFirstTableCellControls(controller)
+    if (composed || visible) key(generation) { EditorToolbar(
+        modifier = (if (visible) Modifier else measuredWithoutSpace).pointerInput(Unit) {
+            awaitPointerEventScope { while (true) touched = awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed } }
+        },
+        scrollState = scroll,
         onListLine = caret.list != null,
         inContainer = true,
         // Until the whole open lands the note shows read-only: nothing edits it.
@@ -58,7 +100,7 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
                 ToolbarItemAction.Dismiss -> controller.view.hideKeyboard()
             }
         },
-    )
+    ) }
     draft?.let { claim ->
         TextFirstLinkDialog(
             draft = claim,
@@ -69,6 +111,13 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
     }
 }
 
+
+/** Measured, so showing it lays nothing out again, but given no space, never placed or drawn, and hidden from accessibility. */
+private val measuredWithoutSpace = Modifier.clearAndSetSemantics {}.layout { measurable, constraints ->
+    // Not the height left over: another field's keyboard changes that on every frame of its animation.
+    measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
+    layout(0, 0) {}
+}
 
 /** Every toolbar item that changes the note: all but Dismiss. */
 private val editItems: Set<String> = ToolbarSpec.groups.flatten()

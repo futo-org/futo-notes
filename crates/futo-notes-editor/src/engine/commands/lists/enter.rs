@@ -1,6 +1,6 @@
 //! Enter and Backspace on list items.
 use super::super::super::command::{Command, Edit};
-use super::super::super::line::{Entry, Role};
+use super::super::super::line::{Cut, Entry, Role};
 use super::super::super::{store, Engine};
 use super::super::marks::split;
 use super::draft::{diff, Draft};
@@ -24,6 +24,12 @@ impl Engine {
         if first != last {
             if !is_item(&self.line(first).line) && !is_item(&self.line(last).line) {
                 return Ok(None);
+            }
+            // A line break joining a fence's line to an item would open or
+            // close code: Enter there changes nothing.
+            let fenced = |index: usize| matches!(self.line(index).line.kind, Kind::Fence { .. });
+            if fenced(first) || fenced(last) {
+                return Ok(Some(Command::new(Vec::new(), first..last + 1, selected)));
             }
             return Ok(Some(self.enter_across(selected, first, last)));
         }
@@ -96,11 +102,20 @@ impl Engine {
         let b_start = self.line_start(last);
         let left = left_part(a, selected.start - start);
         let end = selected.end - b_start;
-        let kept = parts(b.body(), &b.line).content.min(end);
-        let (right, opens) = right_part(b, end);
+        // The line keeps its hidden marker; on a line with no text (a blank
+        // line, a divider) the bytes after the selection stay as typed.
+        let kept = match b.view.cuts.first() {
+            Some((marker, Cut::Marker)) => marker.end,
+            _ => 0,
+        };
+        let (right, opens) = if b.line.content.is_empty() {
+            (b.body()[end.max(kept)..].to_owned(), 0)
+        } else {
+            right_part(b, end)
+        };
         let text = format!("{left}{}{}{right}", a.ending(), &b.body()[..kept]);
         let old = self.source_slice(start..b_start + b.body_len());
-        let caret = start + left.len() + a.ending().len() + kept + opens;
+        let caret = start + left.len() + a.ending().len() + kept.min(end) + opens;
         let edits: Vec<Edit> = diff(start, &old, &text).into_iter().collect();
         // A command with no edits sets the selection (`surface.rs` `key`):
         // when nothing changes, the selection stays.

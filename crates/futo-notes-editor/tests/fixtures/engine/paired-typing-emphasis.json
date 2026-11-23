@@ -1,0 +1,964 @@
+[
+  {
+    "name": "(1) a * writes a pair; each * inside an empty pair grows it; at three it is typed",
+    "before": "a |",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "a *|*",
+        "display": "a **"
+      },
+      {
+        "do": "pair:*",
+        "after": "a **|**"
+      },
+      {
+        "do": "pair:*",
+        "after": "a ***|***"
+      },
+      {
+        "do": "pair:*",
+        "after": "a ****|***"
+      }
+    ]
+  },
+  {
+    "name": "(1) a pair and each growth is one Undo step",
+    "before": "a |",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "a *|*"
+      },
+      {
+        "do": "pair:*",
+        "after": "a **|**"
+      },
+      {
+        "do": "Undo",
+        "after": "a *|*"
+      },
+      {
+        "do": "Undo",
+        "after": "a |"
+      },
+      {
+        "do": "Redo",
+        "after": "a *|*"
+      },
+      {
+        "do": "Redo",
+        "after": "a **|**"
+      }
+    ]
+  },
+  {
+    "name": "(1)(2) bold typed by hand: **, letters, then * and * end after it",
+    "before": "a |",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "a *|*"
+      },
+      {
+        "do": "pair:*",
+        "after": "a **|**"
+      },
+      {
+        "do": "type:b",
+        "after": "a **b|**",
+        "display": "a b",
+        "affinity": "Backward"
+      },
+      {
+        "do": "type:o",
+        "after": "a **bo|**"
+      },
+      {
+        "do": "pair:*",
+        "after": "a **bo**|",
+        "display": "a bo",
+        "affinity": "Forward"
+      },
+      {
+        "do": "pair:*",
+        "after": "a **bo**|",
+        "affinity": "Forward"
+      },
+      {
+        "do": "type: ",
+        "after": "a **bo** |"
+      },
+      {
+        "do": "type:x",
+        "after": "a **bo** x|",
+        "display": "a bo x"
+      }
+    ]
+  },
+  {
+    "name": "(1)(2) bold and italic typed by hand: ***, a letter, then three *",
+    "before": "a |",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "a *|*"
+      },
+      {
+        "do": "pair:*",
+        "after": "a **|**"
+      },
+      {
+        "do": "pair:*",
+        "after": "a ***|***"
+      },
+      {
+        "do": "type:b",
+        "after": "a ***b|***",
+        "display": "a b"
+      },
+      {
+        "do": "pair:*",
+        "after": "a ***b***|",
+        "affinity": "Forward"
+      },
+      {
+        "do": "pair:*",
+        "after": "a ***b***|"
+      },
+      {
+        "do": "pair:*",
+        "after": "a ***b***|"
+      },
+      {
+        "do": "type:.",
+        "after": "a ***b***.|",
+        "display": "a b."
+      }
+    ]
+  },
+  {
+    "name": "(2) italic: one * ends after it, a second writes nothing",
+    "before": "a *it|*",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "a *it*|",
+        "affinity": "Forward"
+      },
+      {
+        "do": "pair:*",
+        "after": "a *it*|",
+        "affinity": "Forward"
+      }
+    ]
+  },
+  {
+    "name": "(2) closing markers still shown: a * steps over one; the rest then reads as an empty pair",
+    "before": "**bold |**",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "**bold *|*"
+      },
+      {
+        "do": "pair:*",
+        "after": "**bold **|**"
+      }
+    ]
+  },
+  {
+    "name": "(2) inside bold and italic a * leaves both",
+    "before": "x ***b|*** y",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "x ***b***| y",
+        "affinity": "Forward"
+      }
+    ]
+  },
+  {
+    "name": "(2) after bold, past a space, a new pair",
+    "before": "**bold** |",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "**bold** *|*"
+      }
+    ]
+  },
+  {
+    "name": "(3) Backspace goes down one level per press, one Undo step each",
+    "before": "a ***|***",
+    "steps": [
+      {
+        "do": "Backspace",
+        "after": "a **|**"
+      },
+      {
+        "do": "Backspace",
+        "after": "a *|*"
+      },
+      {
+        "do": "Backspace",
+        "after": "a |"
+      },
+      {
+        "do": "Undo",
+        "after": "a *|*"
+      },
+      {
+        "do": "Undo",
+        "after": "a **|**"
+      },
+      {
+        "do": "Undo",
+        "after": "a ***|***"
+      },
+      {
+        "do": "Redo",
+        "after": "a **|**"
+      }
+    ]
+  },
+  {
+    "name": "(3) every Backspace key removes one level",
+    "before": "a **|**",
+    "steps": [
+      {
+        "do": "BackspaceJoiningHeading",
+        "after": "a *|*"
+      },
+      {
+        "do": "PairedBackspace",
+        "after": "a |"
+      }
+    ]
+  },
+  {
+    "name": "(3) Backspace after a pair grown past three removes one *",
+    "before": "a ****|***",
+    "steps": [
+      {
+        "do": "Backspace",
+        "after": "a ***|***"
+      }
+    ]
+  },
+  {
+    "name": "(3) Backspace in bold text deletes a letter",
+    "before": "**a|**",
+    "steps": [
+      {
+        "do": "Backspace",
+        "after": "|",
+        "display": ""
+      }
+    ]
+  },
+  {
+    "name": "(4) at a line's start * is typed: * then a space is a bullet",
+    "before": "|",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "*|"
+      },
+      {
+        "do": "type: ",
+        "after": "* |"
+      }
+    ]
+  },
+  {
+    "name": "(4) at an indented line's start",
+    "before": "  |",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "  *|"
+      }
+    ]
+  },
+  {
+    "name": "(4) at a quote's content start",
+    "before": "> |",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "> *|"
+      }
+    ]
+  },
+  {
+    "name": "(4)(11) bold typed by hand at a line's start (a pair there would be a divider)",
+    "before": "|",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "*|"
+      },
+      {
+        "do": "pair:*",
+        "after": "**|"
+      },
+      {
+        "do": "type:bold",
+        "after": "**bold|"
+      },
+      {
+        "do": "pair:*",
+        "after": "**bold*|",
+        "display": "*bold"
+      },
+      {
+        "do": "pair:*",
+        "after": "**bold**|",
+        "display": "bold"
+      },
+      {
+        "do": "pair:*",
+        "after": "**bold**|"
+      }
+    ]
+  },
+  {
+    "name": "(4) after a list marker a pair",
+    "before": "- |",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "- *|*"
+      }
+    ]
+  },
+  {
+    "name": "(4) in a heading a pair",
+    "before": "# |",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "# *|*"
+      }
+    ]
+  },
+  {
+    "name": "(4) an empty pair alone on a line does not grow into a divider; the * is typed as typing types it",
+    "before": "*|*",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "|***",
+        "display": "￼"
+      }
+    ]
+  },
+  {
+    "name": "(11) after a digit * is typed",
+    "before": "2|",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "2*|"
+      },
+      {
+        "do": "type:3",
+        "after": "2*3|",
+        "display": "2*3"
+      }
+    ]
+  },
+  {
+    "name": "(11) after a letter * is typed",
+    "before": "a|",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "a*|"
+      }
+    ]
+  },
+  {
+    "name": "(11) after a * outside an empty pair * is typed",
+    "before": "x *|",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "x **|"
+      }
+    ]
+  },
+  {
+    "name": "(11) before a word a pair",
+    "before": "a |word",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "a *|*word"
+      },
+      {
+        "do": "type:x",
+        "after": "a *x|*word",
+        "display": "a xword"
+      }
+    ]
+  },
+  {
+    "name": "(11) _ and ( never pair",
+    "before": "a |",
+    "steps": [
+      {
+        "do": "pair:_",
+        "after": "a _|"
+      },
+      {
+        "do": "pair:(",
+        "after": "a _(|"
+      }
+    ]
+  },
+  {
+    "name": "(10) in a code block typed",
+    "before": "```\na|\n```",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "```\na*|\n```"
+      },
+      {
+        "do": "pair:~",
+        "after": "```\na*~|\n```"
+      }
+    ]
+  },
+  {
+    "name": "(10) in inline code typed",
+    "before": "x `a |b`",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "x `a *|b`"
+      }
+    ]
+  },
+  {
+    "name": "(10) after an escaping backslash typed",
+    "before": "a \\|",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "a \\*|"
+      },
+      {
+        "do": "pair:~",
+        "after": "a \\*~|"
+      }
+    ]
+  },
+  {
+    "name": "(10) a * before a hidden opening marker is typed",
+    "before": "a |**b**",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "a *|**b**"
+      }
+    ]
+  },
+  {
+    "name": "(10) a pair in a table cell",
+    "before": "| a | b |\n| - | - |\n| x ^ | d |",
+    "marks": "^{}",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "| a | b |\n| - | - |\n| x *^* | d |"
+      },
+      {
+        "do": "Backspace",
+        "after": "| a | b |\n| - | - |\n| x ^ | d |"
+      }
+    ]
+  },
+  {
+    "name": "(10) a pair on an indented line",
+    "before": "  a |",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "  a *|*"
+      }
+    ]
+  },
+  {
+    "name": "(10) a pair in a list item",
+    "before": "- b |",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "- b *|*"
+      }
+    ]
+  },
+  {
+    "name": "(10) a pair in a quote",
+    "before": "> c |",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "> c *|*"
+      },
+      {
+        "do": "Backspace",
+        "after": "> c |"
+      }
+    ]
+  },
+  {
+    "name": "(5) over a selection: italic, bold, both, then typed",
+    "before": "x [ab] y",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "x *[ab]* y"
+      },
+      {
+        "do": "pair:*",
+        "after": "x **[ab]** y"
+      },
+      {
+        "do": "pair:*",
+        "after": "x ***[ab]*** y"
+      },
+      {
+        "do": "pair:*",
+        "after": "x ****|*** y"
+      },
+      {
+        "do": "Undo",
+        "after": "x ***[ab]*** y"
+      },
+      {
+        "do": "Undo",
+        "after": "x **[ab]** y"
+      },
+      {
+        "do": "Undo",
+        "after": "x *[ab]* y"
+      },
+      {
+        "do": "Undo",
+        "after": "x [ab] y"
+      }
+    ]
+  },
+  {
+    "name": "(5) a bold selection becomes bold and italic",
+    "before": "x **[ab]** y",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "x ***[ab]*** y"
+      }
+    ]
+  },
+  {
+    "name": "(5) a selection partly italic becomes italic",
+    "before": "[a *b*]",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "*[a b]*"
+      }
+    ]
+  },
+  {
+    "name": "(5) across lines each line's text",
+    "before": "[a\nb]",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "*[a*\n*b]*"
+      }
+    ]
+  },
+  {
+    "name": "existing emphasis around the caret: inside bold text * is typed (a pair would read as a hidden opener)",
+    "before": "**a |b**",
+    "steps": [
+      {
+        "do": "pair:*",
+        "after": "**a *|b**"
+      },
+      {
+        "do": "type:x",
+        "after": "**a *x|b**"
+      }
+    ]
+  },
+  {
+    "name": "existing emphasis around the caret: inside strikethrough ~ is typed",
+    "before": "~~a |b~~",
+    "steps": [
+      {
+        "do": "pair:~",
+        "after": "~~a ~|b~~"
+      }
+    ]
+  },
+  {
+    "name": "(13) a * at a caret carrying the toolbar's Bold is typed in bold",
+    "before": "a |",
+    "steps": [
+      {
+        "do": "Bold",
+        "after": "a |"
+      },
+      {
+        "do": "pair:*",
+        "after": "a __*|__",
+        "display": "a *"
+      }
+    ]
+  },
+  {
+    "name": "(13) the toolbar's Bold at a caret still carries",
+    "before": "a |",
+    "steps": [
+      {
+        "do": "Bold",
+        "after": "a |"
+      },
+      {
+        "do": "type:x",
+        "after": "a **x|**"
+      }
+    ]
+  },
+  {
+    "name": "(7) one ~ is typed, a second writes a pair; strikethrough typed by hand",
+    "before": "a |",
+    "steps": [
+      {
+        "do": "pair:~",
+        "after": "a ~|"
+      },
+      {
+        "do": "pair:~",
+        "after": "a ~~|~~"
+      },
+      {
+        "do": "type:s",
+        "after": "a ~~s|~~",
+        "display": "a s"
+      },
+      {
+        "do": "pair:~",
+        "after": "a ~~s~~|",
+        "affinity": "Forward"
+      },
+      {
+        "do": "pair:~",
+        "after": "a ~~s~~|"
+      },
+      {
+        "do": "type: x",
+        "after": "a ~~s~~ x|"
+      }
+    ]
+  },
+  {
+    "name": "(7) the ~ pair is one Undo step",
+    "before": "a ~|",
+    "steps": [
+      {
+        "do": "pair:~",
+        "after": "a ~~|~~"
+      },
+      {
+        "do": "Undo",
+        "after": "a ~|"
+      },
+      {
+        "do": "Redo",
+        "after": "a ~~|~~"
+      }
+    ]
+  },
+  {
+    "name": "(7) a ~ inside an empty ~~ pair is typed",
+    "before": "a ~~|~~",
+    "steps": [
+      {
+        "do": "pair:~",
+        "after": "a ~~~|~~"
+      }
+    ]
+  },
+  {
+    "name": "(7) Backspace in ~~|~~ removes the pair in one press",
+    "before": "a ~~|~~",
+    "steps": [
+      {
+        "do": "Backspace",
+        "after": "a |"
+      },
+      {
+        "do": "Undo",
+        "after": "a ~~|~~"
+      }
+    ]
+  },
+  {
+    "name": "(7) after a letter, a second ~ is typed",
+    "before": "a~|",
+    "steps": [
+      {
+        "do": "pair:~",
+        "after": "a~~|"
+      }
+    ]
+  },
+  {
+    "name": "(7) after a run of ~, typed",
+    "before": "a ~~|",
+    "steps": [
+      {
+        "do": "pair:~",
+        "after": "a ~~~|"
+      }
+    ]
+  },
+  {
+    "name": "(7) at a line's start two ~ are typed (four would open a fence)",
+    "before": "|",
+    "steps": [
+      {
+        "do": "pair:~",
+        "after": "~|"
+      },
+      {
+        "do": "pair:~",
+        "after": "~~|"
+      },
+      {
+        "do": "type:s",
+        "after": "~~s|"
+      },
+      {
+        "do": "pair:~",
+        "after": "~~s~|"
+      },
+      {
+        "do": "pair:~",
+        "after": "~~s~~|",
+        "display": "s"
+      }
+    ]
+  },
+  {
+    "name": "(7) a shown closing ~ is stepped over",
+    "before": "~~s |~~",
+    "steps": [
+      {
+        "do": "pair:~",
+        "after": "~~s ~|~"
+      },
+      {
+        "do": "pair:~",
+        "after": "~~s ~~|"
+      }
+    ]
+  },
+  {
+    "name": "(7) over a selection strikethrough, again typed",
+    "before": "x [ab] y",
+    "steps": [
+      {
+        "do": "pair:~",
+        "after": "x ~~[ab]~~ y"
+      },
+      {
+        "do": "pair:~",
+        "after": "x ~~~|~~ y"
+      }
+    ]
+  },
+  {
+    "name": "a deletion past an emptied italic span ends the italic it left the caret: Backspace",
+    "before": "end|",
+    "steps": [
+      {
+        "do": "pair: ",
+        "after": "end |"
+      },
+      {
+        "do": "pair:a",
+        "after": "end a|"
+      },
+      {
+        "do": "pair:*",
+        "after": "end a*|"
+      },
+      {
+        "do": "pair:2",
+        "after": "end a*2|"
+      },
+      {
+        "do": "pair:*",
+        "after": "end a*2*|"
+      },
+      {
+        "do": "pair:3",
+        "after": "end a*2*3|"
+      },
+      {
+        "do": "Backspace",
+        "after": "end a*2*|"
+      },
+      {
+        "do": "Backspace",
+        "after": "end a|"
+      },
+      {
+        "do": "Backspace",
+        "after": "end |"
+      },
+      {
+        "do": "Backspace",
+        "after": "end|"
+      },
+      {
+        "do": "Backspace",
+        "after": "en|"
+      },
+      {
+        "do": "pair:d",
+        "after": "end|"
+      },
+      {
+        "do": "Undo",
+        "after": "en|"
+      },
+      {
+        "do": "Redo",
+        "after": "end|"
+      }
+    ]
+  },
+  {
+    "name": "a deletion past an emptied italic span ends the italic it left the caret: PairedBackspace",
+    "before": "end|",
+    "steps": [
+      {
+        "do": "pair: ",
+        "after": "end |"
+      },
+      {
+        "do": "pair:a",
+        "after": "end a|"
+      },
+      {
+        "do": "pair:*",
+        "after": "end a*|"
+      },
+      {
+        "do": "pair:2",
+        "after": "end a*2|"
+      },
+      {
+        "do": "pair:*",
+        "after": "end a*2*|"
+      },
+      {
+        "do": "pair:3",
+        "after": "end a*2*3|"
+      },
+      {
+        "do": "PairedBackspace",
+        "after": "end a*2*|"
+      },
+      {
+        "do": "PairedBackspace",
+        "after": "end a|"
+      },
+      {
+        "do": "PairedBackspace",
+        "after": "end |"
+      },
+      {
+        "do": "PairedBackspace",
+        "after": "end|"
+      },
+      {
+        "do": "PairedBackspace",
+        "after": "en|"
+      },
+      {
+        "do": "pair:d",
+        "after": "end|"
+      },
+      {
+        "do": "Undo",
+        "after": "en|"
+      },
+      {
+        "do": "Redo",
+        "after": "end|"
+      }
+    ]
+  },
+  {
+    "name": "a space typed after italic and deleted keeps the italic for what is typed next",
+    "before": "*it|*",
+    "steps": [
+      {
+        "do": "pair: ",
+        "after": "*it* |"
+      },
+      {
+        "do": "Backspace",
+        "after": "*it*|"
+      },
+      {
+        "do": "pair:x",
+        "after": "*itx|*"
+      }
+    ]
+  },
+  {
+    "name": "a toolbar format turned on at a caret ends with a Backspace over a letter, not over a space",
+    "before": "a b|",
+    "steps": [
+      {
+        "do": "Bold",
+        "after": "a b|"
+      },
+      {
+        "do": "Backspace",
+        "after": "a |"
+      },
+      {
+        "do": "pair:x",
+        "after": "a x|"
+      },
+      {
+        "do": "Bold",
+        "after": "a x|"
+      },
+      {
+        "do": "pair: ",
+        "after": "a x |"
+      },
+      {
+        "do": "Backspace",
+        "after": "a x|"
+      },
+      {
+        "do": "pair:y",
+        "after": "a x**y|**"
+      }
+    ]
+  }
+]

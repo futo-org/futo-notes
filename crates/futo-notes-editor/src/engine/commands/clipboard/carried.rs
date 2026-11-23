@@ -63,18 +63,16 @@ fn visible(text: &str, carry: &Carry) -> (Line, Vec<(usize, char, u8)>) {
         .char_indices()
         .filter(|(at, _)| !hidden(*at))
         .map(|(at, ch)| {
-            let style = spans
-                .iter()
-                .filter(|span| {
-                    let inside = if span.open.is_empty() && span.close.is_empty() {
-                        span.range.clone()
-                    } else {
-                        span.open.end..span.close.start
-                    };
-                    inside.contains(&at)
-                })
-                .filter_map(|span| format_of(&span.kind))
-                .fold(0, |all, format| all | bit(format));
+            let style = crate::lines::reading_spans(&spans, |span| {
+                let inside = if span.open.is_empty() && span.close.is_empty() {
+                    span.range.clone()
+                } else {
+                    span.open.end..span.close.start
+                };
+                inside.contains(&at)
+            })
+            .filter_map(|span| format_of(&span.kind))
+            .fold(0, |all, format| all | bit(format));
             (at, ch, style)
         })
         .collect();

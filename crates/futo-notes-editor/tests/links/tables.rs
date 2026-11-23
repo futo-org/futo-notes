@@ -1,7 +1,9 @@
 //! A link command never damages a table: a selection inside one cell links it
 //! there, a selection across cells links each cell it touches (the way the
-//! inline format toggles treat it), and a range outside every cell links
-//! nothing. Display offsets include the pipes and the delimiter row.
+//! inline format toggles treat it), a selection from a line into a table
+//! links the lines around it and leaves the table alone, and a range outside
+//! every cell links nothing. Display offsets include the pipes and the
+//! delimiter row.
 use super::*;
 
 const URL: &str = "https://x.y";
@@ -123,22 +125,21 @@ fn a_link_across_cells_of_a_row_or_across_rows_links_each_cell() {
 }
 
 #[test]
-fn a_link_from_a_paragraph_into_a_cell_or_back_leaves_the_table_intact() {
+fn a_link_from_a_paragraph_into_a_cell_or_back_leaves_the_table_alone() {
     assert_links(
         NOTE,
         (2, 10),
-        "in[tro](https://x.y)\n\n| [a](https://x.y) |\n| - |\n| b |\n\nafter\n",
+        "in[tro](https://x.y)\n\n| a |\n| - |\n| b |\n\nafter\n",
     );
     assert_links(
         NOTE,
         (21, 29),
-        "intro\n\n| a |\n| - |\n| [b](https://x.y) |\n\n[aft](https://x.y)er\n",
+        "intro\n\n| a |\n| - |\n| b |\n\n[aft](https://x.y)er\n",
     );
     assert_links(
         NOTE,
         (0, 31),
-        "[intro](https://x.y)\n\n| [a](https://x.y) |\n| - |\n| [b](https://x.y) |\n\n\
-         [after](https://x.y)\n",
+        "[intro](https://x.y)\n\n| a |\n| - |\n| b |\n\n[after](https://x.y)\n",
     );
 }
 
@@ -181,6 +182,9 @@ fn unlinking_across_cells_removes_each_cell_link() {
     assert_eq!(session.source_text(), ONE, "from {linked:?}");
 }
 
+/// A label edit across cells changes nothing, so a Link form there gets no
+/// label to edit (`link_label`), never the rows' spelling; in one cell, in a
+/// link or outside tables it gets the text there.
 #[test]
 fn a_label_edit_across_cells_changes_nothing() {
     let mut session = EditorSession::open(ONE);
@@ -190,6 +194,29 @@ fn a_label_edit_across_cells_changes_nothing() {
         .unwrap();
     assert!(changed.is_none());
     assert_eq!(session.source_text(), ONE);
+
+    let label = |source: &str, at: (usize, usize)| {
+        EditorSession::open(source)
+            .link_label(Revision(0), range(at.0, at.1))
+            .unwrap()
+    };
+    for at in [(0, 17), (2, 15), (0, 5), (0, 0), (6, 11)] {
+        assert_eq!(label(ONE, at), None, "{at:?}");
+    }
+    assert_eq!(label(NOTE, (0, 31)), None, "table lines among others");
+    assert_eq!(label(ONE, (2, 3)), Some("a".to_owned()));
+    assert_eq!(label(ONE, (2, 2)), Some(String::new()));
+    assert_eq!(label(NOTE, (0, 7)), Some("intro\n\n".to_owned()));
+    // Where there is a label, editing it writes one link there.
+    let mut plain = EditorSession::open("ab\ncd");
+    plain.select(Revision(0), range(0, 5)).unwrap();
+    plain
+        .edit_link(Revision(0), range(0, 5), "zz", URL, &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(plain.source_text(), "[zz](https://x.y)");
+    let linked = "| [ab](u) |\n| - |";
+    assert_eq!(label(linked, (3, 3)), Some("ab".to_owned()), "in a link");
 }
 
 /// The command changes nothing or leaves every table's cells as they were

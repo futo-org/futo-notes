@@ -7,7 +7,15 @@ import { fixtureCases, replay } from './wasm-fixture-replay.mjs';
 const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 
 export async function runBlockRegressions() {
-  for (const file of ['blocks.json', 'fences.json', 'clipboard/plain-enter.json']) {
+  for (const file of [
+    'blocks.json',
+    'divider.json',
+    'fences.json',
+    'code-block-object.json',
+    'hidden-line-edges.json',
+    'fences-under-items-and-quotes.json',
+    'clipboard/plain-enter.json',
+  ]) {
     await replay(WasmSession, process.argv[3], fixtureCases(file), ['|', '[', ']']);
   }
 }

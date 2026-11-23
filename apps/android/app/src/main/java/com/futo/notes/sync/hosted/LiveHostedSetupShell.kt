@@ -55,7 +55,10 @@ class LiveHostedSetupShell(
 
     override fun copyToClipboard(text: String) {
         val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText(shareLabel(), text))
+        // A recovery key: Android's copy notice and clipboard previews show it masked.
+        clipboard.setPrimaryClip(ClipData.newPlainText(shareLabel(), text).apply {
+            description.extras = android.os.PersistableBundle().apply { putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true) }
+        })
         recordPuppetCopy(text)
     }
 
@@ -68,6 +71,8 @@ class LiveHostedSetupShell(
         }
         activity.startActivity(Intent.createChooser(send, shareLabel()))
     }
+
+    override val confirmsCopies: Boolean get() = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
 
     override fun announce(message: LocalizedMessage) {
         showToast(activity, localization().localizedText(message.path, message.arguments))

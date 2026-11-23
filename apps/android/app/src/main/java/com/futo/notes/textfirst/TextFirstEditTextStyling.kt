@@ -13,6 +13,7 @@ internal fun TextFirstEditText.applyAppend(update: UiUpdate) {
     val observer = onApplyMeasured
     val applyStart = if (observer != null) android.os.SystemClock.elapsedRealtimeNanos() else 0L
     var editsEnd = applyStart
+    val wasApplying = applying
     applying = true
     try {
         val start = Selection.getSelectionStart(e)
@@ -43,7 +44,7 @@ internal fun TextFirstEditText.applyAppend(update: UiUpdate) {
         if (clipped) reveal.hold(b, a)
     } finally {
         reveal.quiet = false
-        applying = false
+        applying = wasApplying
     }
     observer?.invoke(KeyTimings(
         update.inputUptimeNanos, update.postedNanos, update.engineNanos,
@@ -52,7 +53,7 @@ internal fun TextFirstEditText.applyAppend(update: UiUpdate) {
 }
 
 /** Replace the renderer's spans inside a window, keeping identical ones so the layout does not reflow them. */
-internal fun TextFirstEditText.restyle(e: Editable, given: StyleWindow) {
+internal fun TextFirstEditText.restyle(e: Editable, given: StyleWindow, previousPhotos: List<TfImage> = emptyList()) {
     // A window reaching the display's end also owns the end sentinel.
     val window = if (given.end == e.length - 1) StyleWindow(given.start, given.end + 1, given.specs) else given
     val wanted = window.specs.toMutableList()
@@ -65,6 +66,7 @@ internal fun TextFirstEditText.restyle(e: Editable, given: StyleWindow) {
         if (s >= window.start && en <= window.end) {
             val match = wanted.indexOfFirst { (it.start == s && (it.end == en || it.start == it.end && en == s + 1)) && spans.matches(it, span) }
             if (match >= 0) {
+                spans.refresh(wanted[match], span)
                 setRendererSpan(e, span, s, en)
                 wanted.removeAt(match)
                 continue
@@ -74,7 +76,7 @@ internal fun TextFirstEditText.restyle(e: Editable, given: StyleWindow) {
         if (s < window.start) span.slice(head = true)?.let { setRendererSpan(e, it, s, window.start) }
         if (en > window.end) span.slice(head = false)?.let { setRendererSpan(e, it, window.end, en) }
     }
-    addSpans(e, wanted)
+    addSpans(e, wanted, previousPhotos)
     if (wanted.any { it is SpanSpec.Image }) requestImageLoads(window.start, window.end)
 }
 
@@ -96,44 +98,61 @@ internal fun TextFirstEditText.restyleMarked(e: Editable, start: Int, composingE
     addSpans(e, marked)
 }
 
-internal fun TextFirstEditText.addSpans(target: Spannable, specs: List<SpanSpec>) {
+internal fun TextFirstEditText.addSpans(target: Spannable, specs: List<SpanSpec>, previousPhotos: List<TfImage> = emptyList()) {
+    val mintedKeys = mintedTableKeys(specs)
     for (spec in specs) {
         if (spec.end < spec.start || spec.end > target.length - 1) continue
         // A block on the empty last line (a new list item at the end) sits
         // on the end sentinel; Android lays out no paragraph spans for an
         // empty last line.
         val end = if (spec.start == spec.end && spec.start == target.length - 1) spec.end + 1 else spec.end
-        setRendererSpan(target, spans.create(spec), spec.start, end)
+        val photo = if (spec is SpanSpec.Image) {
+            previousPhotos.firstOrNull { spans.matches(spec, it) && target.getSpanStart(it) < 0 }
+        } else null
+        val span = photo ?: spans.create(target.keyedToTableAbove(spec, mintedKeys)).also { created ->
+            if (created is TfImage) created.rememberedSize = images.rememberedPhotoSize(created.destination, contentWidth())
+        }
+        setRendererSpan(target, span, spec.start, end)
     }
 }
 
 private fun setRendererSpan(target: Spannable, span: TfSpan, start: Int, end: Int) {
-    val block = span is TfHeading || span is TfQuote || span is TfList || span is TfIndent || span is TfCodeBlock || span is TfMetadata
-    // Composition supplies raw text without new semantic windows. Keep the
-    // existing block style on text inserted at its start or unfinished end.
-    // A terminating newline belongs to this span, but the next line does not.
-    val flags = when {
-        !block -> TF_SPAN_FLAGS
-        end >= target.length - 1 && (end == start || target[end - 1] != '\n') -> Spanned.SPAN_INCLUSIVE_INCLUSIVE
-        else -> Spanned.SPAN_INCLUSIVE_EXCLUSIVE
-    }
+    val flags = rendererSpanFlags(target, span, start, end)
     if (target.getSpanStart(span) != start || target.getSpanEnd(span) != end || target.getSpanFlags(span) != flags) {
         target.setSpan(span, start, end, flags)
     }
 }
 
+/** The flags a renderer span is set with on [start, end) of [target]. */
+internal fun rendererSpanFlags(target: CharSequence, span: TfSpan, start: Int, end: Int): Int {
+    val block = span is TfHeading || span is TfQuote || span is TfList || span is TfIndent || span is TfCodeBlock || span is TfMetadata
+    // Composition supplies raw text without new semantic windows. Keep the
+    // existing block style on text inserted at its start or unfinished end.
+    // A terminating newline belongs to this span, but the next line does not.
+    return when {
+        !block -> TF_SPAN_FLAGS
+        end >= target.length - 1 && (end == start || target[end - 1] != '\n') -> Spanned.SPAN_INCLUSIVE_INCLUSIVE
+        else -> Spanned.SPAN_INCLUSIVE_EXCLUSIVE
+    }
+}
+
 internal fun TextFirstEditText.requestImageLoads(from: Int = 0, to: Int = Int.MAX_VALUE) {
     val e = editableText ?: return
+    // Not laid out yet: a decode for no width would be kept at a pixel wide. The first width asks again (onSizeChanged).
+    if (width - totalPaddingLeft - totalPaddingRight <= 0) return
     for (span in e.getSpans(from, minOf(to, e.length), TfImage::class.java)) {
         if (span.bitmap != null || span.failed) continue
-        images.load(span.destination, span.vault, span.remote, contentWidth()) { bitmap ->
+        val width = contentWidth()
+        images.load(span.destination, span.vault, span.remote, width) { bitmap ->
             val current = editableText
             val s = current.getSpanStart(span)
-            if (s < 0) return@load
+            // A decode for a width the view no longer has: the load asked for at the new width lands instead.
+            if (s < 0 || width != contentWidth()) return@load
             if (bitmap == null) span.failed = true else span.bitmap = bitmap
             val en = current.getSpanEnd(span)
+            val wasApplying = applying
             applying = true
-            try { current.setSpan(span, s, en, TF_SPAN_FLAGS) } finally { applying = false }
+            try { current.setSpanRedrawingBelow(this, span, s, en, TF_SPAN_FLAGS) } finally { applying = wasApplying }
             requestLayout()
             invalidate()
         }
@@ -149,6 +168,7 @@ internal fun TextFirstEditText.applyStyleSlice(update: UiUpdate) {
     val anchor = if (restoring == null) scrollAnchor() else null
     val start = selectionStart
     val end = selectionEnd
+    val wasApplying = applying
     applying = true
     try {
         beginBatchEdit()
@@ -157,7 +177,7 @@ internal fun TextFirstEditText.applyStyleSlice(update: UiUpdate) {
         // TextView's renderer watcher may normalize a reverse range. This
         // slice has no selection authority over newer keyboard/touch input.
         if (start >= 0 && end >= 0) Selection.setSelection(editableText, start, end)
-    } finally { applying = false }
+    } finally { applying = wasApplying }
     anchor?.let { anchorY(it)?.let { y -> if (y != scrollY) scrollTo(scrollX, y) } }
     onApplyMeasured?.invoke(KeyTimings(0L, update.postedNanos, 0L, began, began, android.os.SystemClock.elapsedRealtimeNanos()), update)
 }

@@ -42,6 +42,8 @@ internal class TextFirstController(
     private var closing: CompletableDeferred<FlushDraftResult?>? = null
 
     var cellView by mutableStateOf<TableCellEditText?>(null); private set
+    /** Whether the cell field has the keyboard: its controls show only then (the find bar may step onto a cell). */
+    var cellFocused by mutableStateOf(false); private set
     var opened by mutableStateOf(false); private set
     var openFailure by mutableStateOf<Throwable?>(null); private set
     /** Whether navigation can proceed without an attached editor save. */
@@ -56,6 +58,8 @@ internal class TextFirstController(
     var focused by mutableStateOf(false); private set
     /** The last find result, or null before find is first used in this open note. */
     var find by mutableStateOf<FindSnapshot?>(null); private set
+    /** Whether another text field of the note's screen (the title, Find) holds focus: then no press lifts a block. */
+    var screenFieldFocused: () -> Boolean = { false }
 
     var onAttachmentChanged: (String) -> Unit = {}
     var onCheckpointed: (FlushDraftResult, String) -> Unit = { _, _ -> }
@@ -74,13 +78,21 @@ internal class TextFirstController(
         ))
         view.onTableCell = { start, end, seq -> engine?.selectDisplayRange(start, end, seq) {} }
         view.clipboard.onCopyRefused = { onClipboardRefused() }
+        // A field of the note holding the keyboard (a cell, a code block's name or language) keeps a hold its own.
+        view.liftAllowed = { opened && cellView == null && view.codeTouch.headerField.openField == null && !screenFieldFocused() }
         MainThreadWatchdog.start()
         view.setOnFocusChangeListener { _, hasFocus ->
+            // A code block's header field is part of the note: the editor toolbar keeps the state it had
+            // when the field opened, as !300's did, and the selection stays.
+            if (!hasFocus && view.codeTouch.headerField.openField != null) return@setOnFocusChangeListener
             focused = hasFocus
             // The cell field takes focus with its content selected in the note.
             if (!hasFocus && cellView == null) view.endSelectionOnBlur()
         }
-        view.setOnScrollChangeListener { _, _, _, _, _ -> engine?.screenStart = view.scrollAnchor()?.offset ?: 0 }
+        view.setOnScrollChangeListener { _, _, _, _, _ ->
+            engine?.screenStart = view.scrollAnchor()?.offset ?: 0
+            view.codeTouch.callout.onNoteScrolled()
+        }
         view.onFrameDrawn = { timings ->
             latencyWindow.add(timings)?.let { Log.i("TextFirstLatency", it.toString()) }
             view.removeCallbacks(latencyFlush)
@@ -154,11 +166,19 @@ internal class TextFirstController(
         observer.addOnDrawListener(listener)
     }
 
-    override fun onCell(update: CellUpdate?) {
-        if (update == null) { cellView = null; return }
+    override fun onCell(update: CellUpdate?, toNote: Boolean) {
+        if (update == null) {
+            cellView = null
+            cellFocused = false
+            if (toNote) { view.requestFocus(); view.showKeyboard() }
+            return
+        }
         val e = engine ?: return
         val field = cellView ?: TableCellEditText(context, e, style).also {
             it.clipboard.onCopyRefused = { onClipboardRefused() }
+            it.setOnFocusChangeListener { _, has -> cellFocused = has }
+            // Ctrl+Enter leaves the table for the line after it: the note takes focus (and the keyboard) first.
+            it.onLeaveTable = { view.requestFocus(); e.leaveTableBelow() }
             cellView = it
         }
         field.apply(update)
@@ -201,7 +221,8 @@ internal class TextFirstController(
     // ---- commands ----
 
     /** Recolor the existing view and spans without reopening the note or losing its selection. */
-    fun updateColors(text: Int, muted: Int, link: Int, border: Int, code: Int, surface: Int) {
+    fun updateColors(text: Int, muted: Int, link: Int, border: Int, code: Int, surface: Int, page: Int = style.pageColor) {
+        style.pageColor = page
         style.textColor = text
         style.mutedColor = muted
         style.linkColor = link
@@ -210,6 +231,7 @@ internal class TextFirstController(
         style.surfaceColor = surface
         view.setTextColor(text)
         view.highlightColor = style.selectionColor
+        view.tintCaretAndSelectionHandles(link)
         view.redrawTableRows()
         view.invalidate()
         cellView?.updateColors()
@@ -220,7 +242,12 @@ internal class TextFirstController(
 
     fun format(format: EditorInlineFormat) { engine?.toggleFormat(format) }
     fun toolbarFormat(format: EditorInlineFormat) { engine?.toggleToolbarFormat(format) }
-    fun block(command: EditorBlockCommand) { engine?.blockCommand(command) }
+    fun block(command: EditorBlockCommand) {
+        // On a block selected as one object the engine would unwrap it; Mason chose the code toggle disabled there (9A),
+        // the one toolbar rule Android keeps (EditorEngineCaret). Line formats over a block are the engine's.
+        if (command is EditorBlockCommand.WrapCodeBlock && view.selectedCodeBlock != null) return
+        engine?.blockCommand(command)
+    }
     fun paste(text: String) { engine?.paste(text) }
     fun finishCellEditing() { engine?.finishCellEditing() }
     /** The shared display-selection entry point for grid taps and Find. */

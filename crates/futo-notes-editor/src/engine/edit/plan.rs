@@ -1,7 +1,9 @@
 //! Planning a replacement: which source bytes typing over a display
 //! range writes, and where the caret lands.
+use super::super::code_block::{fence_indent, is_opening_fence};
 use super::super::line::Role;
 use super::super::{read, store, Engine};
+use super::runs::changed_stretch;
 use super::spans::Kept;
 use crate::lines::{block, Kind};
 use crate::{DisplayOffset, DisplayRange, InlineFormat, InputAction};
@@ -36,6 +38,19 @@ impl Engine {
             }
         }
         "\n".to_owned()
+    }
+
+    /// What typing on line `index`, an empty line with no text behind it,
+    /// writes before the text: the line ending, then on an empty code block
+    /// the opening fence's indent, which its first code line starts with.
+    pub(crate) fn empty_line_start(&self, index: usize) -> String {
+        let entry = self.store.get(index);
+        let indent = if is_opening_fence(entry) {
+            fence_indent(entry)
+        } else {
+            ""
+        };
+        format!("{}{indent}", self.empty_line_ending(index))
     }
 
     /// Whether display offset `at` is on a line that shows with no text
@@ -105,11 +120,29 @@ impl Engine {
     /// the line markers and hidden lines inside it, keeps the syntax of spans
     /// that reach out of it, and drops the syntax of spans left empty; the
     /// text lands where the selection starts, inside spans that start there.
-    /// Fences likewise: a fence line inside it whose block reaches out of it
-    /// is kept, moved to just after the joined line, and a block left with
-    /// no code line goes whole (`kept_frame`).
+    /// A code block it reaches into or out of goes whole (`block_reach`), and
+    /// so does a table it covers every cell of (`whole_tables`).
+    /// Every plan, so every input, key and command, first takes `range`'s
+    /// ends out of images and wikilinks (`plan_writing`).
     pub(crate) fn plan(&self, range: DisplayRange, text: &str) -> Plan {
-        let plan = self.replacement(range, text);
+        self.plan_writing(range, text, !text.is_empty())
+    }
+
+    /// Display `range` removed for a command that then writes its own text
+    /// at the caret (the paragraph keys, the divider, a shaped paste): as a
+    /// deletion, except that it never takes the line break above an opening
+    /// fence (`kept_break`), so the fence's line stays out of what the
+    /// command rewrites.
+    pub(crate) fn plan_cleared(&self, range: DisplayRange) -> Plan {
+        self.plan_writing(range, "", true)
+    }
+
+    /// Images and wikilinks are atoms: an end of `range` inside one moves to
+    /// its edge (`outside_atoms`), so no plan keeps part of one's spelling.
+    /// No plan writes front matter (`in_body`).
+    fn plan_writing(&self, range: DisplayRange, text: &str, writes: bool) -> Plan {
+        let range = self.whole_tables(self.outside_atoms(self.in_body(range)));
+        let plan = self.replacement(range, text, writes);
         // A deletion keeps a span's format when it leaves a space at its
         // edge (inline family, `commands/inline/typing.rs`).
         match self.kept_formats(&plan.range, &plan.inserted) {
@@ -167,28 +200,28 @@ impl Engine {
         }
     }
 
-    fn replacement(&self, range: DisplayRange, text: &str) -> Plan {
+    fn replacement(&self, range: DisplayRange, text: &str, writes: bool) -> Plan {
         let (s, e) = (range.start.0, range.end.0);
+        // A code block the range takes whole (`commands/fences/reach.rs`).
+        let reach = self.block_reach(range);
         let mut inserted = String::new();
-        if s != e || !text.is_empty() {
+        if reach.is_none() && (s != e || !text.is_empty()) {
             if let Some(index) = self.empty_line(s) {
-                inserted.push_str(&self.empty_line_ending(index));
+                inserted.push_str(&self.empty_line_start(index));
             }
         }
         inserted.push_str(text);
-        if s == e {
+        if s == e && reach.is_none() {
             return self.at_caret(range, inserted);
         }
         let (lo_s, _) = self.source_span(s);
         let (_, hi_e) = self.source_span(e);
-        let metadata_start = self.metadata_end().is_some() && s == 0;
-        let from = if metadata_start {
-            0
-        } else {
-            self.source_bounds(s).1
+        let (from, to) = match &reach {
+            Some(reach) => (reach.start, self.kept_break(reach.start, reach.end, writes)),
+            None => (self.source_bounds(s).1, self.source_bounds(e).0),
         };
-        let lo_s = if metadata_start { 0 } else { lo_s };
-        let to = self.source_bounds(e).0;
+        let lo_s = lo_s.min(from);
+        let hi_e = hi_e.max(to);
         if self.quote_space(from, &inserted) {
             inserted.insert(0, ' ');
         }
@@ -240,14 +273,6 @@ impl Engine {
             replacement.push_str(spelled(piece));
         }
         replacement.push_str(&keep_outside(to..end));
-        // A fence frame line the selection cuts goes after the joined line.
-        let (end, old) = match self.kept_frame(start, end) {
-            Some((to, text)) => {
-                replacement.push_str(&text);
-                (to, self.source_slice(start..to))
-            }
-            None => (end, old),
-        };
         // Trim what the replacement leaves as it was.
         let prefix = old
             .bytes()
@@ -275,10 +300,13 @@ impl Engine {
     /// shares keep their source spelling and formats, and the caret ends
     /// after the whole of `text`. A text service's line break inside a table
     /// cell, a committed composition's included, becomes a space
-    /// (`cell_service_text`). Input never lands inside an image
-    /// (`outside_images`).
+    /// (`cell_service_text`). Input never lands inside an image, nor
+    /// partly in a wikilink (`outside_atoms`), nor in front matter (`in_body`).
     pub(crate) fn plan_input(&self, range: DisplayRange, text: &str, action: InputAction) -> Plan {
-        let range = self.outside_images(range);
+        if self.block_selected && range == self.selection {
+            return self.plan(range, text);
+        }
+        let range = self.outside_atoms(self.in_body(range));
         let flat = matches!(
             action,
             InputAction::Isolated | InputAction::CompositionCommit
@@ -295,14 +323,27 @@ impl Engine {
                 carry: typed.carry,
             };
         }
-        if action == InputAction::Typing || range.start == range.end {
+        // Over a table it covers, nothing of the selection is kept, so no
+        // shared stretch is either.
+        if action == InputAction::Typing
+            || range.start == range.end
+            || self.whole_tables(range) != range
+        {
             return self.plan(range, text);
         }
         let old = self.display_slice(range.start.0..range.end.0);
-        if action == InputAction::Isolated {
+        // Over a code block the range reaches into or out of (which goes
+        // whole), a text service's runs are one changed stretch, and it keeps
+        // no text of a block it takes.
+        let reach = self.block_reach(range);
+        if action == InputAction::Isolated && reach.is_none() {
             return self.plan_runs(range, &old, text);
         }
         let (prefix, suffix) = changed_stretch(&old, text);
+        let (prefix, suffix) = match reach {
+            Some(_) => self.stretch_taking_blocks(range, prefix, suffix),
+            None => (prefix, suffix),
+        };
         // The caret ends where the display range ends, inside spans that
         // close there.
         let end = self.source_bounds(range.end.0).0;
@@ -344,151 +385,4 @@ impl Engine {
             ..plan
         }
     }
-}
-
-impl Engine {
-    /// A text service's replacement of display `range` (showing `old`)
-    /// with `text`: each separate stretch that differs is replaced on its
-    /// own, so the source between corrected words (hidden marks included)
-    /// stays as it was. One plan spans them all; the caret ends after the
-    /// whole of `text`.
-    fn plan_runs(&self, range: DisplayRange, old: &str, text: &str) -> Plan {
-        let byte = |text: &str| -> Vec<usize> {
-            text.char_indices()
-                .map(|(at, _)| at)
-                .chain([text.len()])
-                .collect()
-        };
-        let (old_at, new_at) = (byte(old), byte(text));
-        let old_chars: Vec<char> = old.chars().collect();
-        let new_chars: Vec<char> = text.chars().collect();
-        let mut stretches: Vec<(Range<usize>, Range<usize>)> = Vec::new();
-        for op in similar::capture_diff_slices(similar::Algorithm::Myers, &old_chars, &new_chars) {
-            let (tag, from, to) = op.as_tag_tuple();
-            if tag == similar::DiffTag::Equal {
-                continue;
-            }
-            let from = old_at[from.start]..old_at[from.end];
-            let to = new_at[to.start]..new_at[to.end];
-            match stretches.last_mut() {
-                Some((was, now)) if was.end == from.start && now.end == to.start => {
-                    was.end = from.end;
-                    now.end = to.end;
-                }
-                _ => stretches.push((from, to)),
-            }
-        }
-        let end = self.source_bounds(range.end.0).0;
-        if stretches.is_empty() {
-            return Plan {
-                range: end..end,
-                inserted: String::new(),
-                caret: end,
-                parsed: 0,
-                carry: None,
-            };
-        }
-        let plan_stretch = |from: &Range<usize>, to: &Range<usize>| {
-            let stretch = DisplayRange {
-                start: DisplayOffset(range.start.0 + from.start),
-                end: DisplayOffset(range.start.0 + from.end),
-            };
-            let inserted = &text[to.clone()];
-            let at = self.source_bounds(stretch.start.0).0;
-            if stretch.start == stretch.end
-                && self.empty_line(stretch.start.0).is_none()
-                && !self.quote_space(at, inserted)
-            {
-                Plan {
-                    range: at..at,
-                    inserted: inserted.to_owned(),
-                    caret: at + inserted.len(),
-                    parsed: 0,
-                    carry: None,
-                }
-            } else {
-                self.plan(stretch, inserted)
-            }
-        };
-        // Stretches whose edits meet in the source (one reaches past the
-        // next, as a fence line a joined line moves does) are one stretch,
-        // so the source outside them stays as it was.
-        type Planned = Vec<(Range<usize>, Range<usize>, Plan)>;
-        let push = |planned: &mut Planned, mut from: Range<usize>, mut to: Range<usize>| {
-            let mut plan = plan_stretch(&from, &to);
-            while let Some((was, now, before)) = planned.last() {
-                if plan.range.start >= before.range.end {
-                    break;
-                }
-                from = was.start..from.end;
-                to = now.start..to.end;
-                planned.pop();
-                plan = plan_stretch(&from, &to);
-            }
-            planned.push((from, to, plan));
-        };
-        let mut planned: Planned = Vec::new();
-        for (from, to) in stretches {
-            push(&mut planned, from, to);
-        }
-        let (from, to, last) = planned.last().expect("a stretch");
-        if last.range.end > end && (from.end, to.end) != (old.len(), text.len()) {
-            // The last edit reaches past the kept end (a code fence it
-            // moves): it replaces through the range's end instead.
-            let (from, to) = (from.start..old.len(), to.start..text.len());
-            planned.pop();
-            push(&mut planned, from, to);
-        }
-        let (from, to, _) = planned.last().expect("a stretch");
-        let reaches_end = (from.end, to.end) == (old.len(), text.len());
-        let plans: Vec<Plan> = planned.into_iter().map(|(_, _, plan)| plan).collect();
-        let start = plans[0].range.start;
-        let stop = plans[plans.len() - 1].range.end;
-        let mut inserted = String::new();
-        let mut at = start;
-        for plan in &plans {
-            inserted.push_str(&self.source_slice(at..plan.range.start));
-            inserted.push_str(&plan.inserted);
-            at = plan.range.end;
-        }
-        let growth = inserted.len() as isize - (stop - start) as isize;
-        let last_plan = &plans[plans.len() - 1];
-        let caret = if reaches_end {
-            (last_plan.caret as isize + growth
-                - (last_plan.inserted.len() as isize - last_plan.range.len() as isize))
-                as usize
-        } else {
-            (end as isize + growth) as usize
-        };
-        Plan {
-            range: start..stop,
-            inserted,
-            caret,
-            parsed: plans.iter().map(|plan| plan.parsed).sum(),
-            carry: None,
-        }
-    }
-}
-
-/// How many bytes `old` and `new` share at the start, and then at the end:
-/// the stretch between is what a commit replaces.
-pub(crate) fn changed_stretch(old: &str, new: &str) -> (usize, usize) {
-    let mut prefix = old
-        .bytes()
-        .zip(new.bytes())
-        .take_while(|(a, b)| a == b)
-        .count();
-    while !old.is_char_boundary(prefix) || !new.is_char_boundary(prefix) {
-        prefix -= 1;
-    }
-    let mut suffix = old[prefix..]
-        .bytes()
-        .rev()
-        .zip(new[prefix..].bytes().rev())
-        .take_while(|(a, b)| a == b)
-        .count();
-    while !old.is_char_boundary(old.len() - suffix) || !new.is_char_boundary(new.len() - suffix) {
-        suffix -= 1;
-    }
-    (prefix, suffix)
 }

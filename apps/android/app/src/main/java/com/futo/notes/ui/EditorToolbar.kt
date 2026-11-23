@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -100,11 +101,11 @@ fun EditorToolbar(
     disabledFormats: Set<String> = emptySet(),
     /** Items this editor does not offer (the text-first editor drops "paragraph"). */
     hiddenItems: Set<String> = emptySet(),
+    scrollState: ScrollState = rememberScrollState(),
 ) {
     val containerVisible = inContainer ?: onListLine
     val c = FutoTheme.colors
     val density = LocalDensity.current
-    val scrollState = rememberScrollState()
 
     // Measured layout. Button x is taken relative to the viewport Box (window x
     // minus the Box's window x); at rest (scroll 0) that equals the content
@@ -153,7 +154,6 @@ fun EditorToolbar(
                     .onGloballyPositioned {
                         slotPx = it.size.width.toFloat()
                         boxWindowX = it.positionInWindow().x
-                        measureTick++
                     },
             ) {
                 Row(
@@ -183,9 +183,11 @@ fun EditorToolbar(
                                     active = item.id in activeFormats,
                                     enabled = item.id !in disabledFormats,
                                     perform = perform,
+                                    // Only a real change counts: the rising keyboard moves the bar every
+                                    // frame, and a count per call recomposed it on each of those frames.
                                     modifier = Modifier.onGloballyPositioned {
-                                        buttonLefts[item.id] = it.positionInWindow().x - boxWindowX
-                                        measureTick++
+                                        val left = it.positionInWindow().x - boxWindowX
+                                        if (buttonLefts.put(item.id, left) != left) measureTick++
                                     },
                                 )
                             }

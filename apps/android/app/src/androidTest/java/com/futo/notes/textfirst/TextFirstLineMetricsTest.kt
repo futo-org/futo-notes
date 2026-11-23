@@ -26,6 +26,28 @@ class TextFirstLineMetricsTest {
         }
     }
 
+    /** The delimiter line takes no height: the first body row's top is the header row's bottom. */
+    @Test fun tableHeaderAndBodyRowsMeet() {
+        val heights = lineHeights("| a | b |\n|---|---|\n| c | d |\nz\n")
+        assertEquals("the delimiter line between header and body ($heights)", 0, heights[1])
+    }
+
+    /**
+     * An h1 or h2 row is 1.25 times its font size and an h3 to h6 row one body line, with tall and deep glyphs in it,
+     * with inline code and bold mixed in, and with nothing added above or below the heading.
+     */
+    @Test fun headingLinesKeepTheBodyLineGrid() {
+        val heights = lineHeights("x\ny\n# Ågjpq\n## Ågjpq\n### Ågjpq\n#### Ågjpq\n##### Ågjpq\n###### Ågjpq\n# Ågjpq `code` **b**\n### Ågjpq `code` **b**\nz\n")
+        val body = heights[1]
+        val size = 17f * InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.scaledDensity
+        val h1 = kotlin.math.round(1.25f * 1.5f * size).toInt()
+        assertEquals("an h1 row is 1.25 times its font ($heights)", h1, heights[2])
+        assertEquals("an h2 row is 1.25 times its font ($heights)", kotlin.math.round(1.25f * 1.375f * size).toInt(), heights[3])
+        for (line in 4..7) assertEquals("a level ${line - 1} heading row is one body line ($heights)", body, heights[line])
+        assertEquals("an h1 row mixing code and bold keeps its height ($heights)", h1, heights[8])
+        assertEquals("an h3 row mixing code and bold keeps its height ($heights)", body, heights[9])
+    }
+
     /** A fallback font (Arabic, Hebrew) must not make its row taller than a Latin row of the same list. */
     @Test fun rightToLeftListItemIsAsTallAsALatinOne() {
         val heights = lineHeights("- one\n- two\n- العربية\n- three\n- עברית\n- four\n")

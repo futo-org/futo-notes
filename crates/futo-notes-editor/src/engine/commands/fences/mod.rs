@@ -1,20 +1,29 @@
-//! Fenced code: the code block commands, and the keys inside a fence
-//! (`keys.rs`).
+//! Fenced code: the code block commands, the keys inside a fence
+//! (`keys.rs`), a block as one object (`reach.rs`, `selected.rs`,
+//! `edges.rs`), lines opened beside one (`open_line.rs`) and its header
+//! (`header.rs`).
 //!
-//! Code text is the line's text, whitespace and all: nothing inside a fence
-//! is Markdown. Putting lines in a fence keeps their text exactly; taking
+//! Code text is the line's text past the opening fence's indent, whitespace
+//! and all: nothing inside a fence is Markdown. Putting lines in a fence keeps their text exactly; taking
 //! lines out of a fence keeps each one a plain line (`kept_line` writes a
 //! leading `\` where the text would read as another block), so the shown
 //! text does not move.
-mod cut;
+mod edges;
+mod header;
 mod keys;
+mod open_line;
+mod reach;
+mod selected;
 
 use super::super::command::{kept_line, Command, Edit};
 use super::super::line::Role;
 use super::super::Engine;
-use crate::lines::{block, FenceRole, Kind};
+use crate::lines::{block, FenceRole, Kind, TableRole};
 use crate::{BlockCommand, DisplayRange, EditorError};
 use std::ops::Range;
+
+pub(super) use super::super::code_block::leading;
+pub(super) use open_line::line_after_closing;
 
 /// A fence's lines: its opening line, and the line after its code (the
 /// closing line, or the note's line count when nothing closes it).
@@ -71,22 +80,6 @@ fn fence_role(kind: &Kind) -> Option<FenceRole> {
     match kind {
         Kind::Fence { role, .. } => Some(*role),
         _ => None,
-    }
-}
-
-/// Leading spaces and tabs.
-fn leading(text: &str) -> &str {
-    &text[..text.len() - text.trim_start_matches([' ', '\t']).len()]
-}
-
-/// The run of backticks a line of only backticks has (after its indent and
-/// before trailing whitespace), else 0: a fence must be longer.
-fn backtick_run(text: &str) -> usize {
-    let own = text.trim_matches([' ', '\t']);
-    if !own.is_empty() && own.bytes().all(|b| b == b'`') {
-        own.len()
-    } else {
-        0
     }
 }
 
@@ -300,57 +293,70 @@ impl Engine {
         self.rewrite_lines(named, &pieces, selection)
     }
 
-    /// Put lines `lines` in one code block, their text exactly as it is. A
-    /// fence they cut into is taken in whole, without its fence lines (its
-    /// code joins the new block); the new fence is longer than any line of
-    /// only backticks inside it.
+    /// Whether the code block commands act on display `range`: they take
+    /// touched code out of its block, or put the lines in one (`wraps`).
+    pub(in crate::engine) fn code_block_acts(&self, range: DisplayRange) -> bool {
+        self.touch(range).is_some() || self.wraps(self.lines_of(range))
+    }
+
+    /// Whether `code_on` puts `lines` in a code block: none holds any of
+    /// one, front matter, or part of a table without all of it.
+    fn wraps(&self, lines: Range<usize>) -> bool {
+        !self.holds_code_block(lines.clone())
+            && !self.cuts_table(lines.clone())
+            && !lines
+                .into_iter()
+                .any(|index| matches!(self.line(index).line.kind, Kind::FrontMatter(_)))
+    }
+
+    /// Whether `lines` start below a table's header or end above its last
+    /// row.
+    fn cuts_table(&self, lines: Range<usize>) -> bool {
+        let continued = |index: usize| {
+            index < self.line_count()
+                && matches!(
+                    self.line(index).line.kind,
+                    Kind::Table {
+                        role: TableRole::Delimiter | TableRole::Row,
+                        ..
+                    }
+                )
+        };
+        let last = &self.line(lines.end - 1).line.kind;
+        continued(lines.start) || (matches!(last, Kind::Table { .. }) && continued(lines.end))
+    }
+
+    /// Whether `lines` hold any line of a code block, fences included.
+    pub(in crate::engine) fn holds_code_block(&self, lines: Range<usize>) -> bool {
+        lines
+            .into_iter()
+            .any(|index| matches!(self.line(index).line.kind, Kind::Fence { .. }))
+    }
+
+    /// Put lines `lines` in one code block of three backticks, their text
+    /// exactly as it is. Lines that hold any of a code block, besides lines
+    /// outside it, change nothing: a block is never put inside another, and
+    /// a line of three or more backticks alone is always a fence. Lines that
+    /// hold part of a table and not all of it change nothing either: the
+    /// rest of the table would no longer read as one.
     fn code_on(&self, lines: Range<usize>, selection: Range<usize>) -> Option<Command> {
-        let mut first = lines.start;
-        let mut last = lines.end - 1;
-        if matches!(self.role(first), Some(FenceRole::Code | FenceRole::Close)) {
-            first = self.fence_around(first)?.open;
+        if !self.wraps(lines.clone()) {
+            return None;
         }
-        if matches!(self.role(last), Some(FenceRole::Open | FenceRole::Code)) {
-            last = self.fence_around(last)?.last();
-        }
+        let (first, last) = (lines.start, lines.end - 1);
         let mut body = Vec::new();
-        for index in first..=last {
+        for index in lines {
             let entry = self.line(index);
-            match &entry.line.kind {
-                Kind::FrontMatter(_) => return None,
-                Kind::Fence {
-                    role: FenceRole::Open,
-                    ..
-                } if entry.view.role == Role::Empty => {}
-                Kind::Fence {
-                    role: FenceRole::Open | FenceRole::Close,
-                    ..
-                } => continue,
-                _ => {}
-            }
-            let text = if entry.view.role == Role::Empty {
-                ""
-            } else {
-                entry.body()
-            };
             body.push(Piece {
                 from: Some((index, None)),
-                text: text.to_owned(),
+                text: entry.body().to_owned(),
                 ending: entry.ending().to_owned(),
             });
         }
         let ending = self.new_ending(first);
-        let run = body
-            .iter()
-            .map(|piece| backtick_run(&piece.text))
-            .max()
-            .unwrap_or(0);
-        let fence = "`".repeat((run + 1).max(3));
+        let fence = "```".to_owned();
         let last_ending = self.line(last).ending().to_owned();
         let mut pieces = vec![Piece::new(fence.clone(), ending.clone())];
-        if body.is_empty() {
-            body.push(Piece::new("", ""));
-        }
         body.last_mut().expect("a line").ending = ending;
         pieces.extend(body);
         pieces.push(Piece::new(fence, last_ending));

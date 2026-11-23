@@ -3,20 +3,24 @@
 //! The store prepares an adoption of the merged source before it writes the
 //! disk, and applies it after. Preparing maps the selection through the
 //! outside change and rebases every retained undo and redo group onto it:
-//! each historical text is merged with the outside contribution, each record
-//! must land on bytes both texts copy unchanged, and must turn one rebased
-//! text into the next exactly; anything else refuses before anything
-//! changes. Applying replaces the note's changed window as one ordinary
+//! a record on lines the change left whole moves by position, any other
+//! record's historical text is merged with the outside contribution; each
+//! record must land on bytes both texts copy unchanged, and must turn one
+//! rebased text into the next exactly; anything else refuses before
+//! anything changes. Applying replaces the note's changed window as one ordinary
 //! edit, read again incrementally, and restores the rebased stacks.
+mod other_lines;
+mod rebase;
+
 use super::edit::{Batch, Change};
-use super::history::{Group, History, Point, Record};
+use super::history::{Group, History, Point};
 use super::line::trimmed;
 use super::Engine;
 use crate::{
     Affinity, DisplayOffset, DisplayRange, EditorError, InlineFormat, Revision, SourceEdit,
     SourceOffset, SourceRange, ViewChange,
 };
-use futo_notes_merge::{three_way_merge, MergeResult};
+use rebase::rebase;
 use similar::{ChangeTag, TextDiff};
 use std::ops::Range;
 
@@ -256,6 +260,7 @@ impl Engine {
             affinity: mark.affinity,
             formats: mark.formats.clone(),
             pin,
+            block_selected: false,
         }
     }
 }
@@ -406,134 +411,4 @@ impl Map {
         let (old, new) = self.equal.get(index)?;
         (old.start <= range.start && range.end <= old.end).then(|| new + range.start - old.start)
     }
-}
-
-/// Rebase one stack onto the outside contribution. Undo walks back from the
-/// current text, redo forward from it, each step merging that historical
-/// text with the outside change. Two scratch cores follow the walk, one on
-/// the local texts and one on the rebased texts, so each group's points are
-/// shown in the text they belong to.
-fn rebase(
-    stack: &[Group],
-    redo: bool,
-    original: &str,
-    merged: &str,
-) -> Result<Vec<Group>, EditorError> {
-    if stack.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut walk = Walk {
-        old: Engine::open(original),
-        new: Engine::open(merged),
-        old_text: original.to_owned(),
-        new_text: merged.to_owned(),
-        map: Map::new(original, merged, usize::MAX),
-        original,
-        merged,
-    };
-    let mut groups = Vec::with_capacity(stack.len());
-    for group in stack.iter().rev() {
-        let (first, last) = if redo {
-            (&group.before, &group.after)
-        } else {
-            (&group.after, &group.before)
-        };
-        let first = walk.point(first);
-        let mut records = Vec::with_capacity(group.records.len());
-        if redo {
-            for record in &group.records {
-                records.push(walk.step(record, true)?);
-            }
-        } else {
-            for record in group.records.iter().rev() {
-                records.push(walk.step(record, false)?);
-            }
-            records.reverse();
-        }
-        let last = walk.point(last);
-        let (before, after) = if redo { (first, last) } else { (last, first) };
-        groups.push(Group {
-            records,
-            before,
-            after,
-        });
-    }
-    groups.reverse();
-    Ok(groups)
-}
-
-struct Walk<'a> {
-    /// The local historical text, and the same text with the outside change.
-    old: Engine,
-    new: Engine,
-    old_text: String,
-    new_text: String,
-    map: Map,
-    original: &'a str,
-    merged: &'a str,
-}
-
-impl Walk<'_> {
-    fn point(&self, point: &Point) -> Point {
-        self.new.shown(&self.old.mark(point).through(&self.map))
-    }
-
-    /// Step over `record` (forward for redo, backward for undo) and return
-    /// it rebased.
-    fn step(&mut self, record: &Record, redo: bool) -> Result<Record, EditorError> {
-        let refuse = || EditorError::UnrepresentableFormat;
-        let (from, to) = if redo {
-            (&record.removed, &record.inserted)
-        } else {
-            (&record.inserted, &record.removed)
-        };
-        let mut next_old = self.old_text.clone();
-        let range = record.start..record.start + from.len();
-        if next_old.get(range.clone()) != Some(from.as_str()) {
-            return Err(refuse());
-        }
-        next_old.replace_range(range.clone(), to);
-        let MergeResult::Clean(next_new) = three_way_merge(self.original, self.merged, &next_old)
-        else {
-            return Err(refuse());
-        };
-        let next_map = Map::new(&next_old, &next_new, usize::MAX);
-        // The record was made against the text before it: it must stand on
-        // bytes that text's rebased copy keeps, and turn that copy into the
-        // rebased text after it, exactly.
-        let (map, before, after) = if redo {
-            (&self.map, &self.new_text, &next_new)
-        } else {
-            (&next_map, &next_new, &self.new_text)
-        };
-        let start = map
-            .copied(record.start..record.start + record.removed.len())
-            .ok_or_else(refuse)?;
-        if !applies(before, start, &record.removed, &record.inserted, after) {
-            return Err(refuse());
-        }
-        let mut scratch = Batch::default();
-        self.old.raw(&mut scratch, range, to);
-        let mut scratch = Batch::default();
-        self.new.raw(&mut scratch, start..start + from.len(), to);
-        self.old_text = next_old;
-        self.new_text = next_new;
-        self.map = next_map;
-        Ok(Record {
-            start,
-            removed: record.removed.clone(),
-            inserted: record.inserted.clone(),
-        })
-    }
-}
-
-/// Whether replacing `removed` at `start` in `before` with `inserted` gives
-/// exactly `after`.
-fn applies(before: &str, start: usize, removed: &str, inserted: &str, after: &str) -> bool {
-    let end = start + removed.len();
-    before.get(start..end) == Some(removed)
-        && after.len() + removed.len() == before.len() + inserted.len()
-        && after.get(..start) == before.get(..start)
-        && after.get(start..start + inserted.len()) == Some(inserted)
-        && after.get(start + inserted.len()..) == before.get(end..)
 }

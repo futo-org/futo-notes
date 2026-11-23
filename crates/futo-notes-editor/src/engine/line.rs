@@ -11,9 +11,10 @@
 //!    fence or the note's end) shows as one empty line with no text behind
 //!    it. So does front matter closed on the note's last line, where the
 //!    empty line is the note's body.
-//! 3. Typing on such an empty line writes a line ending, then the text, at
-//!    the end of the line's hidden text, except immediately after typing an
-//!    opening fence, when the caret stays on its hidden language.
+//! 3. Typing on such an empty line writes a line ending (and on a code
+//!    block the opening fence's indent), then the text, at the end of the
+//!    line's hidden text, except immediately after typing an opening fence,
+//!    when the caret stays on its hidden language.
 //! 4. A divider shows as one U+FFFC, which renderers draw as a rule.
 //! 5. Typing at a divider's edge writes the text on a line of its own
 //!    beside the rule (`edit/plan.rs` `beside_divider`), in its quotes.
@@ -23,9 +24,10 @@
 //!    quote needs, then the text (`edit/plan.rs` `quote_space`).
 //!
 //! Front matter lines show their whole text; a table's delimiter row shows
-//! as typed. Everything else hides its marker (quote, list, heading markers
-//! and an indented line's leading whitespace, which renderers draw from the
-//! line's indent) and its inline syntax.
+//! as typed. Everything else hides its marker (quote, list, heading markers,
+//! an indented line's leading whitespace, which renderers draw from the
+//! line's indent, and the opening fence's indent on a code line) and its
+//! inline syntax.
 use super::store::Size;
 use crate::lines::{block, line_spans, Carry, FenceRole, FrontMatterRole, Kind, Line, Span};
 use crate::lines::{SpanKind, TableRole};
@@ -81,6 +83,8 @@ pub(crate) struct Entry {
     /// One bit per wikilink target leaf on the line (`link_bit`), so a
     /// note-id delivery skips lines whose links it cannot change.
     pub links: u64,
+    /// Cells on a table header or body line; 0 on any other line.
+    pub cells: usize,
     pub view: View,
     pub size: Size,
 }
@@ -92,6 +96,15 @@ pub(crate) fn link_bit(target: &str) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     futo_notes_wikilinks::note_id_leaf(target).hash(&mut hasher);
     1 << (hasher.finish() % 64)
+}
+
+/// Whether a line of `kind` read after `carry` is a table's delimiter row or
+/// the line that ends a table (`Size::table_edges`).
+fn is_table_edge(carry: &Carry, kind: &Kind) -> bool {
+    match kind {
+        Kind::Table { role, .. } => *role == TableRole::Delimiter,
+        _ => carry.table.is_some(),
+    }
 }
 
 /// What a line's display depends on beyond the line itself.
@@ -128,6 +141,14 @@ impl Entry {
             display: 0,
             source16: text.encode_utf16().count(),
             display16: 0,
+            frames: usize::from(matches!(
+                line.kind,
+                Kind::Fence {
+                    role: FenceRole::Open | FenceRole::Close,
+                    ..
+                }
+            )),
+            table_edges: usize::from(is_table_edge(&before, &line.kind)),
         };
         Self {
             text,
@@ -135,6 +156,7 @@ impl Entry {
             line,
             spans: Vec::new(),
             links: 0,
+            cells: 0,
             view: View {
                 role: Role::Text,
                 ending: true,
@@ -155,6 +177,13 @@ impl Entry {
                 _ => None,
             })
             .fold(0, |mask, bit| mask | bit);
+        self.cells = match self.line.kind {
+            Kind::Table {
+                role: TableRole::Header | TableRole::Row,
+                ..
+            } => crate::lines::table::cells(self.body()).len(),
+            _ => 0,
+        };
     }
 
     /// The line without its ending.

@@ -6,6 +6,8 @@ use futo_notes_store::{LocalNoteStore, StoreEditorSession};
 use crate::FlushDraftResult;
 
 mod clipboard;
+mod code_blocks;
+pub use code_blocks::{editor_typed_code_block_language, editor_typed_code_block_name};
 mod composition;
 mod contract;
 mod correspondence;
@@ -14,13 +16,19 @@ mod find;
 mod host;
 mod host_open;
 pub use host::{
-    EditorDisplayMirror, EditorFindSnapshot, EditorListMarker, EditorMirrorEdit, EditorMirrorError,
-    EditorStyleSpan, EditorToolbarHighlights,
+    EditorDisplayMirror, EditorFindSnapshot, EditorMirrorEdit, EditorMirrorError,
+    EditorToolbarHighlights,
 };
+mod style_span;
+pub use style_span::{EditorListMarker, EditorStyleSpan};
+mod projection;
+pub use projection::*;
 mod host_find;
 pub use host_find::{EditorFindLanding, EditorFindStep};
 pub use host_open::{EditorPendingEdits, EditorQuickView};
 mod images;
+mod input;
+pub use input::*;
 #[cfg(any(target_os = "android", test))]
 mod jni_keys;
 mod links;
@@ -30,7 +38,7 @@ mod tags;
 mod toolbar;
 pub use contract::*;
 pub use find::{editor_find_scan, EditorFindReport, EditorFindScanRequest, EditorFindScanResult};
-pub use toolbar::{EditorToolbarList, EditorToolbarSnapshot};
+pub use toolbar::{EditorToolbarCommand, EditorToolbarList, EditorToolbarSnapshot};
 mod tables;
 pub use tables::*;
 
@@ -217,6 +225,26 @@ impl NativeEditorSession {
         })
     }
 
+    /// `removed` (typed text on one line, such as a `/` menu's query)
+    /// removed, then the block command at the caret left, as one action and
+    /// one Undo step.
+    pub fn block_command_removing_utf16(
+        &self,
+        expected: u64,
+        removed: EditorUtf16Range,
+        command: EditorBlockCommand,
+    ) -> Result<Option<EditorViewChange>, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            Ok(session
+                .block_command_removing_utf16(
+                    Revision(expected),
+                    removed.try_into()?,
+                    command.into(),
+                )?
+                .map(Into::into))
+        })
+    }
+
     pub fn paragraph_key_utf16(
         &self,
         expected: u64,
@@ -287,6 +315,22 @@ impl NativeEditorSession {
         self.with_revision(expected, |session| {
             Ok(session
                 .select_with_affinity(Revision(expected), range.try_into()?, affinity.into())?
+                .into())
+        })
+    }
+
+    /// The user placed this selection (a press, a drag): unlike a host's echo
+    /// through `select_with_affinity`, the same range ends a selected block
+    /// and a language caret.
+    pub fn place_selection(
+        &self,
+        expected: u64,
+        range: EditorByteRange,
+        affinity: EditorAffinity,
+    ) -> Result<EditorSelectionChange, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            Ok(session
+                .place_selection(Revision(expected), range.try_into()?, affinity.into())?
                 .into())
         })
     }

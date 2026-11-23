@@ -17,18 +17,9 @@ impl PortableSession {
         query: &str,
         note_id: &str,
     ) -> Result<Applied, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let change = self.engine.accept_wikilink_completion(
-            expected,
-            range,
-            query,
-            note_id,
-            &mut |edit| {
-                record = Some(edit.clone());
-                Ok(())
-            },
-        )?;
-        Ok(self.issue(record.unwrap(), change))
+        self.apply_input(|engine, accept| {
+            engine.accept_wikilink_completion(expected, range, query, note_id, accept)
+        })?
+        .ok_or(PortableError::Editor(crate::EditorError::StaleClaim))
     }
 }

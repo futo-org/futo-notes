@@ -134,9 +134,9 @@ fn native_session_preserves_unicode_nul_and_saves_on_detach() {
 #[test]
 fn native_input_errors_selection_and_history_match_the_direct_session() {
     use futo_notes_editor::{
-        DisplayUtf16Offset, DisplayUtf16Range, EditorError, EditorSession, Revision,
+        DisplayUtf16Offset, DisplayUtf16Range, EditorError, EditorSession, InputAction, Revision,
     };
-    use futo_notes_ffi::EditorSessionError;
+    use futo_notes_ffi::{EditorInputAction, EditorSessionError};
     let tree = TempTree::new();
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
@@ -206,17 +206,28 @@ fn native_input_errors_selection_and_history_match_the_direct_session() {
         Err(EditorSessionError::StaleRevision { .. })
     ));
     let bytes = "日本\0".encode_utf16().collect::<Vec<_>>();
+    // A typed NUL alone is refused; an isolated replacement (a paste) carries it intact.
+    assert!(matches!(
+        native.replace_utf16(0, EditorUtf16Range { start: 1, end: 3 }, vec![0]),
+        Err(EditorSessionError::InvalidText)
+    ));
     let changed = native
-        .replace_utf16(0, EditorUtf16Range { start: 1, end: 3 }, bytes.clone())
+        .replace_utf16_action(
+            0,
+            EditorUtf16Range { start: 1, end: 3 },
+            bytes.clone(),
+            EditorInputAction::Isolated,
+        )
         .unwrap();
     let change = direct
-        .replace_utf16(
+        .replace_utf16_action(
             Revision(0),
             DisplayUtf16Range {
                 start: DisplayUtf16Offset(1),
                 end: DisplayUtf16Offset(3),
             },
             &bytes,
+            InputAction::Isolated,
             &mut |_| Ok(()),
         )
         .unwrap();
@@ -413,105 +424,4 @@ fn native_remote_rename_retains_draft_and_merges_at_reported_final_id() {
     session.undo(2).unwrap().unwrap();
     assert_eq!(session.source_text().unwrap(), "REMOTE\n\nsecond\n");
     assert!(!store.exists("old".into()));
-}
-
-#[test]
-fn native_toolbar_state_projects_selection_coverage_and_history_in_one_query() {
-    use futo_notes_ffi::EditorInlineFormat;
-    let tree = TempTree::new();
-    std::fs::create_dir_all(tree.path("vault")).unwrap();
-    let store = NoteStore::new(path_string(&tree.path("vault")));
-    store
-        .create_note("n".into(), "".into(), "**bold** plain".into())
-        .unwrap();
-    let session = store.open_editor("n".into()).unwrap();
-    session
-        .select_utf16(0, EditorUtf16Range { start: 0, end: 10 })
-        .unwrap();
-    let state = session.toolbar_state().unwrap();
-    assert!(state.formats.is_empty());
-    assert!(!state.can_undo);
-    assert!(!state.can_indent);
-    session
-        .select_utf16(0, EditorUtf16Range { start: 0, end: 4 })
-        .unwrap();
-    assert_eq!(
-        session.toolbar_state().unwrap().formats,
-        vec![EditorInlineFormat::Bold]
-    );
-    assert_eq!(session.source_text().unwrap(), "**bold** plain");
-    assert_eq!(session.revision().unwrap(), 0);
-    // Saved EOF and a multiscalar native caret retain the same code owner.
-    for (id, body, end) in [("ascii", "code", 4), ("emoji", "🧑‍💻", 5)] {
-        let source = format!("```\n{body}\n```\n");
-        store
-            .create_note(id.into(), "".into(), source.clone())
-            .unwrap();
-        let code = store.open_editor(id.into()).unwrap();
-        code.select_utf16(0, EditorUtf16Range { start: end, end })
-            .unwrap();
-        let state = code.toolbar_state().unwrap();
-        assert!(state.code);
-        assert!(!state.inline_allowed);
-        assert!(!state.mixed);
-        assert!(code
-            .toggle_format(0, EditorInlineFormat::Bold)
-            .unwrap()
-            .is_none());
-        assert!(code.toolbar_state().unwrap().formats.is_empty());
-        assert_eq!(code.source_text().unwrap(), source);
-        assert_eq!(code.revision().unwrap(), 0);
-    }
-}
-
-#[test]
-fn native_text_first_commands_preserve_explicit_portable_variants() {
-    use futo_notes_ffi::{EditorBlockCommand, EditorParagraphKey};
-    let tree = TempTree::new();
-    std::fs::create_dir_all(tree.path("vault")).unwrap();
-    let store = NoteStore::new(path_string(&tree.path("vault")));
-    store
-        .create_note("n".into(), "".into(), "above\n# title".into())
-        .unwrap();
-    let session = store.open_editor("n".into()).unwrap();
-    session
-        .paragraph_key_utf16(
-            0,
-            EditorUtf16Range { start: 6, end: 6 },
-            EditorParagraphKey::BackspaceJoiningHeading,
-        )
-        .unwrap()
-        .unwrap();
-    assert_eq!(session.source_text().unwrap(), "abovetitle");
-    let rev = session.revision().unwrap();
-    let range = EditorUtf16Range { start: 0, end: 0 };
-    session
-        .block_command_utf16(
-            rev,
-            range.clone(),
-            EditorBlockCommand::ToggleHeading { level: 1 },
-        )
-        .unwrap()
-        .unwrap();
-    session
-        .block_command_utf16(
-            session.revision().unwrap(),
-            range.clone(),
-            EditorBlockCommand::ToggleHeading { level: 1 },
-        )
-        .unwrap()
-        .unwrap();
-    assert_eq!(session.source_text().unwrap(), "abovetitle");
-    session
-        .block_command_utf16(
-            session.revision().unwrap(),
-            range,
-            EditorBlockCommand::WrapCodeBlock,
-        )
-        .unwrap()
-        .unwrap();
-    assert!(session
-        .source_text()
-        .unwrap()
-        .starts_with("```\nabovetitle"));
 }

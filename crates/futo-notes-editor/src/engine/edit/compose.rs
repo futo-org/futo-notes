@@ -54,7 +54,7 @@ impl Engine {
                 if self.touches_metadata(range) {
                     return Err(EditorError::InvalidRange);
                 }
-                range
+                self.in_body(range)
             }
         };
         let marked = Marked {
@@ -110,6 +110,7 @@ impl Engine {
             };
             self.pin = None;
             self.formats = None;
+            self.block_selected = false;
         }
     }
 
@@ -327,7 +328,7 @@ impl Engine {
         text: &str,
     ) -> Vec<(std::ops::Range<usize>, Vec<crate::InlineFormat>)> {
         let old = self.display_slice(range.start.0..range.end.0);
-        let (prefix, suffix) = super::plan::changed_stretch(&old, text);
+        let (prefix, suffix) = super::runs::changed_stretch(&old, text);
         let shown = self.projection(self.revision, range);
         let mut runs = Vec::new();
         // Kept text at `old` offsets `from..to` lands at `text` offset `at`.

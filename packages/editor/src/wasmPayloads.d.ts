@@ -22,10 +22,19 @@ export type SourceRange = Range;
 
 export type Affinity = 'Backward' | 'Forward';
 export type InlineFormat = 'Bold' | 'Italic' | 'Strike' | 'Code';
-export type InputAction = 'Typing' | 'Isolated' | 'CompositionCommit';
-export type ParagraphKey = 'Enter' | 'ShiftEnter' | 'Backspace' | 'Delete' | 'Tab' | 'ShiftTab';
+export type InputAction = 'Typing' | 'Isolated' | 'CompositionCommit' | 'PairedTyping';
+export type ParagraphKey =
+  | 'Enter'
+  | 'ShiftEnter'
+  | 'Backspace'
+  | 'PairedBackspace'
+  | 'Delete'
+  | 'Tab'
+  | 'ShiftTab'
+  | 'Transpose';
 export type BlockCommand =
   | { Heading: number }
+  | { ToggleHeading: number }
   | 'Quote'
   | 'Indent'
   | 'Outdent'
@@ -34,7 +43,13 @@ export type BlockCommand =
   | 'BulletList'
   | 'OrderedList'
   | 'TaskList'
-  | 'CodeBlock';
+  | 'CodeBlock'
+  | 'OpenLineBeforeCodeBlock'
+  | 'OpenLineAfterCodeBlock'
+  | 'OpenCodeLineBelow'
+  | 'OpenCodeLineAbove'
+  /** An empty table at the caret: `rows` rows, the header row included, of `columns` cells. */
+  | { Table: { rows: number; columns: number } };
 export type TableKey = 'Tab' | 'ShiftTab' | 'Enter' | 'ModEnter' | 'ShiftEnter';
 export type TableCommand =
   | 'InsertRowAbove'
@@ -142,10 +157,70 @@ export interface BlockDescription {
   quote_depth: number;
   divider: boolean;
   list: ListDescription | null;
-  code: boolean;
-  language: string | null;
+  /** A line of fenced code; its block is in `ProjectionSlice.code_blocks`. */
+  code: CodeLineDescription | null;
+  /** A line of a table; its table is in `ProjectionSlice.tables`. */
+  table: TableLineDescription | null;
   /** Leading front matter: inert, verbatim. */
   metadata: boolean;
+}
+
+/** One shown line of a fenced code block (an empty block shows one). */
+export interface CodeLineDescription {
+  /** 1-based within its block. */
+  line_number: number;
+  first: boolean;
+  last: boolean;
+  mark: CodeLineMark | null;
+}
+
+/** A line mark from the opening fence's `hl:` and `ll:` options. */
+export type CodeLineMark = 'Highlight' | 'Lowlight';
+
+/**
+ * A fenced code block, whole even where the projection holds only part of it: `range` runs from
+ * its first code line's start to its last code line's end (that line's break excluded).
+ */
+export interface CodeBlockDescription {
+  range: DisplayRange;
+  language: string | null;
+  name: string | null;
+  line_count: number;
+}
+
+export type TableLineRole = 'Header' | 'Delimiter' | 'Row';
+
+/** One line of a table, read from that line alone (its row number aside). */
+export interface TableLineDescription {
+  role: TableLineRole;
+  /** As `TableCell.row` counts: the header is 0, the first row under the delimiter row 1; the delimiter row is 0. */
+  row: number;
+  /** Each cell's content, as `TableCell.content`. */
+  cells: DisplayRange[];
+  /** Where each pipe that bounds a cell shows; an escaped pipe is text. */
+  pipes: number[];
+}
+
+/**
+ * A table, whole even where the projection holds only part of it: `range` runs from its header's
+ * start to its last line's end (that line's break excluded).
+ */
+export interface TableBlockDescription {
+  range: DisplayRange;
+  /** Cells in its widest row, the delimiter row aside. */
+  columns: number;
+  /** One per column, from the delimiter row's cells. */
+  alignments: TableAlignment[];
+}
+
+/**
+ * `set_code_block_header`'s JSON argument: the block whose code shows at display byte `at`, and
+ * the language and `name:` to write; an empty string clears one.
+ */
+export interface CodeBlockHeader {
+  at: number;
+  language: string;
+  name: string;
 }
 
 export interface LinkDescription {
@@ -192,6 +267,10 @@ export interface ProjectionSlice {
   atoms: AtomDescription[];
   /** Each `#tag`'s display range, `#` included: coloured, still plain text. */
   tags: DisplayRange[];
+  /** Each code block the slice's lines belong to, in order. */
+  code_blocks: CodeBlockDescription[];
+  /** Each table the slice's lines belong to, in order. */
+  tables: TableBlockDescription[];
 }
 
 export interface EditWork {
@@ -209,15 +288,27 @@ export interface ViewChange {
   range: DisplayRange;
   inserted: string;
   selection: DisplayRange;
+  /** The code block selected as one object (its whole range, which `selection` then equals). */
+  selected_block: DisplayRange | null;
+  /** The caret is at a code block's hidden opening fence end: letters write its language. */
+  writes_language: boolean;
+  /** The caret is writing a table's delimiter row (typing on that line left it there); draw the row only while this holds. */
+  writes_delimiter_row: boolean;
   work: EditWork;
   affinity: Affinity;
   projection: ProjectionSlice;
 }
 
-/** `select_with_affinity`. */
+/** `select_with_affinity`, `place_selection`, `select_code_block`. */
 export interface SelectionChange {
   revision: number;
   selection: DisplayRange;
+  /** As on `ViewChange`. */
+  selected_block: DisplayRange | null;
+  /** As on `ViewChange`. */
+  writes_language: boolean;
+  /** As on `ViewChange`. */
+  writes_delimiter_row: boolean;
   affinity: Affinity;
 }
 
@@ -249,6 +340,47 @@ export interface MarkedRun {
   start: number;
   end: number;
   formats: InlineFormat[];
+}
+
+export type ToolbarList = 'Bullet' | 'Ordered' | 'Task';
+/** A command a toolbar offers; `Heading` is the heading toggle at every level alike. */
+export type ToolbarCommand =
+  | 'Bold'
+  | 'Italic'
+  | 'Strike'
+  | 'Code'
+  | 'Link'
+  | 'Heading'
+  | 'Quote'
+  | 'BulletList'
+  | 'OrderedList'
+  | 'TaskList'
+  | 'CodeBlock'
+  | 'Divider'
+  | 'Table'
+  | 'Image';
+
+/** `toolbar_state`: what the toolbar lights for the selection, by the engine's own rules. */
+export interface ToolbarState {
+  formats: InlineFormat[];
+  /** The heading level every touched line with text shares (0: text); null when they differ or none takes a heading. */
+  heading: number | null;
+  /** Whether `allowed` holds `Heading`. */
+  heading_allowed: boolean;
+  /** Whether Quote takes a level off. */
+  quote: boolean;
+  /** Whether `allowed` holds `Quote`. */
+  quote_allowed: boolean;
+  /** The commands that would act at the selection now (change the note, or at a caret the formats typing carries; the formats as the toolbar's toggle `toggle_toolbar_format` acts); a button whose command is left out would change nothing. */
+  allowed: ToolbarCommand[];
+  list: ToolbarList | null;
+  code: boolean;
+  mixed: boolean;
+  inline_allowed: boolean;
+  can_indent: boolean;
+  can_outdent: boolean;
+  can_undo: boolean;
+  can_redo: boolean;
 }
 
 export interface WikilinkCandidate {
@@ -329,16 +461,21 @@ export interface TableDescription {
   controls: TableControls | null;
 }
 
-/** `table_key`: `null` when the key is not a table key. */
+/**
+ * `table_key`: `null` when the key is not a table key. `enter_table_cell_utf16`: `null` off a
+ * header or body row, or for a column past the table's.
+ */
 export type TableOutcome = { selected: SelectionChange } | { edited: Applied };
 
 // ---- Per-method results --------------------------------------------------
-// Edit methods (`replace*`, `toggle_format`, `block_command_utf16`, `paragraph_key_utf16`,
+// Edit methods (`replace*`, `toggle_format`, `block_command_utf16`,
+// `block_command_removing_utf16`, `paragraph_key_utf16`,
 // `undo`, `redo`, `set_link`, `insert_image`, `add_header_tag`, `remove_header_tag`,
 // `paste_markdown`, `commit_composition_utf16`, `replace_os_utf16`, `apply_relink_offer`,
 // `table_command*`) apply the edit to the page's engine and return `Applied | null`
-// (`null` = nothing to do), except `replace*`/`accept_wikilink_completion`, which always
-// return `Applied`. Show `change` now and send `request` to the worker. `resume` returns a
+// (`null` = the source did not change: nothing to send, but the selection may have moved,
+// so read `selection`), except `accept_wikilink_completion`, which always returns
+// `Applied`. Show `change` now and send `request` to the worker. `resume` returns a
 // `HostRequest`. `acknowledge` returns `HostRequest[]`: empty, except the reply to `resume`,
 // which returns the outstanding requests (renumbered) the worker lacks. `compose_utf16` and
 // `composition` return `Composition` / `Composition | null`.

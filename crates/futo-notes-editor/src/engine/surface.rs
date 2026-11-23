@@ -5,11 +5,20 @@ use super::edit::Change;
 use super::Engine;
 use crate::{
     CaretDirection, DisplayOffset, DisplayRange, DisplayUtf16Range, EditWork, EditorError,
-    InputAction, ParagraphKey, ProjectionSlice, Revision, SourceEdit, ToolbarList, ToolbarState,
-    ViewChange,
+    InputAction, ParagraphKey, ProjectionSlice, Revision, SourceEdit, ToolbarCommand, ToolbarList,
+    ToolbarState, ViewChange,
 };
 
 type Accept<'a> = &'a mut dyn FnMut(&SourceEdit) -> Result<(), String>;
+
+/// What a typed key can put in a note: not a control character other than tab and line
+/// feed (Ctrl+Option+letter and AppKit's quoted Ctrl+Q keys type them), nor one of Apple's
+/// function-key code points U+F700–U+F7FF (a quoted arrow or F key). A line break is
+/// typed as Enter; a paste or a text service's replacement may carry a note's own CRLF.
+fn typeable(character: char) -> bool {
+    matches!(character, '\t' | '\n')
+        || !(character.is_control() || ('\u{F700}'..='\u{F7FF}').contains(&character))
+}
 
 impl Engine {
     /// A change as a view applies it, with the projection of every line it
@@ -30,6 +39,9 @@ impl Engine {
             work,
             inserted: change.inserted,
             selection: change.selection,
+            selected_block: self.selected_block(),
+            writes_language: self.writes_language(),
+            writes_delimiter_row: self.writes_delimiter_row(),
             affinity: change.affinity,
             projection,
         }
@@ -57,6 +69,9 @@ impl Engine {
             range: caret,
             inserted: String::new(),
             selection: self.selection,
+            selected_block: self.selected_block(),
+            writes_language: self.writes_language(),
+            writes_delimiter_row: self.writes_delimiter_row(),
             work: EditWork::default(),
             affinity: self.affinity,
             projection: self.projection(self.revision, caret),
@@ -71,7 +86,28 @@ impl Engine {
         action: InputAction,
         accept: Accept,
     ) -> Result<ViewChange, EditorError> {
-        Ok(match self.replace(expected, range, text, action, accept)? {
+        let typed = matches!(action, InputAction::Typing | InputAction::PairedTyping);
+        // A key that types only such characters types nothing; among other
+        // text (a keyboard's committed text) they are dropped, the rest lands.
+        let kept: String;
+        let text = if typed && !text.chars().all(typeable) {
+            kept = text
+                .chars()
+                .filter(|&character| typeable(character))
+                .collect();
+            if kept.is_empty() {
+                return Err(EditorError::InvalidText);
+            }
+            kept.as_str()
+        } else {
+            text
+        };
+        let change = if action == InputAction::PairedTyping {
+            self.paired_input(expected, range, text, accept)?
+        } else {
+            self.replace(expected, range, text, action, accept)?
+        };
+        Ok(match change {
             Some(change) => self.view(change),
             None => self.unchanged(),
         })
@@ -125,7 +161,9 @@ impl Engine {
 
     /// A paragraph key: the command a family claims it for on the lines it
     /// is pointed at, else typing (Enter writes the line's own line break;
-    /// Backspace and Delete remove the range or one grapheme).
+    /// Backspace and Delete remove the range or one grapheme). Every
+    /// Backspace removes one level of an empty pair around the caret first,
+    /// and right after typing started a table takes that keystroke back.
     pub(crate) fn key(
         &mut self,
         expected: Revision,
@@ -134,6 +172,29 @@ impl Engine {
         accept: Accept,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
+        let backspace = matches!(
+            key,
+            ParagraphKey::Backspace
+                | ParagraphKey::BackspaceJoiningHeading
+                | ParagraphKey::PairedBackspace
+        );
+        if backspace && range == self.selection {
+            if let Some(change) = self.untyped_table_start(accept)? {
+                return Ok(Some(change));
+            }
+        }
+        let pair = backspace.then(|| self.empty_pair(range)).flatten();
+        if let Some(pair) = pair {
+            if range != self.selection {
+                self.select_with_affinity(expected, range, self.affinity)?;
+            }
+            let change = self.run(
+                expected,
+                |engine| engine.typed_key(pair, ParagraphKey::Backspace),
+                accept,
+            )?;
+            return Ok(change.map(|change| self.view(change)));
+        }
         if self.composition.is_some() {
             let change = self.run(
                 expected,
@@ -146,16 +207,38 @@ impl Engine {
             return Ok(change.map(|change| self.view(change)));
         }
         self.check_display_range(range)?;
+        // Enter or Tab on the delimiter row being typed leave it, and a
+        // Backspace right after takes that back (`left_row`).
+        let leaving_row = (matches!(
+            key,
+            ParagraphKey::Enter | ParagraphKey::ShiftEnter | ParagraphKey::Tab
+        ) && range == self.selection
+            && self.writes_delimiter_row())
+        .then(|| self.point());
         if let Some(command) = self.key_command(range, key)? {
             // A command with no edits moves the selection (a table key); one
             // that leaves it where it is changes nothing.
             if command.edits.is_empty() {
-                if self.display_range(command.selection.clone()) == self.selection {
+                if command.selects_block {
+                    self.select_block_at(command.selection.start);
+                    return Ok(Some(self.unchanged()));
+                }
+                if self.display_range(command.selection.clone()) == self.selection
+                    && !self.block_selected
+                {
                     return Ok(None);
                 }
-                return self.moved_view(expected, command.selection).map(Some);
+                self.block_selected = false;
+                let moved = self.moved_view(expected, command.selection)?;
+                if let Some(before) = leaving_row {
+                    self.left_row(before, false);
+                }
+                return Ok(Some(moved));
             }
             let change = self.run(expected, |_| Ok(Some(command)), accept)?;
+            if let (Some(before), Some(_)) = (leaving_row, &change) {
+                self.left_row(before, true);
+            }
             return Ok(change.map(|change| self.view(change)));
         }
         let change = match key {
@@ -166,6 +249,7 @@ impl Engine {
             }
             ParagraphKey::Backspace
             | ParagraphKey::BackspaceJoiningHeading
+            | ParagraphKey::PairedBackspace
             | ParagraphKey::Delete => {
                 if range != self.selection {
                     self.select_with_affinity(expected, range, self.affinity)?;
@@ -178,6 +262,12 @@ impl Engine {
                 self.delete(expected, direction, accept)?
             }
             ParagraphKey::Tab | ParagraphKey::ShiftTab => None,
+            ParagraphKey::Transpose => {
+                if range != self.selection {
+                    self.select_with_affinity(expected, range, self.affinity)?;
+                }
+                self.run(expected, |engine| engine.typed_key(range, key), accept)?
+            }
         };
         Ok(change.map(|change| self.view(change)))
     }
@@ -193,6 +283,24 @@ impl Engine {
         let change = self.run(
             expected,
             |engine| engine.block_command(range, command),
+            accept,
+        )?;
+        Ok(change.map(|change| self.view(change)))
+    }
+
+    /// `block` at the caret left once `removed` is removed, both as one
+    /// action (`run_removing`).
+    pub(crate) fn block_removing(
+        &mut self,
+        expected: Revision,
+        removed: DisplayRange,
+        command: crate::BlockCommand,
+        accept: Accept,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let change = self.run_removing(
+            expected,
+            Some(removed),
+            |engine| engine.block_command(engine.selection, command),
             accept,
         )?;
         Ok(change.map(|change| self.view(change)))
@@ -242,10 +350,14 @@ impl Engine {
         let (can_indent, can_outdent) = self
             .code_indent_state()
             .unwrap_or_else(|| self.list_indents());
+        let facts = self.toolbar_facts();
         ToolbarState {
-            formats: self.toolbar_formats(),
-            heading: self.toolbar_heading(),
-            quote: self.toolbar_quote(),
+            formats: facts.formats,
+            heading: facts.heading,
+            heading_allowed: facts.allowed.contains(&ToolbarCommand::Heading),
+            quote: facts.quote,
+            quote_allowed: facts.allowed.contains(&ToolbarCommand::Quote),
+            allowed: facts.allowed,
             list: match line.kind {
                 Kind::List { task: Some(_), .. } => Some(ToolbarList::Task),
                 Kind::List { ordered: true, .. } => Some(ToolbarList::Ordered),
@@ -269,6 +381,8 @@ fn count_projection(slice: &ProjectionSlice, work: &mut EditWork) {
     work.link_metadata_items += slice.runs.len()
         + slice.correspondence.len()
         + slice.blocks.len()
+        + slice.code_blocks.len()
+        + slice.tables.len()
         + slice.links.len()
         + slice.wikilinks.len()
         + slice.atoms.len();

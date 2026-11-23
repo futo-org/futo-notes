@@ -80,6 +80,8 @@ fn atomic_label_and_destination_edit_saves_and_reopens_as_one_history_action() {
         .unwrap();
     assert_eq!(link.destination, "/new");
     assert_eq!(link.title.as_deref(), Some("T"));
+    let label = reopened.link_label(Revision(0), range(7, 10)).unwrap();
+    assert_eq!(label.as_deref(), Some("資料 [one]"));
     assert!(reopened.undo(Revision(0)).unwrap().is_none());
     assert_eq!(store.read("labels").unwrap(), edited);
 }

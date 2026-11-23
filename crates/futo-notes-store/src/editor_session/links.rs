@@ -54,6 +54,19 @@ impl StoreEditorSession<'_> {
         })
     }
 
+    pub fn link_label(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<Option<String>, EditorStoreError> {
+        self.live(|state| {
+            state
+                .engine
+                .link_label(expected, range)
+                .map_err(EditorStoreError::Editor)
+        })
+    }
+
     pub fn set_link(
         &mut self,
         expected: Revision,

@@ -2,11 +2,15 @@
 //!
 //! Copy exports the selection's exact source, with the marks a selection
 //! boundary cuts closed or opened again (`copy.rs`). Cut is copy plus the
-//! deletion Backspace makes over the selection, as its own undo step, and
+//! deletion Backspace makes over the selection (over a table it covers, of
+//! the table's lines whole), as its own undo step, and
 //! carries the cut text's formats to the next typed character. Paste writes
-//! the pasted text as it is, behind the one guard (`paste.rs`).
+//! the pasted text as it is, behind the one guard (`paste.rs`). Drag-to-move
+//! is a cut and a paste joined into one undo step (`move_text.rs`).
 mod carried;
+mod code_paste;
 mod copy;
+mod move_text;
 mod paste;
 
 use super::super::command::{Command, Edit};
@@ -42,7 +46,9 @@ impl Engine {
             expected,
             |engine| {
                 engine.check_display_range(range)?;
-                copied = engine.copied(range);
+                // Cut copies what it removes: never front matter, and a
+                // table it covers whole.
+                copied = engine.copied(engine.whole_tables(engine.in_body(range)));
                 if copied.is_empty() {
                     return Ok(None);
                 }
@@ -50,6 +56,7 @@ impl Engine {
                 if engine.touches_metadata(range) {
                     return Err(EditorError::InvalidRange);
                 }
+                let range = engine.in_body(range);
                 formats = engine.formats_at(engine.source_selection(range).start);
                 let plan = engine.plan(range, "");
                 let lines = engine.line_of(plan.range.start)..engine.line_of(plan.range.end) + 1;
@@ -78,7 +85,9 @@ impl Engine {
         Ok((copied, Some(change)))
     }
 
-    /// Paste `text` over the selection as one undo step (`paste.rs`).
+    /// Paste `text` over the selection as one undo step (`paste.rs`). A
+    /// paste that writes the bytes already there changes no source but still
+    /// moves the caret to where it ends: a view change at the same revision.
     pub(crate) fn paste_markdown(
         &mut self,
         expected: Revision,
@@ -86,7 +95,12 @@ impl Engine {
         text: &str,
         accept: Accept,
     ) -> Result<Option<ViewChange>, EditorError> {
+        let before = (self.selection, self.block_selected);
         let change = self.run(expected, |engine| engine.paste_command(range, text), accept)?;
-        Ok(change.map(|change| self.view(change)))
+        if let Some(change) = change {
+            return Ok(Some(self.view(change)));
+        }
+        let moved = (self.selection, self.block_selected) != before;
+        Ok(moved.then(|| self.unchanged()))
     }
 }

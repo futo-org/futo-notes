@@ -9,6 +9,7 @@
 #![allow(dead_code)] // Nothing calls the reader until the engine moves onto it.
 
 pub(crate) mod block;
+pub(crate) mod fence_info;
 pub(crate) mod inline;
 pub(crate) mod table;
 pub(crate) mod url;
@@ -17,7 +18,8 @@ pub(crate) mod url;
 mod tests;
 
 pub(crate) use block::{Carry, FenceRole, FrontMatterRole, Kind, Line, TableRole};
-pub(crate) use inline::{Span, SpanKind};
+pub(crate) use fence_info::FenceInfo;
+pub(crate) use inline::{reading_spans, Span, SpanKind};
 use std::ops::Range;
 
 /// A whole note's reading: its lines, the carry before each, and each line's
@@ -138,13 +140,6 @@ impl Reading {
             line.content = shift(line.content.start)..shift(line.content.end);
             if let Kind::List { text, .. } = &mut line.kind {
                 *text = shift(text.start)..shift(text.end);
-            }
-            if let Kind::Fence {
-                language: Some(language),
-                ..
-            } = &mut line.kind
-            {
-                *language = shift(language.start)..shift(language.end);
             }
         }
         for spans in &mut self.spans[old..] {

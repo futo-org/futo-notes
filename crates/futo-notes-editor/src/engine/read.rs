@@ -5,9 +5,10 @@
 //! reading continues until the carry at a line's start equals the carry that
 //! line had before. When the edit can open or close front matter, reading
 //! starts at line 1.
+use super::code_block::is_opening_fence;
 use super::line::{trimmed, Entry, Neighbors};
 use super::store::{self, Size, Store};
-use crate::lines::{Carry, FrontMatterRole, Kind, TableRole};
+use crate::lines::{Carry, FenceRole, FrontMatterRole, Kind, TableRole};
 use std::ops::Range;
 
 /// What an edit changed in the display.
@@ -16,8 +17,9 @@ pub(crate) struct Shown {
     /// The replaced display range, in the display before the edit.
     pub range: Range<usize>,
     pub inserted: String,
-    /// The display of every line shown again, in the display after the edit:
-    /// what a view restyles, even where the text did not change.
+    /// The display of every line shown again, in the display after the edit,
+    /// and of the code line after them when it became or stopped being its
+    /// block's first: what a view restyles, even where the text did not change.
     pub lines: Range<usize>,
     /// Bytes of source the reader read again.
     pub parsed: usize,
@@ -138,21 +140,7 @@ pub(crate) fn edit(store: &mut Store, range: Range<usize>, inserted: &str) -> Sh
         place(&mut read, entry);
         stop += 1;
     }
-    // A delimiter row where reading stopped keeps the line above as its header.
-    if stop < count {
-        if let Kind::Table {
-            role: TableRole::Delimiter,
-            columns,
-        } = store.get(stop).line.kind
-        {
-            if let Some(above) = read.last_mut() {
-                above.line.kind = Kind::Table {
-                    role: TableRole::Header,
-                    columns,
-                };
-            }
-        }
-    }
+    keep_header(store, stop, &mut read);
     for entry in &mut read {
         entry.read_spans();
     }
@@ -167,6 +155,7 @@ pub(crate) fn edit(store: &mut Store, range: Range<usize>, inserted: &str) -> Sh
         .take(stop - shown_from)
         .map(Entry::display)
         .collect();
+    let opened_above_stop = stop < count && is_opening_fence(store.get(stop - 1));
     let read_count = read.len();
     store.splice(start..stop, read);
     let new_count = store.len();
@@ -179,11 +168,58 @@ pub(crate) fn edit(store: &mut Store, range: Range<usize>, inserted: &str) -> Sh
         .take(shown_to - shown_from)
         .map(Entry::display)
         .collect();
+    let mut shown = trim(old_start, &old_shown, &new_shown);
+    if let Some(end) = first_flipped_end(store, shown_to, opened_above_stop) {
+        shown.lines.end = shown.lines.end.max(end);
+    }
     Shown {
         parsed,
         materialized,
-        ..trim(old_start, &old_shown, &new_shown)
+        ..shown
     }
+}
+
+/// A delimiter row at line `stop`, where reading stopped, keeps the last line
+/// `read` as its header.
+fn keep_header(store: &Store, stop: usize, read: &mut [Entry]) {
+    if stop >= store.len() {
+        return;
+    }
+    let Kind::Table {
+        role: TableRole::Delimiter,
+        columns,
+    } = store.get(stop).line.kind
+    else {
+        return;
+    };
+    if let Some(above) = read.last_mut() {
+        above.line.kind = Kind::Table {
+            role: TableRole::Header,
+            columns,
+        };
+    }
+}
+
+/// The shown end of line `index`, the first line not read again, when it is
+/// code and its block's first line no longer agrees with `opened_before`
+/// (whether the line above it opened a block before the edit). Every other
+/// line not read again keeps its reading, its carry and so its block's facts.
+fn first_flipped_end(store: &Store, index: usize, opened_before: bool) -> Option<usize> {
+    if index >= store.len() {
+        return None;
+    }
+    let entry = store.get(index);
+    let code = matches!(
+        entry.line.kind,
+        Kind::Fence {
+            role: FenceRole::Code,
+            ..
+        }
+    );
+    if !code || is_opening_fence(store.get(index - 1)) == opened_before {
+        return None;
+    }
+    Some(store.before(index).display + entry.shown_len())
 }
 
 /// Work out line `index`'s display from its neighbors.

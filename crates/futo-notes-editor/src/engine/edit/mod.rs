@@ -4,16 +4,18 @@
 mod bulk;
 mod compose;
 mod plan;
+mod runs;
 mod spans;
 
-use super::command::{Command, Edit};
+use super::code_block::is_opening_fence_end;
+use super::command::Edit;
 use super::history::{Group, Point, Record};
 use super::read::{self, Shown};
-use super::Engine;
+use super::{Engine, RowExit};
 use crate::history::{typing_kind, TypingRun};
 use crate::{
-    Affinity, CaretDirection, DisplayOffset, DisplayRange, DisplayReplacement, EditWork,
-    EditorError, InputAction, Revision, SourceEdit, SourceOffset, SourceRange,
+    Affinity, CaretDirection, DisplayOffset, DisplayRange, EditWork, EditorError, InputAction,
+    Revision, SourceEdit, SourceOffset, SourceRange,
 };
 use std::ops::Range;
 
@@ -26,7 +28,7 @@ pub(crate) struct Change {
     pub inserted: String,
     pub selection: DisplayRange,
     pub affinity: Affinity,
-    /// The display of every line the change showed again, after it.
+    /// The display of every line the change showed again (`Shown::lines`), after it.
     pub lines: Range<usize>,
     pub work: EditWork,
 }
@@ -180,6 +182,7 @@ impl Engine {
             affinity: self.affinity,
             formats: self.formats.clone(),
             pin: self.pin,
+            block_selected: self.block_selected,
         }
     }
 
@@ -188,10 +191,12 @@ impl Engine {
         self.affinity = point.affinity;
         self.formats = point.formats.clone();
         self.pin = point.pin;
+        self.block_selected = point.block_selected;
     }
 
     /// Put the collapsed caret at source offset `at`, pinned there.
     pub(crate) fn caret_at(&mut self, at: usize) {
+        self.block_selected = false;
         let display = DisplayOffset(self.display_of(at));
         self.selection = DisplayRange {
             start: display,
@@ -216,13 +221,7 @@ impl Engine {
         // point instead of a pin.
         let (index, before) = read::line_at(&self.store, at);
         let entry = self.store.get(index);
-        let fence_end = matches!(
-            entry.line.kind,
-            crate::lines::Kind::Fence {
-                role: crate::lines::FenceRole::Open,
-                ..
-            }
-        ) && at - before.source == entry.body_len();
+        let fence_end = is_opening_fence_end(entry, at - before.source);
         let stands = fence_end || entry.allowed(at - before.source);
         self.pin = (fence_end || (lo != hi && lo <= at && at <= hi && stands)).then_some(at);
     }
@@ -285,6 +284,7 @@ impl Engine {
         if self.touches_metadata(range) {
             return Err(EditorError::InvalidRange);
         }
+        let range = self.in_body(range);
         let kind = (action == InputAction::Typing)
             .then(|| typing_kind(range, text, self.selection))
             .flatten();
@@ -293,15 +293,33 @@ impl Engine {
         let plan = self.plan_input(range, text, action);
         let mut batch = Batch::default();
         batch.work.parsed_source_bytes += plan.parsed;
+        let typed_line = (action == InputAction::Typing && !text.contains(['\n', '\r']))
+            .then(|| self.line_of(plan.range.start))
+            .filter(|&index| !self.is_finished_row(index));
         self.raw(&mut batch, plan.range.clone(), &plan.inserted);
+        let finished = match typed_line {
+            Some(index) => self.finished_row_exit(&mut batch, index),
+            None => None,
+        };
         let Some((edit, shown, records)) = self.accept(batch, accept)? else {
-            // An unchanged commit still finishes at the end of its text.
-            if action != InputAction::Typing && range.start != range.end {
+            // Unchanged input still finishes at the end of its text.
+            if range.start != range.end {
                 self.caret_at(plan.caret);
             }
             return Ok(None);
         };
-        self.caret_at(plan.caret);
+        self.caret_at(finished.unwrap_or(plan.caret));
+        // The keystroke that finishes a delimiter row is an Undo step of its
+        // own; until then typing on the row leaves the caret writing it.
+        let kind = kind.filter(|_| finished.is_none());
+        self.typed_table = finished.map(|_| RowExit {
+            revision: self.revision,
+            caret: self.selection,
+            before: before.clone(),
+            wrote: true,
+        });
+        self.writing_row =
+            (typed_line.is_some() && finished.is_none()).then_some((self.revision, self.selection));
         if plan.carry.is_some() {
             self.formats = plan.carry;
         }
@@ -329,72 +347,6 @@ impl Engine {
         Ok(Some(self.change(edit, shown)))
     }
 
-    /// Replace several display ranges as one action (a text service
-    /// correcting separate words). The ranges ascend and do not overlap and
-    /// address the display with any marked text in place, which commits
-    /// first as its own undo step. Each replacement keeps what it shares
-    /// with the text it replaces; the caret ends after the last one.
-    pub fn replace_runs(
-        &mut self,
-        expected: Revision,
-        runs: &[DisplayReplacement],
-        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
-    ) -> Result<Option<Change>, EditorError> {
-        self.check_revision(expected)?;
-        let ordered = runs.iter().all(|run| run.range.start.0 <= run.range.end.0)
-            && runs.windows(2).all(|pair| {
-                pair[0].range.end.0 <= pair[1].range.start.0
-                    && pair[0].range.start != pair[1].range.start
-            });
-        match runs {
-            [] => return Err(EditorError::InvalidRange),
-            [one] => {
-                return self.replace_input(
-                    expected,
-                    one.range,
-                    &one.inserted,
-                    InputAction::Isolated,
-                    true,
-                    accept,
-                )
-            }
-            _ if !ordered => return Err(EditorError::InvalidRange),
-            _ => {}
-        }
-        self.run(
-            expected,
-            |engine| {
-                let mut plans = Vec::new();
-                for run in runs {
-                    engine.check_display_range(run.range)?;
-                    let range = engine.outside_crlf(run.range);
-                    if engine.touches_metadata(range) {
-                        return Err(EditorError::InvalidRange);
-                    }
-                    plans.push(engine.plan_input(range, &run.inserted, InputAction::Isolated));
-                }
-                let (last, earlier) = plans.split_last().expect("two or more runs");
-                let growth: isize = earlier
-                    .iter()
-                    .map(|plan| plan.inserted.len() as isize - plan.range.len() as isize)
-                    .sum();
-                let caret = (last.caret as isize + growth) as usize;
-                let lines =
-                    engine.line_of(plans[0].range.start)..engine.line_of(last.range.end) + 1;
-                let edits = plans
-                    .iter()
-                    .map(|plan| Edit::new(plan.range.clone(), plan.inserted.clone()))
-                    .collect();
-                let mut command = Command::new(edits, lines, caret..caret);
-                command.typed = true;
-                let last = &runs[runs.len() - 1];
-                command.carry = engine.deleted_formats(last.range, &last.inserted);
-                Ok(Some(command))
-            },
-            accept,
-        )
-    }
-
     /// Backspace or Delete: remove the selection, or one visible grapheme.
     pub fn delete(
         &mut self,
@@ -407,12 +359,7 @@ impl Engine {
         let range = if selection.start != selection.end {
             selection
         } else {
-            let at = selection.start.0;
-            let stop = self.grapheme_stop(at, direction);
-            DisplayRange {
-                start: DisplayOffset(at.min(stop)),
-                end: DisplayOffset(at.max(stop)),
-            }
+            self.caret_deletion(selection.start.0, direction)
         };
         if range.start == range.end || self.touches_metadata(range) {
             return Ok(None);

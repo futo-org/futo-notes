@@ -52,7 +52,7 @@ suspend fun HostedSetupModel.backToAccount() = step { setup -> readStep(setup) }
 fun HostedSetupModel.copyRecoveryKey() {
     val key = recoveryKey ?: return
     shell.copyToClipboard(key)
-    shell.announce(LocalizedMessage("sync.hosted.recoveryKey.copied"))
+    if (!shell.confirmsCopies) shell.announce(LocalizedMessage("sync.hosted.recoveryKey.copied"))
 }
 
 /** Shares the key and nothing else, so it pastes straight into unlock. */

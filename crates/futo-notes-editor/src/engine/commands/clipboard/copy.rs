@@ -17,19 +17,37 @@ impl Engine {
     /// outside edge spaces and tabs; spaces and tabs alone get no marks. The
     /// first line's leading whitespace comes off every copied line.
     pub(super) fn copied(&self, range: DisplayRange) -> String {
+        let range = self.outside_atoms(range);
         let (s, e) = (range.start.0, range.end.0);
-        if s >= e {
+        // A code block the range takes whole (`fences/reach.rs`).
+        let reach = self.block_reach(range);
+        if s >= e && reach.is_none() {
             return String::new();
         }
         let (first, before) = self.line_at_display(store::display, s);
-        let whole_start = s == before.display && e >= before.display + self.line(first).shown_len();
+        let mut whole_start =
+            s == before.display && e >= before.display + self.line(first).shown_len();
         let (last, after) = self.line_at_display(store::display, e);
         let whole_end = e == after.display + self.line(last).shown_len();
-        let tight_start = self.source_bounds(s).1;
-        let (tight_end, wide_end) = self.source_bounds(e);
-        let physical = self.line_start(first);
-        let start = if whole_start { physical } else { tight_start };
-        let end = if whole_end { wide_end } else { tight_end }.max(start);
+        let (mut tight_start, (tight_end, wide_end)) =
+            (self.source_bounds(s).1, self.source_bounds(e));
+        // A range covering the front matter copies its hidden opening line.
+        let mut physical = if self.covers_metadata(range) {
+            0
+        } else {
+            self.line_start(first)
+        };
+        let mut start = if whole_start { physical } else { tight_start };
+        let mut end = if whole_end { wide_end } else { tight_end }.max(start);
+        if let Some(reach) = reach {
+            if reach.start != tight_start {
+                (start, tight_start, whole_start) = (reach.start, reach.start, false);
+                physical = self.line_start(self.line_of(start));
+            }
+            if reach.end != tight_end {
+                end = reach.end.max(start);
+            }
+        }
         let mut body = self.source_slice(start..end);
         let indent = self
             .source_slice(physical..tight_start.max(physical))

@@ -69,7 +69,10 @@ fn portable_own_relink_is_one_appended_undo_step() {
         .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
     let mut view = "[[old]]".to_owned();
-    let input = page.replace(Revision(0), range(7, 7), "!").unwrap();
+    let input = page
+        .replace(Revision(0), range(7, 7), "!")
+        .unwrap()
+        .unwrap();
     let change = input.change;
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
     page.acknowledge(host.handle(input.request)).unwrap();
@@ -116,7 +119,10 @@ fn portable_relink_never_advances_the_worker_past_unacknowledged_page_source() {
         .into_portable_host(SessionToken(130))
         .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
-    let pending = page.replace(Revision(0), range(7, 7), "!").unwrap();
+    let pending = page
+        .replace(Revision(0), range(7, 7), "!")
+        .unwrap()
+        .unwrap();
     store.rename("old", "long name").unwrap();
     assert_eq!(pending.change.inserted, "!");
     let ack = host.handle(pending.request);
@@ -139,7 +145,11 @@ fn worker_append_ack_is_distinct_from_page_completion() {
         .into_portable_host(SessionToken(41))
         .unwrap();
     let mut page = PortableSession::open(SessionToken(41), "plain", Revision(0));
-    let request = page.replace(Revision(0), range(5, 5), "!").unwrap().request;
+    let request = page
+        .replace(Revision(0), range(5, 5), "!")
+        .unwrap()
+        .unwrap()
+        .request;
     assert_eq!(page.status().accepted, Revision(0));
     let ack = host.handle(request.clone());
     assert_eq!(ack.accepted, Revision(1));
@@ -178,7 +188,10 @@ fn page_and_worker_exchange_small_edits_without_running_store_work_on_the_page_t
             host.checkpoint().unwrap();
         });
         let mut page = PortableSession::open(SessionToken(50), "a\r\n", Revision(0));
-        let applied = page.replace(Revision(0), range(1, 1), "🎉").unwrap();
+        let applied = page
+            .replace(Revision(0), range(1, 1), "🎉")
+            .unwrap()
+            .unwrap();
         let request = applied.request;
         let futo_notes_editor::HostOperation::Append(edit) = &request.operation else {
             panic!()
@@ -226,6 +239,7 @@ fn foreign_or_conflicting_source_records_never_append_or_apply_twice() {
     let request = page
         .replace(Revision(0), range(0, 5), "other")
         .unwrap()
+        .unwrap()
         .request;
     let mut invalid = request.clone();
     let HostOperation::Append(edit) = &mut invalid.operation else {
@@ -264,7 +278,11 @@ fn worker_resume_reports_an_edit_whose_append_reply_was_lost() {
         .into_portable_host(SessionToken(110))
         .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
-    let request = page.replace(Revision(0), range(5, 5), "!").unwrap().request;
+    let request = page
+        .replace(Revision(0), range(5, 5), "!")
+        .unwrap()
+        .unwrap()
+        .request;
     let lost_reply = host.handle(request);
     let resume = page.resume().unwrap();
     assert!(page.acknowledge(host.handle(resume)).unwrap().is_empty());
@@ -294,9 +312,21 @@ fn worker_rejects_gapped_and_out_of_order_sequences_and_treats_a_repeat_as_idemp
     let store = store(&root);
     store.create("", "plain", "").unwrap();
     let (mut host, mut page) = host_for(&store, "plain", 150);
-    let one = page.replace(Revision(0), range(0, 0), "a").unwrap().request;
-    let two = page.replace(Revision(1), range(1, 1), "b").unwrap().request;
-    let three = page.replace(Revision(2), range(2, 2), "c").unwrap().request;
+    let one = page
+        .replace(Revision(0), range(0, 0), "a")
+        .unwrap()
+        .unwrap()
+        .request;
+    let two = page
+        .replace(Revision(1), range(1, 1), "b")
+        .unwrap()
+        .unwrap()
+        .request;
+    let three = page
+        .replace(Revision(2), range(2, 2), "c")
+        .unwrap()
+        .unwrap()
+        .request;
     // Request 1 never reached the worker: 2 is a gap and changes nothing.
     let gap = host.handle(two.clone());
     assert_eq!(
@@ -325,9 +355,18 @@ fn an_error_ack_pauses_the_page_and_resume_converges_the_worker_to_the_page_sour
     let store = store(&root);
     store.create("", "plain", "").unwrap();
     let (mut host, mut page) = host_for(&store, "plain", 151);
-    let one = page.replace(Revision(0), range(0, 0), "a").unwrap();
-    let two = page.replace(Revision(1), range(1, 1), "b").unwrap();
-    let three = page.replace(Revision(2), range(2, 2), "c").unwrap();
+    let one = page
+        .replace(Revision(0), range(0, 0), "a")
+        .unwrap()
+        .unwrap();
+    let two = page
+        .replace(Revision(1), range(1, 1), "b")
+        .unwrap()
+        .unwrap();
+    let three = page
+        .replace(Revision(2), range(2, 2), "c")
+        .unwrap()
+        .unwrap();
     // Request 1 is lost; the worker refuses 2 and 3 as gaps, and the page pauses.
     let refused = host.handle(two.request);
     page.acknowledge(refused).unwrap();
@@ -372,7 +411,10 @@ fn input_proceeds_while_another_thread_holds_the_store_gate() {
             release_receive.recv().unwrap();
         });
         held_receive.recv().unwrap();
-        let applied = page.replace(Revision(0), range(5, 5), "!").unwrap();
+        let applied = page
+            .replace(Revision(0), range(5, 5), "!")
+            .unwrap()
+            .unwrap();
         let ack = host.handle(applied.request);
         assert!(ack.error.is_none(), "{ack:?}");
         page.acknowledge(ack).unwrap();

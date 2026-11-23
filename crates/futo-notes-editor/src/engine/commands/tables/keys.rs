@@ -1,15 +1,17 @@
 //! Keys in a table. Tab, Shift+Tab and Enter move between cells (a move is
 //! a selection change with no edit); entering a cell a short row lacks gives
-//! the row the cells up to it, and leaving the last row appends one.
-//! Backspace and Delete never remove a pipe or the line break between two of
-//! a table's lines.
+//! the row the cells up to it, and leaving the last row appends one. A host
+//! enters a cell by its row's position and column the same way.
+//! Backspace and Delete at a caret never remove a pipe, the line break
+//! between two of a table's lines or the one after its delimiter row.
 use super::super::super::command::{Command, Edit};
 use super::super::super::Engine;
+use super::delimiter_row::is_delimiter_row;
 use super::{Cell, Row, Table};
 use crate::lines::{Kind, TableRole};
 use crate::{
-    CaretDirection, DisplayRange, EditorError, ParagraphKey, Revision, SelectionChange, SourceEdit,
-    TableKey, TableOutcome, ViewChange,
+    CaretDirection, DisplayOffset, DisplayRange, EditorError, ParagraphKey, Revision,
+    SelectionChange, SourceEdit, TableKey, TableOutcome, ViewChange,
 };
 use std::ops::Range;
 
@@ -22,23 +24,36 @@ fn moved(line: usize, selection: Range<usize>) -> Command {
 
 impl Engine {
     /// The paragraph keys a table claims. Enter and Shift+Enter in a cell
-    /// are the table's Enter, Tab and Shift+Tab its Tab keys; Backspace and
-    /// Delete that would remove a pipe or join two of its lines do nothing.
+    /// are the table's Enter, Tab and Shift+Tab its Tab keys; Enter and Tab
+    /// on a delimiter row leave it (`delimiter_row_key`). Backspace and
+    /// Delete that would remove a pipe or join two of its lines do nothing,
+    /// except on the delimiter row the caret is writing.
     pub(crate) fn table_key(
         &self,
         range: DisplayRange,
         key: ParagraphKey,
     ) -> Result<Option<Command>, EditorError> {
+        if matches!(
+            key,
+            ParagraphKey::Enter | ParagraphKey::ShiftEnter | ParagraphKey::Tab
+        ) {
+            if let Some(command) = self.delimiter_row_key(range) {
+                return Ok(Some(command));
+            }
+        }
         let key = match key {
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => TableKey::Enter,
             ParagraphKey::Tab => TableKey::Tab,
             ParagraphKey::ShiftTab => TableKey::ShiftTab,
-            ParagraphKey::Backspace | ParagraphKey::BackspaceJoiningHeading => {
+            ParagraphKey::Backspace
+            | ParagraphKey::BackspaceJoiningHeading
+            | ParagraphKey::PairedBackspace => {
                 return Ok(self.kept_structure(range, CaretDirection::Backward));
             }
             ParagraphKey::Delete => {
                 return Ok(self.kept_structure(range, CaretDirection::Forward));
             }
+            ParagraphKey::Transpose => return Ok(None),
         };
         Ok(self.cell_key(range, key).map(|(command, _)| command))
     }
@@ -91,15 +106,15 @@ impl Engine {
     }
 
     /// Backspace or Delete at a collapsed caret that would remove a pipe of
-    /// a table line, or the line break between two lines of one table: the
-    /// caret stays where it is.
+    /// a table line, the line break between two lines of one table or the
+    /// one after a delimiter row: the caret stays where it is. On the row
+    /// the caret is writing they are ordinary text edits.
     fn kept_structure(&self, range: DisplayRange, direction: CaretDirection) -> Option<Command> {
-        if range.start != range.end {
+        if range.start != range.end || (range == self.selection && self.writes_delimiter_row()) {
             return None;
         }
-        let at = range.start.0;
-        let stop = self.grapheme_stop(at, direction);
-        let (low, high) = (at.min(stop), at.max(stop));
+        let deletion = self.caret_deletion(range.start.0, direction);
+        let (low, high) = (deletion.start.0, deletion.end.0);
         if low == high {
             return None;
         }
@@ -109,14 +124,15 @@ impl Engine {
         let entry = self.line(index);
         let kept = match shown.as_str() {
             "\n" | "\r\n" => {
-                index + 1 < self.line_count()
-                    && matches!(
-                        self.line(index + 1).line.kind,
-                        Kind::Table {
-                            role: TableRole::Delimiter | TableRole::Row,
-                            ..
-                        }
-                    )
+                is_delimiter_row(entry)
+                    || (index + 1 < self.line_count()
+                        && matches!(
+                            self.line(index + 1).line.kind,
+                            Kind::Table {
+                                role: TableRole::Delimiter | TableRole::Row,
+                                ..
+                            }
+                        ))
             }
             "|" => {
                 matches!(entry.line.kind, Kind::Table { .. })
@@ -165,6 +181,47 @@ impl Engine {
         let Some((command, read)) = self.cell_key(self.selection, key) else {
             return Ok(None);
         };
+        self.table_step(expected, command, read, accept)
+    }
+
+    /// Put the caret in cell `column` of the header or body row at display
+    /// `at`, as a table key enters a cell (`enter_cell`): a selection move
+    /// when the row has the cell, else one accepted edit that gives the row
+    /// empty cells up to it. `None` off a header or body row, and for a
+    /// column at or past the table's count.
+    pub(crate) fn enter_table_cell(
+        &mut self,
+        expected: Revision,
+        at: DisplayOffset,
+        column: usize,
+        accept: Accept,
+    ) -> Result<Option<TableOutcome>, EditorError> {
+        self.check_revision(expected)?;
+        if self.composition.is_some() {
+            return Err(EditorError::CompositionActive);
+        }
+        let caret = DisplayRange { start: at, end: at };
+        self.check_display_range(caret)?;
+        let Some((table, row)) = self.row_at(caret) else {
+            return Ok(None);
+        };
+        if column >= table.width {
+            return Ok(None);
+        }
+        let command = enter_cell(&table, row, column);
+        self.table_step(expected, command, table.read, accept)
+    }
+
+    /// A table key's or entered cell's command applied: one with no edits
+    /// moves the selection; any other is one accepted edit, its view
+    /// counting the `read` source bytes that found the table.
+    fn table_step(
+        &mut self,
+        expected: Revision,
+        command: Command,
+        read: usize,
+        accept: Accept,
+    ) -> Result<Option<TableOutcome>, EditorError> {
         if command.edits.is_empty() {
             return self
                 .move_to(expected, command.selection)
@@ -212,7 +269,7 @@ fn fill(line: &Row, count: usize, cell: &str) -> (usize, String) {
 }
 
 /// An empty row after the last, with the caret in its cell `column`.
-fn append_row(table: &Table, column: usize) -> Command {
+pub(super) fn append_row(table: &Table, column: usize) -> Command {
     let last = table.last();
     let eol = table.ending(last);
     let blank = table.blank_row();

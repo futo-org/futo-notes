@@ -2,27 +2,33 @@
 //!
 //! Inline marks open and close on one line, so every command here works one
 //! line at a time: a selection over several lines formats (or links) each
-//! line's text on its own, and each table cell's. A command tries a
+//! line's text on its own, and each table cell's; table lines selected with
+//! other lines are left alone (`formats_table_lines`). A command tries a
 //! spelling on a line and keeps it only when the line then reads as
 //! intended (`draft.rs`); house spelling is `**`, `*`, `~~` and backticks.
 //! A collapsed toggle writes nothing: it sets the formats typing at that
-//! caret carries (`typing.rs`), until the caret moves; a deletion that
+//! caret carries (`toggle.rs`, `typing.rs`), until the caret moves; a deletion that
 //! empties a span sets the span's formats there. The mobile toolbar's
 //! toggle instead formats the word a caret is inside or at the start of
 //! (`word.rs`).
 mod draft;
 mod format;
 mod links;
+mod toggle;
 mod typing;
 mod word;
 
 use super::super::command::{Command, Edit};
 use super::super::line::Entry;
+use super::super::table_block::table_role;
 use super::super::{store, Engine};
-use crate::{DisplayRange, EditorError, InlineFormat, Revision, SourceEdit, ViewChange};
-use draft::{bit, formats_of, glyphs, inline_line, regions, Draft, Glyph};
+use crate::{DisplayRange, EditorError, InlineFormat, SourceEdit};
+use draft::{
+    bit, formats_of, glyphs, inline_line, regions, Draft, Glyph, BOLD, CODE, ITALIC, STRIKE,
+};
 use std::collections::BTreeMap;
 use std::ops::Range;
+use toggle::carried_with;
 use word::Landing;
 
 type Accept<'a> = &'a mut dyn FnMut(&SourceEdit) -> Result<(), String>;
@@ -44,11 +50,8 @@ impl Engine {
     /// selects.
     fn bodies(&self, range: DisplayRange) -> Vec<Body<'_>> {
         let mut out = Vec::new();
-        for index in self.lines_of(range) {
+        for index in self.formatted_lines(range) {
             let entry = self.store.get(index);
-            if !inline_line(entry) {
-                continue;
-            }
             let start = self.store.before(index).display;
             let regions = regions(entry);
             let glyphs = glyphs(entry);
@@ -71,6 +74,27 @@ impl Engine {
             });
         }
         out
+    }
+
+    /// The lines `range` touches that hold inline text a command formats.
+    fn formatted_lines(&self, range: DisplayRange) -> Vec<usize> {
+        let lines = self.lines_of(range);
+        let tables = self.formats_table_lines(lines.clone());
+        lines
+            .filter(|&index| {
+                let entry = self.store.get(index);
+                inline_line(entry) && (tables || table_role(entry).is_none())
+            })
+            .collect()
+    }
+
+    /// Whether a command over `lines` formats their table lines: only when
+    /// every line is a table line. Selected with other lines, a table is
+    /// left as it is and the lines around it take the format.
+    fn formats_table_lines(&self, lines: Range<usize>) -> bool {
+        lines
+            .into_iter()
+            .all(|index| table_role(self.store.get(index)).is_some())
     }
 
     /// The source offset that shows at display `at` once `edited` lines are
@@ -148,9 +172,10 @@ impl Engine {
         Some(Command::new(edits, first..last + 1, selection))
     }
 
-    /// Toggle `format` over display `range`: on every selected visible
-    /// character unless all of them already carry it, then off everywhere.
-    /// The selection afterwards is `keep`, a caret where it reads `want`.
+    /// Toggle `format` over display `range`: off everywhere when the
+    /// selection has it (`selected_style`), else on every selected visible
+    /// character, inline code aside for Bold, Italic and Strike. The
+    /// selection afterwards is `keep`, a caret where it reads `want`.
     fn format_command(
         &self,
         range: DisplayRange,
@@ -161,44 +186,79 @@ impl Engine {
     ) -> Result<Option<Command>, EditorError> {
         self.check_display_range(range)?;
         let bodies = self.bodies(range);
-        let mark = bit(format);
-        let mut chosen = bodies.iter().flat_map(|body| {
-            body.glyphs
-                .iter()
-                .zip(&body.selected)
-                .filter(|(glyph, selected)| **selected && !glyph.space())
-                .map(|(glyph, _)| glyph.style & mark != 0)
-        });
-        let Some(first) = chosen.next() else {
+        let Some(style) = selected_style(&bodies) else {
             return Ok(None);
         };
-        let add = !(first && chosen.all(|has| has));
+        let turn = FormatTurn {
+            format,
+            on: style & bit(format) == 0,
+        };
+        let edited = self.respelled_lines(&bodies, &[turn], work)?;
+        if edited.is_empty() {
+            return Ok(None);
+        }
+        Ok(self.rewrite_to(keep, edited, want))
+    }
+
+    /// `turns` applied in order over display `range`, as the toggles turn
+    /// each, as one command; the selection stays. `None` when nothing
+    /// changes.
+    pub(crate) fn formats_turned(
+        &self,
+        range: DisplayRange,
+        turns: &[FormatTurn],
+    ) -> Result<Option<Command>, EditorError> {
+        let edited = self.respelled_lines(&self.bodies(range), turns, &mut 0)?;
+        if edited.is_empty() {
+            return Ok(None);
+        }
+        Ok(self.rewrite(range, edited))
+    }
+
+    /// The lines of `bodies` with `turns` applied in order to their selected
+    /// visible characters, inline code aside for Bold, Italic and Strike;
+    /// only lines whose text changes. `UnrepresentableFormat` when some
+    /// line cannot be spelled that way and none changes.
+    fn respelled_lines(
+        &self,
+        bodies: &[Body],
+        turns: &[FormatTurn],
+        work: &mut usize,
+    ) -> Result<Edited, EditorError> {
         let mut edited = BTreeMap::new();
         let mut refused = false;
-        for body in &bodies {
+        for body in bodies {
             if !body.selected.iter().any(|&selected| selected) {
                 continue;
             }
-            let want: Vec<bool> = body
-                .glyphs
-                .iter()
-                .zip(&body.selected)
-                .map(|(glyph, &selected)| {
-                    if selected {
-                        add
-                    } else {
-                        glyph.style & mark != 0
-                    }
-                })
-                .collect();
             let first = body.selected.iter().position(|&selected| selected);
             let last = body.selected.iter().rposition(|&selected| selected);
             let touched = match (first, last) {
                 (Some(first), Some(last)) => first..last + 1,
                 _ => 0..0,
             };
-            let draft = Draft::of(body.entry);
-            match format::respell(&draft, body.entry, &want, touched, format, false, work) {
+            let mut current = Some((Draft::of(body.entry), body.entry.clone()));
+            for turn in turns {
+                current = current.and_then(|(draft, read)| {
+                    let start = if turn.on && turn.format == InlineFormat::Code {
+                        without_code_formats(draft, &read, &body.selected, &touched, work)
+                    } else {
+                        Some((draft, read))
+                    };
+                    let (draft, read) = start?;
+                    let want = turned(&glyphs(&read), &body.selected, *turn);
+                    format::respell(
+                        &draft,
+                        &read,
+                        &want,
+                        touched.clone(),
+                        turn.format,
+                        false,
+                        work,
+                    )
+                });
+            }
+            match current {
                 Some((draft, read)) if draft.text != body.entry.text => {
                     edited.insert(body.index, (draft, read));
                 }
@@ -206,137 +266,147 @@ impl Engine {
                 None => refused = true,
             }
         }
-        if edited.is_empty() {
-            return if refused {
-                Err(EditorError::UnrepresentableFormat)
-            } else {
-                Ok(None)
-            };
+        if edited.is_empty() && refused {
+            return Err(EditorError::UnrepresentableFormat);
         }
-        Ok(self.rewrite_to(keep, edited, want))
+        Ok(edited)
     }
 
-    /// The formats every selected visible character carries.
+    /// The formats the selection has, which a toggle turns off
+    /// (`selected_style`).
     pub(crate) fn selection_formats(&self) -> Vec<InlineFormat> {
         self.range_formats(self.selection)
     }
 
-    /// The formats every visible character of display `range` carries.
-    fn range_formats(&self, range: DisplayRange) -> Vec<InlineFormat> {
-        let mut style: Option<u16> = None;
-        for body in self.bodies(range) {
-            for (glyph, selected) in body.glyphs.iter().zip(&body.selected) {
-                if *selected && !glyph.space() {
-                    style = Some(style.map_or(glyph.style, |style| style & glyph.style));
-                }
-            }
-        }
-        style.map_or_else(Vec::new, formats_of)
+    /// The formats display `range` has, as a toggle over it reads them
+    /// (`selected_style`).
+    pub(crate) fn range_formats(&self, range: DisplayRange) -> Vec<InlineFormat> {
+        selected_style(&self.bodies(range)).map_or_else(Vec::new, formats_of)
     }
 
-    /// The formats the toolbar lights: the caret's, or those every selected
-    /// character carries.
-    pub(crate) fn toolbar_formats(&self) -> Vec<InlineFormat> {
-        if self.selection.start == self.selection.end {
-            self.active_formats()
-        } else {
-            self.selection_formats()
-        }
-    }
-
-    /// The formats a deletion of display `range` (input of no text) keeps
-    /// for the caret: those of its first character, as Cut keeps. `None`
-    /// for other input, and where the caret already carries formats, which
-    /// the deletion keeps.
+    /// The formats a deletion of display `range` (input of no text) leaves
+    /// the caret: those of its first character, as Cut keeps. `None` for
+    /// other input, and for spaces and tabs deleted at a caret carrying
+    /// formats, which it keeps (a space typed at a span's end was written
+    /// outside its marks under them).
     pub(crate) fn deleted_formats(
         &self,
         range: DisplayRange,
         text: &str,
     ) -> Option<Vec<InlineFormat>> {
-        (text.is_empty() && range.start != range.end && self.formats.is_none())
-            .then(|| self.formats_at(self.source_selection(range).start))
+        if !text.is_empty() || range.start == range.end {
+            return None;
+        }
+        let keeps_carried = self.formats.is_some()
+            && self
+                .display_slice(range.start.0..range.end.0)
+                .chars()
+                .all(|character| matches!(character, ' ' | '\t'));
+        if keeps_carried {
+            return None;
+        }
+        Some(self.formats_at(self.source_selection(range).start))
     }
 
     /// After a deletion, the caret carries `formats` (`deleted_formats`)
     /// where it no longer reads them, because the deletion emptied their
     /// span: the next character typed takes them, as in a rich-text editor.
+    /// Where it reads them, it carries none: formats carried before the
+    /// deletion end with it.
     pub(crate) fn carry_deleted(&mut self, formats: Option<Vec<InlineFormat>>) {
         let Some(formats) = formats else {
             return;
         };
-        if self.selection.start == self.selection.end
-            && self.formats.is_none()
-            && self.formats_at(self.caret_source()) != formats
-        {
-            self.formats = Some(formats);
+        if self.selection.start != self.selection.end {
+            return;
         }
+        self.formats = (self.formats_at(self.caret_source()) != formats).then_some(formats);
     }
+}
 
-    /// Whether inline commands apply: some line the selection or caret is
-    /// on holds inline text (not code, front matter, a divider or a table's
-    /// delimiter row).
-    pub(crate) fn inline_allowed(&self) -> bool {
-        self.lines_of(self.selection)
-            .any(|index| inline_line(self.store.get(index)))
-    }
+/// The formats a toggle never turns on for inline code's characters.
+const CODE_TAKES_NONE: u16 = BOLD | ITALIC | STRIKE;
 
-    /// The toolbar's format toggle. A collapsed caret changes the formats
-    /// typing there carries and writes nothing; a selection toggles the
-    /// format over its text as one action. Marked text commits first.
-    pub(crate) fn toggle_format_view(
-        &mut self,
-        expected: Revision,
-        format: InlineFormat,
-        accept: Accept,
-    ) -> Result<Option<ViewChange>, EditorError> {
-        self.check_revision(expected)?;
-        let mut work = 0;
-        // Marked text commits first; the caret then ends after it.
-        let committed = if self.composition.is_some() {
-            self.run(expected, |_| Ok(None), accept)?
-        } else {
-            None
-        };
-        let collapsed = self.selection.start == self.selection.end;
-        let change = if collapsed {
-            committed
-        } else {
-            self.run(
-                self.revision,
-                |engine| {
-                    let selection = engine.selection;
-                    engine.format_command(selection, selection, None, format, &mut work)
-                },
-                accept,
-            )?
-        };
-        if collapsed {
-            self.toggle_carried(format);
-        }
-        Ok(change.map(|change| {
-            let mut view = self.view(change);
-            view.work.parsed_source_bytes += work;
-            view
-        }))
-    }
+/// One format a command turns on or off over the selected characters.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FormatTurn {
+    pub format: InlineFormat,
+    pub on: bool,
+}
 
-    /// Toggle `format` in the formats typing at the collapsed caret carries.
-    fn toggle_carried(&mut self, format: InlineFormat) {
-        if self.inline_allowed() {
-            let mut formats = self.active_formats();
-            match formats.iter().position(|have| *have == format) {
-                Some(at) => {
-                    formats.remove(at);
-                }
-                None => {
-                    formats.push(format);
-                    formats.sort();
-                }
+/// Which of `glyphs` carry `turn.format` once it is turned: the selected
+/// ones as it says (inline code aside for Bold, Italic and Strike), the
+/// rest as they are.
+fn turned(glyphs: &[Glyph], selected: &[bool], turn: FormatTurn) -> Vec<bool> {
+    let mark = bit(turn.format);
+    let spares_code = mark & CODE_TAKES_NONE != 0;
+    glyphs
+        .iter()
+        .zip(selected)
+        .map(|(glyph, &selected)| {
+            if selected && !(spares_code && glyph.style & CODE != 0) {
+                turn.on
+            } else {
+                glyph.style & mark != 0
             }
-            self.formats = Some(formats);
-            self.typing = None;
+        })
+        .collect()
+}
+
+/// `entry`'s line with Bold, Italic and Strike taken off the `selected`
+/// glyphs, before Code goes on over them. `None` when the line cannot read
+/// that way.
+fn without_code_formats(
+    draft: Draft,
+    entry: &Entry,
+    selected: &[bool],
+    touched: &Range<usize>,
+    work: &mut usize,
+) -> Option<(Draft, Entry)> {
+    let mut current = (draft, entry.clone());
+    for format in [
+        InlineFormat::Bold,
+        InlineFormat::Italic,
+        InlineFormat::Strike,
+    ] {
+        let mark = bit(format);
+        let want: Vec<bool> = glyphs(&current.1)
+            .iter()
+            .zip(selected)
+            .map(|(glyph, &selected)| !selected && glyph.style & mark != 0)
+            .collect();
+        current = format::respell(
+            &current.0,
+            &current.1,
+            &want,
+            touched.clone(),
+            format,
+            false,
+            work,
+        )?;
+    }
+    Some(current)
+}
+
+/// The format bits the selected visible characters have, as a toggle reads
+/// them: Code when every one is code; Bold, Italic and Strike when every one
+/// outside inline code has it (none when all are code). `None` when no
+/// visible character is selected.
+fn selected_style(bodies: &[Body]) -> Option<u16> {
+    let (mut every, mut outside_code, mut seen) = (u16::MAX, None, false);
+    for body in bodies {
+        for (glyph, &selected) in body.glyphs.iter().zip(&body.selected) {
+            if !selected || glyph.space() {
+                continue;
+            }
+            seen = true;
+            every &= glyph.style;
+            if glyph.style & CODE == 0 {
+                outside_code = Some(outside_code.unwrap_or(u16::MAX) & glyph.style);
+            }
         }
     }
+    seen.then_some((every & !CODE_TAKES_NONE) | (outside_code.unwrap_or(0) & CODE_TAKES_NONE))
 }
 
 /// Source `range` of a line's text as a range of its glyphs, trimmed of

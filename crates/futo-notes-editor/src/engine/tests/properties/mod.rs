@@ -12,20 +12,34 @@
 //!    it lands as plain typing does. (Amended 2026-11-12: markers stay
 //!    hidden at all times outranks pinning one end of the hidden marks.)
 //!    The typing rules 3, 5 and 6 of `engine/line.rs` write their own bytes
-//!    besides: a line ending on an empty code block, a line of its own at a
-//!    divider's edge, the space an empty `>` quote line needs.
+//!    besides: a line ending and the opening fence's indent on an empty
+//!    code block, a line of its own at a divider's edge, the space an empty
+//!    `>` quote line needs.
 //! 3. Undo restores the exact bytes and selection; redo restores the edit.
 //! 4. The reading and display after any edit equal those read from scratch.
 //! 5. A position converted from text to display and back is unchanged, for
 //!    every position not inside a hidden range; UTF-16 conversions never split
 //!    a surrogate pair and never clamp.
 //!
+//! Besides, a host that applies each change's projection holds what a fresh
+//! projection reports (`block_mirror.rs`; on fence-dense notes, `fences.rs`),
+//! and a paste, Enter, Shift+Enter, the divider or the table removes no byte
+//! outside its reach, besides what Enter rewrites in a list
+//! (`command_step.rs`).
+//!
 //! `TYPING_CASES` and `TYPING_SEED` set the number of notes and the seed.
+mod block_mirror;
 pub(super) mod checks;
+mod command_step;
+mod enter_rewrites;
+mod fences;
 mod generate;
 mod inline;
+mod paired;
 mod real;
 mod steps;
+mod toolbar_allowed;
+mod view;
 
 use super::super::line::Role;
 use super::super::{read, Engine};
@@ -35,13 +49,17 @@ use crate::{
     SourceEdit, SourceOffset, SourceRange,
 };
 use checks::*;
+use command_step::command_step;
 use generate::*;
 use inline::inline_step;
 use steps::*;
+use view::apply_view_change;
 
+pub(super) use block_mirror::BlockMirror;
 pub(super) use checks::check_fresh;
 pub(super) use generate::{cases, note, Random};
-pub(super) use steps::{apply_view, step, Model, View};
+pub(super) use steps::{step, Model};
+pub(super) use view::{apply_view, View};
 
 #[test]
 fn the_five_properties_hold_over_random_edits() {
@@ -55,6 +73,7 @@ fn the_five_properties_hold_over_random_edits() {
         check_positions(&engine, &format!("case {case} opened {original:?}"));
         let mut model = Model::default();
         let mut view = View::new(engine.display_text());
+        let mut mirror = BlockMirror::open(&engine);
         let mut steps = Vec::new();
         for _ in 0..24 {
             let before = lines_of(&engine);
@@ -66,6 +85,7 @@ fn the_five_properties_hold_over_random_edits() {
             );
             assert_eq!(view.text, engine.display_text(), "view change {context}");
             check_restyled(&before, &engine, &mut view, &context);
+            mirror.check(&engine, &mut view, &context);
             check_fresh(&engine, &context);
             check_positions(&engine, &context);
             assert!(engine.composition().is_none());

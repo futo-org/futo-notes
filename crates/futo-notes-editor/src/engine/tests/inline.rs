@@ -1,6 +1,6 @@
 //! Inline formatting and links: the literal cases in
-//! `tests/fixtures/engine/inline.json`, `inline-toolbar.json` and `links.json`, and the work a
-//! select-all toggle costs.
+//! `tests/fixtures/engine/inline.json`, `inline-toolbar.json`, `links.json` and
+//! `format-over-tables.json` (with Quote), and the work a select-all toggle costs.
 //!
 //! A case's `before` and `after` are note text with the selection marked:
 //! `⟦` and `⟧` around a selection, `‸` at a caret (the link and table
@@ -8,8 +8,9 @@
 //! marker, any place that shows at the same display offset is the same
 //! selection. `command` is a list of steps; `error` names the error the
 //! last step returns, the note unchanged; `formats` is what the toolbar
-//! lights afterwards. Every case also undoes back to its exact bytes, and
-//! redoes to its result.
+//! lights afterwards, and `quote_allowed` and `inline_allowed` what it
+//! allows. Every case also undoes back to its exact bytes, and redoes to its
+//! result.
 use super::super::Engine;
 use super::ok;
 use crate::{
@@ -142,6 +143,9 @@ fn run(engine: &mut Engine, step: &[Value]) -> Result<(), EditorError> {
         "link" => {
             engine.set_link_view(revision, selection, text(step, 1), &mut ok)?;
         }
+        "quote" => {
+            engine.block(revision, selection, crate::BlockCommand::Quote, &mut ok)?;
+        }
         "edit_link" => {
             engine.edit_link_view(revision, selection, text(step, 1), text(step, 2), &mut ok)?;
         }
@@ -169,6 +173,7 @@ fn the_inline_cases_hold() {
         include_str!("../../../tests/fixtures/engine/inline.json"),
         include_str!("../../../tests/fixtures/engine/inline-toolbar.json"),
         include_str!("../../../tests/fixtures/engine/links.json"),
+        include_str!("../../../tests/fixtures/engine/format-over-tables.json"),
     ]
     .into_iter()
     .flat_map(|text| serde_json::from_str::<Vec<Value>>(text).unwrap())
@@ -237,6 +242,14 @@ fn check(case: &Value) {
             .map(|name| format(&name.as_str().unwrap().to_lowercase()).unwrap())
             .collect();
         assert_eq!(engine.toolbar().formats, want, "toolbar formats");
+    }
+    for (key, allowed) in [
+        ("quote_allowed", engine.toolbar().quote_allowed),
+        ("inline_allowed", engine.toolbar().inline_allowed),
+    ] {
+        if let Some(want) = case.get(key) {
+            assert_eq!(Some(allowed), want.as_bool(), "toolbar {key}");
+        }
     }
     // Undo back to the exact bytes; a one-step command also restores the
     // selection, and redo writes the result again.

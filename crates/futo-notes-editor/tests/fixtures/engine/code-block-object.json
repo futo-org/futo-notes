@@ -1,0 +1,665 @@
+[
+  {
+    "name": "enter: all of a block's code selected leaves one empty code line",
+    "before": "```\n[code]\n```",
+    "command": "Enter",
+    "after": "```\n|\n```"
+  },
+  {
+    "name": "enter: all of several lines of code selected",
+    "before": "```\n[a\nb]\n```\nafter",
+    "command": "Enter",
+    "after": "```\n|\n```\nafter"
+  },
+  {
+    "name": "enter: all of a block's code under a bullet keeps the fence's indent",
+    "before": "- x\n  ```\n  [code]\n  ```",
+    "command": "Enter",
+    "after": "- x\n  ```\n  |\n  ```"
+  },
+  {
+    "name": "enter: a selected block puts the caret at the end of its code",
+    "before": "```\n[a\nb]\n```\nafter",
+    "command": "Enter",
+    "after": "```\na\nb|\n```\nafter",
+    "block": true
+  },
+  {
+    "name": "shift enter: a selected block puts the caret at the end of its code",
+    "before": "```\n[code]\n```",
+    "command": "ShiftEnter",
+    "after": "```\ncode|\n```",
+    "block": true
+  },
+  {
+    "name": "enter: a selected empty block puts the caret on the line below it",
+    "before": "a\n```|\n```\nb",
+    "command": "Enter",
+    "after": "a\n```\n```\n|b",
+    "block": true
+  },
+  {
+    "name": "enter: a selected empty block that ends the note opens a line below it",
+    "before": "a\n  ```|\n  ```",
+    "command": "Enter",
+    "after": "a\n  ```\n  ```\n  |",
+    "block": true
+  },
+  {
+    "name": "shift enter: a selected empty block with a block under it opens a line between them",
+    "before": "```|\n```\n```\nx\n```",
+    "command": "ShiftEnter",
+    "after": "```\n```\n|\n```\nx\n```",
+    "block": true
+  },
+  {
+    "name": "enter: a selected empty block nothing closes is closed, a line opened below it",
+    "before": "a\n```|",
+    "command": "Enter",
+    "after": "a\n```\n```\n|",
+    "block": true
+  },
+  {
+    "name": "select block: a tap on a block selects it as one object",
+    "before": "a\n```js\nx|\ny\n```\nb",
+    "command": "SelectBlock",
+    "after": "a\n```js\n[x\ny]\n```\nb",
+    "selected": true
+  },
+  {
+    "name": "select block: an empty block",
+    "before": "a\n```|\n```",
+    "command": "SelectBlock",
+    "after": "a\n```|\n```",
+    "selected": true
+  },
+  {
+    "name": "backspace: at the first code line's start does nothing",
+    "before": "a\n```\n|code\nmore\n```\nb",
+    "command": "Backspace",
+    "after": "a\n```\n|code\nmore\n```\nb"
+  },
+  {
+    "name": "backspace: at a one-line block's start does nothing",
+    "before": "a\n```\n|code\n```\nb",
+    "command": "Backspace",
+    "after": "a\n```\n|code\n```\nb"
+  },
+  {
+    "name": "backspace: below adjacent blocks the lower block's start does nothing",
+    "before": "```\nx\n```\n```\n|y\n```",
+    "command": "Backspace",
+    "after": "```\nx\n```\n```\n|y\n```"
+  },
+  {
+    "name": "backspace: on an empty block selects it",
+    "before": "a\n```|\n```\nb",
+    "command": "Backspace",
+    "after": "a\n```|\n```\nb",
+    "selected": true
+  },
+  {
+    "name": "backspace: on an empty block nothing closes selects it",
+    "before": "a\n```|",
+    "command": "Backspace",
+    "after": "a\n```|",
+    "selected": true
+  },
+  {
+    "name": "backspace: on a block's one empty code line selects it",
+    "before": "a\n```\n|\n```\nb",
+    "command": "Backspace",
+    "after": "a\n```\n|\n```\nb",
+    "selected": true
+  },
+  {
+    "name": "backspace: a selected empty block goes, its line stays",
+    "before": "a\n```|\n```\nb",
+    "command": "Backspace",
+    "after": "a\n|\nb",
+    "block": true
+  },
+  {
+    "name": "backspace: at the start of a line after a block selects the block",
+    "before": "```\ncode\n```\n|b\nc",
+    "command": "Backspace",
+    "after": "```\n[code]\n```\nb\nc",
+    "selected": true
+  },
+  {
+    "name": "backspace: an empty line after a block goes and the block is selected",
+    "before": "```\ncode\n```\n|\nc",
+    "command": "Backspace",
+    "after": "```\n[code]\n```\nc",
+    "selected": true
+  },
+  {
+    "name": "backspace: the note's empty last line after a block",
+    "before": "```\ncode\n```\n|",
+    "command": "Backspace",
+    "after": "```\n[code]\n```",
+    "selected": true
+  },
+  {
+    "name": "backspace: a bullet after a block keeps its own rule",
+    "before": "```\ncode\n```\n- |b",
+    "command": "Backspace",
+    "after": "```\ncode\n```\n|b"
+  },
+  {
+    "name": "delete: at the last code line's end does nothing",
+    "before": "```\ncode|\n```\nb\nc",
+    "command": "Delete",
+    "after": "```\ncode|\n```\nb\nc"
+  },
+  {
+    "name": "delete: at the end of the line above a block selects it",
+    "before": "a|\n```\ncode\nmore\n```",
+    "command": "Delete",
+    "after": "a\n```\n[code\nmore]\n```",
+    "selected": true
+  },
+  {
+    "name": "delete: a blank line above a block goes and the caret enters the code",
+    "before": "a\n|\n```\ncode\n```",
+    "command": "Delete",
+    "after": "a\n```\n|code\n```"
+  },
+  {
+    "name": "delete: a blank line above an empty block",
+    "before": "|\n```\n```",
+    "command": "Delete",
+    "after": "|```\n```"
+  },
+  {
+    "name": "backspace: a selected block goes whole, its line stays",
+    "before": "a\n```js\n[x\ny]\n```\nb",
+    "command": "Backspace",
+    "after": "a\n|\nb",
+    "block": true
+  },
+  {
+    "name": "delete: a selected block goes whole",
+    "before": "a\n```js\n[x\ny]\n```\nb",
+    "command": "Delete",
+    "after": "a\n|\nb",
+    "block": true
+  },
+  {
+    "name": "typing over a selected block replaces it whole",
+    "before": "a\n```js\n[x\ny]\n```\nb",
+    "command": "type:z",
+    "after": "a\nz|\nb",
+    "block": true
+  },
+  {
+    "name": "typing over a selected empty block replaces it whole",
+    "before": "a\n```|\n```\nb",
+    "command": "type:z",
+    "after": "a\nz|\nb",
+    "block": true
+  },
+  {
+    "name": "paste over a selected block replaces it whole",
+    "before": "a\n```js\n[x\ny]\n```\nb",
+    "command": "paste:# h\nz",
+    "after": "a\n# h\nz|\nb",
+    "block": true
+  },
+  {
+    "name": "paste over a selected empty block replaces it whole",
+    "before": "a\n```|\n```\nb",
+    "command": "paste:p",
+    "after": "a\np|\nb",
+    "block": true
+  },
+  {
+    "name": "paste of a selected block's own copy over it changes nothing and leaves the caret on the line after it",
+    "before": "a\n```js\n[x\ny]\n```\nb",
+    "command": "paste:```js\nx\ny\n```",
+    "after": "a\n```js\nx\ny\n```\n|b",
+    "block": true
+  },
+  {
+    "name": "paste of a selected block's own copy over it at the note's end opens a line after it",
+    "before": "a\n```js\n[x]\n```",
+    "command": "paste:```js\nx\n```",
+    "after": "a\n```js\nx\n```\n|",
+    "block": true
+  },
+  {
+    "name": "paste of a selected block's own copy over it above another block opens a line between them",
+    "before": "```js\n[x]\n```\n```\ny\n```",
+    "command": "paste:```js\nx\n```",
+    "after": "```js\nx\n```\n|\n```\ny\n```",
+    "block": true
+  },
+  {
+    "name": "paste of the same text over a selection ends it, the caret after the text",
+    "before": "one [foo] two",
+    "command": "paste:foo",
+    "after": "one foo| two"
+  },
+  {
+    "name": "cut: a selected block takes its fences",
+    "before": "a\n```js\n[x\ny]\n```\nb",
+    "command": "Cut",
+    "after": "a\n|\nb",
+    "block": true,
+    "copied": "```js\nx\ny\n```"
+  },
+  {
+    "name": "cut: a selected empty block",
+    "before": "```|\n```\nb",
+    "command": "Cut",
+    "after": "|\nb",
+    "block": true,
+    "copied": "```\n```"
+  },
+  {
+    "name": "cut: from code past the block takes the block whole",
+    "before": "```\nc[ode\n```\nb]c",
+    "command": "Cut",
+    "after": "|c",
+    "copied": "```\ncode\n```\nb"
+  },
+  {
+    "name": "copy: all of a block's code is its code",
+    "before": "```\n[code]\n```",
+    "command": "Tab",
+    "after": "```\n  [code]\n```",
+    "copied": "code"
+  },
+  {
+    "name": "tab on a selected block of one empty code line writes on its line",
+    "before": "x\n```\n|\n```\ny",
+    "command": "Tab",
+    "after": "x\n```\n  |\n```\ny",
+    "block": true
+  },
+  {
+    "name": "typing from code past the block takes the block whole",
+    "before": "```\nx\nc[ode\n```\nb]c\nd",
+    "command": "type:Z",
+    "after": "Z|c\nd"
+  },
+  {
+    "name": "typing from one block into another takes both whole",
+    "before": "```\nx[1\n```\nmid\n```\ny]1\nz\n```",
+    "command": "type:T",
+    "after": "T|"
+  },
+  {
+    "name": "typing over a line and its break above a block keeps the break",
+    "before": "[a\n]```\ncode\n```",
+    "command": "type:z",
+    "after": "z|\n```\ncode\n```"
+  },
+  {
+    "name": "deleting a line and its break above a block takes the line",
+    "before": "[a\n]```\ncode\n```",
+    "command": "Backspace",
+    "after": "|```\ncode\n```"
+  },
+  {
+    "name": "deleting the end of a line and its break above a block keeps the break",
+    "before": "a[b\n]```\ncode\n```",
+    "command": "Backspace",
+    "after": "a|\n```\ncode\n```"
+  },
+  {
+    "name": "typing over the break after a block's code types on the line after it",
+    "before": "```\ncode[\n]```\nb",
+    "command": "type:z",
+    "after": "```\ncode\n```\nz|b"
+  },
+  {
+    "name": "typing from the end of a block's code into the line after",
+    "before": "```\ncode[\n```\nb]c",
+    "command": "type:z",
+    "after": "```\ncode\n```\nz|c"
+  },
+  {
+    "name": "open line after: a block that ends the note",
+    "before": "```\nc|ode\n```",
+    "command": "OpenLineAfterCodeBlock",
+    "after": "```\ncode\n```\n|"
+  },
+  {
+    "name": "open line after: a block nothing closes is closed",
+    "before": "```\nc|ode",
+    "command": "OpenLineAfterCodeBlock",
+    "after": "```\ncode\n```\n|"
+  },
+  {
+    "name": "open line after: an empty block nothing closes",
+    "before": "x\n```|",
+    "command": "OpenLineAfterCodeBlock",
+    "after": "x\n```\n```\n|"
+  },
+  {
+    "name": "open line after: under a bullet at the closing line's indent",
+    "before": "- a\n  ```\n  c|\n  ```",
+    "command": "OpenLineAfterCodeBlock",
+    "after": "- a\n  ```\n  c\n  ```\n  |"
+  },
+  {
+    "name": "open line before: a block that starts the note",
+    "before": "```\nc|ode\n```",
+    "command": "OpenLineBeforeCodeBlock",
+    "after": "|\n```\ncode\n```"
+  },
+  {
+    "name": "open line before: between touching blocks",
+    "before": "```\nx\n```\n```\n|y\n```",
+    "command": "OpenLineBeforeCodeBlock",
+    "after": "```\nx\n```\n|\n```\ny\n```"
+  },
+  {
+    "name": "open line after: a selected block",
+    "before": "```\n[code]\n```\n```\nz\n```",
+    "command": "OpenLineAfterCodeBlock",
+    "after": "```\ncode\n```\n|\n```\nz\n```",
+    "block": true
+  },
+  {
+    "name": "open line: outside code changes nothing",
+    "before": "a|",
+    "command": "OpenLineAfterCodeBlock",
+    "after": "a|"
+  },
+  {
+    "name": "open code line below: after the caret's line, the caret on it",
+    "before": "```\nc|ode\nz\n```",
+    "command": "OpenCodeLineBelow",
+    "after": "```\ncode\n|\nz\n```"
+  },
+  {
+    "name": "open code line below: at the line's leading whitespace",
+    "before": "```\n  a|b\n```",
+    "command": "OpenCodeLineBelow",
+    "after": "```\n  ab\n  |\n```"
+  },
+  {
+    "name": "open code line below: under a bullet, the fence's indent first",
+    "before": "- a\n  ```\n  \tc|\n  ```",
+    "command": "OpenCodeLineBelow",
+    "after": "- a\n  ```\n  \tc\n  \t|\n  ```"
+  },
+  {
+    "name": "open code line below: the last line of a block nothing closes, in its CRLF",
+    "before": "```\r\nc|",
+    "command": "OpenCodeLineBelow",
+    "after": "```\r\nc\r\n|"
+  },
+  {
+    "name": "open code line below: after the line the selection ends on",
+    "before": "```\n[a\nb]\nc\n```",
+    "command": "OpenCodeLineBelow",
+    "after": "```\na\nb\n|\nc\n```"
+  },
+  {
+    "name": "open code line below: an empty block gains its first code line and a second",
+    "before": "```|\n```",
+    "command": "OpenCodeLineBelow",
+    "after": "```\n\n|\n```"
+  },
+  {
+    "name": "open code line above: before the caret's line, at its indent",
+    "before": "```\nx\n  c|ode\n```",
+    "command": "OpenCodeLineAbove",
+    "after": "```\nx\n  |\n  code\n```"
+  },
+  {
+    "name": "open code line above: before the block's first line",
+    "before": "- a\n  ```\n  c|\n  ```",
+    "command": "OpenCodeLineAbove",
+    "after": "- a\n  ```\n  |\n  c\n  ```"
+  },
+  {
+    "name": "open code line above: an empty block, the caret on the first line",
+    "before": "```|\n```",
+    "command": "OpenCodeLineAbove",
+    "after": "```\n|\n\n```"
+  },
+  {
+    "name": "open code line below: a selected block, after its last line",
+    "before": "```\n[a\nb]\n```",
+    "command": "OpenCodeLineBelow",
+    "after": "```\na\nb\n|\n```",
+    "block": true
+  },
+  {
+    "name": "open code line below: at the language caret of a typed fence",
+    "before": "x\n|\n```",
+    "typed": "```",
+    "command": "OpenCodeLineBelow",
+    "after": "x\n```\n\n|\n```"
+  },
+  {
+    "name": "open code line: outside code changes nothing",
+    "before": "a|\n```\nc\n```",
+    "command": "OpenCodeLineAbove",
+    "after": "a|\n```\nc\n```"
+  },
+  {
+    "name": "backspace on an empty first line above a block removes the line; the block opens the note",
+    "before": "|\n```\ncode\n```\nx",
+    "command": "Backspace",
+    "after": "```\n|code\n```\nx"
+  },
+  {
+    "name": "backspace on an empty first line above an empty block",
+    "before": "|\r\n```\r\n```\r\nx",
+    "command": "BackspaceJoiningHeading",
+    "after": "|```\r\n```\r\nx"
+  },
+  {
+    "name": "backspace on a blank first line above a block nothing closes",
+    "before": "|  \n```\ncode",
+    "command": "Backspace",
+    "after": "```\n|code"
+  },
+  {
+    "name": "backspace at the note's start above text changes nothing",
+    "before": "|x\n```\ncode\n```",
+    "command": "Backspace",
+    "after": "|x\n```\ncode\n```"
+  },
+  {
+    "name": "header: the language only, hl: and ll: kept",
+    "before": "a\n```js hl:1 ll:2\nx|\n```",
+    "command": "header:go|",
+    "after": "a\n```go hl:1 ll:2\nx|\n```"
+  },
+  {
+    "name": "header: a name goes after the language, before other keys",
+    "before": "```go hl:2\n|x\n```",
+    "command": "header:go|main.go",
+    "after": "```go name:main.go hl:2\n|x\n```"
+  },
+  {
+    "name": "header: both on a bare fence",
+    "before": "```\nx|\n```",
+    "command": "header:rust|lib.rs",
+    "after": "```rust name:lib.rs\nx|\n```"
+  },
+  {
+    "name": "header: a name in place keeps the keys around it",
+    "before": "```go hl:1 name:a ll:2\n[x]\n```",
+    "command": "header:go|b c",
+    "after": "```go hl:1 name:b c ll:2\n[x]\n```"
+  },
+  {
+    "name": "header: clearing the language",
+    "before": "```go name:a.go hl:2\nx|\n```",
+    "command": "header:|a.go",
+    "after": "```name:a.go hl:2\nx|\n```"
+  },
+  {
+    "name": "header: clearing the name",
+    "before": "```go name:a.go hl:2\nx|\n```",
+    "command": "header:go|",
+    "after": "```go hl:2\nx|\n```"
+  },
+  {
+    "name": "header: clearing both",
+    "before": "```go name:a.go\nx|\n```",
+    "command": "header:|",
+    "after": "```\nx|\n```"
+  },
+  {
+    "name": "header: the values it has change nothing",
+    "before": "```go  name:a\nx|\n```",
+    "command": "header:go|a",
+    "after": "```go  name:a\nx|\n```"
+  },
+  {
+    "name": "header: a language with whitespace is refused",
+    "before": "```\nx|\n```",
+    "command": "header:c sharp|",
+    "after": "```\nx|\n```",
+    "error": "InvalidText"
+  },
+  {
+    "name": "header: a name holding a key is refused",
+    "before": "```go hl:1\nx|\n```",
+    "command": "header:go|a hl:2",
+    "after": "```go hl:1\nx|\n```",
+    "error": "InvalidText"
+  },
+  {
+    "name": "header: a language that reads as a key is refused",
+    "before": "```\nx|\n```",
+    "command": "header:hl:2|",
+    "after": "```\nx|\n```",
+    "error": "InvalidText"
+  },
+  {
+    "name": "header: a backtick in a backtick fence is refused",
+    "before": "```\nx|\n```",
+    "command": "header:a`b|",
+    "after": "```\nx|\n```",
+    "error": "InvalidText"
+  },
+  {
+    "name": "header: a line break is refused",
+    "before": "```\nx|\n```",
+    "command": "header:go|a\nb",
+    "after": "```\nx|\n```",
+    "error": "InvalidText"
+  },
+  {
+    "name": "header: a name with outer spaces is refused",
+    "before": "```\nx|\n```",
+    "command": "header:go| a",
+    "after": "```\nx|\n```",
+    "error": "InvalidText"
+  },
+  {
+    "name": "header: clearing a language other text would replace is refused",
+    "before": "```python extra\nx|\n```",
+    "command": "header:|",
+    "after": "```python extra\nx|\n```",
+    "error": "InvalidText"
+  },
+  {
+    "name": "header: a tilde fence takes a backtick",
+    "before": "~~~\nx|\n~~~",
+    "command": "header:a`b|",
+    "after": "~~~a`b\nx|\n~~~"
+  },
+  {
+    "name": "header: a fence under a bullet keeps its indent",
+    "before": "- x\n  ```\n  code|\n  ```",
+    "command": "header:sh|",
+    "after": "- x\n  ```sh\n  code|\n  ```"
+  },
+  {
+    "name": "header: a block nothing closes",
+    "before": "```\nx|",
+    "command": "header:go|",
+    "after": "```go\nx|"
+  },
+  {
+    "name": "header: the caret elsewhere stays",
+    "before": "```\nx\n```\nb|",
+    "at": 0,
+    "command": "header:go|",
+    "after": "```go\nx\n```\nb|"
+  },
+  {
+    "name": "header: a selected block stays selected",
+    "before": "a\n```\n|x\n```\nb",
+    "block": true,
+    "command": "header:go|",
+    "after": "a\n```go\n[x]\n```\nb",
+    "selected": true
+  },
+  {
+    "name": "header: a selected empty block stays selected",
+    "before": "a\n```|\n```",
+    "block": true,
+    "command": "header:go|",
+    "after": "a\n```go|\n```",
+    "selected": true
+  },
+  {
+    "name": "header: a language caret becomes a caret at the block's code",
+    "before": "|\nx",
+    "typed": "```",
+    "command": "header:go|",
+    "after": "```go\n|x"
+  },
+  {
+    "name": "header: on an empty block a language caret becomes a caret on its line",
+    "before": "|",
+    "typed": "```",
+    "command": "header:go|",
+    "after": "```go|"
+  },
+  {
+    "name": "language: a host's echo keeps the language caret",
+    "before": "a\n|",
+    "typed": "```",
+    "command": "Select",
+    "after": "a\n```|",
+    "language": true
+  },
+  {
+    "name": "language: placing the same caret ends it",
+    "before": "a\n|",
+    "typed": "```",
+    "command": "Place",
+    "after": "a\n```|"
+  },
+  {
+    "name": "place: a press on a selected empty block's line ends the block selection",
+    "before": "a\n```|\n```\nb",
+    "block": true,
+    "command": "Place",
+    "after": "a\n```|\n```\nb"
+  },
+  {
+    "name": "place: a selected block's range placed again is an ordinary selection",
+    "before": "a\n```\n|x\n```\nb",
+    "block": true,
+    "command": "Place",
+    "after": "a\n```\n[x]\n```\nb"
+  },
+  {
+    "name": "header: the values it has still end a language caret",
+    "before": "|\nx",
+    "typed": "```",
+    "command": "header:|",
+    "after": "```\n|x"
+  },
+  {
+    "name": "select: a host's echo on a selected empty block keeps it",
+    "before": "a\n```|\n```\nb",
+    "block": true,
+    "command": "Select",
+    "after": "a\n```|\n```\nb",
+    "selected": true
+  }
+]

@@ -138,7 +138,7 @@ A line may start with any number of `>`, then at most one heading or list marker
 
 ### Code
 
-A code fence opens with three or more backticks or tildes. It closes with a line of the same character, at least as many of them. Text after the opening fence is the language name.
+A code fence opens with three or more backticks or tildes. It closes with a line of the same character, at least as many of them. Text after the opening fence is its info string: a language, then options.
 
 ````
 ```js
@@ -148,9 +148,18 @@ let x = 1
 
 - Inside a fence nothing is read as markdown.
 - The code keeps its own whitespace.
-- The opening fence may be indented, for example under a bullet.
-- A fence is not recognised after `>`.
+- The opening fence may be indented, for example under a bullet. It is still a code block, at the top level of the note and not part of the item, drawn at the left margin. A code line that starts with the opening fence's leading whitespace shows without it, so indent past the fence's shows as code; a line with less or other leading whitespace shows whole.
+- A fence is not recognised after `>`: inside a quote, backticks are quoted text.
 - A fence with no closing line runs to the end of the note.
+
+The info string, as in ` ```go name:api handlers.go hl:1,3-4 ll:2 `:
+
+- The language is the first word, case kept: ` ```python extra ` is `python`.
+- An option is `name:`, `hl:` or `ll:` and its value. A key counts only at the info string's start or after whitespace: ` ```hl:2 ` has no language, and `name:notes.hl:3.go` is one name.
+- A value runs to the next key, trimmed, so `name:` can hold spaces. A key written twice keeps its last value.
+- `hl:` (highlight) and `ll:` (lowlight) mark lines, counted from 1 at the block's first code line. Their value is items separated by commas: a number (`3`) or a range (`2-4`; `9-7` reads as `7-9`). An item that is neither, or reaches below line 1, is ignored.
+- A line in both lists is highlighted. Numbers past the block's last line mark nothing.
+- Any other text in the info string means nothing and stays in the file.
 
 Indented text is never code. Code is fences only.
 
@@ -199,6 +208,8 @@ Inline marks open and close on the same line. A line break ends them.
 
 The rules for when `*`, `_` and `~` open and close are CommonMark's, applied to one line. So `snake_case_word` is not italic.
 
+Inline code shows as code only. Bold, italic and strikethrough marks around it do not reach its text: ``**a `b` c**`` shows `a` and `c` bold and `b` as plain code.
+
 Bold left open on one line is literal text. It does not carry to the next line:
 
 ```
@@ -213,6 +224,7 @@ and neither is this**
 | `title` with `---`, `===` or `-` under it | Heading                                      | Plain line, then a divider, plain line or bullet |
 | `foo` then `bar` on the next line         | One paragraph; many renderers join the lines | Two lines                                        |
 | Several blank lines in a row              | Collapsed to one gap                         | Shown as written                                 |
+| ``**`code`**``                            | Bold code                                    | Code only                                        |
 | Plain line under a bullet                 | Part of the bullet                           | Its own line                                     |
 | Plain line under a `>` line               | Part of the quote                            | Its own line, not quoted                         |
 | Text indented 4 spaces                    | Code block                                   | Plain line, or list nesting                      |
@@ -222,6 +234,7 @@ and neither is this**
 | `>text` with no space                     | Quote                                        | Plain line                                       |
 | Table row with no leading pipe            | Table row                                    | Plain line                                       |
 | `- - -`                                   | Divider                                      | Bullet                                           |
+| A fence after `>`                         | Code block inside the quote                  | Quoted lines of text                             |
 
 ## Not in version 1
 

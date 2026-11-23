@@ -126,6 +126,17 @@ impl Engine {
         Ok(change.map(|change| self.view(change)))
     }
 
+    /// Whether `insert_image` at the selection would act, tried with an
+    /// ordinary vault reference: a reference that reads back differently
+    /// (one holding a `|` in a table cell) is still refused when inserted.
+    pub(crate) fn image_acts(&self) -> bool {
+        let (reference, alt) = ("image.png", "");
+        let Some(text) = image_text(reference, alt) else {
+            return false;
+        };
+        self.composition.is_none() && self.changes_source(self.image_command(&text, reference, alt))
+    }
+
     fn image_command(
         &self,
         text: &str,
@@ -156,6 +167,14 @@ impl Engine {
         let (piece, line) = self
             .image_line(first, last, &after, &image)
             .ok_or(EditorError::InvalidText)?;
+        let local = image.start - piece.start..image.end - piece.start;
+        let shown = &after[piece.clone()];
+        if !is_image(&line_spans(shown, &line), shown, &local, reference, alt) {
+            return Err(EditorError::InvalidText);
+        }
+        if self.image_changes_table(first, last, &after) {
+            return Ok(None);
+        }
         let ending = self.line_ending_near(first);
         // Spaces right after the image go with the line before the split:
         // a line of its own starting with them would be indented.
@@ -283,6 +302,34 @@ impl Engine {
             })
         });
         kept_holds && rest_holds
+    }
+
+    /// Whether the guard would cancel an image written into lines
+    /// `first..=last` (reading as `after` with it inline): one that makes or
+    /// unmakes a table header, which only a delimiter row next to it shows.
+    /// Answering here keeps `image_acts` exact.
+    fn image_changes_table(&self, first: usize, last: usize, after: &str) -> bool {
+        let delimiter = |kind: &Kind| {
+            matches!(
+                kind,
+                Kind::Table {
+                    role: TableRole::Delimiter,
+                    ..
+                }
+            )
+        };
+        if (first..=last).any(|index| delimiter(&self.line(index).line.kind)) {
+            return true;
+        }
+        if last + 1 >= self.line_count() {
+            return false;
+        }
+        let mut carry = self.line(first).carry.clone();
+        for piece in after.split_inclusive('\n') {
+            block::read_line(&mut carry, piece, 0);
+        }
+        let below = block::read_line(&mut carry, &self.line(last + 1).text, 0);
+        delimiter(&below.kind) != delimiter(&self.line(last + 1).line.kind)
     }
 
     /// The line of `after` (the text of lines `first..=last` with an edit

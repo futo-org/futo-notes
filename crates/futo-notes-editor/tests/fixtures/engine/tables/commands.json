@@ -1,0 +1,336 @@
+[
+ {
+  "name": "insert a row below a body row",
+  "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+  "command": "InsertRowBelow",
+  "after": "| a | b |\n| --- | :-: |\n| c‸ | d |\n|  |  |\n"
+ },
+ {
+  "name": "insert a row above a body row",
+  "before": "| a | b |\n| --- | :-: |\n| c | d‸ |\n",
+  "command": "InsertRowAbove",
+  "after": "| a | b |\n| --- | :-: |\n|  |  |\n| c | d‸ |\n"
+ },
+ {
+  "name": "insert a row below the header goes below the delimiter row",
+  "before": "| a | b‸ |\n| --- | :-: |\n| c | d |\n",
+  "command": "InsertRowBelow",
+  "after": "| a | b‸ |\n| --- | :-: |\n|  |  |\n| c | d |\n"
+ },
+ {
+  "name": "insert a column left keeps alignment markers and the focused cell",
+  "before": "| a | b |\n| --- | :-: |\n| c‸ | d |\n",
+  "command": "InsertColumnLeft",
+  "after": "|  | a | b |\n| --- | --- | :-: |\n|  | c‸ | d |\n"
+ },
+ {
+  "name": "insert a column right of the last column",
+  "before": "| a | b‸ |\n| --- | :-: |\n| c | d |\n",
+  "command": "InsertColumnRight",
+  "after": "| a | b‸ |  |\n| --- | :-: | --- |\n| c | d |  |\n"
+ },
+ {
+  "name": "insert a column keeps every untouched byte and leaves a short row padded",
+  "before": "|a|  b‸  |\n|:--|--:|\n|x|y|\n|z|\n",
+  "command": "InsertColumnLeft",
+  "after": "|a|  |  b‸  |\n|:--| --- |--:|\n|x|  |y|\n|z|\n"
+ },
+ {
+  "name": "delete a column leaves a short row that lacks it untouched",
+  "before": "|a|  b‸  |\n|:--|--:|\n|x|y|\n|z|\n",
+  "command": "DeleteColumn",
+  "after": "|‸a|\n|:--|\n|x|\n|z|\n"
+ },
+ {
+  "name": "insert a column right closes a last cell that has no closing pipe, without touching its bytes",
+  "before": "| a | b‸ |\n|---|---|\n| c | d",
+  "command": "InsertColumnRight",
+  "after": "| a | b‸ |  |\n|---|---| --- |\n| c | d|  |"
+ },
+ {
+  "name": "delete the first column",
+  "before": "| a‸ | b |\n| --- | :-: |\n| c | d |\n",
+  "command": "DeleteColumn",
+  "after": "| ‸b |\n| :-: |\n| d |\n"
+ },
+ {
+  "name": "delete a column on a row whose last cell has no closing pipe",
+  "before": "| a | b‸ |\n|---|---|\n| c | d",
+  "command": "DeleteColumn",
+  "after": "| ‸a |\n|---|\n| c |"
+ },
+ {
+  "name": "insert a row below a header-only table",
+  "before": "| a‸ |\n| - |\n",
+  "command": "InsertRowBelow",
+  "after": "| a‸ |\n| - |\n|  |\n"
+ },
+ {
+  "name": "insert a row below a header-only table at the note's end",
+  "before": "| a‸ |\n| - |",
+  "command": "InsertRowBelow",
+  "after": "| a‸ |\n| - |\n|  |"
+ },
+ {
+  "name": "insert a row takes the CRLF of its neighbor",
+  "before": "| a |\r\n|---|\r\n| b‸ |\r\n",
+  "command": "InsertRowAbove",
+  "after": "| a |\r\n|---|\r\n|  |\r\n| b‸ |\r\n"
+ },
+ {
+  "name": "delete a middle row; the caret goes to the row below",
+  "before": "| h |\n| - |\n| a |\n| b‸ |\n| c |\n",
+  "command": "DeleteRow",
+  "after": "| h |\n| - |\n| a |\n| ‸c |\n"
+ },
+ {
+  "name": "delete the last row at the note's end; the caret goes to the row above",
+  "before": "| h |\n| - |\n| a |\n| b |\n| c‸ |",
+  "command": "DeleteRow",
+  "after": "| h |\n| - |\n| a |\n| ‸b |"
+ },
+ {
+  "name": "deleting the header row does nothing",
+  "before": "| h‸ |\n| - |\n| a |\n| b |",
+  "command": "DeleteRow",
+  "after": null
+ },
+ {
+  "name": "deleting the only body row does nothing",
+  "before": "| h |\n| - |\n| a‸ |",
+  "command": "DeleteRow",
+  "after": null
+ },
+ {
+  "name": "deleting the only column does nothing",
+  "before": "| h |\n| - |\n| a‸ |",
+  "command": "DeleteColumn",
+  "after": null
+ },
+ {
+  "name": "a row above the header does nothing",
+  "before": "| h‸ |\n| - |\n| a |",
+  "command": "InsertRowAbove",
+  "after": null
+ },
+ {
+  "name": "a table command outside every cell does nothing",
+  "before": "| h |\n| - |‸\n| a |",
+  "command": "InsertRowBelow",
+  "after": null
+ },
+ {
+  "name": "#419: a column inserted right of an extra cell goes on its row only",
+  "before": "| a |\n|---|\n| b | c‸ |",
+  "command": "InsertColumnRight",
+  "after": "| a |\n|---|\n| b | c‸ |  |"
+ },
+ {
+  "name": "deleting the header's only cell empties it while a wider row keeps the table two columns wide",
+  "before": "| a‸ |\n|---|\n| b | c |",
+  "command": "DeleteColumn",
+  "after": "| ‸ |\n|---|\n| c |"
+ },
+ {
+  "name": "a table on an empty note, the caret in its first header cell",
+  "before": "‸",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":3}}",
+  "after": "| ‸ |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |",
+  "tables": [
+   [
+    3,
+    3
+   ]
+  ]
+ },
+ {
+  "name": "a table replaces an empty line between two lines",
+  "before": "a\n‸\nb",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":3}}",
+  "after": "a\n| ‸ |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\nb",
+  "tables": [
+   [
+    3,
+    3
+   ]
+  ]
+ },
+ {
+  "name": "a table mid-line goes between the text before and after the caret",
+  "before": "ab‸cd",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":3}}",
+  "after": "ab\n| ‸ |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\ncd",
+  "tables": [
+   [
+    3,
+    3
+   ]
+  ]
+ },
+ {
+  "name": "a table at a line's text start goes above the whole line",
+  "before": "# ‸ab",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":3}}",
+  "after": "| ‸ |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\n# ab",
+  "tables": [
+   [
+    3,
+    3
+   ]
+  ]
+ },
+ {
+  "name": "a table on a list item leaves the item above and its text after at column 0",
+  "before": "- ab‸cd",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":3}}",
+  "after": "- ab\n| ‸ |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\ncd",
+  "tables": [
+   [
+    3,
+    3
+   ]
+  ]
+ },
+ {
+  "name": "a table in a quote sits at column 0 between the quoted lines",
+  "before": "> ab‸cd",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":3}}",
+  "after": "> ab\n| ‸ |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\n> cd",
+  "tables": [
+   [
+    3,
+    3
+   ]
+  ]
+ },
+ {
+  "name": "a table at the note's end writes no line after it",
+  "before": "ab‸",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":3}}",
+  "after": "ab\n| ‸ |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |",
+  "tables": [
+   [
+    3,
+    3
+   ]
+  ]
+ },
+ {
+  "name": "a table directly after another table keeps a blank line between them",
+  "before": "| a |\n|---|\n| b |\n‸",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":3}}",
+  "after": "| a |\n|---|\n| b |\n\n| ‸ |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |",
+  "tables": [
+   [
+    1,
+    2
+   ],
+   [
+    3,
+    3
+   ]
+  ]
+ },
+ {
+  "name": "a table above a pipe line keeps a blank line between them",
+  "before": "‸\n| x |",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":3}}",
+  "after": "| ‸ |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\n\n| x |",
+  "tables": [
+   [
+    3,
+    3
+   ]
+  ]
+ },
+ {
+  "name": "text after the caret starting with a pipe stays out of the table",
+  "before": "a‸| x",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":3}}",
+  "after": "a\n| ‸ |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\n\n| x",
+  "tables": [
+   [
+    3,
+    3
+   ]
+  ]
+ },
+ {
+  "name": "a table over a selection removes the selection first",
+  "before": "a«bc»d",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":3}}",
+  "after": "a\n| ‸ |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\nd",
+  "tables": [
+   [
+    3,
+    3
+   ]
+  ]
+ },
+ {
+  "name": "a table on a divider goes below it",
+  "before": "---‸",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":3}}",
+  "after": "---\n| ‸ |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |",
+  "tables": [
+   [
+    3,
+    3
+   ]
+  ]
+ },
+ {
+  "name": "a table writes the line's own CRLF",
+  "before": "a‸\r\nb",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":3}}",
+  "after": "a\r\n| ‸ |  |  |\r\n| --- | --- | --- |\r\n|  |  |  |\r\n|  |  |  |\r\nb",
+  "tables": [
+   [
+    3,
+    3
+   ]
+  ]
+ },
+ {
+  "name": "a one-row table is a header and its delimiter row",
+  "before": "‸",
+  "command": "block {\"Table\":{\"rows\":1,\"columns\":2}}",
+  "after": "| ‸ |  |\n| --- | --- |",
+  "tables": [
+   [
+    2,
+    1
+   ]
+  ]
+ },
+ {
+  "name": "a table changes nothing in code",
+  "before": "```\nco‸de\n```",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":3}}",
+  "after": null
+ },
+ {
+  "name": "a table on the body line after front matter closed on the last line goes after it",
+  "before": "---\nt: 1\n---‸",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":3}}",
+  "after": "---\nt: 1\n---\n| ‸ |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |",
+  "tables": [
+   [
+    3,
+    3
+   ]
+  ]
+ },
+ {
+  "name": "a table changes nothing in a table",
+  "before": "| a |\n|---|\n| b‸ |",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":3}}",
+  "after": null
+ },
+ {
+  "name": "a table of no columns changes nothing",
+  "before": "a‸",
+  "command": "block {\"Table\":{\"rows\":3,\"columns\":0}}",
+  "after": null
+ }
+]

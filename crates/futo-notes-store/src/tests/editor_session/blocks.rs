@@ -29,3 +29,18 @@ fn block_commands_edit_in_memory_and_stop_at_the_terminal_fence() {
     ));
     assert_eq!(store.read("body").unwrap(), "fresh");
 }
+#[test]
+fn a_block_command_removing_typed_text_is_one_undo_step() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "body", "ab /h").unwrap();
+    let mut editor = store.open_editor("body").unwrap();
+    let removed = range(3, 5);
+    editor
+        .block_command_removing_utf16(Revision(0), removed, BlockCommand::Heading(1))
+        .unwrap()
+        .unwrap();
+    assert_eq!(editor.source_text(), "# ab ");
+    editor.undo(editor.revision()).unwrap().unwrap();
+    assert_eq!(editor.source_text(), "ab /h");
+}

@@ -22,6 +22,10 @@ const BLOCK = new Set([
   'TaskList',
   'CodeBlock',
   'WrapCodeBlock',
+  'OpenLineBeforeCodeBlock',
+  'OpenLineAfterCodeBlock',
+  'OpenCodeLineBelow',
+  'OpenCodeLineAbove',
 ]);
 const KEYS = new Set([
   'Enter',
@@ -161,6 +165,10 @@ export async function replay(WasmSession, workerPath, cases, marks) {
         JSON.stringify(before.from === before.to ? start.affinity : 'Forward'),
       );
       let [a, b] = [units(slice.text, start.at), units(slice.text, end.at)];
+      if (item.block) {
+        const { selection } = JSON.parse(page.select_code_block(revision, start.at));
+        [a, b] = [units(slice.text, selection.start), units(slice.text, selection.end)];
+      }
       if (item.typed !== undefined) {
         const setup = await send(page.replace_utf16(revision, a, b, utf16(item.typed)));
         assert.ok(setup, `${item.name}: typed setup`);

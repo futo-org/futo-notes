@@ -1,0 +1,708 @@
+[
+  {
+    "name": "(b) a pair, code typed in it, a backtick steps out, plain text after",
+    "before": "foo |",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "foo `|`",
+        "display": "foo ``"
+      },
+      {
+        "do": "type:b",
+        "after": "foo `b|`",
+        "display": "foo b",
+        "affinity": "Backward"
+      },
+      {
+        "do": "type:a",
+        "after": "foo `ba|`",
+        "display": "foo ba",
+        "affinity": "Backward"
+      },
+      {
+        "do": "type:r",
+        "after": "foo `bar|`",
+        "display": "foo bar",
+        "affinity": "Backward"
+      },
+      {
+        "do": "pair:`",
+        "after": "foo `bar`|",
+        "display": "foo bar",
+        "affinity": "Forward"
+      },
+      {
+        "do": "type: ",
+        "after": "foo `bar` |",
+        "display": "foo bar "
+      },
+      {
+        "do": "type:b",
+        "after": "foo `bar` b|",
+        "display": "foo bar b"
+      },
+      {
+        "do": "type:a",
+        "after": "foo `bar` ba|",
+        "display": "foo bar ba"
+      },
+      {
+        "do": "type:z",
+        "after": "foo `bar` baz|",
+        "display": "foo bar baz"
+      }
+    ]
+  },
+  {
+    "name": "(c) Backspace in a fresh pair removes both, as paired Backspace does (every host pairs)",
+    "before": "|",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "`|`",
+        "display": "``"
+      },
+      {
+        "do": "Backspace",
+        "after": "|",
+        "display": ""
+      }
+    ]
+  },
+  {
+    "name": "(d) a pair after text and a shown pair is another pair",
+    "before": "foo ``|",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "foo ```|`",
+        "display": "foo ````"
+      }
+    ]
+  },
+  {
+    "name": "(e) a backtick in a word writes a pair; typing in it is code",
+    "before": "ab|cd",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "ab`|`cd",
+        "display": "ab``cd"
+      },
+      {
+        "do": "type:x",
+        "after": "ab`x|`cd",
+        "display": "abxcd",
+        "affinity": "Backward"
+      },
+      {
+        "do": "pair:`",
+        "after": "ab`x`|cd",
+        "display": "abxcd",
+        "affinity": "Forward"
+      }
+    ]
+  },
+  {
+    "name": "(g) one-line selection becomes inline code",
+    "before": "x [bar] y",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "x `[bar]` y",
+        "display": "x bar y"
+      },
+      {
+        "do": "Undo",
+        "after": "x [bar] y",
+        "display": "x bar y"
+      },
+      {
+        "do": "Redo",
+        "after": "x `[bar]` y",
+        "display": "x bar y"
+      }
+    ]
+  },
+  {
+    "name": "(h) Undo and Redo of a pair",
+    "before": "foo |",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "foo `|`"
+      },
+      {
+        "do": "Undo",
+        "after": "foo |"
+      },
+      {
+        "do": "Redo",
+        "after": "foo `|`"
+      }
+    ]
+  },
+  {
+    "name": "P1: a pair at the end of a line before other lines",
+    "before": "a|\nb",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "a`|`\nb"
+      }
+    ]
+  },
+  {
+    "name": "P1: at a divider's edge the pair goes on its own line",
+    "before": "---|",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "---\n`|`"
+      }
+    ]
+  },
+  {
+    "name": "P1: in a quote",
+    "before": "> ``|",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "> ```|`"
+      }
+    ]
+  },
+  {
+    "name": "P1: after a list marker a lone pair is not a fence",
+    "before": "- ``|",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "- ```|`"
+      }
+    ]
+  },
+  {
+    "name": "P1: a pair with text after the caret is one backtick (a pair would open a fence)",
+    "before": "``|x",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "```x|",
+        "display": ""
+      }
+    ]
+  },
+  {
+    "name": "P1: a pair that would open a fence is one backtick",
+    "before": "`|x",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "``|x",
+        "display": "``x"
+      }
+    ]
+  },
+  {
+    "name": "P1: right after a code span outside it",
+    "before": "`a`|",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "`a``|`",
+        "display": "`a```"
+      }
+    ]
+  },
+  {
+    "name": "P2: a hidden opening marker after the caret: the caret goes inside",
+    "before": "a|`b`",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "a`|b`",
+        "display": "ab",
+        "affinity": "Forward"
+      },
+      {
+        "do": "type:x",
+        "after": "a`x|b`",
+        "display": "axb"
+      }
+    ]
+  },
+  {
+    "name": "P2: a closing marker inside bold: the caret leaves both",
+    "before": "**`a|`**",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "**`a`**|",
+        "display": "a",
+        "affinity": "Forward"
+      }
+    ]
+  },
+  {
+    "name": "P2: a longer closing run steps over whole",
+    "before": "``a|`` b",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "``a``| b",
+        "display": "a b",
+        "affinity": "Forward"
+      }
+    ]
+  },
+  {
+    "name": "P2: a padded code span steps over its padding too",
+    "before": "`` `a`| `` b",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "`` `a` ``| b",
+        "display": "`a` b",
+        "affinity": "Forward"
+      }
+    ]
+  },
+  {
+    "name": "P4: a selection of only spaces is typed over",
+    "before": "a[ ]b",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "a`|b"
+      }
+    ]
+  },
+  {
+    "name": "P4: a selection already code is typed over",
+    "before": "x `[ab]` c",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "x ``|` c",
+        "display": "x ``` c"
+      }
+    ]
+  },
+  {
+    "name": "P4: a selection in one code line is typed over",
+    "before": "```\n[co]de\n```",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "```\n`|de\n```"
+      }
+    ]
+  },
+  {
+    "name": "P4: part of bold becomes plain code",
+    "before": "**a [b] c**",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "**a** `[b]` **c**"
+      }
+    ]
+  },
+  {
+    "name": "P5: after an escaping backslash",
+    "before": "a\\|",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "a\\`|",
+        "display": "a`"
+      }
+    ]
+  },
+  {
+    "name": "P5: after an escaped backslash a pair",
+    "before": "a\\\\|",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "a\\\\`|`"
+      }
+    ]
+  },
+  {
+    "name": "P5: inside inline code, not at its end",
+    "before": "`a|b`",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "`a`|b`"
+      }
+    ]
+  },
+  {
+    "name": "P5: with Code carried by the toolbar",
+    "before": "a |",
+    "steps": [
+      {
+        "do": "Code",
+        "after": "a |"
+      },
+      {
+        "do": "pair:`",
+        "after": "a `` `| ``",
+        "display": "a `"
+      }
+    ]
+  },
+  {
+    "name": "front matter: a caret placed in it stands after it, so a pair is written there",
+    "before": "---\na: |b\n---\nc",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "---\na: b\n---\n`|`c",
+        "display": "a: b\n``c"
+      }
+    ]
+  },
+  {
+    "name": "other text under paired typing is plain typing",
+    "before": "a|",
+    "steps": [
+      {
+        "do": "pair:x",
+        "after": "ax|"
+      },
+      {
+        "do": "pair:y",
+        "after": "axy|"
+      },
+      {
+        "do": "Undo",
+        "after": "a|"
+      }
+    ]
+  },
+  {
+    "name": "(p) paired Backspace in a fresh pair removes both; Undo and Redo",
+    "before": "|",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "`|`"
+      },
+      {
+        "do": "PairedBackspace",
+        "after": "|"
+      },
+      {
+        "do": "Undo",
+        "after": "`|`"
+      },
+      {
+        "do": "Redo",
+        "after": "|"
+      }
+    ]
+  },
+  {
+    "name": "(p) paired Backspace between an empty pair in text",
+    "before": "ab `|` cd",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "ab | cd"
+      },
+      {
+        "do": "Undo",
+        "after": "ab `|` cd"
+      }
+    ]
+  },
+  {
+    "name": "(p) paired Backspace with a further backtick before the pair removes one",
+    "before": "x ``|` y",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "x `|` y"
+      }
+    ]
+  },
+  {
+    "name": "(p) paired Backspace with a further backtick after the pair removes one",
+    "before": "x `|`` y",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "x |`` y"
+      }
+    ]
+  },
+  {
+    "name": "(p) paired Backspace after an escaping backslash is Backspace",
+    "before": "a \\`|` b",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "a |` b"
+      }
+    ]
+  },
+  {
+    "name": "(p) paired Backspace in inline code removes one",
+    "before": "x ``` a `|` b ``` y",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "x ``` a |` b ``` y"
+      }
+    ]
+  },
+  {
+    "name": "(p) paired Backspace in a list item removes both",
+    "before": "- `|`",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "- |"
+      }
+    ]
+  },
+  {
+    "name": "(p) paired Backspace in a table cell removes both",
+    "before": "| a | b |\n| - | - |\n| x`^` | d |",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "| a | b |\n| - | - |\n| x^ | d |"
+      },
+      {
+        "do": "Undo",
+        "after": "| a | b |\n| - | - |\n| x`^` | d |"
+      }
+    ],
+    "marks": "^{}"
+  },
+  {
+    "name": "(p) paired Backspace over a selection is Backspace",
+    "before": "a[``]b",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "a|b"
+      }
+    ]
+  },
+  {
+    "name": "(p) paired Backspace with no pair is Backspace",
+    "before": "ab|",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "a|"
+      }
+    ]
+  },
+  {
+    "name": "(p) Delete in a fresh pair removes only the backtick after the caret",
+    "before": "|",
+    "steps": [
+      {
+        "do": "pair:`",
+        "after": "`|`"
+      },
+      {
+        "do": "Delete",
+        "after": "`|"
+      }
+    ]
+  },
+  {
+    "name": "(h) paired backspace removes a blank line above a heading, which stays",
+    "before": "a\n\n# |T",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "a\n# |T"
+      },
+      {
+        "do": "Undo",
+        "after": "a\n\n# |T"
+      }
+    ]
+  },
+  {
+    "name": "(h) paired backspace joins a heading to text above",
+    "before": "a\n# |T",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "a|T"
+      },
+      {
+        "do": "Undo",
+        "after": "a\n# |T"
+      }
+    ]
+  },
+  {
+    "name": "(h) paired backspace on a first-line heading changes nothing",
+    "before": "# |T",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "# |T"
+      }
+    ]
+  },
+  {
+    "name": "(h) paired backspace makes an empty heading text",
+    "before": "a\n# |",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "a\n|"
+      },
+      {
+        "do": "Undo",
+        "after": "a\n# |"
+      }
+    ]
+  },
+  {
+    "name": "(h) paired backspace makes an empty first-line heading text",
+    "before": "# |",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "|"
+      },
+      {
+        "do": "Undo",
+        "after": "# |"
+      }
+    ]
+  },
+  {
+    "name": "(h) paired backspace joins a heading to an item",
+    "before": "- a\n# |T",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "- a|T"
+      },
+      {
+        "do": "Undo",
+        "after": "- a\n# |T"
+      }
+    ]
+  },
+  {
+    "name": "(h) paired backspace joins a heading to a heading",
+    "before": "# a\n# |T",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "# a|T"
+      },
+      {
+        "do": "Undo",
+        "after": "# a\n# |T"
+      }
+    ]
+  },
+  {
+    "name": "(h) paired backspace lands a heading in code above",
+    "before": "```\nx\n```\n# |T",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "```\nxT|\n```"
+      },
+      {
+        "do": "Undo",
+        "after": "```\nx\n```\n# |T"
+      }
+    ]
+  },
+  {
+    "name": "(h) paired backspace under a divider removes the divider and keeps the heading",
+    "before": "a\n---\n# |T",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "a\n# |T"
+      },
+      {
+        "do": "Undo",
+        "after": "a\n---\n# |T"
+      }
+    ]
+  },
+  {
+    "name": "(h) paired backspace under front matter changes nothing",
+    "before": "---\nt: 1\n---\n# |T",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "---\nt: 1\n---\n# |T"
+      }
+    ]
+  },
+  {
+    "name": "(h) paired backspace joins a quoted heading to quoted text",
+    "before": "> a\n> # |T",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "> a|T"
+      },
+      {
+        "do": "Undo",
+        "after": "> a\n> # |T"
+      }
+    ]
+  },
+  {
+    "name": "(h) paired backspace mid-heading deletes a character",
+    "before": "# T|x",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "# |x"
+      },
+      {
+        "do": "Undo",
+        "after": "# T|x"
+      }
+    ]
+  },
+  {
+    "name": "(h) paired backspace at a quoted line's start joins it",
+    "before": "> a\n> |b",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "> a|b"
+      },
+      {
+        "do": "Undo",
+        "after": "> a\n> |b"
+      }
+    ]
+  },
+  {
+    "name": "(p) paired Backspace on a heading under a table changes nothing",
+    "marks": "^{}",
+    "before": "| a |\n| - |\n| c |\n# ^T",
+    "steps": [
+      {
+        "do": "PairedBackspace",
+        "after": "| a |\n| - |\n| c |\n# ^T"
+      }
+    ]
+  }
+]

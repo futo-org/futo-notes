@@ -10,6 +10,10 @@ pub enum InputAction {
     Typing,
     Isolated,
     CompositionCommit,
+    /// Typing with the paired-typing conveniences, which a host opts into
+    /// for a plain typed key (`engine/commands/paired_typing/`); other
+    /// text is `Typing`.
+    PairedTyping,
 }
 
 /// Nonoverlapping replacements in ascending opening-display coordinates.
