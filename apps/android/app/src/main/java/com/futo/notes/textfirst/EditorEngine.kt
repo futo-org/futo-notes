@@ -137,6 +137,12 @@ internal class EditorEngine(
     /** A selection the host chooses (restoring the caret after a reload). */
     fun hostSelect(start: Int, end: Int) = command { select(start, end, fromView = false) }
 
+    /**
+     * The caret a header field hands back to the code: the user's own placement, so the same offset still ends a selected
+     * block and a language caret (typing writes the code, not the info string or over the block).
+     */
+    fun placeCaret(offset: Int) = command { select(offset, offset, fromView = false, placed = true) }
+
     /** While the view is touched or shows its text menu, background slices wait (TextFirstEditText). */
     fun holdRender(held: Boolean) = handler.post {
         if (closed) return@post

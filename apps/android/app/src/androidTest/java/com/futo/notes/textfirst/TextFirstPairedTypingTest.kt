@@ -115,6 +115,21 @@ class TextFirstPairedTypingTest {
         assertEquals(false, field.isAttachedToWindow)
     }
 
+    /** S31 (mr-729 QA): Enter in the language field of a bare fence starts the first code line; the next letters are code, not language. */
+    @Test fun enterInAnEmptyLanguageFieldStartsTheFirstCodeLine() = textFirstSession("intro\n") { c ->
+        c.view.codeChrome.labels = CodeBlockLabels("add a line above", "add a line below", "name", "language")
+        caretAtEnd(c)
+        type(c, "`", "`")
+        type(c, "`")
+        withTimeout(5_000) { while (openHeaderFieldOrNull(c.view)?.isFocused != true) delay(20) }
+        val field = openHeaderField(c.view)
+        field.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+        c.sourceText()
+        withTimeout(5_000) { while (field.isAttachedToWindow) delay(20) }
+        type(c, "q")
+        assertEquals("intro\n```\nq\n```", c.sourceText()!!.trimEnd('\n'))
+    }
+
     private fun openHeaderFieldOrNull(view: TextFirstEditText): android.widget.EditText? {
         val host = view.parent as android.view.ViewGroup
         return (0 until host.childCount).map(host::getChildAt).filterIsInstance<android.widget.EditText>().firstOrNull { it !== view }

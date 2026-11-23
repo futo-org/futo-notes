@@ -270,6 +270,9 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
     private fun leaveToCode(state: Editing) {
         close()
         Selection.setSelection(note.editableText, state.codeStart)
+        // The view's caret may already stand there (an empty language, an empty block), so only the engine can end its
+        // language caret or a selected block.
+        note.engine?.placeCaret(state.codeStart)
         note.showKeyboard()
     }
 
