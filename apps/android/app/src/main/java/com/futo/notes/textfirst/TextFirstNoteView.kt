@@ -27,7 +27,19 @@ internal fun TextFirstNoteView(
     onOpenWikilink: (WikilinkDestination) -> Unit,
     onOpenUrl: (String) -> Boolean,
 ) {
-    val host = remember(controller) { TextFirstTableCellHost(controller.view, controller::finishCellEditing) }
+    val host = remember(controller) {
+        TextFirstTableCellHost(controller.view, controller::finishCellEditing, object : TableGripActions {
+            override fun command(which: uniffi.futo_notes_ffi.EditorTableCommand) = controller.tableCommand(which)
+            override fun deleteTable() {
+                // The note keeps the keyboard: focus moves to it before the cell's field goes.
+                controller.view.requestFocus()
+                controller.deleteTable()
+                // The popup is still closing: the keyboard is asked for once the window has its focus back.
+                controller.view.postDelayed({ controller.view.showKeyboard() }, 200)
+            }
+            override fun menuShowing(showing: Boolean) { controller.gripMenuShowing = showing }
+        })
+    }
     var bounds by remember(host) { mutableStateOf<Rect?>(null) }
     val density = LocalDensity.current
     val localization = LocalLocalization.current

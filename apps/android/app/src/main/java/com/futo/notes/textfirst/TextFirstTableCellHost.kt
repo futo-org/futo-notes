@@ -12,7 +12,9 @@ import kotlin.math.roundToInt
 internal class TextFirstTableCellHost(
     private val note: TextFirstEditText,
     private val finishCell: () -> Unit,
+    actions: TableGripActions,
 ) : FrameLayout(note.context) {
+    private val grips = TableGrips(this, note.style, actions)
     private data class Anchor(val row: Int, val column: Int, val width: Int, val height: Int)
     private var cell: TableCellEditText? = null
     private var anchor: Anchor? = null
@@ -63,6 +65,7 @@ internal class TextFirstTableCellHost(
                 .hideSoftInputFromWindow(token, 0)
             removeView(previous)
         }
+        if (next == null) grips.remove()
         cell = next
         yielded = false
         anchor = null
@@ -111,6 +114,7 @@ internal class TextFirstTableCellHost(
     fun release() {
         stopObserving()
         setCell(null)
+        grips.remove()
         removeView(note)
         onBoundsChanged = {}
     }
@@ -135,6 +139,7 @@ internal class TextFirstTableCellHost(
             }
             if (geometry == null) {
                 field.alpha = 0f // Keep its attachment, focus and input connection while the note frame arrives.
+                grips.hide()
                 reportBounds(null)
                 return
             }
@@ -167,6 +172,8 @@ internal class TextFirstTableCellHost(
             }
             field.alpha = 1f
             reportBounds(Rect(field.left, field.top, field.right, field.bottom))
+            grips.layout(android.graphics.RectF(field.left.toFloat(), field.top.toFloat(), field.right.toFloat(), field.bottom.toFloat()),
+                geometry, checkNotNull(target), note.top.toFloat(), height.toFloat())
             if (!started) {
                 started = true
                 pressedTableAt = 0L
@@ -193,7 +200,7 @@ internal class TextFirstTableCellHost(
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             val hit = Rect()
             cell?.getHitRect(hit)
-            observingNote = cell != null && !hit.contains(event.x.toInt(), event.y.toInt())
+            observingNote = cell != null && !hit.contains(event.x.toInt(), event.y.toInt()) && !grips.hits(event.x.toInt(), event.y.toInt())
         }
         val handled = super.dispatchTouchEvent(event)
         // Observe only gestures Android routed outside the active field. Native

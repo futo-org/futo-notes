@@ -1,7 +1,12 @@
 package com.futo.notes.textfirst
 
+import uniffi.futo_notes_ffi.EditorByteRange
+import uniffi.futo_notes_ffi.EditorProjection
 import uniffi.futo_notes_ffi.EditorParagraphKey
 import uniffi.futo_notes_ffi.EditorTableAlignment
+import uniffi.futo_notes_ffi.EditorTableCommand
+import uniffi.futo_notes_ffi.EditorTableControls
+import uniffi.futo_notes_ffi.EditorTableDescription
 import uniffi.futo_notes_ffi.EditorTableKey
 import uniffi.futo_notes_ffi.EditorUtf16Range
 
@@ -17,7 +22,9 @@ internal data class GridRow(val cells: List<GridCell>, val columns: Int, val hea
  * excluded) starts. The keyboard reads the same window (EngineInputConnection), so it and the field agree.
  */
 internal data class CellUpdate(val start: Int, val end: Int, val text: String, val selectionStart: Int, val selectionEnd: Int,
-    val composingStart: Int, val composingEnd: Int, val viewSeq: Int, val rowStart: Int, val column: Int, val contentStart: Int = start)
+    val composingStart: Int, val composingEnd: Int, val viewSeq: Int, val rowStart: Int, val column: Int, val contentStart: Int = start,
+    /** The table's first display offset (its header line) and what the engine allows at this cell. */
+    val tableStart: Int = 0, val controls: EditorTableControls? = null)
 
 /** What the field last showed, on the editor thread: its extent keeps the spaces typed at the cell's edges. */
 internal class CellWindow {
@@ -174,6 +181,39 @@ internal fun EditorEngine.publishCell() {
     cellRange = from..to
     val update = CellUpdate(from, to, shown, mirror.selStart - from, mirror.selEnd - from,
         if (overlay != null) overlay.start - from else -1, if (overlay != null) overlay.start - from + overlay.marked.length else -1,
-        seq, rowStart, column, contentStart = start)
+        seq, rowStart, column, contentStart = start,
+        tableStart = mirror.toUtf16(table.display.start.toInt()), controls = table.controls)
     ui.post { sink.onCell(update) }
+}
+
+/** A row or column command at the open cell: one accepted edit, one Undo step; the field follows the engine's selection. */
+internal fun EditorEngine.tableCommand(which: EditorTableCommand) = command {
+    val s = session ?: return@command
+    if (!editingCell) return@command
+    if (mirror.overlay != null) commitComposition(null)
+    val change = s.tableCommand(rev, mirror.byteRange(mirror.selStart, mirror.selEnd), which) ?: return@command
+    accept(change)
+}
+
+/**
+ * Delete table, by the engine's rule: select from the first header cell to the last cell and delete through the
+ * ordinary deletion path (one edit, one Undo step). The field closes first: it has no cell left to stand for.
+ */
+internal fun EditorEngine.deleteTable() = command {
+    val s = session ?: return@command
+    if (!editingCell) return@command
+    if (mirror.overlay != null) commitComposition(null)
+    val table = s.inspectTable(rev, mirror.byteRange(mirror.selStart, mirror.selEnd)) ?: return@command
+    val first = table.rows.firstOrNull()?.firstOrNull() ?: return@command
+    val last = table.rows.lastOrNull()?.lastOrNull() ?: return@command
+    // A selection inside one cell edits its text: with a single cell the range takes the leading pipe too.
+    val oneCell = table.rows.size == 1 && table.rows[0].size == 1
+    val start = (if (oneCell) s.displayToUtf16(rev, table.display) else s.displayToUtf16(rev, first.content)).start.toInt()
+    val end = s.displayToUtf16(rev, last.content).end.toInt()
+    editingCell = false
+    cellRange = null
+    cellWindow.clear()
+    ui.post { sink.onCell(null) }
+    select(start, end, fromView = false)
+    key(EditorParagraphKey.BACKSPACE)
 }

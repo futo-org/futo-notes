@@ -44,6 +44,8 @@ internal class TextFirstController(
     var cellView by mutableStateOf<TableCellEditText?>(null); private set
     /** Whether the cell field has the keyboard: its controls show only then (the find bar may step onto a cell). */
     var cellFocused by mutableStateOf(false); private set
+    /** A table grip's menu is showing: the keyboard toolbar behind it is inert. */
+    var gripMenuShowing by mutableStateOf(false)
     var opened by mutableStateOf(false); private set
     var openFailure by mutableStateOf<Throwable?>(null); private set
     /** Whether navigation can proceed without an attached editor save. */
@@ -221,8 +223,9 @@ internal class TextFirstController(
     // ---- commands ----
 
     /** Recolor the existing view and spans without reopening the note or losing its selection. */
-    fun updateColors(text: Int, muted: Int, link: Int, border: Int, code: Int, surface: Int, page: Int = style.pageColor) {
+    fun updateColors(text: Int, muted: Int, link: Int, border: Int, code: Int, surface: Int, page: Int = style.pageColor, danger: Int = style.dangerColor) {
         style.pageColor = page
+        style.dangerColor = danger
         style.textColor = text
         style.mutedColor = muted
         style.linkColor = link
@@ -250,6 +253,8 @@ internal class TextFirstController(
     }
     fun paste(text: String) { engine?.paste(text) }
     fun finishCellEditing() { engine?.finishCellEditing() }
+    fun tableCommand(which: uniffi.futo_notes_ffi.EditorTableCommand) { engine?.tableCommand(which) }
+    fun deleteTable() { engine?.deleteTable() }
     /** The shared display-selection entry point for grid taps and Find. */
     suspend fun selectDisplayRange(start: Int, end: Int = start): Boolean = viaEngine(false) { e, done -> e.selectDisplayRange(start, end) { done(it) } }
     /** One engine round trip; [default] when the editor is gone. */
