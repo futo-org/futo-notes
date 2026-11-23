@@ -17,7 +17,7 @@ import {
   type Args,
   type PuppetOutcome,
 } from './puppetRegistry';
-import { textLineOnScreen } from './puppetTextAnchors';
+import { docVersionOfView, textLineOnScreen } from './puppetTextAnchors';
 import { lineRunsOf, lineTagsOf } from './puppetTextLineRuns';
 import { docTextOf, kindsOf, textLinesOnScreen } from './puppetTextLines';
 
@@ -111,7 +111,7 @@ export function textEditorState(
   return {
     ready: true,
     loading: false,
-    docVersion: view.revision(),
+    docVersion: docVersionOfView(view),
     note: editor.note(),
     onScreen: textLinesOnScreen(view),
     selection: selection && {
@@ -179,7 +179,7 @@ function textEditorDocLine(view: EditorView, number: number): PuppetOutcome {
   if (isPuppetOutcome(line)) return line;
   const element = view.lineElements()[number - 1];
   return ok({
-    docVersion: view.revision(),
+    docVersion: docVersionOfView(view),
     line: number,
     at: line.start,
     end: line.start + line.text.length,
@@ -203,7 +203,7 @@ export function textEditorDoc(args: Args): PuppetOutcome {
   const lines = view.displayLines();
   const onScreen = textLinesOnScreen(view);
   return ok({
-    docVersion: view.revision(),
+    docVersion: docVersionOfView(view),
     onScreen,
     more: onScreen ? { above: onScreen.first > 1, below: onScreen.last < lines.length } : null,
     lines: docLines(view, 0, lines.length),

@@ -15,6 +15,20 @@ import {
 import { showsLine, whatShows, type Range } from './puppetText';
 import { shownTextOf, textLinesOnScreen } from './puppetTextLines';
 
+const engineIds = new WeakMap<object, number>();
+let engineCount = 0;
+const REVISIONS = 1e9;
+
+/** The version of the note the view shows: its engine's identity and revision together. A
+ *  revision restarts at each note, so alone it would match a read from another note. */
+export function docVersionOfView(view: EditorView): number {
+  const engine = view.currentEngine();
+  if (!engine) return 0;
+  let id = engineIds.get(engine);
+  if (id === undefined) engineIds.set(engine, (id = ++engineCount));
+  return id * REVISIONS + (engine.revision % REVISIONS);
+}
+
 /** `refuse`, with the batch that brings the place on screen for `futo-puppet` to print. */
 function refuseOffScreen(error: string, line: number): PuppetOutcome {
   return { status: 409, body: { ok: false, error, reach: [['ScrollToLine', { line }]] } };
@@ -86,8 +100,8 @@ export function textRangeRefusal(view: EditorView, range: Range, args: Args): Pu
   if (Math.min(from, to) < 0 || Math.max(from, to) > end) {
     return refuse(400, `range ${from}-${to} is not in the note, which ends at ${end}`);
   }
-  if (typeof args.docVersion === 'number' && args.docVersion !== view.revision()) {
-    return refuse(409, `document changed: docVersion is now ${view.revision()}`);
+  if (typeof args.docVersion === 'number' && args.docVersion !== docVersionOfView(view)) {
+    return refuse(409, `document changed: docVersion is now ${docVersionOfView(view)}`);
   }
   if (typeof args.expect === 'string') {
     const actual = shownBetween(view, Math.min(from, to), Math.max(from, to));

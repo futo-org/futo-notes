@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { EditorView } from '$features/editor/desktop/view';
 import { mountView } from '$features/editor/desktop/__test__/mountView';
-import { textAnchor, textRangeFrom } from './puppetTextAnchors';
+import { docVersionOfView, textAnchor, textRangeFrom } from './puppetTextAnchors';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -54,10 +54,23 @@ it('holds offsets to the text and the version they were read from', async () => 
     status: 409,
     body: { error: 'text at 6-11 is "world", expected "there"' },
   });
-  expect(textRangeFrom(view, { ...args, docVersion: view.revision() + 1 }, 'Select')).toMatchObject(
-    { status: 409 },
-  );
+  expect(
+    textRangeFrom(view, { ...args, docVersion: docVersionOfView(view) + 1 }, 'Select'),
+  ).toMatchObject({ status: 409 });
   expect(textRangeFrom(view, { from: 6, to: 40 }, 'Select')).toMatchObject({ status: 400 });
+});
+
+it('refuses a version read in another note, whose revision may be the same', async () => {
+  const { view: first } = await mountView('hello world');
+  layOut(first, 10);
+  const read = docVersionOfView(first);
+  document.body.replaceChildren();
+  const { view: second } = await mountView('hello world');
+  layOut(second, 10);
+  expect(second.revision()).toBe(first.revision());
+  expect(textRangeFrom(second, { from: 6, to: 11, docVersion: read }, 'Select')).toMatchObject({
+    status: 409,
+  });
 });
 
 it('takes a range made backwards, as a drag from its end makes it', async () => {
