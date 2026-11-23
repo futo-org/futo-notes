@@ -144,6 +144,17 @@ class TextFirstTableEditingTest {
         }
     }
 
+    @Test fun deleteTableRemovesATableWhoseLastRowIsALonePipe() = textFirstSession(
+        "head\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n|\n\nend\n",
+    ) { c ->
+        val source = c.sourceText()!!
+        val at = c.view.text.toString().indexOf("1")
+        assertTrue(c.selectDisplayRange(at, at))
+        c.deleteTable()
+        kotlinx.coroutines.withTimeout(5_000) { while (c.sourceText() == source) kotlinx.coroutines.delay(20) }
+        assertEquals("head\n\n\n\nend\n", c.sourceText())
+    }
+
     @Test fun aTypedPipeWidensEveryRowOfTheTableAndItsUndoNarrowsThem() = textFirstSession(
         "| h1 | h2 |\n| --- | --- |\n| d1 | d2 |\n| d3 | d4 |\n",
     ) { c ->

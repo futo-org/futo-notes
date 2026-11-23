@@ -236,7 +236,8 @@ internal fun EditorEngine.deleteTable() = command {
     if (mirror.overlay != null) commitComposition(null)
     val table = s.inspectTable(rev, mirror.byteRange(mirror.selStart, mirror.selEnd)) ?: return@command
     val first = table.rows.firstOrNull()?.firstOrNull() ?: return@command
-    val last = table.rows.lastOrNull()?.lastOrNull() ?: return@command
+    // A body row that is a lone `|` has no cell: the last cell is the last one anywhere.
+    val last = table.rows.lastOrNull { it.isNotEmpty() }?.last() ?: return@command
     // A selection inside one cell edits its text: with a single cell the range takes the leading pipe too.
     val oneCell = table.rows.size == 1 && table.rows[0].size == 1
     cellWindow.deletedFrom.addLast(mirror.selStart)
