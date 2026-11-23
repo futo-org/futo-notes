@@ -2,6 +2,8 @@ package com.futo.notes.textfirst
 
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Region
 import android.text.Layout
 import android.text.Spanned
 import android.text.StaticLayout
@@ -159,6 +161,31 @@ internal class TfTableRow(
         val line = layout.getLineForVertical((y - padding).toInt().coerceIn(0, layout.height))
         return layout.getOffsetForHorizontal(line, x - padding)
     }
+    /** The link run under a point [x],[y] in cell [column]'s box: only the glyphs of the link itself, as a paragraph link. */
+    fun linkAt(column: Int, x: Float, y: Float): CellRun? {
+        val layout = build().layouts.getOrNull(column) ?: return null
+        val cell = row.cells.getOrNull(column) ?: return null
+        val lx = x - padding
+        val ly = y - padding
+        if (ly < 0 || ly >= layout.height) return null
+        val line = layout.getLineForVertical(ly.toInt())
+        if (lx < layout.getLineLeft(line) || lx > layout.getLineRight(line)) return null
+        val lineRegion = Region(0, layout.getLineTop(line), layout.width + 1, layout.getLineBottom(line))
+        val path = Path()
+        for (run in cell.runs) {
+            if (run.link == null && !(run.wiki && run.noteId != null)) continue
+            val a = maxOf(run.start, layout.getLineStart(line)); val b = minOf(run.end, layout.getLineVisibleEnd(line))
+            if (a >= b) continue
+            path.reset()
+            layout.getSelectionPath(a, b, path)
+            val region = Region()
+            region.setPath(path, lineRegion)
+            if (region.contains(lx.toInt(), ly.toInt())) return run
+        }
+        return null
+    }
+    /** The column whose box holds [x] (relative to the row's left), or -1 outside the table. */
+    fun columnAt(x: Float): Int = if (x < 0f || x >= width()) -1 else ((x + scroll.x) / cellWidth).toInt().takeIf { it in 0 until columns } ?: -1
     fun cellAt(x: Float): GridCell? = if (x < 0f || x >= width()) null
         else row.cells.getOrNull(((x + scroll.x) / cellWidth).toInt())
     /** Scroll the grid so the cell holding [offset] shows; true when it moved. */

@@ -79,6 +79,7 @@ internal class TextFirstController(
             checkpointForMigration = { checkpointDraft(forMigration = true) },
         ))
         view.onTableCell = { start, end, seq -> engine?.selectDisplayRange(start, end, seq) {} }
+        view.tableTouch.hooks.missing = { rowStart, column, seq -> engine?.openMissingCell(rowStart, column, seq) {} }
         view.clipboard.onCopyRefused = { onClipboardRefused() }
         // A field of the note holding the keyboard (a cell, a code block's name or language) keeps a hold its own.
         view.liftAllowed = { opened && cellView == null && view.codeTouch.headerField.openField == null && !screenFieldFocused() }

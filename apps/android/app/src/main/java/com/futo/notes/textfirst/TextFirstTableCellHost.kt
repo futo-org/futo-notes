@@ -48,7 +48,16 @@ internal class TextFirstTableCellHost(
         override fun onLongPress(e: MotionEvent) { if (outside(e)) finishCell() }
     })
 
+    /** Whether a cell of [row]'s table is the open one. */
+    private fun opensTable(row: TfTableRow): Boolean {
+        val update = cell?.update ?: return false
+        val e = note.editableText ?: return false
+        if (update.rowStart !in 0 until e.length) return false
+        return e.getSpans(update.rowStart, update.rowStart, TfTableRow::class.java).any { e.getSpanStart(it) == update.rowStart && it.scroll === row.scroll }
+    }
+
     init {
+        note.tableTouch.hooks.tableOpen = ::opensTable
         clipChildren = true
         clipToPadding = true
         addView(note, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -72,7 +81,7 @@ internal class TextFirstTableCellHost(
         styled = null
         started = false
         reportBounds(null)
-        next?.let { it.alpha = 0f; addView(it, LayoutParams(0, 0)) }
+        next?.let { it.alpha = 0f; it.openLink = { run -> note.openCellLink(run) }; addView(it, LayoutParams(0, 0)) }
         requestLayout()
     }
 

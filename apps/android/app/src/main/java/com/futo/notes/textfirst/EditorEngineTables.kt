@@ -6,8 +6,10 @@ import uniffi.futo_notes_ffi.EditorParagraphKey
 import uniffi.futo_notes_ffi.EditorTableAlignment
 import uniffi.futo_notes_ffi.EditorTableCommand
 import uniffi.futo_notes_ffi.EditorTableControls
+import uniffi.futo_notes_ffi.EditorSessionException
 import uniffi.futo_notes_ffi.EditorTableDescription
 import uniffi.futo_notes_ffi.EditorTableKey
+import uniffi.futo_notes_ffi.EditorTableOutcome
 import uniffi.futo_notes_ffi.EditorUtf16Range
 
 /** Display coordinates supplied by Rust. Never source coordinates or Markdown fragments. */
@@ -35,6 +37,8 @@ internal class CellWindow {
     var text = ""
     /** The engine's content end for the open cell: where a cell entered by a key puts the caret. */
     var contentEnd = 0
+    /** Where the caret was when Delete table ran: Undo restores the deleted range as a selection, and the cell it came from opens. */
+    var deletedFrom = -1
     fun clear() { row = -1; column = -1; text = ""; anchor = 0; length = 0; contentEnd = 0 }
 }
 
@@ -112,9 +116,14 @@ internal fun EditorEngine.leaveTableBelow() = command {
 }
 
 /** Tab navigation and row insertion are one canonical table-key outcome. */
-internal fun EditorEngine.tableTab(shift: Boolean): Boolean {
-    val outcome = session?.tableKey(rev, if (shift) EditorTableKey.SHIFT_TAB else EditorTableKey.TAB)
-        ?: return false
+internal fun EditorEngine.tableTab(shift: Boolean): Boolean =
+    tableKeyMove(if (shift) EditorTableKey.SHIFT_TAB else EditorTableKey.TAB)
+
+internal fun EditorEngine.tableKeyMove(key: EditorTableKey): Boolean = applyTableOutcome(session?.tableKey(rev, key))
+
+/** A table key's or entered cell's outcome applied: an accepted edit, or a selection move. False when there was none. */
+private fun EditorEngine.applyTableOutcome(outcome: EditorTableOutcome?): Boolean {
+    outcome ?: return false
     outcome.edited?.let { accept(it) }
     outcome.selected?.let {
         if (streaming && mirror.toUtf16(it.selection.end.toInt()) > tailStart()) finishStreaming()
@@ -162,6 +171,7 @@ internal fun EditorEngine.publishCell() {
     // still reads as that extent around the engine's content; otherwise it is rebuilt around the content,
     // keeping the edge spaces the field showed or that the caret stands in (one padding space aside).
     val keep = same && w.anchor <= start && end <= w.anchor + w.length && w.anchor + w.length <= text.length &&
+        mirror.selStart >= w.anchor && mirror.selEnd <= w.anchor + w.length &&
         blank(text, w.anchor, start) && blank(text, end, w.anchor + w.length)
     var from = start
     var to = end
@@ -196,8 +206,8 @@ internal fun EditorEngine.tableCommand(which: EditorTableCommand) = command {
 }
 
 /**
- * Delete table, by the engine's rule: select from the first header cell to the last cell and delete through the
- * ordinary deletion path (one edit, one Undo step). The field closes first: it has no cell left to stand for.
+ * Delete table, by the engine's rule: Backspace over the range from the first header cell to the last cell, through
+ * the ordinary deletion path (one edit, one Undo step). The field closes first: it has no cell left to stand for.
  */
 internal fun EditorEngine.deleteTable() = command {
     val s = session ?: return@command
@@ -208,12 +218,61 @@ internal fun EditorEngine.deleteTable() = command {
     val last = table.rows.lastOrNull()?.lastOrNull() ?: return@command
     // A selection inside one cell edits its text: with a single cell the range takes the leading pipe too.
     val oneCell = table.rows.size == 1 && table.rows[0].size == 1
+    cellWindow.deletedFrom = mirror.selStart
     val start = (if (oneCell) s.displayToUtf16(rev, table.display) else s.displayToUtf16(rev, first.content)).start.toInt()
     val end = s.displayToUtf16(rev, last.content).end.toInt()
     editingCell = false
     cellRange = null
     cellWindow.clear()
     ui.post { sink.onCell(null) }
-    select(start, end, fromView = false)
-    key(EditorParagraphKey.BACKSPACE)
+    // The range goes to the key itself, so the caret stays in the cell the table is deleted from: Undo puts it back there.
+    checkNotNull(fast).paragraphKey(rev, start, end, EditorParagraphKey.BACKSPACE_JOINING_HEADING)?.let(::accept)
+}
+
+/**
+ * A tap in a box a short row draws but lacks: the engine enters the cell by its row and column, giving the row its
+ * missing cells in ONE edit, and the field opens there. The row is named by [rowStart], a display offset in the
+ * view update [viewSeq]. [done] says whether a cell opened.
+ */
+internal fun EditorEngine.openMissingCell(rowStart: Int, column: Int, viewSeq: Int, done: (Boolean) -> Unit) {
+    val posted = handler.post {
+        var opened = false
+        try {
+            val s = session
+            val at = viewEdits.map(viewSeq, rowStart, rowStart)?.first
+            if (!closed && s != null && at != null && storageGate?.isMigrationStarted != true) {
+                if (mirror.overlay != null) commitComposition(null)
+                editingCell = true
+                opened = applyTableOutcome(s.enterTableCell(rev, mirror.byteRange(at, at).start, column.toUInt()))
+                if (!opened) { editingCell = false; cellRange = null; cellWindow.clear(); ui.post { sink.onCell(null) } }
+            }
+        } catch (e: EditorSessionException) {
+            handleFailure(e)
+        } finally { ui.post { done(opened) } }
+    }
+    if (!posted) ui.post { done(false) }
+}
+
+/**
+ * The engine's selection is in a table cell but no field is open (Undo or Redo brought a table back; the keystroke that
+ * finishes a hand-typed delimiter row put the caret in the first body cell): open the field there, as a tap would.
+ */
+internal fun EditorEngine.openCellAtSelection(restoreRange: Boolean = false) {
+    if (editingCell || mirror.overlay != null) return
+    val s = session ?: return
+    var table = s.inspectTable(rev, mirror.byteRange(mirror.selStart, mirror.selEnd)) ?: return
+    if (table.focus == null) {
+        if (!restoreRange) return
+        // Undo of Delete table restores the deleted range as the selection: the caret goes back to the cell it was deleted from.
+        val extent = s.displayToUtf16(rev, table.display)
+        if (mirror.selStart == mirror.selEnd || mirror.selStart < extent.start.toInt() || mirror.selEnd > extent.end.toInt()) return
+        val first = table.rows.firstOrNull()?.firstOrNull() ?: return
+        val at = cellWindow.deletedFrom.takeIf { it in extent.start.toInt()..extent.end.toInt() }
+            ?: s.displayToUtf16(rev, first.content).start.toInt()
+        select(at, at, fromView = false)
+        table = s.inspectTable(rev, mirror.byteRange(mirror.selStart, mirror.selEnd)) ?: return
+        if (table.focus == null) return
+    }
+    editingCell = true
+    publishCell()
 }

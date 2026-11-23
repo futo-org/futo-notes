@@ -22,6 +22,14 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         note.engine === editor && note.appliedSeq == it.viewSeq
     }
     private var header = false
+    private var cellRuns: List<CellRun> = emptyList()
+    private var runShift = 0
+    /** Opens a link tapped in the open cell (the note's opener); false when it cannot be opened. */
+    var openLink: (CellRun) -> Boolean = { false }
+    val update: CellUpdate? get() = current
+    private var pressedLink: CellRun? = null
+    private var downX = 0f
+    private var downY = 0f
     /** The text changed under the styling last set: the host styles it again. */
     var styleStale = true; private set
     fun applyGeometry(geometry: TableCellGeometry) {
@@ -69,6 +77,7 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
 
     /** The engine's inline styling over the field's text, the same runs the closed grid draws. */
     private fun applyRuns(runs: List<CellRun>, shift: Int) {
+        cellRuns = runs; runShift = shift
         val e = editableText
         applying = true
         try {
@@ -120,6 +129,55 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         if (suffix > 0 && Character.isLowSurrogate(old[old.length - suffix])) suffix--
         e.replace(prefix, old.length - suffix, next, prefix, next.length - suffix)
     }
+    /** The link whose glyphs hold the point: a short tap on it opens it, with no caret move and no delay. */
+    private fun linkAt(x: Float, y: Float): CellRun? {
+        val l = layout ?: return null
+        val lx = x - totalPaddingLeft + scrollX
+        val ly = y - totalPaddingTop + scrollY
+        if (ly < 0 || ly >= l.height) return null
+        val line = l.getLineForVertical(ly.toInt())
+        if (lx < l.getLineLeft(line) || lx > l.getLineRight(line)) return null
+        val lineRegion = android.graphics.Region(0, l.getLineTop(line), l.width + 1, l.getLineBottom(line))
+        val path = android.graphics.Path()
+        for (run in cellRuns) {
+            if (run.link == null && !(run.wiki && run.noteId != null)) continue
+            val a = maxOf(run.start + runShift, l.getLineStart(line)).coerceIn(0, text!!.length)
+            val b = minOf(run.end + runShift, l.getLineVisibleEnd(line)).coerceIn(0, text!!.length)
+            if (a >= b) continue
+            path.reset()
+            l.getSelectionPath(a, b, path)
+            val region = android.graphics.Region()
+            region.setPath(path, lineRegion)
+            if (region.contains(lx.toInt(), ly.toInt())) return run
+        }
+        return null
+    }
+
+    override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
+        when (event.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> { pressedLink = linkAt(event.x, event.y); downX = event.x; downY = event.y }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+                if (kotlin.math.abs(event.x - downX) > slop || kotlin.math.abs(event.y - downY) > slop) pressedLink = null
+            }
+            android.view.MotionEvent.ACTION_POINTER_DOWN -> pressedLink = null
+            android.view.MotionEvent.ACTION_UP -> {
+                val link = pressedLink
+                pressedLink = null
+                if (link != null && event.eventTime - event.downTime < android.view.ViewConfiguration.getLongPressTimeout() &&
+                    linkAt(event.x, event.y) == link && openLink(link)) {
+                    cancelLongPress()
+                    val cancel = android.view.MotionEvent.obtain(event)
+                    cancel.action = android.view.MotionEvent.ACTION_CANCEL
+                    try { super.onTouchEvent(cancel) } finally { cancel.recycle() }
+                    return true
+                }
+            }
+            android.view.MotionEvent.ACTION_CANCEL -> pressedLink = null
+        }
+        return super.onTouchEvent(event)
+    }
+
     override fun onSelectionChanged(a: Int, b: Int) {
         super.onSelectionChanged(a, b)
         if (!applying) current?.let { editor.hostSelect(it.start + a.coerceAtLeast(0), it.start + b.coerceAtLeast(0)) }

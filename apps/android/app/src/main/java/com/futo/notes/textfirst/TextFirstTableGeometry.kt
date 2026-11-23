@@ -59,16 +59,23 @@ internal fun TextFirstEditText.tableCellGeometry(target: CellUpdate, revealRow: 
         (totalPaddingTop + l.getLineTop(l.getLineForOffset(target.tableStart.coerceIn(0, e.length))) - scrollY).toFloat())
 }
 
-/** The display offset a tap at ([x], [y]) puts the caret at inside [cell] of [row]: at the tap, never a selection. */
-internal fun TextFirstEditText.tableTapOffset(row: TfTableRow, cell: GridCell, x: Float, y: Float): Int {
-    val l = layout ?: return cell.end
-    val e = editableText ?: return cell.end
+/** What a tap at ([x], [y]) on [row] means: the column it is in and, when it is on link text, the link. */
+internal class TableTap(val column: Int, val cell: GridCell?, val link: CellRun?, val caret: Int)
+
+internal fun TextFirstEditText.tableTapAt(row: TfTableRow, x: Float, y: Float): TableTap? {
+    val l = layout ?: return null
+    val e = editableText ?: return null
     val start = e.getSpanStart(row)
-    if (start < 0) return cell.end
+    if (start < 0) return null
     val line = l.getLineForOffset(start)
-    val column = row.row.cells.indexOfFirst { it.start + (start - row.displayStart) == cell.start }
-    if (column < 0) return cell.end
+    val lineX = x - totalPaddingLeft + scrollX - l.getLineLeft(line)
+    val column = row.columnAt(lineX)
+    if (column < 0) return null
+    val shift = start - row.displayStart
+    val cell = row.row.cells.getOrNull(column)?.let { it.copy(start = it.start + shift, end = it.end + shift) }
     val left = totalPaddingLeft + l.getLineLeft(line) + column * row.cellWidth - row.scroll.x - scrollX
     val top = totalPaddingTop + l.getLineTop(line) - scrollY
-    return (cell.start + row.offsetIn(column, x - left, y - top)).coerceIn(cell.start, cell.end)
+    val link = row.linkAt(column, x - left, y - top)
+    val caret = cell?.let { (it.start + row.offsetIn(column, x - left, y - top)).coerceIn(it.start, it.end) } ?: 0
+    return TableTap(column, cell, link, caret)
 }
