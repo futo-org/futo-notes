@@ -78,6 +78,7 @@ internal class TfTableRow(
     val viewportWidth: Int get() = width()
     val cellWidth: Float get() = tableColumnWidth(look, width(), columns)
     private val padding = look.dp(10f)
+    private val chip by lazy { InlineCodeChip() }
 
     private class Built(val cellWidth: Float, val layouts: List<StaticLayout>, val height: Int)
     private var built: Built? = null
@@ -149,6 +150,8 @@ internal class TfTableRow(
             canvas.translate(left + padding, top + layoutTop(layout, bottom - top))
             val cell = row.cells[column]
             val shift = start - displayStart
+            // Under the find marks and the text, as in a paragraph.
+            if (cell.runs.any { it.code }) chip.drawRuns(canvas, layout, layout.text as Spanned, 0, layout.text.length, layout.paint, look)
             marks.drawCell(canvas, layout, cell.start + shift, cell.end + shift, look)
             layout.draw(canvas)
             canvas.restoreToCount(cellSave)

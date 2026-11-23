@@ -124,6 +124,26 @@ class TextFirstTableEditingTest {
         }
     }
 
+    @Test fun inlineCodeInACellIsDrawnOnTheChipAParagraphGives() = textFirstSession(
+        "| h1 | h2 |\n| --- | --- |\n| `code` | plain |\n",
+    ) { c ->
+        val view = c.view
+        kotlinx.coroutines.withTimeout(5_000) { while (view.layout == null || view.editableText.getSpans(0, view.editableText.length, TfTableRow::class.java).isEmpty()) kotlinx.coroutines.delay(20) }
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            val e = view.editableText
+            val row = e.getSpans(0, e.length, TfTableRow::class.java).single { !it.row.header }
+            val l = view.layout
+            val line = l.getLineForOffset(e.getSpanStart(row))
+            val bitmap = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+            view.draw(android.graphics.Canvas(bitmap))
+            val y = (view.totalPaddingTop + (l.getLineTop(line) + l.getLineBottom(line)) / 2 - view.scrollY)
+            val left = view.totalPaddingLeft + l.getLineLeft(line) - view.scrollX
+            val beforeTheLetters = bitmap.getPixel((left + view.style.dp(10f) - view.style.textSizePx * 0.1f).toInt(), y)
+            val blank = bitmap.getPixel((left + row.cellWidth - view.style.dp(6f)).toInt(), y)
+            assertNotEquals("The chip shows left of the code, where the cell is otherwise blank", blank, beforeTheLetters)
+        }
+    }
+
     @Test fun aTypedPipeWidensEveryRowOfTheTableAndItsUndoNarrowsThem() = textFirstSession(
         "| h1 | h2 |\n| --- | --- |\n| d1 | d2 |\n| d3 | d4 |\n",
     ) { c ->

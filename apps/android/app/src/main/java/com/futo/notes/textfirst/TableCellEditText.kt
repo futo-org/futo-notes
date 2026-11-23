@@ -193,6 +193,21 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         return super.onTouchEvent(event)
     }
 
+    private val chip by lazy { InlineCodeChip() }
+    /** Inline code's chip under the field's text, as the closed grid and a paragraph draw it. */
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        val l = layout
+        if (l != null && cellRuns.any { it.code }) {
+            val box = height - extendedPaddingTop - extendedPaddingBottom - l.height
+            val top = extendedPaddingTop + if (gravity and android.view.Gravity.VERTICAL_GRAVITY_MASK == android.view.Gravity.CENTER_VERTICAL) maxOf(0, box) / 2 else 0
+            val save = canvas.save()
+            canvas.translate(compoundPaddingLeft.toFloat(), top.toFloat())
+            chip.drawRuns(canvas, l, editableText, 0, editableText.length, paint, noteStyle)
+            canvas.restoreToCount(save)
+        }
+        super.onDraw(canvas)
+    }
+
     override fun onSelectionChanged(a: Int, b: Int) {
         super.onSelectionChanged(a, b)
         if (!applying) current?.let { editor.hostSelect(it.start + a.coerceAtLeast(0), it.start + b.coerceAtLeast(0)) }
