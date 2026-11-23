@@ -82,6 +82,8 @@ internal class TextFirstEditText(
     internal var onViewportReady: (() -> Unit)? = null
     /** Paste and keyboard content; its [TextFirstClipboard.onImageContent] owner saves images. */
     val clipboard = TextFirstClipboard(context) { engine }
+    /** How many times the host hid the keyboard (the toolbar's hide control): a late keyboard request checks it. */
+    internal var keyboardHides = 0
     internal val tableTouch = TableGridTouch(this, { _, caret -> onTableCell?.invoke(caret, caret, appliedSeq) }, { invalidateTableScroll(it) })
     internal val marks = FindMarks()
     internal val scroll = NoteScroll(this)

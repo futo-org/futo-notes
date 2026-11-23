@@ -42,9 +42,13 @@ internal fun TextFirstNoteView(
             override val labels get() = gripLabels
             override fun command(which: uniffi.futo_notes_ffi.EditorTableCommand) = controller.tableCommand(which)
             override fun deleteTable() {
+                val hides = controller.view.keyboardHides
                 controller.deleteTable()
-                // The popup is still closing and takes the window's focus with it: the keyboard is asked for again once it is gone.
-                controller.view.postDelayed({ controller.view.showKeyboard() }, 400)
+                // The popup is still closing and takes the window's focus with it: the keyboard is asked for again once
+                // it is gone, unless the table has come back (Undo opens its cell) or the person has hidden the keyboard.
+                controller.view.postDelayed({
+                    if (controller.cellView == null && controller.view.keyboardHides == hides) controller.view.showKeyboard()
+                }, 400)
             }
             override fun menuShowing(showing: Boolean) { controller.gripMenuShowing = showing }
         })
