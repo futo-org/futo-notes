@@ -10,6 +10,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -27,8 +28,18 @@ internal fun TextFirstNoteView(
     onOpenWikilink: (WikilinkDestination) -> Unit,
     onOpenUrl: (String) -> Boolean,
 ) {
+    val localization = LocalLocalization.current
+    val gripLabels by rememberUpdatedState(TableGripLabels(
+        localization.localizedText("editor.table.addRowAbove"), localization.localizedText("editor.table.addRowBelow"),
+        localization.localizedText("editor.table.deleteRow"), localization.localizedText("editor.table.addColumnLeft"),
+        localization.localizedText("editor.table.addColumnRight"), localization.localizedText("editor.table.deleteColumn"),
+        localization.localizedText("editor.table.deleteTable"),
+        localization.localizedText("editor.tableGrips.rowOptionsAccessibilityLabel"),
+        localization.localizedText("editor.tableGrips.columnOptionsAccessibilityLabel"),
+    ))
     val host = remember(controller) {
         TextFirstTableCellHost(controller.view, controller::finishCellEditing, object : TableGripActions {
+            override val labels get() = gripLabels
             override fun command(which: uniffi.futo_notes_ffi.EditorTableCommand) = controller.tableCommand(which)
             override fun deleteTable() {
                 // The note keeps the keyboard: focus moves to it before the cell's field goes.
@@ -42,7 +53,6 @@ internal fun TextFirstNoteView(
     }
     var bounds by remember(host) { mutableStateOf<Rect?>(null) }
     val density = LocalDensity.current
-    val localization = LocalLocalization.current
     val field = controller.cellView
     DisposableEffect(host) {
         host.onBoundsChanged = { bounds = it }

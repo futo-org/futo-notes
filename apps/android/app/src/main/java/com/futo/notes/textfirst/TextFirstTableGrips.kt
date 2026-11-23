@@ -16,10 +16,18 @@ import uniffi.futo_notes_ffi.EditorTableCommand
 // Table grips: while a cell is open, a row grip at its row's left edge and a column grip on the table's top edge
 // above its column. Each opens a native popup menu anchored at it; the keyboard and the cell stay up. The six
 // row/column items are the engine's `table_command`s (shown disabled where it forbids them); Delete table is the
-// engine's own whole-table deletion. The strings are hard-coded English (listed in the ledger for localisation).
+// engine's own whole-table deletion.
+
+/** The grips' words, from the language catalog (`editor.table.*`, `editor.tableGrips.*`). */
+internal data class TableGripLabels(
+    val addRowAbove: String, val addRowBelow: String, val deleteRow: String,
+    val addColumnLeft: String, val addColumnRight: String, val deleteColumn: String, val deleteTable: String,
+    val rowOptions: String, val columnOptions: String,
+)
 
 /** What a grip does to the note; the controller owns the engine. */
 internal interface TableGripActions {
+    val labels: TableGripLabels
     fun command(which: EditorTableCommand)
     fun deleteTable()
     /** A grip menu opened (true) or closed (false): the keyboard toolbar ignores taps while it shows. */
@@ -70,10 +78,10 @@ internal class TableGrips(
     private val actions: TableGripActions,
 ) {
     private val rowGrip = TableGripView(host.context, look, across = 2, row = true).apply {
-        pillWidth = look.dp(14f); pillHeight = look.dp(26f); contentDescription = "Row actions"
+        pillWidth = look.dp(14f); pillHeight = look.dp(26f)
     }
     private val columnGrip = TableGripView(host.context, look, across = 3, row = false).apply {
-        pillWidth = look.dp(26f); pillHeight = look.dp(14f); contentDescription = "Column actions"
+        pillWidth = look.dp(26f); pillHeight = look.dp(14f)
     }
     private val all = listOf(rowGrip, columnGrip)
     private var attached = false
@@ -121,6 +129,8 @@ internal class TableGrips(
      */
     fun layout(cell: RectF, geometry: TableCellGeometry, update: CellUpdate, noteTop: Float, viewHeight: Float) {
         controls = update.controls
+        rowGrip.contentDescription = actions.labels.rowOptions
+        columnGrip.contentDescription = actions.labels.columnOptions
         attach()
         val tableLeft = geometry.visibleLeft
         val tableRight = geometry.visibleRight
@@ -167,25 +177,27 @@ internal class TableGrips(
     private fun open(grip: TableGripView) {
         if (menu != null) return
         val can = controls
+        val words = actions.labels
         val popup = PopupMenu(grip.context, grip)
         popup.menu.setGroupDividerEnabled(true)
         fun add(group: Int, order: Int, title: String, enabled: Boolean, destructive: Boolean = false, run: () -> Unit) {
             val text = SpannableString(title)
-            if (destructive) text.setSpan(ForegroundColorSpan(look.dangerColor), 0, text.length, 0)
+            // A disabled destructive item keeps its error hue, dimmed like any disabled item.
+            if (destructive) text.setSpan(ForegroundColorSpan(if (enabled) look.dangerColor else (look.dangerColor and 0x00ffffff) or 0x61000000), 0, text.length, 0)
             val item: MenuItem = popup.menu.add(group, order, order, text)
             item.isEnabled = enabled
             item.setOnMenuItemClickListener { run(); true }
         }
         if (grip.row) {
-            add(1, 0, "Add above", can?.insertRowAbove == true) { actions.command(EditorTableCommand.INSERT_ROW_ABOVE) }
-            add(1, 1, "Add below", can?.insertRowBelow == true) { actions.command(EditorTableCommand.INSERT_ROW_BELOW) }
-            add(1, 2, "Delete row", can?.deleteRow == true, destructive = true) { actions.command(EditorTableCommand.DELETE_ROW) }
+            add(1, 0, words.addRowAbove, can?.insertRowAbove == true) { actions.command(EditorTableCommand.INSERT_ROW_ABOVE) }
+            add(1, 1, words.addRowBelow, can?.insertRowBelow == true) { actions.command(EditorTableCommand.INSERT_ROW_BELOW) }
+            add(1, 2, words.deleteRow, can?.deleteRow == true, destructive = true) { actions.command(EditorTableCommand.DELETE_ROW) }
         } else {
-            add(1, 0, "Add to left", can?.insertColumnLeft == true) { actions.command(EditorTableCommand.INSERT_COLUMN_LEFT) }
-            add(1, 1, "Add to right", can?.insertColumnRight == true) { actions.command(EditorTableCommand.INSERT_COLUMN_RIGHT) }
-            add(1, 2, "Delete column", can?.deleteColumn == true, destructive = true) { actions.command(EditorTableCommand.DELETE_COLUMN) }
+            add(1, 0, words.addColumnLeft, can?.insertColumnLeft == true) { actions.command(EditorTableCommand.INSERT_COLUMN_LEFT) }
+            add(1, 1, words.addColumnRight, can?.insertColumnRight == true) { actions.command(EditorTableCommand.INSERT_COLUMN_RIGHT) }
+            add(1, 2, words.deleteColumn, can?.deleteColumn == true, destructive = true) { actions.command(EditorTableCommand.DELETE_COLUMN) }
         }
-        add(2, 3, "Delete table", can != null, destructive = true) { actions.deleteTable() }
+        add(2, 3, words.deleteTable, can != null, destructive = true) { actions.deleteTable() }
         popup.setOnDismissListener { menu = null; setMenuShowing(false) }
         menu = popup
         setMenuShowing(true)
