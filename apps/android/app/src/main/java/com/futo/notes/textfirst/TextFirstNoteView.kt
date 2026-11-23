@@ -45,9 +45,10 @@ internal fun TextFirstNoteView(
                 val hides = controller.view.keyboardHides
                 controller.deleteTable()
                 // The popup is still closing and takes the window's focus with it: the keyboard is asked for again once
-                // it is gone, unless the table has come back (Undo opens its cell) or the person has hidden the keyboard.
+                // it is gone, unless the table has come back (Undo opens its cell), the person has hidden the keyboard, or has
+                // gone on to the title or Find field, which a refocus of the note would take the focus from.
                 controller.view.postDelayed({
-                    if (controller.cellView == null && controller.view.keyboardHides == hides) controller.view.showKeyboard()
+                    if (controller.cellView == null && controller.view.keyboardHides == hides && !controller.screenFieldFocused()) controller.view.showKeyboard()
                 }, 400)
             }
             override fun menuShowing(showing: Boolean) { controller.gripMenuShowing = showing }
