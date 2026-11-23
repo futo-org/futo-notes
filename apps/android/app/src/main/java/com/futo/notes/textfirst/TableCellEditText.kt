@@ -156,6 +156,18 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         return null
     }
 
+    /**
+     * The part of the field the table has scrolled out of view is not drawn and takes no touch: a press there goes to
+     * the note under it, where a pan from the margin is the table's.
+     */
+    override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
+        if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+            val clip = clipBounds
+            if (clip != null && !clip.contains(event.x.toInt(), event.y.toInt())) return false
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
     override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
         when (event.actionMasked) {
             android.view.MotionEvent.ACTION_DOWN -> { pressedLink = linkAt(event.x, event.y); downX = event.x; downY = event.y }

@@ -167,12 +167,13 @@ internal class TableCellScene(
             }
         }
     }
-    fun drag(from: Pair<Float, Float>, to: Pair<Float, Float>) {
+    /** [overClippedField]: the drag starts in the part of the open field the table has scrolled out of view, which Android still reports as its own. */
+    fun drag(from: Pair<Float, Float>, to: Pair<Float, Float>, overClippedField: Boolean = false) {
         ui {
             val viewport = Rect().also { view.getGlobalVisibleRect(it) }
             val field = Rect().also { fieldInWindow()?.getGlobalVisibleRect(it) }
             assertTrue("a grid drag starts on visible note content", viewport.contains(from.first.toInt(), from.second.toInt()))
-            assertFalse("the grid owns this drag outside the active field", field.contains(from.first.toInt(), from.second.toInt()))
+            if (!overClippedField) assertFalse("the grid owns this drag outside the active field", field.contains(from.first.toInt(), from.second.toInt()))
         }
         val down = SystemClock.uptimeMillis()
         for (step in 0..10) {

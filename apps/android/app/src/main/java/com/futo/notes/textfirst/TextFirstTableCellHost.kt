@@ -3,9 +3,11 @@ package com.futo.notes.textfirst
 import android.graphics.Rect
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.ViewTreeObserver
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** One stable native parent: Android routes grid/note gestures and field gestures to their real children. */
@@ -30,6 +32,9 @@ internal class TextFirstTableCellHost(
     /** When a press last landed on the table: the cell it opens, within [ASKED_MS], is the one asked for. */
     private var pressedTableAt = 0L
     private val asked get() = android.os.SystemClock.uptimeMillis() - pressedTableAt < ASKED_MS
+    /** The press that landed on a grip, until it lifts or drags: a tap on a grip opens its menu, a drag from it pans the table. */
+    private var gripDown: MotionEvent? = null
+    private var panning = false
     private var placing = false
     private var observingNote = false
     private var observer: ViewTreeObserver? = null
@@ -204,6 +209,31 @@ internal class TextFirstTableCellHost(
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (panning) {
+            // A grip press that became a drag now belongs to the note, as if it had started there.
+            val handled = note.dispatchTouchEvent(event)
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) panning = false
+            return handled
+        }
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            gripDown?.recycle()
+            gripDown = if (grips.hits(event.x.toInt(), event.y.toInt())) MotionEvent.obtain(event) else null
+        }
+        gripDown?.let { down ->
+            if (event.actionMasked == MotionEvent.ACTION_MOVE) {
+                val slop = ViewConfiguration.get(context).scaledTouchSlop
+                if (abs(event.x - down.x) > slop || abs(event.y - down.y) > slop) {
+                    gripDown = null
+                    val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+                    try { super.dispatchTouchEvent(cancel) } finally { cancel.recycle() }
+                    panning = true
+                    note.dispatchTouchEvent(down)
+                    down.recycle()
+                    return note.dispatchTouchEvent(event)
+                }
+            }
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) { down.recycle(); gripDown = null }
+        }
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             pressedTableAt = if (note.tableRowAt(event.y - note.top) != null) event.downTime else 0L
             if (asked && yielded) { yielded = false; started = false; post { placeCell() } }
