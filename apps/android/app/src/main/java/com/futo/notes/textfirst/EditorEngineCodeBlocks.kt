@@ -32,7 +32,14 @@ internal fun EditorEngine.copyCodeBlock(codeStart: Int, deliver: (String) -> Boo
     val block = s.stylePlan(rev, mirror.byteRange(at, minOf(at + 1, length)))
         .filterIsInstance<EditorStyleSpan.CodeBlock>().firstOrNull { it.start.toInt() <= at && at <= it.end.toInt() } ?: return@command
     // An empty block's code is empty: copying its empty range would export the whole selected block, fences and all.
-    deliver(if (block.start == block.end) "" else s.copyMarkdown(rev, mirror.byteRange(block.start.toInt(), block.end.toInt())))
+    // So would the range of a selected block's code, which is its selection: the engine copies that as the object, so the
+    // code is read from the display, where the fences are not shown.
+    val selected = mirror.selectedBlock?.let { (start, end) -> mirror.toUtf16(block.start.toInt()) == start && mirror.toUtf16(block.end.toInt()) == end } == true
+    deliver(when {
+        block.start == block.end -> ""
+        selected -> mirror.text.substring(mirror.toUtf16(block.start.toInt()), mirror.toUtf16(block.end.toInt()))
+        else -> s.copyMarkdown(rev, mirror.byteRange(block.start.toInt(), block.end.toInt()))
+    })
 }
 
 /**
