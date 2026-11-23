@@ -98,6 +98,7 @@ final class TextFirstCellEditor: NSObject, UITextViewDelegate {
     func finish() {
         guard !finished else { return }
         finished = true
+        finishComposition()
         controller.finishComposition()
         controller.onAccepted = nil
         if controller.cellEditor === self { controller.cellEditor = nil }
@@ -105,6 +106,16 @@ final class TextFirstCellEditor: NSObject, UITextViewDelegate {
         field.removeFromSuperview()
         grips.remove()
         controller.syncToolbar()
+    }
+
+    /// Make the field's marked text real: the engine commits what it holds. (The note's own
+    /// `finishComposition` looks at the note's text view, where this text is not.)
+    private func finishComposition() {
+        guard field.markedTextRange != nil || controller.engineComposing else { return }
+        applying += 1
+        field.unmarkText()
+        applying -= 1
+        if controller.engineComposing { controller.commitCellComposition(committed: nil) }
     }
 
     func textViewDidEndEditing(_ tv: UITextView) {
