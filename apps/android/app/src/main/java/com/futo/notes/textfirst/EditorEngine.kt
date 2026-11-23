@@ -68,6 +68,8 @@ internal class EditorEngine(
     val selStart: Int get() = mirror.selStart
     val selEnd: Int get() = mirror.selEnd
     internal var editingCell = false
+    /** An Undo or Redo is taking its change: a cell it closes may reopen, and is closed to the view only if it does not (acceptHistoryChange). */
+    internal var holdingCellClose = false
     internal val find = FindEngineState { refreshFind() }
     internal var cellRange: IntRange? = null
     internal val cellWindow = CellWindow()

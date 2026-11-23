@@ -168,7 +168,7 @@ internal fun EditorEngine.publishCell() {
     if (cell == null) {
         editingCell = false; cellRange = null; cellWindow.clear()
         val toNote = writesDelimiterRow
-        ui.post { sink.onCell(null, toNote) }
+        if (!holdingCellClose) ui.post { sink.onCell(null, toNote) }
         return
     }
     val selected = checkNotNull(focus)
@@ -280,23 +280,38 @@ internal fun EditorEngine.openMissingCell(rowStart: Int, column: Int, viewSeq: I
  * The engine's selection is in a table cell but no field is open (Undo or Redo brought a table back; the keystroke that
  * finishes a hand-typed delimiter row put the caret in the first body cell): open the field there, as a tap would.
  */
-internal fun EditorEngine.openCellAtSelection(restoreRange: Boolean = false) {
-    if (editingCell || mirror.overlay != null) return
-    val s = session ?: return
-    var table = s.inspectTable(rev, mirror.byteRange(mirror.selStart, mirror.selEnd)) ?: return
+internal fun EditorEngine.openCellAtSelection(restoreRange: Boolean = false): Boolean {
+    if (editingCell || mirror.overlay != null) return false
+    val s = session ?: return false
+    var table = s.inspectTable(rev, mirror.byteRange(mirror.selStart, mirror.selEnd)) ?: return false
     if (table.focus == null) {
-        if (!restoreRange) return
+        if (!restoreRange) return false
         // Undo of Delete table restores the deleted range as the selection: the caret goes back to the cell it was deleted from.
         val extent = s.displayToUtf16(rev, table.display)
-        if (mirror.selStart == mirror.selEnd || mirror.selStart < extent.start.toInt() || mirror.selEnd > extent.end.toInt()) return
-        val first = table.rows.firstOrNull()?.firstOrNull() ?: return
+        if (mirror.selStart == mirror.selEnd || mirror.selStart < extent.start.toInt() || mirror.selEnd > extent.end.toInt()) return false
+        val first = table.rows.firstOrNull()?.firstOrNull() ?: return false
         val remembered = cellWindow.deletedFrom.lastOrNull { it in extent.start.toInt()..extent.end.toInt() }
         remembered?.let(cellWindow.deletedFrom::remove)
         val at = remembered ?: s.displayToUtf16(rev, first.content).start.toInt()
         select(at, at, fromView = false)
-        table = s.inspectTable(rev, mirror.byteRange(mirror.selStart, mirror.selEnd)) ?: return
-        if (table.focus == null) return
+        table = s.inspectTable(rev, mirror.byteRange(mirror.selStart, mirror.selEnd)) ?: return false
+        if (table.focus == null) return false
     }
     editingCell = true
     publishCell()
+    return true
+}
+
+/**
+ * The change an Undo or Redo made, taken as one step for the view: a cell that was open and is closed by the restored
+ * selection is reopened where that puts it (a table brought back), so the field moves in one update. Closing it to
+ * the view first hid the keyboard under the new cell, whose focus the screen then dropped with it, and the keyboard
+ * toolbar went with them.
+ */
+internal fun EditorEngine.acceptHistoryChange(change: uniffi.futo_notes_ffi.EditorViewChange) {
+    val wasOpen = editingCell
+    holdingCellClose = true
+    try { accept(change) } finally { holdingCellClose = false }
+    val reopened = openCellAtSelection(restoreRange = true)
+    if (wasOpen && !reopened && !editingCell) ui.post { sink.onCell(null) }
 }

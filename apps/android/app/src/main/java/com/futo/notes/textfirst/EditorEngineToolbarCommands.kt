@@ -26,11 +26,11 @@ internal fun EditorEngine.blockCommand(command: EditorBlockCommand) = toolbarCom
 internal fun EditorEngine.undo(onNoChange: () -> Unit = {}) = toolbarCommands.post {
     if (mirror.overlay != null) commitComposition(null)
     val change = session?.undo(rev)
-    if (change != null) { accept(change); openCellAtSelection(restoreRange = true) } else ui.post(onNoChange)
+    if (change != null) acceptHistoryChange(change) else ui.post(onNoChange)
 }
 
 internal fun EditorEngine.redo(onNoChange: () -> Unit = {}) = toolbarCommands.post {
     if (mirror.overlay != null) commitComposition(null)
     val change = session?.redo(rev)
-    if (change != null) { accept(change); openCellAtSelection(restoreRange = true) } else ui.post(onNoChange)
+    if (change != null) acceptHistoryChange(change) else ui.post(onNoChange)
 }
