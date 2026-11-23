@@ -31,4 +31,17 @@ class ImeCapsModeTest {
         assertEquals("one\n\uFFFCtw", imeTextBefore("one\n\uFFFCtwo", 7, 0, 10))
         assertEquals("ab\uFFFC", imeTextBefore("ab\uFFFC", 3, 0, 10))
     }
+
+    private fun state(selection: Int, caps: Int, composing: Int = -1) = EngineImeState(selection, selection, composing, composing, caps, null)
+
+    /** Typing `- ` rewrites the text under a caret that stays put: the framework drops that selection update. */
+    @Test fun aRestartIsAskedOnlyWhenTheCapsChangeUnderTheSameCaret() {
+        val typedDash = state(3, caps = 0)
+        val marker = state(3, caps = android.text.TextUtils.CAP_MODE_SENTENCES)
+        assertEquals(true, capsChangedUnderTheSameCaret(typedDash, marker))
+        assertEquals(false, capsChangedUnderTheSameCaret(null, marker))
+        assertEquals(false, capsChangedUnderTheSameCaret(marker, marker))
+        assertEquals(false, capsChangedUnderTheSameCaret(typedDash, state(4, caps = android.text.TextUtils.CAP_MODE_SENTENCES)))
+        assertEquals(false, capsChangedUnderTheSameCaret(typedDash, state(3, caps = android.text.TextUtils.CAP_MODE_SENTENCES, composing = 1)))
+    }
 }
