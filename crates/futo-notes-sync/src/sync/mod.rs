@@ -157,6 +157,12 @@ pub(crate) async fn cycle_with_checkpoint_and_clients(
     };
     let pull_since = ready.pull_cursor;
     let started = std::time::Instant::now();
+    // A copy of a mapped note waits for the pull: the server may have renamed
+    // that note onto it, and an upload first made a second object.
+    let held_back = match vault::local_scan(root) {
+        Ok(scan) => push::copies_of_mapped_notes(&ready, root, &scan.files),
+        Err(_) => HashSet::new(),
+    };
     let pushed = push::push_with_checkpoint_client(
         &http,
         &ready,
@@ -164,6 +170,7 @@ pub(crate) async fn cycle_with_checkpoint_and_clients(
         progress,
         pre_write,
         save_checkpoint,
+        &held_back,
     )
     .await;
     phases.push_ms = elapsed_ms(started);
@@ -195,8 +202,33 @@ pub(crate) async fn cycle_with_checkpoint_and_clients(
         Err(kind) => return Err(abandon(kind, &after_push, phases)),
     };
 
+    // The copies the pull left unclaimed are new notes after all.
+    let (late, after_pull) = if held_back.is_empty() {
+        (SyncSummary::default(), after_pull)
+    } else {
+        let started = std::time::Instant::now();
+        let late = push::push_with_checkpoint_client(
+            &http,
+            &after_pull,
+            root,
+            progress,
+            pre_write,
+            save_checkpoint,
+            &HashSet::new(),
+        )
+        .await;
+        phases.push_ms += elapsed_ms(started);
+        match late {
+            Ok(late) => late,
+            Err(CycleFailure {
+                kind,
+                state: reached,
+            }) => return Err(abandon(kind, &reached, phases)),
+        }
+    };
+
     phases.total_ms = elapsed_ms(cycle_started);
-    let summary = combine(bootstrap, combine(pushed, pulled));
+    let summary = combine(bootstrap, combine(combine(pushed, pulled), late));
     run_journal.record(state, &after_pull, phases, Ok(&summary));
     Ok((summary, after_pull))
 }

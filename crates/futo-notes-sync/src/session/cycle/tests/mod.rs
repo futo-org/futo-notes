@@ -13,6 +13,7 @@ use crate::journal::SyncTrigger;
 
 mod checkpoint_failures;
 mod journaling;
+mod live_rename;
 mod mutation_server;
 
 use mutation_server::{connected, MutationServer, TempRoot};
