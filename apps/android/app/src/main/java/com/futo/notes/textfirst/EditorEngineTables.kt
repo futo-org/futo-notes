@@ -37,10 +37,16 @@ internal class CellWindow {
     var text = ""
     /** The engine's content end for the open cell: where a cell entered by a key puts the caret. */
     var contentEnd = 0
-    /** Where the caret was when Delete table ran: Undo restores the deleted range as a selection, and the cell it came from opens. */
-    var deletedFrom = -1
+    /**
+     * Where the caret was at each Delete table, oldest first: Undo restores the deleted range as a selection, and the
+     * cell it came from opens. One per deletion, so undoing two tables each finds its own.
+     */
+    val deletedFrom = ArrayDeque<Int>()
     fun clear() { row = -1; column = -1; text = ""; anchor = 0; length = 0; contentEnd = 0 }
 }
+
+/** How many Delete table carets [CellWindow.deletedFrom] keeps: undone ones leave it, a redone one never reports back. */
+private const val MAX_DELETED_FROM = 8
 
 /** How many spaces or tabs run from [at] in [step] direction (1: forward, -1: back from the character before [at]). */
 private fun blankRun(text: CharSequence, at: Int, step: Int): Int {
@@ -233,7 +239,8 @@ internal fun EditorEngine.deleteTable() = command {
     val last = table.rows.lastOrNull()?.lastOrNull() ?: return@command
     // A selection inside one cell edits its text: with a single cell the range takes the leading pipe too.
     val oneCell = table.rows.size == 1 && table.rows[0].size == 1
-    cellWindow.deletedFrom = mirror.selStart
+    cellWindow.deletedFrom.addLast(mirror.selStart)
+    while (cellWindow.deletedFrom.size > MAX_DELETED_FROM) cellWindow.deletedFrom.removeFirst()
     val start = (if (oneCell) s.displayToUtf16(rev, table.display) else s.displayToUtf16(rev, first.content)).start.toInt()
     val end = s.displayToUtf16(rev, last.content).end.toInt()
     editingCell = false
@@ -282,8 +289,9 @@ internal fun EditorEngine.openCellAtSelection(restoreRange: Boolean = false) {
         val extent = s.displayToUtf16(rev, table.display)
         if (mirror.selStart == mirror.selEnd || mirror.selStart < extent.start.toInt() || mirror.selEnd > extent.end.toInt()) return
         val first = table.rows.firstOrNull()?.firstOrNull() ?: return
-        val at = cellWindow.deletedFrom.takeIf { it in extent.start.toInt()..extent.end.toInt() }
-            ?: s.displayToUtf16(rev, first.content).start.toInt()
+        val remembered = cellWindow.deletedFrom.lastOrNull { it in extent.start.toInt()..extent.end.toInt() }
+        remembered?.let(cellWindow.deletedFrom::remove)
+        val at = remembered ?: s.displayToUtf16(rev, first.content).start.toInt()
         select(at, at, fromView = false)
         table = s.inspectTable(rev, mirror.byteRange(mirror.selStart, mirror.selEnd)) ?: return
         if (table.focus == null) return

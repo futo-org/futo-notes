@@ -82,6 +82,29 @@ class TextFirstTableEditingTest {
         assertEquals("Undo brings the table back with its cell open", "d1", c.cellView?.text.toString())
     }
 
+    @Test fun undoingTwoDeletedTablesReopensEachOnTheCellItWasDeletedFrom() = textFirstSession(
+        "Top\n\n| a1 | a2 |\n| --- | --- |\n| b1 | b2 |\n\nMid\n\n| c1 | c2 |\n| --- | --- |\n| d1 | d2 |\n\nEnd\n",
+    ) { c ->
+        val source = c.sourceText()!!
+        c.selectDisplayRange(c.view.text.toString().indexOf("b2"), c.view.text.toString().indexOf("b2"))
+        c.deleteTable()
+        kotlinx.coroutines.withTimeout(5_000) { while (c.view.text.toString().contains("b2")) kotlinx.coroutines.delay(20) }
+        val second = c.view.text.toString().indexOf("d2")
+        assertTrue(c.selectDisplayRange(second, second))
+        c.deleteTable()
+        val gone = c.sourceText()
+        kotlinx.coroutines.withTimeout(5_000) { while (c.sourceText() == gone && c.sourceText()!!.contains("d2")) kotlinx.coroutines.delay(20) }
+        suspend fun undoUntil(restored: String) {
+            c.undo()
+            kotlinx.coroutines.withTimeout(5_000) { while (c.cellView?.text?.toString() != restored) kotlinx.coroutines.delay(20) }
+        }
+        undoUntil("d2")
+        c.undo()
+        kotlinx.coroutines.withTimeout(5_000) { while (c.sourceText() != source) kotlinx.coroutines.delay(20) }
+        kotlinx.coroutines.delay(300)
+        assertEquals("The first table reopens on the cell it was deleted from, not its header", "b2", c.cellView?.text.toString())
+    }
+
     @Test fun aTypedPipeWidensEveryRowOfTheTableAndItsUndoNarrowsThem() = textFirstSession(
         "| h1 | h2 |\n| --- | --- |\n| d1 | d2 |\n| d3 | d4 |\n",
     ) { c ->
