@@ -183,5 +183,9 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         editor.handler.post { connection.sendKeyEvent(event) }
         return true
     }
+    fun showKeyboard() {
+        requestFocus()
+        context.getSystemService(InputMethodManager::class.java).showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+    }
     fun restartKeyboard() { context.getSystemService(InputMethodManager::class.java).restartInput(this) }
 }
