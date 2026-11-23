@@ -185,8 +185,16 @@ await story(
     }),
 );
 
-/** A table of eight columns: at their minimum they pass the text column. */
-const MANY = `${COLUMN_TEXT}\n| h1 | h2 | h3 | h4 | h5 | h6 | h7 | far |\n|---|---|---|---|---|---|---|---|\n| near | b | c | d | e | f | g | zebra |\nbelow`;
+/** A table of 24 columns: at their minimum (5em each) they pass the text column at any window size
+ *  the stories run in, the default 1200x800 included, so the story needs no narrow pane. */
+const FILLER = Array.from({ length: 16 }, (_, index) => `p${index + 8}`);
+const MANY = [
+  COLUMN_TEXT,
+  `| ${['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'h7', ...FILLER, 'far'].join(' | ')} |`,
+  `|${'---|'.repeat(24)}`,
+  `| ${['near', 'b', 'c', 'd', 'e', 'f', 'g', ...FILLER.map(() => 'x'), 'zebra'].join(' | ')} |`,
+  'below',
+].join('\n');
 /** A sideways wheel of `dx` over the middle of the table's body row, wherever it is scrolled. */
 function scrollTable(dx) {
   const { left, right } = column();
