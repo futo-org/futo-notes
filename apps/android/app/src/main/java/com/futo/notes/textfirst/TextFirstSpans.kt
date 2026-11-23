@@ -148,9 +148,11 @@ internal fun leadingSpan(x: Int, dir: Int, from: Float, to: Float): Pair<Float, 
 
 internal enum class ListMarker { Bullet, Ordered, Task }
 
-internal class TfIndent(private val look: TextFirstStyle, val depth: Int) : LeadingMarginSpan, TfSpan {
-    override fun slice(head: Boolean): TfSpan = if (head) this else TfIndent(look, depth)
-    override fun getLeadingMargin(first: Boolean) = listLead(look, depth).toInt()
+internal class TfIndent(private val look: TextFirstStyle, val depth: Int, private val itemTextStart: (TfIndent) -> Int? = { null }) : LeadingMarginSpan, TfSpan {
+    override fun slice(head: Boolean): TfSpan = if (head) this else TfIndent(look, depth, itemTextStart)
+
+    // The line starts at the text of the item it continues, whatever the width of that item's number; a list step when none shows.
+    override fun getLeadingMargin(first: Boolean) = itemTextStart(this) ?: listLead(look, depth).toInt()
     override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) = Unit
 }
 
@@ -169,7 +171,8 @@ internal class TfList(
     val first: Boolean,
 ) : CharacterStyle(), LeadingMarginSpan, UpdateAppearance, TfSpan {
     private val markerLead = listLead(look, depth)
-    private val hanging = (markerLead + listMarkerColumn(look, marker, label)).toInt()
+    /** Where the item's text starts, from the row's left edge before its quotes: the marker unit's column ends here. */
+    val hanging = (markerLead + listMarkerColumn(look, marker, label)).toInt()
 
     override fun slice(head: Boolean): TfSpan = if (head) this else TfList(look, depth, marker, label, checked, false)
 
