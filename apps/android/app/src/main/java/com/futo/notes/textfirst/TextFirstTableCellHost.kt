@@ -34,7 +34,8 @@ internal class TextFirstTableCellHost(
     private var observingNote = false
     private var observer: ViewTreeObserver? = null
     private val settle: () -> Unit = { placeCell() }
-    private val frames = ViewTreeObserver.OnPreDrawListener { placeCell(); true }
+    private val backExclusion = TableBackExclusion(note)
+    private val frames = ViewTreeObserver.OnPreDrawListener { placeCell(); backExclusion.update(); true }
     var onBoundsChanged: (Rect?) -> Unit = {}
         set(value) { field = value; value(bounds?.let(::Rect)) }
     private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -124,6 +125,7 @@ internal class TextFirstTableCellHost(
         stopObserving()
         setCell(null)
         grips.remove()
+        note.systemGestureExclusionRects = emptyList()
         removeView(note)
         onBoundsChanged = {}
     }
