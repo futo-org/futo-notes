@@ -16,4 +16,12 @@ internal fun capsOffset(text: CharSequence, offset: Int): Int {
     return if (at == 1 || text[at - 2] == '\n') at - 1 else at
 }
 
+/**
+ * [read], the text before [caret] as the keyboard is given it. At an item's text start it ends in the marker unit, which
+ * a keyboard that judges caps from the text itself (Gboard) reads as the middle of a sentence; it is given the line break
+ * the item's line starts after instead, so the spot is a line's start to it. Same length, so every offset holds.
+ */
+internal fun keyboardTextBefore(text: CharSequence, caret: Int, read: String): String =
+    if (read.isNotEmpty() && capsOffset(text, caret) < caret) read.dropLast(1) + "\n" else read
+
 private const val OBJECT_REPLACEMENT = '\uFFFC'

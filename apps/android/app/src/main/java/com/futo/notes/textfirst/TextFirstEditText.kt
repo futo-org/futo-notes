@@ -85,8 +85,12 @@ internal class TextFirstEditText(
     internal val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, { invalidateTableScroll(it) })
     internal val marks = FindMarks()
     internal val scroll = NoteScroll(this)
-    internal val spans = TfSpanFactory(style, marks, { contentWidth() }) { span ->
+    internal val spans = TfSpanFactory(style, marks, { contentWidth() }, { span ->
         wikilinkContentWidth(this, span, contentWidth())
+    }) { indent ->
+        val e = editableText
+        val at = e?.getSpanStart(indent) ?: -1
+        if (at < 0) null else continuedTextStart(e, at, indent.depth)
     }
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */
     internal var composing: Any? = null

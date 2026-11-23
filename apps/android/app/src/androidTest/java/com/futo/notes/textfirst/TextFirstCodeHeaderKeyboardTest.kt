@@ -42,13 +42,18 @@ class TextFirstCodeHeaderKeyboardTest {
         return openHeaderField(view)
     }
 
-    /** FUTO's suggestion pick: the word committed over the composition, then its own space. */
+    /**
+     * FUTO's suggestion pick: the word committed over the composition, then its own space. The composition here is the
+     * test's, not the emulator keyboard's, so that keyboard, bound to the field, answers the selection change by finishing
+     * it (a remote finishComposingText, ~50 ms later) and the word then lands beside it (`rurust`). The main thread is
+     * held between the steps so that call cannot arrive between them; a keyboard that composes owns its composition.
+     */
     private suspend fun pickSuggestion(field: android.widget.EditText, composed: String, word: String) {
         val input = field.onCreateInputConnection(EditorInfo())!!
         input.setComposingText(composed, 1)
-        delay(200)
+        Thread.sleep(200)
         input.commitText(word, 1)
-        delay(200)
+        Thread.sleep(200)
         input.commitText(" ", 1)
         delay(400)
     }

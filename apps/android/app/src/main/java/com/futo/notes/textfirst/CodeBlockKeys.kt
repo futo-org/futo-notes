@@ -49,7 +49,8 @@ internal fun TextFirstEditText.codeLineKey(keyCode: Int, event: KeyEvent): Boole
     val e = editableText ?: return false
     val caret = selectionStart
     val above = event.isShiftPressed
-    if (e.getSpans(caret, caret, TfCodeBlock::class.java).isNotEmpty()) {
+    // A code line's span ends with its line break, so one that ends at the caret is the line above: not code at the caret.
+    if (e.getSpans(caret, caret, TfCodeBlock::class.java).any { caret in e.getSpanStart(it)..codeLineEnd(e, it) }) {
         engine.blockCommand(if (above) EditorBlockCommand.OpenCodeLineAbove else EditorBlockCommand.OpenCodeLineBelow)
     } else {
         engine.handler.post { engine.openLine(above) }

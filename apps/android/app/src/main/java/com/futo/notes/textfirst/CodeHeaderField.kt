@@ -228,8 +228,11 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
 
     private fun write(state: Editing, text: String) {
         if (state.kind == Kind.NAME) state.name = text.trim() else state.language = text
-        note.engine?.writeCodeBlockHeader(state.codeStart, state.language, state.name, state.seenSeq) {
-            if (editing === state) state.rewrite = true
+        note.engine?.writeCodeBlockHeader(state.codeStart, state.language, state.name, state.seenSeq) { engineSeq ->
+            if (editing !== state) return@writeCodeBlockHeader
+            // The update the write was refused for may have been applied already (it was posted before this): nothing
+            // more is coming to send the field's text again, so it goes now; else the update's arrival sends it.
+            if (state.seenSeq >= engineSeq) field?.let { write(state, it.text.toString()) } else state.rewrite = true
         }
         place()
     }
@@ -270,6 +273,9 @@ internal class CodeHeaderField(private val note: TextFirstEditText) {
     private fun leaveToCode(state: Editing) {
         close()
         Selection.setSelection(note.editableText, state.codeStart)
+        // The view's caret may already stand there (an empty language, an empty block), so only the engine can end its
+        // language caret or a selected block.
+        note.engine?.placeCaret(state.codeStart)
         note.showKeyboard()
     }
 

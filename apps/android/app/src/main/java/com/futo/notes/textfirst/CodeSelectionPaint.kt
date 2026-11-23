@@ -124,7 +124,9 @@ internal fun TextFirstEditText.refreshCodeHighlight() {
 /** Whether the painted selection takes the block whose code starts at [codeStart] whole. */
 internal fun TextFirstEditText.isCodeBlockTakenWhole(codeStart: Int): Boolean {
     val painted = codeSelection ?: return false
-    return painted.home == null && painted.start < painted.end && codeStart >= painted.start && codeStart < painted.end
+    // An empty block that ends the note starts where the selection ends, yet deleting it takes the block whole.
+    val reached = codeStart < painted.end || painted.whole.any { it.start == codeStart && it.start == it.end }
+    return painted.home == null && painted.start < painted.end && codeStart >= painted.start && reached
 }
 
 /** The rows of [codeSelection] outside the blocks it takes whole, under the text. */

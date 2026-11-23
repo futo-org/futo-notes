@@ -50,6 +50,17 @@ class TextFirstCodeBlockRangeTest {
         assertEquals("abc\nde", copied(c))
     }
 
+    /** S07 (mr-729 QA): the copy glyph copies the code without its fences, also on a block selected as one object. */
+    @Test fun copyOnASelectedBlockTakesTheCodeWithoutItsFences() = textFirstSession("intro\n\n```js\nabc\ndef\n```\n\nend") { c ->
+        val view = c.view
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+        withTimeout(5_000) { while (view.layout == null) delay(20) }
+        view.engine!!.selectCodeBlock(view.editableText.indexOf("abc"))
+        withTimeout(5_000) { while (view.selectedCodeBlock == null) delay(20) }
+        assertEquals("abc\ndef", copied(c))
+    }
+
     @Test fun aNameTapWithTheCaretOnATypedLineEditsTheName() = textFirstSession("intro\n\n```js\nabc\ndef\n```\n\nend") { c ->
         caretAfter(c, "def")
         textFirstIme(c) { commitText("ghi", 1) }
