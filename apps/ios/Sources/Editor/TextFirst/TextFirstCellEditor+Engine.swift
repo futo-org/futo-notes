@@ -29,6 +29,7 @@ extension TextFirstEditorController {
             let start = try mirror.byteToUtf16(byte: change.selection.start)
             let end = try mirror.byteToUtf16(byte: change.selection.end)
             setSelection(NSRange(location: Int(start), length: Int(end - start)))
+            syncToolbar()
         } catch { recover(error, context: "cell selection") }
     }
 
@@ -101,8 +102,13 @@ extension TextFirstEditorController {
     /// the cell and the caret where `point` (text view coordinates) touched it.
     func openCellEditor(_ hit: TableCellHit, at point: CGPoint? = nil) {
         guard !closed else { return }
-        cellEditor?.finish()
-        finishComposition()
+        let moved = closeOpenCell()
+        // Committing marked text in the cell just closed changed the note's text: the cell
+        // touched is found again at its new place, not by the offsets of the hit.
+        var hit = hit
+        if moved.delta != 0, let fresh = tableCellHit(atStart: moved.shifted(hit.range.location)) {
+            hit = fresh
+        }
         let before = tableScroll[hit.span.tableID] ?? 0
         revealCell(hit.cell, in: hit.span, row: hit.row)
         let shift = (tableScroll[hit.span.tableID] ?? 0) - before
@@ -114,6 +120,17 @@ extension TextFirstEditorController {
         if let frame = cellFrame(start: hit.range.location) {
             textView.scrollRectToVisible(frame.insetBy(dx: 0, dy: -60), animated: false)
         }
+    }
+
+    /// Close the open cell's field, committing its marked text. `delta` is how much the note
+    /// grew, all of it at the closed cell's start or after: a position past `at` moves by it.
+    func closeOpenCell() -> (at: Int, delta: Int, shifted: (Int) -> Int) {
+        let at = cellEditor?.cellStart ?? 0
+        let length = mirrorLength
+        cellEditor?.finish()
+        finishComposition()
+        let delta = mirrorLength - length
+        return (at, delta, { $0 > at ? $0 + delta : $0 })
     }
 
     /// the engine's selection is in a table cell but no field is open (Undo of

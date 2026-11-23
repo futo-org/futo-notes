@@ -18,6 +18,12 @@ final class TextFirstCellField: UITextView {
         if action == #selector(paste(_:)) { return UIPasteboard.general.hasStrings }
         return super.canPerformAction(action, withSender: sender)
     }
+    /// Backspace in an empty cell is the note's Backspace key first: right after a typed
+    /// delimiter row's finishing keystroke it takes that keystroke back (the engine says when).
+    override func deleteBackward() {
+        if text.isEmpty, markedTextRange == nil, editor?.backspaceLeavesCell() == true { return }
+        super.deleteBackward()
+    }
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         if let key = presses.first?.key, key.keyCode == .keyboardTab, markedTextRange == nil,
             editor?.tab(back: key.modifierFlags.contains(.shift)) == true
@@ -47,6 +53,9 @@ final class TextFirstCellEditor: NSObject, UITextViewDelegate {
     var applying = 0
     private var pending: (range: NSRange, text: String)?
     private(set) var header = false
+    /// The revision at which this field was opened by the keystroke that finished a typed
+    /// delimiter row; while the note is still at it, Backspace takes that keystroke back.
+    var delimiterRowFinishedAt: UInt64?
     private var fontHeader: Bool?
     /// The inline styling last set on the field (`styleInline`).
     var styled = ""
@@ -110,7 +119,7 @@ final class TextFirstCellEditor: NSObject, UITextViewDelegate {
 
     /// Make the field's marked text real: the engine commits what it holds. (The note's own
     /// `finishComposition` looks at the note's text view, where this text is not.)
-    private func finishComposition() {
+    func finishComposition() {
         guard field.markedTextRange != nil || controller.engineComposing else { return }
         applying += 1
         field.unmarkText()
@@ -295,8 +304,21 @@ final class TextFirstCellEditor: NSObject, UITextViewDelegate {
         }
     }
 
-    /// UIKit has applied a key: tell the engine what changed. A delegate-announced edit whose
-    /// length adds up is reported as announced; anything else (smart delete's extra space, a
+    /// Backspace in the empty field straight after the finishing keystroke of a typed delimiter
+    /// row: true when the engine took it back (and the field followed).
+    func backspaceLeavesCell() -> Bool {
+        guard !finished, delimiterRowFinishedAt == controller.rev,
+            controller.paragraphKey(.backspace, onlyIfChanged: true)
+        else {
+            return false
+        }
+        refresh()
+        return true
+    }
+
+    /// UIKit has applied a key: tell the engine what changed. A delegate-announced edit that
+    /// gives the field's text when applied to the synced text is reported as announced;
+    /// anything else (Korean's replaced syllable, smart delete's extra space, a
     /// text service that skipped the delegate) is found by diffing against the synced text.
     private func reportPlatformChange() {
         let edit = pending
@@ -305,9 +327,11 @@ final class TextFirstCellEditor: NSObject, UITextViewDelegate {
         let before = synced as NSString
         let range: NSRange
         let text: String
-        if let edit,
-            now.length == before.length - edit.range.length + (edit.text as NSString).length,
-            NSMaxRange(edit.range) <= before.length
+        // Announced only counts when applying it to the synced text gives the field's text:
+        // Korean 2-set announces "insert ㅏ" for a keystroke that replaces 간 with 가나, the same
+        // length change, so the lengths alone do not tell.
+        if let edit, NSMaxRange(edit.range) <= before.length,
+            before.replacingCharacters(in: edit.range, with: edit.text) == now as String
         {
             (range, text) = (edit.range, edit.text)
         } else {

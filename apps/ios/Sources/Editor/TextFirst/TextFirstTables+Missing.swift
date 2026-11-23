@@ -13,9 +13,8 @@ extension TextFirstEditorController {
             (hit.local.x + scroll) / TextFirstTableMetrics.cellWidth(columns: hit.span.columns))
         guard column >= 0, column < hit.span.columns, hit.span.cell(atColumn: column) == nil
         else { return false }
-        cellEditor?.finish()
-        finishComposition()
-        if enterTableCell(lineStart: hit.row.location, column: column) {
+        let moved = closeOpenCell()
+        if enterTableCell(lineStart: moved.shifted(hit.row.location), column: column) {
             openCellEditorAtSelection()
             cellEditor?.scrollCellIntoView()
         }
@@ -32,6 +31,7 @@ extension TextFirstEditorController {
             MainActor.assumeIsolated {
                 guard let self, !self.closed, !self.engineBusy else { return }
                 self.openCellEditorAtSelection()
+                self.cellEditor?.delimiterRowFinishedAt = self.rev
             }
         }
     }

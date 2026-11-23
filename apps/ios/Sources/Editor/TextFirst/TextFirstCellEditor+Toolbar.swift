@@ -41,6 +41,8 @@ extension TextFirstCellEditor {
             break  // dimmed in a cell
         case .exec:
             if TextFirstEditorController.cellDisabledItems.contains(item.id) { return }
+            // The item acts on text, not on a composition: make marked text real first.
+            finishComposition()
             if item.id == "link" {
                 editLink()
                 return

@@ -231,6 +231,12 @@ extension TextFirstEditorController {
     /// The span and cell whose content starts at display offset `start`, by each row's
     /// current place (a stored `Cell.range` is stale in rows an edit above did not restyle).
     func tableCell(at start: Int) -> (TextFirstTableRowSpan, TextFirstTableRowSpan.Cell)? {
+        tableCellHit(atStart: start).map { ($0.span, $0.cell) }
+    }
+
+    /// The cell whose content starts at display offset `start`, as `tableCell(at:)` finds it,
+    /// with its row.
+    func tableCellHit(atStart start: Int) -> TableCellHit? {
         // An empty cell's start may be the row's line break, so look one glyph back too.
         for offset in [start, start - 1] where offset >= 0 && offset < storage.length {
             var row = NSRange()
@@ -244,7 +250,9 @@ extension TextFirstEditorController {
                     span.contentRange(of: $0, row: row).location == start
                 })
             {
-                return (span, cell)
+                return TableCellHit(
+                    row: row, span: span, cell: cell,
+                    range: span.contentRange(of: cell, row: row))
             }
         }
         return nil
