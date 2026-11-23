@@ -180,6 +180,8 @@ export class EditorView {
 
   /** Show a newly opened note's engine. */
   open(engine: Engine | null): void {
+    // A held press belongs to the note it began in: its range and drop mean nothing here.
+    this.pointer.destroy();
     this.linkPrompt.dismiss();
     this.completion.close();
     this.slashMenu.close();

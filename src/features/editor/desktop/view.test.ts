@@ -72,3 +72,46 @@ it('writes a language typed in its field when the editor is torn down, out of th
   view.destroy();
   engine.free();
 });
+
+it('drops a held text drag when another note opens, so its release moves nothing there', async () => {
+  await loadEngineBuild();
+  const first = await Engine.restore({
+    token: 1,
+    source: 'alpha beta gamma',
+    revision: 0,
+    paused: false,
+  });
+  const second = await Engine.restore({
+    token: 2,
+    source: 'one two three four',
+    revision: 0,
+    paused: false,
+  });
+  const view = mountView();
+  // jsdom has no layout: nothing is measured or painted, and the press and the drop
+  // land where the engine says.
+  vi.spyOn(view.caret, 'schedule').mockImplementation(() => {});
+  vi.spyOn(view.caretSide, 'clientRect').mockReturnValue(null);
+  view.open(first);
+  view.dom.tabIndex = 0;
+  view.focus();
+  view.selection.selectRange(6, 10);
+  // jsdom has no layout: the press and the drop land where the engine says.
+  vi.spyOn(view.hitTest, 'offsetAt').mockImplementation(
+    (x) => ({ offset: x, rowEnd: false }) as ReturnType<typeof view.hitTest.offsetAt>,
+  );
+  const press = new MouseEvent('mousedown', { button: 0, clientX: 8 });
+  Object.defineProperty(press, 'target', { value: view.dom });
+  view.pointer.down(press);
+  view.pointer.drag(new MouseEvent('mousemove', { buttons: 1, clientX: 14 }));
+  expect(view.pointer.dragging()).toBe(true);
+
+  view.open(second);
+  expect(view.pointer.dragging()).toBe(false);
+  document.dispatchEvent(new MouseEvent('mouseup'));
+
+  expect(second.draftText()).toBe('one two three four');
+  view.destroy();
+  first.free();
+  second.free();
+});
