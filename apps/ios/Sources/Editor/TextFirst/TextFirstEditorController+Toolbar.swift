@@ -30,7 +30,9 @@ extension TextFirstEditorController {
 
     func applyToolbar(_ highlights: EditorToolbarHighlights) {
         let active = Set(highlights.active)
-        let disabled = Set(highlights.disabled)
+        var disabled = Set(highlights.disabled)
+        // block items and pictures cannot go in a table cell.
+        if cellOpen { disabled.formUnion(Self.cellDisabledItems) }
         if toolbarState.activeFormats != active { toolbarState.activeFormats = active }
         if toolbarState.disabledFormats != disabled { toolbarState.disabledFormats = disabled }
         // Keep the controls in place; the engine dims them where they cannot run (and

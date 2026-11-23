@@ -150,10 +150,17 @@ extension TextFirstEditorController {
     // MARK: the Link item
 
     /// Edit the link under the selection, or make one from it.
-    func presentLinkPrompt(localization: Localization) {
-        guard !engineBusy else { return }
+    /// `onClose` (a table cell's prompt) runs after the prompt closes either way.
+    func presentLinkPrompt(localization: Localization, onClose: (() -> Void)? = nil) {
+        guard !engineBusy else {
+            onClose?()
+            return
+        }
         finishComposition()
-        guard let presenter = textView.window?.rootViewController?.topmost else { return }
+        guard let presenter = textView.window?.rootViewController?.topmost else {
+            onClose?()
+            return
+        }
         do {
             let selection = textView.selectedRange
             let bytes = try session.utf16ToDisplay(expected: rev, range: Self.range(selection))
@@ -191,6 +198,7 @@ extension TextFirstEditorController {
                     self?.commitLink(
                         revision: revision, range: target, label: fields.first?.text ?? "",
                         destination: fields.last?.text ?? "")
+                    onClose?()
                 })
             if existing {
                 alert.addAction(
@@ -200,17 +208,22 @@ extension TextFirstEditorController {
                     ) { [weak self] _ in
                         self?.commitLink(
                             revision: revision, range: target, label: nil, destination: "")
+                        onClose?()
                     })
             }
             alert.addAction(
                 UIAlertAction(
-                    title: localization.localizedText("common.actions.cancel"), style: .cancel))
+                    title: localization.localizedText("common.actions.cancel"), style: .cancel
+                ) { _ in onClose?() })
             presenter.present(alert, animated: true) {
                 // The label is already supplied by the selection; start where the user types.
                 (label.isEmpty ? alert.textFields?.first : alert.textFields?.last)?
                     .becomeFirstResponder()
             }
-        } catch { recover(error, context: "link prompt") }
+        } catch {
+            recover(error, context: "link prompt")
+            onClose?()
+        }
     }
 
     /// A blank destination removes the link; otherwise label and destination are the engine's
@@ -221,8 +234,11 @@ extension TextFirstEditorController {
         guard revision == rev, !closed else { return }
         do {
             let change: EditorViewChange?
-            if let label, !destination.isEmpty {
+            if var label, !destination.isEmpty {
                 guard !label.isEmpty else { return }
+                // editLink's custom-label path rejects an unescaped pipe in a cell. An unchanged
+                // label goes as displayed (no escape) so the engine keeps its formatting.
+                if cellOpen, label != displayedText(range) { label = Self.escapingPipes(label) }
                 // The engine decides what was typed: a note that exists stays a note link;
                 // otherwise a web address is saved as `https://…`, and anything it is unsure
                 // of as typed.
@@ -234,6 +250,28 @@ extension TextFirstEditorController {
             }
             if let change { try accept(change) }
         } catch { recover(error, context: "link edit") }
+    }
+}
+
+extension TextFirstEditorController {
+    /// The displayed text of `range`, or nil when it cannot be read.
+    private func displayedText(_ range: EditorByteRange) -> String? {
+        guard let from = try? mirror.byteToUtf16(byte: range.start),
+            let to = try? mirror.byteToUtf16(byte: range.end)
+        else { return nil }
+        return try? mirror.sliceUtf16(start: from, end: to)
+    }
+
+    /// `text` with each `|` that has no backslash before it written `\|`.
+    static func escapingPipes(_ text: String) -> String {
+        var out = ""
+        var previous: Character?
+        for c in text {
+            if c == "|", previous != "\\" { out += "\\" }
+            out.append(c)
+            previous = c
+        }
+        return out
     }
 }
 

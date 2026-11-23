@@ -58,3 +58,15 @@ fn a_pair_typed_over_every_cell_keeps_the_table() {
         "a\n| *x* | *y* |\n|---|---|\n| *1* | *2* |\nb"
     );
 }
+
+/// A last body row that is a lone `|` has no cell: covering every other cell still
+/// takes the table whole, the lone row with it.
+#[test]
+fn cut_over_every_cell_removes_a_table_whose_last_row_is_a_lone_pipe() {
+    let mut engine = open("a\n| «x | y |\n|---|---|\n| 1 | 2»\n|\nb");
+    let selection = engine.selection();
+    engine
+        .cut_markdown(engine.revision(), selection, &mut ok)
+        .unwrap();
+    assert_eq!(engine.source_text(), "a\n\nb");
+}

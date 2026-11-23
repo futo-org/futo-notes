@@ -13,7 +13,8 @@ impl Engine {
     /// start, the end to its last line's end (before its line ending). A
     /// range covers a table when it reaches from at or before the header's
     /// first cell's content to at or after the last row's last cell's
-    /// content (the header's, in a header-only table). A range inside one
+    /// content (the header's, in a header-only table; a last row with no cell is
+    /// skipped for the nearest row above that has one). A range inside one
     /// cell is that cell's text, even in a one-cell table.
     pub(crate) fn whole_tables(&self, range: DisplayRange) -> DisplayRange {
         if range.start == range.end || self.column_at(range).is_some() {
@@ -42,7 +43,12 @@ impl Engine {
         };
         let read = |index: usize| Row::read(self.line(index), index, self.line_start(index));
         let first = read(table.header).contents.first()?.start;
-        let last = read(last_row).contents.last()?.end;
+        // A last row with no cell (a lone `|`) has no content to reach: the range
+        // reaches the last cell of the nearest row above that has one.
+        let last = (table.header..=last_row)
+            .rev()
+            .filter(|&row| row != table.delimiter)
+            .find_map(|row| read(row).contents.last().map(|cell| cell.end))?;
         let covers =
             range.start.0 <= self.display_of(first) && range.end.0 >= self.display_of(last);
         covers.then_some(table)

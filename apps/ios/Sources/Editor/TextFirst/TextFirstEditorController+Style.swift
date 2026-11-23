@@ -21,8 +21,7 @@ extension TextFirstEditorController {
         }
         let from = styledThrough
         do {
-            // The engine's rule for a slice's end (a blank line, so no table is cut in two:
-            // the engine reports a table only from the slice it starts in).
+            // Let the engine choose the slice boundary.
             let to = Int(try mirror.sliceEnd(from: UInt64(from), chars: UInt64(units)))
             let startByte = try mirror.utf16ToByte(unit: UInt64(from))
             let endByte = try mirror.utf16ToByte(unit: UInt64(to))
