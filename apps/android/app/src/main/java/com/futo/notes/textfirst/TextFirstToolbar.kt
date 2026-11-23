@@ -48,7 +48,10 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
     val scope = rememberCoroutineScope()
     var draft by remember(controller) { mutableStateOf<LinkDraft?>(null) }
     var opening by remember(controller) { mutableStateOf(false) }
-    val visible = controller.cellView == null && controller.focused && WindowInsets.isImeVisible
+    // An open cell carries the note's own toolbar too: the field, not the note view, holds focus then (the find bar may
+    // step onto a cell without its field having the keyboard: no bar then).
+    val cellOpen = controller.cellView != null && controller.cellFocused
+    val visible = (cellOpen || controller.focused) && WindowInsets.isImeVisible
     var composed by remember(controller) { mutableStateOf(false) }
     LaunchedEffect(controller.opened, controller.focused) { if (controller.opened || controller.focused) composed = true }
     // A hidden bar is never told a finger lifted, so a press or drag it hid under stayed live in it: a button drawn
@@ -78,10 +81,9 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
     PuppetVerbScope {
         if (!visible || !controller.opened || opening || draft != null) emptyList() else listOf(
             PuppetVerb("OpenLink") { openLink() },
-        )
+        ) + if (cellOpen) listOf(PuppetVerb("FinishTableCell") { controller.finishCellEditing() }) else emptyList()
     }
     val caret = controller.caret
-    if (controller.cellFocused) TextFirstTableCellControls(controller)
     if (composed || visible) key(generation) { EditorToolbar(
         modifier = (if (visible) Modifier else measuredWithoutSpace).pointerInput(Unit) {
             awaitPointerEventScope { while (true) touched = awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed } }
@@ -90,14 +92,17 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
         onListLine = caret.list != null,
         inContainer = true,
         // Until the whole open lands the note shows read-only: nothing edits it.
-        disabledFormats = if (controller.opened) caret.disabled else editItems,
+        // Block items and pictures cannot go in a cell: the engine does not dim them there, so the host does.
+        disabledFormats = (if (controller.opened) caret.disabled else editItems) + if (cellOpen) cellDisabledItems else emptySet(),
         activeFormats = toolbarActive(caret),
         hiddenItems = setOf("paragraph"),
         perform = { item ->
-            when (val action = item.action) {
-                ToolbarItemAction.Exec -> if (item.id == "link") scope.launch { openLink() } else runToolbar(controller, item.id)
-                is ToolbarItemAction.PickImage -> onPickImage(action.source)
-                ToolbarItemAction.Dismiss -> controller.view.hideKeyboard()
+            // A grip's menu is showing: the toolbar behind it is inert.
+            if (!controller.gripMenuShowing) when (val action = item.action) {
+                ToolbarItemAction.Exec -> if (cellOpen && item.id in cellDisabledItems) Unit
+                    else if (item.id == "link") scope.launch { openLink() } else runToolbar(controller, item.id)
+                is ToolbarItemAction.PickImage -> if (!cellOpen) onPickImage(action.source)
+                ToolbarItemAction.Dismiss -> { if (cellOpen) controller.finishCellEditing(); controller.view.hideKeyboard() }
             }
         },
     ) }
@@ -106,7 +111,7 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
             draft = claim,
             onSubmit = { label, destination -> controller.editLink(claim, label, destination) },
             onRemove = { controller.removeLink(claim) },
-            onDismiss = { draft = null; controller.view.showKeyboard() },
+            onDismiss = { draft = null; controller.cellView?.showKeyboard() ?: controller.view.showKeyboard() },
         )
     }
 }
@@ -118,6 +123,12 @@ private val measuredWithoutSpace = Modifier.clearAndSetSemantics {}.layout { mea
     measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
     layout(0, 0) {}
 }
+
+/** Toolbar ids that are dimmed and inert in a table cell: headings, quote, code block, lists, indent and pictures. */
+private val cellDisabledItems: Set<String> = setOf(
+    "paragraph", "heading-1", "heading-2", "heading-3", "quote", "code-block", "bullet-list", "ordered-list",
+    "task-list", "indent", "outdent", "camera", "image",
+)
 
 /** Every toolbar item that changes the note: all but Dismiss. */
 private val editItems: Set<String> = ToolbarSpec.groups.flatten()

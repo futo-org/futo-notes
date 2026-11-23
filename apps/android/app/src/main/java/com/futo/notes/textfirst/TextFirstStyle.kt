@@ -34,6 +34,8 @@ internal class TextFirstStyle(
     val extraBoldItalic: Typeface = Typeface.create(boldItalic, 800, true),
     /** The page under the note: a lifted block's card and its dimmed place are painted with it. */
     var pageColor: Int = android.graphics.Color.WHITE,
+    /** Destructive menu items. */
+    var dangerColor: Int = 0xFFD93025.toInt(),
 ) {
     fun dp(value: Float) = value * density
     val bodyLineHeight = (textSizePx * 1.55f).toInt()
