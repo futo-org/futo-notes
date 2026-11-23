@@ -180,7 +180,9 @@ class TextFirstCodeBlockTest {
 
     /**
      * Verifier runs 4-6: at S23 size !300 shows `a-much-longer-file-…`, 20 glyphs; ours, a little wider and counted in
-     * pixels, cut the hyphen. The name's drawn box is that many of our glyphs and the name field's end pad.
+     * pixels, cut the hyphen. The name's drawn box is that many of our glyphs and the name field's end pad. How many
+     * that is depends on the header's width (20 on the S23's, 19 on a 360 dp emulator whose note column is narrower),
+     * so the count is the chrome's own for this header: what is pinned is that the box is that count of our glyphs.
      */
     @Test fun aLongNameIsCutAtTheReferencesCharacter() = textFirstSession("```js name:a-much-longer-file-name.js\nthird\n```\n\nend") { c ->
         val view = c.view
@@ -188,7 +190,11 @@ class TextFirstCodeBlockTest {
         val area = view.codeChrome.areaOf(0, CodeBlockAction.NAME_FIELD)!!
         val glyph = android.text.TextPaint().apply { typeface = view.style.mono; textSize = view.style.codeHeaderTextSize }.measureText("0")
         val shownGlyphs = (area.right - view.style.codeNameEndPad - (area.left + view.style.codeFieldInset + view.style.codeChipPad)) / glyph
-        assertEquals("a-much-longer-file-…".length.toFloat(), shownGlyphs, 0.05f)
+        val outset = view.style.codeCardOutset
+        val cut = view.codeChrome.nameChars(-outset, view.layout!!.width + outset)
+        assertEquals(cut.toFloat(), shownGlyphs, 0.05f)
+        // A name this long is always cut, and never to nothing.
+        assertEquals(true, cut in 1 until "a-much-longer-file-name.js".length)
     }
 
     /** Area 6 verifier (P151): typing over a selected block replaces it with prose, so the keyboard is offered capitals as in prose. */
