@@ -59,7 +59,7 @@ class TextFirstListSelectionPaintTest {
                                 val dir = view.layout.getParagraphDirection(row)
                                 val at = view.layout.getLineStart(row)
                                 val bodyEdge = view.totalPaddingLeft + view.layout.getPrimaryHorizontal(at + 1).toInt()
-                                val markerX = view.totalPaddingLeft + if (dir > 0) 1 else view.layout.width - 2
+                                val markerX = markerProbeX(view, row, sources[i].startsWith("- [ ]"))
                                 val background = shot.getPixel(1, ys[row])
                                 val markerSelected = at in low until high
                                 val textSelected = at + 1 in low until high
@@ -153,7 +153,7 @@ class TextFirstListSelectionPaintTest {
                         try {
                             for (row in 0..2) {
                                 val y = view.totalPaddingTop + view.overlayBand(view.layout, view.editableText, row).first.toInt() + view.style.dp(2f).toInt()
-                                val marker = view.totalPaddingLeft + if (view.layout.getParagraphDirection(row) > 0) 1 else view.layout.width - 2
+                                val marker = markerProbeX(view, row, kind == ListMarker.Task)
                                 val what = "$kind rtl$rtl selection$start..$end row$row"
                                 if (row in rows) assertNotEquals(what, shot.getPixel(1, y), shot.getPixel(marker, y))
                                 else assertEquals(what, shot.getPixel(1, y), shot.getPixel(marker, y))
@@ -174,6 +174,18 @@ class TextFirstListSelectionPaintTest {
             scenario.close()
             root.deleteRecursively()
         }
+    }
+
+    /**
+     * A pixel inside the marker column to read the selection tint from. A checkbox's outer stroke antialiases into the
+     * column's first pixel (the hanging indent truncates its fractional width), so a task row probes the gutter just
+     * inside the marker unit's inner edge, clear of the box's ink; other kinds probe the column's outer pixel.
+     */
+    private fun markerProbeX(view: TextFirstEditText, row: Int, task: Boolean): Int {
+        val dir = view.layout.getParagraphDirection(row)
+        if (!task) return view.totalPaddingLeft + if (dir > 0) 1 else view.layout.width - 2
+        val innerEdge = view.totalPaddingLeft + view.layout.getPrimaryHorizontal(view.layout.getLineStart(row) + 1).toInt()
+        return innerEdge - dir * 2
     }
 
     private suspend fun committedFrame(view: android.view.View) {
