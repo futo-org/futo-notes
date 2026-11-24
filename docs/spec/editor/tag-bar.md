@@ -20,5 +20,4 @@ native shells edit tags as text in the body, which is not a gap.
   read as an emphasis delimiter is escaped (`\_not em_`), so `_em_` still
   round-trips as emphasis (written `*em*`) and a `_` between spaces stays bare
   (see "Markdown house style"). →
-  packages/editor/src/markdown/choose.ts,
-  tests/editor-embed-milkdown-parity.spec.ts, tests/tags.spec.ts
+  tests/tags.spec.ts

@@ -121,7 +121,7 @@ and `events`.
 - **The selection is the argument.** Formatting verbs take no arguments and act on the
   selection, as their toolbar buttons do; they are named after the `TOOLBAR_EXEC` ids
   (`Bold`, `Heading`, `TaskList`, …). `Select` supplies the selection.
-- **Positions belong to the active renderer** (ProseMirror or native iOS UTF-16), read from `doc`, `show {"text"}` or `state`, never counted
+- **Positions belong to the active renderer** (the desktop editor's engine offsets or native iOS UTF-16), read from `doc`, `show {"text"}` or `state`, never counted
   from markdown. `expect` refuses 409 if the text at a range differs; `docVersion` (a hash of
   the document) refuses if the document moved.
 - **Text anchors (2026-09-21).** `Select` and `Replace` take `{"find"}`, `Insert` takes
@@ -186,7 +186,7 @@ The web view is the whole desktop UI and the editor on both phones, and the one 
   `pointer-events: none` layers still show, and hit versus paint: an analytic prediction of
   what an element paints, checked by the browser just inside each edge and rounded corner.
 - **Trace:** one patch of `addEventListener` installed before the app mounts
-  (`puppetListeners.ts`) wraps every listener, ProseMirror's included; Svelte's delegated
+  (`puppetListeners.ts`) wraps every listener; Svelte's delegated
   handlers are recorded by rewriting the per-element table along the event's path. Per event:
   target, path, `isTrusted`, each handler in order, what it prevented, and for the editor the
   position it resolved against where the selection settled.

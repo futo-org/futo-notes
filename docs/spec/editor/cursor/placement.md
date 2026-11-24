@@ -1,7 +1,7 @@
 ### Placement
 
-- Tapping text places the caret at the tapped character. →
-  src/features/editor/milkdown/MilkdownEditor.svelte
+- Tapping text places the caret at the tapped character. _(desktop)_ →
+  src/features/editor/desktop/hitTest.ts
 - Caret placement, arrow motion, word/paragraph selection on multi-tap, and
   drag-selection are the PLATFORM's own: the editor runs no pointer hit-testing
   or cursor-motion code of its own. (The CodeMirror editor did, because a

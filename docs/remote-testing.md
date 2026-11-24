@@ -204,7 +204,7 @@ node scripts/remote-test.mjs test-cross-platform   # or `just remote-sync`, or `
 is **not** a non-interactive-ssh-only workflow: on a bare shell it dies in about nine seconds with
 `no DISPLAY or WAYLAND_DISPLAY` and zero scenarios run (L1-004). It is a hard failure, not a
 silent skip, so nothing is mis-reported green. `check`, `test-rust*`, `test-unit`, the Android
-build/JVM legs and the Playwright suites (`test-e2e*`, the editor-embed specs — headless Chromium)
+build/JVM legs and the Playwright suites (`test-e2e*` — headless Chromium)
 do not need a display and work over plain ssh.
 
 The workaround the hardening lanes used is a private, headless Wayland compositor on the box.

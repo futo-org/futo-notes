@@ -6,7 +6,5 @@ to `editor.md`, which owns editor behavior.
 ## Reading column
 
 - Blockquote bars and code-block backgrounds stop at the reading column; they do
-  not paint through the editor's larger left gutter (the one the ⠿ block-drag
-  handle floats in on desktop). →
-  `src/features/editor/milkdown/milkdownEditor.css`
-  `.ProseMirror blockquote` / `.ProseMirror pre`
+  not paint through the editor's larger left gutter (the editor's gutter on desktop). →
+  `src/features/editor/desktop/desktopEditor.css`, `desktopCodeBlocks.css`

@@ -68,7 +68,7 @@ run the app in English.
 | **status** | `await window.__TAURI_INTERNALS__.invoke('vault_status')` |
 | **probe** | `await window.__TAURI_INTERNALS__.invoke('app_data_write', { path: '.cfa-probe.json', content: '{}' }).then(() => 'WROTE', String)` |
 | **toast** | `(async () => { document.querySelector('[aria-label="Open settings"]').click(); await new Promise((r) => setTimeout(r, 400)); [...document.querySelectorAll('.settings-segment')].find((b) => b.textContent.trim() === 'Dark').click(); await new Promise((r) => setTimeout(r, 800)); const toast = document.querySelector('.toast')?.innerText ?? 'no toast'; document.querySelector('[aria-label="Close settings"]').click(); return toast; })()` |
-| **type** | `(async () => { const editor = document.querySelector('.ProseMirror'); editor.focus(); document.execCommand('insertText', false, 'QA'); return 'editable ' + editor.contentEditable + ', took typing ' + editor.textContent.includes('QA'); })()` |
+| **type** | `(async () => { const editor = document.querySelector('.desktop-editor'); editor.focus(); document.execCommand('insertText', false, 'QA'); return 'editable ' + editor.contentEditable + ', took typing ' + editor.textContent.includes('QA'); })()` |
 
 **probe** makes one real create in the notes folder (a hidden `.cfa-probe.json`) and
 returns `WROTE` or the error word for word.

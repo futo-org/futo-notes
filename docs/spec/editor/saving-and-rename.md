@@ -2,19 +2,11 @@
 
 On desktop the editor host saves the attached note (lines tagged *(desktop)*). Native mobile
 source ownership, checkpoints, merge adoption and leave handling follow
-[portable recovery](portable-core/recovery.md) and [native exits](editor-exits.md). Lines that
-name Milkdown describe the standalone `editor-embed` fixture, which no app ships.
+[portable recovery](portable-core/recovery.md) and [native exits](editor-exits.md).
 
-- Every edit the user makes reaches the host once the document settles (~200 ms
-  debounce), and clearing the whole note is one of them: select-all-delete is
-  reported as a change to the empty document, however soon after the note was
-  opened. The editor knows an edit happened because it saw the TRANSACTION,
-  never by comparing the settled document against a remembered one — a cleared
-  note is byte-identical to the pristine empty document every editor starts
-  from, so any such comparison reads the user's deletion as "nothing changed"
-  and drops it. → src/features/editor/milkdown/documentChanges.ts,
-  src/features/editor/milkdown/serializationLoop.ts `reportDocumentChange`,
-  src/features/editor/milkdown/MilkdownEditor.test.ts,
+- Every edit the user makes reaches the host, and clearing the whole note is one
+  of them: select-all-delete is reported as a change to the empty document,
+  however soon after the note was opened. → src/features/editor/desktop/applyViewChanges.ts,
   tests/note-never-emptied.spec.ts
 - *(desktop)* A note that has content is never written back empty on the strength of an
   editor's word alone (CRITICAL). An empty document is only saved as a deletion

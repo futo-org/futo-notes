@@ -8,7 +8,7 @@ just arch-gate
 ```
 
 `just check` includes `arch-gate`. Install workspace dependencies first with `just install`; the
-bridge-spec check uses `tsx`, while the other checks only read repository files.
+other checks only read repository files.
 
 ## Checks
 
@@ -16,7 +16,6 @@ bridge-spec check uses `tsx`, while the other checks only read repository files.
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | Command reachability | Tauri's `generate_handler!`, literal `invoke("...")` calls under `src/`, and `scripts/command-reachability-allowlist.json` | An uncalled registered command, an unregistered invoked command, or a stale allowlist entry                                                   |
 | Platform discipline  | `@tauri-apps/*` imports under `src/` and `scripts/platform-discipline-allowlist.json`                                      | A direct Tauri import outside `src/lib/platform/**` without an explicit exception, or a stale exception                                       |
-| Native bridge specs  | `packages/editor/src/bridge.ts` and generated Kotlin/Swift specs                                                           | Generated message types or bridge versions are stale; run `just bridge-spec` and commit the results                                           |
 | Tauri sync contract  | Rust records in `apps/tauri/src-tauri/src/sync/frontend_contract.rs` and generated TypeScript                              | Generated frontend types are stale; run `just sync-contract` and commit the result                                                            |
 | Drift registry       | Copies, locks, and optional scan patterns in `scripts/drift-registry.json`                                                 | A registered copy or lock disappeared, a detection pattern became stale, lock status is inconsistent, or a scan finds a new unregistered copy |
 | Agent instructions   | Commands, paths, and linked skills named by repository instruction surfaces                                                | An instruction points at a missing recipe, script, path, or skill                                                                             |
@@ -91,16 +90,13 @@ point where it can change without re-proving unchanged gates on every unrelated 
 
 These gates are structural source scans, not proofs of runtime behavior. Command reachability
 recognizes literal `invoke("name")` calls. Drift detection only discovers new copies for concepts
-with a suitable registered scan pattern. The bridge-spec gate proves that the generated native
-contract is current; Android unit tests separately check handler coverage, and behavioral tests
-remain responsible for handler correctness.
+with a suitable registered scan pattern. Behavioral tests remain responsible for handler correctness.
 
 The individual recipes remain available for focused diagnosis:
 
 ```bash
 just check-command-reachability
 just check-platform-discipline
-just bridge-spec-check
 just check-drift
 just check-agent-docs
 just check-qa-input-safety

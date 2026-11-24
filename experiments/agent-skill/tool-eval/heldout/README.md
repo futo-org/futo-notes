@@ -80,7 +80,7 @@ No goal changed. The editor became Milkdown/ProseMirror, so:
 
 ## The `editor` set (2026-10-05)
 
-`editor-tasks.mjs`: 17 more goals on the same vault, about what the Milkdown editor added —
+`editor-tasks.mjs`: 17 more goals on the same vault, about what the WYSIWYG editor added —
 table cells and rows, code blocks, ordered and task lists, indenting, moving a block, a
 divider, a link, a wikilink suggestion — plus a delete through its dialog. Same rules: judged
 on, never tuned on; frozen from its first baseline (`runs/editor-s55m-v1-*`).

@@ -4,7 +4,7 @@ A fenced code block (code-blocks.md) colours its code by the block's language, t
 `language` as written (portable-core/fenced-code.md). The colours are the page's own reading of
 the code: they change no text, offset or line, and the engine never sees them.
 
-- A block whose language names one of the curated grammars (about 35, the Milkdown editor's list)
+- A block whose language names one of the curated grammars (about 35)
   colours its code; the language is looked up by name or alias, any case (`JS`, `py`, `Rust`). A
   block in any other language, or none, draws as code, uncoloured, and edits and saves alike. →
   src/features/editor/codeFenceLanguages.ts, src/features/editor/desktop/codeGrammars.ts

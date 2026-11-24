@@ -1,12 +1,11 @@
 # AGENTS.md — tests/
 
-Four different kinds of test share this directory. Knowing which one you are touching decides how
+Three different kinds of test share this directory. Knowing which one you are touching decides how
 you run it and what a green result actually proves.
 
 | What                   | Where                                     | Runner                                     |
 | ---------------------- | ----------------------------------------- | ------------------------------------------ |
 | Browser end-to-end     | `*.spec.ts`                               | Playwright, against the Vite dev server    |
-| Editor-embed           | `editor-embed-*.spec.ts`                  | Playwright, its own config, `file://`      |
 | Cross-language goldens | `conformance/`, `localization/cases.json` | Rust, Vitest, Swift, Kotlin                |
 | Real-app harnesses     | `*.mjs` + `lib/`                          | plain Node against a running app or device |
 
@@ -15,15 +14,13 @@ the harness helpers themselves and run under Vitest.
 
 ## Playwright specs
 
-`playwright.config.ts` points at this directory and ignores `editor-embed-*.spec.ts` (own
-config, no dev server — `globalSetup` builds the single-file `editor.html` and every test loads it
-over `file://`) and `*.test.mjs` (Vitest files, whose matcher runtime conflicts with Playwright's).
+`playwright.config.ts` points at this directory and ignores `*.test.mjs` (Vitest files, whose matcher
+runtime conflicts with Playwright's).
 
 ```bash
 just test-e2e          # the P0 regression spec — the smoke run
 just test-e2e-rest     # exactly what CI's test:e2e:rest job runs
-pnpm run test:e2e:full # every dev-server spec — NOT the editor-embed one
-pnpm run test:e2e:editor-embed    # the only way to run the embed spec
+pnpm run test:e2e:full # every dev-server spec
 pnpm exec playwright test tests/search.spec.ts      # one spec
 pnpm exec playwright test -g 'partial test title'   # one test
 ```
@@ -57,34 +54,19 @@ path/port before reusing it; the ordinary recipes keep rejecting occupied ports 
 worktree's server cannot silently supply the test app. Stop only the diagnostic process you
 started (Ctrl-C in its terminal). These browser diagnostics prove web behavior, not native pixels.
 
-`pnpm run test:e2e:full` is plain `playwright test` under the default config, which `testIgnore`s
-`editor-embed-*.spec.ts` — so "run everything" leaves the native editor's bridge contract and the
-Milkdown round-trip suites untested unless you also run `pnpm run test:e2e:editor-embed`.
-That run always starts with a production Vite build of the editor bundle (its globalSetup,
-`tests/editorEmbedBundle.ts`, rebuilds so a stale `editor.html` cannot pass), so it counts as a
-build when a task rules builds out. Every run builds into a private
-`build/editor-embed-*/` directory and removes only that directory on teardown.
-Native builds and simultaneous embed/gauntlet runs cannot erase its bundle.
-
 `just test-unit` is **Vitest**, not Playwright — use it for the co-located unit tests and the
 harness helpers under `lib/`, not for a `.spec.ts` here.
 
-Playwright **wipes** its output directory at the start of every run. All three configs isolate
-artifacts under `test-results/<runner>/default` and HTML under
-`playwright-report/<runner>/default` (`desktop`, `editor-embed`, `editor-gauntlet`). Set
-`PW_RUN_ID=before` / `PW_RUN_ID=after` to retain runs under sibling `run-before` / `run-after`
-directories, including their JSON and HTML reports; an unnamed run cannot erase them.
-Unnamed JSON reports keep the CI filenames directly under `test-results/`: `results.json`,
-`editor-embed-results.json`, and `editor-gauntlet-results.json`.
-`FUTO_VERIFICATION_DIR` takes precedence over `PW_RUN_ID`: desktop keeps its existing
-`<dir>/playwright/{test-output,results.json,report}` layout, while embed and gauntlet use
-`<dir>/playwright/<runner>/{test-output,results.json,report}`. Repeating the same runner with
-the same run ID or verification directory replaces that runner's previous evidence.
+Playwright **wipes** its output directory at the start of every run. The config isolates
+artifacts under `test-results/desktop/default` and HTML under
+`playwright-report/desktop/default`. Set `PW_RUN_ID=before` / `PW_RUN_ID=after` to retain runs
+under sibling `run-before` / `run-after` directories, including their JSON and HTML reports; an
+unnamed run cannot erase them. Unnamed JSON reports keep the CI filename directly under
+`test-results/`: `results.json`. `FUTO_VERIFICATION_DIR` takes precedence over `PW_RUN_ID` and
+uses `<dir>/playwright/{test-output,results.json,report}`.
 The default config runs single-worker (`workers: 1`, `fullyParallel: false`); CI's
 `test:e2e:rest` job overrides that with `--workers=2`.
-CI splits `test:e2e:rest` and `test:e2e:editor-embed` into three jobs each by file
-(`--shard=N/3`), so a red shard holds only its share of the specs; reproduce one with
-`pnpm run test:e2e:rest --shard=2/3`. Put the flag straight after the script name: after a `--`,
+CI runs `test:e2e:rest` as one job. Put a shard flag straight after the script name (`pnpm run test:e2e:rest --shard=2/3`): after a `--`,
 pnpm forwards the separator and Playwright quietly runs the whole suite.
 
 A Playwright pass proves nothing about WebView2 or a real iOS keyboard (AGENTS.md M22). Those need

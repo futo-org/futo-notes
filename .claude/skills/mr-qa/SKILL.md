@@ -110,11 +110,9 @@ drifts mid-session.
 ## Per MR (pipelines run concurrently across MRs)
 
 1. **Static gate first, across all worktrees at once, before any device
-   build**: `tsc --noEmit` + the MR's targeted unit tests. Dependency bump →
-   duplicate-dependency check (`find node_modules/.pnpm -maxdepth 1 -name
-'@milkdown+kit@*'` — M22's blank-editor failure). Editor change →
-   `pnpm run test:e2e:editor-embed` is the key gate, but it runs in Chromium —
-   the leg must still confirm rendering live in Tauri's WebKit.
+   build**: `tsc --noEmit` + the MR's targeted unit tests. Desktop editor change → the matching
+   `src/features/editor/desktop/*.test.ts` plus the leg confirming it live in
+   Tauri's WebKit through Puppet stories.
 2. **Worktree**: resolve the MR's source branch, then
    `git worktree add .claude/worktrees/mr-<iid> origin/<branch>` and
    `pnpm install` (installs run concurrently across worktrees).
@@ -256,7 +254,7 @@ call:
 and nothing else — anything under `keys/` or the updater trust boundary, a
 CRITICAL guard (dev/prod data split, push-first sync, the release gate, the
 dep-guard, hash/crypto), publishing, or a cross-cutting protocol change (sync
-payload, `BRIDGE_VERSION`, `AppState` schema). A clean QA pass says the code
+payload, `AppState` schema). A clean QA pass says the code
 behaves; it doesn't say the trust boundary or the wire format should move.
 Report those as **SHIP (needs your merge)** with the reason, and leave them
 open.

@@ -1,8 +1,7 @@
 # Find in note
 
-These are the portable replacement core's contracts. The shipping Milkdown find
-bar keeps [its contract](../find-in-note.md) until renderer integration and cutover;
-platform bars stay thin and render the engine's report verbatim.
+These are the portable core's contracts. Platform bars stay thin and render the
+engine's report verbatim ([desktop](../desktop/find.md), [find in note](../find-in-note.md)).
 
 - Matching is case-insensitive literal search over the display text, so hidden markers (quote and heading markers, inline syntax, an escape's backslash), list item marker units (a barrier, as a divider is) and link destinations are not findable, while text spanning a hidden mark (`**bo**ld`) matches. Every Greek sigma is one letter; a character whose lowercase is longer matches only itself. Occurrences never overlap. → crates/futo-notes-editor/src/engine/commands/find.rs, crates/futo-notes-editor/tests/fixtures/engine/find.json
 - Every line break is a barrier: no match crosses from one line to the next, whatever the lines are (two plain lines, two quote lines, a bullet and the indented line under it, code lines). A query holding a line break finds nothing. → crates/futo-notes-editor/src/engine/commands/find.rs, crates/futo-notes-editor/tests/fixtures/engine/find.json

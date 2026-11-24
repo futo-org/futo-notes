@@ -259,4 +259,4 @@ renderer; shell verbs call the same handlers as Compose controls. Native text in
 platform input connection. The emulator reaches local services through `10.0.2.2`.
 
 The Rust editor session owns document bytes, revisions, saving and merge handling. Mobile
-never loads the web editor; desktop keeps Milkdown.
+never loads the web editor; desktop uses the engine-backed desktop editor.

@@ -5,8 +5,7 @@ also deferred by the maintainer. Preserve existing alignment and exact untouched
 Basic row/column insertion and deletion, cell editing/navigation and ordinary single-cell
 paste remain required; shared find and 20,000-line performance remain required.
 
-The shared engine implements the Linedown contract. Mobile release and debug apps use native renderers over this engine. Desktop
-continues using Milkdown. See the [client adoption guide](../../architecture/editor-engine-adoption.md)
+The shared engine implements the Linedown contract. Mobile release and debug apps use native renderers over this engine, and so does the desktop editor. See the [client adoption guide](../../architecture/editor-engine-adoption.md)
 for native binding changes and each client's current integration status.
 
 The maintainer's 2026-10-30 scope decision defers rich HTML paste (#303) from this

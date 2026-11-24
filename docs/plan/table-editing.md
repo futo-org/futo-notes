@@ -4,6 +4,9 @@ Design: Figma "FUTO Notes – Mobile App (WIP)", section **Table edit** (node `1
 Frames: `Table / Cell Selected` (1588:4108), `Table / Row actions` (1588:3886),
 `Table / Table actions` (1588:3979), `Table / Drag` (1588:3758) — each in dark and light.
 
+> Superseded in part (2026-11): the Milkdown implementation named below was removed; tables are now
+> engine-backed (`crates/futo-notes-editor`, `src/features/editor/desktop/editorTables.ts`).
+
 Decided with Justin, 2026-09-15. This plan is the contract the implementation lanes build
 against; where it and a lane's judgment disagree, this document wins or gets amended first.
 

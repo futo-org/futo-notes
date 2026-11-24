@@ -11,7 +11,7 @@ cites the source it governs (`→ wikilinkAutocomplete.ts`, `→ syncServiceE2ee
 So the reverse map is a grep: which spec file mentions a changed file's basename?
 
 ```bash
-LAST_TAG=$(git describe --tags --abbrev=0 --exclude '*-*')   # skip pre-release tags (v1.7.2-6, -milkdown.3)
+LAST_TAG=$(git describe --tags --abbrev=0 --exclude '*-*')   # skip pre-release tags (v1.7.2-6, -rc.3)
 git diff --name-only "$LAST_TAG"..HEAD | grep -E '\.(ts|svelte|rs|swift|kt)$' | while read -r p; do
   b=$(basename "$p" | sed -E 's/\.(ts|svelte|rs|swift|kt)$//; s/\.test$//; s/\.spec$//')
   grep -rlE --include='*.md' "$b" docs/spec 2>/dev/null | sed -E 's#^docs/spec/([^/]+)(/.*)?$#\1#; s/\.md$//'
@@ -28,7 +28,7 @@ Some source files aren't cited by basename (e.g. `searchPopupShortcuts.ts`,
 
 | Changed path (glob)                                                                      | Surface(s)                                                    |
 | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `packages/editor/**`, `src/editor-embed/**`, `src/features/editor/**`, `src/**/*Editor*` | editor                                                        |
+| `packages/editor/**`, `src/features/editor/**`, `src/**/*Editor*`                        | editor                                                        |
 | `src/**/NoteList*`, `src/**/*List*` (list UI), `crates/futo-notes-model` scan/sort       | list, app                                                     |
 | `src/**/*Sidebar*`, `src/**/*Drawer*`, `src/**/*Nav*`                                    | nav                                                           |
 | `src/**/*Tab*`                                                                           | tabs                                                          |
@@ -57,8 +57,8 @@ Shared code ships to all three apps; platform-specific dirs narrow it:
 - `src/**`, `packages/**`, `crates/**` changed → **all platforms** (the shared
   web editor + Rust core ship everywhere), subject to `uname -s`
   (Linux has no iOS).
-- Editor changes (`packages/editor`, `src/editor-embed`) → all three, because
-  the embedded `editor.html` runs inside both native shells.
+- Editor changes (`packages/editor`) → all three, because the note rules and
+  toolbar/title manifests are generated into both native shells.
 
 ## Sync mesh
 

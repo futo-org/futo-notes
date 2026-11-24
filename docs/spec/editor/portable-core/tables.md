@@ -1,8 +1,6 @@
 # Tables: cells, keys, rows and columns
 
-These are the portable replacement core's contracts. The shipping Milkdown editor keeps
-its interaction contract until renderer integration (`../interactive-elements.md`,
-`../markdown-house-style.md` "Tables"). Views never spell pipes or the delimiter row.
+These are the portable core's contracts (desktop: `../desktop/tables.md`). Views never spell pipes or the delimiter row.
 What is a table is the dialect's rule (`linedown.md`, "Tables"): a `|` header line, a
 delimiter row directly under it, then every following `|` line, at the top level only.
 

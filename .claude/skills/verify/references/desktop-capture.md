@@ -36,7 +36,7 @@ WebKit can suspend `requestAnimationFrame` while a window is occluded or the
 Wayland session is locked. `document.hasFocus()` and `visibilityState` alone
 cannot prove frame delivery. Run `await __tabSwitchProbe.check()` after loading
 `scripts/perf/tab-switch-probe.js`; it checks the actual frame clock and returns
-`framesLive` within 1200 ms. Bound any new frame waits too. The block-drag bench
+`framesLive` within 1200 ms. Bound any new frame waits too. The tab-switch probe
 also fails with a named stalled-frame error after 1200 ms without a frame.
 
 Revealing a hidden verified dev window is permitted by the current
@@ -54,8 +54,7 @@ Never send OS-level input to raise a window (M24).
 On Linux, start the complete owned test stack under a private compositor:
 
 ```bash
-just desktop-headless just bench-block-drag current --repeat 1
-# Or launch this worktree's dev stack there, then attach its verified bridge:
+# Launch this worktree's dev stack there, then attach its verified bridge:
 just desktop-headless just tauri-dev
 ```
 

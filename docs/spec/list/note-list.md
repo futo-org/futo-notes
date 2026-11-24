@@ -155,10 +155,9 @@
   → crates/futo-notes-model/src/note.rs / packages/editor/src/preview.ts
 - A `<br>` tag reads as a single space in **every** preview, never as literal
   `<br />` text, and a line that is nothing but the tag contributes no preview
-  line at all. Both kinds of `<br>` in a vault are covered: the one the WYSIWYG
-  editor writes for a blank line the author typed (markdown cannot represent an
-  empty paragraph, so `@milkdown/preset-commonmark`'s serializer parks a
-  placeholder in the file) and the one an author writes to break a line inside a
+  line at all. Both kinds of `<br>` in a vault are covered: the one an older WYSIWYG
+  editor wrote for a blank line the author typed (markdown cannot represent an
+  empty paragraph, so its serializer parked a placeholder in the file) and the one an author writes to break a line inside a
   GFM table cell. Other inline HTML is deliberately left verbatim — `<kbd>K</kbd>`
   previews as itself — because a rule that removes anything between angle
   brackets also removes `a <b` in prose. Shared Rust

@@ -93,4 +93,4 @@ streams os_log and never exits (run it in the background to a file, or read the 
 `log show --last 2m`), but the app logs mostly via `print()`, which os_log does not capture —
 for stdout use `xcrun simctl launch --console-pty booted com.futo.notes.dev`.
 
-The Rust editor session owns document bytes, revisions, saving and merge handling. Mobile never loads the web editor; desktop keeps Milkdown.
+The Rust editor session owns document bytes, revisions, saving and merge handling. Mobile never loads the web editor; desktop uses the engine-backed desktop editor.

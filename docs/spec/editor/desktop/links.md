@@ -92,7 +92,7 @@ and draws as the engine's label.
   the open note (`example.com` is saved as `https://example.com`, a note path as typed).
   Enter is Add or Update; Escape or a press outside the field cancels, the note as it was. Each
   edit is one Undo step. → linkPrompt.ts, FormatToolbar.svelte, keys.ts,
-  src/features/editor/milkdown/linkPrompt/LinkUrlField.svelte
+  src/features/editor/desktop/LinkUrlField.svelte
 - The Link prompt belongs to the note and the version it opened on: opening another note
   closes it, and a submit after any edit to the note since does nothing. → linkPrompt.ts
 - Typing `[[` lists, under the caret, the notes whose id holds what is typed after it, as the
