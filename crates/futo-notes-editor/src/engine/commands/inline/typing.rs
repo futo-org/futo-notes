@@ -122,7 +122,7 @@ impl Engine {
         let at_caret = self.selection.start.0 == caret && self.selection.end.0 == caret;
         if text.is_empty()
             || text.contains(['\n', '\r'])
-            || (self.formats.is_some() && !at_caret)
+            || (self.formats.is_some() && (!at_caret || self.input_before_indent(range)))
             || self.empty_line(caret).is_some()
         {
             return None;

@@ -61,6 +61,10 @@ pub(crate) struct Command {
     /// A deletion's formats the caret keeps where it no longer reads them
     /// (`Engine::carry_deleted`).
     pub carry: Option<Vec<InlineFormat>>,
+    /// The edits only remove text (Backspace, Delete, Cut): the caret keeps
+    /// its place ahead of the hidden indent a removed first word leaves
+    /// (`Engine::keep_before_indent`).
+    pub deletes: bool,
     /// The selection lands on the code block holding its start, selected as
     /// one object.
     pub selects_block: bool,
@@ -94,6 +98,7 @@ impl Command {
             affinity: None,
             typed: false,
             carry: None,
+            deletes: false,
             selects_block: false,
             same_kind: Vec::new(),
             image: None,

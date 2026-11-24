@@ -399,6 +399,19 @@ impl Entry {
         })
     }
 
+    /// Whether `at` (line-relative) is before the text of a plain line,
+    /// among the whitespace it hides as indent: the place an edit that
+    /// removed the line's first word leaves its caret, ahead of the space
+    /// that is now indent.
+    pub(crate) fn in_plain_indent(&self, at: usize) -> bool {
+        let marker = self.line.marker.end;
+        matches!(self.line.kind, Kind::Plain { .. })
+            && at < marker
+            && self.text[at..marker]
+                .bytes()
+                .all(|b| b == b' ' || b == b'\t')
+    }
+
     /// Every source offset that shows at display offset `at`, as the lowest
     /// and highest. `allowed` keeps only those a caret may stand at.
     /// `None` when `at` is past the line's display.

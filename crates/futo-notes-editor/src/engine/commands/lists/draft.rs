@@ -179,6 +179,7 @@ impl<'a> Draft<'a> {
             affinity: None,
             typed: false,
             carry: None,
+            deletes: false,
             selects_block: false,
             same_kind: Vec::new(),
             image: None,

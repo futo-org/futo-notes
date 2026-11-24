@@ -1,6 +1,6 @@
 //! Plain Markdown copy, cut and paste through the public session.
 use futo_notes_editor::{
-    DisplayOffset, DisplayRange, EditorSession, InlineFormat, Revision, SourceEdit,
+    DisplayOffset, DisplayRange, EditorSession, InlineFormat, ParagraphKey, Revision, SourceEdit,
 };
 mod common;
 #[path = "clipboard/fenced.rs"]
@@ -202,6 +202,71 @@ fn cut_is_one_action_and_carries_its_style() {
     assert_eq!(view.text, s.display_text());
     assert!(s.undo(s.revision(), &mut |_| Ok(())).unwrap().is_none());
     assert_eq!(s.revision(), Revision(4));
+}
+
+/// Select `a..b`, cut it, and paste the copy at the caret the cut left.
+fn cut_then_paste(source: &str, a: usize, b: usize) -> String {
+    let mut s = EditorSession::open(source);
+    let mut accept = |_: &SourceEdit| Ok(());
+    s.select(s.revision(), range(a, b)).unwrap();
+    let (copied, _) = s
+        .cut_markdown(s.revision(), range(a, b), &mut accept)
+        .unwrap();
+    let caret = s.selection();
+    s.paste_markdown(s.revision(), caret, &copied, &mut accept)
+        .unwrap();
+    s.source_text()
+}
+
+#[test]
+fn cut_then_paste_in_place_gives_the_same_bytes() {
+    // (source, display range cut)
+    for (source, (a, b)) in [
+        // A whole bold word: the marks the cut left carried are not written
+        // around the copy's own again.
+        ("a **bold** c\n", (2, 6)),
+        // A range across two quoted lines is not quoted twice.
+        ("> ab\n> cd\n", (1, 4)),
+        // Part of an inline code span stays code.
+        ("`gamma`\n", (1, 2)),
+        // A line's first word: the space after it is not typed past.
+        ("ab cd\n", (0, 2)),
+        ("  ab cd\n", (0, 2)),
+    ] {
+        assert_eq!(cut_then_paste(source, a, b), source, "{source:?} {a}..{b}");
+    }
+}
+
+#[test]
+fn typing_after_deleting_a_lines_first_word_keeps_the_space() {
+    // The space after the word reads as hidden indent once the word is gone;
+    // what is typed next still goes before it.
+    for (source, word, expected) in [
+        ("ab cd\n", (0, 2), "xy cd\n"),
+        ("  ab cd\n", (0, 2), "  xy cd\n"),
+        ("> ab cd\n", (0, 2), "> xy cd\n"),
+    ] {
+        for deleted in ["replace", "backspace", "cut"] {
+            let mut s = EditorSession::open(source);
+            let mut accept = |_: &SourceEdit| Ok(());
+            let at = range(word.0, word.1);
+            match deleted {
+                "replace" => {
+                    s.replace(s.revision(), at, "", &mut accept).unwrap();
+                }
+                "backspace" => {
+                    s.paragraph_key(s.revision(), at, ParagraphKey::Backspace, &mut accept)
+                        .unwrap();
+                }
+                _ => {
+                    s.cut_markdown(s.revision(), at, &mut accept).unwrap();
+                }
+            }
+            let caret = s.selection();
+            s.replace(s.revision(), caret, "xy", &mut accept).unwrap();
+            assert_eq!(s.source_text(), expected, "{source:?} by {deleted}");
+        }
+    }
 }
 
 #[test]

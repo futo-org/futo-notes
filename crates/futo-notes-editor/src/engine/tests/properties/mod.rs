@@ -31,6 +31,7 @@
 mod block_mirror;
 pub(super) mod checks;
 mod command_step;
+mod cut_paste;
 mod enter_rewrites;
 mod fences;
 mod generate;

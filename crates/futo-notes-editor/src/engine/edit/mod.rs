@@ -226,6 +226,21 @@ impl Engine {
         self.pin = (fence_end || (lo != hi && lo <= at && at <= hi && stands)).then_some(at);
     }
 
+    /// After a deletion left the caret at source offset `at` (`caret_at`):
+    /// one that took a line's first word leaves it ahead of the space after
+    /// it, though that space now reads as hidden indent. The caret stays
+    /// there, so what is typed or pasted next goes before the space, as the
+    /// word did (`ab cd` less `ab`, then `xy`, is `xy cd`).
+    pub(crate) fn keep_before_indent(&mut self, at: usize) {
+        let (index, before) = read::line_at(&self.store, at);
+        if self.pin.is_none()
+            && self.selection.start == self.selection.end
+            && self.store.get(index).in_plain_indent(at - before.source)
+        {
+            self.pin = Some(at);
+        }
+    }
+
     pub(crate) fn change(&self, edit: SourceEdit, shown: Shown) -> Change {
         Change {
             edit,
@@ -309,6 +324,9 @@ impl Engine {
             return Ok(None);
         };
         self.caret_at(finished.unwrap_or(plan.caret));
+        if text.is_empty() && finished.is_none() {
+            self.keep_before_indent(plan.caret);
+        }
         // The keystroke that finishes a delimiter row is an Undo step of its
         // own; until then typing on the row leaves the caret writing it.
         let kind = kind.filter(|_| finished.is_none());
