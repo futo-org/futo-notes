@@ -17,7 +17,6 @@ export const PORT_BASES = {
   // one for the hosted scenarios — so it needs two disjoint bands, not one.
   syncIntegration: 3150,
   syncIntegrationHosted: 3200,
-  cdp: 15000,
   // Each bridge scans base..base+99. A disjoint 100-port band per slot keeps
   // its bound port stable across restarts, even when another slot's base is busy.
   mcp: 9223,
@@ -168,7 +167,6 @@ export const ENV_NAMES = {
   sync: 'SYNC_PORT',
   syncIntegration: 'SYNC_INTEGRATION_PORT',
   syncIntegrationHosted: 'SYNC_INTEGRATION_HOSTED_PORT',
-  cdp: 'CDP_PORT',
   mcp: 'FUTO_MCP_BASE_PORT',
   coinTuner: 'COIN_TUNER_PORT',
   crashlog: 'CRASHLOG_PORT',

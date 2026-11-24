@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * One-shot driver for the native Android app — the counterpart of
- * scripts/cdp-invoke.mjs, which drives the editor WebView inside it.
+ * One-shot driver for the native Android app's shell (`just puppet` drives its
+ * editor).
  *
  * Exists so an interactive session stops re-deriving `uiautomator dump` pipelines
  * and coordinate arithmetic for every look at the app. `state` in particular
