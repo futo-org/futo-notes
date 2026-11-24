@@ -1,6 +1,6 @@
 // The mobile markdown-toolbar manifest (items/order/icons/visibility) —
-// rendered by the embed's web toolbar and codegen'd into the native shells
-// (scripts/gen-toolbar-spec.ts).
+// codegen'd into the native shells (scripts/gen-toolbar-spec.ts); the desktop
+// selection toolbar takes its block buttons from it.
 export * from './toolbar';
 
 // The canonical TypeScript copy of the deterministic note rules
@@ -8,9 +8,9 @@ export * from './toolbar';
 // (`futo-notes-model`); the conformance harness (tests/conformance/*.json,
 // crates/futo-notes-model/tests/conformance.rs, ./conformance.test.ts) keeps
 // the two bit-for-bit identical. They live here — in the web/presentation
-// layer — because the editor needs them synchronously per keystroke (tag
-// highlighting, the tag bar); routing them through Tauri IPC would regress
-// typing latency (migration plan, Phase 3 adversarial note).
+// layer — because the UI needs them synchronously while the user types (title
+// validation, the tag bar); routing them through Tauri IPC would add a
+// round-trip per keystroke.
 export * from './filename';
 export * from './tags';
 export * from './preview';

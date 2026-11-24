@@ -24,8 +24,8 @@ export type ToolbarAction =
   /** Run the editor command the item's id names. */
   | { kind: 'exec' }
   /**
-   * Ask the host for an image (`pickImage` outbound message on native). The
-   * host saves the bytes into the vault and calls `insertImage(filename)` back.
+   * Ask the native shell for an image from the camera or the photo library. The
+   * shell saves the bytes into the vault and inserts the image into the note.
    */
   | { kind: 'pickImage'; source: 'camera' | 'library' }
   /** Blur the editor — drops the soft keyboard and hides the toolbar. */
@@ -41,8 +41,6 @@ export interface ToolbarItem {
   localizationPath: string;
   /** Optional visible text, used for explicit heading levels. */
   text?: string;
-  /** Icon name in `@lucide/svelte` (web renderers). */
-  lucide: string;
   /** SF Symbol name (native iOS renderer). */
   sfSymbol: string;
   /** Material Symbols name (native Android renderer). */
@@ -66,7 +64,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     {
       id: 'undo',
       localizationPath: 'editor.toolbar.undo',
-      lucide: 'Undo2',
       sfSymbol: 'arrow.uturn.backward',
       material: 'undo',
       when: 'always',
@@ -75,7 +72,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     {
       id: 'redo',
       localizationPath: 'editor.toolbar.redo',
-      lucide: 'Redo2',
       sfSymbol: 'arrow.uturn.forward',
       material: 'redo',
       when: 'always',
@@ -86,7 +82,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     {
       id: 'bold',
       localizationPath: 'editor.toolbar.bold',
-      lucide: 'Bold',
       sfSymbol: 'bold',
       material: 'format_bold',
       when: 'always',
@@ -95,7 +90,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     {
       id: 'italic',
       localizationPath: 'editor.toolbar.italic',
-      lucide: 'Italic',
       sfSymbol: 'italic',
       material: 'format_italic',
       when: 'always',
@@ -104,7 +98,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     {
       id: 'strikethrough',
       localizationPath: 'editor.toolbar.strikethrough',
-      lucide: 'Strikethrough',
       sfSymbol: 'strikethrough',
       material: 'format_strikethrough',
       when: 'always',
@@ -113,7 +106,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     {
       id: 'link',
       localizationPath: 'editor.toolbar.link',
-      lucide: 'Link',
       sfSymbol: 'link',
       material: 'link',
       when: 'always',
@@ -125,7 +117,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
       id: 'paragraph',
       localizationPath: 'editor.toolbar.paragraph',
       text: 'Text',
-      lucide: 'Type',
       sfSymbol: 'textformat.size',
       material: 'format_h1',
       when: 'always',
@@ -135,7 +126,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
       id: 'heading-1',
       localizationPath: 'editor.toolbar.headingOne',
       text: 'H1',
-      lucide: 'Heading1',
       sfSymbol: 'textformat.size',
       material: 'format_h1',
       when: 'always',
@@ -145,7 +135,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
       id: 'heading-2',
       localizationPath: 'editor.toolbar.headingTwo',
       text: 'H2',
-      lucide: 'Heading2',
       sfSymbol: 'textformat.size',
       material: 'format_h1',
       when: 'always',
@@ -155,7 +144,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
       id: 'heading-3',
       localizationPath: 'editor.toolbar.headingThree',
       text: 'H3',
-      lucide: 'Heading3',
       sfSymbol: 'textformat.size',
       material: 'format_h1',
       when: 'always',
@@ -164,7 +152,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     {
       id: 'quote',
       localizationPath: 'editor.toolbar.blockQuote',
-      lucide: 'TextQuote',
       sfSymbol: 'text.quote',
       material: 'format_quote',
       when: 'always',
@@ -172,15 +159,9 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     // QA-009: was missing on every mobile shell (there was no manifest item
     // at all, not an Android-only gap) — Android and iOS both get it now.
-    // One-way (paragraph → code), matching the `/` menu's existing Code block
-    // item (slash/exec.ts `createCodeBlockCommand`) rather than inventing a
-    // toggle back OUT of code the block-conversion model doesn't support
-    // (blockCommands.ts `applyCommand`/`stripCommand` both already refuse a
-    // `code` target/source).
     {
       id: 'code-block',
       localizationPath: 'editor.toolbar.codeBlock',
-      lucide: 'Code',
       sfSymbol: 'chevron.left.forwardslash.chevron.right',
       material: 'code',
       when: 'always',
@@ -191,7 +172,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     {
       id: 'bullet-list',
       localizationPath: 'editor.toolbar.bulletList',
-      lucide: 'List',
       sfSymbol: 'list.bullet',
       material: 'format_list_bulleted',
       when: 'always',
@@ -200,7 +180,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     {
       id: 'ordered-list',
       localizationPath: 'editor.toolbar.orderedList',
-      lucide: 'ListOrdered',
       sfSymbol: 'list.number',
       material: 'format_list_numbered',
       when: 'always',
@@ -209,7 +188,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     {
       id: 'task-list',
       localizationPath: 'editor.toolbar.taskList',
-      lucide: 'ListChecks',
       sfSymbol: 'checklist',
       material: 'checklist',
       when: 'always',
@@ -218,7 +196,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     {
       id: 'outdent',
       localizationPath: 'editor.toolbar.outdent',
-      lucide: 'ListIndentDecrease',
       sfSymbol: 'decrease.indent',
       material: 'format_indent_decrease',
       when: 'inContainer',
@@ -227,7 +204,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     {
       id: 'indent',
       localizationPath: 'editor.toolbar.indent',
-      lucide: 'ListIndentIncrease',
       sfSymbol: 'increase.indent',
       material: 'format_indent_increase',
       when: 'inContainer',
@@ -238,7 +214,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     {
       id: 'camera',
       localizationPath: 'editor.toolbar.takePhoto',
-      lucide: 'Camera',
       sfSymbol: 'camera',
       material: 'photo_camera',
       when: 'always',
@@ -247,7 +222,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     {
       id: 'image',
       localizationPath: 'editor.toolbar.chooseFromLibrary',
-      lucide: 'ImageIcon',
       sfSymbol: 'photo',
       material: 'image',
       when: 'always',
@@ -260,7 +234,6 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
 export const TOOLBAR_DISMISS: ToolbarItem = {
   id: 'dismiss',
   localizationPath: 'editor.toolbar.dismissKeyboard',
-  lucide: 'ChevronDown',
   sfSymbol: 'keyboard.chevron.compact.down',
   material: 'keyboard_hide',
   when: 'always',
