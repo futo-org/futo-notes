@@ -24,6 +24,7 @@ import com.futo.notes.localization.Localization
 import com.futo.notes.ui.showToast
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.io.File
+import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -283,9 +284,19 @@ fun clipboardImageUri(context: Context): Uri? {
  */
 fun saveImageIntoVault(resolver: ContentResolver, vaultRoot: File, uri: Uri): String? {
     val ext = imageExtension(resolver, uri) ?: return null
+    return copyImageIntoVault(vaultRoot, ext) { resolver.openInputStream(uri) }
+}
+
+/**
+ * The framework-free half of [saveImageIntoVault]: copy the bytes [open] yields into a
+ * freshly reserved vault file ([reserveImageFile]) with the already-accepted [ext].
+ * Returns the saved filename, or null (leaving no file behind) when [open] yields
+ * nothing or the copy fails.
+ */
+internal fun copyImageIntoVault(vaultRoot: File, ext: String, open: () -> InputStream?): String? {
     val dest = reserveImageFile(vaultRoot, ext) ?: return null
     return try {
-        val input = resolver.openInputStream(uri) ?: run { dest.delete(); return null }
+        val input = open() ?: run { dest.delete(); return null }
         input.use { src -> dest.outputStream().use { src.copyTo(it) } }
         dest.name
     } catch (e: Exception) {
