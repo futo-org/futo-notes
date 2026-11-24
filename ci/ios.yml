@@ -32,12 +32,10 @@ build:ios-native:
     # cover this job's former MR paths (apps/ios, futo-notes-ffi, Cargo.lock,
     # build-rust-ios.sh).
     - if: $CI_COMMIT_TAG
-    # Every main push ships to TestFlight (publish:ios:main follows this IPA),
-    # as does the nightly schedule; other main pipelines (web, API) offer it
-    # as a button. No changes: filter — editor/UI changes in src/ and
+    # Every main push ships to TestFlight (publish:ios:main follows this IPA);
+    # other main pipelines (web, API) offer it as a button. No changes: filter — editor/UI changes in src/ and
     # packages/editor bundle into the app too.
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
-    - if: $CI_PIPELINE_SOURCE == "schedule"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: manual
       allow_failure: true
@@ -69,7 +67,6 @@ test:ios-native:
       - testFutoNotesIOSNative/ios_test_log/**/*
     expire_in: 1 week
   rules:
-    - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
         - apps/ios/**/*

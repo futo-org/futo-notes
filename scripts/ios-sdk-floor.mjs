@@ -4,7 +4,7 @@
 // Apple names each SDK for the year after its autumn release (iOS 27 shipped in
 // 2026) and, from the following April, refuses App Store uploads built with an
 // older one (ITMS-90725). The floor here moves on 1 January, three months ahead
-// of Apple's, so the nightly build goes red while there is still time to move
+// of Apple's, so the main-push build goes red while there is still time to move
 // the Cirrus image in ci/cirrus/ios-*.yml to the new Xcode.
 //
 //   node scripts/ios-sdk-floor.mjs "$(xcodebuild -version -sdk iphoneos SDKVersion)"

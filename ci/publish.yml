@@ -120,8 +120,8 @@ publish:ios:
 
 # Ship main to TestFlight — the maintainer's dogfood feedback loop, internal
 # testers only (altool upload; no beta group or review is touched). Follows
-# build:ios-native's IPA, whose rules are the switch: every main push, the
-# nightly schedule, or a press on any other main pipeline.
+# build:ios-native's IPA, whose rules are the switch: every main push, or
+# a press on any other main pipeline.
 # Publishes the PROD app (com.futo.notes); build:ios-native signs the same
 # bundle id on main as on a tag. Gated on the `test` hard gate (lint + tsc +
 # test:full + build) instead of the tag-only release:gate, so a red main is not

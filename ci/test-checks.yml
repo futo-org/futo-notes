@@ -79,8 +79,8 @@ check:release-notes:
 # Fails only on a vulnerability in code that ships — a production npm package or a crate
 # compiled into the desktop app or the FFI library — that .cargo/audit.toml / pnpm-workspace.yaml
 # has not acknowledged, so yellow means "act on this". Still absent from release:gate.needs
-# (docs/architecture-gates.md): a new advisory never blocks a tag by itself. Tags, the default
-# branch and the scheduled pipeline run it, never an MR: an advisory appears when the advisory
+# (docs/architecture-gates.md): a new advisory never blocks a tag by itself. Tags and the default
+# branch run it, never an MR: an advisory appears when the advisory
 # database moves, not when our lockfile does.
 test:audit:
   stage: test
@@ -156,7 +156,6 @@ test:localization-audit:
     - pnpm install --frozen-lockfile --prefer-offline
     - pnpm run audit:languages
   rules:
-    - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_TAG
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
@@ -178,7 +177,6 @@ test:puppet-gates:
     - $LIGHT_RUNNER_TAG
   allow_failure: true
   rules:
-    - !reference [.not-scheduled, rules]
     # Preserve the default branch/tag routing of a job without rules.
     - if: $CI_COMMIT_TAG || $CI_COMMIT_BRANCH
   cache:

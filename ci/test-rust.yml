@@ -52,7 +52,6 @@ test:rust:workspace:
   # unchanged. This is the same cold-cache policy used by the native builds.
   timeout: 90m
   rules:
-    - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_TAG
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
@@ -109,7 +108,6 @@ test:rust:macos:
     - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run testRustMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   rules:
-    - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_TAG
     # Full macOS workspace tests on Rust-touching main pushes, so a macOS-only
     # break surfaces before tag time (M13) instead of first failing on the tag.
@@ -183,7 +181,6 @@ test:rust:ffi-android:
   # office-runner path is minutes.
   timeout: 60m
   rules:
-    - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_TAG
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:

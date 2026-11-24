@@ -182,7 +182,6 @@ build:android-native:
   # warms the next attempt.
   timeout: 90m
   rules:
-    - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
         - apps/android/**/*
