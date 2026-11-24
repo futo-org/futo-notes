@@ -7,6 +7,7 @@ pub(crate) fn prepare_process() {
     raise_fd_limit();
     #[cfg(target_os = "linux")]
     {
+        configure_linux_display_backend();
         configure_linux_renderer();
         install_linux_log_filters();
     }
@@ -213,6 +214,22 @@ pub(crate) fn linux_has_nvidia_gpu() -> bool {
     std::fs::read_to_string("/proc/modules")
         .map(|modules| has_nvidia_kernel_module(&modules))
         .unwrap_or(false)
+}
+
+/// GTK backend order when the user has not chosen one: X11 first, so a Wayland session runs the
+/// app under XWayland, then Wayland for a session with no X server. WebKitGTK is GTK3, which on
+/// Wayland renders only at whole-number scales: at a 1.6x display it draws at 2x and the
+/// compositor shrinks the window, softening every glyph edge. Under XWayland (KDE "apply scaling
+/// themselves") it draws at the true scale. The AppImage launch hook sets the same order
+/// (`scripts/patch-appimage.mjs`); a deb or rpm install reaches only this.
+#[cfg(target_os = "linux")]
+const LINUX_DEFAULT_GDK_BACKEND: &str = "x11,wayland";
+
+#[cfg(target_os = "linux")]
+fn configure_linux_display_backend() {
+    if std::env::var_os("GDK_BACKEND").is_none() {
+        std::env::set_var("GDK_BACKEND", LINUX_DEFAULT_GDK_BACKEND);
+    }
 }
 
 #[cfg(target_os = "linux")]

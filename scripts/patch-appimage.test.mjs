@@ -19,7 +19,7 @@ import {
 const FORCED_GDK_BACKEND =
   'export GDK_BACKEND=x11 # Crash with Wayland backend on Wayland - We tested it without it and ended up with this: https://github.com/tauri-apps/tauri/issues/8541';
 const PREFERRED_GDK_BACKEND =
-  'if [ -z "${GDK_BACKEND+x}" ]; then export GDK_BACKEND=wayland,x11; fi';
+  'if [ -z "${GDK_BACKEND+x}" ]; then export GDK_BACKEND=x11,wayland; fi';
 const TAURI_BUNDLER_GTK_HOOK =
   [
     '#! /usr/bin/env bash',
@@ -35,7 +35,7 @@ const TAURI_BUNDLER_GTK_HOOK =
   ].join('\n') + '\n';
 
 describe('rewriteForcedGdkBackend', () => {
-  it('replaces tauri-bundler forced X11 with a user-respecting Wayland preference', () => {
+  it('replaces tauri-bundler forced X11 with a user-respecting X11-first preference', () => {
     const result = rewriteForcedGdkBackend(TAURI_BUNDLER_GTK_HOOK);
 
     expect(result).toEqual({
@@ -61,6 +61,17 @@ describe('rewriteForcedGdkBackend', () => {
     expect(rewriteForcedGdkBackend(rewrittenHook)).toEqual({
       text: rewrittenHook,
       changed: false,
+      notFound: false,
+    });
+  });
+
+  it('rewrites the Wayland-first line an earlier patch wrote', () => {
+    const legacy = 'if [ -z "${GDK_BACKEND+x}" ]; then export GDK_BACKEND=wayland,x11; fi';
+    const hook = TAURI_BUNDLER_GTK_HOOK.replace(FORCED_GDK_BACKEND, legacy);
+
+    expect(rewriteForcedGdkBackend(hook)).toEqual({
+      text: TAURI_BUNDLER_GTK_HOOK.replace(FORCED_GDK_BACKEND, PREFERRED_GDK_BACKEND),
+      changed: true,
       notFound: false,
     });
   });
@@ -110,7 +121,7 @@ describe('rewriteForcedGdkBackend', () => {
 
     expect(result.changed).toBe(true);
     expect(result.notFound).toBe(false);
-    expect(result.text).not.toMatch(/GDK_BACKEND\s*=\s*["']?x11["']?/);
+    expect(result.text).not.toMatch(/GDK_BACKEND\s*=\s*["']?x11["']?\s*(?:#.*)?$/m);
     expect(result.text.split(PREFERRED_GDK_BACKEND)).toHaveLength(4);
   });
 });
@@ -123,18 +134,18 @@ describe('preferred backend command', () => {
     });
   }
 
-  it('prefers Wayland with X11 fallback when the user did not select a backend', () => {
+  it('prefers X11 (XWayland) with a Wayland fallback when the user did not select a backend', () => {
     const result = executePreferredBackend({});
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toBe('wayland,x11');
+    expect(result.stdout).toBe('x11,wayland');
   });
 
   it('preserves a user-selected backend', () => {
-    const result = executePreferredBackend({ GDK_BACKEND: 'x11' });
+    const result = executePreferredBackend({ GDK_BACKEND: 'wayland' });
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toBe('x11');
+    expect(result.stdout).toBe('wayland');
   });
 });
 

@@ -32,3 +32,10 @@ FUTO_NOTES_SOFTWARE_RENDER=1 futo-notes-tauri
 FUTO Notes enables this workaround automatically when it detects an NVIDIA GPU. An explicit
 `WEBKIT_DISABLE_DMABUF_RENDERER` environment value always takes precedence. To test or force the
 GPU path despite NVIDIA detection, launch with `FUTO_NOTES_SOFTWARE_RENDER=0`.
+
+On a Wayland session FUTO Notes runs under XWayland, where text stays sharp at fractional display
+scales. To run it on native Wayland instead:
+
+```bash
+GDK_BACKEND=wayland futo-notes-tauri
+```

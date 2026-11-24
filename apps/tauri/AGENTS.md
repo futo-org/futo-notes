@@ -98,7 +98,7 @@ Notes:
 ## Building & Testing
 
 ```bash
-just tauri-dev       # Desktop dev (forces Wayland on Linux)
+just tauri-dev       # Desktop dev (XWayland on Linux; FUTO_DEV_WAYLAND=1 for Wayland)
 just tauri-build     # Production desktop build
 just test-rust-full  # Full Rust workspace, this crate included (creates dist/ first)
 ```

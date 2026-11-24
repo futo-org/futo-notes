@@ -17,13 +17,16 @@
 //
 // 2. tauri-bundler 2.9.4 generates an AppRun GTK hook that unconditionally
 // exports GDK_BACKEND=x11 because of tauri-apps/tauri#8541. That puts AppImages
-// under XWayland and overrides explicit user choices. Work item #14 verified
-// that deb/rpm installs already follow the system GTK backend. Since the
-// incompatible bundled Wayland library is removed above, prefer Wayland with
-// an X11 fallback when the user has not selected a backend.
+// under XWayland and overrides explicit user choices. Rewrite it to set X11
+// first with a Wayland fallback, only when the user has not selected a backend:
+// X11 runs the app under XWayland, where WebKitGTK (GTK3) draws at a fractional
+// display scale instead of drawing at 2x and being shrunk, which softens text.
+// The Wayland fallback covers a session with no X server; it, and a user's own
+// GDK_BACKEND=wayland, still need the bundled library removed above. The app
+// sets the same default itself for deb/rpm installs (platform_integration.rs).
 //
 // This only applies to Linux AppImages. .deb / .rpm link against the host
-// webkit2gtk + libwayland and never had this problem.
+// webkit2gtk + libwayland and never had the library problem.
 //
 // Usage:
 //   node scripts/patch-appimage.mjs <path/to/FUTO-Notes-x.y.z-x86_64.AppImage>
@@ -40,6 +43,10 @@ import { pathToFileURL } from 'node:url';
 const FORCED_GDK_BACKEND =
   'export GDK_BACKEND=x11 # Crash with Wayland backend on Wayland - We tested it without it and ended up with this: https://github.com/tauri-apps/tauri/issues/8541';
 const PREFERRED_GDK_BACKEND =
+  'if [ -z "${GDK_BACKEND+x}" ]; then export GDK_BACKEND=x11,wayland; fi';
+// What this patcher wrote before packaged builds moved to XWayland; an AppImage
+// patched then is rewritten like a forced line.
+const LEGACY_PREFERRED_GDK_BACKEND =
   'if [ -z "${GDK_BACKEND+x}" ]; then export GDK_BACKEND=wayland,x11; fi';
 const FORCED_GDK_BACKEND_PATTERN =
   /^[ \t]*(?:export[ \t]+)?GDK_BACKEND[ \t]*=[ \t]*(?:"x11"|'x11'|x11)[ \t]*(?:#.*)?$/gm;
@@ -53,6 +60,7 @@ export function rewriteForcedGdkBackend(hookText) {
     .split(/\r?\n/)
     .filter((line) => !line.trimStart().startsWith('#') && line.includes('GDK_BACKEND'));
   const isForcedBackendLine = (line) => {
+    if (line.trim() === LEGACY_PREFERRED_GDK_BACKEND) return true;
     FORCED_GDK_BACKEND_PATTERN.lastIndex = 0;
     const isForced = FORCED_GDK_BACKEND_PATTERN.test(line);
     FORCED_GDK_BACKEND_PATTERN.lastIndex = 0;
@@ -67,7 +75,9 @@ export function rewriteForcedGdkBackend(hookText) {
   }
   if (activeBackendLines.some(isForcedBackendLine)) {
     return {
-      text: hookText.replaceAll(FORCED_GDK_BACKEND_PATTERN, PREFERRED_GDK_BACKEND),
+      text: hookText
+        .replaceAll(FORCED_GDK_BACKEND_PATTERN, PREFERRED_GDK_BACKEND)
+        .replaceAll(LEGACY_PREFERRED_GDK_BACKEND, PREFERRED_GDK_BACKEND),
       changed: true,
       notFound: false,
     };
@@ -244,9 +254,9 @@ export async function patchAppImage(
   }
   if (rewrittenHook.changed) {
     await writeFile(gtkHookPath, rewrittenHook.text);
-    log('rewrote GTK launch hook to prefer Wayland and respect GDK_BACKEND');
+    log('rewrote GTK launch hook to try X11 then Wayland and respect GDK_BACKEND');
   } else {
-    log('GTK launch hook already prefers Wayland and respects GDK_BACKEND');
+    log('GTK launch hook already tries X11 then Wayland and respects GDK_BACKEND');
   }
 
   if (stripped.length === 0 && !rewrittenHook.changed) {

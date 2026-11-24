@@ -34,7 +34,7 @@ signed updater artifact + `.sig` (minisign), which `release:` assembles into one
 `latest.json`. Per-OS the re-sign is always the LAST touch on the bytes:
 
 - **Linux** — build the AppImage keyless → AppImage patch (Mesa 26 library strip +
-  Wayland-backend hook rewrite) → `cargo tauri signer sign`. The patcher repacks
+  display-backend hook rewrite) → `cargo tauri signer sign`. The patcher repacks
   with a version-pinned, SHA-256-verified `appimagetool` and removes updater
   signing variables from both its parent and every extract/repack child process.
   It executes the same open file descriptor whose bytes passed verification,
