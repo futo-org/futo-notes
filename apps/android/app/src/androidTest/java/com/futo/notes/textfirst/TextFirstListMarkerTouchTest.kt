@@ -276,12 +276,15 @@ class TextFirstListMarkerTouchTest {
             delay(300)
             val m = withContext(Dispatchers.Main) { marker(c, word) }
             val x = m.left + (m.right - m.left) * half
-            repeat(2) {
-                val down = SystemClock.uptimeMillis()
-                withContext(Dispatchers.Main) { send(c, down, down, MotionEvent.ACTION_DOWN, x, m.y) }
-                delay(40)
-                withContext(Dispatchers.Main) { send(c, down, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, m.y) }
-                delay(90)
+            // Both taps in one pass of the main thread, their gaps in the events' own times: the platform's double tap
+            // also reads the clock when each arrives, so a main thread busy between two separate sends (a slow
+            // software-rendered emulator) turned them into two single taps.
+            withContext(Dispatchers.Main) {
+                val start = SystemClock.uptimeMillis()
+                for (tapAt in listOf(0L, 130L)) {
+                    send(c, start + tapAt, start + tapAt, MotionEvent.ACTION_DOWN, x, m.y)
+                    send(c, start + tapAt, start + tapAt + 40, MotionEvent.ACTION_UP, x, m.y)
+                }
             }
             delay(500)
             assertEquals("$word, a double tap at $half of its marker selects the marker", m.at to m.at + 1, withContext(Dispatchers.Main) { c.view.selectionStart to c.view.selectionEnd })
