@@ -28,7 +28,8 @@ crc32fast = "1"
 walkdir = "2.5"
 
 [dev-dependencies]
-# `fail_directory_sync_on_call`, for saves whose directory fsync fails.
+# `fail_directory_sync_on_call`, for saves whose directory fsync fails, and
+# `refuse_writes_in`, a folder that refuses writes even to root (the Linux CI).
 futo-notes-core = { path = "../futo-notes-core", features = ["test-support"] }
 criterion = { version = "0.8", default-features = false }
 tempfile = "3"

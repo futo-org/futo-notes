@@ -317,10 +317,8 @@ fn a_recreation_is_kept_while_another_session_holds_the_renamed_note() {
     assert_eq!(store.read("finder").unwrap(), "base draft");
 }
 
-#[cfg(unix)]
 #[test]
 fn a_recreation_that_cannot_be_removed_changes_nothing_until_it_can() {
-    use std::os::unix::fs::PermissionsExt;
     let root = TestRoot::new();
     let store = store(&root);
     store.create("ro", "plain", "base").unwrap();
@@ -329,10 +327,10 @@ fn a_recreation_that_cannot_be_removed_changes_nothing_until_it_can() {
     std::fs::rename(root.0.join("ro/plain.md"), root.0.join("finder.md")).unwrap();
     editor.checkpoint().unwrap();
     let folder = root.0.join("ro");
-    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+    futo_notes_core::files::vault_fs::refuse_writes_in(&folder);
 
     watcher_saw(&store, "ro/plain", "finder");
-    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    futo_notes_core::files::vault_fs::allow_writes_in(&folder);
 
     assert_eq!(editor.id(), "ro/plain");
     assert_eq!(store.read("ro/plain").unwrap(), "base draft");

@@ -241,10 +241,8 @@ fn the_park_guard_does_not_confuse_a_similarly_named_note() {
 // If unlinking the backup fails in the guard's cleanup branch, the sidecar must
 // be RETAINED and the failure surfaced (not silent success), so the next
 // bootstrap retries — never a sidecar-less untracked backup (F2).
-#[cfg(unix)]
 #[test]
 fn a_failed_backup_unlink_in_the_guard_retains_the_sidecar() {
-    use std::os::unix::fs::PermissionsExt;
     let root = TestRoot::new();
     let store = store(&root);
     fs::write(root.0.join("Welcome.md"), "live").unwrap();
@@ -252,18 +250,11 @@ fn a_failed_backup_unlink_in_the_guard_retains_the_sidecar() {
     fs::write(root.0.join("Welcome (recovered).md"), "stranded").unwrap();
     fs::write(root.0.join(".sf-bak-1-1-1"), "stranded").unwrap();
     fs::write(root.0.join(".sf-bak-1-1-1.path"), "Welcome.md").unwrap();
-    let original = fs::metadata(&root.0).unwrap().permissions();
-    fs::set_permissions(&root.0, fs::Permissions::from_mode(0o555)).unwrap();
-    let dac_enforced = fs::write(root.0.join(".probe"), b"x").is_err();
-    if !dac_enforced {
-        let _ = fs::remove_file(root.0.join(".probe"));
-        fs::set_permissions(&root.0, original).unwrap();
-        return;
-    }
+    futo_notes_core::files::vault_fs::refuse_writes_in(&root.0);
 
     let result = store.bootstrap().unwrap();
 
-    fs::set_permissions(&root.0, original).unwrap();
+    futo_notes_core::files::vault_fs::allow_writes_in(&root.0);
     assert!(
         root.0.join(".sf-bak-1-1-1.path").exists(),
         "sidecar retained when the backup unlink failed"

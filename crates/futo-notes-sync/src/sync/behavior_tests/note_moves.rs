@@ -12,8 +12,6 @@
 //! unmapped duplicate to create, or a mapped name missing from disk to delete.
 use super::*;
 use crate::checkpoint::Ancestry;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -77,8 +75,8 @@ fn a_pulled_rename_reports_the_move_under_the_guard() {
     assert!(!root.path().join("old.md").exists());
 }
 
-// A read-only folder is how a test fails a write; no Windows equivalent here.
-#[cfg(unix)]
+// A folder that refuses writes is how a test fails a write; `refuse_writes_in`
+// stands in for a read-only mode, which root and Windows ignore.
 #[test]
 fn a_pulled_rename_whose_target_cannot_be_written_keeps_the_old_note() {
     let root = TempRoot::new();
@@ -90,7 +88,7 @@ fn a_pulled_rename_whose_target_cannot_be_written_keeps_the_old_note() {
     // The target's folder refuses writes.
     let folder = root.path().join("locked");
     std::fs::create_dir(&folder).unwrap();
-    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+    futo_notes_core::files::vault_fs::refuse_writes_in(&folder);
 
     futo_notes_core::files::on_note_moved(record);
     let mut summary = SyncSummary::default();
@@ -104,7 +102,7 @@ fn a_pulled_rename_whose_target_cannot_be_written_keeps_the_old_note() {
         &mut summary,
     );
 
-    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    futo_notes_core::files::vault_fs::allow_writes_in(&folder);
     assert!(pulled.is_err());
     assert_eq!(
         std::fs::read_to_string(root.path().join("old.md")).unwrap(),
@@ -139,24 +137,21 @@ fn assert_push_plans_nothing(state: &ConnectedState, root: &TempRoot) {
 
 /// A `pre_write` that turns `dest/` read-only once `dest/new.md` is on disk:
 /// the rename into it lands, the content write after it fails.
-#[cfg(unix)]
 fn lock_once_moved(root: &TempRoot) -> impl Fn(&str) + Send + Sync {
     let folder = root.path().join("dest");
     move |name: &str| {
         if name == "dest/new.md" && folder.join("new.md").is_file() {
-            std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+            futo_notes_core::files::vault_fs::refuse_writes_in(&folder);
         }
     }
 }
 
-#[cfg(unix)]
 fn unlock(root: &TempRoot) {
     let folder = root.path().join("dest");
-    std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    futo_notes_core::files::vault_fs::allow_writes_in(&folder);
 }
 
-// A read-only folder is how a test refuses a rename; no Windows equivalent here.
-#[cfg(unix)]
+// A folder that refuses writes is how a test refuses a rename.
 #[test]
 fn a_pulled_rename_its_folder_refuses_changes_nothing() {
     let root = TempRoot::new();
@@ -168,7 +163,7 @@ fn a_pulled_rename_its_folder_refuses_changes_nothing() {
     state.object_map.insert("ro/old.md".into(), mapping.clone());
     let note = remote("object", "new.md", "edited");
 
-    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+    futo_notes_core::files::vault_fs::refuse_writes_in(&folder);
     let mut summary = SyncSummary::default();
     let failed = apply_remote(
         &mut state,
@@ -179,7 +174,7 @@ fn a_pulled_rename_its_folder_refuses_changes_nothing() {
         &no_pre,
         &mut summary,
     );
-    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    futo_notes_core::files::vault_fs::allow_writes_in(&folder);
 
     assert!(failed.is_err());
     assert_eq!(read_content(root.path(), "ro/old.md").unwrap(), "body");
@@ -200,7 +195,6 @@ fn a_pulled_rename_its_folder_refuses_changes_nothing() {
 /// The rename lands, then the content write fails (the target's folder turns
 /// read-only): the target holds the previous version under the object's only
 /// mapping, so the push has nothing to do and the next pull updates it.
-#[cfg(unix)]
 #[test]
 fn a_pulled_rename_whose_write_fails_leaves_the_moved_note_mapped() {
     let root = TempRoot::new();
@@ -239,7 +233,6 @@ fn a_pulled_rename_whose_write_fails_leaves_the_moved_note_mapped() {
 /// First sync: the moved note is unmapped, holding its ancestry's bytes. The
 /// same rename-then-write, so a failed write leaves it mapped, not a duplicate
 /// for the push to create.
-#[cfg(unix)]
 #[test]
 fn a_first_sync_rename_whose_write_fails_leaves_the_moved_note_mapped() {
     let root = TempRoot::new();

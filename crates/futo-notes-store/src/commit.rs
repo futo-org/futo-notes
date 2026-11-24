@@ -166,6 +166,7 @@ impl LocalNoteStore {
             // unlink fails (Windows lock, dir perms), keep both and propagate so
             // the next bootstrap retries — never leave a sidecar-less, untracked
             // backup no sweep can clean (F2).
+            vault_fs::check_removable(&self.root, &backup_relative)?;
             fs::remove_file(&recovered.backup).map_err(io_error)?;
             let _ = fs::remove_file(&recovered.sidecar);
             return Ok(());

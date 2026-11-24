@@ -141,30 +141,21 @@ fn bootstrap_succeeds_and_seeds_even_when_search_cannot_start() {
     );
 }
 
-// B4: if the hard_link install succeeds but dropping the source fails, the
-// error path must NOT leave a duplicate (both names live) — the link is undone.
-#[cfg(unix)]
+// A rename out of a folder that refuses writes fails and leaves no duplicate:
+// the source stays readable and nothing lands at the destination. The journal
+// stages the source with `vault_fs::rename_local`, which the folder refuses
+// first. (The old "hard_link installs, then dropping the source fails" path is
+// `install_no_replace`'s rollback in futo-notes-core; no test reaches it.)
 #[test]
-fn a_failed_source_removal_during_rename_leaves_no_duplicate() {
-    use std::os::unix::fs::PermissionsExt;
+fn a_rename_out_of_a_folder_that_refuses_writes_changes_nothing() {
     let root = TestRoot::new();
     let store = store(&root);
     store.write("Src/note", "the content", None).unwrap();
     let src_dir = root.0.join("Src");
-    let original = fs::metadata(&src_dir).unwrap().permissions();
-    fs::set_permissions(&src_dir, fs::Permissions::from_mode(0o555)).unwrap();
-
-    // Root ignores DAC, so a read-only dir wouldn't block removal — skip rather
-    // than false-pass (probe by trying to write into the now-read-only dir).
-    let dac_enforced = fs::write(src_dir.join(".probe"), b"x").is_err();
-    if !dac_enforced {
-        let _ = fs::remove_file(src_dir.join(".probe"));
-        fs::set_permissions(&src_dir, original).unwrap();
-        return;
-    }
+    futo_notes_core::files::vault_fs::refuse_writes_in(&src_dir);
 
     let result = store.rename("Src/note", "Dst/note");
-    fs::set_permissions(&src_dir, original).unwrap();
+    futo_notes_core::files::vault_fs::allow_writes_in(&src_dir);
 
     assert!(
         result.is_err(),
