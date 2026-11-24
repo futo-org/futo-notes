@@ -1,0 +1,56 @@
+#!/bin/bash
+# The Mac jobs put this directory first on PATH, so the Cirrus CLI's
+# `tart clone <image> cirrus-cli-<task>-<uuid>` is recorded in our ledger and in
+# the job's checkout BEFORE the VM exists. ci/cirrus-vms.sh deletes only VMs
+# recorded here.
+set -u
+self_dir=$(cd "$(dirname "$0")" && pwd -P)
+real=""
+IFS=: read -r -a dirs <<< "$PATH"
+for d in "${dirs[@]}"; do
+  [ -n "$d" ] && [ "$(cd "$d" 2>/dev/null && pwd -P)" = "$self_dir" ] && continue
+  if [ -x "$d/tart" ] && [ ! -d "$d/tart" ]; then real="$d/tart"; break; fi
+done
+[ -n "$real" ] || { echo "tart-shim: no tart on PATH" >&2; exit 127; }
+
+if [ "${1:-}" != clone ] || [ $# -lt 3 ] || ! [[ $3 =~ ^cirrus-cli-[0-9]+-[0-9A-Fa-f-]{36}$ ]]; then
+  exec "$real" "$@"
+fi
+
+name=$3
+ledger="$HOME/.futo-notes-ci/tart-vms"
+entry="$ledger/$name"
+vm="${TART_HOME:-$HOME/.tart}/vms/$name"
+# noclobber: the entry is created with O_EXCL, never through an existing path.
+# A name that already exists is someone else's VM: let tart reject it unrecorded.
+[ -e "$vm" ] || [ -L "$vm" ] && exec "$real" "$@"
+{ mkdir -p "$ledger" && [ ! -L "$ledger" ] && [ ! -L "$(dirname "$ledger")" ] &&
+  (set -C; printf 'job=%s\nproject=%s\ntart_home=%s\n' "${CI_JOB_ID:-}" \
+    "${CI_PROJECT_PATH:-}" "${TART_HOME:-$HOME/.tart}" > "$entry") &&
+  { [ -z "${CI_PROJECT_DIR:-}" ] || echo "$name" >> "$CI_PROJECT_DIR/.cirrus-vms"; }; } ||
+  { echo "tart-shim: cannot record $name; refusing an untracked clone" >&2; exit 1; }
+
+# Pin the record to the directory the clone created, so a later VM of the same
+# name is not ours. If the Cirrus CLI kills this shim mid-clone (it signals only
+# its direct child), a watcher does it instead once the clone exits.
+record() {
+  if [ "$1" -eq 0 ] && [ -d "$vm" ] && [ ! -L "$vm" ] && [ -f "$entry" ] && [ ! -L "$entry" ]; then
+    echo "inode=$(stat -f %i "$vm")" >> "$entry"
+  else
+    rm -f "$entry"
+  fi
+}
+shim=$$
+"$real" "$@" &
+clone=$!
+(
+  while kill -0 "$clone" 2>/dev/null; do sleep 1; done
+  sleep 5
+  kill -0 "$shim" 2>/dev/null || record 0
+) </dev/null >/dev/null 2>&1 &
+watcher=$!
+wait "$clone"
+rc=$?
+record "$rc"
+kill "$watcher" 2>/dev/null
+exit $rc

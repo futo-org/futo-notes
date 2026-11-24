@@ -18,7 +18,13 @@ build:ios-native:
   script:
     - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
     - command -v cirrus || brew install cirruslabs/cli/cirrus
+    # Delete our stopped VMs left >6 h ago, then record this job's clones (ci/cirrus-vms.sh).
+    - bash "$CI_PROJECT_DIR/ci/cirrus-vms.sh" sweep || echo "stale-VM sweep failed, see above"
+    - export PATH="$CI_PROJECT_DIR/ci/tart-shim:$PATH"
     - cirrus run buildFutoNotesIOSNative --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  # Runs on failure and cancel too; the next job's sweep catches anything missed.
+  after_script:
+    - bash "$CI_PROJECT_DIR/ci/cirrus-vms.sh" cleanup-job
   artifacts:
     paths:
       - buildFutoNotesIOSNative/binary/*.ipa
@@ -58,7 +64,13 @@ test:ios-native:
   script:
     - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
     - command -v cirrus || brew install cirruslabs/cli/cirrus
+    # Delete our stopped VMs left >6 h ago, then record this job's clones (ci/cirrus-vms.sh).
+    - bash "$CI_PROJECT_DIR/ci/cirrus-vms.sh" sweep || echo "stale-VM sweep failed, see above"
+    - export PATH="$CI_PROJECT_DIR/ci/tart-shim:$PATH"
     - cirrus run testFutoNotesIOSNative --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  # Runs on failure and cancel too; the next job's sweep catches anything missed.
+  after_script:
+    - bash "$CI_PROJECT_DIR/ci/cirrus-vms.sh" cleanup-job
   artifacts:
     when: always
     paths:
@@ -89,3 +101,26 @@ test:ios-native:
         - ci/*.yml
         - .gitlab-ci.yml
     - if: $CI_COMMIT_TAG
+
+# Manual disk check/cleanup for the shared macscript runners (61 futomacoss-mini,
+# 110, 111). Jobs cannot pick a runner, so six run at once and each holds its
+# runner for five minutes to push the rest onto the others. MAC_RUNNER_CLEAN=1
+# also deletes what ci/cirrus-vms.sh can prove is ours; see its header.
+maint:mac-runner-disk:
+  stage: test
+  needs: []
+  tags:
+    - macscript
+  variables:
+    GIT_DEPTH: 1
+  before_script: []
+  parallel: 6
+  timeout: 30m
+  script:
+    - bash "$CI_PROJECT_DIR/ci/cirrus-vms.sh" report
+    - if [ "${MAC_RUNNER_CLEAN:-}" = 1 ]; then bash "$CI_PROJECT_DIR/ci/cirrus-vms.sh" clean; bash "$CI_PROJECT_DIR/ci/cirrus-vms.sh" report; fi
+    - env -i /bin/sleep 300
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true

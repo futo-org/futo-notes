@@ -41,6 +41,38 @@ describe('pre-merge CI routing contracts', () => {
     }
   });
 
+  it('records and deletes the VMs every Cirrus job clones on the shared Mac runners', () => {
+    // The runners are shared with other teams: a cancelled `cirrus run` once left
+    // its VM clone behind, and only VMs the tart shim recorded may be deleted.
+    const jobs = gitlabPipeline.split(/(?=^[^ #\n][^\n]*:\n)/m);
+    for (const job of jobs.filter((j) => j.includes('    - cirrus run '))) {
+      const run = job.indexOf('    - cirrus run ');
+      for (const step of [
+        '    - bash "$CI_PROJECT_DIR/ci/cirrus-vms.sh" sweep',
+        '    - export PATH="$CI_PROJECT_DIR/ci/tart-shim:$PATH"',
+      ]) {
+        expect(job).toContain(step);
+        expect(job.indexOf(step)).toBeLessThan(run);
+      }
+      expect(job).toMatch(
+        /^ {2}after_script:\n {4}- bash "\$CI_PROJECT_DIR\/ci\/cirrus-vms\.sh" cleanup-job$/m,
+      );
+    }
+  });
+
+  it('keeps every Mac runner script line a plain string', () => {
+    // An unquoted `echo "X: y"` parses as a mapping, which GitLab rejects.
+    for (const [file, source] of Object.entries(gitlabPipelineSources)) {
+      const doc = load(source, { schema: gitlabYamlSchema, filename: file }) ?? {};
+      for (const [name, job] of Object.entries(doc)) {
+        if (!job?.tags?.includes('macscript')) continue;
+        for (const key of ['before_script', 'script', 'after_script']) {
+          for (const line of job[key] ?? []) expect(typeof line, `${name} ${key}`).toBe('string');
+        }
+      }
+    }
+  });
+
   it('runs the web suite as one CI job', () => {
     // Nothing may exclude a spec from it or re-add a standalone smoke job.
     expect(packageScripts['test:e2e:rest']).not.toContain('--grep-invert');

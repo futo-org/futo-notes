@@ -112,7 +112,13 @@ publish:ios:
   script:
     - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
     - command -v cirrus || brew install cirruslabs/cli/cirrus
+    # Delete our stopped VMs left >6 h ago, then record this job's clones (ci/cirrus-vms.sh).
+    - bash "$CI_PROJECT_DIR/ci/cirrus-vms.sh" sweep || echo "stale-VM sweep failed, see above"
+    - export PATH="$CI_PROJECT_DIR/ci/tart-shim:$PATH"
     - cirrus run publishFutoNotesIOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  # Runs on failure and cancel too; the next job's sweep catches anything missed.
+  after_script:
+    - bash "$CI_PROJECT_DIR/ci/cirrus-vms.sh" cleanup-job
   rules:
     # STABLE tags only — same guard as `release:`. A bare $CI_COMMIT_TAG rule
     # would ship an -rc or throwaway tag straight to TestFlight.
@@ -146,7 +152,13 @@ publish:ios:main:
   script:
     - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
     - command -v cirrus || brew install cirruslabs/cli/cirrus
+    # Delete our stopped VMs left >6 h ago, then record this job's clones (ci/cirrus-vms.sh).
+    - bash "$CI_PROJECT_DIR/ci/cirrus-vms.sh" sweep || echo "stale-VM sweep failed, see above"
+    - export PATH="$CI_PROJECT_DIR/ci/tart-shim:$PATH"
     - cirrus run publishFutoNotesIOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  # Runs on failure and cancel too; the next job's sweep catches anything missed.
+  after_script:
+    - bash "$CI_PROJECT_DIR/ci/cirrus-vms.sh" cleanup-job
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 

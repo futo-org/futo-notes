@@ -114,7 +114,13 @@ build:desktop-internal:macos:
   script:
     - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
     - command -v cirrus || brew install cirruslabs/cli/cirrus
+    # Delete our stopped VMs left >6 h ago, then record this job's clones (ci/cirrus-vms.sh).
+    - bash "$CI_PROJECT_DIR/ci/cirrus-vms.sh" sweep || echo "stale-VM sweep failed, see above"
+    - export PATH="$CI_PROJECT_DIR/ci/tart-shim:$PATH"
     - cirrus run buildFutoNotesMacOSInternal --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  # Runs on failure and cancel too; the next job's sweep catches anything missed.
+  after_script:
+    - bash "$CI_PROJECT_DIR/ci/cirrus-vms.sh" cleanup-job
   artifacts:
     paths:
       - buildFutoNotesMacOSInternal/binary/*.dmg
