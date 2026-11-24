@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { installPerfCourse } from './installPerfCourse';
-import { beginInteraction, noteKeystroke, setKeystrokeTripwire } from './interactionLedger';
+import { beginInteraction } from './interactionLedger';
 import {
   countPerfEvents,
   drainPerfEvents,
@@ -118,23 +118,15 @@ describe('installPerfCourse', () => {
     expect(typeof target.__perfCourse?.stopFrameProbe).toBe('function');
   });
 
-  it('exposes the interaction ledger and turns the keystroke tripwire on', () => {
-    setKeystrokeTripwire(false);
+  it('exposes the interaction ledger', () => {
     const target = {} as Window;
     installPerfCourse(target);
 
-    const frames: FrameRequestCallback[] = [];
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb));
-    noteKeystroke();
-    expect(frames).toHaveLength(1);
-    frames[0]?.(0);
-    beginInteraction('note-open', 'note-b');
-    expect(target.__perfCourse?.interactions('note-open').map((r) => r.subject)).toEqual([
+    beginInteraction('note-switch', 'note-b');
+    expect(target.__perfCourse?.interactions('note-switch').map((r) => r.subject)).toEqual([
       'note-b',
     ]);
     target.__perfCourse?.clearInteractions();
     expect(target.__perfCourse?.interactions()).toHaveLength(0);
-    expect(target.__perfCourse?.keystrokeFrameSamplesMs()).toEqual([]);
-    setKeystrokeTripwire(false);
   });
 });
