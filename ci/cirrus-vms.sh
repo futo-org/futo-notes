@@ -3,14 +3,15 @@
 #
 #   report       df, VM dirs, image cache, Tart/Cirrus dir sizes (read-only, no tart calls)
 #   cleanup-job  after_script: delete the VMs THIS job's `cirrus run` cloned
-#   sweep        delete our ledger's stopped VMs older than 6 h
+#   sweep        delete our ledger's stopped VMs older than 6 h, then `tart prune --older-than=30`
 #   clean        sweep, with df before and after
 #
 # A VM counts as ours only if ci/tart-shim/tart recorded its clone in the
 # ledger from a futo-notes/futo-notes job. The `cirrus-cli-` name prefix is not
-# proof: every Cirrus CLI user on the host gets it. Nothing here runs `tart
-# prune` or touches an image. tart runs only for a VM we are deleting (the
-# stop/delete the Cirrus CLI makes when it cleans up after itself), via tart_on_our_vm.
+# proof: every Cirrus CLI user on the host gets it. tart runs only for a VM we
+# are deleting (the stop/delete the Cirrus CLI makes when it cleans up after
+# itself), via tart_on_our_vm, and for `tart prune`, which drops image and IPSW
+# caches (any team's) unused for 30 days. It never deletes a VM.
 set -u
 
 LEDGER="$HOME/.futo-notes-ci/tart-vms"
@@ -153,6 +154,7 @@ sweep() {
       rc=1
     fi
   done < <(ledger_entries -mmin +"$STALE_MIN")
+  tart_tmp_settled && tart prune --older-than=30 || echo "tart prune skipped or failed; not fatal"
   return $rc
 }
 
