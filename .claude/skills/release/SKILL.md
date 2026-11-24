@@ -1,13 +1,13 @@
 ---
 name: release
-description: Full release workflow: run tests, create MR, generate changelog with Zulip mentions, monitor pipeline, and post release announcement. Use when the user says "release", "ship it", "merge and release", or is ready to merge changes to main.
+description: Full release workflow: run tests, review, push or open an MR, generate changelog with Zulip mentions, monitor pipeline, and post release announcement. Use when the user says "release", "merge and release", or is ready to merge a large change or cut a release. A small change ("ship it") is pushed straight to main after `just check` and a fresh-agent review (AGENTS.md §5); the MR steps below apply only to a large change or one already in an MR.
 argument-hint: [version-tag, e.g. v0.0.8]
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob
 ---
 
 # Release Workflow
 
-Full release cycle: test → commit → MR → changelog → pipeline → Zulip announcement.
+Full release cycle: test → review → commit → push or MR → changelog → pipeline → Zulip announcement.
 
 ## Prerequisites
 
@@ -28,8 +28,10 @@ One-time setup:
 ## Step 1: Run the Pre-Merge Checks
 
 ```bash
-just check        # the AGENTS.md §7.10 bar; use `just prepush` for a broad release
+just check        # with the review below, the AGENTS.md §7.10 bar; use `just prepush` for a broad release
 ```
+
+§7.10 also requires a review by a fresh agent that did not write the change (AGENTS.md §5), ideally a different model family: when Claude wrote it, run `codex exec` read-only on `git diff HEAD` and fix every HIGH. Record it in the commit as a `Reviewed:` line.
 
 **If ANY test fails, STOP.** Report failures to the user. Do not proceed.
 
@@ -45,7 +47,9 @@ just check        # the AGENTS.md §7.10 bar; use `just prepush` for a broad rel
    git push origin <current-branch>
    ```
 
-## Step 3: Create Merge Request
+## Step 3: Push to main, or Create Merge Request
+
+A small change (bug fix, tooling, small UI tweak) that is not being tagged, and passed Step 1 and its review, is pushed directly: `git fetch origin && git rebase origin/main && git push origin HEAD:main`. If the rebase moved the tree, re-run `just check` first. Stop there: no tag, so no changelog. A release (a tag) goes through an MR, because Step 4d puts the store notes on the tagged commit. Open an MR also when the change is large or already in one:
 
 ```bash
 glab mr create --target-branch main --fill --push
@@ -166,7 +170,7 @@ printf '%s' "$ZULIP_CHANGELOG" | { command -v wl-copy >/dev/null && wl-copy || p
 
 Confirm to the user that the Zulip changelog is on their clipboard.
 
-## Step 6: Add Changelog to GitLab MR
+## Step 6: Add Changelog to GitLab MR (MR only)
 
 Update the MR description with the **GitLab version** (plain names):
 
@@ -176,7 +180,7 @@ glab mr update <MR_NUMBER> --description "$GITLAB_CHANGELOG"
 
 ## Step 7: Merge, Tag, and Monitor Pipeline
 
-### 7a. Merge the MR
+### 7a. Merge the MR (MR only)
 
 Ask the user if they're ready to merge. If yes:
 
