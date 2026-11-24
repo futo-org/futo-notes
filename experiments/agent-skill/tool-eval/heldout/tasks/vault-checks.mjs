@@ -9,9 +9,10 @@ const originals = new Map(
 );
 const original = (id) => originals.get(id);
 const norm = (text) => (text ?? '').replace(/\s+$/, '');
-// The editor re-spells a note on its first real edit (ADR-0002, normalize-once): blank lines
-// between blocks come and go. A note is compared on its non-blank lines.
-// A table row is compared on its cells, a separator row as `---` cells: the editor pads both.
+// The Milkdown editor re-spelled a note on its first real edit (ADR-0002, normalize-once): blank
+// lines between blocks came and went, and table rows were padded. The engine-backed editors keep a
+// note's bytes, and these lenient comparisons stay harmless: a note is compared on its non-blank
+// lines, a table row on its cells, a separator row as `---` cells.
 const tableRow = (line) =>
   /^\s*\|/.test(line)
     ? line

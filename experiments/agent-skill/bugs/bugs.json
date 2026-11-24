@@ -87,54 +87,6 @@
     "sign": "With the list open, a real click on the language button leaves it open; the click receipt shows the listbox removed and added again."
   },
   {
-    "id": "12-bullet-toggle-numbered-list",
-    "area": "editor · lists",
-    "platforms": [
-      "desktop",
-      "ios",
-      "android"
-    ],
-    "fix": "ccdef4a4",
-    "prompt": "i can't turn a numbered list into a bullet list. i select a line in the middle of it, click the bullet list button and nothing happens, it stays numbered",
-    "key": "src/features/editor/milkdown/blockCommands.ts retargetList (ordered -> bullet) rewrites the listType attr only on the list items the selection touches (listItemsInRange) but flips the whole container node to bullet_list. The preset's syncListOrderPlugin (@milkdown/preset-commonmark) then sees the container's FIRST item still marked ordered and promotes the list straight back to ordered_list, silently undoing the toggle whenever the caret is not on the first item. The fix writes every item of every touched list.",
-    "sign": "Numbered list of 3 items, selection or caret inside item 2 (or 3), Bullet list pressed (floating selection toolbar, or `/bullet` in the slash menu): the list is still numbered 1. 2. 3. and the markdown is unchanged. With the caret in item 1 the list does flip, which hides the bug."
-  },
-  {
-    "id": "13-broken-wikilink-looks-resolved",
-    "area": "editor · wikilinks",
-    "platforms": [
-      "desktop",
-      "ios",
-      "android"
-    ],
-    "fix": "2dc3be40",
-    "prompt": "a link to a note that doesn't exist looks exactly like a link to a real note. i can't tell which links are dead",
-    "key": "The dashed-underline and muted-when-broken wikilink rules live in src/styles/markdown-links.css, which src/styles/app.css imports under `@layer components`. The editor's unlayered `.futo-milkdown .ProseMirror a` rule in MilkdownEditor.svelte beats any layered rule regardless of specificity, so a resolved chip and a broken one (class cm-md-wikilink-broken) compute identical styles. The fix moves the rules into MilkdownEditor.svelte, unlayered.",
-    "sign": "A note containing `[[Existing note]]` (a real note) and `[[No such note]]`: both chips render with the same solid primary-colour underline; the computed text-decoration-style is solid for both and the broken one is not muted, although it carries the cm-md-wikilink-broken class."
-  },
-  {
-    "id": "14-slash-pick-leaves-query",
-    "area": "editor · slash menu",
-    "platforms": [
-      "desktop"
-    ],
-    "fix": "5914f314",
-    "prompt": "i type /text and pick Text from the slash menu on a normal line. the menu closes but the /text i typed stays in my note",
-    "key": "src/features/editor/milkdown/commandRunner.ts combineDeleteAndCommand builds the delete of the typed `/query` and the picked command into one transaction, but returns before dispatching anything when the command declines on the post-delete state (Text on a paragraph, Bullet in a bullet, Heading 1 in a heading, Quote in a quote, Code block in a list item), so the delete is dropped with it. The fix dispatches the delete whether or not the command had anything to do.",
-    "sign": "Type `/text` in an empty paragraph and press Enter (or pick Text with the mouse): the menu closes and the paragraph still reads `/text`. Same for `/bullet` inside a bullet item, `/heading 1` on a heading, `/quote` inside a quote. Picking an item that changes the block (e.g. `/bullet` on a plain paragraph) does remove the query, which hides the bug."
-  },
-  {
-    "id": "15-selection-toolbar-over-sidebar",
-    "area": "editor · selection toolbar",
-    "platforms": [
-      "desktop"
-    ],
-    "fix": "b624a3b4",
-    "prompt": "when i select a word at the start of a line, the formatting bar pops up on top of the sidebar, covering the new note and new folder buttons",
-    "key": "src/features/editor/milkdown/selectionToolbar/index.ts: the toolbar is a floating-ui tooltip positioned in viewport coordinates (strategy 'fixed', root document.body) and its `shift` middleware is given no boundary, so it defaults to the viewport. A selection near the editor's left edge lets the centred bar spill left past the editor column over the sidebar. The fix passes `shift: { boundary: view.dom, padding: 8 }` so the bar can never leave the editable's own column.",
-    "sign": "Sidebar open, long note, drag-select the first few characters of a line at the left margin (the lower the line sits in the window, the closer to the sidebar's New note / New folder buttons): `.futo-selection-toolbar` is visible and its left edge is left of the editor's left edge (x smaller than `.ProseMirror`'s x), painted over the sidebar and, near the bottom, over the `.fab` buttons."
-  },
-  {
     "id": "16-images-tab-top-level-only",
     "area": "images",
     "platforms": [
