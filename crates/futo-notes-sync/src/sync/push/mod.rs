@@ -226,7 +226,11 @@ pub(super) async fn push_with_checkpoint_client(
     let mut uploadable = uploadable_files(files, &scan.unnamed, &mut summary);
     // Held back until the cycle's pull has said whether the server moved a
     // note onto them (`copies_of_mapped_notes`); the cycle pushes them after.
-    uploadable.retain(|file| !held_back.contains(&file.name));
+    // A rename destination is never held: it is a PUT of an existing object,
+    // so it cannot make the duplicate the hold prevents, and detection has
+    // already rebound its map entry, so a late push would see it unchanged and
+    // never send it.
+    uploadable.retain(|file| !held_back.contains(&file.name) || renamed_files.contains(&file.name));
 
     progress(SyncProgress {
         phase: "pushing",

@@ -104,3 +104,41 @@ async fn a_differing_file_at_the_renamed_name_is_kept() {
         .collect();
     assert!(contents.iter().any(|body| body == "mine"), "{contents:?}");
 }
+
+/// A note moved to another folder outside the app, while a byte-identical twin
+/// is still mapped on disk: the moved file is a copy by bytes, but it is a
+/// rename destination, so its PUT must go out in the first push. Held back, the
+/// rebound map entry made the late push see it as unchanged and no PUT was ever
+/// sent: peers kept the old path while the cycle reported success.
+#[tokio::test]
+async fn a_folder_move_with_a_byte_identical_twin_is_put_before_the_pull() {
+    let root = TempRoot::new();
+    for folder in ["a", "c"] {
+        std::fs::create_dir_all(root.0.join(folder)).unwrap();
+        std::fs::write(root.0.join(folder).join("x.md"), "body").unwrap();
+    }
+    let mut state = connected();
+    let server = MutationServer::new();
+    state.base_url = server.base_url.clone();
+    state
+        .object_map
+        .insert("a/x.md".into(), mapped("twin-object", "body"));
+    state
+        .object_map
+        .insert("b/x.md".into(), mapped("moved-object", "body"));
+
+    cycle(state, &root.0).await;
+
+    let requests = server.requests.lock().unwrap().clone();
+    let put = requests
+        .iter()
+        .position(|line| {
+            line.starts_with("PUT /api/collections/collection/blob-objects/moved-object?")
+        })
+        .unwrap_or_else(|| panic!("the move never reached the server: {requests:?}"));
+    let pull = requests
+        .iter()
+        .position(|line| line.starts_with("GET /api/collections/collection/objects?sinceVersion="))
+        .unwrap_or_else(|| panic!("no pull: {requests:?}"));
+    assert!(put < pull, "the move went out after the pull: {requests:?}");
+}
