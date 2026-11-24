@@ -25,8 +25,8 @@ build:ios-native:
       - buildFutoNotesIOSNative/dsyms/*-dSYMs.zip
     expire_in: 4 weeks
   rules:
-    # No MR rule: test:ios-native compiles the same FFI xcframework + editor
-    # bundle + app (xcodebuild test builds the app target) AND runs the Swift
+    # No MR rule: test:ios-native compiles the same FFI xcframework + app
+    # (xcodebuild test builds the app target) AND runs the Swift
     # tests, so a second unsigned compile-check here doubled the Mac cost of
     # every iOS-touching MR for no extra signal. test:ios-native's changes:
     # cover this job's former MR paths (apps/ios, futo-notes-ffi, Cargo.lock,
