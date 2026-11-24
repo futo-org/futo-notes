@@ -135,8 +135,6 @@ report() {
     fi
   done
   echo "other projects with a Cirrus config: $n"
-  echo "--- largest dirs in HOME"
-  du -sh "$HOME"/* "$HOME"/.[!.]* 2>/dev/null | sort -h | tail -15
 }
 
 sweep() {
