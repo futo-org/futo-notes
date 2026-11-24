@@ -138,6 +138,7 @@
     which `gltfio` is 8.4 MB; RealityKit is a system framework and costs the iOS
     app nothing. → `apps/ios/Sources/License/SupporterCoin.swift`,
     `apps/android/.../ui/SupporterCoin.kt`
+  - _(Android)_ After its first frame returns, the live coin pauses when its activity stops, the coin scrolls out of view, or its surface detaches. It remains animated in a visible split-screen pane and resumes from its paused angle. → `SupporterCoin.kt`, `SupporterCoinScene.kt`
 - **Ambient label** (the thing a purchase removes): the text "Unlicensed" when
   Unlicensed or Expired, and **nothing at all** once Licensed — the element is
   removed rather than blanked, because an empty button is still a click target

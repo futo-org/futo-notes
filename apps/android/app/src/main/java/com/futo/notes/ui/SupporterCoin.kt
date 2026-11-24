@@ -19,12 +19,15 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LifecycleStartEffect
 import com.futo.notes.R
 import com.futo.notes.puppet.PuppetVerb
 import com.futo.notes.puppet.PuppetVerbScope
@@ -122,6 +125,7 @@ fun SupporterCoin(
     }
     var scene by remember { mutableStateOf<CoinScene?>(null) }
     var failed by remember { mutableStateOf(surface == null) }
+    var inViewport by remember { mutableStateOf(false) }
 
     DisposableEffect(surface, animates) {
         if (surface == null) {
@@ -141,6 +145,12 @@ fun SupporterCoin(
                 live?.destroy()
             }
         }
+    }
+
+    val liveScene = scene
+    LifecycleStartEffect(liveScene, inViewport) {
+        liveScene?.setVisible(inViewport)
+        onStopOrDispose { liveScene?.setVisible(false) }
     }
 
     // A tap, as the gesture below reads one; a drag or a flick stays a real finger's.
@@ -173,6 +183,7 @@ fun SupporterCoin(
                 modifier = Modifier
                     .fillMaxSize()
                     .testTag(LIVE_COIN_TAG)
+                    .onGloballyPositioned { inViewport = !it.boundsInWindow().isEmpty }
                     // Keyed on the scene so the gesture is re-established once it
                     // exists; before that there is nothing to turn.
                     .pointerInput(scene) {

@@ -2,7 +2,6 @@ package com.futo.notes.ui
 
 import android.content.Context
 import android.provider.Settings
-import android.view.Choreographer
 import android.view.TextureView
 import androidx.compose.foundation.layout.size
 import com.google.android.filament.Camera
@@ -86,6 +85,7 @@ internal class CoinScene(
     private val context: Context,
     textureView: TextureView,
     private val animates: Boolean,
+    private val frames: CoinFrameScheduler = ChoreographerCoinFrames(),
 ) {
     private val engine = Engine.create()
     private val renderer = engine.createRenderer()
@@ -107,7 +107,6 @@ internal class CoinScene(
         .toneMapper(ToneMapper.PBRNeutralToneMapper())
         .build(engine)
     private val uiHelper = UiHelper(UiHelper.ContextErrorPolicy.DONT_CHECK)
-    private val choreographer = Choreographer.getInstance()
 
     private var swapChain: SwapChain? = null
     private var turn = 0f
@@ -118,14 +117,12 @@ internal class CoinScene(
     private val tapDebt = CoinTapDebt()
     private var lastFrameNanos = 0L
     private var destroyed = false
+    private var visible = false
     /// Whether a frame has come back from Filament at all — see the render loop.
     private var rendered = false
 
-    private val frameCallback = object : Choreographer.FrameCallback {
-        override fun doFrame(frameTimeNanos: Long) {
-            if (destroyed) return
-            choreographer.postFrameCallback(this)
-
+    private val frameCallback = object : CoinFrame {
+        override fun render(frameTimeNanos: Long): Boolean {
             val elapsed = if (lastFrameNanos == 0L) {
                 0f
             } else {
@@ -161,9 +158,12 @@ internal class CoinScene(
                     if (!rendered) {
                         rendered = true
                         FilamentSupport.renderSucceeded(context)
+                        updateFrameLoop()
                     }
+                    return true
                 }
             }
+            return false
         }
     }
 
@@ -224,6 +224,7 @@ internal class CoinScene(
             override fun onNativeWindowChanged(surface: android.view.Surface) {
                 swapChain?.let(engine::destroySwapChain)
                 swapChain = engine.createSwapChain(surface, uiHelper.swapChainFlags)
+                updateFrameLoop()
             }
 
             override fun onDetachedFromSurface() {
@@ -233,6 +234,7 @@ internal class CoinScene(
                     engine.flushAndWait()
                     swapChain = null
                 }
+                updateFrameLoop()
             }
 
             override fun onResized(width: Int, height: Int) {
@@ -256,7 +258,21 @@ internal class CoinScene(
         uiHelper.attachTo(textureView)
 
         applyTurn()
-        choreographer.postFrameCallback(frameCallback)
+    }
+
+    fun setVisible(visible: Boolean) {
+        this.visible = visible
+        updateFrameLoop()
+    }
+
+    private fun updateFrameLoop() {
+        // The first frame renders out of view too: it clears the crash marker.
+        if (!destroyed && swapChain != null && (visible || !rendered)) {
+            frames.startCoinFrames(frameCallback)
+            return
+        }
+        lastFrameNanos = 0L
+        frames.stopCoinFrames()
     }
 
     fun grab() {
@@ -293,7 +309,7 @@ internal class CoinScene(
     fun destroy() {
         if (destroyed) return
         destroyed = true
-        choreographer.removeFrameCallback(frameCallback)
+        updateFrameLoop()
         uiHelper.detach()
 
         scene.removeEntities(asset.entities)
