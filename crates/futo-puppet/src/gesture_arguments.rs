@@ -7,17 +7,37 @@ use super::*;
 /// What each gesture takes, beside the CLI's own `json`. The phones' tools read only what they
 /// know, so a misspelled `hold` sent a short tap: anything else is refused, as desktop's input
 /// commands refuse it (`deny_unknown_fields`).
-const GESTURE_ARGUMENTS: [(&str, &[&str]); 6] = [
+const GESTURE_ARGUMENTS: [(&str, &[&str]); 7] = [
     (
         "click",
-        &["x", "y", "ref", "text", "hold", "button", "count"],
+        &["x", "y", "ref", "text", "hold", "button", "count", "shift"],
     ),
     ("tap", &["x", "y", "ref", "text", "hold"]),
-    ("drag", &["x", "y", "x2", "y2", "ref", "text", "duration"]),
+    (
+        "drag",
+        &[
+            "x", "y", "x2", "y2", "ref", "text", "duration", "path", "count", "shift",
+        ],
+    ),
     ("scroll", &["x", "y", "ref", "dx", "dy"]),
+    ("hover", &["x", "y", "ref", "text", "shift"]),
     ("type", &["text", "delay"]),
     ("press", &["key", "count"]),
 ];
+
+/// A phone's swipe goes straight from start to end: a path, a multi-click drag and Shift are
+/// a mouse's (desktop's `drag`).
+fn desktop_drag_only(args: &Value) -> Result<(), String> {
+    match ["path", "count", "shift"]
+        .into_iter()
+        .find(|key| args.get(*key).is_some())
+    {
+        Some(key) => Err(format!(
+            "a phone's drag is one swipe: \"{key}\" is desktop's"
+        )),
+        None => Ok(()),
+    }
+}
 
 /// What is wrong with a gesture's arguments before anything is asked: a key it does not take,
 /// two aims at once, a hold or duration that is not a number of seconds.
@@ -115,6 +135,7 @@ pub(crate) fn axe_arguments(
             ]
         }
         "drag" => {
+            desktop_drag_only(args)?;
             let (x, y) = point("x", "y")?;
             let (x2, y2) = point("x2", "y2")?;
             let mut v = vec![
@@ -334,6 +355,7 @@ pub(crate) fn adb_arguments(
             }
         }
         "drag" => {
+            desktop_drag_only(args)?;
             let (x, y) = point("x", "y")?;
             let (x2, y2) = point("x2", "y2")?;
             out.extend([

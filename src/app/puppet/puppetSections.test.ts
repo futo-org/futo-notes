@@ -64,6 +64,19 @@ describe('aimPoint', () => {
     expect(aimPoint(row), 'a dialog over all of it').toBeNull();
   });
 
+  it('aims inside the window at an element taller than it, a long note', () => {
+    mount(`<div id="note"></div>`);
+    const note = byId('note');
+    Object.defineProperty(note, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 100, width: 400, height: 10000 }),
+    });
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: (_x: number, y: number) => (y < innerHeight ? note : null),
+    });
+    expect(aimPoint(note)).toEqual({ x: 200, y: Math.round(100 + (innerHeight - 100) / 2) });
+  });
+
   it('does not count a backdrop under a row its list has scrolled out of view', () => {
     mount(`<div id="backdrop"><div id="list" style="overflow-y: auto">
       <button id="row">tax 2025</button></div></div>`);

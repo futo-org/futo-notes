@@ -6,6 +6,8 @@
 import { Selection, TextSelection } from '@milkdown/kit/prose/state';
 import type { EditorView } from '@milkdown/kit/prose/view';
 
+import { isImageFilename } from '$shared/media/imageFiles';
+
 import { offsetInLine, positionInLine, type ModelLine } from './puppetLines';
 import { noteLines, type NoteLines } from './puppetNoteLines';
 
@@ -118,6 +120,17 @@ function plainChord(key: string): KeyChord {
 export interface PuppetClipboardContent {
   text: string;
   html: string;
+  /** A PNG's bytes in base64, as a screenshot or an app's Copy Image puts one there. */
+  image?: string;
+}
+
+/** `base64`'s bytes as a file named `name`: an image's typed by its extension, any other
+ *  file untyped, as a file manager's drag often leaves one. */
+export function puppetFile(name: string, base64: string): File {
+  const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+  const extension = name.slice(name.lastIndexOf('.') + 1).toLowerCase();
+  const type = isImageFilename(name) ? `image/${extension === 'jpg' ? 'jpeg' : extension}` : '';
+  return new File([bytes], name, { type });
 }
 
 function transfer(): DataTransfer {
@@ -137,7 +150,11 @@ function transfer(): DataTransfer {
 }
 
 /** A clipboard event over `data`, dispatched where the browser dispatches one: the editable. */
-function clipboardEvent(view: EditorView, type: 'copy' | 'cut' | 'paste', data: DataTransfer) {
+function clipboardEvent(
+  view: { dom: HTMLElement },
+  type: 'copy' | 'cut' | 'paste',
+  data: DataTransfer,
+) {
   const init = { bubbles: true, cancelable: true };
   const event =
     typeof ClipboardEvent === 'function'
@@ -151,8 +168,10 @@ function clipboardEvent(view: EditorView, type: 'copy' | 'cut' | 'paste', data: 
 }
 
 /** Copy or cut the selection through the editor's own copy handler. Null when nothing is selected. */
-export function copySelection(view: EditorView, cut: boolean): PuppetClipboardContent | null {
-  if (view.state.selection.empty) return null;
+export function copySelection(
+  view: { dom: HTMLElement },
+  cut: boolean,
+): PuppetClipboardContent | null {
   const data = transfer();
   clipboardEvent(view, cut ? 'cut' : 'copy', data);
   const text = data.getData('text/plain');
@@ -160,11 +179,12 @@ export function copySelection(view: EditorView, cut: boolean): PuppetClipboardCo
   return text === '' && html === '' ? null : { text, html };
 }
 
-/** Paste `content` at the selection through the editor's paste pipeline. */
-export function paste(view: EditorView, content: PuppetClipboardContent): void {
+/** Paste `content` at the selection through the editor's paste pipeline (either editor's). */
+export function paste(view: { dom: HTMLElement }, content: PuppetClipboardContent): void {
   const data = transfer();
   if (content.html) data.setData('text/html', content.html);
-  data.setData('text/plain', content.text);
+  if (content.text || !content.image) data.setData('text/plain', content.text);
+  if (content.image) data.items.add(puppetFile('image.png', content.image));
   clipboardEvent(view, 'paste', data);
 }
 

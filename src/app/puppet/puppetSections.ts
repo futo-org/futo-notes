@@ -73,15 +73,23 @@ function clippedAt(element: Element, holder: Element, x: number, y: number): boo
  * another is still clickable on its free half, and its centre would click the
  * other one. Null when no point reaches it: a dialog, an overlay or a scroll
  * container's clipped edge is in the way. Without a hit test (jsdom) there is
- * no telling, so the centre.
+ * no telling, so the centre. The grid lies over the part that shows: a note taller
+ * than the window has its centre far below it, where nothing is hit.
  */
 export function aimPoint(element: Element): { x: number; y: number } | null {
   const box = element.getBoundingClientRect();
+  if (typeof document.elementFromPoint !== 'function') {
+    return { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
+  }
+  const left = Math.max(box.left, 0);
+  const top = Math.max(box.top, 0);
+  const width = Math.min(box.left + box.width, innerWidth) - left;
+  const height = Math.min(box.top + box.height, innerHeight) - top;
+  if (width <= 0 || height <= 0) return null;
   const at = (fx: number, fy: number) => ({
-    x: Math.round(box.left + box.width * fx),
-    y: Math.round(box.top + box.height * fy),
+    x: Math.round(left + width * fx),
+    y: Math.round(top + height * fy),
   });
-  if (typeof document.elementFromPoint !== 'function') return at(0.5, 0.5);
   for (const fy of [0.5, 0.2, 0.8]) {
     for (const fx of [0.5, 0.2, 0.8]) {
       const point = at(fx, fy);

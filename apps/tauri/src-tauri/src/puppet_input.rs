@@ -1,4 +1,4 @@
-//! Real mouse input for `just puppet click` / `drag` / `scroll` on desktop.
+//! Real mouse input for `just puppet click` / `drag` / `scroll` / `hover` on desktop.
 //!
 //! The CLI's typed verbs call handlers directly, which is exactly why they
 //! cannot reproduce an input bug: the language dropdown that closed on
@@ -45,7 +45,7 @@ pub(crate) use platform::devtools;
 pub(crate) use platform::gdk_time;
 use platform::{send_event, view_size};
 
-/// One `click`, `drag` or `scroll`, in CSS pixels inside the web view.
+/// One `click`, `drag`, `scroll` or `hover`, in CSS pixels inside the web view.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Pointer {
@@ -56,13 +56,19 @@ pub(crate) struct Pointer {
     y2: Option<f64>,
     /// `left` (default) or `right`.
     button: Option<String>,
-    /// Click count: 2 is a double-click.
+    /// Click count: 2 is a double-click. A drag's: the clicks before its press, so 2 is a
+    /// double-click drag.
     count: Option<u32>,
+    /// Shift held through the gesture: Shift+click.
+    shift: Option<bool>,
     /// Seconds between press and release: a press-and-hold (a `hold` and a
     /// `count` do not combine).
     hold: Option<f64>,
     /// Drag duration in seconds (default 0.3).
     duration: Option<f64>,
+    /// Points a drag passes through, in order, between `x`,`y` and `x2`,`y2`: a drag out
+    /// and back.
+    path: Option<Vec<[f64; 2]>>,
     /// Scroll distance in CSS pixels, as a wheel's `deltaX`/`deltaY`: positive scrolls right/down.
     dx: Option<f64>,
     dy: Option<f64>,
@@ -74,6 +80,8 @@ enum Phase {
     Dragged,
     Up,
     Wheel,
+    /// The pointer moved with no button held: a hover.
+    Moved,
 }
 
 /// One platform event to send, and how long to wait before it.
@@ -88,6 +96,7 @@ struct Step {
     /// A wheel step's distance, CSS px; zero for a button.
     dx: f64,
     dy: f64,
+    shift: bool,
 }
 
 /// Samples between a drag's down and up: enough for a drag-selection to walk
@@ -152,6 +161,7 @@ fn steps(pointer: &Pointer) -> Result<Vec<Step>, String> {
         delay,
         dx: 0.0,
         dy: 0.0,
+        shift: pointer.shift == Some(true),
     };
     match pointer.kind.as_str() {
         "click" => {
@@ -182,24 +192,54 @@ fn steps(pointer: &Pointer) -> Result<Vec<Step>, String> {
             let (Some(x2), Some(y2)) = (pointer.x2, pointer.y2) else {
                 return Err("drag needs x2 and y2".into());
             };
-            if x2 == pointer.x && y2 == pointer.y {
+            if x2 == pointer.x && y2 == pointer.y && pointer.path.is_none() {
                 // Eight moves to the same point would read as a jittery press, not a hold.
                 return Err("a drag that does not move is a press: use click with \"hold\"".into());
             }
-            let delay =
-                gesture_seconds("duration", pointer.duration.unwrap_or(0.3))? / (DRAG_SAMPLES + 1);
-            let mut out = vec![step(Phase::Down, pointer.x, pointer.y, 1, Duration::ZERO)];
-            for sample in 1..=DRAG_SAMPLES {
-                let t = f64::from(sample) / f64::from(DRAG_SAMPLES);
-                out.push(step(
-                    Phase::Dragged,
-                    pointer.x + (x2 - pointer.x) * t,
-                    pointer.y + (y2 - pointer.y) * t,
-                    1,
-                    delay,
-                ));
+            let mut points = vec![[pointer.x, pointer.y]];
+            points.extend(pointer.path.iter().flatten().copied());
+            points.push([x2, y2]);
+            // Each leg of the path walks DRAG_SAMPLES moves, and the whole takes `duration`.
+            let legs = (points.len() - 1) as u32;
+            let delay = gesture_seconds("duration", pointer.duration.unwrap_or(0.3))?
+                / (DRAG_SAMPLES * legs + 1);
+            // The clicks before a multi-click drag's press, at its start.
+            let count = pointer.count.unwrap_or(1).clamp(1, 3);
+            let mut out: Vec<Step> = (1..count)
+                .flat_map(|nth| {
+                    [
+                        step(Phase::Down, pointer.x, pointer.y, nth, Duration::ZERO),
+                        step(
+                            Phase::Up,
+                            pointer.x,
+                            pointer.y,
+                            nth,
+                            Duration::from_millis(40),
+                        ),
+                    ]
+                })
+                .collect();
+            out.push(step(
+                Phase::Down,
+                pointer.x,
+                pointer.y,
+                count,
+                Duration::ZERO,
+            ));
+            for leg in points.windows(2) {
+                let ([from_x, from_y], [to_x, to_y]) = (leg[0], leg[1]);
+                for sample in 1..=DRAG_SAMPLES {
+                    let t = f64::from(sample) / f64::from(DRAG_SAMPLES);
+                    out.push(step(
+                        Phase::Dragged,
+                        from_x + (to_x - from_x) * t,
+                        from_y + (to_y - from_y) * t,
+                        count,
+                        delay,
+                    ));
+                }
             }
-            out.push(step(Phase::Up, x2, y2, 1, delay));
+            out.push(step(Phase::Up, x2, y2, count, delay));
             Ok(out)
         }
         "scroll" => {
@@ -218,7 +258,21 @@ fn steps(pointer: &Pointer) -> Result<Vec<Step>, String> {
                 })
                 .collect())
         }
-        other => Err(format!("kind must be click, drag or scroll, not {other}")),
+        "hover" => {
+            if pointer.button.is_some() || pointer.count.is_some() || pointer.hold.is_some() {
+                return Err("a hover holds no button: it takes x and y (and shift)".into());
+            }
+            Ok(vec![step(
+                Phase::Moved,
+                pointer.x,
+                pointer.y,
+                0,
+                Duration::ZERO,
+            )])
+        }
+        other => Err(format!(
+            "kind must be click, drag, scroll or hover, not {other}"
+        )),
     }
 }
 
@@ -292,13 +346,14 @@ pub(crate) fn settled(sent: Sent) -> Result<(), String> {
     })
 }
 
-/// A gesture with a point outside the web view lands somewhere no click into this view
-/// can reach: refuse all of it.
+/// A press, wheel or hover outside the web view lands somewhere no input into this view can reach:
+/// refuse all of the gesture. A held button may go beyond it, as a drag that scrolls the page
+/// does: the view that took the press keeps the moves and the release.
 fn check_bounds(gesture: &[Step], width: f64, height: f64) -> Result<(), String> {
-    match gesture
-        .iter()
-        .find(|step| step.x < 0.0 || step.y < 0.0 || step.x > width || step.y > height)
-    {
+    match gesture.iter().find(|step| {
+        matches!(step.phase, Phase::Down | Phase::Wheel | Phase::Moved)
+            && (step.x < 0.0 || step.y < 0.0 || step.x > width || step.y > height)
+    }) {
         Some(step) => Err(format!(
             "({}, {}) is outside the web view, which is {width}x{height} CSS px",
             step.x, step.y
@@ -329,15 +384,19 @@ fn devtools_mouse_event(step: Step) -> serde_json::Value {
     let button = if step.right { "right" } else { "left" };
     let held = if step.right { 2 } else { 1 };
     let (x, y) = (step.x, step.y);
+    // DevTools' modifier bits: 8 is Shift.
+    let modifiers = if step.shift { 8 } else { 0 };
     match step.phase {
         Phase::Down => serde_json::json!({ "type": "mousePressed", "x": x, "y": y,
-            "button": button, "buttons": held, "clickCount": step.count }),
+            "button": button, "buttons": held, "clickCount": step.count, "modifiers": modifiers }),
         Phase::Dragged => serde_json::json!({ "type": "mouseMoved", "x": x, "y": y,
-            "button": button, "buttons": held }),
+            "button": button, "buttons": held, "modifiers": modifiers }),
         Phase::Up => serde_json::json!({ "type": "mouseReleased", "x": x, "y": y,
-            "button": button, "buttons": 0, "clickCount": step.count }),
+            "button": button, "buttons": 0, "clickCount": step.count, "modifiers": modifiers }),
         Phase::Wheel => serde_json::json!({ "type": "mouseWheel", "x": x, "y": y,
             "deltaX": step.dx, "deltaY": step.dy }),
+        Phase::Moved => serde_json::json!({ "type": "mouseMoved", "x": x, "y": y,
+            "button": "none", "buttons": 0, "modifiers": modifiers }),
     }
 }
 

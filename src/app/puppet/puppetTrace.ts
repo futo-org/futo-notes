@@ -22,7 +22,9 @@ import {
   svelteEventTable,
 } from './puppetElements';
 import { setHandlerRunHook } from './puppetListeners';
-import { type PuppetOutcome } from './puppetRegistry';
+import { puppetProviders, type PuppetOutcome } from './puppetRegistry';
+import type { EditorView as TextEditorView } from '$features/editor/desktop/view';
+import { textEditorPositionAt } from './puppetTextEditorReads';
 import {
   diffSnapshots,
   editorView,
@@ -217,6 +219,26 @@ function wrapDelegatedHandlers(path: EventTarget[], type: string): void {
   }
 }
 
+/** The presses whose place in the desktop editor the trace records: never a move or a wheel,
+ *  which come many to a gesture (and from the human's own mouse). */
+const PRESS_TYPES = new Set(['pointerdown', 'mousedown', 'mouseup', 'click', 'dblclick']);
+
+/** Where a press in the desktop editor lands and where the selection settled, both read once
+ *  the event's dispatch is over, so the trace adds nothing to the editor's own handling. */
+function traceTextEditorPress(
+  trace: TraceEvent,
+  view: TextEditorView,
+  point: { x: number; y: number },
+): void {
+  setTimeout(() => {
+    const range = view.selection.range();
+    trace.editor = {
+      resolved: textEditorPositionAt(view, point.x, point.y)?.pos ?? null,
+      ...(range && { settled: { from: range.start, to: range.end } }),
+    };
+  }, 0);
+}
+
 function capture(event: Event): void {
   const path = event.composedPath();
   const target = path[0] ?? event.target;
@@ -247,6 +269,10 @@ function capture(event: Event): void {
   // Where the selection settled, once dispatch completes (a microtask would run between listeners).
   const pointed = trace.editor;
   if (pointed && view) setTimeout(() => (pointed.settled = selectionOf(view)), 0);
+  const textView = puppetProviders.textEditor?.view();
+  if (textView && point && PRESS_TYPES.has(event.type) && target instanceof Node) {
+    if (textView.dom.contains(target)) traceTextEditorPress(trace, textView, point);
+  }
 }
 
 function onSelectionChange(): void {
@@ -404,15 +430,30 @@ function cancelDragStart(event: Event): void {
   if (!element?.closest('[draggable="true"]')) event.preventDefault();
 }
 
+/**
+ * A right-click the page answers with no menu of its own (in the note, a text field, a
+ * selection: installDesktopContextMenuGuard.ts) opens the web view's native text menu, which
+ * runs its own event loop: until a person closes it every further mouse event — ours included
+ * — goes to the menu, not the page (measured on macOS: a right-click in the note, then every
+ * click and hover "produced NO page events"). No read sees that menu and no verb picks from
+ * it, so while a gesture is bracketed it is held back once the page's own handlers have run.
+ */
+function holdBackNativeMenu(event: Event): void {
+  event.preventDefault();
+}
+
 /** Real input arrives from outside the page, so its bracket is two calls. */
 export function beginGesture(): { before: number; eventCursor: number } {
   pendingGesture = begin('gesture');
   document.addEventListener('dragstart', cancelDragStart, true);
+  // Bubbling, added after the app's own listener, so the app has decided first.
+  window.addEventListener('contextmenu', holdBackNativeMenu);
   return { before: pendingGesture.before.id, eventCursor: pendingGesture.eventCursor };
 }
 
 export function endGesture(): ActionRecord | null {
   document.removeEventListener('dragstart', cancelDragStart, true);
+  window.removeEventListener('contextmenu', holdBackNativeMenu);
   if (!pendingGesture) return null;
   const record = end(pendingGesture);
   pendingGesture = null;

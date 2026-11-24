@@ -54,6 +54,37 @@ fn a_drag_walks_from_start_to_end_and_ends_exactly_there() {
 }
 
 #[test]
+fn a_drag_with_a_path_walks_each_leg_through_its_points() {
+    let steps = steps(&pointer(
+        r#"{"kind":"drag","x":0,"y":0,"path":[[80,0]],"x2":40,"y2":0}"#,
+    ))
+    .unwrap();
+    assert_eq!(steps.len() as u32, 2 * DRAG_SAMPLES + 2);
+    let moved: Vec<f64> = steps
+        .iter()
+        .filter(|s| s.phase == Phase::Dragged)
+        .map(|s| s.x)
+        .collect();
+    assert_eq!(moved[DRAG_SAMPLES as usize - 1], 80.0);
+    assert_eq!(*moved.last().unwrap(), 40.0);
+}
+
+#[test]
+fn a_double_click_drag_clicks_once_then_presses_with_a_count_of_two() {
+    let steps = steps(&pointer(
+        r#"{"kind":"drag","x":0,"y":0,"x2":40,"y2":0,"count":2,"shift":true}"#,
+    ))
+    .unwrap();
+    let presses: Vec<_> = steps.iter().take(3).map(|s| (s.phase, s.count)).collect();
+    assert_eq!(
+        presses,
+        [(Phase::Down, 1), (Phase::Up, 1), (Phase::Down, 2)]
+    );
+    assert!(steps.iter().all(|s| s.shift));
+    assert_eq!(devtools_mouse_event(steps[2])["modifiers"], 8);
+}
+
+#[test]
 fn a_scroll_is_a_run_of_wheel_notches_that_adds_up_to_the_distance() {
     let notches = steps(&pointer(r#"{"kind":"scroll","x":5,"y":6,"dy":100}"#)).unwrap();
     assert_eq!(notches.len(), 3);
@@ -169,7 +200,7 @@ fn a_gtk_scroll_unit_is_the_views_size_to_the_two_thirds() {
 }
 
 #[test]
-fn a_gesture_with_any_point_outside_the_web_view_is_refused_whole() {
+fn a_press_outside_the_web_view_is_refused_but_a_held_drag_may_leave_it() {
     let gesture = |json: &str| steps(&pointer(json)).unwrap();
     let click = |x: f64, y: f64| gesture(&format!(r#"{{"kind":"click","x":{x},"y":{y}}}"#));
     assert!(check_bounds(&click(10.0, 20.0), 100.0, 50.0).is_ok());
@@ -178,10 +209,12 @@ fn a_gesture_with_any_point_outside_the_web_view_is_refused_whole() {
         .unwrap_err()
         .contains("outside the web view"));
     assert!(check_bounds(&click(10.0, 51.0), 100.0, 50.0).is_err());
-    // A drag that starts inside and leaves the view sends nothing, not a press with no release.
+    // The view that took the press keeps a drag's moves and release beyond it (a drag that
+    // scrolls the page); a drag pressed outside is refused whole.
     let leaving = gesture(r#"{"kind":"drag","x":10,"y":10,"x2":10,"y2":-40}"#);
-    assert!(check_bounds(&leaving[..1], 100.0, 50.0).is_ok());
-    assert!(check_bounds(&leaving, 100.0, 50.0).is_err());
+    assert!(check_bounds(&leaving, 100.0, 50.0).is_ok());
+    let entering = gesture(r#"{"kind":"drag","x":10,"y":-40,"x2":10,"y2":10}"#);
+    assert!(check_bounds(&entering, 100.0, 50.0).is_err());
 }
 
 #[test]
@@ -200,4 +233,30 @@ fn touch_only_and_unknown_arguments_are_refused_before_anything_is_sent() {
     ))
     .is_err());
     assert!(serde_json::from_str::<Pointer>(r#"{"kind":"click","x":0,"y":0,"swipe":1}"#).is_err());
+}
+
+#[test]
+fn a_hover_is_one_move_with_no_button_held_and_stays_inside_the_view() {
+    let hover = steps(&pointer(r#"{"kind":"hover","x":5,"y":6}"#)).unwrap();
+    assert_eq!(
+        hover
+            .iter()
+            .map(|s| (s.phase, s.x, s.y))
+            .collect::<Vec<_>>(),
+        [(Phase::Moved, 5.0, 6.0)]
+    );
+    let moved = devtools_mouse_event(hover[0]);
+    assert_eq!(
+        (
+            moved["type"].as_str(),
+            moved["button"].as_str(),
+            moved["buttons"].as_u64()
+        ),
+        (Some("mouseMoved"), Some("none"), Some(0))
+    );
+    assert!(check_bounds(&hover, 100.0, 50.0).is_ok());
+    let outside = steps(&pointer(r#"{"kind":"hover","x":5,"y":60}"#)).unwrap();
+    assert!(check_bounds(&outside, 100.0, 50.0).is_err());
+    assert!(steps(&pointer(r#"{"kind":"hover","x":5,"y":6,"button":"right"}"#)).is_err());
+    assert!(steps(&pointer(r#"{"kind":"hover","x":5,"y":6,"hold":0.5}"#)).is_err());
 }

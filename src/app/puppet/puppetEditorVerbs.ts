@@ -10,7 +10,8 @@ import { findScroller, getFindState } from '../../features/editor/milkdown/find/
 import { toggleTaskItem } from '../../features/editor/milkdown/taskCheckbox';
 import { TOOLBAR_ITEMS } from '@futo-notes/editor';
 
-import { clipboardAccess, editorState, requireView } from './puppetEditorReads';
+import { clipboardAccess } from './puppetClipboard';
+import { editorState, requireView } from './puppetEditorReads';
 import { fastWriteVerbs } from './puppetFastWrites';
 import { afterNextFrame, scrollLanded, scrollTo } from './puppetScroll';
 import { copySelection, parseChord, paste, pressKey, typeText } from './puppetInput';
