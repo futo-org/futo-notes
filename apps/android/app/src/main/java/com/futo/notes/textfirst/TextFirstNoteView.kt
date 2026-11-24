@@ -10,6 +10,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -27,10 +28,34 @@ internal fun TextFirstNoteView(
     onOpenWikilink: (WikilinkDestination) -> Unit,
     onOpenUrl: (String) -> Boolean,
 ) {
-    val host = remember(controller) { TextFirstTableCellHost(controller.view, controller::finishCellEditing) }
+    val localization = LocalLocalization.current
+    val gripLabels by rememberUpdatedState(TableGripLabels(
+        localization.localizedText("editor.table.addRowAbove"), localization.localizedText("editor.table.addRowBelow"),
+        localization.localizedText("editor.table.deleteRow"), localization.localizedText("editor.table.addColumnLeft"),
+        localization.localizedText("editor.table.addColumnRight"), localization.localizedText("editor.table.deleteColumn"),
+        localization.localizedText("editor.table.deleteTable"),
+        localization.localizedText("editor.tableGrips.rowOptionsAccessibilityLabel"),
+        localization.localizedText("editor.tableGrips.columnOptionsAccessibilityLabel"),
+    ))
+    val host = remember(controller) {
+        TextFirstTableCellHost(controller.view, controller::finishCellEditing, object : TableGripActions {
+            override val labels get() = gripLabels
+            override fun command(which: uniffi.futo_notes_ffi.EditorTableCommand) = controller.tableCommand(which)
+            override fun deleteTable() {
+                val hides = controller.view.keyboardHides
+                controller.deleteTable()
+                // The popup is still closing and takes the window's focus with it: the keyboard is asked for again once
+                // it is gone, unless the table has come back (Undo opens its cell), the person has hidden the keyboard, or has
+                // gone on to the title or Find field, which a refocus of the note would take the focus from.
+                controller.view.postDelayed({
+                    if (controller.cellView == null && controller.view.keyboardHides == hides && !controller.screenFieldFocused()) controller.view.showKeyboard()
+                }, 400)
+            }
+            override fun menuShowing(showing: Boolean) { controller.gripMenuShowing = showing }
+        })
+    }
     var bounds by remember(host) { mutableStateOf<Rect?>(null) }
     val density = LocalDensity.current
-    val localization = LocalLocalization.current
     val field = controller.cellView
     DisposableEffect(host) {
         host.onBoundsChanged = { bounds = it }

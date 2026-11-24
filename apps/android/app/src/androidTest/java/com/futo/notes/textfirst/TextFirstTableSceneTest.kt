@@ -93,8 +93,8 @@ class TextFirstTableSceneTest {
         assertEquals("leaving a cell changes no note text", before, readOnMainThread { view.text.toString() })
         scene.tap(scene.pointAt("Name", 0))
         compose.waitUntil(10_000) { scene.field() != null }
-        val done = Localization.fromGeneratedCatalogs(listOf("en"), "en-US").localizedText("common.actions.done")
-        compose.onNodeWithText(done).performClick()
+        val hide = Localization.fromGeneratedCatalogs(listOf("en"), "en-US").localizedText("editor.toolbar.dismissKeyboard")
+        compose.onNodeWithContentDescription(hide).performClick()
         compose.waitUntil(10_000) { scene.field() == null }
         assertEquals("Done changes no note text", before, readOnMainThread { view.text.toString() })
     }
@@ -136,7 +136,7 @@ class TextFirstTableSceneTest {
         finishFrameCheck()
     }
     @Test
-    fun doneClosesTheFocusedCellAndItsKeyboard() = compose.withTextFirstScreen(
+    fun hidingTheKeyboardClosesTheFocusedCellAndItsKeyboard() = compose.withTextFirstScreen(
         "| Name | Owner |\n| - | - |\n| one | two |\n\n" + "ordinary note text ".repeat(10) + "\n",
         nativeTheme = tableSceneTheme,
     ) { view, _ ->
@@ -145,11 +145,11 @@ class TextFirstTableSceneTest {
         scene.tap(scene.pointAt("Name", 0))
         compose.waitUntil(10_000) { scene.field()?.isFocused == true && scene.keyboardVisible() }
         val before = readOnMainThread { view.text.toString() }
-        val done = Localization.fromGeneratedCatalogs(listOf("en"), "en-US").localizedText("common.actions.done")
-        compose.onNodeWithText(done).performClick()
+        val hide = Localization.fromGeneratedCatalogs(listOf("en"), "en-US").localizedText("editor.toolbar.dismissKeyboard")
+        compose.onNodeWithContentDescription(hide).performClick()
         compose.waitUntil(10_000) { scene.field() == null }
         compose.waitUntil(10_000) { !scene.keyboardVisible() }
-        assertEquals("Done preserves note text", before, readOnMainThread { view.text.toString() })
+        assertEquals("Leaving the cell preserves note text", before, readOnMainThread { view.text.toString() })
     }
 
     @Test
@@ -189,6 +189,23 @@ class TextFirstTableSceneTest {
             val row = view.editableText.getSpans(0, view.length(), TfTableRow::class.java).first()
             assertEquals("a height-only viewport change must not undo the reader's horizontal pan", 0f, row.scroll.x)
         }
+    }
+
+    /** A tap on the empty box of a short row, with a cell already open, creates that cell and stays in the table. */
+    @Test
+    fun tappingAShortRowsEmptyBoxWithACellOpenEntersItAndKeepsTheFieldOpen() = compose.withTextFirstScreen(
+        "| Name | Owner | Role |\n| - | - | - |\n| one | two | three |\n| short |\n\n" + "ordinary note text ".repeat(10) + "\n",
+        nativeTheme = tableSceneTheme,
+    ) { view, _ ->
+        val scene = TableCellScene(view, compose.activity) { action -> compose.runOnUiThread(action) }
+        compose.runOnUiThread { view.revealRange(0, 0) }
+        scene.tap(scene.pointAt("Name", 0))
+        compose.waitUntil(10_000) { scene.field()?.isFocused == true && scene.keyboardVisible() }
+        scene.tap(scene.pointAt("short", 1))
+        compose.waitUntil(10_000) { scene.field()?.placementTarget(view)?.column == 1 }
+        compose.waitForIdle()
+        assertNotNull("The cell it created stays open", scene.field())
+        assertEquals("The field is on the box that was tapped", 1, scene.field()!!.placementTarget(view)!!.column)
     }
 
     @Test

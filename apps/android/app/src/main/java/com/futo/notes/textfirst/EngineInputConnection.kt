@@ -93,8 +93,9 @@ internal open class EngineInputConnection(
         collapse = null
         engine.selectFromView(pending.seq, pending.at, pending.at, force = true)
     }
-    private val selectionStart: Int get() = replacement?.takeIf(::current)?.start ?: engine.selStart
-    private val selectionEnd: Int get() = replacement?.takeIf(::current)?.end ?: engine.selEnd
+    // A cell's keyboard reads only its window: a caret the engine holds outside it reads as its nearest edge.
+    private val selectionStart: Int get() = (replacement?.takeIf(::current)?.start ?: engine.selStart).let { if (cell) it.coerceIn(low, high) else it }
+    private val selectionEnd: Int get() = (replacement?.takeIf(::current)?.end ?: engine.selEnd).let { if (cell) it.coerceIn(low, high) else it }
     private val low: Int get() = if (cell) engine.cellRange?.first ?: engine.selStart else 0
     private val high: Int get() = if (cell) engine.cellRange?.last ?: engine.selEnd else engine.text.length
 
@@ -291,7 +292,7 @@ internal open class EngineInputConnection(
     override fun performEditorAction(editorAction: Int): Boolean {
         flushSelection()
         trace("performEditorAction(" + "editorAction=" + editorAction + ")")
-        if (cell) engine.finishCellEditing() else engine.key(EditorParagraphKey.ENTER)
+        engine.key(EditorParagraphKey.ENTER) // in a cell, Enter is the table's key: the cell below, a new row on the last
         return true
     }
 

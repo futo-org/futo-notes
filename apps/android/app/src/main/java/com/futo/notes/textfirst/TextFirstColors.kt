@@ -18,6 +18,7 @@ internal fun TextFirstColors(controller: TextFirstController, c: FutoColors, dar
             code = (if (darkTheme) FutoPalette.InkHairline else FutoPalette.N200).toArgb(),
             surface = c.surfaceSunken.toArgb(),
             page = c.surface.toArgb(),
+            danger = c.danger.toArgb(),
         )
     }
 }

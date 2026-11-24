@@ -68,8 +68,11 @@ internal class EditorEngine(
     val selStart: Int get() = mirror.selStart
     val selEnd: Int get() = mirror.selEnd
     internal var editingCell = false
+    /** An Undo or Redo is taking its change: a cell it closes may reopen, and is closed to the view only if it does not (acceptHistoryChange). */
+    internal var holdingCellClose = false
     internal val find = FindEngineState { refreshFind() }
     internal var cellRange: IntRange? = null
+    internal val cellWindow = CellWindow()
     internal var seq = 0
     /** The display edits each posted update carried, for view selections made behind them. */
     internal val viewEdits = ViewEditJournal()
@@ -223,6 +226,7 @@ internal class EditorEngine(
         tailLength = 0
         editingCell = false
         cellRange = null
+        cellWindow.clear()
         dismissedCompletionStart = null
         publishedSelection = 0L
         publishedIme = null

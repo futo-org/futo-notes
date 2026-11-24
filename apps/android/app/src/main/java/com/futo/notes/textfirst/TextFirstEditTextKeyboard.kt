@@ -8,6 +8,7 @@ internal fun TextFirstEditText.showKeyboard() {
 }
 
 internal fun TextFirstEditText.hideKeyboard() {
+    keyboardHides++
     context.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(windowToken, 0)
     clearFocus()
 }

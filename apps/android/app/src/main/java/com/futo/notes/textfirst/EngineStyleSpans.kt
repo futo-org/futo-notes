@@ -21,7 +21,7 @@ internal fun List<EditorStyleSpan>.toStyleWindow(start: Int, end: Int, display: 
     val specs = text.filter { spec ->
         val i = rows.binarySearchBy(spec.start) { it.start }.let { if (it >= 0) it else -it - 2 }
         i < 0 || spec.end > rows[i].end
-    } + grid
+    } + withCellRuns(grid, text)
     return StyleWindow(minOf(start, specs.minOfOrNull { it.start } ?: start), maxOf(end, specs.maxOfOrNull { it.end } ?: end), specs)
 }
 
