@@ -4,13 +4,13 @@ use super::{paste, range, EditorSession, InlineFormat, ParagraphKey, Revision, S
 
 #[test]
 fn a_paste_is_in_code_where_it_lands_not_where_the_selection_is() {
-    // The caret is at the start; the paste lands outside the span, at the
-    // offset a caret placed there stands at.
+    // The selection is at the start; the paste lands at the span's text end,
+    // where a caret placed there stands inside the span.
     let mut s = EditorSession::open("a `bc` z");
     s.select(Revision(0), range(0, 0)).unwrap();
-    s.paste_markdown(s.revision(), range(2, 2), "`xy`", &mut |_| Ok(()))
+    s.paste_markdown(s.revision(), range(4, 4), "`xy`", &mut |_| Ok(()))
         .unwrap();
-    assert_eq!(s.source_text(), "a `xy``bc` z");
+    assert_eq!(s.source_text(), "a `bcxy` z");
 }
 
 #[test]
