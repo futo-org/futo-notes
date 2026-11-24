@@ -321,6 +321,7 @@ fn a_pulled_rename_onto_a_file_holding_its_bytes_adopts_it() {
     let mapping = entry("object", Some(&hash_sha256("body")));
     state.object_map.insert("old.md".into(), mapping);
 
+    futo_notes_core::files::on_note_moved(record);
     let mut summary = SyncSummary::default();
     apply_remote(
         &mut state,
