@@ -104,11 +104,9 @@ export async function externalWatcherReloadsCleanNote(a, _b, _server) {
   await a.flushSave();
   await a.waitForOpenNote('watch clean');
   await a.openNote('watch clean');
-  // '# Clean note\n': the editor composed this note, so the file holds its
-  // serialized spelling with a trailing newline (ADR-0002 normalize-once), and
-  // reopening hands those same bytes back. Only the EXTERNAL content below is
-  // adopted verbatim.
-  await waitForEditorContent(a, '# Clean note\n');
+  // The editor saves exactly what was typed, and reopening hands those same
+  // bytes back.
+  await waitForEditorContent(a, '# Clean note');
   await waitForToastClear(a);
   await sleep(1200);
 
@@ -146,7 +144,7 @@ export async function externalAtomicSaveOntoTheOpenNoteIsAdopted(a, _b, _server)
   await a.flushSave();
   await a.waitForOpenNote('watch atomic');
   await a.openNote('watch atomic');
-  await waitForEditorContent(a, '# Before the save\n');
+  await waitForEditorContent(a, '# Before the save');
   await waitForToastClear(a);
   await sleep(1200);
 
@@ -174,16 +172,14 @@ export async function externalAtomicSaveOntoTheOpenNoteIsAdopted(a, _b, _server)
 export async function externalWatcherProtectsDirtyDraftThenSettles(a, _b, _server) {
   // A dirty draft that cannot be saved is protected from the external change;
   // once saves resume it settles — the draft parks as a conflict copy against
-  // the changed disk base and the editor then adopts the external bytes.
+  // the changed disk base and the editor follows the copy.
   await a.openNewNote();
   await a.setTitle('watch dirty');
   await a.typeInEditor('# Original content');
   await a.flushSave();
   await a.waitForOpenNote('watch dirty');
   await a.openNote('watch dirty');
-  // Trailing newline for the same reason as in externalWatcherReloadsCleanNote:
-  // the editor composed and saved this note (ADR-0002 normalize-once).
-  await waitForEditorContent(a, '# Original content\n');
+  await waitForEditorContent(a, '# Original content');
 
   // Hold saves (each declines without writing) so the draft stays dirty and
   // unsaved when the external write lands. A duplicate title used to do this;
@@ -210,25 +206,26 @@ export async function externalWatcherProtectsDirtyDraftThenSettles(a, _b, _serve
   );
 
   // Settle: release the hold; the draft parks against the changed disk base
-  // and the deferred adoption applies the external content.
+  // and the editor follows its conflict copy, as on iOS and Android, while the
+  // original keeps the external bytes (Mason, 2026-11-04).
   await a.holdSaves(false);
   await a.flushSave();
-  const adoptedState = await waitForEditorContent(a, '# Changed on disk', 30_000);
-  assertEqual(
-    adoptedState.originalId,
-    'watch dirty',
-    'settled external change should keep the disk-backed note open',
-  );
-  const diskContent = await a.readNote('watch dirty');
-  assertEqual(
-    diskContent,
-    '# Changed on disk',
-    'external disk content should remain on disk after the UI adopts it',
-  );
   const files = (await a.listNotes()).map((f) => f.filename || f.name || f);
   const conflictCopy = files.find((name) => name.includes('conflict'));
   assert(conflictCopy, 'the parked draft must survive as a conflict copy');
-  const conflictContent = await a.readNote(conflictCopy.replace(/\.md$/, ''));
+  const parkedId = conflictCopy.replace(/\.md$/, '');
+  await a.waitForOpenNote(parkedId, 30_000);
+  const followedState = await a.getOpenNoteState();
+  assert(
+    followedState.editorContent.includes('Local draft'),
+    `the editor must stay on the parked draft, got: ${followedState.editorContent}`,
+  );
+  assertEqual(
+    await a.readNote('watch dirty'),
+    '# Changed on disk',
+    'the external content must stay on disk at the original note',
+  );
+  const conflictContent = await a.readNote(parkedId);
   assert(
     conflictContent.includes('Local draft'),
     `the conflict copy must hold the parked draft bytes, got: ${conflictContent}`,

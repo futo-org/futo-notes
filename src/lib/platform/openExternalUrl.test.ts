@@ -6,7 +6,7 @@ vi.mock('./index', () => ({ isTauri: true }));
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl }));
 vi.mock('./tauri/invoke', () => ({ invoke }));
 
-const { openExternalUrl } = await import('./openExternalUrl');
+const { openExternalUrl, openPressedLink } = await import('./openExternalUrl');
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -50,5 +50,42 @@ describe('openExternalUrl on desktop', () => {
       expect(invoke).toHaveBeenCalledWith('dev_open_url', { url: 'https://futo.tech/a�b' }),
     );
     expect(openUrl).not.toHaveBeenCalled();
+  });
+});
+
+describe('openPressedLink on desktop', () => {
+  it('opens a plain click in front through the opener', async () => {
+    vi.stubEnv('DEV', false);
+    openUrl.mockResolvedValueOnce(undefined);
+
+    openPressedLink('https://x.test/front', false);
+
+    await vi.waitFor(() => expect(openUrl).toHaveBeenCalledWith('https://x.test/front'));
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('opens a link asked for behind the window through open_url_behind', async () => {
+    vi.stubEnv('DEV', false);
+    invoke.mockResolvedValueOnce(undefined);
+
+    openPressedLink('https://x.test/behind', true);
+
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('open_url_behind', { url: 'https://x.test/behind' }),
+    );
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  it('opens a link in a dev build the dev way, whatever the gesture asks', async () => {
+    vi.stubEnv('DEV', true);
+    invoke.mockResolvedValueOnce(undefined);
+
+    openPressedLink('https://x.test/modified', true);
+
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('dev_open_url', { url: 'https://x.test/modified' }),
+    );
+    expect(invoke).not.toHaveBeenCalledWith('open_url_behind', { url: 'https://x.test/modified' });
+    expect(openUrl).not.toHaveBeenCalledWith('https://x.test/modified');
   });
 });

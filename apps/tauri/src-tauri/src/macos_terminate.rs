@@ -10,7 +10,8 @@
 //! covers the callers that never touch the menu.
 //!
 //! tao's delegate has no `applicationShouldTerminate:`, so one is added to its
-//! class at startup. It answers `NSTerminateLater`, closes the main window, and
+//! class at startup. It answers `NSTerminateLater`, closes the main window
+//! (terminate.rs, shared with Linux's SIGTERM and SIGHUP), and
 //! the close handler flushes and exits through `app.exit`; the resulting
 //! `RunEvent::ExitRequested` (application.rs) sends
 //! `replyToApplicationShouldTerminate:YES`, and AppKit finishes the terminate.
@@ -28,7 +29,6 @@ use std::sync::OnceLock;
 use objc2::ffi::class_addMethod;
 use objc2::runtime::{AnyClass, AnyObject, Bool, Imp, Sel};
 use objc2::{class, msg_send, sel};
-use tauri::Manager;
 
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 /// A terminate is waiting for `replyToApplicationShouldTerminate:`.
@@ -43,15 +43,15 @@ extern "C" fn application_should_terminate(
     _cmd: Sel,
     _sender: *mut AnyObject,
 ) -> usize {
-    match APP.get().and_then(|app| app.get_webview_window("main")) {
-        Some(window) => {
-            // The close handler saves, then exits the app itself; the exit sends the reply.
-            PENDING.store(true, Ordering::SeqCst);
-            let _ = window.close();
-            NS_TERMINATE_LATER
-        }
+    // The close handler saves, then exits the app itself; the exit sends the reply.
+    // Set before the close, so an exit the close leads to always sees it.
+    PENDING.store(true, Ordering::SeqCst);
+    if APP.get().is_some_and(crate::terminate::close_main_window) {
+        NS_TERMINATE_LATER
+    } else {
         // No window, so no editor and nothing to flush.
-        None => NS_TERMINATE_NOW,
+        PENDING.store(false, Ordering::SeqCst);
+        NS_TERMINATE_NOW
     }
 }
 

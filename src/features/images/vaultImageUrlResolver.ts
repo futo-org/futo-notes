@@ -18,30 +18,25 @@
  */
 import { hasNativeBridgeHost } from '@futo-notes/editor';
 
-import { getFS } from '$lib/platform';
+import { getPlatformFS } from '$lib/platform';
 
 import { setVaultImageUrlResolver } from './vaultImageSrc';
 
 /**
  * Returns whether a resolver was installed — false means this host resolves
- * images some other way (a base URL) or cannot resolve them at all (a plain
- * browser: Playwright, the factory judge, `pnpm run dev`).
+ * images some other way (a base URL). A plain browser (Playwright, the factory
+ * judge, `pnpm run dev`) gets one whose every answer is "not there".
+ *
+ * The platform is asked for when an image is, not now: the editor mounts with
+ * the restored tab before bootstrap has resolved it, and a resolver skipped then
+ * left every vault image of the session missing.
  *
  * The decision lives here rather than in the editor component because
  * components never branch on platform (src/AGENTS.md).
  */
 export function installVaultImageUrlResolver(): boolean {
   if (hasNativeBridgeHost()) return false;
-
-  let fs: ReturnType<typeof getFS>;
-  try {
-    fs = getFS();
-  } catch {
-    return false;
-  }
-
-  const getImageUrl = fs.getImageUrl.bind(fs);
-  setVaultImageUrlResolver((filename) => getImageUrl(filename));
+  setVaultImageUrlResolver(async (filename) => (await getPlatformFS()).getImageUrl(filename));
   return true;
 }
 

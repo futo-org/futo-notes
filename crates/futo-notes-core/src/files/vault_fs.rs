@@ -212,6 +212,13 @@ pub fn exists(root: &Path, relative: &str) -> Result<bool, String> {
     platform::exists(root, relative)
 }
 
+/// Whether two names reach one file: a case or normalization variant does on a
+/// volume that folds them, and is a second file on one that does not. False
+/// when either is missing.
+pub fn same_file(root: &Path, left: &str, right: &str) -> bool {
+    ::same_file::is_same_file(root.join(left), root.join(right)).unwrap_or(false)
+}
+
 pub fn set_mtime_ms(root: &Path, relative: &str, modified_at_ms: i64) -> Result<(), String> {
     // An `updated_at` that failed to parse arrives as 0; never stamp 1970.
     if modified_at_ms <= 0 {

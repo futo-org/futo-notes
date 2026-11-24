@@ -21,25 +21,25 @@ owners.
 
 ## Module map
 
-| Module                                     | Responsibility                                                                        |
-| ------------------------------------------ | ------------------------------------------------------------------------------------- |
-| `application.rs`                           | Builder, plugins, setup, managed state, complete command registration.                |
-| `application_state.rs`                     | The single desktop state aggregate.                                                   |
-| `local_notes.rs`                           | `local_notes_*` projection, including desktop note/folder trash policy.               |
-| `filesystem_watcher.rs`                    | Recursive watcher, normalized events, rename pairing, and typed one-shot suppression. |
-| `vault_location.rs`                        | Custom-root persistence, vault availability reporting, and the debug/release default-root safety split. |
+| Module                                     | Responsibility                                                                                                                 |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `application.rs`                           | Builder, plugins, setup, managed state, complete command registration.                                                         |
+| `application_state.rs`                     | The single desktop state aggregate.                                                                                            |
+| `local_notes.rs`                           | `local_notes_*` projection, including desktop note/folder trash policy.                                                        |
+| `filesystem_watcher.rs`                    | Recursive watcher, normalized events, rename pairing, and typed one-shot suppression.                                          |
+| `vault_location.rs`                        | Custom-root persistence, vault availability reporting, and the debug/release default-root safety split.                        |
 | `image_commands.rs`                        | Image saves through the vault boundary: webview bytes (`fs_save_image`) and the clipboard bitmap (`fs_paste_clipboard_image`). |
-| `app_data.rs`                              | App-data writes (`.app-state.json`, `.app-config.json`, `.crashlogs/`) through the vault boundary (`app_data_write`). |
-| `app_menu.rs`                              | macOS application menu; frontend items forwarded as `app-menu` events.               |
-| `window_reveal.rs`                         | Reveals the hidden window once the shell paints, with a timeout fallback.            |
-| `instance_journal.rs`                      | Installs the instance journal under the app data dir.                                |
-| `license.rs`                               | The paid-client-license projection: stored pair, the one activation request, and the `futonotes://` scheme. |
-| `background_tasks.rs`                      | Shared blocking-task boundary and uniform join/I/O error mapping.                    |
-| `system_trash.rs`                          | Recoverable delete with headless hard-delete fallback.                                |
-| `sync/*`                                   | Tauri wiring for the shared sync session/orchestrator.                                |
-| `platform_integration.rs`                  | Linux integration, single-instance behavior, and process setup.                       |
-| `portal_vault.rs`                          | Document-portal vaults: path recognition, grant persistence, host-path display, and the watcher-backend reliability probe. |
-| `updater_commands.rs`, `panic_reporter.rs` | Updater policy and crash persistence.                                                 |
+| `app_data.rs`                              | App-data writes (`.app-state.json`, `.app-config.json`, `.crashlogs/`) through the vault boundary (`app_data_write`).          |
+| `app_menu.rs`                              | macOS application menu; frontend items forwarded as `app-menu` events.                                                         |
+| `window_reveal.rs`                         | Reveals the hidden window once the shell paints, with a timeout fallback.                                                      |
+| `instance_journal.rs`                      | Installs the instance journal under the app data dir.                                                                          |
+| `license.rs`                               | The paid-client-license projection: stored pair, the one activation request, and the `futonotes://` scheme.                    |
+| `background_tasks.rs`                      | Shared blocking-task boundary and uniform join/I/O error mapping.                                                              |
+| `system_trash.rs`                          | Recoverable delete with headless hard-delete fallback.                                                                         |
+| `sync/*`                                   | Tauri wiring for the shared sync session/orchestrator.                                                                         |
+| `platform_integration.rs`                  | Linux integration, single-instance behavior, and process setup.                                                                |
+| `portal_vault.rs`                          | Document-portal vaults: path recognition, grant persistence, host-path display, and the watcher-backend reliability probe.     |
+| `updater_commands.rs`, `panic_reporter.rs` | Updater policy and crash persistence.                                                                                          |
 
 ## Local-note IPC
 
@@ -47,8 +47,7 @@ The current frontend contract is:
 
 - `local_notes_bootstrap`, `local_notes_startup_listing`, `local_notes_snapshot`,
   `local_notes_inventory`
-- `local_notes_read`, `local_notes_exists`, `local_notes_save`,
-  `local_notes_flush_draft`
+- `local_notes_read`, `local_notes_exists`, `local_notes_save`
 - `local_notes_delete`, `local_notes_move`
 - `local_notes_create_folder`, `local_notes_rename_folder`,
   `local_notes_move_folder`, `local_notes_delete_folder`
@@ -58,8 +57,9 @@ The current frontend contract is:
 
 These commands expose workflow-shaped results. `local_notes_save` commits the
 body, optional rename, collision resolution, and every resolvable backlink
-rewrite under one store lock. Editor saves include their last saved baseline;
-peer divergence parks the local draft without overwriting the peer.
+rewrite under one store lock. It refuses the note attached to the editor, which
+saves only through the `editor_*` commands; their saves park a draft that
+diverged from the peer instead of overwriting it.
 Note and folder workflows also return the
 post-commit folder projection. TypeScript applies that result without a
 follow-up vault scan and never predicts it.
@@ -107,7 +107,7 @@ compatibility requirements and must not be reintroduced.
   > **Gap:** _(Desktop, polled vaults only)_ **A concurrent external edit can be
   > swallowed by self-write suppression.** The poll backend coalesces everything
   > that happened to a file since its last pass into one event, so an app save and
-  > an external editor's write to the *same* note inside one interval arrive as a
+  > an external editor's write to the _same_ note inside one interval arrive as a
   > single event — which the one-shot suppression consumes as the app's own echo,
   > leaving the external edit unobserved until something else touches the file.
   > Under inotify the same race exists but its window is milliseconds; polling

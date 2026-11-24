@@ -12,36 +12,15 @@ import {
   search,
   setNoteSortOrder,
   setNotesUniverse,
-  updateNote,
 } from './notes.svelte';
-import {
-  _setLocalNoteStoreForTest,
-  type LocalFlushDraftResult,
-  type LocalNoteMetadata,
-  type LocalNoteMutation,
-} from '$lib/localNoteStore';
+import { _setLocalNoteStoreForTest, type LocalNoteMetadata } from '$lib/localNoteStore';
 import { fakeStore, metadata, mutation, upsert } from './__test__/notesContractFixtures';
-
-function flushResult(
-  kind: LocalFlushDraftResult['disposition']['kind'],
-  resultMutation: LocalNoteMutation | null,
-  parkedId = 'Note (conflict 2026-07-29)',
-): LocalFlushDraftResult {
-  return {
-    disposition: kind === 'parkedConflict' ? { kind, parkedId } : { kind },
-    mutation: resultMutation,
-  };
-}
 
 function preview(id: string): NotePreview {
   return { id, title: id, preview: '', modificationTime: 1, tags: [] };
 }
 
-function projectAsCallerWould(result: { unappliedMutation: LocalNoteMutation | null }): void {
-  if (result.unappliedMutation) _applyLocalMutation(result.unappliedMutation);
-}
-
-// eslint-disable-next-line max-lines-per-function -- One contract matrix covers every mutation projection and draft disposition.
+// eslint-disable-next-line max-lines-per-function -- One contract matrix covers every mutation projection.
 describe('TypeScript local-note projection', () => {
   beforeEach(() => {
     setNotesUniverse([]);
@@ -190,104 +169,6 @@ describe('TypeScript local-note projection', () => {
 
     expect(warn).toHaveBeenCalledTimes(2);
     warn.mockRestore();
-  });
-
-  it.each([
-    ['wrote', 'wrote'],
-    ['recreated', 'recreated'],
-  ] as const)('projects a %s body flush and reports it committed', async (kind, disposition) => {
-    const committed = mutation({ upserted: [upsert('Note')], finalId: 'Note' });
-    const flushDraft = vi.fn(async () => flushResult(kind, committed));
-    const save = vi.fn();
-    _setLocalNoteStoreForTest(fakeStore({ flushDraft, save }));
-
-    const result = await updateNote('Note', 'latest body', {
-      originalId: 'Note',
-      base: 'saved body',
-    });
-
-    expect(result).toMatchObject({ id: 'Note', disposition, unappliedMutation: committed });
-    expect(flushDraft).toHaveBeenCalledWith('Note', 'saved body', 'latest body');
-    expect(save).not.toHaveBeenCalled();
-    projectAsCallerWould(result);
-    expect(getAllNotes().map((note) => note.id)).toEqual(['Note']);
-  });
-
-  it('reports convergence without projecting a mutation', async () => {
-    setNotesUniverse([preview('Note')]);
-    const flushDraft = vi.fn(async () => flushResult('converged', null));
-    _setLocalNoteStoreForTest(fakeStore({ flushDraft }));
-
-    await expect(
-      updateNote('Note', 'same body', {
-        originalId: 'Note',
-        base: 'saved body',
-      }),
-    ).resolves.toMatchObject({ id: 'Note', disposition: 'converged' });
-
-    expect(getAllNotes().map((note) => note.id)).toEqual(['Note']);
-  });
-
-  it('projects a parked conflict copy without retargeting the original note', async () => {
-    setNotesUniverse([preview('Note')]);
-    const parkedId = 'Note (conflict 2026-07-29)';
-    const parked = mutation({ upserted: [upsert(parkedId, 1)], finalId: parkedId });
-    const flushDraft = vi.fn(async () => flushResult('parkedConflict', parked, parkedId));
-    _setLocalNoteStoreForTest(fakeStore({ flushDraft }));
-
-    const result = await updateNote('Note', 'my draft', {
-      originalId: 'Note',
-      base: 'saved body',
-    });
-
-    expect(result).toMatchObject({ id: 'Note', disposition: 'parked', parkedId });
-    projectAsCallerWould(result);
-    expect(getAllNotes().map((note) => note.id)).toEqual(['Note', parkedId]);
-  });
-
-  it('saves a rename as one store workflow', async () => {
-    const renamed = mutation({
-      removed: ['Old'],
-      renamed: [{ from: 'Old', to: 'New' }],
-      upserted: [upsert('New')],
-      finalId: 'New',
-    });
-    const flushDraft = vi.fn();
-    const move = vi.fn();
-    const save = vi.fn(async () => renamed);
-    _setLocalNoteStoreForTest(fakeStore({ flushDraft, move, save }));
-
-    await expect(
-      updateNote('New', 'latest body', {
-        originalId: 'Old',
-        base: 'saved body',
-      }),
-    ).resolves.toMatchObject({ id: 'New', disposition: 'wrote' });
-
-    expect(save).toHaveBeenCalledExactlyOnceWith(
-      'Old',
-      'New',
-      'latest body',
-      undefined,
-      'saved body',
-    );
-    expect(flushDraft).not.toHaveBeenCalled();
-    expect(move).not.toHaveBeenCalled();
-  });
-
-  it('keeps override-mtime saves on the unconditional store verb', async () => {
-    const save = vi.fn(async () => mutation({ upserted: [upsert('Note')], finalId: 'Note' }));
-    const flushDraft = vi.fn();
-    _setLocalNoteStoreForTest(fakeStore({ save, flushDraft }));
-
-    await updateNote('Note', 'restored body', {
-      originalId: 'Note',
-      base: 'saved body',
-      overrideMtime: 456,
-    });
-
-    expect(save).toHaveBeenCalledWith('Note', 'Note', 'restored body', 456);
-    expect(flushDraft).not.toHaveBeenCalled();
   });
 
   // The projection holds no sort rule (ADR-0001): it reproduces the engine's

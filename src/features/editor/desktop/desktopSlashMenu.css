@@ -1,0 +1,41 @@
+/* The `/` menu (slashMenu.ts): the Milkdown editor's (milkdownEditor.css `.futo-slash-menu`),
+ * body-mounted and fixed on the viewport, so no scroller clips it. */
+.desktop-slash-menu {
+  position: fixed;
+  z-index: 60;
+  max-height: 280px;
+  min-width: 200px;
+  max-width: min(320px, calc(100vw - 16px));
+  overflow-y: auto;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+.desktop-slash-menu ul {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+}
+
+.desktop-slash-menu li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--color-text);
+}
+
+.desktop-slash-menu li[aria-selected='true'] {
+  background: rgba(var(--primary-rgb), 0.1);
+}
+
+.desktop-slash-menu-detail {
+  color: var(--color-muted);
+  font-size: 12px;
+}

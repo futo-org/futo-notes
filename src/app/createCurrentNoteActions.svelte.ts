@@ -13,15 +13,13 @@ export interface CurrentNoteActionsDeps {
   getActiveNoteId: () => string | null;
   runWithActiveNoteLock: <T>(operation: () => Promise<T>) => Promise<T>;
   showToast: (message: ToastMessage) => void;
-  onMoved: (fromId: string, toId: string, title: string) => void;
   onDeleted: (id: string) => void;
   onActiveNoteDeleted: () => void;
 }
 
 // Open-note overflow menu (list.md): Copy file path, Move to folder, Delete note.
-// Move and delete change the open note's identity,
-// so they route back through the shell's rename/close callbacks rather than
-// predicting the outcome here.
+// Neither move nor delete predicts the open note's identity: the store moves the
+// editor's attachment and the session follows the editor; a delete closes it.
 export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
   let menuOpen = $state(false);
   let movePickerOpen = $state(false);
@@ -67,8 +65,7 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
       const wantedId = folderPath ? `${folderPath}/${leaf}` : leaf;
       if (wantedId === fromId) return;
       try {
-        const result = await moveNote(fromId, wantedId);
-        deps.onMoved(fromId, result.id, idLeaf(result.id));
+        await moveNote(fromId, wantedId);
         deps.showToast(
           folderPath
             ? { path: 'notes.movedTo', arguments: { destination: folderPath } }

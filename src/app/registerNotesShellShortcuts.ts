@@ -1,12 +1,8 @@
 import { closeAppWindow, onAppMenuCommand } from '$lib/platform';
 import { tabsStore } from '$features/tabs/tabsStore.svelte';
+import { isTabKey } from '$shared/dom/tabKey';
 
-import {
-  puppetProviders,
-  puppetRefusal,
-  puppetVerb,
-  registerPuppetVerbs,
-} from './puppet/puppetRegistry';
+import { puppetRefusal, puppetVerb, registerPuppetVerbs } from './puppet/puppetRegistry';
 
 export interface NotesShellShortcutDeps {
   openSearch: () => void;
@@ -76,7 +72,7 @@ function runCommand(command: ShellCommand, deps: NotesShellShortcutDeps): void {
 // for the ones with no menu item (Ctrl+Tab, Cmd+1..9).
 export function registerNotesShellShortcuts(deps: NotesShellShortcutDeps): () => void {
   function handleKeydown(event: KeyboardEvent): void {
-    if (event.ctrlKey && !event.altKey && event.key === 'Tab') {
+    if (event.ctrlKey && !event.altKey && isTabKey(event)) {
       event.preventDefault();
       if (event.shiftKey) tabsStore.prevTab();
       else tabsStore.nextTab();
@@ -153,33 +149,14 @@ export function registerNotesShellShortcuts(deps: NotesShellShortcutDeps): () =>
 
   window.addEventListener('keydown', handleKeydown);
   const stopMenu = onAppMenuCommand((command) => runCommand(command as ShellCommand, deps));
-  // Every chord above as a verb; Find's two are the editor's own (OpenFind, StepFind). The
+  // Every chord above as a verb; Find's two are the editor's own (OpenFind, StepFind) where it has them. The
   // window takes them whatever dialog is open, so they stay on offer behind one.
   const unregisterVerbs = registerPuppetVerbs(
     () => [
-      puppetVerb(
-        'CreateNote',
-        {},
-        () => {
-          // New note on a new note with nothing in it yet does nothing: the buffer only becomes a
-          // note once it has text or a title. Answered as a plain 200, a driver that "created two
-          // notes" this way wrote into neither and had no id to report.
-          const doc = puppetProviders.editor?.getView()?.state.doc;
-          if (
-            tabsStore.activeNoteId === 'new' &&
-            doc?.childCount === 1 &&
-            doc.firstChild?.content.size === 0
-          ) {
-            return puppetRefusal(
-              409,
-              'a new note is already open and empty, so nothing new was created. It becomes a note once it has text or a title: write into it first',
-            );
-          }
-          runCommand('new-note', deps);
-          return undefined;
-        },
-        { controls: ['notes.newNote'] },
-      ),
+      // Always a new note; one left untouched (empty, never renamed) is deleted as it is left.
+      puppetVerb('CreateNote', {}, () => runCommand('new-note', deps), {
+        controls: ['notes.newNote'],
+      }),
       puppetVerb('OpenSearch', {}, () => runCommand('search', deps), {
         controls: ['search.heading'],
       }),

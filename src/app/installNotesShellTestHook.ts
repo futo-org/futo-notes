@@ -16,7 +16,6 @@ import { TEST_HOOKS_ENABLED } from './testHooksEnabled';
 interface TestEditorTarget {
   focus: () => void;
   insertMarkdown: (text: string) => void;
-  applyEdit: (markdown: string) => void;
   getContent: () => string | undefined;
 }
 
@@ -36,13 +35,13 @@ interface NotesShellTestHookOptions {
     type: 'add' | 'change' | 'unlink';
     filename: string;
   }) => Promise<void>;
-  seedOpenNote: (id: string, body: string) => void;
+  seedOpenNote: (id: string) => void;
   flushSave: () => Promise<void>;
   getEditor: () => TestEditorTarget | null;
   focusEditor: () => void;
   setEditorFocused: (focused: boolean) => Promise<void>;
   isEditorFocused: () => boolean;
-  holdSaves: (held: boolean) => void;
+  holdSaves: (held: boolean) => Promise<void>;
   getState: () => NotesShellTestState;
 }
 
@@ -55,10 +54,12 @@ interface NotesShellTestHook {
   typeInEditor: (text: string) => string;
   setEditorFocused: NotesShellTestHookOptions['setEditorFocused'];
   isEditorFocused: NotesShellTestHookOptions['isEditorFocused'];
-  /** While held, every save declines without writing — a dirty draft that
-   * cannot reach disk, held across a peer edit or an external write. */
+  /** While held, the editor's host declines every write of the open note (its timer,
+   * a checkpoint or flush; a rename or close fails) — a dirty draft that cannot reach
+   * disk, held across a peer edit or an external write — and the editor reads as
+   * settled (`savePending` false). Releasing writes nothing; the next flush does. The
+   * host holds only in a debug build (editor_host `editor_hold_saves`). */
   holdSaves: NotesShellTestHookOptions['holdSaves'];
-  replaceEditorContent: (content: string) => string;
   getState: NotesShellTestHookOptions['getState'];
   noteSwitchTimelines: () => readonly NoteSwitchTimeline[];
   clearNoteSwitchTimelines: () => void;
@@ -80,8 +81,8 @@ export function installNotesShellTestHook(options: NotesShellTestHookOptions): (
     handleSyncComplete: options.handleSyncComplete,
     handleLiveState: options.handleLiveState,
     handleFileChange: options.handleFileChange,
-    seedOpenNote: (id, body) => {
-      options.seedOpenNote(id, body);
+    seedOpenNote: (id) => {
+      options.seedOpenNote(id);
       queueMicrotask(options.focusEditor);
     },
     flushSave: options.flushSave,
@@ -89,7 +90,6 @@ export function installNotesShellTestHook(options: NotesShellTestHookOptions): (
     setEditorFocused: options.setEditorFocused,
     isEditorFocused: options.isEditorFocused,
     holdSaves: options.holdSaves,
-    replaceEditorContent: (content) => replaceEditorContent(options.getEditor(), content),
     getState: options.getState,
     noteSwitchTimelines: getNoteSwitchTimelines,
     clearNoteSwitchTimelines,
@@ -99,28 +99,12 @@ export function installNotesShellTestHook(options: NotesShellTestHookOptions): (
   };
 }
 
-/**
- * Insert markdown at the caret, replacing the selection, and report the note
- * as it now stands.
- *
- * `text` is parsed as markdown rather than dropped in as literal characters:
- * the editor is a WYSIWYG surface, so a harness that "typed" `# Heading` into
- * it as text would produce an escaped `\# Heading` in the file and assert on a
- * document no user could ever have made.
- */
+/** Insert `text` at the caret, replacing the selection, and report the note as it now stands. */
 function typeInEditor(editor: TestEditorTarget | null, text: string): string {
   if (!editor) throw new Error('editor not ready');
   editor.focus();
   // Stands in for typing, which would fire `beforeinput`; announce it the same way.
   noteEditIntent();
   editor.insertMarkdown(text);
-  return editor.getContent() ?? '';
-}
-
-function replaceEditorContent(editor: TestEditorTarget | null, content: string): string {
-  if (!editor) throw new Error('editor not ready');
-  // Not an input event, so announce the edit before the work that may stall.
-  noteEditIntent();
-  editor.applyEdit(content);
   return editor.getContent() ?? '';
 }

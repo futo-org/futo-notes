@@ -48,13 +48,12 @@ interactions follow [mobile links](mobile/lists.md) and [native exits](editor-ex
   resolver (`resolveWikilink`) treats an **ambiguous** target (a bare filename
   matching more than one note) exactly like an absent one: both return `null` and
   render broken. Tapping a broken wikilink opens an empty editor bound to the
-  wikilink's target text as the title; the note file is **created on the first
-  edit/save**, not eagerly at navigation time — a **deferred** create-on-missing
-  path (2026-07-11 decision). The earlier "eager" wording was already false on
-  shipped desktop: `read_note` returns `""` for a missing file (never throws), so
-  the create-on-missing catch in `loadNote` was dead and the empty note simply
-  opened via the normal read path; the file appeared only once the user edited.
-  → src/features/editor/milkdown/wikilink/display.ts, wikilinks.ts
+  wikilink's target text as the title. On the native shells the note file is
+  **created on the first edit/save**, not eagerly at navigation time — a
+  **deferred** create-on-missing path (2026-07-11 decision). Desktop creates the
+  file when the note opens, because its editor attaches only a note on disk, and
+  deletes it again if the user leaves it untouched; the create follows an
+  existence check, and a check that fails never creates. → src/features/editor/milkdown/wikilink/display.ts, wikilinks.ts
   `resolveWikilink`, createNoteLoader.ts, editor-embed/main.ts
 - **Renaming or moving a note rewrites every wikilink that points at it,
   across all notes** — including folder moves (`[[Markdown demo]]` →

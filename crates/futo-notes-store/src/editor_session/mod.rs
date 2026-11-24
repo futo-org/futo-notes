@@ -25,7 +25,10 @@ mod save;
 mod tables;
 mod tags;
 pub use clock::EditorClock;
-pub(crate) use identity::IdentityTransition;
+pub(crate) use identity::{
+    follow_external_rename, follow_external_rename_locked, follow_recreated_rename,
+    IdentityTransition,
+};
 use lease::EditorLease;
 pub(crate) use lease::{refuse_attached, terminate_deleted};
 pub use portable::{PortableSave, StoreEditorHost};
@@ -39,9 +42,23 @@ pub struct SaveStatus {
     /// The revision last written to markdown (or the one the note opened at).
     pub saved: Revision,
     /// When the next save is due, in the injected clock's coordinates. `None`
-    /// when nothing is unsaved. A host must call `save_if_due` on its worker;
+    /// when nothing is unsaved or the session has ended. A host must call `save_if_due` on its worker;
     /// no timer runs inside this session.
     pub save_deadline: Option<Duration>,
+}
+
+/// What [`StoreEditorSession::rename_title`] committed.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameDraftResult {
+    /// The note the attachment now edits: the collision-resolved destination,
+    /// or the parked copy.
+    pub final_id: String,
+    /// Set when the note changed under the draft: the draft was saved as this
+    /// conflict copy, named after the destination, and the note kept its bytes.
+    pub parked_id: Option<String>,
+    /// The complete store mutation to apply.
+    pub mutation: crate::MutationResult,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,6 +102,22 @@ pub(super) struct Attachment {
     coordinated: Vec<ViewChange>,
     portable: bool,
     relink_offer: Option<futo_notes_editor::RelinkOffer>,
+    /// The host's wake-up: a store workflow moved this attachment to another id.
+    moved: Option<Box<dyn Fn() + Send>>,
+    /// When this attachment's last write recreated its note (the file had gone):
+    /// the baseline from before it. A rename the file watcher reports later
+    /// adopts that recreation (`identity::follow_external_rename`).
+    recreated_over: Option<String>,
+}
+
+impl Attachment {
+    /// The session is over (closed, discarded or its note deleted): every later
+    /// request fails, the id can be attached again, and no save is owed.
+    pub(super) fn end(&mut self) {
+        self.terminal = true;
+        self.lease.release();
+        self.save = save::SaveSchedule::clean(self.save.saved);
+    }
 }
 
 // Owning foreign sessions retain the same store and its coordination state;
@@ -171,6 +204,8 @@ impl<'store> StoreEditorSession<'store> {
         seen: Option<&str>,
         clock: Arc<dyn EditorClock>,
     ) -> Result<Self, EditorStoreError> {
+        // A sync relocation moves an attached note outside the store: it follows too.
+        futo_notes_core::files::on_note_moved(identity::follow_moved);
         let _gate = store.lock_gate().map_err(EditorStoreError::Open)?;
         let _vault_mutation =
             futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Open)?;
@@ -200,6 +235,8 @@ impl<'store> StoreEditorSession<'store> {
             coordinated: Vec::new(),
             portable: false,
             relink_offer: None,
+            moved: None,
+            recreated_over: None,
         }));
         {
             let mut attachment = state.lock().unwrap_or_else(PoisonError::into_inner);

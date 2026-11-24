@@ -60,12 +60,15 @@ they do not prove a keyboard's visual marked-text behavior.
 Prerequisite: the shared #322 merge/adoption contract above. This addition is usable independently
 of Android rendering, through existing store and UniFFI contracts; it adds no wire fields.
 
-After sync commits files, deliver its explicit rename pairs (including collision-resolved final
-ids) to `LocalNoteStore::refresh_external_changes` / `NoteStore.refresh_external_changes`. Under
-the store gate and vault guard the engine reserves destination attachments before changing any
-identity. A missing/unreadable destination or another editor's destination lease refuses the refresh
-without moving the drafts; retain the event for retry. Apply the complete returned mutation. Updated
-and deleted id lists alone never imply identity; do not derive a rename from similar filenames.
+Every file move sync makes moves an attached draft with it, in the same vault-guard hold
+(`futo_notes_core::files::note_moved`). After sync commits files, deliver its explicit rename pairs
+(including collision-resolved final ids) to `LocalNoteStore::refresh_external_changes` /
+`NoteStore.refresh_external_changes`: under the store gate and vault guard it follows the renames
+that moved no file (a delete plus a create) once the old file is gone or holds only the editor's own
+recreation, unless the same cycle deleted the new name. A shell that can save between the cycle and
+its projection calls `follow_sync_renames` first, as the desktop does. Another editor's lease on the destination leaves that draft on its old name. Apply the
+complete returned mutation. Updated and deleted id lists alone never imply identity; do not derive a
+rename from similar filenames.
 
 An attached draft follows the reported final id without replacing its source, revision, selection,
 composition or history. Its saved baseline remains the pre-rename source: the next checkpoint merges

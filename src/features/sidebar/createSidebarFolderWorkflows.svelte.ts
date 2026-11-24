@@ -34,7 +34,6 @@ interface SidebarFolderWorkflowOptions {
   onNoteIdsDeleted: (ids: string[]) => void;
   onSelect: (id: string) => void;
   onActiveNoteDeleted: () => void;
-  onActiveNoteMoved: (fromId: string, toId: string, title: string) => void;
   onNewNoteInFolder: (folderPath: string) => void;
 }
 

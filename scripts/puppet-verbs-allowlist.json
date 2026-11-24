@@ -24,6 +24,7 @@
   "src/features/editor/milkdown/linkPrompt/index.ts": "a press outside the Link prompt dismisses it: CancelLink, registered by LinkUrlField.svelte",
   "src/features/editor/milkdown/selectionToolbar/index.ts": "focus and focusout only show and hide the toolbar; its buttons are verbs (LinkSelection, and the toolbar commands Bold, Quote, Indent…)",
   "src/features/editor/milkdown/slash/menu.ts": "a click on a row is PickSlashItem, registered by slash/index.ts while the menu is open",
+  "src/features/editor/desktop/caretList.ts": "a press on a row is PickLinkSuggestion or PickSlashItem, registered by wikilinkCompletion.ts and slashMenu.ts while their list is up",
   "apps/ios/Sources/Notes/List/NoteSortMenu.swift": "a system Menu: opened with a real tap on Sort by, its rows tapped; it registers no verbs",
   "apps/ios/Sources/Notes/Editor/NoteEditorView+Subviews.swift": "the editor's ⋯ menu, a system Menu: opened with a real tap on ⋯, its items tapped; Share hands the note to the OS share sheet, and what the other items open has verbs: the find bar's SetFindQuery, StepFind and CloseFind and the rename's SetTitle (NoteEditorView), the move sheet's PickFolder, the delete confirmation's ConfirmDialog",
   "apps/ios/Sources/Notes/Editor/FindInNoteBar.swift": "its field, clear button, arrows and close button call its binding and props; NoteEditorView registers SetFindQuery for the field and its clear button, StepFind and CloseFind, beside the find state",
@@ -36,5 +37,10 @@
   "apps/android/app/src/main/java/com/futo/notes/ui/NoteListFab.kt": "the New note button; NoteListScreen registers CreateNote, which runs the same createNote",
   "apps/android/app/src/main/java/com/futo/notes/ui/SettingsControls.kt": "the language menu and the segmented picker call props: SetLanguage (SettingsScreen) and SetTheme (SettingsScreen)",
   "apps/android/app/src/main/java/com/futo/notes/ui/SettingsReset.kt": "the one clickable swallows taps under the resetting overlay; ResetAllNotes is SettingsScreen's",
-  "apps/android/app/src/main/java/com/futo/notes/ui/SettingsRows.kt": "rows forwarding their caller's tap or toggle; the Settings screen registers a verb for each (OpenSync, ToggleIssueReporting, ToggleAlwaysSendReports…)"
+  "apps/android/app/src/main/java/com/futo/notes/ui/SettingsRows.kt": "rows forwarding their caller's tap or toggle; the Settings screen registers a verb for each (OpenSync, ToggleIssueReporting, ToggleAlwaysSendReports…)",
+  "src/features/editor/desktop/editorTables.ts": "a sideways wheel over a table's row scrolls the table: the real `scroll` gesture (`dx`) is that input; nothing else a person does",
+  "src/features/editor/desktop/linkPress.ts": "a press on a link opens it on release: OpenLink, registered with the desktop editor's verbs (src/app/puppet/puppetTextEditor.ts), presses the link the same way",
+  "src/features/editor/desktop/linkPrompt.ts": "a press outside the Link prompt dismisses it: CancelLink, registered by LinkUrlField.svelte",
+  "src/features/editor/desktop/pointer.ts": "the release of a press or a drag in the note: real input (`click`, `drag`); a press on a task's checkbox is ToggleTask, registered with the desktop editor's verbs (src/app/puppet/puppetTextEditor.ts)",
+  "src/shared/dom/listenForFocusChange.ts": "focus and blur only report where focus went to the component that asked; nothing a person triggers deliberately"
 }

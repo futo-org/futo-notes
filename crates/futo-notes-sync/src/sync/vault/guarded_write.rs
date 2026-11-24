@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use futo_notes_core::files::vault_mutation_guard;
+use futo_notes_core::files::{note_moved, vault_mutation_guard};
 
 use super::super::vault_fs;
 use super::super::PreWrite;
@@ -39,8 +39,11 @@ pub(in crate::sync) fn replace_content_if_hash_matches(
     } else if !vault_fs::create_new_strict(root, target, &bytes)? {
         return Ok(GuardedWriteOutcome::TargetOccupied);
     }
-    if source != target && !vault_fs::remove(root, source)? {
-        return Err(format!("replace source disappeared: {source}"));
+    if source != target {
+        if !vault_fs::remove(root, source)? {
+            return Err(format!("replace source disappeared: {source}"));
+        }
+        note_moved(root, source, target);
     }
     let _ = vault_fs::set_mtime_ms(root, target, modified_ms);
     Ok(GuardedWriteOutcome::Applied)

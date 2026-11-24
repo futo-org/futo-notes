@@ -107,7 +107,7 @@ export class TauriBridgeClient {
         window[slot] = { done: false };
         Promise.resolve(${expression}).then(
           (value) => { window[slot] = { done: true, value }; },
-          (error) => { window[slot] = { done: true, error: String(error && error.message || error) }; },
+          (error) => { window[slot] = { done: true, error: error instanceof Error ? error.message : typeof error === 'object' ? JSON.stringify(error) : String(error) }; },
         );
       }
       return 'started';
@@ -161,7 +161,7 @@ export class TauriBridgeClient {
   async waitForEditorReady(timeoutMs = 10_000) {
     return this.waitForCondition(
       `(() => {
-      return Boolean(document.querySelector('.futo-milkdown') && document.querySelector('.ProseMirror') && document.querySelector('.title-input'));
+      return Boolean(document.querySelector('.desktop-editor') && document.querySelector('.title-input'));
     })()`,
       timeoutMs,
       'editor ready',

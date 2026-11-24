@@ -152,11 +152,9 @@ pub fn classify_open_note(facts: OpenNoteFacts) -> OpenNoteDisposition {
         };
     }
 
-    // A focused editor is never interrupted, on any host. Hosts differ in
-    // whether their adopt can preserve the caret (the native shells'
-    // `applyExternalContent` can, desktop's cannot), but the verdict does not
-    // take that as an input: waiting for the next blur is the one answer
-    // everywhere, so a caret never moves under a typist on any surface.
+    // A focused editor is never interrupted. The desktop reports focus only
+    // while marked text is composing: its adoption keeps the caret with its
+    // text and Undo, so only an input method's marked text has to wait.
     if facts.editor_focused {
         return OpenNoteDisposition::DeferAdopt;
     }

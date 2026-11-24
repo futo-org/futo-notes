@@ -65,24 +65,7 @@ impl LocalNoteStore {
         let _gate = self.lock_gate()?;
         let _vault_mutation = vault_mutation_guard()?;
 
-        // Prepare every attachment before changing any identity. A failed
-        // destination lease/read keeps all drafts attached for a retry.
-        let mut transitions = Vec::new();
-        for pair in renamed {
-            paths::note_path(&self.root, &pair.from)?;
-            paths::note_path(&self.root, &pair.to)?;
-            if let Some(transition) = crate::editor_session::IdentityTransition::prepare_external(
-                &self.root,
-                &pair.from,
-                &pair.to,
-                deleted_ids,
-            )? {
-                transitions.push(transition);
-            }
-        }
-        for transition in transitions {
-            transition.finish();
-        }
+        self.follow_sync_renames_locked(renamed, deleted_ids);
 
         let mut affected_ids = Vec::new();
         let mut seen = HashSet::new();
@@ -126,6 +109,40 @@ impl LocalNoteStore {
                 ..MutationResult::default()
             },
         ))
+    }
+
+    /// After a sync cycle: an editor attached to a note the cycle renamed
+    /// follows it. Sync's own file moves already carried it (`note_moved`); a
+    /// peer's rename that arrived as a delete and a create moved no file, so it
+    /// is followed here, as a rename the file watcher saw. A new name the same
+    /// cycle deleted is not followed: the draft stays on the old name and its
+    /// next save recreates it. Repeating it changes nothing.
+    pub fn follow_sync_renames(
+        &self,
+        renamed: &[NoteRename],
+        deleted_ids: &[String],
+    ) -> Result<(), String> {
+        let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
+        self.follow_sync_renames_locked(renamed, deleted_ids);
+        Ok(())
+    }
+
+    fn follow_sync_renames_locked(&self, renamed: &[NoteRename], deleted_ids: &[String]) {
+        for pair in renamed {
+            if deleted_ids.contains(&pair.to) {
+                continue;
+            }
+            if let Err(error) =
+                crate::editor_session::follow_external_rename_locked(self, &pair.from, &pair.to)
+            {
+                futo_notes_core::log_to_stderr!(
+                    "an editor could not follow {:?} renamed to {:?}: {error}",
+                    pair.from,
+                    pair.to
+                );
+            }
+        }
     }
 
     /// Appends `text` verbatim to an existing note as one check-and-write span,

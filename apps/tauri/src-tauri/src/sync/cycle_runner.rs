@@ -25,6 +25,7 @@ pub(super) async fn run_manual(app: &AppHandle, state: &AppState) -> Result<Sync
     let suppression = state.watcher.suppression();
     let pre_write = move |filename: &str| suppression.register(filename);
     let summary = state.sync.sync(&root, &progress, &pre_write).await?;
+    state.notes.follow_sync_renames(&summary);
     Ok(SyncSummary::from(&summary))
 }
 

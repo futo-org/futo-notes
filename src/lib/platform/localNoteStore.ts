@@ -1,5 +1,4 @@
 import type {
-  LocalFlushDraftResult,
   LocalNoteBootstrap,
   LocalNoteInventoryItem,
   LocalNoteListingSnapshot,
@@ -53,16 +52,9 @@ class TauriLocalNoteStore implements LocalNoteStore {
     return invoke<boolean>('local_notes_exists', { id });
   }
 
-  save(
-    originalId: string | null,
-    wantedId: string,
-    content: string,
-    modifiedMs?: number,
-    base?: string,
-  ) {
+  save(originalId: string | null, wantedId: string, content: string, modifiedMs?: number) {
     return invoke<LocalNoteMutation>('local_notes_save', {
       originalId,
-      base: base ?? null,
       wantedId,
       content,
       modifiedMs:
@@ -70,10 +62,6 @@ class TauriLocalNoteStore implements LocalNoteStore {
           ? Math.trunc(modifiedMs)
           : null,
     });
-  }
-
-  flushDraft(id: string, base: string, content: string) {
-    return invoke<LocalFlushDraftResult>('local_notes_flush_draft', { id, base, content });
   }
 
   move(id: string, wantedId: string) {

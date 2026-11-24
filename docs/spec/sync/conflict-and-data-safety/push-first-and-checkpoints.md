@@ -25,6 +25,24 @@
   the conflict — silent data loss, `conflicts == 0` (F1). → futo-notes-ffi
   `SyncClient::sync_now` + `SyncSession::start_live`; server/cross-platform
   integration suites
+- **An unmapped byte-identical copy of a mapped note is pushed after the pull,
+  never before it — and a rename destination is never such a copy.** Push runs
+  before the pull that says whether a peer renamed a note onto a name this device
+  already holds (a second tool mirroring the vault), so uploading that file first
+  made a second server object beside the renamed one, which a fresh client then
+  downloaded as a conflict copy. The first push therefore withholds creates whose
+  bytes are already on the server under a mapped twin still on disk unchanged,
+  and the same cycle pushes whatever the pull left unclaimed. The hold covers
+  creates only: a local rename destination (a mapped note moved outside the app)
+  is a PUT of an existing object, cannot create that duplicate, and goes out in
+  the first push even with a byte-identical mapped twin — rename detection has
+  already rebound its map entry, so a later push would see it unchanged and send
+  nothing, leaving peers on the old path while the cycle reported success. →
+  futo-notes-sync `sync/push/` (`copies_of_mapped_notes`) + `sync/mod.rs`;
+  `a_peers_rename_onto_an_unmapped_copy_adopts_it_without_a_second_object`,
+  `an_unmapped_copy_nobody_renamed_is_still_uploaded_in_the_same_cycle`,
+  `a_differing_file_at_the_renamed_name_is_kept`,
+  `a_folder_move_with_a_byte_identical_twin_is_put_before_the_pull`
 - **A push may infer local deletions only from a complete vault scan.** Failure
   to read the vault root, any nested directory entry, or any file metadata
   aborts the cycle before the HTTP client is constructed and before any remote

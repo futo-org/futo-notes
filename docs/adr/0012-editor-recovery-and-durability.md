@@ -80,6 +80,13 @@ id; a failed save keeps the retargeted draft available for retry. Destination at
 leaves identities untouched. Shells apply returned mutations and never infer identity or collision
 placement from filename patterns. Portable page requests keep their existing sequence/token contract.
 
+Revised 2026-11-06 (desktop editor merge): sync reports each file move it makes (`note_moved`) in
+the vault-guard hold of the move, and the attachment follows there, so no save can land between the
+move and the follow. Renames that moved no file (a delete plus a create) are followed after the
+cycle (`follow_sync_renames`, which the projection also runs), once the old file is gone or holds
+only the editor's own recreation, and unless the same cycle deleted the new name. A destination
+another editor holds leaves that draft on the old name; it no longer refuses the whole refresh.
+
 ## Amendment: portable saves merge (2026-11-18)
 
 The portable worker's automatic saves and checkpoints now merge three ways like native saves, and

@@ -10,15 +10,17 @@
   too. _(Tauri)_ → `noteActionTarget.ts`, `createCurrentNoteActions.svelte.ts`,
   `sidebarFolderMutations.ts`
 - They follow that note through the identity a save gave it — the rename a title
-  edit commits, or the id a first save mints for an unsaved draft — so renaming or
-  starting a note and then moving or deleting acts on that file. This holds
+  edit commits — so renaming a note and then moving or deleting acts on that file. This holds
   whichever way the race falls: the menu captures the pre-rename id, and the
   commit may land either before or after the action begins. _(Tauri)_
 - They act on nothing, and toast "That note is no longer available", when the
   picked note disappears for any other reason (a sync pull or an external delete
   mid-action) — never falling through to whatever note is open by then. _(Tauri)_
 - "Delete note" asks for confirmation, then deletes the file. _(Desktop)_ routes
-  through the OS trash — recoverable via the OS trash — falling back to permanent
+  through the OS trash — recoverable via the OS trash; on macOS through Finder, so
+  the Trash offers "Put Back", unless Finder does not answer within a few seconds
+  (a locked screen, a pending permission prompt), when the system trash takes it
+  at once without Put Back — falling back to permanent
   delete if the platform trash is unavailable (e.g. headless CI). In a Flatpak
   sandbox the host trash directory is unreachable, so a delete inside the vault the
   sandbox was granted routes through the `org.freedesktop.portal.Trash` portal
@@ -122,10 +124,12 @@
   folder and the editor opens with the **body** focused — no blocking title
   prompt, keyboard straight on the note text (desktop parity). An **untouched**
   quick-capture note — opened brand-new, never renamed, body still empty — is
-  **discarded on back-out** so nothing is left behind, matching desktop. →
+  **discarded on back-out** so nothing is left behind. Desktop does the same: it
+  creates the note when the new tab opens and deletes it, untouched, when the
+  user switches note, closes the tab or goes home. →
   NoteListView.swift / TextFirstNoteScreen.swift `onDisappear`, NoteListScreen.kt /
-  textfirst/TextFirstEditorScreen.kt `onDispose`
-- **A new note opens with the caret in the body and the keyboard up**, on a warm editor and on the first note after a cold launch. Native screens request focus on their text view when the new-note session is ready; the desktop New note path likewise focuses the body. → apps/ios/Sources/Editor/TextFirst/TextFirstNoteScreen.swift `show`, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt, src/features/notes/createNoteLoader.ts `finishNewNote`
+  textfirst/TextFirstEditorScreen.kt `onDispose`, createNoteLoader.ts / noteSession.svelte.ts
+- **A new note opens with the caret in the body and the keyboard up**, on a warm editor and on the first note after a cold launch. Native screens request focus on their text view when the new-note session is ready; the desktop New note path likewise focuses the body. → apps/ios/Sources/Editor/TextFirst/TextFirstNoteScreen.swift `show`, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt, src/features/notes/createNoteLoader.ts `load`
 - **Both native shells have an inline, tappable title field** above the editor
   body (iOS via a `UITextField`-backed `TitleTextField`, Android via a
   `BasicTextField`); tapping it edits the title in place and renames the file,
@@ -163,7 +167,7 @@
   A forbidden filesystem char (`< > : " / \ | ? *` or a control char) is stripped
   in place as you type, with a transient (~2 s) warning "That character can't be
   used in a note title"; a leading/trailing dot or a >200-char title shows a
-  persistent warning and blocks the rename (*(native shells)* title input is
+  persistent warning and blocks the rename (_(native shells)_ title input is
   capped at 200 characters instead, a paste trimmed to fit); a title that
   duplicates another note in the same folder (case-insensitively) shows "A note
   with this name already exists" and blocks the rename, never the body save; an empty title is left un-renamed. The rules + messages come from the

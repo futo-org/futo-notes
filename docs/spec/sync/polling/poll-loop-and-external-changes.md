@@ -45,19 +45,15 @@
   reading, so a timer-scheduled or in-flight dirty draft first runs through
   `flush_draft` and either writes or parks against the current disk base.
   Reconciliation never adopts over a save scheduled during the asynchronous
-  read; that save settles through the same path, and only the guarded post-park
-  reconcile re-reads and adopts while the save queue is still technically in flight. If validation or
+  read; that save settles through the same path first. If validation or
   a write failure leaves the forced flush dirty, the watcher refreshes storage
   and defers adoption; the final adopt gate also refuses to replace any dirty
-  session outside the guarded post-park path. That path carries the exact body
-  and title parked by the save and adopts only while the live editor still
-  matches both, including across its asynchronous disk read. The save itself is
-  conditional against the session's saved-content base:
+  session. The save itself is conditional against the editor host's saved base:
   matching disk is written, identical disk converges without a rewrite, and a
   stale draft against diverged disk is parked as a conflict copy instead of
-  clobbering it. After a park, desktop projects the copy and explicitly
-  reconciles the open note from disk (no toast), so the peer/external bytes are
-  adopted while the draft survives in the list. The store and sync share one
+  clobbering it. After a park, desktop projects the copy and the editor follows
+  it (no toast), so the draft stays open in the copy while the original keeps
+  the peer/external bytes. The store and sync share one
   process-wide mutation guard across their check/write spans, closing the
   remaining read→compare→write interleaving window. A `change` that reads empty
   content closes the session as an external deletion only when the note no longer
@@ -70,8 +66,11 @@
   "external watcher protects dirty draft then settles")
 - **A watcher-reported desktop rename remains one rename through debounce,
   bulk refresh, and post-sync draining.** Rename chains are applied in event
-  order, so the open note follows each engine `FollowRename` disposition and
-  the resulting local change schedules one auto-push. A rename from `.md` to a
+  order: the store moves the open note's editor attachment as the watcher
+  reports each one and the session follows the editor, so the rename asks the
+  engine nothing (a reconcile deferred for the old id is dropped) and the open
+  note is never taken for deleted; the resulting local change schedules one
+  auto-push. A rename from `.md` to a
   non-note extension is handled as an unlink, a rename into `.md` is handled as
   an add, and renames between non-note files are ignored. → desktop
   `watcherBatch` + `createExternalChangeCoordinator` (guarded by their paired,

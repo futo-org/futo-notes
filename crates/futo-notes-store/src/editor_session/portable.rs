@@ -61,8 +61,28 @@ impl StoreEditorHost<'_> {
         Ok(self.offering(flush))
     }
 
+    /// See `StoreEditorSession::rename_title`; the token and request sequence stay.
+    pub fn rename_title(
+        &mut self,
+        title: &str,
+    ) -> Result<super::RenameDraftResult, EditorStoreError> {
+        self.session.rename_title(title)
+    }
+
     pub fn id(&self) -> String {
         self.session.id()
+    }
+
+    /// Whether `id` names the attached note: exactly, or a case or
+    /// normalization variant that is the same file on this volume.
+    pub fn holds(&self, id: &str) -> bool {
+        let held = self.id();
+        id == held
+            || futo_notes_core::files::vault_fs::same_file(
+                &self.session.store.root,
+                &crate::note_filename(id),
+                &crate::note_filename(&held),
+            )
     }
 
     /// Time left until the next save is due; see `StoreEditorSession::save_delay`.
@@ -85,6 +105,34 @@ impl StoreEditorHost<'_> {
     /// Save and release the attachment; a failed save leaves it attached.
     pub fn close(&mut self) -> Result<crate::FlushDraftResult, EditorStoreError> {
         self.session.close()
+    }
+
+    /// Release the attachment without saving; see `StoreEditorSession::discard`.
+    pub fn discard(&mut self) {
+        self.session.discard();
+    }
+
+    /// See `StoreEditorSession::reload`. The fresh draft answers to `token`,
+    /// its request numbering starting over; take a new `snapshot` for the page.
+    pub fn reload(
+        &mut self,
+        token: SessionToken,
+        discard: bool,
+    ) -> Result<Option<crate::FlushDraftResult>, EditorStoreError> {
+        let result = self.session.reload(discard)?;
+        self.token = token;
+        self.last = None;
+        self.sequence_floor = None;
+        Ok(result)
+    }
+
+    /// See `StoreEditorSession::on_moved`.
+    pub fn on_moved(&mut self, moved: impl Fn() + Send + 'static) {
+        self.session.on_moved(moved);
+    }
+
+    pub fn revision(&self) -> futo_notes_editor::Revision {
+        self.session.revision()
     }
 
     /// Opening state must be produced on the worker and attached with a fresh

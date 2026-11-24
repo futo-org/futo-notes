@@ -20,6 +20,7 @@ export interface ApplicationMenuLabels {
   closeWindow: string;
   quit: string;
   toggleSidebar: string;
+  pasteAndMatchStyle: string;
 }
 
 export async function subscribeToAppMenu(handler: (command: string) => void): Promise<() => void> {

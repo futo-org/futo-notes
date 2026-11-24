@@ -27,6 +27,7 @@ impl Drop for TempRoot {
 pub(super) struct MutationServer {
     pub(super) base_url: String,
     pub(super) posts: Arc<AtomicUsize>,
+    pub(super) requests: Arc<std::sync::Mutex<Vec<String>>>,
     stop: Arc<AtomicBool>,
     handle: Option<std::thread::JoinHandle<()>>,
 }
@@ -86,12 +87,14 @@ fn read_request(stream: &mut TcpStream) -> std::io::Result<String> {
 fn serve_mutation_request(
     stream: &mut TcpStream,
     posts: &AtomicUsize,
+    requests: &std::sync::Mutex<Vec<String>>,
     remote_blob: Option<&[u8]>,
     fail_pull: bool,
     fail_delete_conflict: bool,
 ) -> std::io::Result<()> {
     let request = read_request(stream)?;
     let request_line = request.lines().next().unwrap_or_default();
+    requests.lock().unwrap().push(request_line.to_owned());
     let (status, content_type, body) = if request_line
         .starts_with("POST /api/collections/collection/blob-objects ")
     {
@@ -186,6 +189,8 @@ impl MutationServer {
         let address = listener.local_addr().unwrap();
         let posts = Arc::new(AtomicUsize::new(0));
         let observed_posts = Arc::clone(&posts);
+        let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let observed_requests = Arc::clone(&requests);
         let stop = Arc::new(AtomicBool::new(false));
         let should_stop = Arc::clone(&stop);
         let handle = std::thread::spawn(move || loop {
@@ -197,6 +202,7 @@ impl MutationServer {
                     let _ = serve_mutation_request(
                         &mut stream,
                         &observed_posts,
+                        &observed_requests,
                         remote_blob.as_deref(),
                         fail_pull,
                         fail_delete_conflict,
@@ -209,6 +215,7 @@ impl MutationServer {
         Self {
             base_url: format!("http://{address}"),
             posts,
+            requests,
             stop,
             handle: Some(handle),
         }

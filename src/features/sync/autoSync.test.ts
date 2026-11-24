@@ -173,6 +173,20 @@ describe('autoSync first cycle after launch', () => {
     expect(cb.onSyncError).toHaveBeenCalledWith(error, 'initial');
   });
 
+  it('reports a rejection that is not an Error by its message', async () => {
+    const cb = callbacks();
+    // What an editor host command rejects with.
+    mocks.syncE2eeAuto.mockRejectedValueOnce({ kind: 'failed', message: 'disk full' });
+    startAutoSync(cb);
+    mocks.settleCredentials();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(cb.onSyncError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'disk full' }),
+      'initial',
+    );
+  });
+
   it('does not run a second first cycle when the fallback timer comes due', async () => {
     startAutoSync(callbacks());
     mocks.settleCredentials();

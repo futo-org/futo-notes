@@ -1,4 +1,8 @@
 //! The save decision: write the markdown, converge, recreate or park.
+use std::path::Path;
+
+use futo_notes_core::files::collision_key;
+
 use super::{Attachment, EditorLease, EditorStoreError};
 use crate::LocalNoteStore;
 use crate::{FlushDisposition, FlushDraftResult, MergedDraftResult};
@@ -157,23 +161,44 @@ impl Attachment {
                 .map_err(EditorStoreError::Editor)?;
             self.coordinated.push(change);
         }
-        if let FlushDisposition::ParkedConflict { parked_id } = &result.flush.disposition {
-            let lease = EditorLease::acquire(&store.root, parked_id)?;
-            self.lease = lease;
-            self.id = parked_id.clone();
-        }
+        let saved_id = match &result.flush.disposition {
+            FlushDisposition::ParkedConflict { parked_id } => parked_id.clone(),
+            _ => self.id.clone(),
+        };
+        let recreated = result.flush.disposition == FlushDisposition::Recreated;
+        let before = recreated.then(|| self.base.clone());
         // A portable draft is the baseline even when the note now holds a
         // merge: the next save merges again against it, so typing past an
         // offer the page has not adopted never overwrites the outside change.
         if self.portable {
-            let offered = (result.source != source).then(|| result.source.clone());
-            self.set_base(source);
-            self.offered = offered;
+            self.saved_as(&store.root, &saved_id, source.clone())?;
+            self.offered = (result.source != source).then(|| result.source.clone());
         } else {
-            self.set_base(result.source.clone());
+            self.saved_as(&store.root, &saved_id, result.source.clone())?;
         }
-        self.mark_saved();
+        if before.is_some() {
+            self.recreated_over = before;
+        }
         Ok(result)
+    }
+
+    /// Note `id` now holds `draft` (written, merged, parked or recreated
+    /// there): take that note's lease and make the draft the saved baseline.
+    pub(super) fn saved_as(
+        &mut self,
+        root: &Path,
+        id: &str,
+        draft: String,
+    ) -> Result<(), EditorStoreError> {
+        if collision_key(id) != collision_key(&self.id) {
+            self.lease = EditorLease::acquire(root, id)?;
+            // A recreation is adopted only from the note it recreated.
+            self.recreated_over = None;
+        }
+        self.id = id.to_owned();
+        self.set_base(draft);
+        self.mark_saved();
+        Ok(())
     }
 
     /// Adopt the authoritative source into a clean native session through

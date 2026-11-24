@@ -33,27 +33,22 @@ export async function editorRoundtripThroughRealSync(a, b, server) {
   await b.pauseAutoSync();
 
   const noteId = 'editor roundtrip';
-  // What the harness types, and what the editor writes for it. Milkdown
-  // re-serializes the whole note on a real edit, so composed markdown reaches
-  // the editor buffer and the file in its serialized spelling: a blank line
-  // between blocks and one trailing newline (ADR-0002 normalize-once,
-  // docs/spec/editor.md "WYSIWYG rendering"), so the bytes asserted back are
-  // not the bytes typed.
-  const typed = '# Written in Milkdown\nThis note should sync through the real save pipeline.';
-  const body = '# Written in Milkdown\n\nThis note should sync through the real save pipeline.\n';
+  // The desktop editor saves exactly the bytes typed.
+  const body = '# Written in the editor\nThis note should sync through the real save pipeline.';
 
-  // A creates a new note through the actual editor path, with the note still
+  // A creates a new note through the actual editor path, with the body still
   // living ONLY in the editor buffer when the sync is requested: body + title +
   // syncNow() all happen in one page task, so no debounce or blur flush can
   // persist it first (the harness owns the ordering instead of racing it).
   await a.openNewNote();
-  const composed = await a.composeNoteAndSyncNow(noteId, typed);
+  const composed = await a.composeNoteAndSyncNow(noteId, body);
   // Captured synchronously at the instant syncNow() was called, so these are
   // evidence rather than a poll that lands wherever it lands.
-  assertEqual(
-    composed.preSync.originalId,
-    null,
-    'new note should still be unsaved when the manual sync is requested',
+  // A new note is an empty Untitled file from the start; the title and body
+  // have not reached disk yet.
+  assert(
+    /^Untitled/.test(composed.preSync.originalId ?? ''),
+    `the new note should still be its empty Untitled file when the manual sync is requested, got ${composed.preSync.originalId}`,
   );
   assertEqual(
     composed.preSync.savePending,

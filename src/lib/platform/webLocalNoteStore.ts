@@ -4,7 +4,6 @@ import { DEFAULT_NOTE_SORT_ORDER } from '../localNoteStore';
 import { idLeaf, idParent } from './pathSafety';
 import type {
   NoteSortOrder,
-  LocalFlushDraftResult,
   LocalNoteBootstrap,
   LocalNoteInventoryItem,
   LocalNoteListingSnapshot,
@@ -127,16 +126,6 @@ class WebLocalNoteStore implements LocalNoteStore {
       renamed,
       finalId: wantedId,
     });
-  }
-
-  async flushDraft(id: string, _base: string, content: string): Promise<LocalFlushDraftResult> {
-    const note = this.notes.get(id);
-    if (note?.content === content) return { disposition: { kind: 'converged' }, mutation: null };
-    this.put(id, { content, modifiedMs: Date.now() });
-    return {
-      disposition: { kind: note ? 'wrote' : 'recreated' },
-      mutation: this.mutation({ finalId: id }),
-    };
   }
 
   async move(id: string, wantedId: string): Promise<LocalNoteMutation> {

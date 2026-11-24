@@ -19,7 +19,7 @@ pub use paths::{
     IGNORE_NOT_A_NOTE, IGNORE_UNPORTABLE_NAME, MAX_FOLDER_DEPTH, NAME_MAX,
 };
 pub use timestamps::{file_mtime_ms, now_ms, set_file_mtime_ms};
-pub use vault_lock::vault_mutation_guard;
+pub use vault_lock::{note_moved, on_note_moved, vault_mutation_guard};
 
 pub mod rename_journal;
 pub mod vault_fs;

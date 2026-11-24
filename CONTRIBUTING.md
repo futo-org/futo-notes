@@ -32,7 +32,7 @@ and worktrees sharing a slot; presence alone does not prove a working build or a
 
 ```bash
 just setup        # check tools and install pinned workspace dependencies
-just tauri-dev    # run the desktop app (forces Wayland on Linux; port: just ports)
+just tauri-dev    # run the desktop app (XWayland on Linux, FUTO_DEV_WAYLAND=1 for Wayland; port: just ports)
 just verify-run check  # lint + tests + build sanity, with a retained evidence bundle
 ```
 

@@ -1,14 +1,11 @@
 <script lang="ts">
   /*
    * The desktop find bar — a Firefox-style strip docked over the bottom of the
-   * editor's own scrolling pane (docs/spec/editor.md "Find in note").
+   * note's scrolling pane (docs/spec/editor/desktop/find.md). The shell draws it
+   * (NoteWorkspace.svelte); the phones draw their own.
    *
-   * It is mounted only when `resolveFindPanel` says so, i.e. never under a native
-   * shell: iOS and Android render their own SwiftUI/Compose bars and drive the
-   * same engine through the bridge.
-   *
-   * The bar OWNS no find logic. It forwards query/step/close and renders the
-   * engine's `label` verbatim, exactly as the two native bars do.
+   * The bar OWNS no find logic. It forwards query/step/close to the editor's find
+   * (findInNote.ts) and renders the count it is handed verbatim.
    */
   import { ChevronDown, ChevronUp, X } from '@lucide/svelte';
 
@@ -17,7 +14,7 @@
 
   interface Props {
     query: string;
-    /** The engine's own "N of M" wording; never recomputed here. */
+    /** The "N of M" wording, from the engine's count; never recomputed here. */
     label: string;
     hasMatches: boolean;
     /** Bumped by every open, including one that finds the bar already up. */
@@ -25,7 +22,7 @@
     onquery: (query: string) => void;
     onstep: (direction: 1 | -1) => void;
     onclose: () => void;
-    /** The bar's rendered height, so the engine can keep a match clear of it. */
+    /** The bar's rendered height, so a revealed match is kept clear of it. */
     onheight: (px: number) => void;
   }
 
@@ -36,7 +33,7 @@
   let bar: HTMLElement | undefined = $state();
 
   /* Ctrl/Cmd+F with the bar ALREADY open refocuses and selects the query
-   * (docs/spec/editor.md), so this keys off the token rather than off mount.
+   * (find.md), so this keys off the token rather than off mount.
    *
    * The token's VALUE has to be compared, not merely read. The shell hands
    * these props down from one `$state` object that is replaced on every engine
@@ -53,7 +50,7 @@
     input?.select();
   });
 
-  /* The engine's scroll margin is this element's height. Measured rather than
+  /* The reveal's bottom margin is this element's height. Measured rather than
    * hardcoded: the bar grows with the user's font settings, and a stale number
    * would put the current match back under it. */
   $effect(() => {

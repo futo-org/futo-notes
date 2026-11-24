@@ -84,6 +84,13 @@ export class TauriTestClient extends TauriSyncClient {
     } catch {
       /* hook may be missing */
     }
+    // Leave the open note first, as a person would: the store reset below ends an
+    // editor attachment under the page, which would then refuse every later save.
+    try {
+      await this.goHome();
+    } catch {
+      /* may already be home */
+    }
     try {
       await this.deleteAllNotes();
     } catch {

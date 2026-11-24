@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::Path;
 
 use futo_notes_core::files::{
@@ -27,6 +28,7 @@ mod tests;
 
 use super::transfer::upload_executor::{recover_pending_creates, upload_local_files, UploadFiles};
 use delete_local::delete_missing_objects;
+pub(in crate::sync) use local_changes::copies_of_mapped_notes;
 use local_changes::{detect_local_renames, missing_local_files};
 use local_renames::{acknowledge_uploaded, claim_local_renames};
 
@@ -151,7 +153,16 @@ pub(crate) async fn push_with_checkpoint(
         kind,
         state: state.clone(),
     })?;
-    push_with_checkpoint_client(&http, state, root, progress, pre_write, save_checkpoint).await
+    push_with_checkpoint_client(
+        &http,
+        state,
+        root,
+        progress,
+        pre_write,
+        save_checkpoint,
+        &HashSet::new(),
+    )
+    .await
 }
 
 pub(super) async fn push_with_checkpoint_client(
@@ -161,6 +172,7 @@ pub(super) async fn push_with_checkpoint_client(
     progress: &Progress,
     pre_write: &PreWrite,
     save_checkpoint: &SaveCheckpoint,
+    held_back: &HashSet<String>,
 ) -> Result<(SyncSummary, ConnectedState), CycleFailure> {
     recover_stale_claims(root, pre_write);
     #[cfg(test)]
@@ -211,7 +223,14 @@ pub(super) async fn push_with_checkpoint_client(
     // scan would tombstone the note on the server and every peer. So the skip
     // happens here, on the upload list alone, after missing- and rename-
     // detection have already seen the file.
-    let uploadable = uploadable_files(files, &scan.unnamed, &mut summary);
+    let mut uploadable = uploadable_files(files, &scan.unnamed, &mut summary);
+    // Held back until the cycle's pull has said whether the server moved a
+    // note onto them (`copies_of_mapped_notes`); the cycle pushes them after.
+    // A rename destination is never held: it is a PUT of an existing object,
+    // so it cannot make the duplicate the hold prevents, and detection has
+    // already rebound its map entry, so a late push would see it unchanged and
+    // never send it.
+    uploadable.retain(|file| !held_back.contains(&file.name) || renamed_files.contains(&file.name));
 
     progress(SyncProgress {
         phase: "pushing",

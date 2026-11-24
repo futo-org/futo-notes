@@ -1,14 +1,16 @@
 <script lang="ts">
-  import type { EditorLinkGesture } from '$features/editor/editorLinkGesture';
-
-  import MilkdownEditor from '$features/editor/milkdown/MilkdownEditor.svelte';
-  import { FindPanel, type FindBarState } from '$features/editor/milkdown/find';
+  import { listenForFocusChange } from '$shared/dom/listenForFocusChange';
+  import DesktopEditor from '$features/editor/desktop/DesktopEditor.svelte';
+  import FindPanel from '$features/editor/desktop/FindPanel.svelte';
+  import type { FindBarState } from '$features/editor/milkdown/find';
+  import { desktopEditorDebugEntries } from '$features/editor/desktop/debugToggles.svelte';
   import NoteTagBar from '$features/editor/NoteTagBar.svelte';
+  import type { HeaderTagEdits } from '$features/editor/desktop/headerTagEdits';
   import type { NoteSession } from '$features/notes/noteSession.svelte';
   import type { NotePreview } from '$shared/types/note';
+  import type { EditorLinkGesture } from '$features/editor/editorLinkGesture';
   import FolderPickerModal from '$features/folders/FolderPickerModal.svelte';
   import { vaultAvailability } from '$features/storage/vaultAvailability.svelte';
-  import { openExternalUrl } from '$lib/platform/openExternalUrl';
   import { localizedText } from '$shared/localization';
 
   import type { createCurrentNoteActions } from '../createCurrentNoteActions.svelte';
@@ -23,26 +25,28 @@
 
   // The subset of the editor's imperative API the shell drives.
   export type EditorApi = Pick<
-    ReturnType<typeof MilkdownEditor>,
-    | 'setContent'
+    ReturnType<typeof DesktopEditor>,
     | 'openNote'
-    | 'retarget'
-    | 'isStreaming'
-    | 'applyEdit'
+    | 'reload'
+    | 'takeOutsideChange'
+    | 'getContent'
+    | 'heldNoteId'
+    | 'savedSource'
+    | 'save'
+    | 'rename'
+    | 'checkpoint'
+    | 'idle'
     | 'insertMarkdown'
     | 'focus'
     | 'blur'
-    | 'getContent'
     | 'hasFocus'
     | 'isComposing'
     | 'refreshDecorations'
     | 'openFind'
     | 'stepFind'
     | 'setFindQuery'
-    | 'setFindOverlayInset'
-    | 'dismissFind'
-    | 'contentElement'
-    | 'placeCaretAtCoords'
+    | 'setFindBarHeight'
+    | 'closeFind'
   >;
 
   interface Props {
@@ -50,9 +54,13 @@
     notes: NotePreview[];
     actions: ReturnType<typeof createCurrentNoteActions>;
     active: boolean;
-    onopenlink: (title: string, gesture: EditorLinkGesture) => void;
     onfocuschange?: (focused: boolean) => void;
     oncompositionend?: () => void;
+    /** A click in the note opened a wikilink (DesktopEditor `onopenlink`). */
+    onopenlink?: (noteId: string, gesture: EditorLinkGesture) => void;
+    /** The editor mounted, holding no note (again after a dev hot reload of it); its own
+     *  `openNote` names that mount. */
+    oneditormount?: (mountedOpenNote: EditorApi['openNote']) => void;
     editorApi?: EditorApi;
     noteBodyEl?: HTMLElement;
     titleEl?: HTMLTextAreaElement;
@@ -63,15 +71,20 @@
     notes,
     actions,
     active,
-    onopenlink,
     onfocuschange,
     oncompositionend,
+    onopenlink,
+    oneditormount,
     editorApi = $bindable(),
     noteBodyEl = $bindable(),
     titleEl = $bindable(),
   }: Props = $props();
 
-  // Move and Delete write to the vault; an unusable one disables them.
+  let headerTags = $state<string[]>([]);
+  let headerTagEdits = $state<HeaderTagEdits | null>(null);
+
+  // Move and Delete write to the vault; an unusable one disables them. A development build
+  // adds the desktop editor's debug toggles.
   const noteMenuEntries: DropdownMenuEntry[] = $derived([
     { label: { path: 'notes.actions.copyFilePath' }, onclick: () => void actions.copyFilePath() },
     {
@@ -86,14 +99,12 @@
       destructive: true,
       disabled: vaultAvailability.unavailable,
     },
+    ...(import.meta.env.DEV ? desktopEditorDebugEntries() : []),
   ]);
 
   let editorFocused = $state(false);
-  let tagBarEl: HTMLElement | undefined = $state(undefined);
-  /* The find bar's contents, reported by the editor's find engine. The bar is
-   * SHELL chrome rather than editor chrome because it spans the whole note
-   * pane, and because the native shells — which never mount this component —
-   * draw their own. → docs/spec/editor.md "Find in note" */
+  /* What find's bar shows, as the editor's find reports it. The bar is the shell's chrome: it
+   * spans the whole note pane. */
   let find: FindBarState = $state({
     open: false,
     query: '',
@@ -130,9 +141,8 @@
               { controls: ['notes.untitledPlaceholder'] },
             ),
             puppetVerb('ToggleNoteActionsMenu', {}, actions.toggleMenu),
-            // The menu's items, while it is open. An untitled buffer has no file yet, so nothing
-            // that acts on the file is on offer: `actions` lists what can succeed now, and these
-            // appear once SetTitle or a first Insert has named the note.
+            // The menu's items, while it is open. A note still being created has no file yet, so
+            // nothing that acts on the file is on offer: `actions` lists what can succeed now.
             ...(session.originalId === null || !actions.menuOpen
               ? []
               : [
@@ -168,45 +178,14 @@
     editorFocused = focused;
     onfocuschange?.(focused);
   }
-
-  function isPlainPress(event: MouseEvent): boolean {
-    if (event.button !== 0) return false;
-    return !(event.shiftKey || event.altKey || event.metaKey || event.ctrlKey);
-  }
-
-  // The side chrome is outside the editor surface and owns deselection. → docs/spec/editor.md
-  function handleNoteBodyMouseDown(event: MouseEvent): void {
-    if (!isPlainPress(event)) return;
-    if (event.target === tagBarEl && reachFromTagBar(event)) return;
-    // Only the body's own slack — descendants keep their clicks.
-    if (event.target !== event.currentTarget && event.target !== tagBarEl) return;
-
-    // Cancels WebKit's native margin drag into the editor; the manual blur also
-    // commits a pending title rename, which preventDefault swallows.
-    event.preventDefault();
-    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-  }
-
-  // The bar sits above the editor, so its slack reaches down into the first line.
-  function reachFromTagBar(event: MouseEvent): boolean {
-    const contentEl = editorApi?.contentElement();
-    if (!contentEl) return false;
-    const top = contentEl.getBoundingClientRect().top;
-
-    event.preventDefault();
-    editorApi?.focus();
-    return editorApi?.placeCaretAtCoords(event.clientX, top + 1) ?? false;
-  }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="note-body"
   dir="ltr"
   class:is-hidden={!active}
   bind:this={noteBodyEl}
   data-editor-focused={editorFocused ? '' : undefined}
-  onmousedown={handleNoteBodyMouseDown}
 >
   <div class="note-title-row">
     <textarea
@@ -219,8 +198,10 @@
       readonly={vaultAvailability.unavailable}
       oninput={session.handleTitleInput}
       onkeydown={session.handleTitleKeydown}
-      onblur={session.handleTitleBlur}
-      onfocus={session.handleTitleFocus}
+      {@attach (title) =>
+        listenForFocusChange(title, (focused, event) =>
+          focused ? session.handleTitleFocus(event) : session.handleTitleBlur(),
+        )}
       onpointerdown={session.handleTitlePointerDown}></textarea>
     {#if session.titleWarning}
       <div class="title-warning">{session.titleWarning}</div>
@@ -229,23 +210,26 @@
 
   <NoteTagBar
     {active}
-    bind:element={tagBarEl}
-    content={session.content}
-    readMarkdown={() => editorApi?.getContent()}
-    writeMarkdown={(markdown) => editorApi?.applyEdit(markdown)}
+    tags={headerTags}
+    edits={headerTagEdits}
     {notes}
     readonly={vaultAvailability.unavailable}
+    onreturntonote={() => editorApi?.focus()}
   />
 
   <div class="editor-container">
-    <MilkdownEditor
+    <DesktopEditor
       bind:this={editorApi}
-      onchange={(content) => session.debouncedSave(content)}
+      bind:headerTags
+      bind:headerTagEdits
+      onmount={oneditormount}
+      onchange={session.editorEdited}
       onfocuschange={handleFocusChange}
       {oncompositionend}
-      {onopenlink}
-      onopenurl={openExternalUrl}
+      onnote={session.followEditorNote}
+      onsaved={session.editorSaved}
       onfindstate={(state) => (find = state)}
+      {onopenlink}
       readonly={vaultAvailability.unavailable}
     />
   </div>
@@ -258,8 +242,8 @@
       focusToken={find.focusToken}
       onquery={(value) => editorApi?.setFindQuery(value)}
       onstep={(direction) => editorApi?.stepFind(direction)}
-      onheight={(px) => editorApi?.setFindOverlayInset(px)}
-      onclose={() => editorApi?.dismissFind()}
+      onheight={(px) => editorApi?.setFindBarHeight(px)}
+      onclose={() => editorApi?.closeFind()}
     />
   {/if}
 </div>

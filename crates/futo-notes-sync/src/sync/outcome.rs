@@ -120,9 +120,12 @@ pub(super) fn derive_renames(
         .iter()
         .filter(|(name, _)| !before.contains_key(*name))
         .collect();
+    // Every empty note shares this hash: a deleted empty note and an unrelated new
+    // one are two notes, and an open draft must not follow from one to the other.
+    let empty = futo_notes_core::hash::hash_sha256("");
     let mut renames = Vec::new();
     for (old_name, old) in &removed {
-        let Some(hash) = old.hash.as_ref() else {
+        let Some(hash) = old.hash.as_ref().filter(|hash| **hash != empty) else {
             continue;
         };
         if let Some(new_name) = unique_rename_target(hash, &removed, &added) {

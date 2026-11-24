@@ -15,30 +15,32 @@ import type { OpenNoteDispositionOutput } from './syncContract.generated';
 beforeEach(resetCoordinatorMocks);
 
 describe('engine-owned open-note disposition', () => {
-  it('sends one complete editor snapshot and no frontend disk value', async () => {
-    const bundle = makeCoordinator(
-      makeSession({
-        editorContent: 'draft',
-        editorFocused: true,
-        savedContent: 'base',
-      }),
-    );
+  it.each([
+    [{ editorFocused: true, composing: false }, false],
+    [{ editorFocused: true, composing: true }, true],
+  ])(
+    'sends one complete editor snapshot, %o counting as focused only while composing, and no frontend disk value',
+    async (focus, editorFocused) => {
+      const bundle = makeCoordinator(
+        makeSession({ editorContent: 'draft', savedContent: 'base', ...focus }),
+      );
 
-    await bundle.coordinator.reconcileOpenNote('active', {
-      editedDuringCycle: true,
-      renamedTo: 'renamed',
-    });
+      await bundle.coordinator.reconcileOpenNote('active', {
+        editedDuringCycle: true,
+        renamedTo: 'renamed',
+      });
 
-    expect(syncMocks.classifyOpenNote).toHaveBeenCalledExactlyOnceWith({
-      id: 'active',
-      base: 'base',
-      draft: 'draft',
-      renamedTo: 'renamed',
-      editorFocused: true,
-      editedDuringCycle: true,
-    });
-    bundle.coordinator.stop();
-  });
+      expect(syncMocks.classifyOpenNote).toHaveBeenCalledExactlyOnceWith({
+        id: 'active',
+        base: 'base',
+        draft: 'draft',
+        renamedTo: 'renamed',
+        editorFocused,
+        editedDuringCycle: true,
+      });
+      bundle.coordinator.stop();
+    },
+  );
 
   it.each([
     [{ kind: 'leave' } as const, 'leave'],
@@ -57,17 +59,21 @@ describe('engine-owned open-note disposition', () => {
     if (kind === 'adopt') {
       expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('peer');
     } else if (kind === 'followRename') {
-      expect(bundle.followRename).toHaveBeenCalledExactlyOnceWith('active', 'renamed');
+      // The store moved the editor's attachment; the session follows the editor, never
+      // the verdict. The caller goes on to `toId`.
+      expect(result.followedRenameTo).toBe('renamed');
+      expect(bundle.state.originalId).toBe('active');
     } else if (kind === 'keepDraft') {
-      expect(bundle.rebaseSavedContent).toHaveBeenCalledExactlyOnceWith('peer');
+      // The editor host's next save works against its own baseline (#89).
       expect(bundle.session.resumeDraftPersistence).toHaveBeenCalledOnce();
+      expect(bundle.state.savedContent).toBe('base');
     } else if (kind === 'close') {
       expect(bundle.cancelAndClear).toHaveBeenCalledOnce();
     }
     bundle.coordinator.stop();
   });
 
-  it('uses one desktop wording for a peer-deleted draft and rebases it', async () => {
+  it('uses one desktop wording for a peer-deleted draft and resumes its save', async () => {
     syncMocks.classifyOpenNote.mockResolvedValueOnce({
       kind: 'keepDraft',
       base: 'base',
@@ -78,7 +84,6 @@ describe('engine-owned open-note disposition', () => {
     const result = await bundle.coordinator.reconcileOpenNote('active');
 
     expect(result.keptDraftId).toBe('active');
-    expect(bundle.rebaseSavedContent).toHaveBeenCalledExactlyOnceWith('base');
     expect(bundle.session.resumeDraftPersistence).toHaveBeenCalledOnce();
     expect(bundle.showToast).toHaveBeenCalledExactlyOnceWith({
       path: 'notes.save.openNoteDeletedKeepingDraft',
@@ -86,17 +91,17 @@ describe('engine-owned open-note disposition', () => {
     bundle.coordinator.stop();
   });
 
-  it('defers a focused adopt and reclassifies on blur', async () => {
+  it('defers a composing adopt and reclassifies on composition end', async () => {
     syncMocks.classifyOpenNote
       .mockResolvedValueOnce({ kind: 'deferAdopt' })
       .mockResolvedValueOnce({ kind: 'adopt', content: 'latest' });
-    const bundle = makeCoordinator(makeSession({ editorFocused: true }));
+    const bundle = makeCoordinator(makeSession({ editorFocused: true, composing: true }));
 
     await bundle.coordinator.reconcileOpenNote('active');
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
 
-    bundle.state.editorFocused = false;
-    await bundle.coordinator.handleEditorFocusChange(false);
+    bundle.state.composing = false;
+    await bundle.coordinator.handleCompositionEnd();
 
     expect(syncMocks.classifyOpenNote).toHaveBeenCalledTimes(2);
     expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('latest');
@@ -140,27 +145,6 @@ describe('engine-owned open-note disposition', () => {
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
     bundle.coordinator.stop();
   });
-
-  it('classifies the exact parked snapshot as preserved, but protects a later edit', async () => {
-    const parked = { content: 'parked draft', title: 'active' };
-    const first = makeCoordinator(
-      makeSession({ editorContent: parked.content, savedContent: 'old base' }),
-    );
-    await first.coordinator.reconcileOpenNote('active', { parkedDraft: parked });
-    expect(syncMocks.classifyOpenNote).toHaveBeenLastCalledWith(
-      expect.objectContaining({ base: parked.content, draft: parked.content }),
-    );
-    first.coordinator.stop();
-
-    const second = makeCoordinator(
-      makeSession({ editorContent: 'later edit', savedContent: 'old base' }),
-    );
-    await second.coordinator.reconcileOpenNote('active', { parkedDraft: parked });
-    expect(syncMocks.classifyOpenNote).toHaveBeenLastCalledWith(
-      expect.objectContaining({ base: 'old base', draft: 'later edit' }),
-    );
-    second.coordinator.stop();
-  });
 });
 
 describe('single stale-snapshot revalidation', () => {
@@ -169,7 +153,7 @@ describe('single stale-snapshot revalidation', () => {
     ['edit version', (state: SessionState) => (state.editVersion += 1)],
     ['draft', (state: SessionState) => (state.editorContent = 'new edit')],
     ['title', (state: SessionState) => (state.title = 'new title')],
-    ['focus', (state: SessionState) => (state.editorFocused = true)],
+    ['marked text', (state: SessionState) => (state.composing = true)],
   ])('does not apply an adopt after the %s changes during classification', async (_, mutate) => {
     const verdict = controlledPromise<OpenNoteDispositionOutput>();
     syncMocks.classifyOpenNote.mockReturnValueOnce(verdict.promise);
@@ -288,7 +272,7 @@ describe('save, composition, and watcher ordering', () => {
 
     expect(syncMocks.classifyOpenNote).toHaveBeenCalledOnce();
     expect(bundle.cancelAndClear).not.toHaveBeenCalled();
-    expect(bundle.rebaseSavedContent).toHaveBeenCalledWith('base');
+    expect(bundle.session.resumeDraftPersistence).toHaveBeenCalledOnce();
     bundle.coordinator.stop();
   });
 });

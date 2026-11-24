@@ -1,7 +1,8 @@
 ## Find in note
 
 This section describes the shared Milkdown editor. Native text-first find follows
-[the portable core contract](portable-core/find.md) and [its mobile surface](mobile/find.md).
+[the portable core contract](portable-core/find.md) and [its mobile surface](mobile/find.md);
+the desktop editor's follows it too, as [desktop find](desktop/find.md) says.
 
 Find-in-note locates text inside the OPEN note — match highlighting plus
 next/previous stepping — as opposed to cross-note search ([search.md](../search.md)),

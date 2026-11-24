@@ -13,7 +13,7 @@ use crate::sync::{decision, FailureKind, RenamePair, SyncFailure, SyncPhase, Syn
 
 use super::{reason, PushContext};
 
-pub(super) fn missing_local_files(
+pub(in crate::sync) fn missing_local_files(
     state: &ConnectedState,
     files: &[LocalFile],
 ) -> Vec<(String, ObjectState)> {
@@ -23,6 +23,47 @@ pub(super) fn missing_local_files(
         .iter()
         .filter(|(name, _)| !local_names.contains(name.as_str()))
         .map(|(name, entry)| (name.clone(), entry.clone()))
+        .collect()
+}
+
+/// Unmapped notes that are byte-identical to a mapped note still on disk,
+/// unchanged: a copy of it. A copy is also what a peer's rename onto this name
+/// leaves when this device already holds the renamed note's bytes there (a
+/// second tool mirroring the vault), and push cannot tell the two apart: it
+/// runs before the pull that says whether the server moved the note. Uploaded
+/// first, such a name became a second server object beside the renamed one.
+pub(in crate::sync) fn copies_of_mapped_notes(
+    state: &ConnectedState,
+    root: &Path,
+    files: &[LocalFile],
+) -> HashSet<String> {
+    let unmapped: Vec<_> = files
+        .iter()
+        .filter(|file| !state.object_map.contains_key(&file.name))
+        .filter(|file| !state.pending_creates.contains_key(&file.name))
+        .collect();
+    if unmapped.is_empty() {
+        return HashSet::new();
+    }
+    let present: HashSet<_> = files.iter().map(|file| file.name.as_str()).collect();
+    // The hashes of the mapped notes that are still there as the server has them.
+    let held: HashSet<String> = state
+        .object_map
+        .iter()
+        .filter(|(name, _)| present.contains(name.as_str()))
+        .filter_map(|(name, entry)| {
+            let hash = entry.hash.as_deref()?;
+            (crate::sync::vault::content_hash(root, name).as_deref() == Some(hash))
+                .then(|| hash.to_owned())
+        })
+        .collect();
+    unmapped
+        .into_iter()
+        .filter(|file| {
+            crate::sync::vault::content_hash(root, &file.name)
+                .is_some_and(|hash| held.contains(&hash))
+        })
+        .map(|file| file.name.clone())
         .collect()
 }
 

@@ -1,61 +1,31 @@
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import { hasFileSystem } from '$lib/platform';
-import { idLeaf, idParent } from '$lib/platform/pathSafety';
-import { FALLBACK_TITLE, sanitizeFilename, validateTitle } from '$lib/rules';
+import { validateTitle } from '$lib/rules';
 import type { LocalizedMessage } from '$shared/localization';
 
-import {
-  editorLostTheNote,
-  normalizeTitleForPersistence,
-  shouldWriteNoteToDisk,
-} from './noteSessionChanges';
-import type { ParkedDraftSnapshot } from './noteSession.svelte';
-import { _applyLocalMutation, recordSaveIdentityChange, updateNote } from './notes.svelte';
+import { normalizeTitleForPersistence } from './noteSessionChanges';
 import { titleValidationMessage } from './titleValidationMessage';
 
 interface NotePersistenceState {
-  /** The session's live buffer — the last body any change notification reported. */
-  content: string;
   originalId: string | null;
-  savedContent: string;
   savedTitle: string;
   title: string;
 }
 
-/**
- * True while the session is mid-switch to another note: `originalId` may
- * already point at the note being opened while `title`/`savedContent` still
- * hold the outgoing note's data (createNoteLoader.load() flips loading
- * before reassigning originalId, then awaits the read). A save that runs in
- * this window would write the outgoing note's stale content under the
- * incoming note's id — refuse rather than straddle. The save queue's flush()
- * closes this window under normal operation; this is the belt-and-suspenders
- * backstop for any caller that reaches saveNote() while it is still open.
- */
-type IsLoading = () => boolean;
-
-interface SavedNoteState {
-  content: string;
-  id: string;
-  /** The save left the note at `savedOriginalId` in place (a park): only this
-   * editor moves to `id`, never other tabs holding the original. */
-  keepsOriginal?: boolean;
-  savedOriginalId: string | null;
-  /** The title this save was asked for; null when it refused that title. */
-  requestedTitle: string | null;
-  title: string;
-}
-
 interface CreateNotePersistenceOptions {
-  clearPendingFolder: () => void;
-  getEditorContent: () => string | undefined;
-  getNoteId: () => string | null;
-  getPendingFolder: () => string | null;
+  /** The note the editor holds; null while it holds none. */
+  getEditorNoteId: () => string | null;
   getState: () => NotePersistenceState;
   hasDuplicateTitle: (title: string) => boolean;
-  isLoading: IsLoading;
-  onSaved: (state: SavedNoteState) => void;
-  reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) => Promise<unknown>;
+  /** A note switch is opening the next note; nothing saves until it has. */
+  isLoading: () => boolean;
+  /** The note's name now stands for `requestedTitle`, the title this save took. */
+  onTitleSaved: (requestedTitle: string) => void;
+  /** The editor writes the open note now (its host saves edits on its own timer too). */
+  saveBody: () => Promise<void>;
+  /** The editor saves the open note as `title` in its folder in one store workflow; it
+   *  reports where the note landed (a rename's final id, or a parked copy) as it lands. */
+  renameNote: (title: string) => Promise<void>;
   showTitleWarning: (message: LocalizedMessage) => void;
 }
 
@@ -70,117 +40,31 @@ export function titleSaveRefusal(
   return hasDuplicateTitle(normalized) ? { path: 'notes.title.duplicate' } : null;
 }
 
+/** The session's save: a typed title renames the note (the body saves with it), else the
+ *  editor writes its draft now (no I/O when nothing changed). */
 export function createNotePersistence(options: CreateNotePersistenceOptions) {
-  return async function saveNote(): Promise<boolean> {
-    const noteId = options.getNoteId();
-    const editorContent = options.getEditorContent();
-    if (!hasFileSystem || editorContent === undefined) return false;
-    // The session is between notes: title/savedContent may still be the
-    // outgoing note's while originalId already points at the incoming one.
-    // Never write in this window (see IsLoading above).
-    if (options.isLoading()) return false;
+  return async function saveNote(): Promise<void> {
+    // The editor's host holds the body; nothing attached means nothing to save.
+    if (!hasFileSystem || options.getEditorNoteId() === null || options.isLoading()) return;
+
+    const state = options.getState();
+    // Every attached note has a file: a new note is created when it opens.
+    if (state.originalId === null) return;
+    /* A refused title never takes the body down with it (2026-10-20): the body
+     * saves under the note's current name and the title waits, its warning up. */
+    const refusal = titleSaveRefusal(state.title, options.hasDuplicateTitle);
+    if (refusal) options.showTitleWarning(refusal);
+    const newTitle = refusal ? state.savedTitle : normalizeTitleForPersistence(state.title);
 
     try {
-      const state = options.getState();
-      /* CRITICAL — an editor that lost the note never empties it (2026-09-03,
-       * noteSessionChanges.ts). A rename typed over a blank editor still lands;
-       * it carries the body the session last knew, not the editor's nothing. */
-      const newContent = editorLostTheNote({
-        editorContent,
-        savedContent: state.savedContent,
-        content: state.content,
-      })
-        ? state.savedContent
-        : editorContent;
-      // Navigating Home clears the tab's note id before this queued save runs.
-      if (noteId === null && state.originalId === null && !state.title) return false;
-      /* A refused title never takes the body down with it (2026-10-20): the
-       * body saves under the note's current name — `Untitled` for a note never
-       * saved, as on the native shells — and the title waits, its warning up. */
-      const refusal = titleSaveRefusal(state.title, options.hasDuplicateTitle);
-      if (refusal) options.showTitleWarning(refusal);
-      if (refusal && state.originalId === null && newContent === state.savedContent) return false;
-      const newTitle = refusal
-        ? state.originalId
-          ? state.savedTitle
-          : FALLBACK_TITLE
-        : normalizeTitleForPersistence(state.title);
-
-      let newId = sanitizeFilename(newTitle);
-      if (refusal && state.originalId) {
-        newId = state.originalId;
-      } else if (state.originalId) {
-        const parent = idParent(state.originalId);
-        if (parent) newId = `${parent}/${newId}`;
-      } else {
-        const pendingFolder = options.getPendingFolder();
-        if (pendingFolder) newId = `${pendingFolder}/${newId}`;
-      }
-
-      if (
-        !shouldWriteNoteToDisk({
-          savedTitle: state.savedTitle,
-          newTitle,
-          content: state.savedContent,
-          newContent,
-        })
-      ) {
-        return false;
-      }
-
-      const result = await updateNote(newId, newContent, {
-        originalId: state.originalId ?? undefined,
-        base: state.savedContent,
-      });
-      if (result.unappliedMutation) _applyLocalMutation(result.unappliedMutation);
-      if (result.disposition === 'parked') {
-        await options.reconcileOpenNote(result.id, { content: newContent, title: state.title });
-        // The reconcile adopts the peer's original only when it may interrupt
-        // (an unfocused editor on an unchanged draft). Otherwise the editor is
-        // still on the original id with its pre-park baseline, which no longer
-        // describes that id's disk: every later save would park another copy.
-        // Follow the copy and advance the baseline to the parked draft in the
-        // same step (the native shells' rule), so the continuing edit is an
-        // ordinary save of the one copy.
-        const after = options.getState();
-        if (
-          result.parkedId !== undefined &&
-          after.originalId === state.originalId &&
-          after.savedContent === state.savedContent
-        ) {
-          const parkedId = result.parkedId;
-          const parkedNote = result.unappliedMutation?.upserted.find(
-            ({ note }) => note.id === parkedId,
-          )?.note;
-          options.onSaved({
-            id: parkedId,
-            title: parkedNote?.title ?? idLeaf(parkedId),
-            requestedTitle: refusal ? null : state.title,
-            content: newContent,
-            savedOriginalId: state.originalId,
-            keepsOriginal: true,
-          });
-        }
-        return false;
-      }
-
-      options.clearPendingFolder();
-      if (result.id !== state.originalId) recordSaveIdentityChange(state.originalId, result.id);
-      const savedNote = result.unappliedMutation?.upserted.find(
-        ({ note }) => note.id === result.id,
-      )?.note;
-      options.onSaved({
-        id: result.id,
-        title: savedNote?.title ?? newTitle,
-        requestedTitle: refusal ? null : state.title,
-        content: newContent,
-        savedOriginalId: state.originalId,
-      });
-      return result.disposition !== 'converged';
+      // The host names the note: `newTitle`, sanitized, in the folder it holds it in.
+      if (newTitle !== state.savedTitle) await options.renameNote(newTitle);
+      else await options.saveBody();
     } catch (error) {
       console.warn('Failed to save note:', error);
       showGlobalToast({ path: 'notes.save.failedPending' });
       throw error;
     }
+    if (newTitle !== state.savedTitle) options.onTitleSaved(state.title);
   };
 }

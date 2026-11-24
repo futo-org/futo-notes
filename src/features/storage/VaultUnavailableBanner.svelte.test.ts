@@ -114,9 +114,8 @@ describe('unusable vault UI', () => {
 
   it('shows tags without add or remove controls while read-only', () => {
     const props = {
-      content: '#work #home\n\nBody',
-      readMarkdown: () => undefined,
-      writeMarkdown: vi.fn(),
+      tags: ['#work', '#home'],
+      edits: { add: vi.fn(), remove: vi.fn() },
       notes: [],
       readonly: true,
     };
