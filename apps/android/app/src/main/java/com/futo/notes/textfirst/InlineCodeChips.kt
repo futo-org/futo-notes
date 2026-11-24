@@ -21,18 +21,10 @@ internal fun TextFirstEditText.drawInlineCodeChips(canvas: Canvas, fromY: Int, t
     val e = editableText ?: return
     val from = l.getLineStart(l.getLineForVertical(maxOf(0, fromY)))
     val to = l.getLineEnd(l.getLineForVertical(maxOf(0, toY)))
-    val chips = e.getSpans(from, to, TfInline::class.java)
-    if (chips.none { it.code }) return
-    val chip = codeChrome.inlineChip
-    chip.fill.color = (style.textColor and 0x00ffffff) or CHIP_ALPHA
+    if (e.getSpans(from, to, TfInline::class.java).none { it.code }) return
     val save = canvas.save()
     canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
-    for (span in chips) {
-        if (!span.code) continue
-        val start = e.getSpanStart(span)
-        val end = e.getSpanEnd(span)
-        for (line in l.getLineForOffset(start)..l.getLineForOffset(maxOf(start, end - 1))) chip.drawRow(this, canvas, l, e, line, start, end)
-    }
+    codeChrome.inlineChip.drawRuns(canvas, l, e, from, to, paint, style)
     canvas.restoreToCount(save)
 }
 
@@ -47,13 +39,27 @@ internal class InlineCodeChip {
     private val path = Path()
     private val radii = FloatArray(8)
 
+    /**
+     * Every code run of [e] between [from] and [to] as laid out in [l], in [l]'s own coordinates: the note's text, or a
+     * table cell's. [basePaint] is the paint [l] draws plain text with.
+     */
+    fun drawRuns(canvas: Canvas, l: Layout, e: Spanned, from: Int, to: Int, basePaint: Paint, style: TextFirstStyle) {
+        fill.color = (style.textColor and 0x00ffffff) or CHIP_ALPHA
+        for (span in e.getSpans(from, to, TfInline::class.java)) {
+            if (!span.code) continue
+            val start = e.getSpanStart(span)
+            val end = e.getSpanEnd(span)
+            for (line in l.getLineForOffset(start)..l.getLineForOffset(maxOf(start, end - 1))) drawRow(basePaint, style, canvas, l, e, line, start, end)
+        }
+    }
+
     /** Row [line]'s part of the code run [start, end). */
-    fun drawRow(view: TextFirstEditText, canvas: Canvas, l: Layout, e: Spanned, line: Int, start: Int, end: Int) {
+    private fun drawRow(basePaint: Paint, style: TextFirstStyle, canvas: Canvas, l: Layout, e: Spanned, line: Int, start: Int, end: Int) {
         val a = maxOf(start, l.getLineStart(line))
         var b = minOf(end, l.getLineEnd(line))
         while (b > a && (e[b - 1] == '\n' || e[b - 1] == '\r')) b--
         if (b <= a) return
-        paint.set(view.paint)
+        paint.set(basePaint)
         for (span in e.getSpans(a, a + 1, MetricAffectingSpan::class.java)) span.updateMeasureState(paint)
         val (seenTop, seenBottom) = visibleLineSpan(paint)
         val em = paint.textSize
@@ -66,13 +72,13 @@ internal class InlineCodeChip {
         val xb = if (b == l.getLineEnd(line) && line + 1 < l.lineCount) (if (rtl) l.getLineLeft(line) else l.getLineRight(line)) else l.getPrimaryHorizontal(b)
         val opens = a == start
         val closes = b == end
-        val before = if (opens) room(view, l, e, a - 1) * em else 0f
-        val after = if (closes) room(view, l, e, b) * em else 0f
+        val before = if (opens) room(l, e, a - 1) * em else 0f
+        val after = if (closes) room(l, e, b) * em else 0f
         // In reading order: the run's start is its left side on a left-to-right row, its right side on a right-to-left one.
         val (left, right) = if (!rtl) minOf(xa, xb) - before to maxOf(xa, xb) + after else minOf(xa, xb) - after to maxOf(xa, xb) + before
         val roundLeft = if (rtl) closes else opens
         val roundRight = if (rtl) opens else closes
-        val radius = view.style.dp(RADIUS_DP)
+        val radius = style.dp(RADIUS_DP)
         for (i in 0..7) radii[i] = if ((i < 2 || i > 5) && roundLeft || i in 2..5 && roundRight) radius else 0f
         box.set(left, top, right, bottom)
         path.rewind()
@@ -81,7 +87,7 @@ internal class InlineCodeChip {
     }
 
     /** How far, in ems, the chip may reach past the run toward the character at [at]: into whitespace only, half of it. */
-    private fun room(view: TextFirstEditText, l: Layout, e: Spanned, at: Int): Float {
+    private fun room(l: Layout, e: Spanned, at: Int): Float {
         if (at < 0 || at >= e.length) return PAD_X
         val c = e[at]
         if (c == '\n' || c == '\r') return PAD_X

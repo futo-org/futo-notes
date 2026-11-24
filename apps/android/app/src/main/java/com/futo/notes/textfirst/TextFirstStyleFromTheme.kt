@@ -33,5 +33,6 @@ internal fun textFirstStyleFromTheme(context: Context, colors: FutoColors, darkT
         codeBackground = (if (darkTheme) FutoPalette.InkHairline else FutoPalette.N200).toArgb(),
         surfaceColor = colors.surfaceSunken.toArgb(),
         pageColor = colors.surface.toArgb(),
+        dangerColor = colors.danger.toArgb(),
     )
 }

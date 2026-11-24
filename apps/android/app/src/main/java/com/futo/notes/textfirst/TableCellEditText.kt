@@ -21,9 +21,23 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     fun placementTarget(note: TextFirstEditText): CellUpdate? = current?.takeIf {
         note.engine === editor && note.appliedSeq == it.viewSeq
     }
+    private var header = false
+    private var cellRuns: List<CellRun> = emptyList()
+    private var runShift = 0
+    /** Opens a link tapped in the open cell (the note's opener); false when it cannot be opened. */
+    var openLink: (CellRun) -> Boolean = { false }
+    val update: CellUpdate? get() = current
+    private var pressedLink: CellRun? = null
+    private var downX = 0f
+    private var downY = 0f
+    /** The text changed under the styling last set: the host styles it again. */
+    var styleStale = true; private set
     fun applyGeometry(geometry: TableCellGeometry) {
         typeface = if (geometry.header) noteStyle.semibold else noteStyle.regular
         centreLetters()
+        if (header != geometry.header) { header = geometry.header; updateColors() }
+        applyRuns(geometry.runs, geometry.runShift)
+        styleStale = false
         gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.START
         textAlignment = when (geometry.alignment) {
             uniffi.futo_notes_ffi.EditorTableAlignment.RIGHT -> TEXT_ALIGNMENT_TEXT_END
@@ -37,7 +51,8 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         textSize = style.textSizePx / resources.displayMetrics.scaledDensity
         typeface = style.regular
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
-        imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI
+        // Enter is the table's key (the cell below, a new row on the last), never a Done action.
+        imeOptions = EditorInfo.IME_ACTION_NONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI
         centreLetters()
         includeFontPadding = false
         filters = arrayOf(InputFilter { _, _, _, dest, a, b -> if (applying) null else dest.subSequence(a, b) })
@@ -53,22 +68,46 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         setTextColor(noteStyle.textColor)
         highlightColor = noteStyle.selectionColor
         tintCaretAndSelectionHandles(noteStyle.linkColor)
-        setBackgroundColor(noteStyle.codeBackground)
+        // The note's own background with an accent outline; a header cell keeps the header fill.
+        background = android.graphics.drawable.GradientDrawable().apply {
+            setColor(if (header) noteStyle.codeBackground else noteStyle.pageColor)
+            setStroke(noteStyle.dp(2f).toInt(), noteStyle.linkColor)
+        }
+    }
+
+    /** The engine's inline styling over the field's text, the same runs the closed grid draws. */
+    private fun applyRuns(runs: List<CellRun>, shift: Int) {
+        cellRuns = runs; runShift = shift
+        val e = editableText
+        applying = true
+        try {
+            for (span in e.getSpans(0, e.length, TfSpan::class.java)) e.removeSpan(span)
+            val styled = styledCellText(noteStyle, e.toString(), runs, shift)
+            for (span in styled.getSpans(0, styled.length, TfSpan::class.java)) {
+                e.setSpan(span, styled.getSpanStart(span), styled.getSpanEnd(span), styled.getSpanFlags(span))
+            }
+        } finally { applying = false }
     }
     override fun isSuggestionsEnabled() = false
     // A cell is note text, never a form field: no "Autofill" item over its selection menu.
     override fun getAutofillType() = AUTOFILL_TYPE_NONE
     fun apply(update: CellUpdate) {
-        val sameWindow = current?.let { it.start == update.start && it.end == update.end && it.text == update.text } == true
+        val previous = current
+        val sameWindow = previous?.let { it.start == update.start && it.end == update.end && it.text == update.text } == true
         val sameText = text.toString() == update.text
+        val moved = previous != null && (previous.rowStart != update.rowStart || previous.column != update.column)
         current = update
+        if (!sameText) styleStale = true
         applying = true
         try {
-            if (!sameText) editableText.replace(0, editableText.length, update.text)
+            if (!sameText) replaceDiff(update.text)
             val e = editableText
             e.getSpans(0, e.length, UnderlineSpan::class.java).forEach(e::removeSpan)
-            if (update.composingStart >= 0 && update.composingEnd > update.composingStart) {
-                e.setSpan(UnderlineSpan(), update.composingStart, update.composingEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE or Spanned.SPAN_COMPOSING)
+            // The composing range is the engine's, in the window's offsets: clamped, so a window that came out shorter never throws.
+            val composeStart = update.composingStart.coerceIn(0, e.length)
+            val composeEnd = update.composingEnd.coerceIn(0, e.length)
+            if (update.composingStart >= 0 && composeEnd > composeStart) {
+                e.setSpan(UnderlineSpan(), composeStart, composeEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE or Spanned.SPAN_COMPOSING)
             }
             val start = update.selectionStart.coerceIn(0, e.length)
             val end = update.selectionEnd.coerceIn(0, e.length)
@@ -76,7 +115,99 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
             if (!sameWindow || !sameText || minOf(selectionStart, selectionEnd) != minOf(start, end) ||
                 maxOf(selectionStart, selectionEnd) != maxOf(start, end)) Selection.setSelection(e, start, end)
         } finally { applying = false }
+        // The app moved the caret to another cell: the keyboard re-reads its context (capitalisation, suggestions).
+        if (moved) restartKeyboard()
     }
+
+    /** Rewrite only what differs, so the keyboard's spans, the composing mark and the caret outside it survive. */
+    private fun replaceDiff(next: String) {
+        val e = editableText
+        val old = e.toString()
+        var prefix = 0
+        val most = minOf(old.length, next.length)
+        while (prefix < most && old[prefix] == next[prefix]) prefix++
+        if (prefix > 0 && Character.isHighSurrogate(old[prefix - 1])) prefix--
+        var suffix = 0
+        while (suffix < most - prefix && old[old.length - 1 - suffix] == next[next.length - 1 - suffix]) suffix++
+        if (suffix > 0 && Character.isLowSurrogate(old[old.length - suffix])) suffix--
+        e.replace(prefix, old.length - suffix, next, prefix, next.length - suffix)
+    }
+    /** The link whose glyphs hold the point: a short tap on it opens it, with no caret move and no delay. */
+    private fun linkAt(x: Float, y: Float): CellRun? {
+        val l = layout ?: return null
+        val lx = x - totalPaddingLeft + scrollX
+        val ly = y - totalPaddingTop + scrollY
+        if (ly < 0 || ly >= l.height) return null
+        val line = l.getLineForVertical(ly.toInt())
+        if (lx < l.getLineLeft(line) || lx > l.getLineRight(line)) return null
+        val lineRegion = android.graphics.Region(0, l.getLineTop(line), l.width + 1, l.getLineBottom(line))
+        val path = android.graphics.Path()
+        for (run in cellRuns) {
+            if (run.link == null && !(run.wiki && run.noteId != null)) continue
+            val a = maxOf(run.start + runShift, l.getLineStart(line)).coerceIn(0, text!!.length)
+            val b = minOf(run.end + runShift, l.getLineVisibleEnd(line)).coerceIn(0, text!!.length)
+            if (a >= b) continue
+            path.reset()
+            l.getSelectionPath(a, b, path)
+            val region = android.graphics.Region()
+            region.setPath(path, lineRegion)
+            if (region.contains(lx.toInt(), ly.toInt())) return run
+        }
+        return null
+    }
+
+    /**
+     * The part of the field the table has scrolled out of view is not drawn and takes no touch: a press there goes to
+     * the note under it, where a pan from the margin is the table's.
+     */
+    override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
+        if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+            val clip = clipBounds
+            if (clip != null && !clip.contains(event.x.toInt(), event.y.toInt())) return false
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
+    override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
+        when (event.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> { pressedLink = linkAt(event.x, event.y); downX = event.x; downY = event.y }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+                if (kotlin.math.abs(event.x - downX) > slop || kotlin.math.abs(event.y - downY) > slop) pressedLink = null
+            }
+            android.view.MotionEvent.ACTION_POINTER_DOWN -> pressedLink = null
+            android.view.MotionEvent.ACTION_UP -> {
+                val link = pressedLink
+                pressedLink = null
+                if (link != null && event.eventTime - event.downTime < android.view.ViewConfiguration.getLongPressTimeout() &&
+                    linkAt(event.x, event.y) == link && openLink(link)) {
+                    cancelLongPress()
+                    val cancel = android.view.MotionEvent.obtain(event)
+                    cancel.action = android.view.MotionEvent.ACTION_CANCEL
+                    try { super.onTouchEvent(cancel) } finally { cancel.recycle() }
+                    return true
+                }
+            }
+            android.view.MotionEvent.ACTION_CANCEL -> pressedLink = null
+        }
+        return super.onTouchEvent(event)
+    }
+
+    private val chip by lazy { InlineCodeChip() }
+    /** Inline code's chip under the field's text, as the closed grid and a paragraph draw it. */
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        val l = layout
+        if (l != null && cellRuns.any { it.code }) {
+            val box = height - extendedPaddingTop - extendedPaddingBottom - l.height
+            val top = extendedPaddingTop + if (gravity and android.view.Gravity.VERTICAL_GRAVITY_MASK == android.view.Gravity.CENTER_VERTICAL) maxOf(0, box) / 2 else 0
+            val save = canvas.save()
+            canvas.translate(compoundPaddingLeft.toFloat(), top.toFloat())
+            chip.drawRuns(canvas, l, editableText, 0, editableText.length, paint, noteStyle)
+            canvas.restoreToCount(save)
+        }
+        super.onDraw(canvas)
+    }
+
     override fun onSelectionChanged(a: Int, b: Int) {
         super.onSelectionChanged(a, b)
         if (!applying) current?.let { editor.hostSelect(it.start + a.coerceAtLeast(0), it.start + b.coerceAtLeast(0)) }
@@ -87,9 +218,7 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     }
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
         super.onCreateInputConnection(outAttrs)
-        // Android adds this flag for any multiline field. Cell text wraps, but
-        // its explicit Done action still returns to the note; Rust owns Enter.
-        outAttrs.imeOptions = outAttrs.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION.inv()
+        // Android adds IME_FLAG_NO_ENTER_ACTION for a multiline field: Enter stays a key, and Rust owns it.
         outAttrs.initialSelStart = selectionStart; outAttrs.initialSelEnd = selectionEnd
         return engineInputConnection(editor, this, cell = true)
     }
@@ -141,6 +270,10 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         val connection = engineInputConnection(editor, this, cell = true)
         editor.handler.post { connection.sendKeyEvent(event) }
         return true
+    }
+    fun showKeyboard() {
+        requestFocus()
+        context.getSystemService(InputMethodManager::class.java).showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
     }
     fun restartKeyboard() { context.getSystemService(InputMethodManager::class.java).restartInput(this) }
 }
