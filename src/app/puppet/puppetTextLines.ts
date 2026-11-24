@@ -4,7 +4,7 @@
 import type { Line } from '$features/editor/desktop/lineModel';
 import { scrollerOf } from '$features/editor/desktop/paneScroll';
 import type { EditorView } from '$features/editor/desktop/view';
-import type { OnScreen } from './puppetNoteLines';
+import type { OnScreen } from './puppetText';
 
 /** A line's kind as drawn, outermost first, joined by ` > `: `quote` per quote level, then a
  *  list item's marker on its first line (`bullet`, a numbered item's marker as typed such as `3.`

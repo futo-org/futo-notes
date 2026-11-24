@@ -35,7 +35,7 @@ Their nested manuals own build, device, release, and test variants. Missing
 ## 3. Monorepo map
 
 - `src/`: shared UI, reactive state, and coordination.
-- `packages/editor/`: hot-path TS rules, bridge contract, toolbar manifest.
+- `packages/editor/`: hot-path TS rules (note filename/tags/images/preview), toolbar and title manifests.
 - `crates/`: `-model` (pure note rules, no fs) · `-core` (hashing, E2EE crypto, 3-way merge, path
   safety + atomic files) · `-store` (THE local note engine) · `-sync` (push-first `run_sync`, SSE) ·
   `-license` (the paid-client-license rule: v2 FUTOpay activation, offline verification) ·
@@ -43,11 +43,11 @@ Their nested manuals own build, device, release, and test variants. Missing
 - `apps/`: Tauri desktop, iOS and Android shells, Linux CLI.
 - `docs/spec/`: behavioral truth; `docs/qa/`: story documents for what only a real
   device can show (a camera, an OS auth sheet, a keychain), each carrying the result of
-  the last run and what that run could not prove; `tests/` (unit, Playwright, and the
-  editor gauntlet): fixture/oracle systems.
+  the last run and what that run could not prove; `tests/` (unit, Playwright, Puppet
+  stories): fixture/oracle systems.
 - `release-notes/`: one `v<X.Y.Z>.md` per stable release — the App Store and Play copy (§5).
 
-Generated and gitignored: native bindings/JNI libraries and `editor.html`. The external sync server
+Generated and gitignored: native bindings/JNI libraries and the editor WASM build. The external sync server
 (its own Go repo) receives only client-encrypted opaque blobs; sync tests download the release
 pinned in `scripts/sync-server-pin.json`, so no checkout of it is needed here.
 
@@ -145,16 +145,15 @@ These are observed failures, not generic advice.
   `tests/conformance/*` goldens, pass the differential lock, and test both consumers;
   `packages/editor/AGENTS.md` owns the procedure.
 - **M8 — Generated-file edit.** Edit the registered source of truth and regenerate; never hand-edit
-  `ToolbarSpec.*`/`TitleSpec.*`, uniffi bindings/JNI libs, or the **bundled**
-  `editor.html` — the root `editor.html` IS the hand-written source. Regenerate with
+  `ToolbarSpec.*`/`TitleSpec.*` or uniffi bindings/JNI libs. Regenerate with
   `just toolbar-spec` / `just title-spec` / `scripts/build-rust-ios.sh` (and its
-  android sibling) / `vite build --config vite.editor.config.ts`.
+  android sibling).
 - **M9 — Stale FFI bindings.** Rebuild Rust bindings (`just build-rust-ios` /
   `just build-rust-android`) before native testing. `just *-native` does; direct Xcode/Gradle
   does not.
 - **M10 — Toolbar contract drift.** `toolbar.ts` owns the shared item manifest. Mobile
-  dispatches through Rust editor sessions; desktop toolbar behavior belongs in shared
-  `createToolbarExec` (`src/features/editor/milkdown/toolbarExec.ts`), never a shell.
+  dispatches through Rust editor sessions; desktop toolbar behavior belongs in the desktop
+  editor's `FormatToolbar.svelte`/`formats.ts` (engine commands), never a shell.
 
 ### C. CI and release (the single most-churned area of this repo)
 
@@ -199,7 +198,7 @@ once on device, and commit; the full suites run once, on the merged branch. Repo
 | ID       | Change           | Required chain                                                                                           |
 | -------- | ---------------- | -------------------------------------------------------------------------------------------------------- |
 | **7.1**  | UI/Svelte        | `src/AGENTS.md`                                                                                          |
-| **7.2**  | Milkdown editor  | `src/AGENTS.md`                                                                                          |
+| **7.2**  | Desktop editor   | `src/AGENTS.md`                                                                                          |
 | **7.3**  | Note/editor rule | `packages/editor/AGENTS.md` + both Rust/TS consumers + `just test-rust` (goldens + TS↔Rust differential) |
 | **7.4**  | Rust core/Tauri  | nearest crate or `apps/tauri/AGENTS.md`                                                                  |
 | **7.5**  | Sync             | `crates/futo-notes-sync/AGENTS.md`; preserve push-first                                                  |
@@ -259,7 +258,7 @@ wall-clock in one month of transcripts.
 4. Publishing: posting to Zulip, F-Droid, and **tagging a release — a stable tag publishes
    straight to Play production and Apple review, not to a testing track**.
 5. Changing specified intent rather than closing a Gap.
-6. Sync payload, `BRIDGE_VERSION`, or `AppState` schema changes.
+6. Sync payload or `AppState` schema changes.
 
 After two failed approaches, stop, write competing hypotheses, and run the cheapest discriminator;
 two strikes on the same fix means re-diagnosing with `/codex:rescue`. If evidence contradicts the

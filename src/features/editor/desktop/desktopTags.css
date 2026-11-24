@@ -2,13 +2,13 @@
  * docs/spec/editor/desktop/tags.md. */
 
 /* Colour only: a tag is plain text, so its glyphs keep the text's own advance and typing in
- * one never shifts the line. The colour is the Milkdown editor's `.futo-tag`. */
+ * one never shifts the line. */
 .desktop-editor .tag {
   color: var(--color-primary, #f26b1f);
 }
 
 /* Front matter: the engine hides its fences and shows each line as written, inert. Drawn as
- * the Milkdown editor's metadata panel (muted, monospace, a left rule on the surface colour),
+ * a metadata panel (muted, monospace, a left rule on the surface colour),
  * line by line, on the editor's own monospace face and code size. The fill and the rule are
  * tints of the text colour, as a code block's well and a quote's bars are: the selection is
  * drawn behind the lines (highlight.ts), and an opaque panel hid a selection covering it. */

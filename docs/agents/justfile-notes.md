@@ -76,15 +76,6 @@ ONE arm64 simulator, so the arm64-only FFI sim slice links without `EXCLUDED_ARC
 also ad-hoc signs so the app test host launches with its keychain entitlement (mirrors
 `run.sh`).
 
-## Debug builds take the editor bundle with the puppet inspector
-
-A Debug app's `editor.html` carries the puppet inspector, a Release app's does not: `editor.html`
-is one staged file, so a Debug recipe that built it without the inspector left every later Debug
-install without one. `build-ios-native`, `build-android-native` and `test-ios-native` (whose test
-host IS the Debug app) all build it with `VITE_INCLUDE_TEST_HOOKS=true`: the shipped, minified
-bundle plus the inspector, with function names kept for its trace (`vite.editor.config.ts`).
-`test-android-perf` builds without it, so the gate measures the bundle that ships.
-
 `test-ios-native` also turns the simulator's accessibility back on however the run ends: the UI
 tests switch it off when they finish, and the puppet listener's screen reader needs it on.
 
@@ -145,19 +136,6 @@ each family at its own, and stops both by PID. The hosted leg runs only when the
 server can do stand-in mode (`standinMode` in `scripts/sync-server-pin.json`, or
 `FUTO_NOTES_E2EE_SERVER_STANDIN=1` with your own build); when it cannot, those scenarios
 stay covered by the in-test stub (`just test-sync`).
-
-## chunk-census
-
-Proves progressive open's one load-bearing claim: parsing a note in top-level chunks and
-appending them produces the SAME document as parsing it whole (docs/plan/milkdown-transition.md
-§5, issue #105). Drives the REAL editor.html over a corpus of real notes at the finest cut
-granularity the planner allows, and exits non-zero on a single divergence. NOT in
-`check`/CI — the corpus is real user notes and lives outside this repo. Committed result:
-`docs/evidence/milkdown-chunk-census.md`. `--dump-divergences <path>` writes the offending
-notes for triage (carries note TEXT, keep it out of the repo). `--serialize` runs the OTHER
-equivalence claim over the same corpus/harness: the save path's per-block cache
-(`createDocumentSerializer`, serializationLoop.ts) must match the editor's serializer writing
-the whole document. A serializer that throws counts as a failure, never as a match.
 
 ## check-node-modules
 
@@ -229,8 +207,7 @@ no allowlist entry: every user-triggerable action must be a `futo-puppet` verb
 SwiftUI and Compose control is: a control labelled with a catalog key must be claimed by a verb's
 `controls`, and a verb's controls must exist, read from source at build time. Exceptions with
 reasons: `scripts/puppet-verbs-allowlist.json` (files) and
-`scripts/puppet-controls-allowlist/<platform>.json` (controls and verbs). It does not see a
-ProseMirror plugin's `handleClick`/`handleDOMEvents`/`handleKeyDown` props.
+`scripts/puppet-controls-allowlist/<platform>.json` (controls and verbs).
 
 `check-puppet-first` fails if any instruction surface teaches an agent to DRIVE this app with
 anything but `just puppet`: the retired simulator/emulator input tools (axe, idb, adb input),

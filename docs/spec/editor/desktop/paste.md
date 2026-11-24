@@ -1,7 +1,7 @@
 ### Desktop editor: pasting and dropping _(desktop)_
 
 What a paste writes is the engine's ([portable-core/clipboard.md](../portable-core/clipboard.md));
-an image's file is saved by the shell's image doors, the same ones the Milkdown editor uses
+an image's file is saved by the shell's image doors, the same ones the editor's `/image` item uses
 ([images.md](../images.md)), and its reference is written by the engine's image insertion
 ([portable-core/images.md](../portable-core/images.md)). The page builds no Markdown itself.
 Stories: tests/desktop-editor-paste-stories.mjs, through Puppet's `clipboard {"image"}` and

@@ -1,6 +1,6 @@
 /* Wikilink completion (portable-core/wikilinks.md "Completion"): after `[[` the notes whose id
  * holds what is typed since, the engine's run and candidates, in a list under the caret
- * (caretList.ts, dressed as the Milkdown editor's popup: markdown-links.css). Up and Down
+ * (caretList.ts, dressed in desktopLinks.css). Up and Down
  * move, Enter or Tab accept before any list or table rule gets the key, Escape closes it and
  * keeps what was typed, until the caret leaves that run. Accepting is the engine's: `[[full/id]]` in place of the run (an `]]` after the caret included), the
  * caret after it, one Undo step. Read after every change the caret's frame draws, only on a line

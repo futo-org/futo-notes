@@ -267,8 +267,8 @@ private fun computeToolbarSnapPx(
  * manifest command id, and `formatState` only ever names those — so the
  * dismiss and picker buttons are unaffected by construction.
  *
- * [enabled] is bridge `formatState.disabled` (Undo/Redo with an empty
- * prosemirror-history stack): dims the icon/text AND passes through to
+ * [enabled] is `formatState.disabled` (Undo/Redo with an empty history):
+ * dims the icon/text AND passes through to
  * [IconButton]'s own `enabled`, so the tap is blocked outright, matching
  * iOS's `.disabled(isDisabled)` treatment (EditorToolbar.swift).
  */

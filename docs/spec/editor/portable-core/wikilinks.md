@@ -1,7 +1,6 @@
 # Wikilink roles and note ids
 
-These are the portable replacement core's contracts. The shipping Milkdown editor keeps
-its existing wikilink contract until renderer integration and cutover.
+These are the portable core's contracts (desktop: `../desktop/links.md`).
 
 - A projection reports each `[[target]]` the line reader finds with the canonical `find_wikilinks` grammar: the whole inner text is the target (`|alias`, an inner `[[` and Markdown-looking text included), a leading `!` stays text, and empty or line-crossing brackets are not links. The role's range covers the visible glyphs, brackets included; display text keeps the source spelling. → crates/futo-notes-editor/src/engine/project.rs, crates/futo-notes-editor/src/engine/tests/wikilinks/
 - Wikilinks are read on every line with inline marks (plain, indented, heading, list, quote and table lines) and before link syntax, so `[[a]](u)` is a wikilink. Code spans, fenced code, an escaped bracket and front matter hold none. → crates/futo-notes-editor/src/lines/inline/scan.rs, crates/futo-notes-editor/tests/fixtures/linedown/inline.json

@@ -136,20 +136,3 @@ export function classifyImagePaste(
   if (looksLikeImagePaste(clipboardData)) return { kind: 'hiddenBitmap' };
   return { kind: 'none' };
 }
-
-/** Base64 of a file's bytes, as the `saveImageData` bridge message carries it. */
-export function readFileAsBase64(file: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error('image read failed'));
-    reader.onload = () => {
-      if (typeof reader.result !== 'string') {
-        reject(new Error('image read produced no data URL'));
-        return;
-      }
-      const comma = reader.result.indexOf(',');
-      resolve(comma >= 0 ? reader.result.slice(comma + 1) : reader.result);
-    };
-    reader.readAsDataURL(file);
-  });
-}

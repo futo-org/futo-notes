@@ -39,7 +39,7 @@ satisfy it yet — that's what makes gaps visible.
 | [app.md](app.md) | Cross-cutting: render lifecycle, data safety, where logic lives |
 | [cli.md](cli.md) | `futo-notes` terminal client: headless Linux, self-hosted password-mode sync |
 | [desktop-rust.md](desktop-rust.md) | Desktop Rust adapter architecture, naming, IPC/event stability, and compatibility rules |
-| [editor.md](editor.md) | The Markdown editor (shared WYSIWYG Milkdown WebView) |
+| [editor.md](editor.md) | The Markdown editor (engine-backed desktop editor; native iOS/Android editors) |
 | [editor-visual.md](editor-visual.md) | Markdown editor appearance and layout |
 | [license.md](license.md) | Paid client license: contract, states, deep link, store posture |
 | [list.md](list.md) | Note list, home feed, folder browsing, note/folder ops |
@@ -59,7 +59,7 @@ satisfy it yet — that's what makes gaps visible.
   rewrite's acceptance criteria.
 - `tests/conformance/*.json` — hand-reviewed pure-rule behavior shared by TS
   and Rust; the rule differential separately checks broad implementation parity.
-- `tests/editor-gauntlet/` — the editor's permanent regression suite: the
-  split-torture matrix, the foreign-corpus sweep, and the performance floor.
+- `tests/desktop-editor-*-stories.mjs` and `src/features/editor/desktop/*.test.ts` — the
+  desktop editor's Puppet stories and unit tests.
 
 These specs reference the lower layers but don't duplicate them.

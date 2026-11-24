@@ -80,13 +80,7 @@ describe('argument passing', () => {
     'test-android-native',
     'test-android-perf',
     'test-android-perf-quick',
-    'bench-block-drag',
-    'bench-editor',
-    'bench-climb-gate',
     'qa-server',
-    'chunk-census',
-    'gauntlet-milkdown-foreign',
-    'milkdown-census',
   ])('forwards user-supplied text verbatim in `%s`', (recipe) => {
     const recipeBody = body(recipe);
     expect(recipeBody).toContain('"$@"');

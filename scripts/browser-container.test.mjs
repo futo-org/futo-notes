@@ -7,7 +7,7 @@ it('matches the installed Playwright revision and keeps all runtime state in the
     version: '1.63.0',
     engine: 'webkit',
     runName: 'browser-container-abc',
-    tests: ['tests/p0-regressions.spec.ts', '--grep', 'two words $(false)'],
+    tests: ['tests/search.spec.ts', '--grep', 'two words $(false)'],
   });
   expect(args).toContain('mcr.microsoft.com/playwright:v1.63.0-noble');
   expect(args).toContain('/checkout with spaces:/work:rw');
@@ -18,7 +18,7 @@ it('matches the installed Playwright revision and keeps all runtime state in the
   expect(args).toContain('FUTO_VERIFICATION_DIR=/work/verification-runs/browser-container-abc');
   expect(args.slice(-4)).toEqual([
     'playwright.container.config.ts',
-    'tests/p0-regressions.spec.ts',
+    'tests/search.spec.ts',
     '--grep',
     'two words $(false)',
   ]);

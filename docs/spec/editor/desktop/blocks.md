@@ -87,3 +87,7 @@ character itself never shows. Fenced code blocks are [code-blocks.md](code-block
   `indent`. Its `text` leaves an item's marker unit out (the kind names it) while its offsets
   count it: an item's `at` is before the marker. `elements` lists each task's checkbox, so a
   real `click` toggles it. → src/app/puppet/puppetTextEditor.ts `docTextOf`
+
+> **Gap:** _(desktop)_ A block cannot be dragged to a new place: the desktop editor has no ⠿
+> gutter handle and no block drag. Native mobile blocks move by [block drag](../mobile/block-drag.md). →
+> src/features/editor/desktop/ (no block-drag module)

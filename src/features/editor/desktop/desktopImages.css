@@ -2,9 +2,8 @@
  * at no size (it stays the line's text, for the caret and the selection), then its picture. The
  * element is an inline block hanging from its row's top, so a picture taller than a row makes
  * its row as tall as itself and text beside it stands on the row's first line, level with a
- * list's marker (lineRowAt.ts measures that row). Its size limits and corners are the current
- * editor's (milkdownEditor.blocks.css): at most the text column's width and 300px tall, its
- * proportions kept. */
+ * list's marker (lineRowAt.ts measures that row). At most the text column's width and 300px
+ * tall, its proportions kept. */
 /* On the wrap, so the selection's band behind a picture (highlight.ts) takes it too. */
 .desktop-editor-wrap {
   --picture-radius: 6px;

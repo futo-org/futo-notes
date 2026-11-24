@@ -145,9 +145,9 @@ web is acceptable. Unsure → Tauri.
 
 ### Editor validation follows the renderer
 
-Desktop Milkdown changes run browser and desktop checks. Mobile renderer changes run the
+Desktop editor changes run desktop checks (Puppet stories). Mobile renderer changes run the
 owning Swift/Kotlin chains and device checks. Shared Rust engine changes rebuild native
-bindings and validate both mobile consumers. Mobile never bundles `editor.html`.
+bindings and validate both mobile consumers.
 
 ### Handling loading/async states in screenshots
 

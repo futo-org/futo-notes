@@ -11,7 +11,6 @@ vi.mock('$lib/platform', async (importOriginal) => ({
 import Modal from '$shared/dialogs/Modal.svelte';
 import { localizedText } from '$shared/localization';
 
-import { mountEditor } from './puppetEditor.fixture';
 import { describeElement } from './puppetElements';
 import { runPuppetCommand } from './puppetInspector';
 import { errorOf, run } from './puppetInspector.fixture';
@@ -37,7 +36,7 @@ describe('a modal dialog', () => {
 
   // Settings open, `Select` still moved the caret in the note behind it and took focus there.
   it('leaves only its own verbs and the window shortcuts, and says why the rest refuse', async () => {
-    await mountEditor();
+    registerPuppetVerbs(() => [puppetVerb('Select', { find: 'string?' }, () => {})]);
     registerPuppetVerbs(() => [puppetVerb('OpenNote', { noteId: 'string' }, () => {})]);
     registerPuppetVerbs(() => [puppetVerb('NewTab', {}, () => {})], { windowShortcuts: true });
     const dialog = openDialog(() => [puppetVerb('ConfirmDialog', {}, () => {})]);
@@ -75,7 +74,9 @@ describe('a modal dialog', () => {
   });
 
   it('names no verb it hides on a row behind it', async () => {
-    await mountEditor();
+    registerPuppetVerbs(() => [
+      puppetVerb('Undo', {}, () => {}, { controls: ['editor.toolbar.undo'] }),
+    ]);
     const undo = document.createElement('button');
     undo.setAttribute('aria-label', localizedText('editor.toolbar.undo'));
     document.body.append(undo);

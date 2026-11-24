@@ -4,11 +4,11 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import path from 'path';
 import { portsFor, webPort } from './scripts/lib/slot.mjs';
 
-// The only CodeMirror code the app still imports STATICALLY: the Lezer
-// tokenizer and highlighter that `milkdown/codeHighlight.ts` paints code
-// fences with, plus what `@codemirror/language` drags in behind it
-// (`@codemirror/state` and `@codemirror/view` are its own dependencies, not
-// ours — nothing in this repo imports them directly any more).
+// The CodeMirror core the app imports: the Lezer tokenizer and highlighter the
+// desktop editor colours code blocks with (`features/editor/desktop/codeGrammars.ts`),
+// plus what `@codemirror/language` drags in behind it (`@codemirror/state` and
+// `@codemirror/view` are its own dependencies, not ours — nothing in this repo
+// imports them directly any more).
 //
 // Everything else under `@codemirror`/`@lezer` is a code-fence GRAMMAR,
 // reached only through the `import()` thunks in
@@ -36,11 +36,9 @@ const IGNORED_WATCH_DIRS = [
   'playwright-report',
   'apps/android/app/build',
   'apps/android/build',
-  'apps/android/app/src/main/assets/editor.html',
   'apps/ios/.build',
   'apps/ios/.build-device',
   'apps/ios/.build-device-release',
-  'apps/ios/Resources/editor.html',
 ].map((dir) =>
   path
     .resolve(import.meta.dirname, dir)

@@ -90,17 +90,13 @@ async function main() {
     });
     await sleep(1_000);
 
-    // `.ProseMirror` is the contenteditable Milkdown mounts inside the
-    // `.futo-milkdown` wrapper (src/features/editor/milkdown/MilkdownEditor.svelte;
-    // same selector tests/lib/desktopEditor.ts's EDITOR constant uses for the
-    // Playwright specs). CodeMirror's `.cm-editor`/`.cm-content` are gone —
-    // the editor swapped to Milkdown/ProseMirror (main pipeline 36733, job
-    // 257108: ".cm-editor not found in DOM after 30s").
+    // `.desktop-editor` is the contenteditable the desktop editor mounts
+    // (src/features/editor/desktop/view.ts).
     let editorFound = false;
     for (let attempt = 0; attempt < 15; attempt++) {
       const editorCheck = await send(ws, 'execute_js', {
         script: `(() => {
-          const el = document.querySelector('.ProseMirror');
+          const el = document.querySelector('.desktop-editor');
           return el ? 'found' : 'missing';
         })()`,
       });
@@ -112,29 +108,27 @@ async function main() {
       await sleep(2_000);
     }
     if (!editorFound) {
-      throw new Error('.ProseMirror not found in DOM after 30s');
+      throw new Error('.desktop-editor not found in DOM after 30s');
     }
 
-    // Focus and type. `.ProseMirror` is itself the contenteditable root —
-    // there is no separate content sub-element the way `.cm-content` sat
-    // inside `.cm-editor`.
+    // Focus and type: `.desktop-editor` is itself the contenteditable root.
     await send(ws, 'execute_js', {
       script: `(() => {
-        const content = document.querySelector('.ProseMirror');
-        if (!content) return 'no .ProseMirror';
+        const content = document.querySelector('.desktop-editor');
+        if (!content) return 'no .desktop-editor';
         content.focus();
         document.execCommand('insertText', false, 'smoke-test-check');
         return 'typed';
       })()`,
     });
 
-    // Brief pause for ProseMirror to process
+    // Brief pause for the editor to draw
     await sleep(500);
 
     // Read back content
     const readBack = await send(ws, 'execute_js', {
       script: `(() => {
-        const content = document.querySelector('.ProseMirror');
+        const content = document.querySelector('.desktop-editor');
         return content ? content.textContent : '';
       })()`,
     });

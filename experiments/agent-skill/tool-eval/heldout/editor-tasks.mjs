@@ -1,4 +1,4 @@
-// The `editor` set: goals about what the Milkdown editor added or changed — tables, code
+// The `editor` set: goals about what the WYSIWYG editor added or changed — tables, code
 // blocks, list structure, dividers, links, wikilink suggestions — plus the delete dialog.
 // Same vault, same rules and same checks as the held-out set (README.md): every verifier
 // checks the WHOLE vault, and the goals are judged on, never tuned on. Written 2026-10-05.

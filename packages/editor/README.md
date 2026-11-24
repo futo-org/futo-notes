@@ -1,39 +1,29 @@
 # @futo-notes/editor
 
-Shared desktop Markdown editor code, browser embed contract, and native toolbar/title manifests.
+Shared note rules, toolbar/title manifests and the editor engine's payload types.
 
-Desktop Tauri consumes the editor as Svelte/TypeScript source and mounts
-`MilkdownEditor.svelte` directly. The standalone browser fixture mounts the same component
-through the versioned `futoBridge` contract. iOS and Android use native views backed by Rust
-editor sessions and consume this package’s generated toolbar/title manifests.
+Desktop Tauri edits through the engine-backed desktop editor (`src/features/editor/desktop/`),
+a view over the Rust editor engine (`crates/futo-notes-editor`, compiled to WASM). iOS and
+Android use native views backed by Rust editor sessions and consume this package's generated
+toolbar/title manifests.
 
 Consumed as TypeScript source with no build step.
 Path alias: `@futo-notes/editor` → `packages/editor/src`.
 
-This package also owns the sanctioned synchronous TypeScript mirrors of the
-Rust note rules needed in the editor hot path, including image filename
-classification. Cross-language fixtures in `tests/conformance/` keep those
-mirrors aligned with Rust.
+This package owns the sanctioned synchronous TypeScript mirrors of the Rust note rules needed
+in hot paths — filename/title (`filename.ts`), tags (`tags.ts`), image filename classification
+(`images.ts`) and note previews (`preview.ts`) — plus `wellFormed.ts` (no lone surrogate leaves
+the editor). Cross-language fixtures in `tests/conformance/` keep those mirrors aligned with Rust.
 
-## The bridge contract — `src/bridge.ts`
+## Manifests
 
-`bridge.ts` is the single source of truth for the editor ↔ host interface:
+`toolbar.ts` (the toolbar items, order, grouping, labels, icons and visibility) and the title
+rules in `filename.ts` are the sources of truth for the native shells: `scripts/gen-toolbar-spec.ts`
+and `scripts/gen-title-spec.ts` generate `ToolbarSpec.*` / `TitleSpec.*` from them
+(`just toolbar-spec`, `just title-spec`).
 
-- `FutoEditorApi` — the `window.FutoEditor` surface hosts call into.
-- `FutoEditorOutboundMessage` — the discriminated union the editor posts back
-  to the host's `futoBridge` sink.
-- `BRIDGE_VERSION` — bump on any breaking change; the `ready` message carries
-  it so a host can refuse a bundle it doesn't understand.
-
-The standalone editor entry point (`src/editor-embed/main.ts`) implements this contract.
-The browser suites in `tests/editor-embed-milkdown*.spec.ts` exercise its host messages.
-
-## The bundle — `editor.html`
-
-The repo-root `editor.html` is the hand-written entry point for a self-contained browser
-fixture with JS/CSS inlined. `vite.editor.config.ts` owns the build. The embed test setup
-builds an isolated copy for each run; `pnpm run test:e2e:editor-embed` exercises it.
-Native mobile builds do not stage or load this HTML.
+`wasmPayloads.d.ts` (`@futo-notes/editor/wasm-payloads`) holds the TypeScript shapes of the engine's
+WASM payloads.
 
 ## Test
 

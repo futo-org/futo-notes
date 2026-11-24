@@ -2,7 +2,7 @@
   import { listenForFocusChange } from '$shared/dom/listenForFocusChange';
   import DesktopEditor from '$features/editor/desktop/DesktopEditor.svelte';
   import FindPanel from '$features/editor/desktop/FindPanel.svelte';
-  import type { FindBarState } from '$features/editor/milkdown/find';
+  import type { FindBarState } from '$features/editor/desktop/findInNote';
   import { desktopEditorDebugEntries } from '$features/editor/desktop/debugToggles.svelte';
   import NoteTagBar from '$features/editor/NoteTagBar.svelte';
   import type { HeaderTagEdits } from '$features/editor/desktop/headerTagEdits';

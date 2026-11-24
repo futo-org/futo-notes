@@ -588,19 +588,10 @@
         "insertAfter": "在后面插入",
         "delete": "删除",
         "columnOptionsAccessibilityLabel": "列选项",
-        "rowOptionsAccessibilityLabel": "行选项",
-        "headerRowMustStayFirst": "表头行必须保持在第一行。",
-        "headerRowCannotBeDeleted": "无法删除表头行。",
-        "needsAtLeastOneRow": "表格至少需要一行。",
-        "needsAtLeastOneColumn": "表格至少需要一列。"
+        "rowOptionsAccessibilityLabel": "行选项"
       },
       "progressiveLoad": {
-        "loadingRest": "正在加载此笔记的其余部分…",
         "opening": "正在打开此笔记…"
-      },
-      "loadFailed": {
-        "heading": "无法显示此笔记。",
-        "body": "此版本的编辑器无法读取其中的 Markdown，因此以只读方式显示。磁盘上的内容没有任何更改。"
       },
       "android": {
         "clipboardTooLarge": "文本过多，无法复制。请少选一些内容后重试。"

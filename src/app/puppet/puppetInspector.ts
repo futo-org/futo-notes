@@ -15,17 +15,13 @@ import { textEditorLinesOnScreen, textEditorPositionAt } from './puppetTextEdito
 import { collectElements, elementForRef, ownersOf, stackAt } from './puppetElements';
 import { showElement } from './puppetShowElement';
 import { clipboard } from './puppetClipboard';
-import { editorDoc, editorState, showText, lineView } from './puppetEditorReads';
-import { editorVerbs } from './puppetEditorVerbs';
-import { offsetInLine } from './puppetLines';
-import { linesOnScreen, noteLines, shownLines } from './puppetNoteLines';
+import { editorDoc, editorState, showText } from './puppetEditorReads';
 import { scrollEntries } from './puppetSections';
 import {
   puppetCopied,
   puppetProviders,
   puppetRefusal as refuse,
   currentScreen,
-  editorOnScreen,
   ok,
   registeredVerbs,
   registerPuppetVerbs,
@@ -292,17 +288,6 @@ function at(args: Args): PuppetOutcome {
   if (textView && stack.some((row) => elementForRef(row.ref) === textView.dom)) {
     body.editor = textEditorPositionAt(textView, x, y);
   }
-  const view = puppetProviders.editor?.getView();
-  if (view && stack.some((row) => row.role === 'editor')) {
-    const hit = view.posAtCoords({ left: x, top: y });
-    const entry = hit ? noteLines(view.state.doc).at(hit.pos) : null;
-    body.editor = hit
-      ? {
-          pos: hit.pos,
-          ...(entry ? { line: entry.line, col: offsetInLine(entry, hit.pos) + 1 } : {}),
-        }
-      : null;
-  }
   return ok(body);
 }
 
@@ -363,18 +348,8 @@ function trace(args: Args): PuppetOutcome {
  */
 function observe(): PuppetOutcome {
   const rows = collectElements({});
-  const view = puppetProviders.editor?.getView();
   const screen = currentScreen();
-  // `editor` with no id is the phones' embed, which has no shell to name a screen and
-  // is nothing but an editor: without this its `lines` came back empty and a driver
-  // wrote into a document it could not read.
-  const editor = puppetProviders.editor;
-  const lines =
-    view && editor && editorOnScreen()
-      ? shownLines(noteLines(view.state.doc), linesOnScreen(view)).map((entry) =>
-          lineView(entry, view, editor),
-        )
-      : textEditorLinesOnScreen();
+  const lines = textEditorLinesOnScreen();
   return ok({
     screen,
     editor: editorState(),
@@ -457,7 +432,6 @@ export function runPuppetCommandJson(command: string, argsJson: string): string 
  */
 export function installPuppetInspector(): void {
   (window as unknown as { __futoPuppet?: unknown }).__futoPuppet = { run: runPuppetCommandJson };
-  registerPuppetVerbs(editorVerbs);
   registerPuppetVerbs(textEditorVerbs);
   registerPuppetVerbs(() => [scrollByVerb()], { windowShortcuts: true });
 }

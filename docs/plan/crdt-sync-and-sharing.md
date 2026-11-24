@@ -31,7 +31,7 @@ Superseded on branches that were never merged. They're kept only as evidence of 
   The prototype's code paths are cited below (`collab.rs`, `collabApply.ts`, `collab.go`). They live
   on those branches, not `main`.
 
-Updated to point here: ADR 0002's "Resolved" note and `docs/plan/milkdown-transition.md` (D2, §9).
+Updated to point here: ADR 0002's "Resolved" note (the Milkdown transition plan it also updated has since been deleted).
 In futo-notes-server, the hosted plan's data-model section, `CONTEXT.md`'s "Vault" entry, and
 `DESIGN.md`'s v1 scope lines.
 

@@ -2,7 +2,7 @@
 // Claude Code SubagentStart hook: give every subagent its OWN scratch directory.
 //
 // All lanes of a session share one scratchpad directory. Two parallel lanes
-// both wrote $SCRATCHPAD/MilkdownEditor.svelte.bak and one lane's
+// both wrote the same $SCRATCHPAD/<component>.svelte.bak and one lane's
 // restore-from-backup pulled the OTHER lane's file (pc 2026-08-31); a peer
 // overwrote scratchpad/shot.mjs mid-task and a lane executed the wrong script
 // against its worktree (pc_e89422f7e382). The harness cannot namespace the

@@ -34,7 +34,7 @@
   } from './keptEditor';
   import { EditorView } from './view';
   import { createHeaderTagEdits, type HeaderTagEdits } from './headerTagEdits';
-  import type { FindBarState } from '$features/editor/milkdown/find';
+  import type { FindBarState } from './findInNote';
   import { showNoteIdChange } from './noteIdDelivery';
   import { keepPaneScroll } from './keepPaneScroll';
   import { opensBehind, resolvePressedLink } from './linkTarget';
@@ -230,7 +230,7 @@
       },
       noteId: () => note?.noteId ?? null,
     });
-    const ownsImageUrlResolver = installVaultImageUrlResolver();
+    installVaultImageUrlResolver();
     // So does the window losing focus, being hidden or minimized, or the page going away.
     const checkpointNow = () => void checkpoint();
     const checkpointWhenHidden = () => {
@@ -254,7 +254,7 @@
       document.removeEventListener('visibilitychange', checkpointWhenHidden);
       unregisterPuppet();
       stopHotUpdates?.();
-      if (ownsImageUrlResolver) uninstallVaultImageUrlResolver();
+      uninstallVaultImageUrlResolver();
     };
   });
 

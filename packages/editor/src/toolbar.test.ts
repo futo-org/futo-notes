@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TOOLBAR_GROUPS, TOOLBAR_DISMISS, TOOLBAR_ITEMS, TOOLBAR_EXEC_IDS } from './toolbar';
+import { TOOLBAR_GROUPS, TOOLBAR_DISMISS, TOOLBAR_ITEMS } from './toolbar';
 
 describe('toolbar manifest', () => {
   it('ids are unique', () => {
@@ -34,7 +34,10 @@ describe('toolbar manifest', () => {
   });
 
   it('exec ids cover exactly the exec items', () => {
-    expect(TOOLBAR_EXEC_IDS).toEqual([
+    const execIds = TOOLBAR_ITEMS.filter((item) => item.action.kind === 'exec').map(
+      (item) => item.id,
+    );
+    expect(execIds).toEqual([
       'undo',
       'redo',
       'bold',

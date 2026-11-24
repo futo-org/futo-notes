@@ -3,9 +3,9 @@
  * command at the caret left, one Undo step. For Link and Image the engine removes the query, then
  * the Link prompt opens there, or the host's image picker does and the picked file is written as
  * a paste is (imageInput.ts); a cancelled prompt or picker leaves the query removed. The items
- * and their labels are the Milkdown menu's manifest (milkdown/slash/items.ts). */
+ * and their labels are slashItems.ts's. */
 import type { BlockCommand, DisplayRange } from '@futo-notes/editor/wasm-payloads';
-import { SLASH_ITEMS, type SlashItem } from '../milkdown/slash/items';
+import { SLASH_ITEMS, type SlashItem } from './slashItems';
 import type { EditorView } from './view';
 
 /** A picked item: its id, and for Image the files that answer its picker (Puppet). */
@@ -25,7 +25,7 @@ const SLASH_BLOCK_COMMANDS: Record<string, BlockCommand> = {
   quote: 'Quote',
   'code-block': 'CodeBlock',
   divider: 'Divider',
-  // A header row and two body rows of three columns, as the Milkdown menu's.
+  // A header row and two body rows of three columns.
   table: { Table: { rows: 3, columns: 3 } },
 };
 

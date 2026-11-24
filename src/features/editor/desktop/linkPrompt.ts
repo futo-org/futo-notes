@@ -1,4 +1,4 @@
-/* The Link prompt (decision 2026-11-17: the Milkdown editor's URL field, reused as it is): a
+/* The Link prompt (decision 2026-11-17; the field is LinkUrlField.svelte): a
  * small URL field over the selection, from the selection toolbar's Link button and Mod+K.
  * Inside a link (the engine's `inspect_link`) it opens prefilled and Update sets that link's
  * destination, an empty field removing the link; over a selection Add links it; at a plain caret
@@ -10,7 +10,7 @@
  * destination the engine saves for what was typed (`normalize_link_destination`). */
 import type { DisplayRange, LinkDescription } from '@futo-notes/editor/wasm-payloads';
 import { flushSync, mount, unmount } from 'svelte';
-import LinkUrlField from '../milkdown/linkPrompt/LinkUrlField.svelte';
+import LinkUrlField from './LinkUrlField.svelte';
 import type { Engine } from './engine';
 import type { EditorView } from './view';
 

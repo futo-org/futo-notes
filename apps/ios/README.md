@@ -5,8 +5,8 @@ iOS uses TextKit 2; Android uses native text views inside Compose. Both debug an
 release builds use this renderer. Notes stay Markdown; opening an unchanged note
 requires no conversion or rewrite.
 
-Mobile has no web editor host, JavaScript bridge, bundled `editor.html`, or
-renderer-selection preference. Desktop continues to use Milkdown.
+Mobile has no web editor host, JavaScript bridge, or
+renderer-selection preference. Desktop uses the engine-backed desktop editor.
 
 See [AGENTS.md](AGENTS.md) for builds, tests and device isolation, and the
 [engine adoption guide](../../docs/architecture/editor-engine-adoption.md) for

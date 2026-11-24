@@ -1,22 +1,13 @@
 ## Saving & rename
 
-On desktop the editor host saves the attached note (lines tagged *(desktop)*). Native mobile
+On desktop the editor host saves the attached note (lines tagged _(desktop)_). Native mobile
 source ownership, checkpoints, merge adoption and leave handling follow
-[portable recovery](portable-core/recovery.md) and [native exits](editor-exits.md). Lines that
-name Milkdown describe the standalone `editor-embed` fixture, which no app ships.
+[portable recovery](portable-core/recovery.md) and [native exits](editor-exits.md).
 
-- Every edit the user makes reaches the host once the document settles (~200 ms
-  debounce), and clearing the whole note is one of them: select-all-delete is
-  reported as a change to the empty document, however soon after the note was
-  opened. The editor knows an edit happened because it saw the TRANSACTION,
-  never by comparing the settled document against a remembered one — a cleared
-  note is byte-identical to the pristine empty document every editor starts
-  from, so any such comparison reads the user's deletion as "nothing changed"
-  and drops it. → src/features/editor/milkdown/documentChanges.ts,
-  src/features/editor/milkdown/serializationLoop.ts `reportDocumentChange`,
-  src/features/editor/milkdown/MilkdownEditor.test.ts,
-  tests/note-never-emptied.spec.ts
-- *(desktop)* A note that has content is never written back empty on the strength of an
+- Every edit the user makes reaches the host, and clearing the whole note is one
+  of them: select-all-delete is reported as a change to the empty document,
+  however soon after the note was opened. → src/features/editor/desktop/applyViewChanges.ts
+- _(desktop)_ A note that has content is never written back empty on the strength of an
   editor's word alone (CRITICAL). An empty document is only saved as a deletion
   when the user's edits emptied it; an editor that went blank on its own — a
   parse that threw, a replaced component — writes nothing. The desktop page
@@ -26,7 +17,7 @@ name Milkdown describe the standalone `editor-embed` fixture, which no app ships
   crates/futo-notes-store/src/editor_session/checkpoint.rs,
   src/features/editor/desktop/DesktopEditor.svelte `save`,
   src/features/notes/noteSessionSaveSafety.test.ts
-- *(desktop)* Opening a note never adopts an EMPTY editor serialization as the save
+- _(desktop)_ Opening a note never adopts an EMPTY editor serialization as the save
   baseline for a note with content on disk. On desktop the baseline is the
   engine's source, which the host read from the file itself (its line endings
   included), so it is empty only for an empty note. → src/features/notes/
@@ -80,7 +71,7 @@ name Milkdown describe the standalone `editor-embed` fixture, which no app ships
   `createNotePersistence.ts`, `createTabNoteTransition.ts`,
   `noteSession.svelte.ts` `flushBeforeLeaving`, DesktopEditor.svelte
   `saveFailed`
-- *(desktop)* Editor rename and move send the body, saved baseline, and destination through
+- _(desktop)_ Editor rename and move send the body, saved baseline, and destination through
   one Rust workflow. A peer-changed source remains untouched; the local draft
   becomes a conflict copy at the requested destination, and the editor follows
   the engine's final id and title. Collision handling and backlink changes stay
@@ -92,18 +83,18 @@ name Milkdown describe the standalone `editor-embed` fixture, which no app ships
   `LocalNoteStore::save_draft_as`, `move_draft`,
   `StoreEditorSession::rename_title`, DesktopEditor.svelte `rename`
 
-- *(mobile)* A renderer that becomes blank without an accepted user edit cannot empty a note: the Rust attachment remains the source of document bytes and saves, including while a title rename runs. Clearing a note through accepted input saves the intended empty source. → crates/futo-notes-store/src/editor_session/, apps/ios/Sources/Editor/TextFirst/TextFirstEditorController+Saving.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/EditorEngineStorage.kt
-- *(mobile)* Body edits stay in the Rust attachment and save 500 ms after the last edit, or at most 2 s after the first unsaved edit. A rename retargets that attachment, so a later save uses its current identity rather than recreating the old name. → crates/futo-notes-store/src/editor_session/{save,identity}.rs
-- *(mobile)* A failed save leaves the exact draft and attachment dirty and retryable, with visible save-failure feedback; a durable write advances the engine's baseline. A checkpoint may merge an independent outside edit or park an ambiguous draft and follow the returned conflict identity. Native views apply the returned source, selection, history and complete mutation. → apps/ios/Sources/Editor/TextFirst/TextFirstEditorController+Saving.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/EditorEngineStorage.kt
-- *(mobile)* Title edits debounce into a rename; iOS also offers a Rename dialog. Leaving settles a valid pending title immediately. A blank, illegal, duplicate or unchanged title leaves the body save independent; only an attempted rename that fails is a save failure. → apps/ios/Sources/Editor/TextFirst/{TextFirstNoteScreen,TextFirstTitle,TextFirstLeaves}.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt
-- *(mobile)* Rename and move preserve the live attachment's unsaved input and follow the store's final identity and backlink changes. Destructive actions settle admitted input and pending title work first; a failed required save keeps the draft available. → apps/ios/Sources/Editor/TextFirst/TextFirstNoteScreen.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt, crates/futo-notes-store/src/editor_session/identity.rs
+- _(mobile)_ A renderer that becomes blank without an accepted user edit cannot empty a note: the Rust attachment remains the source of document bytes and saves, including while a title rename runs. Clearing a note through accepted input saves the intended empty source. → crates/futo-notes-store/src/editor_session/, apps/ios/Sources/Editor/TextFirst/TextFirstEditorController+Saving.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/EditorEngineStorage.kt
+- _(mobile)_ Body edits stay in the Rust attachment and save 500 ms after the last edit, or at most 2 s after the first unsaved edit. A rename retargets that attachment, so a later save uses its current identity rather than recreating the old name. → crates/futo-notes-store/src/editor_session/{save,identity}.rs
+- _(mobile)_ A failed save leaves the exact draft and attachment dirty and retryable, with visible save-failure feedback; a durable write advances the engine's baseline. A checkpoint may merge an independent outside edit or park an ambiguous draft and follow the returned conflict identity. Native views apply the returned source, selection, history and complete mutation. → apps/ios/Sources/Editor/TextFirst/TextFirstEditorController+Saving.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/EditorEngineStorage.kt
+- _(mobile)_ Title edits debounce into a rename; iOS also offers a Rename dialog. Leaving settles a valid pending title immediately. A blank, illegal, duplicate or unchanged title leaves the body save independent; only an attempted rename that fails is a save failure. → apps/ios/Sources/Editor/TextFirst/{TextFirstNoteScreen,TextFirstTitle,TextFirstLeaves}.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt
+- _(mobile)_ Rename and move preserve the live attachment's unsaved input and follow the store's final identity and backlink changes. Destructive actions settle admitted input and pending title work first; a failed required save keeps the draft available. → apps/ios/Sources/Editor/TextFirst/TextFirstNoteScreen.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt, crates/futo-notes-store/src/editor_session/identity.rs
 - Leaving the editor flushes a pending save only if the content changed. The
   engine then decides whether the note is written, recreated, or parked.
 - A dirty draft whose original parent folder disappeared never recreates a folder renamed or removed outside the app, including a folder moved between the save decision and installation. Native iOS checkpoints (autosave, background and Back) preserve the draft as a collision-safe `<title> (recovered)` note at the vault root, project it into the list, and follow that copy for further edits; the save banner shows the copy's id. If root recovery also fails, the draft remains pending with the save-failure message. Legacy draft flushes and same-folder title renames refuse the missing parent and remain pending. Filesystem aliases count as the same parent. A peer-deleted note whose parent still exists retains the ordinary edit-wins recreation rule; an explicit move to a different destination folder may create that requested folder. → crates/futo-notes-store/src/editor_session/checkpoint.rs, `flush.rs`, `commit.rs`, `editor_draft.rs`; `a_native_draft_survives_a_vanished_parent_at_a_collision_safe_root_id`, `a_native_close_recovers_when_the_parent_vanishes_inside_the_write_window`, `a_draft_does_not_recreate_an_externally_renamed_folder`, `a_folder_removed_inside_the_draft_install_window_stays_removed`, the `does_not_resurrect_a_moved_parent` regressions and `an_explicit_draft_move_can_create_its_requested_destination_parent`
 - If a same-folder retitle already staged the note when its parent disappears, its failed rename or later crash recovery preserves the staged body as a collision-safe `<title> (recovered)` note at the vault root, never recreating the vanished folder or overwriting an existing root note. Recovery recognizes an already-installed copy, removes the staging artifact only after the body is durable, and preserves the final identity for sync when finishing a staged transaction. → crates/futo-notes-store/src/rename_journal/{moves,recovery}.rs; `a_retitle_whose_parent_moves_after_staging_recovers_visibly_without_recreating_it`, `recovery_of_a_retitle_with_a_missing_parent_keeps_one_visible_root_copy`
-- *(mobile)* A confirmed local delete is the final editor mutation for that attachment. The store marks it terminal only after deletion commits; later input and checkpoints refuse rather than recreating the deleted note. A failed delete retains the attachment and draft. Native action coordination drains title and move work and checkpoints before deletion; presenting the iOS confirmation cover alone never retires the editor. → crates/futo-notes-store/src/notes.rs, apps/ios/Sources/Editor/TextFirst/TextFirstNoteScreen.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt
-- *(mobile)* Backgrounding requests a best-effort checkpoint at the first leave-foreground signal, including edits inside the autosave window. Failed saves remain owned and retryable; immediate process death can still precede persistence. iOS keeps background time for the attempt and retries retained leaves; Android requests the checkpoint on `ON_PAUSE`. → apps/ios/Sources/Editor/TextFirst/{TextFirstNoteScreen,TextFirstLeaves}.swift, apps/ios/Sources/Notes/Editor/EditorBackgroundTask.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt
-- *(desktop)* Every editor host save (its timer and checkpoints) runs the store's
+- _(mobile)_ A confirmed local delete is the final editor mutation for that attachment. The store marks it terminal only after deletion commits; later input and checkpoints refuse rather than recreating the deleted note. A failed delete retains the attachment and draft. Native action coordination drains title and move work and checkpoints before deletion; presenting the iOS confirmation cover alone never retires the editor. → crates/futo-notes-store/src/notes.rs, apps/ios/Sources/Editor/TextFirst/TextFirstNoteScreen.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt
+- _(mobile)_ Backgrounding requests a best-effort checkpoint at the first leave-foreground signal, including edits inside the autosave window. Failed saves remain owned and retryable; immediate process death can still precede persistence. iOS keeps background time for the attempt and retries retained leaves; Android requests the checkpoint on `ON_PAUSE`. → apps/ios/Sources/Editor/TextFirst/{TextFirstNoteScreen,TextFirstLeaves}.swift, apps/ios/Sources/Notes/Editor/EditorBackgroundTask.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditorScreen.kt
+- _(desktop)_ Every editor host save (its timer and checkpoints) runs the store's
   save decision under the store gate and vault mutation guard: unchanged disk
   writes the draft, equal disk converges without rewriting, a missing note
   recreates at the original id, and a note changed outside merges three ways:
@@ -119,7 +110,7 @@ name Milkdown describe the standalone `editor-embed` fixture, which no app ships
   `editor_session/checkpoint.rs` through `attachedNote.ts` and
   `noteSession.svelte.ts` `followEditorNote`,
   `noteSessionSaveSafety.test.ts`
-- *(mobile)* The Rust session owns dirty state and the saved baseline; native screens do not publish a second whole-note snapshot register. Ownership tokens retire work on reset, and native leave owners keep failed attachments until retry or explicit discard. → apps/ios/Sources/Editor/TextFirst/TextFirstLeaves.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstController.kt, [native exits](editor-exits.md)
+- _(mobile)_ The Rust session owns dirty state and the saved baseline; native screens do not publish a second whole-note snapshot register. Ownership tokens retire work on reset, and native leave owners keep failed attachments until retry or explicit discard. → apps/ios/Sources/Editor/TextFirst/TextFirstLeaves.swift, apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstController.kt, [native exits](editor-exits.md)
 - An empty title shows the placeholder "Untitled"; the title field strips
   newlines. Leaving with an empty title keeps the note's current name: the body
   still saves and Back leaves normally.
@@ -167,7 +158,8 @@ name Milkdown describe the standalone `editor-embed` fixture, which no app ships
   → `noteSession.svelte.ts` `debouncedSave`,
   `createNoteTitleController.svelte.ts` `handleBlur`,
   `$shared/dom/pointerGesture.ts` `runWhenPointerIdle`;
-  tests/p2-regressions.spec.ts, src/shared/dom/pointerGesture.test.ts
+  src/shared/dom/pointerGesture.test.ts
+
 - The shared attached editor follows a pulled rename. A file move sync makes (a
   peer's rename, a collision placement, a park) moves the attachment in the same vault-guard hold, so
   no save can recreate the old id. A peer's rename that arrived as a delete and a create moves no

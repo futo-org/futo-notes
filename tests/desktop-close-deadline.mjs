@@ -265,9 +265,9 @@ const STALLS = {
   // An edit that raises no input event (a keymap command: select all, bold), then a stall.
   keymap: {
     arm: () => `(() => {
-      const pm = document.querySelector('.ProseMirror');
-      pm.focus();
-      const press = (key) => pm.dispatchEvent(new KeyboardEvent('keydown',
+      const editor = document.querySelector('.desktop-editor');
+      editor.focus();
+      const press = (key) => editor.dispatchEvent(new KeyboardEvent('keydown',
         { key, code: 'Key' + key.toUpperCase(), ctrlKey: true, bubbles: true, cancelable: true }));
       press('a'); press('b');
       setTimeout(() => { const t = Date.now(); while (Date.now() - t < 8000); }, 0);
@@ -280,8 +280,8 @@ const STALLS = {
       const text = ${JSON.stringify(giantParagraph(50_000))};
       const data = new DataTransfer();
       data.setData('text/plain', text);
-      document.querySelector('.ProseMirror').focus();
-      document.querySelector('.ProseMirror').dispatchEvent(
+      document.querySelector('.desktop-editor').focus();
+      document.querySelector('.desktop-editor').dispatchEvent(
         new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
       return 'pasted'; })()`,
     saved: (onDisk) => onDisk.length > 2_000_000,

@@ -55,7 +55,7 @@ const REFUSED = [
 // cross-platform sync (both of which boot a browser engine) on top of `check`.
 const CAVEATED = [
   [
-    /^(test-e2e|test-e2e-rest)$/,
+    /^test-e2e-rest$/,
     'Playwright here runs Linux Chromium/WebKit builds. Behavior and state are equivalent; ' +
       'paint, compositing and IME/timing are not (M22).',
   ],

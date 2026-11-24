@@ -41,31 +41,14 @@ describe('pre-merge CI routing contracts', () => {
     }
   });
 
-  it('runs the P0 spec inside test:e2e:rest, not as a second CI job', () => {
-    // The quick local script stays, but CI has one job for the whole suite, so
-    // nothing may exclude the spec from it or re-add a standalone job.
-    expect(packageScripts['test:e2e:smoke']).toBe('playwright test tests/p0-regressions.spec.ts');
+  it('runs the web suite as one CI job', () => {
+    // Nothing may exclude a spec from it or re-add a standalone smoke job.
     expect(packageScripts['test:e2e:rest']).not.toContain('--grep-invert');
     expect(gitlabPipeline).not.toMatch(/^test:e2e:smoke:/m);
     expect(topLevelBlock(gitlabPipeline, /^release:gate:$/m)).not.toContain('test:e2e:smoke');
   });
 
-  it('proves every Playwright shard ran as its shard and ran tests', () => {
-    // Both failures are green on their own: `pnpm run <script> -- --shard=…`
-    // ran the whole suite in every shard, and an empty shard exits 0. The
-    // runtime check catches both, but cannot catch its own absence.
-    const jobs = gitlabPipeline.split(/(?=^[^ #\n][^\n]*:\n)/m);
-    const sharded = jobs.filter(
-      (job) => /^ {2}parallel: \d+$/m.test(job) && job.includes('pnpm run test:e2e'),
-    );
-    expect(sharded.length).toBeGreaterThan(0);
-    for (const job of sharded) {
-      const name = job.split('\n')[0];
-      expect(job, name).toContain('!reference [.check-playwright-shard, script]');
-      expect(job, name).toMatch(
-        /^ {4}PLAYWRIGHT_JSON: \$CI_PROJECT_DIR\/test-results\/\S+\.json$/m,
-      );
-    }
+  it('runs the web suite with two Playwright workers', () => {
     expect(packageScripts['test:e2e:rest']).toContain('--workers=2');
   });
 

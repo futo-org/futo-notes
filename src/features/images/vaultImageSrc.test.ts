@@ -6,13 +6,11 @@ import {
   registerVaultImageUrl,
   requestVaultImageUrl,
   resolveVaultImageSrc,
-  setVaultImageBaseUrl,
   setVaultImageUrlResolver,
 } from './vaultImageSrc';
 
 beforeEach(() => {
   clearVaultImageUrlCache();
-  setVaultImageBaseUrl('');
 });
 
 describe('resolveVaultImageSrc', () => {
@@ -22,25 +20,19 @@ describe('resolveVaultImageSrc', () => {
     expect(resolveVaultImageSrc('data:image/png;base64,AAA')).toBe('data:image/png;base64,AAA');
   });
 
-  it('stops resolving when the base URL is cleared', () => {
-    setVaultImageBaseUrl('file:///notes/');
-    setVaultImageBaseUrl('');
+  it('resolves a vault filename only once its URL is registered', () => {
     expect(resolveVaultImageSrc('photo.png')).toBe('');
-  });
-
-  it('prefers a per-file registered URL over the base URL', () => {
-    setVaultImageBaseUrl('futo-asset://vault/');
     registerVaultImageUrl('photo.png', 'asset://localhost/tmp/photo.png');
     expect(resolveVaultImageSrc('photo.png')).toBe('asset://localhost/tmp/photo.png');
   });
 });
 
 describe('onVaultImageSrcChange', () => {
-  it('does not notify when the base URL is set to the value it already had', () => {
-    setVaultImageBaseUrl('futo-asset://vault/');
+  it('does not notify when a file is registered to the URL it already had', () => {
+    registerVaultImageUrl('photo.png', 'asset://vault/photo.png');
     const seen = vi.fn();
     onVaultImageSrcChange(seen);
-    setVaultImageBaseUrl('futo-asset://vault/');
+    registerVaultImageUrl('photo.png', 'asset://vault/photo.png');
     expect(seen).not.toHaveBeenCalled();
   });
 
@@ -55,7 +47,7 @@ describe('onVaultImageSrcChange', () => {
     const seen = vi.fn();
     const off = onVaultImageSrcChange(seen);
     off();
-    setVaultImageBaseUrl('futo-asset://vault/');
+    registerVaultImageUrl('photo.png', 'asset://vault/photo.png');
     expect(seen).not.toHaveBeenCalled();
   });
 
@@ -65,7 +57,7 @@ describe('onVaultImageSrcChange', () => {
       throw new Error('subscriber blew up');
     });
     onVaultImageSrcChange(second);
-    expect(() => setVaultImageBaseUrl('futo-asset://vault/')).not.toThrow();
+    expect(() => registerVaultImageUrl('photo.png', 'asset://vault/photo.png')).not.toThrow();
     expect(second).toHaveBeenCalledTimes(1);
   });
 });

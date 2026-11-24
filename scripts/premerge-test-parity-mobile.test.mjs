@@ -136,12 +136,6 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     expect(macosRustTask).toContain('cargo check -p futo-notes-ffi --target aarch64-apple-ios');
     expect(releaseGate).toContain('- job: test:rust:ffi-android');
   });
-
-  // RC-21 / L1-005: editor.html is built from vite.editor.config.ts and shipped
-  // to both native shells, and the bridge specs / Swift bridge tests run against
-  // it. An MR touching only a file in that import graph used to drop these jobs
-  // to manual+allow_failure. The graph was derived from a real build (rollup
-  // getModuleIds over vite.editor.config.ts); the globs below are its directories.
 });
 
 it.each([

@@ -134,4 +134,4 @@ table rule of its own. → src/features/editor/desktop/tableLines.ts
   for the last column). → portable-core/tables.md, editorTables.test.ts
 
 > **Gap:** the grips have no keyboard path: they are reached and used with the mouse only, on
-> hover, as in the old (Milkdown) editor, whose menu Escape closed.
+> hover.

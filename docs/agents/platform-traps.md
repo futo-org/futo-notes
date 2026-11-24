@@ -7,9 +7,7 @@ Named mistakes M21–M27 from AGENTS.md §6.E.
   success while doing nothing. Suspect the tool before the app, and **never record a spec gap from
   one tool's silence**; mechanics live in `/verify`'s `references/ios.md` + `references/android.md`.
 - **M22 — Wrong browser.** Playwright cannot prove WebView2 or real iOS keyboard behavior. Use the
-  Windows VM/device; after dependency changes, a blank editor usually means the bundle carries two
-  copies of an editor library — duplicated `prosemirror-*` (or `@milkdown/*`) instances silently
-  break the mounted view.
+  Windows VM/device.
 - **M23 — Updater signing order.** The detached `.sig` must be the LAST touch on artifact bytes —
   after patching/notarization/Authenticode. Read `docs/release/updater.md` and `keys/README.md`, and
   rehearse locally with `node scripts/release-build.mjs e2e`; localdev signatures must never verify

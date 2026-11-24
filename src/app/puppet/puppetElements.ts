@@ -8,10 +8,8 @@
  */
 
 /// <reference lib="es2021.weakref" />
-import type { EditorView } from '@milkdown/kit/prose/view';
 
 import { localizedText } from '../../shared/localization';
-import { linesOnScreen, noteLines, shownLines } from './puppetNoteLines';
 import { listenersOf } from './puppetListeners';
 import { puppetProviders, registeredVerbs } from './puppetRegistry';
 import { aimPoint, sectionOf } from './puppetSections';
@@ -117,11 +115,6 @@ export function rectOf(element: Element): Rect {
 
 type EventTable = Record<string, (...args: unknown[]) => unknown>;
 
-/** Listeners on the editable are ProseMirror's: one name, whatever it bound. */
-export function handlerLabel(target: EventTarget, name: string): string {
-  return target instanceof Element && target.classList.contains('ProseMirror') ? 'pm' : name;
-}
-
 /** Svelte 5's per-element delegated-handler table, live: the trace rewrites entries in it. */
 export function svelteEventTable(element: Element): EventTable | null {
   const symbol = Object.getOwnPropertySymbols(element).find(
@@ -132,8 +125,7 @@ export function svelteEventTable(element: Element): EventTable | null {
 }
 
 /**
- * `event=fn` per handler. Listeners on the editable are ProseMirror's and show
- * as `pm`. Default: the events a tap or key would reach.
+ * `event=fn` per handler. Default: the events a tap or key would reach.
  */
 export function handlersOf(element: Element, options: { all?: boolean } = {}): string[] {
   const handlers = new Set<string>();
@@ -141,7 +133,7 @@ export function handlersOf(element: Element, options: { all?: boolean } = {}): s
   const registered = (target: Element) => {
     for (const record of listenersOf(target)) {
       if (record.name === SVELTE_DELEGATOR || !wanted(record.type)) continue;
-      handlers.add(`${record.type}=${handlerLabel(target, record.name)}`);
+      handlers.add(`${record.type}=${record.name}`);
     }
   };
   for (const [event, handler] of Object.entries(svelteEventTable(element) ?? {})) {
@@ -168,13 +160,10 @@ export function componentOf(element: Element): string | null {
 }
 
 function isInteractable(element: Element): boolean {
-  if (element.classList.contains('ProseMirror')) return true;
   return element.matches(INTERACTABLE_SELECTOR) || handlersOf(element).length > 0;
 }
 
 function roleOf(element: Element): string {
-  // Before the explicit role: ProseMirror marks its editable `role="textbox"`.
-  if (element.classList.contains('ProseMirror')) return 'editor';
   const explicit = element.getAttribute('role');
   if (explicit) return explicit;
   const tag = element.tagName.toLowerCase();
@@ -222,45 +211,11 @@ function textAroundEditor(element: Element, editorDom: Element, onScreen: () => 
   return text;
 }
 
-/**
- * The lines on screen of an element inside the editor that covers lines off screen, null when
- * every line it covers shows: a code block taller than the screen does not read as its first
- * line, nor an image off screen as its title. ponytail: each element searches for the screen's
- * lines again, so `elements {"all":true}` over a note of many links pays it per link; pass
- * one `linesOnScreen` down from `collectElements` if that shows.
- */
-function shownPartOf(element: Element, view: EditorView): string | null {
-  const note = noteLines(view.state.doc);
-  const covered = note.between(
-    view.posAtDOM(element, 0),
-    view.posAtDOM(element, element.childNodes.length),
-  );
-  const onScreen = linesOnScreen(view, note);
-  const shown = covered.filter(
-    (entry) => onScreen && entry.line >= onScreen.first && entry.line <= onScreen.last,
-  );
-  return shown.length === covered.length ? null : shown.map((entry) => entry.text).join(' ');
-}
-
 function textOf(element: Element): string {
-  const view = puppetProviders.editor?.getView();
-  const shownPart =
-    view && element !== view.dom && view.dom.contains(element) ? shownPartOf(element, view) : null;
-  if (shownPart !== null) return collapse(shownPart);
   const labelled = element.getAttribute('aria-label') ?? element.getAttribute('title');
   if (labelled) return collapse(labelled);
   if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
     return collapse(element.value || element.placeholder);
-  }
-  if (view && element.contains(view.dom)) {
-    return collapse(
-      textAroundEditor(element, view.dom, () => {
-        const note = noteLines(view.state.doc);
-        return shownLines(note, linesOnScreen(view, note))
-          .map((entry) => entry.text)
-          .join(' ');
-      }),
-    );
   }
   const textView = puppetProviders.textEditor?.view();
   if (textView && element.contains(textView.dom)) {

@@ -1,9 +1,3 @@
-// The futoBridge contract (editor ↔ host).
-export * from './bridge';
-
-// How the bundle boots itself from the host config that contract carries.
-export * from './hostBoot';
-
 // The mobile markdown-toolbar manifest (items/order/icons/visibility) —
 // rendered by the embed's web toolbar and codegen'd into the native shells
 // (scripts/gen-toolbar-spec.ts).
@@ -24,8 +18,3 @@ export * from './images';
 
 // Text leaving the editor for disk or a host is well-formed UTF-16 (RC-48, decision 16A).
 export * from './wellFormed';
-
-// Milkdown/remark implementation adapters (docs/plan/milkdown-transition.md
-// §3). Not note rules — §3.7's M6 carve-out — but shared for the same reason:
-// one copy for both native hosts and the round-trip corpus harness.
-export * from './milkdown-compat';

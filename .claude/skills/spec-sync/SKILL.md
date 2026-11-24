@@ -23,7 +23,7 @@ gaps visible. This skill keeps that file set true.
   never reads as an accident.
 - Verified behavior may carry a dated note ("Verified on the emulator 2026-06-09").
 - **Layering:** the spec sits above `tests/conformance/*.json` (TS↔Rust rule parity) and the
-  editor's own suites (`tests/editor-embed-milkdown*.spec.ts`, `tests/editor-gauntlet/`).
+  desktop editor's own suites (`tests/desktop-editor-*-stories.mjs`, `src/features/editor/desktop/*.test.ts`).
   Reference those corpora, never duplicate their cases as prose.
 - The `> **Gap:**` notes in the area files ARE the gap inventory — nothing generates an index from
   them. List every open gap with `rg '> \*\*Gap' docs/spec/`.
@@ -43,7 +43,7 @@ Example lines to imitate:
 
    | Changed | Spec file |
    |---|---|
-   | `src/features/editor/` (Milkdown), `src/editor-embed/`, `packages/editor` | `editor.md` (+ `editor-visual.md` for visual changes) |
+   | `src/features/editor/` (desktop editor), `packages/editor` | `editor.md` (+ `editor-visual.md` for visual changes) |
    | Note list, sidebar, drawer, ForYouPage, note actions | `list.md` |
    | Routing, shell chrome, tabs | `nav.md`, `tabs.md` |
    | search* (TS or `futo-notes-search`) | `search.md` |
