@@ -323,12 +323,22 @@ export function lastEventId(): number {
 // ---------------------------------------------------------------------------
 // Actions
 
+// A verb's record is answered to `diff` and, while it is still pending, lands in
+// `.puppet/trace.jsonl`: a password or recovery key argument must not ride along.
+const SECRET_ARG = /password|recoverykey/i;
+
+function withoutSecrets(args: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(args).map(([key, value]) => [key, SECRET_ARG.test(key) ? '<redacted>' : value]),
+  );
+}
+
 function begin(kind: ActionRecord['kind'], verb?: string, args?: Record<string, unknown>) {
   const before = takeSnapshot();
   return {
     kind,
     verb,
-    args,
+    args: args && withoutSecrets(args),
     before,
     eventCursor: lastEventId(),
     changedSinceLast: changedSince(before),
