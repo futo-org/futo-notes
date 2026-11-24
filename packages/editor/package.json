@@ -7,7 +7,6 @@
   "exports": {
     ".": "./src/index.ts",
     "./bridge": "./src/bridge.ts",
-    "./milkdown-compat": "./src/milkdown-compat/index.ts",
     "./markdown": "./src/markdown/index.ts",
     "./wasm-payloads": "./src/wasmPayloads.d.ts"
   },
@@ -15,11 +14,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "remark-frontmatter": "5.0.0",
     "unicode-case-folding": "1.1.0"
   },
   "devDependencies": {
-    "mdast-util-from-markdown": "2.1.0",
     "vitest": "^5.1.0"
   }
 }

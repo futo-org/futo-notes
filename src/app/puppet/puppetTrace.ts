@@ -4,7 +4,7 @@
  * - Events: every real (or synthetic) input event, captured at the window
  *   before anything else sees it and finalised after dispatch — target,
  *   path, each handler that ran in order with what it prevented or stopped,
- *   and for the editor the position ProseMirror resolved at the point versus
+ *   and for a press in the editor the position it resolved at the point versus
  *   where the selection settled.
  * - Snapshots: derived state taken before and after every action
  *   (puppetSnapshots.ts). The app's state and vault are diffed by futo-puppet
@@ -14,25 +14,17 @@
  *
  * Ring-buffered; debug builds only (installPuppetInspector.ts).
  */
-import {
-  componentOf,
-  handlerLabel,
-  refOf,
-  SVELTE_DELEGATOR,
-  svelteEventTable,
-} from './puppetElements';
+import { componentOf, refOf, SVELTE_DELEGATOR, svelteEventTable } from './puppetElements';
 import { setHandlerRunHook } from './puppetListeners';
 import { puppetProviders, type PuppetOutcome } from './puppetRegistry';
 import type { EditorView as TextEditorView } from '$features/editor/desktop/view';
 import { textEditorPositionAt } from './puppetTextEditorReads';
 import {
   diffSnapshots,
-  editorView,
   isEmptyDiff,
   now,
   push,
   resetSnapshots,
-  selectionOf,
   snapshotById,
   takeSnapshot,
   type Selection,
@@ -61,10 +53,8 @@ export interface TraceEvent {
   target: string;
   component: string | null;
   handlers: HandlerRun[];
-  /** Pointer events over the editor: where ProseMirror resolved the point, then where the selection settled. */
+  /** Presses in the editor: where the point resolved, then where the selection settled. */
   editor?: { resolved: number | null; settled?: Selection };
-  /** `selectionchange`: the editor selection at that moment. */
-  selection?: Selection;
 }
 
 export interface ActionRecord {
@@ -179,7 +169,7 @@ function recordHandlerRun(event: Event, target: EventTarget, name: string, invok
     return;
   }
   const run: HandlerRun = {
-    fn: handlerLabel(target, name),
+    fn: name,
     on: nameOfTarget(target),
     prevented: false,
     stopped: false,
@@ -259,40 +249,13 @@ function capture(event: Event): void {
   const modifiers = modifiersOf(event);
   if (modifiers) trace.modifiers = modifiers;
 
-  const view = editorView();
-  if (view && point && target instanceof Node && view.dom.contains(target)) {
-    trace.editor = { resolved: view.posAtCoords({ left: point.x, top: point.y })?.pos ?? null };
-  }
   traceByEvent.set(event, trace);
   wrapDelegatedHandlers(path, event.type);
   push(events, trace, EVENT_LIMIT);
-  // Where the selection settled, once dispatch completes (a microtask would run between listeners).
-  const pointed = trace.editor;
-  if (pointed && view) setTimeout(() => (pointed.settled = selectionOf(view)), 0);
   const textView = puppetProviders.textEditor?.view();
   if (textView && point && PRESS_TYPES.has(event.type) && target instanceof Node) {
     if (textView.dom.contains(target)) traceTextEditorPress(trace, textView, point);
   }
-}
-
-function onSelectionChange(): void {
-  const view = editorView();
-  if (!view) return;
-  const active = document.activeElement;
-  push(
-    events,
-    {
-      id: nextEventId++,
-      t: now(),
-      type: 'selectionchange',
-      trusted: true,
-      target: active ? nameOfTarget(active) : 'document',
-      component: active ? componentOfTarget(active) : null,
-      handlers: [],
-      selection: selectionOf(view),
-    },
-    EVENT_LIMIT,
-  );
 }
 
 /**
@@ -305,7 +268,6 @@ export function installTrace(): void {
   installed = true;
   setHandlerRunHook(recordHandlerRun);
   for (const type of TRACED_TYPES) window.addEventListener(type, capture, true);
-  document.addEventListener('selectionchange', onSelectionChange);
 }
 
 export function eventsSince(since: number): TraceEvent[] {

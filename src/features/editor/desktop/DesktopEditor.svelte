@@ -34,7 +34,7 @@
   } from './keptEditor';
   import { EditorView } from './view';
   import { createHeaderTagEdits, type HeaderTagEdits } from './headerTagEdits';
-  import type { FindBarState } from '$features/editor/milkdown/find';
+  import type { FindBarState } from './findInNote';
   import { showNoteIdChange } from './noteIdDelivery';
   import { keepPaneScroll } from './keepPaneScroll';
   import { opensBehind, resolvePressedLink } from './linkTarget';

@@ -22,44 +22,39 @@ it('puts test output and both reporters inside the evidence run rather than shar
   ]);
 });
 
-it.each([
-  ['desktop', 'results.json'],
-  ['editor-embed', 'editor-embed-results.json'],
-  ['editor-gauntlet', 'editor-gauntlet-results.json'],
-])('keeps %s CI reports compatible and isolates named runs', (runner, filename) => {
-  vi.stubEnv('FUTO_VERIFICATION_DIR', '');
-  vi.stubEnv('PW_RUN_ID', '');
-  const unnamed = playwrightArtifacts(runner, filename);
-  expect(unnamed.jsonReport).toBe(`test-results/${filename}`);
-  vi.stubEnv('PW_RUN_ID', '../../before');
-  const named = playwrightArtifacts(runner, filename);
-  expect(path.dirname(named.outputDir)).toBe(path.dirname(unnamed.outputDir));
-  expect(named.outputDir).not.toBe(unnamed.outputDir);
-  expect(named.jsonReport).toBe(`${named.outputDir}/results.json`);
-  expect(path.dirname(named.htmlReport)).toBe(path.dirname(unnamed.htmlReport));
-  vi.stubEnv('FUTO_VERIFICATION_DIR', '/tmp/run');
-  const evidence = playwrightArtifacts(runner, filename);
-  expect(evidence.outputDir).toBe(
-    `/tmp/run/playwright${runner === 'desktop' ? '' : `/${runner}`}/test-output`,
-  );
-});
+it.each([['desktop', 'results.json']])(
+  'keeps %s CI reports compatible and isolates named runs',
+  (runner, filename) => {
+    vi.stubEnv('FUTO_VERIFICATION_DIR', '');
+    vi.stubEnv('PW_RUN_ID', '');
+    const unnamed = playwrightArtifacts(runner, filename);
+    expect(unnamed.jsonReport).toBe(`test-results/${filename}`);
+    vi.stubEnv('PW_RUN_ID', '../../before');
+    const named = playwrightArtifacts(runner, filename);
+    expect(path.dirname(named.outputDir)).toBe(path.dirname(unnamed.outputDir));
+    expect(named.outputDir).not.toBe(unnamed.outputDir);
+    expect(named.jsonReport).toBe(`${named.outputDir}/results.json`);
+    expect(path.dirname(named.htmlReport)).toBe(path.dirname(unnamed.htmlReport));
+    vi.stubEnv('FUTO_VERIFICATION_DIR', '/tmp/run');
+    const evidence = playwrightArtifacts(runner, filename);
+    expect(evidence.outputDir).toBe(
+      `/tmp/run/playwright${runner === 'desktop' ? '' : `/${runner}`}/test-output`,
+    );
+  },
+);
 
 // Browser-backed cleanup regression. Opt in because ordinary unit-test hosts do
 // not install Chromium. These probes use the real runner configs and reporters,
 // replacing app setup/payload and relocating relative paths into scratch.
 // PW_ARTIFACT_RETENTION_PROBE=1 just test-one scripts/playwright-artifacts.test.mjs --maxWorkers=2
 it.skipIf(!process.env.PW_ARTIFACT_RETENTION_PROBE)(
-  'retains screenshots, traces and reports across runners and run IDs',
+  'retains screenshots, traces and reports across run IDs',
   () => {
     const root = fileURLToPath(new URL('../', import.meta.url));
     const scratch = path.join(root, 'scratch');
     mkdirSync(scratch, { recursive: true });
     const dir = mkdtempSync(path.join(scratch, 'playwright-retention-'));
-    const configs = {
-      desktop: 'playwright.config.ts',
-      'editor-embed': 'playwright.editor-embed.config.ts',
-      'editor-gauntlet': 'playwright.editor-gauntlet.config.ts',
-    };
+    const configs = { desktop: 'playwright.config.ts' };
     const env = { ...process.env };
     delete env.PW_RUN_ID;
     delete env.FUTO_VERIFICATION_DIR;
@@ -131,19 +126,13 @@ it.skipIf(!process.env.PW_ARTIFACT_RETENTION_PROBE)(
         }
         for (const file of produced) snapshots.set(file, readFileSync(file));
       };
-      // Unnamed runs must not clear another runner, or earlier named runs.
-      run('editor-embed', { PW_RUN_ID: 'before' });
+      // An unnamed run must not clear earlier named runs.
       run('desktop', { PW_RUN_ID: 'before' });
-      run('editor-embed', { PW_RUN_ID: 'after' });
       run('desktop', { PW_RUN_ID: 'after' });
-      run('editor-embed');
       run('desktop');
-      run('editor-gauntlet');
       // verify-run supplies one evidence directory to commands in the same run.
       const evidence = { FUTO_VERIFICATION_DIR: path.join(dir, 'verification') };
       run('desktop', evidence);
-      run('editor-embed', evidence);
-      run('editor-gauntlet', evidence);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

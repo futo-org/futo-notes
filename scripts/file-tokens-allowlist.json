@@ -14,14 +14,6 @@
       "reason": "Append-only log written by the papercuts CLI and union-merged across branches (.gitattributes); one file is the format."
     },
     {
-      "path": "patches/prosemirror-view@1.42.7.patch",
-      "reason": "Written by pnpm patch-commit and named in pnpm-workspace.yaml patchedDependencies; its size is the upstream diff."
-    },
-    {
-      "path": "docs/perf/editor-bench-baseline.json",
-      "reason": "Output of scripts/perf/editor-bench.mjs, read back whole by --baseline."
-    },
-    {
       "path": "assets/images/logo.svg",
       "reason": "Exported vector artwork; path data, not authored text."
     },

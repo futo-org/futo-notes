@@ -102,10 +102,8 @@ export function aimPoint(element: Element): { x: number; y: number } | null {
 const scrolls = (element: Element): boolean =>
   scrollsAlong(element, 'y') || scrollsAlong(element, 'x');
 
-/** The scrolling container a row sits in; the editor scrolls its own document inside it. */
+/** The scrolling container a row sits in. */
 function scrollerOf(element: Element): Element | null {
-  const own = element.classList.contains('ProseMirror') ? element : null;
-  if (own && scrolls(own)) return own;
   for (
     let node = element.parentElement;
     node && node !== document.body;

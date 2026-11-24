@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
-import type { FindBarState } from '$features/editor/milkdown/find';
+import type { FindBarState } from './findInNote';
 import { EditorView } from './view';
 import { Engine } from './engine';
 import { loadEngineBuild } from './__test__/loadEngineBuild';

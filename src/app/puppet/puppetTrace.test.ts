@@ -42,7 +42,6 @@ const eventsSymbol = (element: Element) =>
   Object.getOwnPropertySymbols(element).find((s) => s.description === 'events')!;
 
 afterEach(() => {
-  puppetProviders.editor = null;
   puppetProviders.shell = null;
   document.body.innerHTML = '';
   resetTrace();

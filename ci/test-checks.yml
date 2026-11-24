@@ -52,9 +52,6 @@ test:
     - pnpm run check:arch-gate:portable
     - pnpm run test:full
     - pnpm run build
-    # Native shells embed this separate single-file bundle. Building it here
-    # proves editor changes without compiling two native applications.
-    - pnpm exec vite build --config vite.editor.config.ts
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
