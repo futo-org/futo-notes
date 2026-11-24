@@ -7,7 +7,10 @@
 - Opening a note and leaving it again leaves the file byte-identical: the
   engine session keeps the note's own bytes, and only an edit changes them. →
   portable-core/linedown.md, desktop/editing.md
-- A block with no text of its own — a thematic break, a wikilink, the front
-  matter panel — is reached by SELECTING it, which is how it can be deleted or
-  replaced at all in an editor that shows no source. →
-  src/features/editor/desktop/atomElements.ts, desktop/tags.md
+- An object whose source is hidden — a thematic break, an image, a wikilink — is
+  one unit, reached by SELECTING it whole (Backspace or Delete beside it takes it
+  whole), which is how it can be deleted or replaced at all in an editor that
+  shows no source. Front matter is never selected on its own: it is not edited
+  (markdown-elements.md "YAML front matter"). →
+  src/features/editor/desktop/atomElements.ts, portable-core/images.md,
+  portable-core/wikilinks.md

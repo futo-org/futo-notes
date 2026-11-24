@@ -6,5 +6,5 @@ to `editor.md`, which owns editor behavior.
 ## Reading column
 
 - Blockquote bars and code-block backgrounds stop at the reading column; they do
-  not paint through the editor's larger left gutter (the editor's gutter on desktop). →
+  not paint into the editor's left padding _(desktop)_. →
   `src/features/editor/desktop/desktopEditor.css`, `desktopCodeBlocks.css`

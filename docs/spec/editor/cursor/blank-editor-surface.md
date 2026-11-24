@@ -1,9 +1,14 @@
 ### Blank editor surface
 
-- Blank space beside lines and below the final line is part of the editor: the
-  editable element IS the scroller, and its gutters and its tail belong to it,
-  so a press there places a caret rather than falling through to the shell. →
-  src/features/editor/desktop/desktopEditor.css `.desktop-editor`
+- Blank space beside lines and below the final line is part of the editor: its
+  gutters and its tail belong to the editable surface, so a press there places a
+  caret rather than falling through to the shell. →
+  src/features/editor/desktop/desktopEditor.css `.desktop-editor`,
+  src/features/editor/desktop/hitTest.ts `hitAt`
+- The editor reserves a tail below the last line — `max(40vh, 280px)` of bottom
+  padding — so the final line can be scrolled up from the window's bottom edge.
+  _(desktop)_ → src/features/editor/desktop/desktopEditor.css
+  `.desktop-editor` padding
 - The editable element fills the whole note area in BOTH axes, however little
   the note holds: it is never sized to its own content. A box sized to its
   content leaves the space it fails to reach to the chrome, so a press there

@@ -55,8 +55,8 @@ mobile behavior is specified in [mobile images](mobile/images.md).
   and `![](image-…ext)` goes into the note at the caret. _(desktop)_
   1. **Paste** — the clipboard path above.
   2. **`/image`** — the `/` block menu's Image item opens the OS file picker
-     (`PlatformFS.pickImage`), copies the chosen file into the vault
-     (`saveImage` → `fs_save_image`) and inserts the reference. The typed `/image` run is
+     (`PlatformFS.pickImages`), copies the chosen file into the vault
+     (`saveImagePath` → `fs_save_image`) and inserts the reference. The typed `/image` run is
      deleted immediately and the reference lands whenever the file is chosen.
      The item is offered on every host the menu is (desktop only); where there
      is no picker it is inert rather than hidden, and inserts nothing.
@@ -65,7 +65,7 @@ mobile behavior is specified in [mobile images](mobile/images.md).
      no text position. Several images at once are inserted in the order dropped,
      and one that fails to save does not abort the rest.
      → src/features/editor/imageInsert.ts, desktop/slashItems.ts,
-     src/lib/platform/tauri/images.ts `pickImage`, tests/desktop-editor-paste-stories.mjs,
+     src/lib/platform/tauri/images.ts `pickImages`, tests/desktop-editor-paste-stories.mjs,
      tests/desktop-editor-slash-stories.mjs
 - **A file drop reaches the app as an ordinary HTML5 `drop`, but the SHAPE it
   carries is engine-dependent.** The desktop window config sets

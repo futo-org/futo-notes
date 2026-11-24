@@ -27,6 +27,15 @@
   packages/editor/src/toolbar.ts,
   crates/futo-notes-editor/src/engine/commands/fences/mod.rs `code_off`,
   crates/futo-notes-editor/tests/fixtures/engine/fences.json
+- Link opens the platform's own Link prompt (an alert on iOS, a dialog on
+  Android) with a destination field and a label field holding the engine's
+  starting label (`link_label`: the link's text, else the selected text, empty
+  at a caret; on Android only where the engine offers one). In a link the
+  destination is filled in, Update rewrites the link, and Remove takes it off
+  and keeps its text; elsewhere Add writes a new link. Cancel leaves the note as
+  it was. What is written is the engine's (portable-core/links.md). →
+  apps/ios/Sources/Editor/TextFirst/TextFirstEditorController+Links.swift,
+  apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstLinkDialog.kt
 - The toolbar SURFACE — items, order, grouping, accessibility labels,
   per-platform icons, visibility rules — is defined once in the
   `@futo-notes/editor` manifest, and the editing BEHAVIOR behind every button is
@@ -45,16 +54,19 @@
 - Bold, Italic and Strikethrough light only when every selected visible character other than whitespace carries that format, across lines and blocks alike, so a lit button means a tap removes it; a collapsed caret shows its carried formats. Code block and the list buttons follow the line the selection starts on; Heading and Quote follow the rule below; Text lights when none of those does, except on a level 4–6 heading, which has no control and lights none. → crates/futo-notes-editor/src/engine/surface.rs `toolbar`, crates/futo-notes-editor/src/engine/commands/inline/mod.rs `toolbar_formats`, crates/futo-notes-editor/src/host/toolbar_ids.rs
 - The H1/H2/H3 and Quote buttons use the same rule as their taps, so an unlit button's tap never takes the format off and a lit button's tap takes it off (a `\` keeps text that would read as another block plain, portable-core/block-commands.md). Heading lights when every selected text, heading or list line with text carries that level (a list item counts as Text), at any quote depth; Quote lights when every selected line with text is quoted. Blank lines are set aside by both (a caret or a selection of only blank lines still reads them); both set aside code, front matter and dividers, which they never change, and Heading also sets aside table lines. → crates/futo-notes-editor/src/engine/commands/blocks/mod.rs `toolbar_heading`, `toolbar_quote`, `targets`, crates/futo-notes-editor/src/engine/tests/blocks.rs `a_lit_toolbar_button_takes_its_format_off_and_an_unlit_one_never_does`
 - Inline formats and Link are dimmed when no selected line holds inline text (code, front matter, a divider or a table's delimiter row); Indent, Outdent, Undo and Redo are dimmed when their canonical eligibility or history query says they cannot run: Indent and Outdent are visible everywhere on mobile and follow the line the selection starts on. Both are dimmed on a line that is neither a list item nor code (paragraphs, headings, plain quote lines and tables); Indent is lit on every list item, a list's first item included, and in code; Outdent is lit on an item with leading whitespace, and in code when a touched code line has some (list-indent.md, fenced-code.md). These controls stay visible. → crates/futo-notes-editor/src/engine/surface.rs `toolbar`, crates/futo-notes-editor/src/engine/commands/lists/mod.rs `list_indents`, crates/futo-notes-editor/src/engine/commands/fences/keys.rs `code_indent_state`, crates/futo-notes-editor/src/engine/tests/lists.rs `the_toolbar_offers_indent_on_items_and_outdent_on_indented_items`
-- Heading controls offer Text, H1, H2 and H3 explicitly. Choosing a level applies
-  that same level to every selected prose block; choosing it again does not cycle.
-  Text returns headings to paragraphs. Enclosing quotes keep their nesting.
-  Verified in the desktop WebView and Android emulator 2026-09-08. →
-  packages/editor/src/toolbar.ts, tests/desktop-editor-toolbar-stories.mjs
+- Heading controls offer H1, H2 and H3; the manifest's Text item is hidden on
+  both native toolbars. Choosing a level applies that same level to every
+  selected prose block; choosing the lit level again returns them to paragraphs
+  (mobile/toolbar.md). Enclosing quotes keep their nesting. →
+  packages/editor/src/toolbar.ts,
+  apps/ios/Sources/Editor/TextFirst/TextFirstEditorController+Toolbar.swift `hiddenToolbarItems`,
+  apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstToolbar.kt
 - Quote toggles: on unquoted lines it applies quote formatting, and on lines
-  that are all quoted it takes one quote level off. In the desktop editor Indent and Outdent change the nearest list or quote container one level
-  at a time (on iOS and Android a quote changes level only through this button, and Indent and Outdent act on lists and code, portable-core/list-indent.md); outdenting a top-level quote returns its selected content to the
-  surrounding document. Verified in the desktop WebView and Android emulator
-  2026-09-08. → crates/futo-notes-editor/src/engine/commands/blocks/mod.rs `quote`,
+  that are all quoted it takes one quote level off; a quote changes level only
+  through this button, and Indent and Outdent act on lists and code
+  (portable-core/list-indent.md). Taking the last level off a top-level quote
+  returns its selected lines to the surrounding document. →
+  crates/futo-notes-editor/src/engine/commands/blocks/mod.rs `quote`,
   crates/futo-notes-editor/tests/fixtures/engine/blocks.json
 - Bullet, Ordered and Task retain their list toggles and conversions. Converting
   between list kinds preserves nesting; Bullet/Ordered change the enclosing list,
@@ -68,15 +80,17 @@
   kind, which no command has a transition for. A selection that spans a fence
   formats the prose either side of it and steps over the fence rather than
   swallowing it. The desktop block shortcuts (Ctrl/Cmd+Alt+0…8,
-  Ctrl/Cmd+Shift+B, Ctrl/Cmd+Alt+C) do nothing at all while the selection
-  touches a code block. → crates/futo-notes-editor/src/engine/commands/blocks/mod.rs,
+  Ctrl/Cmd+Shift+B) run the same commands, so they leave code lines alone too
+  (desktop/toolbar.md). → crates/futo-notes-editor/src/engine/commands/blocks/mod.rs,
   tests/desktop-editor-toolbar-stories.mjs
 - The same holds inside a TABLE CELL: a GFM cell carries one line of inline
   content, which no block prefix can apply to, so a block command leaves the
   table untouched. → crates/futo-notes-editor/src/engine/commands/blocks/mod.rs
-- Indent/Outdent are no-ops inside a code block too in the desktop editor (on iOS and Android they put a tab on, and take one off, the code lines, portable-core/fenced-code.md), including a fence indented
-  under a list item — the caret is on a code line, not a list line, so the
-  enclosing list is not restructured.
+- Inside a code block Indent and Outdent put a tab on, and take one off, the
+  code lines (portable-core/fenced-code.md; desktop's Tab and Shift+Tab do the
+  same with two spaces), including a fence indented under a list item — the
+  caret is on a code line, not a list line, so the enclosing list is not
+  restructured. → crates/futo-notes-editor/src/engine/commands/fences/keys.rs
 - Bullet and task markers are written as `-`, so an edit never churns a note's list markers. →
   crates/futo-notes-editor/src/engine/commands/blocks/mod.rs
 

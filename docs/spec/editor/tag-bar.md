@@ -16,8 +16,7 @@ native shells edit tags as text in the body, which is not a gap.
 - An underscore INSIDE a word survives a save unescaped: `#dog_problems`,
   `snake_case_word` and `file_name.txt` are written back exactly, on every
   platform, whether the edit came from the keyboard or from the desktop tag bar
-  (which writes through the engine's header tag commands: desktop/tags.md). Only a `_` the parser would
-  read as an emphasis delimiter is escaped (`\_not em_`), so `_em_` still
-  round-trips as emphasis (written `*em*`) and a `_` between spaces stays bare
-  (see "Markdown house style"). →
-  tests/tags.spec.ts
+  (which writes through the engine's header tag commands: desktop/tags.md). The
+  engine keeps the note's own bytes, so nothing a save writes is escaped or
+  re-spelled (portable-core/linedown.md). →
+  tests/tags.spec.ts "Tag input normalizes case and spaces before creating"
