@@ -12,7 +12,7 @@ import org.junit.rules.TemporaryFolder
 /**
  * F8: `NotesStore.saveImageIntoVault` used to catch `Exception` around the
  * whole save — which also catches `CancellationException` — and, when
- * `useSavedImage` failed (a timed-out or unavailable WebView insertion, F3),
+ * `useSavedImage` failed (a timed-out or unavailable insertion, F3),
  * left the just-written image file behind in the vault with nothing pointing
  * at it. [deleteImageOnFailure] is the extracted cleanup rule, plain JVM
  * testable without `NotesStore`'s FFI-backed `core`.

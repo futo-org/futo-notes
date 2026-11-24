@@ -221,7 +221,7 @@ internal class BlockDrag private constructor(
         floating.invalidateSelf()
     }
 
-    /** The card floats over the whole window, as the web editor's did, so the note's edges never cut it. */
+    /** The card floats over the whole window, so the note's edges never cut it. */
     private val floating = object : Drawable() {
         override fun draw(canvas: Canvas) {
             val at = IntArray(2).also(view::getLocationInWindow)
@@ -305,7 +305,7 @@ internal class BlockDrag private constructor(
         val radius = CARD_RADIUS_DP * d
         path.reset()
         path.addRoundRect(0f, 0f, w, h, radius, radius, Path.Direction.CW)
-        // Three soft shadows outside the card, the web editor's [offset y, blur, alpha].
+        // Three soft shadows outside the card, each [offset y, blur, alpha].
         canvas.save()
         canvas.clipOutPath(path)
         for ((offsetY, blur, alpha) in SHADOWS) {

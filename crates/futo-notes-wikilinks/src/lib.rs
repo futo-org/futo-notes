@@ -2,21 +2,19 @@
 //! TARGETS (the part before any `|`), trimmed, deduped, in first-seen order.
 //! Targets are note ids/titles the UI resolves against the note index.
 //!
-//! Also hosts the bit-for-bit ports of the TS wikilink RULES
-//! (`src/shared/note/wikilinks.ts`): occurrence scanning, resolution, shortest-unique
-//! display suffix, and the rewrite-on-rename machinery. NOTE these are ports
-//! of the TS regex semantics, which differ from [`extract_wikilinks`] above
-//! in two pinned ways: the TS `WIKILINK_RE` captures the WHOLE inner text
-//! (a `|alias` stays part of the target, untrimmed) and it tolerates a `[[`
-//! inside the inner text. The port follows TS verbatim; the conformance
-//! fixtures `tests/conformance/wikilinks-*.json` lock both sides together.
+//! Also hosts the wikilink RULES: occurrence scanning, resolution,
+//! shortest-unique display suffix, and the rewrite-on-rename machinery. NOTE
+//! the occurrence scan differs from [`extract_wikilinks`] above in two pinned
+//! ways: it captures the WHOLE inner text (a `|alias` stays part of the
+//! target, untrimmed) and it tolerates a `[[` inside the inner text. The
+//! conformance fixtures `tests/conformance/wikilinks-*.json` lock the rules.
 
 mod index;
 pub use index::{fold, WikilinkIndex};
 
 /// Extract wikilink targets from `content`. An empty target (`[[]]` or
-/// `[[ |x]]`) is skipped. Matches the resolution the TS `wikilinks.ts` uses
-/// (target = text before the first `|`, trimmed).
+/// `[[ |x]]`) is skipped. The target is the text before the first `|`,
+/// trimmed.
 pub fn extract_wikilinks(content: &str) -> Vec<String> {
     let bytes = content.as_bytes();
     let mut out = Vec::new();
@@ -70,12 +68,12 @@ fn char_len(b: u8) -> usize {
     }
 }
 
-// ── TS wikilink-rule ports (src/shared/note/wikilinks.ts, bit-for-bit) ───────────────
+// ── Wikilink rules: occurrences, resolution, display suffix, rewrite ─────────────────
 
 /// One `[[...]]` occurrence found by [`find_wikilinks`]. Offsets are BYTE
-/// offsets into the scanned text (TS carries UTF-16 offsets; the rewrite
-/// output built from them is representation-independent, which is what the
-/// conformance fixture compares).
+/// offsets into the scanned text (the rewrite output built from them is
+/// representation-independent, which is what the conformance fixture
+/// compares).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WikilinkOccurrence {
     /// Start offset of the `[[`.
@@ -86,9 +84,9 @@ pub struct WikilinkOccurrence {
     pub target: String,
 }
 
-/// Find all `[[...]]` occurrences in `text`. Port of the TS `WIKILINK_RE`
-/// (`/\[\[((?:(?!\]\])[^\n])+)\]\]/g`): the inner text is one-or-more chars,
-/// each of which is not a newline and does not start a `]]`.
+/// Find all `[[...]]` occurrences in `text`: the regex
+/// `/\[\[((?:(?!\]\])[^\n])+)\]\]/g`, where the inner text is one-or-more
+/// chars, each of which is not a newline and does not start a `]]`.
 ///
 /// The regex's greedy `+` can never usefully backtrack (every shorter inner
 /// ends at a position the lookahead already proved is not `]]`), so the scan
@@ -135,9 +133,9 @@ pub fn note_id_leaf(id: &str) -> &str {
 /// Compute the shortest path-suffix of `target_id` that does not collide
 /// with any other ID in `all_ids`. Returns `target_id` itself if no shorter
 /// suffix is unique (e.g. when two IDs are identical, which shouldn't
-/// happen but we don't want an infinite loop). Mirrors
-/// `shortestUniqueSuffix`: a "suffix" is a tail-aligned slice of components —
-/// for ID `A/B/C`, candidates in order are `C`, `B/C`, `A/B/C`.
+/// happen but we don't want an infinite loop). A "suffix" is a tail-aligned
+/// slice of components — for ID `A/B/C`, candidates in order are `C`, `B/C`,
+/// `A/B/C`.
 pub fn shortest_unique_suffix(target_id: &str, all_ids: &[String]) -> String {
     let target: Vec<&str> = target_id.split('/').collect();
     // Pre-compute every other ID's components once.
@@ -159,7 +157,7 @@ pub fn shortest_unique_suffix(target_id: &str, all_ids: &[String]) -> String {
     target_id.to_string()
 }
 
-/// Resolve a wikilink target string to a note ID. Mirrors `resolveWikilink`:
+/// Resolve a wikilink target string to a note ID:
 ///
 /// - If `target` is a full path that exactly matches an ID, return that ID.
 /// - If `target` is a bare filename and exactly one ID has that leaf,
@@ -219,13 +217,13 @@ pub fn link_targets_naming(id: &str) -> impl Iterator<Item = &str> {
 
 /// Rewrite every wikilink in `text` whose target resolves to `old_id` (per
 /// the resolution rules) so the on-disk text uses `new_id`. Returns the
-/// rewritten text and the count of rewrites. Mirrors `rewriteWikilinks`,
-/// including its text-level scope: links inside code fences/inline code are
-/// rewritten too (the TS makes no markdown-context exception).
+/// rewritten text and the count of rewrites. The scope is text-level: links
+/// inside code fences/inline code are rewritten too (there is no
+/// markdown-context exception).
 ///
-/// Unlike the TS, it resolves only the links [`link_targets_naming`] allows,
-/// so a folder rename does not resolve every link in the vault against every
-/// id once per moved note. The output is the same.
+/// It resolves only the links [`link_targets_naming`] allows, so a folder
+/// rename does not resolve every link in the vault against every id once per
+/// moved note. The output is the same as resolving them all.
 pub fn rewrite_wikilinks(
     text: &str,
     old_id: &str,
@@ -278,7 +276,7 @@ mod tests {
         list.iter().map(|s| s.to_string()).collect()
     }
 
-    // ── find_wikilinks: pin the TS WIKILINK_RE semantics ─────────────────
+    // ── find_wikilinks: pin the occurrence-scan semantics ────────────────
 
     #[test]
     fn find_basic_and_offsets() {
@@ -292,7 +290,7 @@ mod tests {
 
     #[test]
     fn find_keeps_pipe_alias_in_target() {
-        // The TS regex captures the WHOLE inner text — `|alias` included.
+        // The scan captures the WHOLE inner text — `|alias` included.
         let occ = find_wikilinks("[[Specs/x|the spec]]");
         assert_eq!(occ[0].target, "Specs/x|the spec");
     }
@@ -308,7 +306,7 @@ mod tests {
         // `[[a]]]` → target `a`, trailing `]` left alone.
         let occ = find_wikilinks("[[a]]]");
         assert_eq!((occ[0].target.as_str(), occ[0].end), ("a", 5));
-        // The TS regex happily swallows a nested `[[` (unlike extract_wikilinks).
+        // The scan happily swallows a nested `[[` (unlike extract_wikilinks).
         let occ = find_wikilinks("[[a[[b]]");
         assert_eq!(occ[0].target, "a[[b");
     }
@@ -377,7 +375,7 @@ mod tests {
     #[test]
     fn rewrite_leaves_alias_and_ambiguous_links_alone() {
         let universe = ids(&["Specs/x", "Drafts/x", "Specs/y"]);
-        // `|alias` is part of the target per the TS regex → unresolvable → kept.
+        // `|alias` is part of the target per the scan → unresolvable → kept.
         let (text, n) = rewrite_wikilinks("[[Specs/y|spec]]", "Specs/y", "Specs/z", &universe);
         assert_eq!((text.as_str(), n), ("[[Specs/y|spec]]", 0));
         // Ambiguous bare leaf doesn't resolve to old_id → kept.
@@ -386,8 +384,8 @@ mod tests {
     }
 
     #[test]
-    fn rewrite_is_text_level_like_ts() {
-        // The TS rewrite has no code-fence exception; neither does the port.
+    fn rewrite_is_text_level() {
+        // The rewrite has no code-fence exception.
         let universe = ids(&["a", "b"]);
         let (text, n) = rewrite_wikilinks("```\n[[a]]\n```", "a", "a2", &universe);
         assert_eq!((text.as_str(), n), ("```\n[[a2]]\n```", 1));

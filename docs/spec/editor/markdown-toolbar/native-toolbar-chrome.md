@@ -73,14 +73,30 @@
   width; the peek inset follows only the outer slot, button layout, and display
   scale. Edge fades animate independently, preserving native scroll bounce. →
   EditorToolbar.swift, EditorToolbarLayoutTests.swift
-- Camera inserts a photo from the device camera or photo library; Image opens
-  a file picker. Both save the image into the vault and insert `![](file)`.
-  On the native shells the toolbar's Camera/Image buttons reach the host
-  picker (web toolbar posts `pickImage`; the native iOS/Android toolbars
-  invoke it directly), which presents the native picker (Photo Picker / camera intent
-  on Android; PHPicker on iOS, camera falling back to the library on the
-  simulator), saves the bytes into the vault root under a generated
-  space-free name, and calls `insertImage` back into the embed.
+- _(mobile)_ Image opens the system's image-only picker: the Photo Picker on
+  Android, PHPicker on iOS. → ImagePicker.kt `pickLibrary`, EditorImages.swift
+  `ImagePicker.present`
+- _(mobile)_ Camera opens the system camera: Android's capture intent, iOS's
+  `UIImagePickerController` camera. Where iOS has no camera (the simulator) it
+  opens PHPicker instead. → ImagePicker.kt `captureCamera`, EditorImages.swift
+  `ImagePicker.present`
+- _(mobile)_ Either button takes the editor session's image claim when tapped. The
+  chosen image is saved into the vault root under a generated space-free
+  `image-<time>` name and inserted as `![](file)` through the session's
+  `insert_image` at the claimed note. → TextFirstEditorController+ImageInsert.swift
+  `pickImage`, textfirst/TextFirstImages.kt `pickImage` / `insertImageUri`
+- _(mobile)_ An insertion the session refuses (the note closed or reopened, or the
+  claim gone stale) deletes the file it just saved, so no orphaned image stays in
+  the vault. → TextFirstEditorController+ImageInsert.swift `insertImage`,
+  NotesStore.kt `saveImageIntoVault` / NoteMutations.kt `deleteImageOnFailure`
+- _(Android)_ Camera checkpoints the note before it takes the claim, because
+  returning from the camera can recreate the app; when the checkpoint cannot run
+  while the note has unsaved edits, no camera opens. A result that comes back to
+  the same screen inserts at the claim taken when the camera opened. After the
+  activity or process was recreated, the reopened note (the same note in the same
+  vault) puts back the selection saved when the camera opened and takes a fresh
+  claim; a result for another note or vault is not inserted. →
+  textfirst/TextFirstImages.kt
 - _(Android)_ Camera asks for the `CAMERA` permission at the moment of use,
   because the manifest declares it for pairing and Android then refuses the
   camera intent without it. Granted, the system camera opens; a first refusal

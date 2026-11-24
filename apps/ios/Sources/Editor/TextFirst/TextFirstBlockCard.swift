@@ -1,11 +1,11 @@
 import UIKit
 
-// The card a lifted block rides on, as the web editor drew it (blockDragSessionStyles.ts): about
-// 4% larger than the block, 14 pt corners, the surface colour at 80% behind the block's opaque
-// drawing, a hairline border, three shadows, and at most 40% of the screen tall with the last
-// 56 pt of the block faded out. Unlike the web's, a capped card is placed so the finger is on it
-// and it stays on screen, the enlarged card keeps clear of the screen's sides, and the fade
-// takes only the block's drawing, never the card or its shadow.
+// The card a lifted block rides on, as the retired web editor drew it: about 4% larger than the
+// block, 14 pt corners, the surface colour at 80% behind the block's opaque drawing, a hairline
+// border, three shadows, and at most 40% of the screen tall with the last 56 pt of the block
+// faded out. Unlike the web editor's, a capped card is placed so the finger is on it and it
+// stays on screen, the enlarged card keeps clear of the screen's sides, and the fade takes only
+// the block's drawing, never the card or its shadow.
 
 enum TextFirstBlockCard {
     static let enlarged: CGFloat = 1.04

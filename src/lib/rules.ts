@@ -10,7 +10,6 @@ export {
   isValidTagName,
   normalizeTagName,
   extractTags,
-  scanTags,
 } from '@futo-notes/editor';
 export { sanitizeTitle as sanitizeFilename } from '@futo-notes/editor';
 export type { FilenameIssueKind } from '@futo-notes/editor';

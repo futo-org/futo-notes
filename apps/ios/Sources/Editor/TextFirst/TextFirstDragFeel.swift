@@ -1,6 +1,7 @@
 import UIKit
 
-/// How a press lifts a block: the old web editor's hold and tolerance.
+/// How a press lifts a block: the retired web editor's hold and tolerance, which Android
+/// shares (BlockLift.kt).
 enum TextFirstLiftPolicy {
     /// How long a press holds before it lifts.
     static let holdDuration: TimeInterval = 0.34
@@ -8,7 +9,7 @@ enum TextFirstLiftPolicy {
     static let movementTolerance: CGFloat = 10
 }
 
-/// The drag's feel, as the web editor's iOS host gave it: an impact at the lift, a selection
+/// The drag's feel, as the retired web editor's iOS host gave it: an impact at the lift, a selection
 /// tick each time the drop line reaches a new slot, and a lighter impact when the block lands.
 /// A card that returns lands nothing and is silent.
 @MainActor

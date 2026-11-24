@@ -292,10 +292,6 @@
       "save": {
         "failedPending": "Couldn't save note. Your changes are still pending.",
         "conflictCopy": "Conflicting edits saved to a copy",
-        "localEditsKept": "Keeping your local edits",
-        "peerDeletedDraftOpen": "This note was deleted elsewhere. Your draft is still open.",
-        "peerChangedDraftOpen": "This note changed elsewhere. Your draft is still open.",
-        "refreshFailedDraftOpen": "Couldn't refresh the open note. Your draft is still open.",
         "openNoteDeletedKeepingDraft": "Open note was deleted; keeping local draft",
         "retry": "Retry save",
         "discard": "Discard edits",
@@ -303,12 +299,7 @@
         "discardWarning": "Your unsaved changes will be lost."
       },
       "navigation": {
-        "renamePending": "Couldn't rename note. Navigation is paused while your title remains pending.",
-        "saveFailed": "Couldn't save note. Navigation is paused while your changes remain pending.",
         "unflushed": "The editor hasn't delivered your latest changes. Try again to leave the note."
-      },
-      "move": {
-        "saveFailed": "Couldn't save note. Move is paused while your changes remain pending."
       },
       "errors": {
         "createFailed": "Couldn't create note. Try again.",
@@ -576,7 +567,6 @@
       },
       "images": {
         "unsupportedType": "Unsupported image type",
-        "pasteFailed": "Couldn't paste image",
         "cameraUnavailable": "No camera app available",
         "cameraPermission": {
           "refused": "FUTO Notes needs camera access to take a photo",

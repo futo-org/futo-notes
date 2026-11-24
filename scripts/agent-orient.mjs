@@ -31,7 +31,7 @@ const AREA_TAGS = {
   'packages/editor': ['editor'],
   crates: ['rust', 'sync'],
   src: ['svelte', 'desktop', 'editor'],
-  tests: ['testing', 'tests', 'test', 'test-infra', 'editor-gauntlet', 'qa'],
+  tests: ['testing', 'tests', 'test', 'test-infra', 'qa'],
   scripts: ['tooling', 'ci', 'gates', 'agents'],
   '.claude': ['agents', 'skills', 'tooling', 'workflow', 'qa'],
   docs: ['docs'],

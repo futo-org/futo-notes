@@ -16,8 +16,7 @@ mutation guard. `source` is the exact saved version, including outside contribut
 parked draft. `flush` carries the existing disposition and complete post-commit mutation. Matching
 disk converges without an mtime bump. Ambiguous overlap, missing-note recreation, conflict names,
 collision handling and retry behavior retain their existing rules. UniFFI exposes the same additive
-record/method to Swift and Kotlin. No sync payload, AppState, bridge version or acknowledgement
-schema changes.
+record/method to Swift and Kotlin. No sync payload, AppState or acknowledgement schema changes.
 
 Consumers opt in only when they can adopt authoritative source with local history and selection
 intact. Apply the complete mutation and use the returned source as the saved baseline. Legacy

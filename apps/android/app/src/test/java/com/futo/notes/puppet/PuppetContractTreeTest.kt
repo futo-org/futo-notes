@@ -19,13 +19,6 @@ import org.junit.Test
 
 /** `/tree`'s pure half: what a node is, what covers it, its section and its list (PuppetContractTree.kt). */
 class PuppetContractTreeTest {
-    @Test
-    fun theTreesWebviewIsTheEditorsBoxWhenItIsUpAndNullOtherwise() {
-        assertEquals(JSONObject.NULL, PuppetContract.webview(null))
-        val editor = PuppetContract.webview(IntRect(0, 258, 720, 1552)) as JSONObject
-        assertEquals(listOf(0, 258, 720, 1294), listOf("x", "y", "w", "h").map(editor::getInt))
-    }
-
     private fun config(build: SemanticsConfiguration.() -> Unit) = SemanticsConfiguration().apply(build)
 
     private val tap = AccessibilityAction(null) { true }

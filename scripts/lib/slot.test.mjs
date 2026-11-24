@@ -70,7 +70,6 @@ describe('portsFor', () => {
       sync: PORT_BASES.sync + slot,
       syncIntegration: PORT_BASES.syncIntegration + slot,
       syncIntegrationHosted: PORT_BASES.syncIntegrationHosted + slot,
-      cdp: PORT_BASES.cdp + slot,
       mcp: PORT_BASES.mcp + slot * 100,
       coinTuner: PORT_BASES.coinTuner + slot,
       crashlog: PORT_BASES.crashlog + slot,
@@ -87,7 +86,6 @@ describe('portsFor', () => {
       sync: 3100,
       syncIntegration: 3150,
       syncIntegrationHosted: 3200,
-      cdp: 15000,
       mcp: 9223,
       coinTuner: 5300,
       crashlog: 5100,
@@ -267,7 +265,6 @@ describe('CLI selectors', () => {
       sync: 'SYNC_PORT',
       syncIntegration: 'SYNC_INTEGRATION_PORT',
       syncIntegrationHosted: 'SYNC_INTEGRATION_HOSTED_PORT',
-      cdp: 'CDP_PORT',
       mcp: 'FUTO_MCP_BASE_PORT',
       coinTuner: 'COIN_TUNER_PORT',
       crashlog: 'CRASHLOG_PORT',
@@ -342,7 +339,6 @@ describe('mcp bridge base port', () => {
       'sync',
       'syncIntegration',
       'syncIntegrationHosted',
-      'cdp',
       'coinTuner',
     ]) {
       const theirs = slots.map((s) => PORT_BASES[other] + s);
@@ -350,7 +346,7 @@ describe('mcp bridge base port', () => {
         true,
       );
     }
-    expect(mcp.at(-1) + 99).toBeLessThan(PORT_BASES.cdp);
+    expect(mcp.at(-1) + 99).toBeLessThan(XPLAT_SYNC_BAND.base);
   });
 
   it('gives two different worktrees different bases', () => {

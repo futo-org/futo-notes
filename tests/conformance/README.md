@@ -3,7 +3,7 @@
 A handful of note rules legitimately exist twice: canonically in Rust
 (`futo-notes-model` / `futo-notes-core`) and, because the editor needs them
 synchronously on every keystroke, once more in TypeScript under
-`packages/editor/src/` (plus `src/shared/note/wikilinks.ts`). AGENTS.md M6/M7 allow
+`packages/editor/src/`. AGENTS.md M6/M7 allow
 that single duplication on one condition — **nothing may drift**. This directory is
 how that condition is enforced.
 
@@ -52,17 +52,17 @@ once the Rust oracle is built; it needs `cargo`, so it runs in the
 
 ## The corpora
 
-| File               | Family    | Ops                                                                                                                                                                                                                | TypeScript owner                       | Rust owner                                                                    |
-| ------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------- | ----------------------------------------------------------------------------- |
-| `filename.json`    | title     | `sanitizeTitle`, `validateTitle`, `isValidTitle`, `isWindowsReservedName`, `validateFolderName`, `isValidFolderName`, `hasCaseInsensitiveSiblingCollision`, `validateFolderPath`, `isValidFolderPath`, `pathDepth` | `packages/editor/src/filename.ts`      | `futo-notes-core/src/files/filenames.rs` + `futo-notes-model/src/filename.rs` |
-| `tags.json`        | tags      | `tagRegexMatches`, `isValidTagName`, `normalizeTagName`, `extractTags`, `extractHeaderTagBlock`                                                                                                                    | `packages/editor/src/tags.ts`          | `futo-notes-tags/src/lib.rs`                                                  |
-| `image.json`       | image     | `isImageFilename`, `imageExtensions`                                                                                                                                                                               | `packages/editor/src/images.ts`        | `futo-notes-image/src/lib.rs`                                                 |
-| `preview.json`     | preview   | `makePreview`                                                                                                                                                                                                      | `packages/editor/src/preview.ts`       | `futo-notes-model/src/note.rs`                                                |
-| `wikilinks-*.json` | wikilinks | `resolveWikilink`, `shortestUniqueSuffix`, `rewriteWikilinks`                                                                                                                                                      | `src/shared/note/wikilinks.ts`         | `futo-notes-wikilinks/src/lib.rs`                                             |
-| `server-url.json`  | —         | `validateServerUrl`                                                                                                                                                                                                | `src/features/sync/syncServiceE2ee.ts` | **none — see below**                                                          |
-| `path-safety.json` | —         | note-id acceptance                                                                                                                                                                                                 | `src/lib/platform/pathSafety.ts`       | `futo-notes-core/src/files/paths.rs`                                          |
-| `license.json`     | —         | the paid client license: key grammar, input shapes, deep link, v2 activation verification, entry                                                                                                                   | **none — see below**                   | `futo-notes-license`                                                          |
-| `constants.json`   | —         | shared scalars                                                                                                                                                                                                     | several                                | several                                                                       |
+| File               | Family  | Ops                                                                                                                                                                                                                | TypeScript owner                       | Rust owner                                                                    |
+| ------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------- | ----------------------------------------------------------------------------- |
+| `filename.json`    | title   | `sanitizeTitle`, `validateTitle`, `isValidTitle`, `isWindowsReservedName`, `validateFolderName`, `isValidFolderName`, `hasCaseInsensitiveSiblingCollision`, `validateFolderPath`, `isValidFolderPath`, `pathDepth` | `packages/editor/src/filename.ts`      | `futo-notes-core/src/files/filenames.rs` + `futo-notes-model/src/filename.rs` |
+| `tags.json`        | tags    | `tagRegexMatches`, `isValidTagName`, `normalizeTagName`, `extractTags`, `extractHeaderTagBlock`                                                                                                                    | `packages/editor/src/tags.ts`          | `futo-notes-tags/src/lib.rs`                                                  |
+| `image.json`       | image   | `isImageFilename`, `imageExtensions`                                                                                                                                                                               | `packages/editor/src/images.ts`        | `futo-notes-image/src/lib.rs`                                                 |
+| `preview.json`     | preview | `makePreview`                                                                                                                                                                                                      | `packages/editor/src/preview.ts`       | `futo-notes-model/src/note.rs`                                                |
+| `wikilinks-*.json` | —       | `resolveWikilink`, `shortestUniqueSuffix`, `rewriteWikilinks`                                                                                                                                                      | **none — see below**                   | `futo-notes-wikilinks/src/lib.rs`                                             |
+| `server-url.json`  | —       | `validateServerUrl`                                                                                                                                                                                                | `src/features/sync/syncServiceE2ee.ts` | **none — see below**                                                          |
+| `path-safety.json` | —       | note-id acceptance                                                                                                                                                                                                 | `src/lib/platform/pathSafety.ts`       | `futo-notes-core/src/files/paths.rs`                                          |
+| `license.json`     | —       | the paid client license: key grammar, input shapes, deep link, v2 activation verification, entry                                                                                                                   | **none — see below**                   | `futo-notes-license`                                                          |
+| `constants.json`   | —       | shared scalars                                                                                                                                                                                                     | several                                | several                                                                       |
 
 One corpus is split across several files to stay under the repo's per-file size
 limit: `wikilinks-{resolve,suffix,rewrite}.json` hold one op group each. Every loader
@@ -115,18 +115,16 @@ The corpora aim at where two languages actually part company, not at happy paths
 whitespace-ish code points, case-folding traps (final sigma, `ß`, dotted/dotless I,
 Kelvin sign, ligatures), astral and combining sequences, the C0/DEL/C1 range, fence
 nesting and unclosed fences, CRLF, length and depth boundaries (199/200/201,
-99/100/101, 9/10/11 path components), slash runs, and eight different wikilink id universes (total leaf collision, a
-suffix chain, duplicates, degenerate ids, deep paths, unicode-only, empty) asked
-about every id plus every path suffix AND prefix of it.
+99/100/101, 9/10/11 path components), and slash runs.
 
 ### Guards against a silent pass
 
 A differential that skips something quietly is worse than no differential (M11):
 
-1. **Coverage guard.** Every `op` in a `groups`-shaped fixture must be probed. A
-   fixture file that is neither driven nor listed in
-   `FIXTURES_OUTSIDE_THE_DIFFERENTIAL` (with the reason) fails the run — so a new
-   corpus cannot arrive without a decision.
+1. **Coverage guard.** Every `op` in a `groups`-shaped fixture must be probed unless
+   the fixture is listed in `FIXTURES_OUTSIDE_THE_DIFFERENTIAL` (with the reason). A
+   fixture file that is neither driven nor listed fails the run — so a new corpus
+   cannot arrive without a decision.
 2. **Closure probes.** Each `KNOWN_DIVERGENCES` entry carries minimal inputs that
    must STILL diverge. Fix the cause and the run goes red until the entry is
    deleted, so an exclusion cannot outlive its reason.
@@ -159,6 +157,11 @@ A differential that skips something quietly is worse than no differential (M11):
   parts in `license/` (`keys`, `enterKey`, and `evaluate` in three slices), merged by key —
   arrays under the same key concatenate in filename order. Locked by
   `crates/futo-notes-license/tests/conformance.rs`.
+
+- **`wikilinks-*.json`.** The wikilink rules exist once, in `futo-notes-wikilinks`. Every
+  platform reaches them through Rust — the editor engine (WASM on desktop, UniFFI on the phones)
+  and the store's rename relinking — so there is no TypeScript copy to differentiate against.
+  Locked by `crates/futo-notes-model/tests/conformance.rs`.
 
 - **`path-safety.json`.** `safe_note_path` takes a vault root and returns a resolved
   path, so it is not answerable through the pure `futo-notes-model` oracle. Locked by

@@ -137,9 +137,7 @@ pub(crate) fn native_call(
     }
 }
 
-/// The listener's `/tree`: the screen, what is on it, and the editor web view's box in device
-/// units when the editor is on screen (`webview`, else null), which is where the page's CSS
-/// pixels sit (screen.rs).
+/// The listener's `/tree`: the screen and what is on it, in device units (screen.rs).
 pub(crate) fn phone_tree(
     platform: NativePlatform,
     port: u16,

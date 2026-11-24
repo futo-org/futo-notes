@@ -28,7 +28,7 @@ derivation (stock macOS has no `md5sum`, so don't hand-roll it in shell);
 
 ```bash
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
-eval "$(node "$WORKTREE_ROOT/scripts/lib/slot.mjs" env)"   # SLOT, VITE_PORT, WEB_VITE_PORT, SYNC_PORT, CDP_PORT
+eval "$(node "$WORKTREE_ROOT/scripts/lib/slot.mjs" env)"   # SLOT, VITE_PORT, WEB_VITE_PORT, SYNC_PORT, …
 TAURI_LOG="/tmp/tauri-verify-${SLOT}.log"
 PID_FILE="/tmp/tauri-verify-${SLOT}.pid"
 echo "Worktree: $WORKTREE_ROOT → Vite port $VITE_PORT, web port $WEB_VITE_PORT (slot $SLOT)"

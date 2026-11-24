@@ -103,7 +103,7 @@ struct PickedImage {
     let ext: String
 }
 
-/// Presents the native image pickers for the bridge's `pickImage` message.
+/// Presents the native image pickers for the toolbar's `pickImage` items.
 /// 'library' → PHPickerViewController (images only, no permission prompt);
 /// 'camera' → UIImagePickerController(.camera), gracefully falling back to the
 /// library picker where no camera exists (simulator). Presented from the top

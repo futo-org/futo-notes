@@ -4,8 +4,8 @@ Milestone [#283](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/283)
 issue #317. For desktop (portable WASM under a text view of the renderer's choice — CodeMirror 6
 or a custom view; both are fine), Android (Kotlin) and iPhone (Swift) renderer owners. The shared Rust engine owns Markdown source, interpretation, editing,
 selection affinity and in-session history; Store owns identity and debounced markdown saves (no recovery log).
-Renderers hold display text only and draw the engine's descriptions. **Shipping renderers,
-defaults, bridge schemas, AppState and sync are unchanged.** The portable-core specs in
+Renderers hold display text only and draw the engine's descriptions. **AppState and sync are
+unchanged by the engine.** The portable-core specs in
 `docs/spec/editor/portable-core/` are the behavioral authority; this file is the map.
 Source/evidence attribution: [MR !558](https://gitlab.futo.org/futo-notes/futo-notes/-/merge_requests/558).
 
@@ -145,7 +145,7 @@ relay the page's requests to a worker-owned Store host; see
 ## 4. Compatibility
 
 - No recovery log: nothing writes or reads `.futo-editor-recovery` (dropped 2026-11-02, maintainer decision; ADR-0012).
-- No change to bridge schemas, AppState, sync or shipping defaults.
+- No change to AppState or sync.
 - Persistent Undo across reopening is not included.
 - Shared crates `futo-notes-tags` and `futo-notes-image` were split out for wasm32 and
   re-export from their old paths. The `markdown` crate is gone from the engine (its

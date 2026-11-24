@@ -37,7 +37,6 @@ bash scripts/editor-deps.sh
 echo "==> Building Rust note + sync core (UniFFI) -> FutoNotesFfi.xcframework"
 bash "$ROOT/scripts/build-rust-ios.sh"
 
-
 echo "==> Generating Xcode project (xcodegen)"
 ( cd "$APP_DIR" && xcodegen generate )
 

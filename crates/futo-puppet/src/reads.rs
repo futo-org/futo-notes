@@ -3,20 +3,20 @@
 
 use super::*;
 
-/// A read. On a phone `elements` and `show` answer from the whole screen, and the page's
+/// A read. On a phone `elements` and `show` answer from the whole screen, and the editor's
 /// reads, which exist only while the editor is up, speak the screen's units there.
 pub(crate) fn query(target: &Target, command: &str, args: &Value) -> Result<Reply, String> {
     if command == "system-elements" {
         return system_elements(target);
     }
-    const PAGE_ONLY: [&str; 5] = ["doc", "at", "events", "diff", "show"];
+    const EDITOR_ONLY: [&str; 5] = ["doc", "at", "events", "diff", "show"];
     if command == "file" {
         return file(target, args);
     }
     let Target::Native(..) = target else {
         return call(target, command, args);
     };
-    if command != "elements" && !PAGE_ONLY.contains(&command) {
+    if command != "elements" && !EDITOR_ONLY.contains(&command) {
         return call(target, command, args);
     }
     let view = screen::view(target)?;
@@ -27,7 +27,7 @@ pub(crate) fn query(target: &Target, command: &str, args: &Value) -> Result<Repl
         });
     }
     let reference = args["ref"].as_str();
-    // `show {"text"}` is the page's: where text shows in the editor.
+    // `show {"text"}` is the editor's: where text shows in the note.
     if command == "show"
         && args["text"].is_null()
         && !reference.is_some_and(|reference| reference.starts_with('e'))
@@ -57,8 +57,8 @@ pub(crate) fn query(target: &Target, command: &str, args: &Value) -> Result<Repl
         return Ok(Reply::refusal(
             409,
             format!(
-                "{command} reads the editor's page, and this screen ({}) is native: `elements` \
-                 lists what is on it, `state` says where you are",
+                "{command} reads the editor, and this screen ({}) has none: `elements` lists \
+                 what is on it, `state` says where you are",
                 view.screen
             ),
         ));

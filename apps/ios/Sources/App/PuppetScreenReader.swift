@@ -11,8 +11,8 @@
     /// point reaches it, so a row slid under a bar, behind a sheet or a dialog's dimming, or
     /// under the keyboard is not. Each element names the part of the screen it is in (a bar,
     /// a list, a sheet, a menu, the keyboard's toolbar), and each list that scrolls says how
-    /// far and how many rows it holds. The editor web view's content is left to the page,
-    /// which reports it with its handlers.
+    /// far and how many rows it holds. The native editor adds its own controls
+    /// (PuppetNativeEditor).
     @MainActor
     enum PuppetScreenReader {
         struct Node {
@@ -80,7 +80,7 @@
         }
 
         /// Whether a touch at the view's centre lands on it, or is taken by something drawn
-        /// over it: the editor web view under a sheet or a dialog is not there to aim at.
+        /// over it: a view under a sheet or a dialog is not there to aim at.
         static func reaches(_ view: UIView) -> Bool {
             guard let window = view.window, let scene = window.windowScene else { return false }
             let reader = Reader(scene)

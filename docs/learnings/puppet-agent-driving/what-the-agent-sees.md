@@ -73,9 +73,10 @@ The raw iOS tree for the note list alone is 162 KB; outlines are 0.2–3.5 KB. A
 **Silent zeros must be loud errors.**
 - With the simulator's accessibility switch off (XCUITest leaves it off), the iOS reader returned
   0 elements.
-- A production `editor.html` silently dropped the editor from `elements`.
+- A production `editor.html` (the phones' retired web editor) silently dropped the editor from
+  `elements`.
 
-Both now fail with the fix in the message. Mason: "Make the accessibility error very clear and
+Both failed with the fix in the message; the second went with the web editor (2026-11). Mason: "Make the accessibility error very clear and
 explicit."
 
 **Search finds notes; a full listing maps folders.**

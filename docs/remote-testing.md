@@ -243,7 +243,7 @@ Compile and JVM-unit legs (`node scripts/remote-test.mjs build-android-native` +
 Interactive Android **device QA** should also move here eventually — `/dev/kvm` makes the box's
 emulators dramatically faster than the Mac's, where x86 images are emulated. It has not moved yet
 because the QA tooling assumes a _local_ `adb`: `just qa-claim`, `just android-drive` and
-`just cdp-forward` all talk to a device on the machine running them, and `adb forward` is
+`just puppet` all talk to a device on the machine running them, and `adb forward` is
 machine-global. Wiring that up (an adb server reachable over the tailnet, or running the drive
 scripts on the box) is the natural follow-up, and the payoff is large. Until then, keep device QA on
 the Mac and use the box for build + unit legs.

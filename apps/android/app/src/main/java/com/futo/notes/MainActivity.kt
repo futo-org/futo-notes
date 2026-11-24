@@ -70,8 +70,8 @@ class MainActivity : ComponentActivity() {
      *  hosted wizard's `VaultSecretStore`. */
     internal val secure: SecureStore by lazy { SecureStore(prefs) }
 
-    // Native image pickers for the editor's pickImage bridge message — must
-    // register their ActivityResult contracts during onCreate.
+    // Native image pickers for the toolbar's pickImage items — must register
+    // their ActivityResult contracts during onCreate.
     internal lateinit var imagePicker: ImagePicker
 
     // Crash logs found by the startup scan, surfaced as the crash dialog.

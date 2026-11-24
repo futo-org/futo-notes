@@ -170,7 +170,7 @@ async function cmdClaim(
     const { name, fresh } = claim;
     const serial = await ensureAvd(name, { preserveConfig: Boolean(avd), reboot });
     if (avd) {
-      // Explicit legacy fixtures preserve their app data and pinned WebView.
+      // Explicit legacy fixtures preserve their app data and pinned system image.
       markWiped('android', name);
     } else {
       wipeOnFreshClaim('android', name, fresh, () => wipeAndroidDevApp(serial));

@@ -12,11 +12,11 @@ import com.futo.notes.ui.navigation.Screen
 /**
  * The screens' own controls, for the debug listener (PuppetServer.kt). The
  * shell's navigation verbs live in the listener because they are the navigator's; the
- * editor's text verbs live in the WebView. Everything in between — the title field,
- * the find bar, the ⋯ menu, a list's New note and row menus, the folder dialogs and
- * sheets, the danger zone, the Feedback composer, the crash dialog — is Compose state
- * inside one screen, reachable from nowhere else. Same contract as iOS's `PuppetVerbs`
- * and `registerPuppetVerbs` on desktop.
+ * editor's text verbs go to the native editor (PuppetServerEditor.kt). Everything in
+ * between — the title field, the find bar, the ⋯ menu, a list's New note and row menus,
+ * the folder dialogs and sheets, the danger zone, the Feedback composer, the crash
+ * dialog — is Compose state inside one screen, reachable from nowhere else. Same
+ * contract as iOS's `PuppetVerbs` and `registerPuppetVerbs` on desktop.
  */
 internal object PuppetVerbs {
     private class Scope(
@@ -37,7 +37,7 @@ internal object PuppetVerbs {
     @Volatile
     var openNote: String? = null
 
-    /** Whether that editor has read [openNote] from disk and handed it to the WebView. */
+    /** Whether that editor has read [openNote] from disk. */
     @Volatile
     var openNoteLoaded = false
 

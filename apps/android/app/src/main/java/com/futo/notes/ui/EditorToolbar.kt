@@ -97,7 +97,7 @@ fun EditorToolbar(
     modifier: Modifier = Modifier,
     inContainer: Boolean? = null,
     activeFormats: Set<String> = emptySet(),
-    /** Bridge `formatState.disabled` — dims the button and blocks the tap. */
+    /** The editor's disabled formats (its toolbar state) — dims the button and blocks the tap. */
     disabledFormats: Set<String> = emptySet(),
     /** Items this editor does not offer (the text-first editor drops "paragraph"). */
     hiddenItems: Set<String> = emptySet(),

@@ -78,6 +78,11 @@ No goal changed. The editor became Milkdown/ProseMirror, so:
   broken checkbox (a lazy continuation, shown on the item's line) is split with `Press Enter`.
 - `check.mjs` reaches rows inside closed folders by running the batch a 409 names, as an agent does.
 
+Milkdown was removed in 2026-11 (ADR-0011): the engine-backed editors keep a note's bytes, so the
+lenient line comparisons above are no longer needed but stay harmless. References written in
+ProseMirror positions (`PlaceCaret {at}` in `tasks/note-edit-tasks.mjs`) have not been re-checked
+against the engine's offsets.
+
 ## The `editor` set (2026-10-05)
 
 `editor-tasks.mjs`: 17 more goals on the same vault, about what the WYSIWYG editor added —

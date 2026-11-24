@@ -49,9 +49,10 @@ need a stop-and-ask).
 | 9 | Recorded artefacts | `tests/ios-editor-stories.mjs`, `tests/android-storage-migration.mjs`, `tests/lib/android/testHooks.mjs` are hand-written stories. agent-device `.ad` recording available. | No recorded-then-replayed macro layer over our verb channels. |
 | 10 | Evidence channel | `just journal` (JSONL `app_launch`/`sync_run` events, desktop only), `just sim-screenshot` / `emu-screenshot`, `qa-shot`, agent-device video/frame diff. | "Native shells do not journal yet" (justfile comment, `docs/spec/sync.md`). No checkpoint capture tied to verbs. |
 
-Constraint notes for whoever acts on this: a verb channel that touches the editor must go through
-`packages/editor/src/bridge.ts` (`BRIDGE_VERSION = 8`, currently additive) and land on both native
-hosts in one change (M10); any new `initialize`/message shape is a §11 stop-and-ask. Verbs that
+Constraint notes for whoever acts on this: when this was written, a verb channel that touched the
+editor had to go through the web editor's bridge (`packages/editor/src/bridge.ts`, `BRIDGE_VERSION
+= 8`); that bridge was removed in 2026-11, and editor verbs now reach each platform's editor
+through its Rust session. Verbs that
 mutate notes must call Rust workflows, not stitch shell calls (§4 item 6). The Android
 broadcast/logcat design was chosen so "a broadcast that reaches no app … fails at the call instead of
 timing out"; a socket channel replaces that guarantee and must keep it.

@@ -176,7 +176,7 @@ and opening it.
 
 **Evidence policy — assert, don't screenshot:** for PASS and BLOCKED verdicts,
 prefer a disk/log/DOM assertion wherever the behavior is verifiable that way —
-flush-and-read the note file, a logcat/os_log line, a CDP or MCP-bridge eval —
+flush-and-read the note file, a logcat/os_log line, a puppet read or MCP-bridge eval —
 and cite that as the evidence. Take screenshots only for FAIL candidates and
 for stories on the \`settings-visual\` surface (or any story whose spec line is
 inherently visual). Assertions are cheaper AND stronger: screenshots lie on an

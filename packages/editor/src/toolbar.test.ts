@@ -9,7 +9,6 @@ describe('toolbar manifest', () => {
 
   it('every item names an icon for every platform renderer', () => {
     for (const item of TOOLBAR_ITEMS) {
-      expect(item.lucide, item.id).toBeTruthy();
       expect(item.sfSymbol, item.id).toBeTruthy();
       expect(item.material, item.id).toBeTruthy();
       expect(item.localizationPath, item.id).toMatch(/^editor\.toolbar\.[a-z][A-Za-z0-9]*$/);

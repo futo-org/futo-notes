@@ -74,15 +74,6 @@ internal suspend fun observe(bound: Binding): PuppetReply {
     reply.put("actions", actionsList(bound))
     reply.put("lines", JSONArray())
     reply.put("elements", JSONArray())
-    if (bound.navigator.currentScreen is Screen.Editor) {
-        forwardedObject(bound, "observe")?.let { page ->
-            // The page owns the document and its rows; the shell owns the rest,
-            // including which verbs this screen has.
-            for (key in listOf("lines", "elements", "editor")) {
-                if (page.has(key)) reply.put(key, page.get(key))
-            }
-        }
-    }
     return PuppetReply(200, reply.toString())
 }
 
@@ -163,9 +154,6 @@ internal suspend fun stateObject(bound: Binding): JSONObject {
     if (screen is Screen.Editor) {
         val native = nativeEditorState(bound.shellView.rootView)
         if (native != null) reply.put("editor", native.put("note", PuppetVerbs.openNote ?: screen.noteId))
-        else forwardedObject(bound, "state")?.let { editor ->
-            for (key in editor.keys()) if (!reply.has(key)) reply.put(key, editor.get(key))
-        }
     }
     return reply
 }

@@ -8,8 +8,8 @@ export const MACOS_TRAFFIC_LIGHTS_WIDTH = '73px';
 // Marks the document as the desktop application shell. Desktop-only chrome
 // rules (src/styles/desktop-native.css) hang off this instead of
 // `.notes-shell.desktop-layout`, because popovers, dialogs and the settings
-// screen render OUTSIDE the shell element — and because app.css is shared with
-// the native iOS/Android editor embed, which must never match.
+// screen render OUTSIDE the shell element — and because app.css also serves the
+// plain browser build, which must never match.
 export const DESKTOP_CHROME_CLASS = 'desktop-chrome';
 
 export function configureWindowChrome(): { dispose: () => void } {

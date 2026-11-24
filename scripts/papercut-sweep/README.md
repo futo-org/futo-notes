@@ -83,5 +83,5 @@ Spelled out in `sweep-prompt.md`; the short version: fix and verify on this
 machine without a device; resolve with a note that says what changed; one commit
 per cut; `just check` green before push; one draft MR with a short description;
 never merge; never touch `keys/`, publish jobs, CRITICAL guards, sync payloads,
-`BRIDGE_VERSION`, or `AppState`; skip with a reason when the fix needs a Mac, a
-device, or a design call.
+or `AppState`; skip with a reason when the fix needs a Mac, a device, or a design
+call.

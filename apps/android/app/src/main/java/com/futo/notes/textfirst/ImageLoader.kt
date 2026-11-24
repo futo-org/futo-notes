@@ -28,8 +28,8 @@ internal data class PhotoSize(val width: Int, val height: Int)
 /**
  * Decodes vault images for image atoms, off the UI and editor threads. The
  * engine never reads image files (images.md); this resolves a vault reference
- * against the vault root for display only, as the WebView does with its
- * `file://<vault root>/` base. Remote http(s) images load through Coil; a result only lands on its still-attached span.
+ * against the vault root for display only. Remote http(s) images load through Coil; a result only lands on its
+ * still-attached span.
  */
 internal class ImageLoader(private val context: android.content.Context, private val vaultRoot: File) {
     /** Remote fetch + decode via Coil (platform TLS, no disk cache); scoped to this loader. */

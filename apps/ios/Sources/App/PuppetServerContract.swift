@@ -34,11 +34,9 @@
             "elements", "state", "notes", "search", "file", "observe", "clipboard", "doc", "at",
             "show", "events", "diff", "trace", "touches",
         ]
-        /// Queries the WEBVIEW answers about the page it is showing. The webview is one
-        /// long-lived instance, so it still holds the last note's document after a GoBack:
-        /// forwarding one of these from the native list would answer about a screen the
-        /// user is not on. They are refused there instead. `clipboard` is deliberately not
-        /// here — it is the agent's own buffer, not the page's, and survives navigation.
+        /// Queries about the open editor's document. Off an uncovered editor there is no
+        /// document to read, so they are refused there. `clipboard` is deliberately not
+        /// here — it is the agent's own buffer, not the editor's, and survives navigation.
         static let pageQueries: Set<String> = [
             "elements", "doc", "at", "show", "events", "diff", "trace",
         ]
@@ -170,9 +168,9 @@
             return ["type": "object", "properties": properties, "required": required]
         }
 
-        /// What `/tree` adds to the screen for aiming: the editor webview's rect when it is on
-        /// screen (else null) and the simulator the app runs in, which is everything `axe`
-        /// needs to land a touch on a CSS pixel (1 CSS px = 1 point in WKWebView).
+        /// What `/tree` adds to the screen for aiming: the simulator the app runs in, which
+        /// `axe` needs to land a touch. `webview` is the retired web editor's box, always null
+        /// now (the routing passes nil) and ignored by the CLI.
         static func aim(
             webview: CGRect?, environment: [String: String] = ProcessInfo.processInfo.environment
         ) -> [String: Any] {

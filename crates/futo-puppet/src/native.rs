@@ -1,10 +1,9 @@
 //! The phones' native screens as element rows.
 //!
-//! The editor web view answers `elements` for itself. Every other screen on a phone is
-//! SwiftUI or Compose, which the page cannot see, so each phone's debug listener answers
-//! `GET /tree` from the app's own accessibility (iOS: its accessibility tree, hit-tested
-//! against its windows, apps/ios/Sources/App/PuppetScreenReader.swift; Android: the merged
-//! Compose semantics of every window). This turns that into the rows `elements` prints on
+//! A phone screen is SwiftUI or Compose, the native editor included, so each phone's debug
+//! listener answers `GET /tree` from the app's own accessibility (iOS: its accessibility
+//! tree, hit-tested against its windows, apps/ios/Sources/App/PuppetScreenReader.swift;
+//! Android: the merged Compose semantics of every window). This turns that into the rows `elements` prints on
 //! desktop, in points on iOS and dp on Android, so a row's centre is where `tap` lands.
 //! Refs (`n1`, `n2`, …) outlive the call that made them, keyed by what the element is, so a
 //! receipt can say which rows came and went.

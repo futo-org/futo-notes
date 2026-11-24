@@ -2,12 +2,9 @@
 //! same on a native screen and in the editor.
 //!
 //! A phone screen is the native views the app's accessibility reports (`/tree`, read into
-//! rows by native.rs) and, while a note is open, the editor's web page beside them. They
-//! are one screen to a person, so they are one list here, in one coordinate space: the
-//! page's CSS pixels are shifted by the web view's place on screen into the points (iOS)
-//! or dp (Android) the native rows use, and every point the agent sends back is shifted
-//! the other way. Desktop has no native half: its window is the page, which answers for
-//! itself (desktop_bridge.rs).
+//! rows by native.rs), the native editor among them, all in the points (iOS) or dp
+//! (Android) the agent aims in. Desktop has no native half: its window is the page, which
+//! answers for itself (desktop_bridge.rs).
 
 use super::*;
 
@@ -35,13 +32,11 @@ pub(crate) struct View {
     pub platform: NativePlatform,
     pub rows: Vec<Value>,
     pub scroll: Vec<Value>,
-    /// With the editor on screen (no sheet over it): the web view's box in screen units.
-    pub webview: Option<native::Rect>,
     /// An explicitly reported native editor. Its geometry already uses screen units.
     pub native_editor: bool,
     /// A push or presentation is still running, so this is not yet what the screen will show.
     pub moving: bool,
-    /// The editor's page says its note has loaded (`state.editor.ready`).
+    /// The editor says its note has loaded (`state.editor.ready`).
     pub ready: bool,
 }
 
@@ -75,19 +70,14 @@ impl View {
         })
     }
 
-    /// Where the page's CSS pixels sit in screen units, when the editor is up.
-    pub fn page_offset(&self) -> Option<(f64, f64)> {
-        self.webview.map(|rect| (rect.x, rect.y))
-    }
-
+    /// Where the editor's reads sit in screen units, when the editor is up: at the origin,
+    /// as a native editor already speaks screen units.
     pub fn editor_offset(&self) -> Option<(f64, f64)> {
-        self.native_editor
-            .then_some((0.0, 0.0))
-            .or_else(|| self.page_offset())
+        self.native_editor.then_some((0.0, 0.0))
     }
 
     pub fn has_editor(&self) -> bool {
-        self.native_editor || self.webview.is_some()
+        self.native_editor
     }
 
     fn same_as(&self, other: &View) -> bool {
@@ -118,7 +108,7 @@ pub(crate) fn shift(value: &mut Value, (dx, dy): (f64, f64)) {
     }
 }
 
-/// The phone's screen: its native rows, plus the page's while the editor is up.
+/// The phone's screen: its native rows, the native editor's among them.
 pub(crate) fn view(target: &Target) -> Result<View, String> {
     let Target::Native(platform, port, device) = target else {
         return Err("a native view is the phones'".into());
@@ -135,44 +125,9 @@ pub(crate) fn view(target: &Target) -> Result<View, String> {
     if *platform == NativePlatform::Ios && !reported && accessibility_off(device) {
         return Err(accessibility_off_error(device));
     }
-    let mut rows = with_refs(*platform, |refs| refs.rows(&tree.nodes));
-    let mut scroll = tree.scroll;
+    let rows = with_refs(*platform, |refs| refs.rows(&tree.nodes));
+    let scroll = tree.scroll;
     let moving = tree.moving;
-    let webview = if editor && !native_editor && body["webview"].is_object() {
-        let side = |key: &str| body["webview"][key].as_f64().unwrap_or(0.0) / tree.scale;
-        Some(native::Rect {
-            x: side("x"),
-            y: side("y"),
-            w: side("w"),
-            h: side("h"),
-        })
-    } else {
-        None
-    };
-    if let Some(rect) = webview {
-        let mut page = call(target, "elements", &json!({}))?;
-        // A page left out would read as a screen with no editor on it.
-        if page.status != 200 {
-            return Err(format!(
-                "the editor is on screen but its page did not answer `elements` (HTTP {}): {}",
-                page.status,
-                compact(&page.body)
-            ));
-        }
-        shift(&mut page.body, (rect.x, rect.y));
-        for mut row in page.body["elements"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
-        {
-            row["section"] = json!("editor");
-            rows.push(row);
-        }
-        for mut entry in page.body["scroll"].as_array().cloned().unwrap_or_default() {
-            entry["section"] = json!("editor");
-            scroll.push(entry);
-        }
-    }
     Ok(View {
         screen,
         size: tree.screen,
@@ -180,7 +135,6 @@ pub(crate) fn view(target: &Target) -> Result<View, String> {
         platform: *platform,
         rows,
         scroll,
-        webview,
         native_editor,
         moving,
         ready: state.body["editor"]["ready"] == json!(true),
@@ -253,7 +207,7 @@ pub(crate) fn settle(target: &Target, before: &View, quick: bool) -> Result<View
     loop {
         std::thread::sleep(SETTLE_POLL_PHONE);
         let next = view(target)?;
-        // A note that just opened is still loading until its page says it is ready.
+        // A note that just opened is still loading until its editor says it is ready.
         let loading = next.has_editor() && !next.ready;
         if !next.same_as(&last) || loading || next.moving {
             still_since = Instant::now();

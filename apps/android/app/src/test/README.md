@@ -1,8 +1,8 @@
 # Android JVM unit tests
 
 Pure-logic tests for the native Android shell (no device/emulator): the
-editor-session draft/flush lifecycle, IME-dismiss blur transition, bridge
-message coverage, and sync-manager defaults. Instrumented tests (which need a
+editor-session draft/flush lifecycle, IME-dismiss blur transition, the puppet
+listener's contract, and sync-manager defaults. Instrumented tests (which need a
 device and wipe app data on teardown) do NOT live here.
 
 Run locally from the monorepo root:

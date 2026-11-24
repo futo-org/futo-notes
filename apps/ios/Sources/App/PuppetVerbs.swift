@@ -5,8 +5,8 @@ import SwiftUI
 /// `futo-puppet` listener runs them without knowing anything about the view's `@State`.
 ///
 /// Why it has to exist: the shell's navigation verbs (`OpenNote`, `GoBack`) live in
-/// `PuppetServer` because they are the navigation stack's, and the editor's text verbs live
-/// in the webview. Everything in between — the title field, the find bar, a list's New note
+/// `PuppetServer` because they are the navigation stack's, and the editor's text verbs are
+/// the native editor's (PuppetNativeVerbs). Everything in between — the title field, the find bar, a list's New note
 /// and New folder, the folder dialogs and move sheets — is SwiftUI state inside one view,
 /// reachable from nowhere else. Without a registry those controls could never be verbs, which
 /// is the whole reason a driver does worse on a phone than on the desktop. A menu iOS presents

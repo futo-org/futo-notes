@@ -67,11 +67,9 @@ internal object PuppetContract {
     )
 
     /**
-     * Queries the WebView answers about the page it is showing. The WebView is one
-     * long-lived instance, so it still holds the last note's document after a GoBack:
-     * forwarded from a native screen, one of these answers about a screen the user is
-     * not on. They are refused there instead. `clipboard` is not one — it is the
-     * agent's own buffer, not the page's, and survives navigation.
+     * Queries about the open editor's document. Off the editor screen there is no
+     * document to read, so they are refused there. `clipboard` is not one — it is the
+     * agent's own buffer, not the editor's, and survives navigation.
      */
     val pageQueries = setOf("elements", "doc", "at", "show", "events", "diff", "trace")
 

@@ -24,6 +24,7 @@ import com.futo.notes.localization.Localization
 import com.futo.notes.ui.showToast
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.io.File
+import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -40,7 +41,7 @@ private fun isCanonicalImageExtension(extension: String): Boolean =
 const val MAX_PICKED_IMAGES = 3
 
 /**
- * Native image pickers behind the editor's `pickImage` bridge message
+ * Native image pickers behind the toolbar's `pickImage` items
  * [editor.md:121, editor.md:130]. The Photo Picker needs no permission on any
  * API level. TakePicture writes into a FileProvider cache file through the
  * system camera app, but because the manifest declares CAMERA (for pairing
@@ -283,41 +284,24 @@ fun clipboardImageUri(context: Context): Uri? {
  */
 fun saveImageIntoVault(resolver: ContentResolver, vaultRoot: File, uri: Uri): String? {
     val ext = imageExtension(resolver, uri) ?: return null
+    return copyImageIntoVault(vaultRoot, ext) { resolver.openInputStream(uri) }
+}
+
+/**
+ * The framework-free half of [saveImageIntoVault]: copy the bytes [open] yields into a
+ * freshly reserved vault file ([reserveImageFile]) with the already-accepted [ext].
+ * Returns the saved filename, or null (leaving no file behind) when [open] yields
+ * nothing or the copy fails.
+ */
+internal fun copyImageIntoVault(vaultRoot: File, ext: String, open: () -> InputStream?): String? {
     val dest = reserveImageFile(vaultRoot, ext) ?: return null
     return try {
-        val input = resolver.openInputStream(uri) ?: run { dest.delete(); return null }
+        val input = open() ?: run { dest.delete(); return null }
         input.use { src -> dest.outputStream().use { src.copyTo(it) } }
         dest.name
     } catch (e: Exception) {
         dest.delete()
         android.util.Log.e("ImagePicker", "image import failed", e)
-        null
-    }
-}
-
-/**
- * Save raw image bytes (from a clipboard paste, decoded from the bridge's
- * base64 `saveImageData` message) into the vault root under a generated unique
- * name. Returns the saved filename, or null when [ext] isn't one of
- * accepted by the canonical Rust image rule or the write fails. Blocking I/O —
- * call from Dispatchers.IO. [isAllowedExtension] is injectable so the plain JVM
- * file-I/O tests do not have to load the UniFFI native library.
- */
-fun saveImageDataIntoVault(
-    vaultRoot: File,
-    data: ByteArray,
-    ext: String,
-    isAllowedExtension: (String) -> Boolean = ::isCanonicalImageExtension,
-): String? {
-    val lowered = ext.lowercase()
-    if (!isAllowedExtension(lowered)) return null
-    val dest = reserveImageFile(vaultRoot, lowered) ?: return null
-    return try {
-        dest.writeBytes(data)
-        dest.name
-    } catch (e: Exception) {
-        dest.delete()
-        android.util.Log.e("ImagePicker", "image save failed", e)
         null
     }
 }

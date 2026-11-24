@@ -2,6 +2,13 @@
  * Fixtures the differential does not drive, and divergences the two languages ship today.
  */
 
+const WIKILINKS_HAVE_NO_TS_COPY =
+  'The wikilink rules exist ONCE, in the futo-notes-wikilinks crate. Every platform ' +
+  'reaches them through Rust - the editor engine (WASM on desktop, UniFFI on the ' +
+  "phones) and the store's rename relinking - so there is no TypeScript copy to " +
+  'differentiate against. Locked by this fixture plus ' +
+  'crates/futo-notes-model/tests/conformance.rs.';
+
 // Conformance corpora this differential deliberately does NOT drive, each with
 // the reason. The coverage guard fails on any corpus that is neither driven nor
 // listed here, so a new one cannot quietly arrive without a decision.
@@ -26,6 +33,9 @@ export const FIXTURES_OUTSIDE_THE_DIFFERENTIAL = {
     'AGENTS.md M6 forbids a TypeScript (or Swift/Kotlin) copy to differentiate ' +
     'against. Shells reach them through Tauri and UniFFI. Locked by this fixture ' +
     'plus crates/futo-notes-license/tests/conformance.rs.',
+  'wikilinks-resolve.json': WIKILINKS_HAVE_NO_TS_COPY,
+  'wikilinks-suffix.json': WIKILINKS_HAVE_NO_TS_COPY,
+  'wikilinks-rewrite.json': WIKILINKS_HAVE_NO_TS_COPY,
   'constants.json':
     'Shared scalar constants, not ops. Locked by crates/futo-notes-model/tests/' +
     'conformance.rs, src/lib/constantsConformance.test.ts, and the Tauri watcher test.',

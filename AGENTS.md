@@ -29,8 +29,8 @@ commands, overlays, dev IDs, worktree isolation, and device detection. Never cal
 
 There is no Tauri mobile shell and no `cargo tauri ios/android` recipe. Use the
 native apps in `apps/ios` and `apps/android` through `just ios-native` / `just android-native`.
-Their nested manuals own build, device, release, and test variants. Missing
-`vite-plugin-singlefile` means stale node_modules; error 7 launching iOS usually means a locked phone.
+Their nested manuals own build, device, release, and test variants. Error 7 launching iOS
+usually means a locked phone.
 
 ## 3. Monorepo map
 

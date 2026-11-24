@@ -143,8 +143,8 @@ documents.
 **Known limit, accepted:** two people editing the same table row or list item at the same moment
 can produce broken markdown. The words survive. This goes in `docs/spec/` when the feature ships.
 
-On mobile, live editing needs a new editor-bridge message to apply remote edits mid-typing, in both
-native apps (M10). That is a `BRIDGE_VERSION` change: ask first.
+On mobile, live editing needs the native editors' Rust sessions to apply remote edits mid-typing,
+exposed through UniFFI to both native apps in the same change.
 
 ### Sharing
 
@@ -218,7 +218,7 @@ threat model gets amended in the change that ships sharing.
 | Faithfulness to the file | Exact markdown bytes | Every load and save goes through the editor's spelling |
 | Editor schema changes | Don't matter | Every stored note is tied to the schema; changes become data migrations |
 | Edits made outside the app | Diffed in like keystrokes | Need a markdown→tree diff nobody has built |
-| Mobile | Rust owns the doc; the bridge carries markdown | The doc lives in the WebView; the bridge carries Yjs updates |
+| Mobile | Rust owns the doc; the native editors' sessions read markdown | The doc lives in the editor's tree; every shell needs a Yjs binding |
 
 The broken-table risk is the cost, accepted above.
 
@@ -265,7 +265,7 @@ These are small and keep every later step additive:
    seeding rule, `.md` diff-in with the mass-deletion guard, and fuzz coverage. Internal builds
    first.
 3. **Live editing** between one person's own devices: push on the event stream, plus cursors.
-   Desktop first, then the mobile bridge change.
+   Desktop first, then the mobile editor sessions.
 4. **Sharing**: more than one server per client, share collections, per-person links with
    claim-on-open, guest access on servers, the mount list, and revoke with a key change. Ships
    together with step 3 on every platform, so sharing is live from its first release.

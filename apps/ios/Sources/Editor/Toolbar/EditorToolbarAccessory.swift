@@ -4,8 +4,7 @@ import UIKit
 /// UIKit container installed as the native text view's keyboard
 /// `inputAccessoryView`. Hosting the toolbar as a real accessory view means
 /// the SYSTEM owns docking and animation with the keyboard — show, hide,
-/// rotation, interactive dismiss — which is exactly what the embed's
-/// visualViewport-docked web toolbar had to approximate by hand.
+/// rotation, interactive dismiss — instead of approximating it by hand.
 ///
 /// The backdrop is the editor's own `Theme.background`, so the bar reads as the
 /// bottom edge of the note with the glass capsules floating over it. The

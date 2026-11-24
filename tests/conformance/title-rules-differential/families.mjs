@@ -6,7 +6,6 @@ import { imageFilenameCorpus } from './image-corpus.mjs';
 import { previewCorpus } from './preview-corpus.mjs';
 import { tagContentCorpus, tagNameCorpus } from './tags-corpus.mjs';
 import { collisionCorpus, folderPathCorpus, titleCorpus } from './title-corpus.mjs';
-import { rewriteCorpus, suffixCorpus, wikilinkTargetCorpus } from './wikilink-corpus.mjs';
 
 // --- Family table -----------------------------------------------------------
 //
@@ -77,17 +76,6 @@ export const FAMILIES = [
     fixture: 'preview',
     probes() {
       return previewCorpus().map((content) => ({ op: 'makePreview', input: content }));
-    },
-  },
-  {
-    name: 'wikilinks',
-    fixture: 'wikilinks-*',
-    probes() {
-      return [
-        ...wikilinkTargetCorpus().map((input) => ({ op: 'resolveWikilink', input })),
-        ...suffixCorpus().map((input) => ({ op: 'shortestUniqueSuffix', input })),
-        ...rewriteCorpus().map((input) => ({ op: 'rewriteWikilinks', input })),
-      ];
     },
   },
 ];

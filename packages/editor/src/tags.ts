@@ -10,12 +10,12 @@
  *
  * This is a DELIBERATE TS copy of the canonical Rust rule
  * (`crates/futo-notes-tags/src/lib.rs`), kept in lockstep via
- * `tests/conformance/tags.json`. The copy exists so the editor's per-keystroke
- * paths (live tag decorations, the header tag bar) compute synchronously in the
- * webview without an async IPC/FFI round-trip to Rust on every keystroke — a
- * hop that would lag decorations a frame behind the cursor. The note-list scan,
- * by contrast, runs in Rust (no copy needed). Tradeoff accepted; the catch is
- * conformance locks *behavior*, NOT performance.
+ * `tests/conformance/tags.json`. The copy exists so the header tag bar
+ * (`src/features/editor/NoteTagBar.svelte`) validates and normalizes a typed
+ * tag name synchronously, without an async IPC round-trip to Rust on every
+ * keystroke. The editor's own tag decorations come from the Rust engine, and
+ * the note-list scan runs in Rust (no copy needed). Tradeoff accepted; the
+ * catch is conformance locks *behavior*, NOT performance.
  *
  * INVARIANT: tag matching MUST be linear (`scanTags`), never a backtracking
  * regex over note content. `TAG_REGEX` below is the canonical *spec* of the

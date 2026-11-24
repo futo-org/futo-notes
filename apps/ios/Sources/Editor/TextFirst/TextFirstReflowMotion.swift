@@ -1,11 +1,11 @@
 import UIKit
 import os
 
-// The timing of a block drag's live preview (#448): the web editor's slide and landing, the
-// copy's dim, how a slide eases, and the idle-time drawing after the lift.
+// The timing of a block drag's live preview (#448): the slide and landing the retired web
+// editor used, the copy's dim, how a slide eases, and the idle-time drawing after the lift.
 
 enum TextFirstReflowMotion {
-    /// Neighbours slide over 0.18 s with the web editor's easing.
+    /// Neighbours slide over 0.18 s, eased as Android's (BlockReflowSlide.kt).
     static let slide: CFTimeInterval = 0.18
     static let easing = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
     /// The whole landing, from the release to the curtain coming down.

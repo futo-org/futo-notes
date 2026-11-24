@@ -6,9 +6,9 @@
 // only moves typed results across the IPC boundary, so no rule gets a second
 // implementation in TypeScript (AGENTS.md M6).
 //
-// Off Tauri — the web dev server and the native mobile editor embed — there is
-// no desktop license surface, so every call answers "Unlicensed" rather than
-// making each caller branch on platform (§4.5).
+// Off Tauri — the web dev server — there is no desktop license surface, so
+// every call answers "Unlicensed" rather than making each caller branch on
+// platform (§4.5).
 
 import { platformName } from './index';
 

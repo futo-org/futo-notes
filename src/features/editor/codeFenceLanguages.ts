@@ -10,9 +10,8 @@ import {
  *
  * `@codemirror/language-data` ships ~128 of these. Importing its manifest puts
  * an `import()` for every one of them in the module graph, so all 128 grammars
- * are emitted into the app bundle — and inlined whole into the single-file
- * native editor bundle, which cannot lazy-load. Naming the grammars here
- * instead keeps the unlisted ones out of the build entirely.
+ * are emitted into the app bundle. Naming the grammars here instead keeps the
+ * unlisted ones out of the build entirely.
  *
  * A fence in an unlisted language still renders as a code block; it just is not
  * syntax-colored. Adding one back is a single row.

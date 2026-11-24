@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * One-shot driver for the native Android app — the counterpart of
- * scripts/cdp-invoke.mjs, which drives the editor WebView inside it.
+ * One-shot driver for the native Android app's shell (`just puppet` drives its
+ * editor).
  *
  * Exists so an interactive session stops re-deriving `uiautomator dump` pipelines
  * and coordinate arithmetic for every look at the app. `state` in particular
@@ -41,13 +41,17 @@ Any command needs a booted device with the DEBUG app installed:
   just qa-claim android && just android-native
 `;
 
+// The same tags as `just emu-logs` (just/qa.justfile).
 const DEFAULT_LOG_TAGS = [
   'FutoStartup',
   'FutoSearch',
   'NotesStore',
+  'FutoLicense',
+  'SyncManager',
+  'PlatformTrust',
   'FutoTestHook',
-  'FutoToolbarDBG',
-  'FutoBridgeDBG',
+  'FutoPuppet',
+  'TextFirst',
   'AndroidRuntime',
 ];
 

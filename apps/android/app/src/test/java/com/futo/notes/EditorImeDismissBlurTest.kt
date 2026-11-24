@@ -8,8 +8,7 @@ import org.junit.Test
 /**
  * Regression for #24: the system back gesture/button hides the soft keyboard
  * WITHOUT dropping focus, so a functionless caret kept blinking on screen.
- * The app must drop focus (and blur the editor WebView, whose DOM caret
- * survives a view-level clearFocus) exactly on the IME visible→hidden
+ * The app must drop focus exactly on the IME visible→hidden
  * transition — `imeJustHid`, driving the app-root + per-dialog
  * ClearFocusOnImeDismiss — and only then.
  */

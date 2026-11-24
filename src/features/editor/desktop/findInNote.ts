@@ -25,8 +25,8 @@ export interface FindBarState {
   focusToken: number;
 }
 
-/** How long input pauses before the note is scanned again (the Android host's
- *  FIND_REFRESH_MS). */
+/** How long input pauses before the note is scanned again (as Android's
+ *  FIND_REFRESH_MS, textfirst/EditorEngineFind.kt). */
 const RESCAN_IDLE_MS = 150;
 
 /** How long a query waits for the frame it is scanned on before it is scanned anyway: a window

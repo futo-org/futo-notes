@@ -54,9 +54,11 @@ Shared code ships to all three apps; platform-specific dirs narrow it:
 - `apps/ios/**` changed → **iOS** in scope.
 - `apps/android/**` changed → **Android** in scope.
 - `apps/tauri/**` changed → **desktop** in scope.
-- `src/**`, `packages/**`, `crates/**` changed → **all platforms** (the shared
-  web editor + Rust core ship everywhere), subject to `uname -s`
-  (Linux has no iOS).
+- `packages/**`, `crates/**` changed → **all platforms** (the Rust core, the
+  editor engine and the generated manifests ship everywhere), subject to
+  `uname -s` (Linux has no iOS).
+- `src/**` changed → **desktop** (the phones are native apps and do not load
+  `src/`).
 - Editor changes (`packages/editor`) → all three, because the note rules and
   toolbar/title manifests are generated into both native shells.
 
@@ -74,8 +76,8 @@ the editor — "a change that syncs wrong is worse than one that renders wrong"
   with desktop-rust on the desktop C-leg only) so
   ledger ids stay comparable across runs; drop groups the scope doesn't touch.
 - Apply the **editor dedup** (SKILL.md Step 2): full `editor` sweep on the
-  desktop leg only; mobile editor legs get a `focus` of the shell-integration
-  delta + platform-tagged stories.
+  desktop leg; mobile editor legs get a `focus` of what the native editor draws
+  and handles + mobile/platform-tagged stories.
 - Provision only as many worktrees/devices as the scope needs — a
   single-surface, single-platform scope is one leg in one worktree, no fan-out
   worth the Workflow overhead (just spawn one `app-qa` directly and skip

@@ -63,15 +63,14 @@ export function assertEveryFixtureOpIsCovered(probedOps) {
 
   const fixtureOps = new Map(); // op -> the fixture file that exercises it
   for (const file of files) {
+    if (file in FIXTURES_OUTSIDE_THE_DIFFERENTIAL) continue;
     const fixture = JSON.parse(readFileSync(path.join(HERE, file), 'utf8'));
     if (!Array.isArray(fixture.groups)) {
-      if (!(file in FIXTURES_OUTSIDE_THE_DIFFERENTIAL)) {
-        problems.push(
-          `${file} is a conformance corpus this differential neither drives nor ` +
-            'excludes. Either give its ops a family in FAMILIES, or add it to ' +
-            'FIXTURES_OUTSIDE_THE_DIFFERENTIAL with the reason it cannot be driven.',
-        );
-      }
+      problems.push(
+        `${file} is a conformance corpus this differential neither drives nor ` +
+          'excludes. Either give its ops a family in FAMILIES, or add it to ' +
+          'FIXTURES_OUTSIDE_THE_DIFFERENTIAL with the reason it cannot be driven.',
+      );
       continue;
     }
     for (const group of fixture.groups) fixtureOps.set(group.op, file);

@@ -158,10 +158,15 @@ editor resolve from the catalogs on desktop, Android, and iOS.
   locale change dirties the layout-direction bits inside `screenLayout` and one
   undeclared bit relaunches the activity anyway — so the operating system delivers
   the change to the running activity. Nothing is recreated: the route, open note,
-  cursor, and draft all survive, and the editor WebView is told the new language
-  over the bridge rather than reloaded. The current editor draft still settles
-  first; if settling fails, the language does not change and a localized save error
-  appears. → AndroidManifest.xml / LocalLocalization.kt _(Android)_
+  cursor, and draft all survive, and the Compose tree, the native editor's toolbar
+  and dialogs included, re-reads the catalog in place. This holds for a selection
+  made in the app and for a change made in Android's settings, which the running
+  activity picks up as a configuration change (`appLanguage.refresh()`). →
+  AndroidManifest.xml / LocalLocalization.kt / MainActivity.kt _(Android)_
+- A language selected in the app's dropdown settles the open editor's draft first
+  (`checkpointNativeEditors`); if settling fails, the language does not change and a
+  localized save error appears. A change made in Android's settings is not gated
+  this way. → MainActivityVault.kt `selectLanguage` _(Android)_
 - Android's language row shows the catalog actually in effect, so a regional
   override such as `en-US` reads as English rather than falling back to System. →
   AppLanguageController.kt / AndroidLocalizationTest.kt _(Android)_

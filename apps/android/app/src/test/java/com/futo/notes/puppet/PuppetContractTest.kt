@@ -167,8 +167,8 @@ class PuppetContractTest {
     }
 
     @Test
-    fun pageQueriesAreTheWebviewsAndTheBuffersAreNot() {
-        // Off the editor these would answer about the note the WebView still holds.
+    fun pageQueriesAreTheEditorsAndTheBuffersAreNot() {
+        // Off the editor there is no document for these to read.
         assert(PuppetContract.pageQueries.all { it in PuppetContract.queries })
         assert("elements" in PuppetContract.pageQueries && "doc" in PuppetContract.pageQueries)
         // The agent's clipboard and the shell's own answers survive navigation.

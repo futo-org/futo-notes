@@ -1,15 +1,7 @@
-// Gate red-proofs for the generated toolbar/title/bridge specs and Rust dependency boundaries; listed by ./proofs.mjs.
+// Gate red-proofs for the generated toolbar/title specs and Rust dependency boundaries; listed by ./proofs.mjs.
 import { spawnSync } from 'node:child_process';
 
-import {
-  seed,
-  TOOLBAR_SWIFT,
-  TOOLBAR_KOTLIN,
-  TITLE_SWIFT,
-  TITLE_KOTLIN,
-  BRIDGE_SWIFT,
-  BRIDGE_KOTLIN,
-} from './seed.mjs';
+import { seed, TOOLBAR_SWIFT, TOOLBAR_KOTLIN, TITLE_SWIFT, TITLE_KOTLIN } from './seed.mjs';
 
 export const GENERATED_SPECS_PROOFS = [
   {

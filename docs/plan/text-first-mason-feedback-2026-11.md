@@ -1,7 +1,7 @@
 # Text-first Android editor — Mason's feedback round (2026-11)
 
-Scope: the Android text-first editor on `android-text-first` (MR !564). It is dev-build only;
-release Android still ships the WebView editor. Every fix lands on this branch (decision 8A).
+Scope: the Android text-first editor on `android-text-first` (MR !564). It was dev-build only then;
+release Android shipped the WebView editor until 2026-11-14. Every fix landed on this branch (decision 8A).
 Delete this file in the commit that finishes the last item (archive rule).
 
 ## Implementation checkpoint

@@ -179,11 +179,12 @@ For fixture seeding, saved-content verification and sync setup, read
 - **Locked physical iPhone** → `FBSOpenApplicationErrorDomain error 7` on
   launch; unlock and relaunch (device installs: `just ios-native-device`).
 - **Theme**: the app pushes theme changes into the editor live
-  (`FutoEditor.setTheme` on trait change). If the editor ever lags a system
+  (`TextFirstEditorController.setTheme` when the colour scheme changes). If the editor ever lags a system
   appearance switch, re-open the note before calling it a bug — and if it
   persists, that's a regression worth reporting.
 - **`just ios-native` needs an already-booted simulator** — it does not
   auto-boot; run `just qa-claim ios` (or `just sim-boot` solo) first.
-- Editor-affecting changes (`src/`, `packages/editor`) need a rebuilt editor
-  bundle: `just ios-native` runs `vite build --config vite.editor.config.ts`
-  every time, so a plain rebuild+reinstall picks them up.
+- Editor engine changes (`crates/futo-notes-editor`) and manifest changes
+  (`packages/editor`, regenerated with `just toolbar-spec` / `just title-spec`)
+  need rebuilt bindings: `just ios-native` rebuilds the Rust FFI every time, so a
+  plain rebuild+reinstall picks them up. `src/` does not reach the iOS app.
