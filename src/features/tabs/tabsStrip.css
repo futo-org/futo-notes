@@ -88,7 +88,8 @@
      drop shadow supply the lift the shared edge used to. The shadow is black
      rather than `rgba(var(--ink-rgb), …)` on purpose — ink inverts with the
      theme, and a white shadow is a glow, not a shadow. Dark mode drops it
-     entirely (below). */
+     entirely (below). No weight change: a heavier title is wider, so selecting
+     a tab would move its text and truncate it sooner (as the sidebar's rows). */
 .tab-pill.active {
   --tab-active-bg: var(--color-bg);
   --tab-active-ring: var(--color-border);
@@ -96,7 +97,6 @@
 
   background: var(--tab-active-bg);
   color: var(--color-text);
-  font-weight: 500;
   box-shadow:
     0 0 0 1px var(--tab-active-ring),
     var(--tab-active-lift);
