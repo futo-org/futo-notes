@@ -14,8 +14,9 @@ Android through the UniFFI facade in `futo-notes-ffi`.
 ## The rule that governs every change here
 
 This is the canonical side of the one permitted TypeScript duplication (AGENTS.md M6/M7). The hot
-path in `packages/editor/` mirrors part of this surface so the editor can answer per keystroke, and
-`tests/conformance/*.json` plus the generated differential pin the two together bit-for-bit.
+path in `packages/editor/` mirrors part of this surface (titles, tags, previews, images) so the UI
+can answer per keystroke, and `tests/conformance/*.json` plus the generated differential pin the two
+together bit-for-bit. The wikilink rules this crate reexports have no TS copy.
 
 Changing a rule means: edit Rust **and** the TS mirror, update the hand-reviewed goldens, and run
 both consumers. `packages/editor/AGENTS.md` owns that procedure. A Rust-only edit that passes
