@@ -83,12 +83,17 @@
   the object map, absent from the local scan" as a local delete — filtering it
   out of the scan instead would tombstone the note on the server and every peer.
   A copy uploaded by an older client (push never validated names) is left on the
-  server as-is and simply stops receiving updates; it is never deleted. These
-  files are also absent from the note list on every shell, because the local
-  note scan has always skipped them — the app leaves them strictly alone.
-  → futo-notes-sync `sync/push/mod.rs` `uploadable_files`; guarded by
+  server as-is and simply stops receiving updates; it is never deleted. The
+  local note scan skips these files, so a note (`.md`) with such a name is
+  renamed at launch to its sanitized name — never over an existing file, and a
+  failed rename leaves it untouched with a bootstrap warning — and from then on
+  lists and syncs under the new name (crash #1816). Other files, and folders
+  with such names, are left strictly alone.
+  → futo-notes-sync `sync/push/mod.rs` `uploadable_files`; futo-notes-store
+  `unportable_names.rs`; guarded by
   `an_unportable_name_is_never_uploaded_and_is_journaled_not_failed` +
-  `an_unportable_name_is_not_mistaken_for_a_local_delete`
+  `an_unportable_name_is_not_mistaken_for_a_local_delete` +
+  `bootstrap_heals_unportable_note_names_without_losing_either_file`
 - **The local scan names each file by the path that resolves back to it.** On
   Unix a `\` is an ordinary character inside a filename, so `a\b.md` is
   scanned as `a\b.md`, never as `a/b.md`: that lossy name read another file or
