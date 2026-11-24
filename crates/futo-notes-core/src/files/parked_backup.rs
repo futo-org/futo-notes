@@ -6,11 +6,25 @@ use rayon::prelude::*;
 
 use super::filenames::collision_key;
 use super::paths::MAX_FOLDER_DEPTH;
-use super::timestamps::now_ms;
+use super::timestamps::{file_mtime_ms, now_ms};
 use super::vault_fs;
 
 const BACKUP_PREFIX: &str = ".sf-bak-";
 const BACKUP_SIDECAR_SUFFIX: &str = ".path";
+/// The name every atomic write's temp file carries until it is installed. Builds
+/// before the stale-temp sweep also used `.sf-tmp-` for a case-only rename's hop,
+/// which holds the ONLY copy of its note and keeps the note's old mtime; a crash
+/// there can sit in a vault today. So the sweep owns a prefix of its own, and
+/// never touches `.sf-tmp-*` (nor the TS writer's `.sf-tmp-<ms>-<n>`).
+pub(super) const TEMP_PURPOSE: &str = "wtmp";
+const TEMP_PREFIX: &str = ".sf-wtmp-";
+/// A case-only rename's stop on the way to its destination, named apart from the
+/// write temp so nothing mistakes the only copy of a note for litter.
+pub(super) const HOP_PURPOSE: &str = "hop";
+/// A save's temp lives from its create to its rename, milliseconds. One this old
+/// is a crash's leftover, so the margin is only about a stalled disk; a late
+/// sweep costs a hidden file for one more launch, an early one costs a save.
+const STALE_TEMP_AGE_MS: i64 = 10 * 60 * 1000;
 
 static HIDDEN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -108,6 +122,7 @@ fn recover_parked_in(root: &Path, dir: &Path, depth: usize) -> (Vec<RecoveredBac
         }
     }
     remove_orphan_sidecars(dir, entries.sidecars);
+    sweep_stale_temps(dir, entries.temps);
 
     if depth < MAX_FOLDER_DEPTH {
         let nested: Vec<_> = entries
@@ -127,6 +142,7 @@ struct ParkedEntries {
     subdirs: Vec<PathBuf>,
     backups: Vec<String>,
     sidecars: Vec<String>,
+    temps: Vec<String>,
 }
 
 fn scan_parked_entries(dir: &Path) -> Option<ParkedEntries> {
@@ -134,6 +150,7 @@ fn scan_parked_entries(dir: &Path) -> Option<ParkedEntries> {
     let mut subdirs = Vec::new();
     let mut backups = Vec::new();
     let mut sidecars = Vec::new();
+    let mut temps = Vec::new();
     for entry in entries.flatten() {
         // Do not follow directory symlinks; a vault-local loop would overflow bootstrap recovery.
         let real_dir = entry
@@ -149,6 +166,8 @@ fn scan_parked_entries(dir: &Path) -> Option<ParkedEntries> {
                 } else {
                     backups.push(name.to_owned());
                 }
+            } else if name.starts_with(TEMP_PREFIX) {
+                temps.push(name.to_owned());
             }
         }
     }
@@ -156,6 +175,7 @@ fn scan_parked_entries(dir: &Path) -> Option<ParkedEntries> {
         subdirs,
         backups,
         sidecars,
+        temps,
     })
 }
 
@@ -198,6 +218,25 @@ fn recover_parked_backup(
             }
         },
         Err(error) => Err(error),
+    }
+}
+
+/// Removes the temp files a crash mid-save left behind. Each is a hidden copy of
+/// a note that was either installed already or never acknowledged, so nothing in
+/// it is the only copy. Only regular files older than `STALE_TEMP_AGE_MS` go: a
+/// save in another process (the CLI holds no vault guard) may be using a young
+/// one, and its mtime moves while it is written. Sync and the list cache never
+/// see a temp, as every walk skips dot-names.
+fn sweep_stale_temps(dir: &Path, names: Vec<String>) {
+    let now = now_ms();
+    for name in names {
+        let path = dir.join(name);
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if metadata.is_file() && now - file_mtime_ms(&metadata) >= STALE_TEMP_AGE_MS {
+            let _ = fs::remove_file(&path);
+        }
     }
 }
 
@@ -381,5 +420,66 @@ mod tests {
             "sub bytes"
         );
         assert!(!backup.exists());
+    }
+
+    fn write_temp(dir: &Path, name: &str, age_ms: i64) -> PathBuf {
+        let path = dir.join(name);
+        fs::write(&path, "a copy of a note").unwrap();
+        crate::files::set_file_mtime_ms(&path, now_ms() - age_ms).unwrap();
+        path
+    }
+
+    #[test]
+    fn recover_sweeps_the_temp_a_crash_left_behind() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let sub = root.join("Folder");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(root.join("Note.md"), "installed").unwrap();
+        let stale = write_temp(root, ".sf-wtmp-4242-1-0", 2 * STALE_TEMP_AGE_MS);
+        let nested = write_temp(&sub, ".sf-wtmp-4242-1-1", 2 * STALE_TEMP_AGE_MS);
+
+        let _ = recover_parked_backups(root);
+
+        assert!(!stale.exists());
+        assert!(!nested.exists());
+        assert_eq!(
+            fs::read_to_string(root.join("Note.md")).unwrap(),
+            "installed"
+        );
+    }
+
+    /// A save in another process may be using a young temp; so may a rename hop,
+    /// which holds the only copy of its note.
+    #[test]
+    fn recover_leaves_a_live_temp_and_a_rename_hop_alone() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let young = write_temp(root, ".sf-wtmp-4242-1-0", 1_000);
+        let hop = write_temp(root, ".sf-hop-4242-1-1", 2 * STALE_TEMP_AGE_MS);
+
+        let _ = recover_parked_backups(root);
+
+        assert!(young.exists());
+        assert_eq!(fs::read_to_string(hop).unwrap(), "a copy of a note");
+    }
+
+    /// Older builds hopped a case-only rename through `.sf-tmp-…`; a crash
+    /// mid-hop leaves the note there with its old mtime, as the only copy.
+    #[test]
+    fn recover_never_touches_a_legacy_tmp_file_however_old() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let unix_name = write_temp(root, ".sf-tmp-4242-7", 30 * 24 * 60 * 60 * 1000);
+        let fallback_name = write_temp(
+            root,
+            ".sf-tmp-4242-1700000000000-7",
+            30 * 24 * 60 * 60 * 1000,
+        );
+
+        let _ = recover_parked_backups(root);
+
+        assert!(unix_name.exists());
+        assert!(fallback_name.exists());
     }
 }

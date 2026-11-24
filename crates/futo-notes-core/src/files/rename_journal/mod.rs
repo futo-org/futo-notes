@@ -135,7 +135,7 @@ pub fn save(root: &Path, journal: &Journal) -> Result<(), String> {
         return vault_fs::remove_local(root, FILE).map(|_| ());
     }
     let bytes = serde_json::to_vec_pretty(journal).map_err(|error| error.to_string())?;
-    vault_fs::write_atomic_local(root, FILE, &bytes)
+    vault_fs::write_atomic_local(root, FILE, &bytes).map_err(String::from)
 }
 
 pub fn staged(id: u64, index: usize) -> String {

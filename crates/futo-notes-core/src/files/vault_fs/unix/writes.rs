@@ -7,9 +7,9 @@ use rustix::fs::{renameat, unlinkat, AtFlags};
 
 use super::{
     entry_type, install_temp, open_parent, open_parent_with_policy, reject_symlink,
-    report_local_sync, sync_directory, write_temp_and_install,
+    report_local_sync, sync_directory, sync_directory_with, write_temp_and_install,
 };
-use crate::files::vault_fs::{context, OpenParentError};
+use crate::files::vault_fs::{context, OpenParentError, WriteError};
 
 pub(in crate::files::vault_fs) fn create_dir_all(
     root: &Path,
@@ -30,20 +30,20 @@ pub(in crate::files::vault_fs) fn write_atomic(
     relative: &str,
     bytes: &[u8],
 ) -> Result<(), String> {
-    write_with_policy(root, relative, bytes, true, true)
+    write_with_policy(root, relative, bytes, true, true).map_err(String::from)
 }
 pub(in crate::files::vault_fs) fn write_atomic_local(
     root: &Path,
     relative: &str,
     bytes: &[u8],
-) -> Result<(), String> {
+) -> Result<(), WriteError> {
     write_with_policy(root, relative, bytes, false, true)
 }
 pub(in crate::files::vault_fs) fn write_atomic_local_in_existing_parent(
     root: &Path,
     relative: &str,
     bytes: &[u8],
-) -> Result<(), String> {
+) -> Result<(), WriteError> {
     write_with_policy(root, relative, bytes, false, false)
 }
 fn write_with_policy(
@@ -52,20 +52,24 @@ fn write_with_policy(
     bytes: &[u8],
     strict: bool,
     create_parents: bool,
-) -> Result<(), String> {
+) -> Result<(), WriteError> {
     let parent = open_parent_with_policy(root, relative, create_parents, strict)
-        .map_err(OpenParentError::message)?;
-    reject_symlink(&parent, "write", relative)?;
+        .map_err(|error| WriteError::Failed(error.message()))?;
+    reject_symlink(&parent, "write", relative).map_err(WriteError::Failed)?;
     write_temp_and_install(&parent, relative, bytes, |temp| {
         install_temp(&parent, temp, relative, strict)
-    })?;
-    let result = sync_directory(&parent.directory, "sync directory after write", relative);
-    if strict {
-        result
-    } else {
-        report_local_sync(result);
-        Ok(())
-    }
+    })
+    .map_err(WriteError::Failed)?;
+    // The caller acknowledges the save when this returns, so the rename must be
+    // durable: a failed directory fsync is a failed save in both policies. The
+    // local one only forgives a filesystem that has no directory fsync at all.
+    sync_directory_with(
+        &parent.directory,
+        "sync directory after write",
+        relative,
+        !strict,
+    )
+    .map_err(WriteError::InstalledNotDurable)
 }
 
 pub(in crate::files::vault_fs) fn remove(root: &Path, relative: &str) -> Result<bool, String> {

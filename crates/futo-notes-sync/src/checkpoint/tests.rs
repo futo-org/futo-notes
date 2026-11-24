@@ -361,3 +361,31 @@ fn missing_or_garbage_ancestry_is_empty() {
     std::fs::write(ancestry_path(root.path()), "not json").unwrap();
     assert!(load_ancestry(root.path()).is_empty());
 }
+
+// A no-op cycle's save must stay cheap: after a clean write it does no directory
+// sync (a full flush on Apple platforms). A write that failed is the one case
+// that owes the sync, and pays it once. The injected failure is consumed by the
+// first directory sync, so it shows whether a save performed one.
+#[cfg(unix)]
+#[test]
+fn an_identical_save_syncs_the_directory_only_after_a_failed_write() {
+    use futo_notes_core::files::vault_fs::fail_directory_sync_on_call;
+
+    let root = TempRoot::new();
+    let current = state("collection-a");
+    save(root.path(), &current).unwrap();
+
+    fail_directory_sync_on_call(1);
+    save(root.path(), &current).unwrap();
+    assert!(
+        vault_fs::sync_parent_local(root.path(), STATE_FILE).is_err(),
+        "the identical save did a directory sync of its own"
+    );
+
+    set_unsynced(root.path(), true);
+    fail_directory_sync_on_call(1);
+    assert!(save(root.path(), &current).is_err());
+    assert!(is_unsynced(root.path()), "a failed sync stays owed");
+    save(root.path(), &current).unwrap();
+    assert!(!is_unsynced(root.path()));
+}

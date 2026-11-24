@@ -1,6 +1,6 @@
 /** The temp names the TS atomic writer made before app data moved to the vault engine:
  * `.sf-tmp-<epoch ms>-<counter>`. Older vaults can still hold them. The Rust engine's
- * own temps carry a pid too (`.sf-tmp-<pid>-<ms>-<seq>`) and do not match. */
+ * own temps are `.sf-wtmp-<pid>-<ms>-<seq>` and do not match. */
 const ATOMIC_TEMP_NAME = /^\.sf-tmp-(\d{10,})-\d+$/;
 
 /** A temp this old belongs to a write that died with its process (a write takes

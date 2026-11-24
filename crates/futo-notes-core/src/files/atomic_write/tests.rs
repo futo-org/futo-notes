@@ -11,8 +11,49 @@ fn atomic_text_write_replaces_content_without_temp_litter() {
     assert_eq!(fs::read_to_string(path).unwrap(), "second\n😀");
     assert!(fs::read_dir(root).unwrap().flatten().all(|entry| {
         let name = entry.file_name().to_string_lossy().into_owned();
-        !name.starts_with(".sf-tmp-") && !name.starts_with(".sf-bak-")
+        !name.starts_with(".sf-wtmp-") && !name.starts_with(".sf-bak-")
     }));
+}
+
+#[cfg(not(windows))]
+#[test]
+fn a_failed_directory_sync_fails_the_write() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("note.md");
+
+    fail_next_directory_sync();
+    let error = write_atomic_text(&path, "body").unwrap_err();
+
+    assert!(error.contains("syncing directory"), "{error}");
+    write_atomic_text(&path, "body").unwrap();
+}
+
+#[cfg(not(windows))]
+#[test]
+fn a_bare_relative_path_syncs_the_current_directory() {
+    sync_parent_directory(Path::new("")).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn only_a_filesystem_without_directory_fsync_is_tolerated() {
+    use std::io::Error;
+    for errno in [
+        rustix::io::Errno::INVAL,
+        rustix::io::Errno::NOSYS,
+        rustix::io::Errno::OPNOTSUPP,
+        rustix::io::Errno::NOTSUP,
+    ] {
+        assert!(is_directory_sync_unsupported(&Error::from(errno)));
+    }
+    for errno in [
+        rustix::io::Errno::IO,
+        rustix::io::Errno::NOSPC,
+        rustix::io::Errno::ACCESS,
+    ] {
+        assert!(!is_directory_sync_unsupported(&Error::from(errno)));
+    }
+    assert!(!is_directory_sync_unsupported(&Error::other("no errno")));
 }
 
 #[test]
@@ -58,7 +99,7 @@ fn create_new_atomic_writes_a_fresh_note_and_leaves_no_temp() {
     assert!(fs::read_dir(root)
         .unwrap()
         .flatten()
-        .all(|entry| { !entry.file_name().to_string_lossy().starts_with(".sf-tmp-") }));
+        .all(|entry| { !entry.file_name().to_string_lossy().starts_with(".sf-wtmp-") }));
 }
 
 #[test]
@@ -167,7 +208,7 @@ fn create_new_atomic_installs_a_note_when_links_and_rename_flags_are_both_reject
     let litter = fs::read_dir(root)
         .unwrap()
         .flatten()
-        .any(|entry| entry.file_name().to_string_lossy().starts_with(".sf-tmp-"));
+        .any(|entry| entry.file_name().to_string_lossy().starts_with(".sf-wtmp-"));
 
     assert_eq!(
         (created, content.as_deref(), litter),

@@ -29,7 +29,7 @@
   window must always be closable: a longer stall loses an edit still inside the
   page, with one log line; edits the host already holds are saved. The JS handler
   does not abandon a write still running after its 3 s race (up to 15 s), so a
-  slow disk leaves no `.sf-tmp-*` file. →
+  slow disk leaves no `.sf-wtmp-*` file. →
   apps/tauri/src-tauri/src/close_deadline.rs, src/app/closeDeadlineDirty.ts,
   src/app/startNativeShell.ts, tests/desktop-close-deadline.mjs
 

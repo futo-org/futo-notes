@@ -1,11 +1,36 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 
+use futo_notes_core::files::vault_fs;
 use futo_notes_core::files::write_atomic_text;
 use serde::{Deserialize, Serialize};
 
 const STATE_FILE: &str = ".e2ee-state.json";
 const ANCESTRY_FILE: &str = ".e2ee-ancestry.json";
+
+/// Vaults whose last checkpoint write failed, so the file on disk may not be
+/// durable yet. Only these pay a directory fsync on the skip-if-unchanged path:
+/// on Apple platforms that fsync is a full flush, too dear for every no-op cycle.
+static CHECKPOINT_UNSYNCED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+fn set_unsynced(root: &Path, unsynced: bool) {
+    let mut roots = CHECKPOINT_UNSYNCED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    roots.retain(|known| known != root);
+    if unsynced {
+        roots.push(root.to_path_buf());
+    }
+}
+
+fn is_unsynced(root: &Path) -> bool {
+    CHECKPOINT_UNSYNCED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .any(|known| known == root)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -187,9 +212,18 @@ pub(crate) fn save(root: &Path, state: &ConnectedState) -> Result<(), String> {
     // in-memory state) keeps every durability property: a missing, stale, or
     // torn file never matches and is rewritten as before.
     if std::fs::read(&path).is_ok_and(|current| current == json.as_bytes()) {
+        // Identical bytes normally mean a clean earlier write, already durable.
+        // After one that failed (its directory fsync, say) they were installed
+        // but never synced, and acknowledging them takes the fsync they missed.
+        if is_unsynced(root) {
+            vault_fs::sync_parent_local(root, STATE_FILE)?;
+            set_unsynced(root, false);
+        }
         return Ok(());
     }
-    write_atomic_text(&path, &json)
+    let written = write_atomic_text(&path, &json);
+    set_unsynced(root, written.is_err());
+    written
 }
 
 pub(crate) fn load_ancestry(root: &Path) -> HashMap<String, Ancestry> {

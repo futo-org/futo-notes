@@ -219,7 +219,7 @@ pub(in crate::files::vault_fs) fn rename_case(
         .map_err(OpenParentError::message)?;
     reject_symlink(&from, "rename source", source)?;
     reject_symlink(&to, "rename destination", destination)?;
-    let temp = hidden_name("tmp");
+    let temp = hidden_name(crate::files::parked_backup::HOP_PURPOSE);
     renameat(&from.directory, &from.leaf, &from.directory, &temp).map_err(|e| e.to_string())?;
     if let Err(e) = renameat(&from.directory, &temp, &to.directory, &to.leaf) {
         let _ = renameat(&from.directory, &temp, &from.directory, &from.leaf);

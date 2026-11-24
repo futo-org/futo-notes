@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
+use futo_notes_core::files::vault_fs::WriteError;
 use futo_notes_core::files::{file_mtime_ms, vault_fs};
 use futo_notes_model::{find_wikilinks, link_targets_naming, rewrite_wikilinks, split_id};
 
@@ -117,16 +118,27 @@ impl LocalNoteStore {
                     .ok()
                     .as_ref()
                     .map(file_mtime_ms);
-                vault_fs::write_atomic_local(&self.root, &relative, content.as_bytes())?;
+                let written =
+                    vault_fs::write_atomic_local(&self.root, &relative, content.as_bytes());
+                // Installed bytes count as a rewrite even when their directory
+                // fsync failed; that one is reported below as well.
+                let durability = match written {
+                    Ok(()) => None,
+                    Err(WriteError::InstalledNotDurable(error)) => Some(error),
+                    Err(error) => return Err(error.into()),
+                };
                 if let Some(previous) = preserved {
                     let _ = vault_fs::set_mtime_ms(&self.root, &relative, previous);
                 }
-                Ok(())
+                Ok(durability)
             }) {
-                Ok(()) => {
+                Ok(durability) => {
                     touched.insert(id.clone());
                     self.search.notify(&FileChange::Changed(note_filename(&id)));
-                    relinked.push(id);
+                    relinked.push(id.clone());
+                    if let Some(error) = durability {
+                        warnings.push(format!("backlink rewrite for {id} is not durable: {error}"));
+                    }
                 }
                 Err(error) => warnings.push(format!("backlink rewrite for {id}: {error}")),
             }

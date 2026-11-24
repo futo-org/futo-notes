@@ -10,7 +10,7 @@ use std::cell::Cell;
 ))]
 use std::cell::RefCell;
 
-use super::parked_backup::{hidden_path, install_temp};
+use super::parked_backup::{hidden_path, install_temp, HOP_PURPOSE, TEMP_PURPOSE};
 use super::paths::NAME_MAX;
 use super::timestamps::{file_mtime_ms, set_file_mtime_ms};
 
@@ -34,6 +34,17 @@ thread_local! {
 thread_local! {
     static TAKE_NEXT_TEMP: Cell<bool> = const { Cell::new(false) };
 }
+#[cfg(all(test, not(windows)))]
+thread_local! {
+    static FAIL_DIRECTORY_SYNC: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Makes the next directory fsync after an install fail, as a disk that took the
+/// rename but not its durability would.
+#[cfg(all(test, not(windows)))]
+pub(crate) fn fail_next_directory_sync() {
+    FAIL_DIRECTORY_SYNC.with(|v| v.set(true));
+}
 
 /// Makes the next temp file vanish before it is installed, as a file-provider
 /// agent can take it.
@@ -52,7 +63,7 @@ fn create_temp(
     on_create_failure: CreateFailure,
 ) -> Result<(std::path::PathBuf, File), String> {
     for _ in 0..32 {
-        let path = hidden_path(parent, "tmp");
+        let path = hidden_path(parent, TEMP_PURPOSE);
         let refused =
             crate::files::vault_fs::refused_create(std::io::ErrorKind::PermissionDenied.into());
         match refused.and_then(|()| OpenOptions::new().write(true).create_new(true).open(&path)) {
@@ -135,9 +146,68 @@ pub(crate) fn write_atomic_bytes_in_existing_parent_reporting(
     write_temp_and_install(parent, bytes, on_create_failure, |temp| {
         install_temp(temp, path)
     })?;
-    // Directory fsync makes the rename durable on platforms that support directory handles.
-    let _ = File::open(parent).and_then(|directory| directory.sync_all());
+    sync_parent_directory(parent)
+}
+
+/// Makes a rename in `parent` durable. A failure is a failed write — the caller
+/// would otherwise acknowledge bytes a power cut can still lose — except where
+/// the platform or filesystem has no directory fsync to offer. An empty `parent`
+/// is what a bare relative path has, and means the current directory.
+#[cfg(not(windows))]
+pub fn sync_parent_directory(parent: &Path) -> Result<(), String> {
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
+    #[cfg(test)]
+    if FAIL_DIRECTORY_SYNC.with(|v| v.replace(false)) {
+        return Err(format!(
+            "injected directory sync failure (syncing directory {})",
+            parent.display()
+        ));
+    }
+    match File::open(parent).and_then(|directory| directory.sync_all()) {
+        Ok(()) => Ok(()),
+        Err(error) if is_directory_sync_unsupported(&error) => Ok(()),
+        Err(error) => Err(format!(
+            "{error} (syncing directory {} after writing)",
+            parent.display()
+        )),
+    }
+}
+
+/// Windows cannot open a directory as a file, so there is no directory fsync to
+/// call; NTFS journals the rename itself.
+#[cfg(windows)]
+pub fn sync_parent_directory(_parent: &Path) -> Result<(), String> {
     Ok(())
+}
+
+/// Whether failing to fsync a directory means the filesystem cannot do it —
+/// EINVAL (some FUSE and network mounts), ENOSYS or ENOTSUP/EOPNOTSUPP — rather
+/// than that the rename may not have reached the disk (EIO, ENOSPC, EDQUOT...).
+/// Android shared storage is the platform to watch: its FUSE and sdcardfs layers
+/// answer with these, and refusing every save there would be worse than the
+/// durability gap.
+pub(crate) fn is_directory_sync_unsupported(error: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        use rustix::io::Errno;
+        // Compared rather than matched: EOPNOTSUPP and ENOTSUP share a value on
+        // Linux but differ on Apple platforms.
+        Errno::from_io_error(error).is_some_and(|errno| {
+            errno == Errno::INVAL
+                || errno == Errno::NOSYS
+                || errno == Errno::OPNOTSUPP
+                || errno == Errno::NOTSUP
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = error;
+        false
+    }
 }
 
 pub fn write_atomic_text(path: &Path, content: &str) -> Result<(), String> {
@@ -348,7 +418,7 @@ pub fn rename_through_temp(source: &Path, destination: &Path) -> Result<(), Stri
     if let Some(destination_parent) = destination.parent() {
         fs::create_dir_all(destination_parent).map_err(|error| error.to_string())?;
     }
-    let temp = hidden_path(parent, "tmp");
+    let temp = hidden_path(parent, HOP_PURPOSE);
     fs::rename(source, &temp).map_err(|error| {
         format!(
             "{error} (renaming {} -> temp {})",
