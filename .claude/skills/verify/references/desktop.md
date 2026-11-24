@@ -178,9 +178,12 @@ touches an item an earlier build saved — and the QA leg hangs on a dialog nobo
 is there to answer. `FUTO_QA_EPHEMERAL_SECRETS=1` (set by the launch above) makes
 a **debug** build keep the vault password, vault key and session token in process
 memory instead of the keyring (`apps/tauri/src-tauri/src/sync/password_store.rs`).
-It is compiled out of release builds and never writes to disk. Consequence: sync
+It is compiled out of release builds and never writes a secret to disk. Consequence: sync
 credentials do not survive a relaunch, so the app asks for the password again —
-reconnect with `ConnectSync` or `window.__testSync.connect(url, password)`. Any
+reconnect with `ConnectSync` or `window.__testSync.connect(url, password)`. A QA
+run that connects, signs out or forgets leaves `.qa-stale-keyring` in the vault,
+and the next launch without the variable deletes that vault's keyring entries
+before reading them, so it asks for the password too. Any
 other QA launch (including a hand-written `cargo tauri dev`) must set it too, and
 a story that is *about* the keyring (saved-password persistence across a
 relaunch) must launch without it.
