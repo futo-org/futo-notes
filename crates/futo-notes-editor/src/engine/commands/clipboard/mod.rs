@@ -10,6 +10,7 @@
 mod carried;
 mod code_paste;
 mod copy;
+mod inline_code;
 mod move_text;
 mod paste;
 

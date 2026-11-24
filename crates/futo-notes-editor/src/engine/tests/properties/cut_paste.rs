@@ -1,9 +1,12 @@
 //! Cut, then paste what it copied at the caret it left: the note's bytes come
-//! back. Over random notes of plain, indented and inline-code lines, or of
-//! quoted ones (a paste whose last line is a block puts the text after the
-//! caret on a line of its own, clipboard.md "Paste"), at random selections that take a stretch of the source out as it stands
-//! (a cut that only removes bytes, and copies them without added marks) and
-//! do not end with a line ending, which a paste drops (clipboard.md "Paste").
+//! back. Over random notes of plain, indented, formatted and inline-code
+//! lines, or of quoted ones (a paste whose last line is a block puts the
+//! text after the caret on a line of its own, clipboard.md "Paste"), at
+//! random selections that take a stretch of the source out as it stands (a
+//! cut that only removes bytes, and copies them without added marks) and do
+//! not end with a line ending, which a paste drops (clipboard.md "Paste").
+//! Each kind of case below must be checked at least `cases() / 20` times, so
+//! a generator that stops reaching one cannot pass unnoticed.
 use super::*;
 
 const PLAIN: &[&str] = &[
@@ -13,6 +16,8 @@ const PLAIN: &[&str] = &[
     "ab  cd",
     "`gamma` delta",
     "x `co de` y",
+    "**ab** cd",
+    "a *it* b",
     "plain",
 ];
 
@@ -38,10 +43,27 @@ fn took_exactly(before: &str, after: &str, copied: &str) -> bool {
         })
 }
 
+/// The kinds a clean cut falls in: what it took and what it took it from.
+fn kinds(source: &str, shown: &str, start: usize, copied: &str) -> Vec<&'static str> {
+    let mut kinds = Vec::new();
+    if start == 0 || shown[..start].ends_with('\n') {
+        kinds.push("from a line's start");
+    }
+    if copied.contains('\n') {
+        kinds.push("across lines");
+    }
+    for (kind, mark) in [("quoted", ">"), ("in code", "`"), ("formatted", "*")] {
+        if source.contains(mark) {
+            kinds.push(kind);
+        }
+    }
+    kinds
+}
+
 #[test]
 fn cutting_then_pasting_in_place_restores_the_bytes() {
     let mut random = Random::from_env();
-    let mut checked = 0;
+    let mut checked: std::collections::BTreeMap<&str, usize> = Default::default();
     for case in 0..cases() {
         let parts = if random.below(2) == 0 { PLAIN } else { QUOTED };
         let lines: Vec<&str> = (0..1 + random.below(3))
@@ -65,7 +87,9 @@ fn cutting_then_pasting_in_place_restores_the_bytes() {
         if copied.ends_with('\n') || !took_exactly(&source, &engine.source_text(), &copied) {
             continue;
         }
-        checked += 1;
+        for kind in kinds(&source, &shown, a, &copied) {
+            *checked.entry(kind).or_default() += 1;
+        }
         let caret = engine.selection();
         engine
             .paste_markdown(engine.revision(), caret, &copied, &mut ok)
@@ -76,5 +100,17 @@ fn cutting_then_pasting_in_place_restores_the_bytes() {
             "case {case}: cut {a}..{b} of {source:?} (copied {copied:?}) and pasted it back"
         );
     }
-    assert!(checked > cases() / 10, "only {checked} cases cut cleanly");
+    for kind in [
+        "from a line's start",
+        "across lines",
+        "quoted",
+        "in code",
+        "formatted",
+    ] {
+        let count = checked.get(kind).copied().unwrap_or(0);
+        assert!(
+            count >= cases() / 20,
+            "only {count} {kind} cases cut cleanly"
+        );
+    }
 }

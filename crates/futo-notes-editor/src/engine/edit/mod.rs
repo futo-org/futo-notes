@@ -241,6 +241,15 @@ impl Engine {
         }
     }
 
+    /// Whether a pinned caret may stand at source offset `at`: where a caret
+    /// may, at an opening fence's hidden end, or ahead of a plain line's
+    /// hidden indent.
+    pub(crate) fn pin_stands(&self, at: usize) -> bool {
+        let (index, before) = read::line_at(&self.store, at);
+        let (entry, local) = (self.store.get(index), at - before.source);
+        entry.allowed(local) || entry.in_plain_indent(local) || is_opening_fence_end(entry, local)
+    }
+
     pub(crate) fn change(&self, edit: SourceEdit, shown: Shown) -> Change {
         Change {
             edit,

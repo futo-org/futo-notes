@@ -172,17 +172,6 @@ impl Engine {
         }
     }
 
-    /// Whether input at collapsed display `range` lands ahead of a plain
-    /// line's hidden indent (`keep_before_indent`), where no span stands.
-    pub(crate) fn input_before_indent(&self, range: DisplayRange) -> bool {
-        if range.start != range.end {
-            return false;
-        }
-        let at = self.input_at(range);
-        let (index, before) = read::line_at(&self.store, at);
-        self.store.get(index).in_plain_indent(at - before.source)
-    }
-
     /// The source offset input at collapsed display `range` lands at. Input
     /// at a caret the host placed elsewhere stands where a fresh selection
     /// of it would: after hidden syntax only at the note's start, otherwise

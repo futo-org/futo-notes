@@ -32,6 +32,7 @@
 //! from the line's indent, and the opening fence's indent on a code line)
 //! and its inline syntax.
 use super::store::Size;
+use crate::lines::block::TAB_WIDTH;
 use crate::lines::{block, line_spans, Carry, FenceRole, FrontMatterRole, Kind, Line, Span};
 use crate::lines::{SpanKind, TableRole};
 use std::ops::Range;
@@ -400,16 +401,24 @@ impl Entry {
     }
 
     /// Whether `at` (line-relative) is before the text of a plain line,
-    /// among the whitespace it hides as indent: the place an edit that
-    /// removed the line's first word leaves its caret, ahead of the space
-    /// that is now indent.
+    /// among the whitespace it hides as indent (not its quote markers): the
+    /// place an edit that removed the line's first word leaves its caret,
+    /// ahead of the space that is now indent.
     pub(crate) fn in_plain_indent(&self, at: usize) -> bool {
-        let marker = self.line.marker.end;
-        matches!(self.line.kind, Kind::Plain { .. })
-            && at < marker
-            && self.text[at..marker]
-                .bytes()
-                .all(|b| b == b' ' || b == b'\t')
+        let Kind::Plain { indent } = self.line.kind else {
+            return false;
+        };
+        let end = self.line.marker.end;
+        let (mut start, mut width) = (end, 0);
+        while width < indent && start > 0 {
+            start -= 1;
+            width += if self.text.as_bytes()[start] == b'\t' {
+                TAB_WIDTH
+            } else {
+                1
+            };
+        }
+        (start..end).contains(&at)
     }
 
     /// Every source offset that shows at display offset `at`, as the lowest

@@ -239,7 +239,7 @@ impl Engine {
                 Affinity::Forward => hi,
             };
             let pin = if mark.pin.is_some() {
-                (lo != hi).then_some(mark.start)
+                (lo != hi && self.pin_stands(mark.start)).then_some(mark.start)
             } else {
                 Some(mark.start.clamp(lo, hi)).filter(|&at| at != side)
             };

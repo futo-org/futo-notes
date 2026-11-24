@@ -5,6 +5,8 @@ use futo_notes_editor::{
 mod common;
 #[path = "clipboard/fenced.rs"]
 mod fenced;
+#[path = "clipboard/in_place.rs"]
+mod in_place;
 use common::ReferenceView;
 
 fn range(start: usize, end: usize) -> DisplayRange {
@@ -92,6 +94,16 @@ fn paste_keeps_copied_characters_and_places_blocks() {
         ("- item", (7, 7), "- x\n- y", "- item\n- x\n- y"),
         ("- abcd", (5, 5), "- x\n- y", "- ab\n- x\n- y\n- cd"),
         ("> q", (1, 1), "a\n\nb", "> qa\n>\n> b"),
+        // Inside an inline code span a pasted code span is its text.
+        ("`gmma`", (1, 1), "`a`", "`gamma`"),
+        ("`gmma`", (1, 1), "`a b`", "`ga bmma`"),
+        ("x `gmma`", (4, 4), "a `b`", "x `gma bma`"),
+        // A backtick left over cannot be typed into the span: pasted as is.
+        ("`gmma`", (1, 1), "``x`y``", "`g``x`y``mma`"),
+        // Quote markers of its own replace the caret line's; text after the
+        // caret carries on in a quote line, after the space a bare `>` needs.
+        ("> ad", (1, 1), "b\n> c", "> ab\n> cd"),
+        ("> ad", (1, 1), "b\n>", "> ab\n> d"),
         ("> \nz", (0, 0), "> a\n> b", "> a\n> b\nz"),
         // Pasted endings follow the note; code takes text verbatim.
         ("ab\r\ncd", (1, 1), "# T\nz", "a\r\n# T\r\nzb\r\ncd"),
@@ -202,71 +214,6 @@ fn cut_is_one_action_and_carries_its_style() {
     assert_eq!(view.text, s.display_text());
     assert!(s.undo(s.revision(), &mut |_| Ok(())).unwrap().is_none());
     assert_eq!(s.revision(), Revision(4));
-}
-
-/// Select `a..b`, cut it, and paste the copy at the caret the cut left.
-fn cut_then_paste(source: &str, a: usize, b: usize) -> String {
-    let mut s = EditorSession::open(source);
-    let mut accept = |_: &SourceEdit| Ok(());
-    s.select(s.revision(), range(a, b)).unwrap();
-    let (copied, _) = s
-        .cut_markdown(s.revision(), range(a, b), &mut accept)
-        .unwrap();
-    let caret = s.selection();
-    s.paste_markdown(s.revision(), caret, &copied, &mut accept)
-        .unwrap();
-    s.source_text()
-}
-
-#[test]
-fn cut_then_paste_in_place_gives_the_same_bytes() {
-    // (source, display range cut)
-    for (source, (a, b)) in [
-        // A whole bold word: the marks the cut left carried are not written
-        // around the copy's own again.
-        ("a **bold** c\n", (2, 6)),
-        // A range across two quoted lines is not quoted twice.
-        ("> ab\n> cd\n", (1, 4)),
-        // Part of an inline code span stays code.
-        ("`gamma`\n", (1, 2)),
-        // A line's first word: the space after it is not typed past.
-        ("ab cd\n", (0, 2)),
-        ("  ab cd\n", (0, 2)),
-    ] {
-        assert_eq!(cut_then_paste(source, a, b), source, "{source:?} {a}..{b}");
-    }
-}
-
-#[test]
-fn typing_after_deleting_a_lines_first_word_keeps_the_space() {
-    // The space after the word reads as hidden indent once the word is gone;
-    // what is typed next still goes before it.
-    for (source, word, expected) in [
-        ("ab cd\n", (0, 2), "xy cd\n"),
-        ("  ab cd\n", (0, 2), "  xy cd\n"),
-        ("> ab cd\n", (0, 2), "> xy cd\n"),
-    ] {
-        for deleted in ["replace", "backspace", "cut"] {
-            let mut s = EditorSession::open(source);
-            let mut accept = |_: &SourceEdit| Ok(());
-            let at = range(word.0, word.1);
-            match deleted {
-                "replace" => {
-                    s.replace(s.revision(), at, "", &mut accept).unwrap();
-                }
-                "backspace" => {
-                    s.paragraph_key(s.revision(), at, ParagraphKey::Backspace, &mut accept)
-                        .unwrap();
-                }
-                _ => {
-                    s.cut_markdown(s.revision(), at, &mut accept).unwrap();
-                }
-            }
-            let caret = s.selection();
-            s.replace(s.revision(), caret, "xy", &mut accept).unwrap();
-            assert_eq!(s.source_text(), expected, "{source:?} by {deleted}");
-        }
-    }
 }
 
 #[test]

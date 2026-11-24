@@ -34,9 +34,10 @@ use super::super::fences::{leading, line_after_closing};
 use super::super::lists::{parts, Parts};
 use super::super::marks::split;
 use super::code_paste::PastedCode;
+use super::inline_code::code_text;
 use crate::lines::block::OpenFence;
 use crate::lines::{block, line_spans, Carry, FenceRole, Kind, Line, SpanKind};
-use crate::{DisplayRange, EditorError, InlineFormat, InputAction};
+use crate::{DisplayRange, EditorError, InputAction};
 
 /// Where the caret lands after a shaped paste.
 enum Landing {
@@ -71,7 +72,7 @@ fn normalized(text: &str, newline: &str) -> String {
 }
 
 /// `text` read alone as one line.
-fn read_alone(text: &str) -> Line {
+pub(super) fn read_alone(text: &str) -> Line {
     block::read_line(&mut Carry::default(), text, 0)
 }
 
@@ -132,21 +133,6 @@ fn link_split(joined: &Joined) -> Option<(usize, String, String)> {
     })
 }
 
-/// `text` (one line) with the marks of its own inline code spans left off.
-fn code_text(text: &str) -> String {
-    let line = read_alone(text);
-    let spans = line_spans(text, &line);
-    let mut out = String::with_capacity(text.len());
-    let mut at = 0;
-    for span in spans.iter().filter(|span| span.kind == SpanKind::Code) {
-        out.push_str(&text[at..span.open.start]);
-        out.push_str(&text[span.open.end..span.close.start]);
-        at = span.close.end;
-    }
-    out.push_str(&text[at..]);
-    out
-}
-
 /// Quote markers to write text after: a lone `>` gains a space.
 fn spaced(quote: &str) -> String {
     let mut out = quote.to_owned();
@@ -205,8 +191,12 @@ impl Engine {
                 && self.selected_marker(range).is_none());
         // Inside an inline code span the text is code: its own code marks
         // are left off, not typed into the span.
+        // A backtick left in it could not be typed into the span: plain paste.
         let in_code = !shaped && self.in_inline_code(range);
-        let as_code = in_code.then(|| code_text(&text));
+        let as_code = in_code
+            .then(|| code_text(&text))
+            .filter(|code| !code.contains('`'));
+        let in_code = as_code.is_some();
         let landing = as_code.as_deref().unwrap_or(&text);
         if !shaped {
             if let Some(mut command) = self.carried_paste(range, landing) {
@@ -238,12 +228,6 @@ impl Engine {
         let mut command = command.unwrap_or_else(|| self.exact(range, landing));
         command.typed = !matches!(self.line(caret_line).line.kind, Kind::Table { .. });
         Ok(Some(command))
-    }
-
-    /// Whether the selection starts inside an inline code span's text.
-    fn in_inline_code(&self, range: DisplayRange) -> bool {
-        let at = self.source_selection(range).start;
-        self.formats_at(at).contains(&InlineFormat::Code)
     }
 
     /// The joined line rewritten as `out`, the caret at `caret` in it. The
@@ -381,8 +365,8 @@ fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (Stri
     if alone {
         lines.push(format!("{head}{opens}{tail}"));
     } else if !tail.is_empty() || !opens.is_empty() {
-        joined_tail(&mut lines[last], pasted[pasted.len() - 1], &opens, tail);
-        caret_line.1 += opens.len();
+        let spaced = joined_tail(&mut lines[last], pasted[pasted.len() - 1], &opens, tail);
+        caret_line.1 += opens.len() + usize::from(spaced);
     }
     let ends_block = closes_block(&joined.carry, &lines[..=last]);
     if ends_block && alone {
@@ -437,12 +421,19 @@ fn ends_in_block(line: &Line, text: &str, after_others: bool) -> bool {
 }
 
 /// `tail` joined to the last pasted line, the caret's marks opening again
-/// where its pasted `text` starts.
-fn joined_tail(written: &mut String, text: &str, opens: &str, tail: &str) {
+/// where its pasted `text` starts. A bare quote marker gains the space the
+/// quote needs before the text (whether it did).
+fn joined_tail(written: &mut String, text: &str, opens: &str, tail: &str) -> bool {
     let from = written.len() - text.len();
     let start = from + read_alone(&written[from..]).content.start;
     written.insert_str(start.min(written.len()), opens);
+    let bare_quote = is_quoted(text) && matches!(read_alone(text).kind, Kind::Blank);
+    let spaced = bare_quote && !written.ends_with([' ', '\t']) && !tail.starts_with([' ', '\t']);
+    if spaced && !tail.is_empty() {
+        written.push(' ');
+    }
     written.push_str(tail);
+    spaced && !tail.is_empty()
 }
 
 /// The tail line after closing fence `lines[closing]`, when it opens a block
