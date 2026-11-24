@@ -27,15 +27,15 @@ just qa-claim android       # THE way in a shared/parallel session: claims this
 adb devices                 # solo alternative: anything already attached?
 ```
 
-For a pinned legacy-WebView fixture, claim its exact name instead:
+For an old-API fixture (API 28–30; the app's minSdk is 28), claim its exact name instead:
 
 ```bash
 just qa-claim android --avd futo-api28   # also futo-api29 / futo-api30
 ```
 
 The named AVD must already exist. This registers ownership, boots it if needed,
-and includes it in `just qa-status`; it preserves its pinned config, WebView and
-app data. `just qa-release android` releases all Android claims this worktree
+and includes it in `just qa-status`; it preserves its pinned config and app
+data. `just qa-release android` releases all Android claims this worktree
 holds. `just qa-gc` releases stale legacy claims without deleting those fixtures.
 
 Pooled AVDs pin `show_ime_with_hard_keyboard=1` on each claim. If host-keyboard

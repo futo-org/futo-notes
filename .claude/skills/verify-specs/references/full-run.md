@@ -16,7 +16,8 @@ Surface groups: **A** = `editor` + `editor-visual` + `app`; **B** = `list` +
 
 The editor dedup (SKILL.md Step 2) shapes group A: the **desktop** A-leg
 sweeps the full `editor` surface; the iOS/Android A-legs carry a `focus`
-limited to the shell-integration delta plus platform-tagged editor stories.
+limited to what the native editor draws and handles plus mobile/platform-tagged
+editor stories.
 
 ## RAM caps — a PROVISIONING decision, not the workflow's job
 

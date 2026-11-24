@@ -77,18 +77,20 @@ run, `references/full-run.md` owns topology and resource limits; scoped runs use
 `references/scoping.md`. Pre-build all apps before fan-out. Never schedule more
 device-backed legs on a platform than the number of distinct devices claimed.
 
-### Editor dedup — sweep the web editor once
+### Editor dedup — sweep the shared engine once
 
-The `editor` surface is the **same embedded single-file web editor** on all
-three apps, so its rendering/decoration/interaction stories only need one full
-sweep: give it to the **desktop** leg (cheapest to drive, MCP bridge, and on
-macOS it's WKWebKit — the same engine as iOS). Mobile legs cover only what the
-native shells actually own: set each iOS/Android editor leg's **`focus`** to
-the shell-integration delta —
+All three apps edit through the **same Rust engine** (`crates/futo-notes-editor`):
+the commands, markdown rules and selection logic in `docs/spec/editor/portable-core/`
+are one implementation, so those stories only need one full sweep — give it to
+the **desktop** leg (cheapest to drive). Each app draws the editor itself
+(Svelte over WASM on desktop, UIKit on iOS, Android views), so rendering and
+interaction are NOT shared: set each iOS/Android editor leg's **`focus`** to
+what that platform draws and handles —
 
-> editor-session round-trips, toolbar actions, keyboard/IME (insets,
-> scroll-during-IME), tap/selection/focus handoff, image insertion,
-> safe areas — plus every editor story explicitly tagged _(iOS)_ / _(Android)_.
+> rendering and decorations, editor-session round-trips, toolbar actions,
+> keyboard/IME (insets, scroll-during-IME), tap/selection/focus handoff, image
+> insertion, safe areas — plus every editor story tagged _(mobile)_, _(iOS)_ or
+> _(Android)_.
 
 This applies in both modes. It does NOT apply to `list`/`nav`/`search`/
 `settings`/`tabs` — those are native SwiftUI/Compose implementations per
@@ -111,7 +113,7 @@ death) — one entry per leg:
       "idPrefix": "ed",
       "worktree": "/abs/path/.claude/worktrees/extra-A",
       "surfaces": ["editor", "app"],
-      "focus": "Shell-integration delta only: editor-session round-trips, toolbar, keyboard/IME, …",
+      "focus": "Native editor only: rendering, editor-session round-trips, toolbar, keyboard/IME, …",
       "device": "iOS sim <udid>",
       "deviceEnv": "export SIM=<udid>",
       "ledger": "/abs/path/extra-A/test-screenshots/A-ios-ledger.md",
