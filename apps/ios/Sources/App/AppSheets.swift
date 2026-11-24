@@ -6,7 +6,10 @@ struct AppSheets: ViewModifier {
     @EnvironmentObject private var store: NotesStore
     @EnvironmentObject private var sync: SyncManager
     /// Only to hand on to the Settings sheet, which owns the License row.
+    /// Every object Settings reads is re-injected: a sheet that lost one
+    /// crashed on iPad (crash #1839).
     @EnvironmentObject private var license: LicenseModel
+    @EnvironmentObject private var licenseStorefront: LicenseStorefront
     @EnvironmentObject private var navigation: AppNavigation
 
     /// Whether any UIKit-level modal (a sheet or cover from this list, a
@@ -48,6 +51,7 @@ struct AppSheets: ViewModifier {
                     .environmentObject(sync)
                     .environmentObject(store)
                     .environmentObject(license)
+                    .environmentObject(licenseStorefront)
                     .environmentObject(navigation)
             }
     }
