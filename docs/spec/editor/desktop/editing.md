@@ -165,7 +165,9 @@ DOM, one element per display line; it holds no Markdown rules of its own.
   the end of the note; a double click there is the one on the text, so past a line's end it
   selects the line's last word. A drag extends by the press's unit (a double-click drag by
   words), always holding what the press selected; coming back past the press deselects at
-  once. While a drag is above or below the pane, the pane scrolls toward it, faster the further
+  once. A selection drag above the body, over the title or the tag bar, selects to the note's
+  start, while dragged text dropped there lands on the first line at the pointer's column.
+  While a drag is above or below the pane, the pane scrolls toward it, faster the further
   out, and the selection follows; nothing runs once the drag ends. A press on selected text
   that moves more than 4 px drags the text: a caret that does not blink shows where it would
   drop, and the release moves it there through the engine, its Markdown cut and pasted as one
@@ -207,7 +209,8 @@ DOM, one element per display line; it holds no Markdown rules of its own.
   transparent): one band per selected row, a row tall, so wrapped rows and blank lines read as
   one block, across format edges too, and a row the selection runs past, a selected line
   break included, reaches the text column's right edge; a line the selection runs into from
-  above is highlighted from its left edge, a list's or a quote's indent included. Only the lines near the screen are drawn, so selecting a whole long
+  above is highlighted from its left edge, a list's or a quote's indent included, as is a line
+  selected from its start and on past its row. Only the lines near the screen are drawn, so selecting a whole long
   note costs what one screen does. → src/features/editor/desktop/highlight.ts
 - The open note is attached to the desktop host, which saves it 500 ms after the last edit
   (2 s at most). It also saves when the editor or the window loses focus, the window is

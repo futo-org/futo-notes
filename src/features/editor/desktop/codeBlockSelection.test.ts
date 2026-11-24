@@ -116,6 +116,7 @@ it('keeps a selection anchored in code in that code, and one from below off the 
     [2, 6],
   ]);
   expect(await clamped('above\n```\nab\ncd\n```\nbelow\n```\nef\n```', found)).toEqual(found);
+  expect(await clamped('above\n```\nab\n```', [[8, 0]])).toEqual([[8, 6]]);
 });
 
 // Display text "ab\ncd\nq": the touching blocks' code is 0..2 and 3..5.

@@ -38,7 +38,8 @@ character itself never shows. Fenced code blocks are [code-blocks.md](code-block
   pointer.ts `unitAt`, tests/desktop-editor-marker-stories.mjs
 - A selected marker is highlighted from its box's left edge to the item's text start, as its
   unit holds the space after the marker too; a selection running across it is one band with
-  no gap. → highlight.ts, tests/desktop-editor-marker-stories.mjs
+  no gap; a selection running from the item's start on past its row starts at the line's left
+  edge instead (editing.md). → highlight.ts, tests/desktop-editor-marker-stories.mjs
 - The unit acts as its text (portable-core/lists.md): typing over a selected unit replaces the
   marker (`5. ` over `10. ` renumbers the item), Backspace after it and Delete before it take
   it off, typing before it makes the line plain text, and a copy of it is its Markdown. →

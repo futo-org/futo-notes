@@ -2,8 +2,9 @@
  * selection stays): one band per selected row, row tall, so wrapped rows and blank lines
  * read as one block. A row the selection runs past, a selected line break included, reaches
  * the text column's right edge, as AppKit draws it, and a row it runs into starts at the
- * line's left edge. Only the lines on screen, and a screen either side, are drawn: a
- * selection of a whole long note costs what one screen does. Over code blocks the bands keep to
+ * line's left edge, as does a row selected from its line's start that the selection runs past.
+ * Only the lines on screen, and a screen either side, are drawn: a selection of a whole long
+ * note costs what one screen does. Over code blocks the bands keep to
  * the code's column, or fill a block's card (codeBlockSelection.ts). A selected picture is
  * highlighted over its own box, text on its row over the row's first line unit, never the rest
  * of the row; cards and pictures join the bands they meet (joinRoundedBands.ts). In a table, a
@@ -232,7 +233,8 @@ export function selectedBands(
         if (!extent || picturesAlone) return;
         const [left, right] = extent;
         const runsOn = position < ordered.length - 1 || lineBreak;
-        const bandLeft = Math.max(position === 0 && !runsIn ? left : lineLeft, lineLeft);
+        const bandLeft =
+          position > 0 || runsIn || (from === 0 && runsOn) ? lineLeft : Math.max(left, lineLeft);
         const drawn = drawnRows.get(row)!;
         const bandRight = Math.min(runsOn ? lineRight : right, lineRight);
         // Text a table row scrolled sideways hides.

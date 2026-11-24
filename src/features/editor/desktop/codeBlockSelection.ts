@@ -37,7 +37,7 @@ export interface SelectionEnds {
 export function fitSelectionToCodeBlocks(model: LineModel, ends: SelectionEnds): SelectionEnds {
   const { anchor, focus } = ends;
   const index = model.lineAt(anchor);
-  const wholeNote = Math.min(anchor, focus) === 0 && Math.max(anchor, focus) === model.length;
+  const wholeNote = anchor === 0 && focus === model.length;
   if (wholeNote) return ends;
   if (model.lines[index].code) {
     const code = codeBlockLinesAt(model.lines, index).range;

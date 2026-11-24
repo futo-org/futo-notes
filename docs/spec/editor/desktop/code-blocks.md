@@ -166,8 +166,10 @@ fence line.
   tests/desktop-editor-code-block-stories.mjs
 - A drag off a code row's side leaves the focus at that row's start or end, never the code's.
   An anchor on the code's edge whose focus runs out past that edge selects nothing, a caret
-  there. An empty block has no code to anchor in, and the whole note (Select All) is not
-  anchored in a block that opens it. A selection the engine makes (Undo) is shown as it is.
+  there. An empty block has no code to anchor in, and the whole note (Select All, anchored at
+  its start) is not anchored in a block that opens it; one anchored in a block's code keeps to
+  it even when its focus reaches the note's start. A selection the engine makes (Undo) is shown
+  as it is.
   → codeBlockSelection.test.ts
 - The selection toolbar does not show for a selected block or a selection wholly in code
   lines. → overlays.ts `paint`, tests/desktop-editor-code-block-stories.mjs

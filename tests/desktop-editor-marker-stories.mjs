@@ -108,6 +108,48 @@ await story('a press on a marker and a drag selects from the side pressed', () =
   }),
 );
 
+await story(
+  "a drag over the tag bar selects from the note's start in flush bands; text dropped there lands after the marker",
+  () =>
+    inNewNote(async () => {
+      pasted('- one\n- two');
+      const two = lineOf('two');
+      const last = read('show', { text: 'two' }).rect;
+      const editor = read('elements').elements.find(
+        (element) => element.component === 'DesktopEditor.svelte' && element.role === 'textbox',
+      );
+      assert.ok(editor, 'the editor is not visible');
+      act('drag', {
+        x: last.x + last.w + 1,
+        y: last.y + last.h / 2,
+        x2: last.x + last.w + 1,
+        y2: editor.rect.y - 1,
+      });
+      assert.deepEqual(selection(), [0, two.end]);
+      const bands = ['one', 'two'].map((text) => {
+        const rect = read('show', { text }).rect;
+        const [band] = bandsUnder({ x: rect.x + 1, y: rect.y + rect.h / 2 });
+        assert.ok(band, `no highlight under "${text}"`);
+        return band;
+      });
+      assert.ok(
+        Math.abs(bands[0].rect.x - bands[1].rect.x) <= 1,
+        `list bands start at ${bands[0].rect.x} and ${bands[1].rect.x}`,
+      );
+      const word = read('show', { text: 'two' });
+      act('do', 'Select', { from: word.from, to: word.to });
+      act('drag', {
+        x: word.rect.x + word.rect.w / 2,
+        y: word.rect.y + word.rect.h / 2,
+        x2: last.x + last.w + 1,
+        y2: editor.rect.y - 1,
+      });
+      // Dropped on the first line at the pointer's column, after its marker.
+      const first = read('doc').lines[0];
+      assert.deepEqual([first.kind, first.text], ['bullet', 'onetwo']);
+    }),
+);
+
 await story('a double click on a checkbox toggles it once and selects nothing', () =>
   inNewNote(async () => {
     pasted('- [ ] task\nbelow');

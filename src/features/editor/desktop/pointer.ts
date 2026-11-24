@@ -2,7 +2,8 @@
  * no selection itself. A press selects by its click count (a caret, the engine's word, the
  * whole line without its break); Shift extends from the selection's anchor; a drag extends
  * by the same unit, deselecting at once when it comes back past the press, and scrolls the
- * pane while the pointer is beyond it. A press on selected text that then moves drags the
+ * pane while the pointer is beyond it. A drag above the body (over the title or the tag bar)
+ * selects to the note's start. A press on selected text that then moves drags the
  * text instead: a drop caret follows the pointer, and the release moves the text there
  * through the engine, one Undo step; a press there that does not move places the caret. A
  * press on a divider or an image selects it whole, one on a list item's marker places the
@@ -115,9 +116,16 @@ export class EditorPointer {
     this.autoScroll();
   }
 
+  private isAboveBody(): boolean {
+    const gesture = this.gesture!;
+    const pane = gesture.scroller.getBoundingClientRect();
+    return Math.max(gesture.y, pane.top + 1) < this.view.dom.getBoundingClientRect().top;
+  }
+
   /** The pointer moved (or the pane scrolled under it): select to it, or move the drop. */
   private track(): void {
     const gesture = this.gesture!;
+    if (!gesture.moving && this.isAboveBody()) return this.selectTo({ offset: 0, rowEnd: false });
     const hit = this.view.hitTest.offsetAt(gesture.x, gesture.y, gesture.scroller, true);
     if (!gesture.moving) return this.selectTo(hit);
     gesture.moving.drop = hit.offset;
