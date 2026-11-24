@@ -4,33 +4,50 @@
 //! (XSETTINGS: a whole-number window scale times the font DPI over 96). KDE with "apply scaling
 //! themselves" is meant to publish its display scale there, but can publish 96 DPI on a 1.6x
 //! display, and then the window and its text are drawn at 1x: tiny. So before GTK draws
-//! anything, the scale X11 would give is compared with the one the compositor reports for its
-//! displays, and when they differ the process is started again with `GDK_DPI_SCALE` making up
-//! the difference. GTK reads that variable only as it starts, which is why it is a restart.
+//! anything, the scale X11 would give is compared with the scale XWayland expects of its apps,
+//! and when it falls short the process is started again with `GDK_DPI_SCALE` making up the
+//! difference. GTK reads that variable only as it starts, which is why it is a restart.
+//!
+//! The expected scale is XWayland's own: each X11 monitor's width in pixels over the same
+//! display's width in the compositor's logical units, matched by output name. When the
+//! compositor scales X11 windows itself (KDE "scaled by the system", GNOME by default) that is
+//! 1 and nothing is corrected; an X server that is not this compositor's XWayland shares no
+//! output names with it. A larger X11 scale (a user's text scaling) is never turned down.
+
+use std::sync::mpsc;
+use std::time::Duration;
 
 use wayland_client::globals::{registry_queue_init, GlobalListContents};
 use wayland_client::protocol::{wl_output, wl_registry};
-use wayland_client::{Connection, Dispatch, QueueHandle, WEnum};
+use wayland_client::{Connection, Dispatch, QueueHandle};
 use wayland_protocols::xdg::xdg_output::zv1::client::{zxdg_output_manager_v1, zxdg_output_v1};
 
-/// Starts the process again with a corrected `GDK_DPI_SCALE` when X11 would draw at a scale
-/// the compositor does not use. Does nothing off XWayland, when the user set `GDK_SCALE` or
-/// `GDK_DPI_SCALE` (or an earlier pass of this did), or when either scale cannot be read.
+/// How long the compositor gets to list its displays before the check is dropped.
+const COMPOSITOR_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// Starts the process again with a corrected `GDK_DPI_SCALE` when X11 would draw below the scale
+/// XWayland expects. Does nothing off XWayland, when the user set `GDK_SCALE` or
+/// `GDK_DPI_SCALE` (or an earlier pass of this did), when a launcher handed over a Wayland
+/// socket GTK may need, or when either scale cannot be read.
 pub(crate) fn correct_xwayland_scale() {
     if std::env::var_os("WAYLAND_DISPLAY").is_none()
+        || std::env::var_os("WAYLAND_SOCKET").is_some()
         || std::env::var_os("GDK_SCALE").is_some()
         || std::env::var_os("GDK_DPI_SCALE").is_some()
         || !tries_x11_first(std::env::var("GDK_BACKEND").ok().as_deref())
     {
         return;
     }
-    let Some(compositor) = compositor_scale() else {
+    let Some(logical) = compositor_outputs_within(COMPOSITOR_TIMEOUT) else {
         return;
     };
-    let Some(x11) = x11_scale() else {
+    let Some((x11, monitors)) = x11_scale_and_monitors() else {
         return;
     };
-    let Some(correction) = dpi_scale_correction(compositor, x11) else {
+    let Some(expected) = xwayland_scale(&monitors, &logical) else {
+        return;
+    };
+    let Some(correction) = dpi_scale_correction(expected, x11) else {
         return;
     };
     std::env::set_var("GDK_DPI_SCALE", format!("{correction:.4}"));
@@ -41,31 +58,62 @@ fn tries_x11_first(gdk_backend: Option<&str>) -> bool {
     gdk_backend.is_some_and(|value| value.split(',').next().map(str::trim) == Some("x11"))
 }
 
-/// The `GDK_DPI_SCALE` that turns the scale X11 gives into the compositor's, or `None` when
-/// they already agree (within 2%, the rounding the desktop's own DPI value carries).
-fn dpi_scale_correction(compositor: f64, x11: f64) -> Option<f64> {
-    if !(compositor.is_finite() && x11.is_finite() && compositor > 0.0 && x11 > 0.0) {
+/// The `GDK_DPI_SCALE` that raises the scale X11 gives to the one XWayland expects, or `None`
+/// when X11 already reaches it (within 2%, the rounding the desktop's own DPI value carries).
+fn dpi_scale_correction(expected: f64, x11: f64) -> Option<f64> {
+    if !(expected.is_finite() && x11.is_finite() && expected > 0.0 && x11 > 0.0) {
         return None;
     }
-    let ratio = compositor / x11;
-    ((ratio - 1.0).abs() >= 0.02).then_some(ratio)
+    let ratio = expected / x11;
+    (ratio >= 1.02).then_some(ratio)
 }
 
-/// One display's scale: its current mode in pixels over its size in the compositor's logical
-/// units. Longer side over longer side, so a rotated display reads the same.
-fn output_scale(mode: (i32, i32), logical: (i32, i32)) -> Option<f64> {
-    let pixels = mode.0.max(mode.1);
-    let units = logical.0.max(logical.1);
-    (pixels > 0 && units > 0).then(|| f64::from(pixels) / f64::from(units))
+/// A display as one side reports it: its output name and size (pixels for X11, logical units
+/// for the compositor).
+#[derive(Clone, Debug, PartialEq)]
+struct Display {
+    name: String,
+    size: (i32, i32),
 }
 
-/// The scale X11 gives a GTK window: the window scale times the font DPI over 96, as GTK
-/// itself reads them. GTK is started here; the app's own start then finds it running.
-fn x11_scale() -> Option<f64> {
+/// XWayland's scale: the largest, over displays both sides name, of the X11 pixels over the
+/// compositor's logical units. Longer side over longer side, so a rotated display reads the
+/// same. `None` when no display matches.
+fn xwayland_scale(x11: &[Display], compositor: &[Display]) -> Option<f64> {
+    x11.iter()
+        .filter_map(|monitor| {
+            let output = compositor
+                .iter()
+                .find(|output| output.name == monitor.name)?;
+            let pixels = monitor.size.0.max(monitor.size.1);
+            let units = output.size.0.max(output.size.1);
+            (pixels > 0 && units > 0).then(|| f64::from(pixels) / f64::from(units))
+        })
+        .reduce(f64::max)
+}
+
+/// The scale X11 gives a GTK window (the window scale times the font DPI over 96, as GTK itself
+/// reads them) and its monitors in pixels, named by their RandR outputs. GTK is started here;
+/// the app's own start then finds it running.
+fn x11_scale_and_monitors() -> Option<(f64, Vec<Display>)> {
     use gtk::gdk::prelude::MonitorExt;
     let display = x11_display()?;
-    let monitor = display.primary_monitor().or_else(|| display.monitor(0))?;
-    Some(f64::from(monitor.scale_factor()) * x11_dpi()? / 96.0)
+    let monitors: Vec<_> = (0..display.n_monitors())
+        .filter_map(|index| display.monitor(index))
+        .collect();
+    let window_scale = monitors.first()?.scale_factor();
+    let named = monitors
+        .iter()
+        .filter_map(|monitor| {
+            let geometry = monitor.geometry();
+            let scale = monitor.scale_factor();
+            Some(Display {
+                name: monitor.model()?.to_string(),
+                size: (geometry.width() * scale, geometry.height() * scale),
+            })
+        })
+        .collect();
+    Some((f64::from(window_scale) * x11_dpi()? / 96.0, named))
 }
 
 /// GTK's display once GTK is started, when it is an X11 one.
@@ -93,18 +141,31 @@ pub(crate) fn x11_css_scale() -> Option<f64> {
 
 #[derive(Default)]
 struct Outputs {
-    modes: Vec<Option<(i32, i32)>>,
+    names: Vec<Option<String>>,
     logical: Vec<Option<(i32, i32)>>,
 }
 
-/// The largest scale among the compositor's displays: X11 has one scale for every display, and
-/// the largest is the one KDE's XWayland is drawn for.
-fn compositor_scale() -> Option<f64> {
+/// The compositor's displays, asked on a thread so a compositor that never answers costs
+/// `timeout`, not the launch.
+fn compositor_outputs_within(timeout: Duration) -> Option<Vec<Display>> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::Builder::new()
+        .name("xwayland-scale".into())
+        .spawn(move || {
+            let _ = sender.send(compositor_outputs());
+        })
+        .ok()?;
+    receiver.recv_timeout(timeout).ok().flatten()
+}
+
+/// Each display's xdg-output name and logical size.
+fn compositor_outputs() -> Option<Vec<Display>> {
     let connection = Connection::connect_to_env().ok()?;
     let (globals, mut queue) = registry_queue_init::<Outputs>(&connection).ok()?;
     let handle = queue.handle();
+    // Version 2 is the first that names a display.
     let manager: zxdg_output_manager_v1::ZxdgOutputManagerV1 =
-        globals.bind(&handle, 1..=3, ()).ok()?;
+        globals.bind(&handle, 2..=3, ()).ok()?;
     let outputs: Vec<(u32, u32)> = globals.contents().with_list(|list| {
         list.iter()
             .filter(|global| global.interface == "wl_output")
@@ -112,7 +173,7 @@ fn compositor_scale() -> Option<f64> {
             .collect()
     });
     let mut state = Outputs {
-        modes: vec![None; outputs.len()],
+        names: vec![None; outputs.len()],
         logical: vec![None; outputs.len()],
     };
     for (index, (name, version)) in outputs.into_iter().enumerate() {
@@ -124,12 +185,19 @@ fn compositor_scale() -> Option<f64> {
     }
     queue.roundtrip(&mut state).ok()?;
     queue.roundtrip(&mut state).ok()?;
-    state
-        .modes
-        .iter()
-        .zip(&state.logical)
-        .filter_map(|(mode, logical)| output_scale((*mode)?, (*logical)?))
-        .reduce(f64::max)
+    Some(
+        state
+            .names
+            .into_iter()
+            .zip(state.logical)
+            .filter_map(|(name, size)| {
+                Some(Display {
+                    name: name?,
+                    size: size?,
+                })
+            })
+            .collect(),
+    )
 }
 
 fn restart() {
@@ -157,24 +225,13 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Outputs {
 
 impl Dispatch<wl_output::WlOutput, usize> for Outputs {
     fn event(
-        state: &mut Self,
+        _: &mut Self,
         _: &wl_output::WlOutput,
-        event: wl_output::Event,
-        index: &usize,
+        _: wl_output::Event,
+        _: &usize,
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        if let wl_output::Event::Mode {
-            flags: WEnum::Value(flags),
-            width,
-            height,
-            ..
-        } = event
-        {
-            if flags.contains(wl_output::Mode::Current) {
-                state.modes[*index] = Some((width, height));
-            }
-        }
     }
 }
 
@@ -199,8 +256,12 @@ impl Dispatch<zxdg_output_v1::ZxdgOutputV1, usize> for Outputs {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        if let zxdg_output_v1::Event::LogicalSize { width, height } = event {
-            state.logical[*index] = Some((width, height));
+        match event {
+            zxdg_output_v1::Event::LogicalSize { width, height } => {
+                state.logical[*index] = Some((width, height));
+            }
+            zxdg_output_v1::Event::Name { name } => state.names[*index] = Some(name),
+            _ => {}
         }
     }
 }
@@ -209,23 +270,63 @@ impl Dispatch<zxdg_output_v1::ZxdgOutputV1, usize> for Outputs {
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_96_dpi_x11_on_a_1_6x_display_is_corrected_to_1_6() {
-        let correction =
-            dpi_scale_correction(output_scale((3840, 2160), (2400, 1350)).unwrap(), 1.0);
-        assert!((correction.unwrap() - 1.6).abs() < 1e-9);
+    fn display(name: &str, size: (i32, i32)) -> Display {
+        Display {
+            name: name.into(),
+            size,
+        }
     }
 
     #[test]
-    fn a_published_dpi_that_matches_the_display_is_left_alone() {
+    fn a_96_dpi_x11_where_xwayland_expects_1_6x_is_raised_to_1_6() {
+        let expected = xwayland_scale(
+            &[display("HDMI-A-1", (3840, 2160))],
+            &[display("HDMI-A-1", (2400, 1350))],
+        )
+        .unwrap();
+        assert!((dpi_scale_correction(expected, 1.0).unwrap() - 1.6).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_compositor_that_scales_x11_itself_expects_1x_and_nothing_is_corrected() {
+        // KDE "scaled by the system": XWayland's monitor is the logical size.
+        let expected = xwayland_scale(
+            &[display("HDMI-A-1", (2400, 1350))],
+            &[display("HDMI-A-1", (2400, 1350))],
+        )
+        .unwrap();
+        assert_eq!(dpi_scale_correction(expected, 1.0), None);
+    }
+
+    #[test]
+    fn a_published_dpi_that_matches_is_left_alone() {
         // KDE's 1.6x as GTK reads it: 157286 / 1024 DPI.
         assert_eq!(dpi_scale_correction(1.6, 157_286.0 / 1024.0 / 96.0), None);
-        assert_eq!(dpi_scale_correction(2.0, 2.0), None);
     }
 
     #[test]
-    fn a_rotated_display_reads_its_scale_the_same() {
-        assert_eq!(output_scale((2160, 3840), (1350, 2400)), Some(1.6));
+    fn a_larger_x11_scale_from_text_scaling_is_never_turned_down() {
+        assert_eq!(dpi_scale_correction(1.0, 1.25), None);
+    }
+
+    #[test]
+    fn an_x_server_that_shares_no_display_names_is_not_xwayland() {
+        assert_eq!(
+            xwayland_scale(
+                &[display("default", (1920, 1080))],
+                &[display("HDMI-A-1", (2400, 1350))]
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_rotated_display_and_the_largest_of_several_are_read() {
+        let expected = xwayland_scale(
+            &[display("DP-1", (2160, 3840)), display("DP-2", (1920, 1080))],
+            &[display("DP-1", (1350, 2400)), display("DP-2", (1920, 1080))],
+        );
+        assert_eq!(expected, Some(1.6));
     }
 
     #[test]

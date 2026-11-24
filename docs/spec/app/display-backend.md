@@ -13,20 +13,24 @@
   (upstream tauri#8541). `just tauri-dev` matches (X11 by default,
   `FUTO_DEV_WAYLAND=1` for Wayland). → `apps/tauri/src-tauri/src/platform_integration.rs`,
   `scripts/patch-appimage.mjs`, `scripts/patch-appimage.test.mjs`, `scripts/tauri-dev.mjs`
-- Under XWayland the app draws at the compositor's display scale even when the
-  desktop publishes the wrong one to X11 apps (KDE with "apply scaling
-  themselves" can publish 96 DPI on a 1.6× display, which drew the app at 1×).
-  Before GTK draws, the app compares the scale X11 would give (GTK's window
-  scale × font DPI ÷ 96) with the largest display scale the compositor reports
-  (xdg-output logical size against the current mode) and, when they differ by
-  2% or more, starts itself again with `GDK_DPI_SCALE` making up the
-  difference. A user-set `GDK_SCALE` or `GDK_DPI_SCALE` turns this off. Under
-  any X11 display the configured window size and minimum are CSS sizes, so
-  they grow by the font-DPI factor: the first window at 1.6× is 1200×800 CSS
-  pixels. One scale serves every display, as for any X11 app.
-  Verified 2026-11-24 on KDE Plasma 6, one 3840×2160 display at 1.6× publishing
-  96 DPI: `devicePixelRatio` 1.5999959707260132, a fresh window 1200×800 CSS
-  pixels. → `apps/tauri/src-tauri/src/platform_integration/xwayland_scale.rs`,
+- Under XWayland the app draws at the scale XWayland expects of its apps even
+  when the desktop publishes a lower one (KDE with "apply scaling themselves"
+  can publish 96 DPI on a 1.6× display, which drew the app at 1×). Before GTK
+  draws, the app compares the scale X11 would give (GTK's window scale × font
+  DPI ÷ 96) with XWayland's: each X11 monitor's pixels over the same display's
+  logical size in the compositor (xdg-output), matched by output name, the
+  largest kept. When X11 falls 2% or more short, the app starts itself again
+  with `GDK_DPI_SCALE` making up the difference. It never lowers a scale (a
+  user's text scaling stays), does nothing where the compositor scales X11
+  windows itself (KDE "scaled by the system", where XWayland's scale is 1) or
+  on an X server that shares no output names with the compositor, gives the
+  compositor 500 ms to answer, and is off when `GDK_SCALE`, `GDK_DPI_SCALE` or
+  `WAYLAND_SOCKET` is set. Under any X11 display the configured window size
+  and minimum are CSS sizes, so they grow by the font-DPI factor: the first
+  window at 1.6× is 1200×800 CSS pixels. One scale serves every display, as for
+  any X11 app. Verified 2026-11-24 on KDE Plasma 6, HDMI-A-1 3840×2160 at 1.6×
+  publishing 96 DPI: `devicePixelRatio` 1.5999959707260132, a fresh window
+  1200×800 CSS pixels. → `apps/tauri/src-tauri/src/platform_integration/xwayland_scale.rs`,
   `apps/tauri/src-tauri/src/platform_integration.rs`
 - The AppImage strips its bundled `libwayland-client.so.0` so native Wayland
   (the fallback, or a user's choice) uses the host library that matches host Mesa. WebKitGTK DMA-BUF rendering is
