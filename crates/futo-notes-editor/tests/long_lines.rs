@@ -27,7 +27,7 @@ fn opens_and_takes_a_key_quickly(name: &str, line: &str) {
     session
         .replace(session.revision(), caret(middle), "x", &mut |_| Ok(()))
         .unwrap();
-    assert!(session.source_text().contains('x'), "{name}");
+    assert_eq!(session.source_text().len(), line.len() + 1, "{name}");
     session.undo(session.revision(), &mut |_| Ok(())).unwrap();
     assert_eq!(session.source_text(), line, "{name}");
     let elapsed = started.elapsed();
@@ -47,6 +47,7 @@ fn a_line_of_many_formatted_spans_takes_a_key_quickly() {
 fn a_line_of_many_links_opens_quickly() {
     opens_and_takes_a_key_quickly("links", &"[a](https://e.com/x) ".repeat(50_000));
     opens_and_takes_a_key_quickly("bold links", &"**[a](u)** ".repeat(25_000));
+    opens_and_takes_a_key_quickly("bold in labels", &"[**a**](u) ".repeat(25_000));
     opens_and_takes_a_key_quickly("images", &"![a](p.png) ".repeat(25_000));
     opens_and_takes_a_key_quickly(
         "open brackets then links",
