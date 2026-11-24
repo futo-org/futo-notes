@@ -2257,6 +2257,7 @@ dependencies = [
  "webview2-com",
  "windows",
  "windows-core",
+ "x11rb",
  "zbus 5.19.0",
 ]
 

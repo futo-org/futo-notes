@@ -114,10 +114,12 @@ gtk = "0.18"
 cairo-rs = { version = "0.18", features = ["png"] }
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 zbus = "5"
-# The compositor's display scale, read before GTK starts under XWayland
-# (platform_integration/xwayland_scale.rs). Both already in the tree (rfd).
+# The compositor's display scale, and whether the X server is XWayland, read before
+# GTK starts (platform_integration/xwayland_scale.rs). All already in the tree (rfd,
+# arboard).
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+x11rb = "0.13"
 
 [lints]
 workspace = true

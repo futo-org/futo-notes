@@ -18,14 +18,16 @@
   can publish 96 DPI on a 1.6× display, which drew the app at 1×). Before GTK
   draws, the app compares the scale X11 would give (GTK's window scale × font
   DPI ÷ 96) with XWayland's: each X11 monitor's pixels over the same display's
-  logical size in the compositor (xdg-output), matched by output name, the
-  largest kept. When X11 falls 2% or more short, the app starts itself again
-  with `GDK_DPI_SCALE` making up the difference. It never lowers a scale (a
-  user's text scaling stays), does nothing where the compositor scales X11
-  windows itself (KDE "scaled by the system", where XWayland's scale is 1) or
-  on an X server that shares no output names with the compositor, gives the
-  compositor 500 ms to answer, and is off when `GDK_SCALE`, `GDK_DPI_SCALE` or
-  `WAYLAND_SOCKET` is set. Under any X11 display the configured window size
+  logical size in the compositor (xdg-output), matched by output name (an
+  older XWayland's lone `XWAYLAND0` pairs with the lone display), the largest
+  kept. When X11 falls 2% or more short, the app starts itself again with
+  `GDK_DPI_SCALE` making up the difference, passing on the launcher's
+  `DESKTOP_STARTUP_ID`. It never lowers a scale (a user's text scaling stays),
+  does nothing where XWayland's scale is 1 (the compositor scales X11 windows
+  itself, as KDE "scaled by the system" does, and any DPI is the user's) or on
+  an X server without the XWAYLAND extension, gives the compositor 500 ms to
+  answer, and is off when `GDK_SCALE`, `GDK_DPI_SCALE` or `WAYLAND_SOCKET` is
+  set. Under any X11 display the configured window size
   and minimum are CSS sizes, so they grow by the font-DPI factor: the first
   window at 1.6× is 1200×800 CSS pixels. One scale serves every display, as for
   any X11 app. Verified 2026-11-24 on KDE Plasma 6, HDMI-A-1 3840×2160 at 1.6×

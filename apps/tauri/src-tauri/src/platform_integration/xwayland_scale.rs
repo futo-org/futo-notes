@@ -9,10 +9,12 @@
 //! difference. GTK reads that variable only as it starts, which is why it is a restart.
 //!
 //! The expected scale is XWayland's own: each X11 monitor's width in pixels over the same
-//! display's width in the compositor's logical units, matched by output name. When the
+//! display's width in the compositor's logical units, matched by output name (or, for an older
+//! XWayland that names its one output `XWAYLAND0`, the only display on each side). When the
 //! compositor scales X11 windows itself (KDE "scaled by the system", GNOME by default) that is
-//! 1 and nothing is corrected; an X server that is not this compositor's XWayland shares no
-//! output names with it. A larger X11 scale (a user's text scaling) is never turned down.
+//! 1 and nothing is corrected, whatever DPI the user chose. Only an X server that reports the
+//! XWAYLAND extension is checked. A larger X11 scale (a user's text scaling) is never turned
+//! down.
 
 use std::sync::mpsc;
 use std::time::Duration;
@@ -38,9 +40,15 @@ pub(crate) fn correct_xwayland_scale() {
     {
         return;
     }
+    if !x_server_is_xwayland() {
+        return;
+    }
     let Some(logical) = compositor_outputs_within(COMPOSITOR_TIMEOUT) else {
         return;
     };
+    // GTK takes the launcher's startup id out of the environment as it starts; the restart
+    // hands it on so the launcher's busy cursor ends on the new window.
+    let startup_id = std::env::var_os("DESKTOP_STARTUP_ID");
     let Some((x11, monitors)) = x11_scale_and_monitors() else {
         return;
     };
@@ -51,6 +59,9 @@ pub(crate) fn correct_xwayland_scale() {
         return;
     };
     std::env::set_var("GDK_DPI_SCALE", format!("{correction:.4}"));
+    if let Some(startup_id) = startup_id {
+        std::env::set_var("DESKTOP_STARTUP_ID", startup_id);
+    }
     restart();
 }
 
@@ -59,9 +70,10 @@ fn tries_x11_first(gdk_backend: Option<&str>) -> bool {
 }
 
 /// The `GDK_DPI_SCALE` that raises the scale X11 gives to the one XWayland expects, or `None`
-/// when X11 already reaches it (within 2%, the rounding the desktop's own DPI value carries).
+/// when X11 already reaches it (within 2%, the rounding the desktop's own DPI value carries) or
+/// XWayland expects 1x, where the compositor scales X11 windows and the DPI is the user's.
 fn dpi_scale_correction(expected: f64, x11: f64) -> Option<f64> {
-    if !(expected.is_finite() && x11.is_finite() && expected > 0.0 && x11 > 0.0) {
+    if !(expected.is_finite() && x11.is_finite() && expected >= 1.02 && x11 > 0.0) {
         return None;
     }
     let ratio = expected / x11;
@@ -80,16 +92,38 @@ struct Display {
 /// compositor's logical units. Longer side over longer side, so a rotated display reads the
 /// same. `None` when no display matches.
 fn xwayland_scale(x11: &[Display], compositor: &[Display]) -> Option<f64> {
+    let scale = |monitor: &Display, output: &Display| {
+        let pixels = monitor.size.0.max(monitor.size.1);
+        let units = output.size.0.max(output.size.1);
+        (pixels > 0 && units > 0).then(|| f64::from(pixels) / f64::from(units))
+    };
+    if let ([monitor], [output]) = (x11, compositor) {
+        if monitor.name.starts_with("XWAYLAND") {
+            return scale(monitor, output);
+        }
+    }
     x11.iter()
         .filter_map(|monitor| {
             let output = compositor
                 .iter()
                 .find(|output| output.name == monitor.name)?;
-            let pixels = monitor.size.0.max(monitor.size.1);
-            let units = output.size.0.max(output.size.1);
-            (pixels > 0 && units > 0).then(|| f64::from(pixels) / f64::from(units))
+            scale(monitor, output)
         })
         .reduce(f64::max)
+}
+
+/// Whether the X server `DISPLAY` names is an XWayland, which reports the XWAYLAND extension;
+/// another X server reached from a Wayland session is left as it is.
+fn x_server_is_xwayland() -> bool {
+    use x11rb::protocol::xproto::ConnectionExt;
+    let Ok((connection, _)) = x11rb::connect(None) else {
+        return false;
+    };
+    connection
+        .query_extension(b"XWAYLAND")
+        .ok()
+        .and_then(|cookie| cookie.reply().ok())
+        .is_some_and(|reply| reply.present)
 }
 
 /// The scale X11 gives a GTK window (the window scale times the font DPI over 96, as GTK itself
@@ -327,6 +361,32 @@ mod tests {
             &[display("DP-1", (1350, 2400)), display("DP-2", (1920, 1080))],
         );
         assert_eq!(expected, Some(1.6));
+    }
+
+    #[test]
+    fn where_xwayland_expects_1x_a_smaller_dpi_the_user_chose_stays() {
+        assert_eq!(dpi_scale_correction(1.0, 90.0 / 96.0), None);
+    }
+
+    #[test]
+    fn an_older_xwayland_s_one_unnamed_output_pairs_with_the_one_display() {
+        assert_eq!(
+            xwayland_scale(
+                &[display("XWAYLAND0", (3840, 2160))],
+                &[display("DP-1", (2400, 1350))]
+            ),
+            Some(1.6)
+        );
+        assert_eq!(
+            xwayland_scale(
+                &[
+                    display("XWAYLAND0", (3840, 2160)),
+                    display("XWAYLAND1", (1920, 1080))
+                ],
+                &[display("DP-1", (2400, 1350)), display("DP-2", (1920, 1080))]
+            ),
+            None
+        );
     }
 
     #[test]
