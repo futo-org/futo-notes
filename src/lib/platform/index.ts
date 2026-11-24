@@ -117,9 +117,9 @@ export async function readLinuxDesktopSettings(): Promise<
   return settings.readLinuxDesktopSettings();
 }
 
-// Native application-menu commands (macOS). Off Tauri — the web dev server and
-// the native mobile editor embed — there is no menu, so this is a no-op
-// subscription rather than a branch every caller has to remember.
+// Native application-menu commands (macOS). Off Tauri — the web dev server —
+// there is no menu, so this is a no-op subscription rather than a branch every
+// caller has to remember.
 export function onAppMenuCommand(handler: (command: string) => void): () => void {
   if (platformName !== 'tauri') return () => {};
   let unlisten: (() => void) | null = null;
@@ -144,9 +144,9 @@ export function onAppMenuCommand(handler: (command: string) => void): () => void
 // page's own HTML5 `drop` is what arrives — a consumer still wires both and
 // takes whichever comes, rather than branching on platform itself (rule 4.5).
 //
-// Off Tauri (the web dev server, the native mobile embeds) there is no window
-// to drop onto, so this is a no-op subscription rather than a branch at the
-// call site — the same shape as `onAppMenuCommand`.
+// Off Tauri (the web dev server) there is no window to drop onto, so this is a
+// no-op subscription rather than a branch at the call site — the same shape as
+// `onAppMenuCommand`.
 export function onFileDrop(handler: (event: FileDropEvent) => void): () => void {
   if (platformName !== 'tauri') return () => {};
   let unlisten: (() => void) | null = null;
@@ -203,8 +203,8 @@ export function revealAppWindow(): void {
 // desktop, where a dark window wears the same subtle edge as every native dark
 // app. Nothing in the DOM can reach it; the appearance has to.
 //
-// Off Tauri (web dev server, the native mobile WebView embeds) there is no
-// window to dress, so this is a no-op rather than a branch at the call site.
+// Off Tauri (the web dev server) there is no window to dress, so this is a
+// no-op rather than a branch at the call site.
 export function setNativeWindowAppearance(theme: 'dark' | 'light' | null): void {
   if (platformName !== 'tauri') return;
   void import('./tauri/windowAppearance')

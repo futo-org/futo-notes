@@ -10,8 +10,8 @@ import { isMac, isTauri } from '$lib/platform';
 // functional one. So the guard suppresses the menu only where it is furniture:
 // no editable target, and no live selection to act on.
 //
-// Desktop only. The native iOS/Android shells host the editor directly and
-// never load this module; the browser dev server keeps its normal menu.
+// Desktop only. The native iOS/Android apps never load this module; the browser
+// dev server keeps its normal menu.
 const EDITABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [contenteditable=""]';
 
 function shouldSuppressContextMenu(
