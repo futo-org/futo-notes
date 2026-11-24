@@ -106,6 +106,7 @@ impl Engine {
         );
         command.typed = true;
         command.carry = self.deleted_formats(range, &text);
+        command.deletes = text.is_empty();
         Ok(Some(command))
     }
 

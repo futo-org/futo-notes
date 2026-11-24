@@ -10,6 +10,7 @@
 mod carried;
 mod code_paste;
 mod copy;
+mod inline_code;
 mod move_text;
 mod paste;
 
@@ -67,6 +68,7 @@ impl Engine {
                 );
                 // Removing a selection always lands, as Backspace does.
                 command.typed = true;
+                command.deletes = true;
                 Ok(Some(command))
             },
             accept,

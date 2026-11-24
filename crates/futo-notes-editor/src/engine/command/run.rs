@@ -118,6 +118,9 @@ impl Engine {
         }
         if let (true, Some(command)) = (applied, command) {
             self.land(command.selection.clone(), command.affinity);
+            if command.deletes {
+                self.keep_before_indent(command.selection.start);
+            }
             self.carry_deleted(command.carry);
             if command.selects_block {
                 self.select_block_at(command.selection.start);

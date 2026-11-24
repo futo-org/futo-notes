@@ -1,10 +1,12 @@
 //! Plain Markdown copy, cut and paste through the public session.
 use futo_notes_editor::{
-    DisplayOffset, DisplayRange, EditorSession, InlineFormat, Revision, SourceEdit,
+    DisplayOffset, DisplayRange, EditorSession, InlineFormat, ParagraphKey, Revision, SourceEdit,
 };
 mod common;
 #[path = "clipboard/fenced.rs"]
 mod fenced;
+#[path = "clipboard/in_place.rs"]
+mod in_place;
 use common::ReferenceView;
 
 fn range(start: usize, end: usize) -> DisplayRange {
@@ -92,6 +94,16 @@ fn paste_keeps_copied_characters_and_places_blocks() {
         ("- item", (7, 7), "- x\n- y", "- item\n- x\n- y"),
         ("- abcd", (5, 5), "- x\n- y", "- ab\n- x\n- y\n- cd"),
         ("> q", (1, 1), "a\n\nb", "> qa\n>\n> b"),
+        // Inside an inline code span a pasted code span is its text.
+        ("`gmma`", (1, 1), "`a`", "`gamma`"),
+        ("`gmma`", (1, 1), "`a b`", "`ga bmma`"),
+        ("x `gmma`", (4, 4), "a `b`", "x `gma bma`"),
+        // A backtick left over cannot be typed into the span: pasted as is.
+        ("`gmma`", (1, 1), "``x`y``", "`g``x`y``mma`"),
+        // Quote markers of its own replace the caret line's; text after the
+        // caret carries on in a quote line, after the space a bare `>` needs.
+        ("> ad", (1, 1), "b\n> c", "> ab\n> cd"),
+        ("> ad", (1, 1), "b\n>", "> ab\n> d"),
         ("> \nz", (0, 0), "> a\n> b", "> a\n> b\nz"),
         // Pasted endings follow the note; code takes text verbatim.
         ("ab\r\ncd", (1, 1), "# T\nz", "a\r\n# T\r\nzb\r\ncd"),

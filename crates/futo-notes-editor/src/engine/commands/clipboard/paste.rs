@@ -31,9 +31,10 @@ use super::super::super::command::{Command, Edit};
 use super::super::super::Engine;
 use super::super::blocks::Joined;
 use super::super::fences::{leading, line_after_closing};
-use super::super::lists::parts;
+use super::super::lists::{parts, Parts};
 use super::super::marks::split;
 use super::code_paste::PastedCode;
+use super::inline_code::code_text;
 use crate::lines::block::OpenFence;
 use crate::lines::{block, line_spans, Carry, FenceRole, Kind, Line, SpanKind};
 use crate::{DisplayRange, EditorError, InputAction};
@@ -71,7 +72,7 @@ fn normalized(text: &str, newline: &str) -> String {
 }
 
 /// `text` read alone as one line.
-fn read_alone(text: &str) -> Line {
+pub(super) fn read_alone(text: &str) -> Line {
     block::read_line(&mut Carry::default(), text, 0)
 }
 
@@ -82,6 +83,12 @@ fn is_block(line: &Line) -> bool {
             line.kind,
             Kind::Heading { .. } | Kind::List { .. } | Kind::Divider | Kind::Fence { .. }
         )
+}
+
+/// Whether a pasted line starts with quote markers of its own, which replace
+/// the caret line's.
+fn is_quoted(text: &str) -> bool {
+    read_alone(text).quote > 0
 }
 
 /// Whether `text`, read alone as `line`, is one list marker and nothing
@@ -182,8 +189,17 @@ impl Engine {
             || (is_block(&first)
                 && !is_lone_marker(&first, pasted[0])
                 && self.selected_marker(range).is_none());
+        // Inside an inline code span the text is code: its own code marks
+        // are left off, not typed into the span.
+        // A backtick left in it could not be typed into the span: plain paste.
+        let in_code = !shaped && self.in_inline_code(range);
+        let as_code = in_code
+            .then(|| code_text(&text))
+            .filter(|code| !code.contains('`'));
+        let in_code = as_code.is_some();
+        let landing = as_code.as_deref().unwrap_or(&text);
         if !shaped {
-            if let Some(mut command) = self.carried_paste(range, &text) {
+            if let Some(mut command) = self.carried_paste(range, landing) {
                 command.typed = true;
                 return Ok(Some(command));
             }
@@ -199,7 +215,7 @@ impl Engine {
                     Landing::At(caret) => self.written(&joined, &out, caret),
                     Landing::BelowBlock => self.below_pasted_block(&joined, out, &newline),
                 })
-            } else if has_link(&first, pasted[0]) {
+            } else if !in_code && has_link(&first, pasted[0]) {
                 let (at, closes, opens) = link_split(&joined)?;
                 let body = &joined.text;
                 let left = format!("{}{closes}{}", &body[..at], pasted[0]);
@@ -209,7 +225,7 @@ impl Engine {
                 None
             }
         });
-        let mut command = command.unwrap_or_else(|| self.exact(range, &text));
+        let mut command = command.unwrap_or_else(|| self.exact(range, landing));
         command.typed = !matches!(self.line(caret_line).line.kind, Kind::Table { .. });
         Ok(Some(command))
     }
@@ -276,11 +292,7 @@ fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (Stri
     // A divider's or fence's text is no marker: all of it follows the caret
     // on a line of its own.
     let own_line = matches!(line.kind, Kind::Divider | Kind::Fence { .. });
-    let content = if own_line {
-        0
-    } else {
-        part.content.min(body.len())
-    };
+    let (content, ahead) = text_start(line, &part, body.len(), joined.caret, own_line);
     let head = &body[..content];
     let quote = spaced(&body[..part.quote]);
     let indent = match line.kind {
@@ -300,7 +312,7 @@ fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (Stri
     } else {
         format!("{quote}{lead_indent}")
     };
-    let (at, closes, opens) = if own_line {
+    let (at, closes, opens) = if own_line || ahead {
         (caret, String::new(), String::new())
     } else {
         split(body, line, &joined.spans, caret)
@@ -327,6 +339,8 @@ fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (Stri
     for (index, text) in pasted.iter().enumerate() {
         let mut new = if index == 0 {
             std::mem::take(&mut lead)
+        } else if is_quoted(text) {
+            String::new()
         } else if text.is_empty() {
             rest_prefix.trim_end().to_owned()
         } else {
@@ -340,7 +354,7 @@ fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (Stri
     }
     let last = lines.len() - 1;
     let open = open_fence(&joined.carry, &lines);
-    let last_block = is_block(&read_alone(pasted[pasted.len() - 1]));
+    let last_block = ends_in_block(line, pasted[pasted.len() - 1], pasted.len() > 1);
     let alone =
         (last_block || open.is_some() || own_line) && !tail.trim_matches([' ', '\t']).is_empty();
     let mut caret_line = (last, lines[last].len());
@@ -351,8 +365,8 @@ fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (Stri
     if alone {
         lines.push(format!("{head}{opens}{tail}"));
     } else if !tail.is_empty() || !opens.is_empty() {
-        joined_tail(&mut lines[last], pasted[pasted.len() - 1], &opens, tail);
-        caret_line.1 += opens.len();
+        let spaced = joined_tail(&mut lines[last], pasted[pasted.len() - 1], &opens, tail);
+        caret_line.1 += opens.len() + usize::from(spaced);
     }
     let ends_block = closes_block(&joined.carry, &lines[..=last]);
     if ends_block && alone {
@@ -376,13 +390,50 @@ fn shape(joined: &Joined, pasted: &[&str], first: &Line, newline: &str) -> (Stri
     (out, Landing::At(caret))
 }
 
+/// Where the text of `line` (its `part`s, `len` bytes) starts for a paste at
+/// `caret`, and whether the caret is ahead of it: a caret a deletion left
+/// before a plain line's hidden indent stands there, and the indent is text
+/// after it, which joins the last pasted line. A divider's or fence's text
+/// is no marker (`own_line`): it all follows the caret.
+fn text_start(
+    line: &Line,
+    part: &Parts,
+    len: usize,
+    caret: usize,
+    own_line: bool,
+) -> (usize, bool) {
+    let content = if own_line { 0 } else { part.content.min(len) };
+    let ahead = matches!(line.kind, Kind::Plain { .. }) && (part.quote..content).contains(&caret);
+    (if ahead { caret } else { content }, ahead)
+}
+
+/// Whether the last pasted line, `text`, is a block to the text after the
+/// caret on `line`: a quote line of a plain caret line's own quote depth,
+/// after other pasted lines, is not, and the text carries on in it, as in
+/// the text it was cut from.
+fn ends_in_block(line: &Line, text: &str, after_others: bool) -> bool {
+    let last = read_alone(text);
+    let carries_on = after_others
+        && matches!(last.kind, Kind::Plain { .. } | Kind::Blank)
+        && matches!(line.kind, Kind::Plain { .. } | Kind::Blank)
+        && last.quote == line.quote;
+    is_block(&last) && !carries_on
+}
+
 /// `tail` joined to the last pasted line, the caret's marks opening again
-/// where its pasted `text` starts.
-fn joined_tail(written: &mut String, text: &str, opens: &str, tail: &str) {
+/// where its pasted `text` starts. A bare quote marker gains the space the
+/// quote needs before the text (whether it did).
+fn joined_tail(written: &mut String, text: &str, opens: &str, tail: &str) -> bool {
     let from = written.len() - text.len();
     let start = from + read_alone(&written[from..]).content.start;
     written.insert_str(start.min(written.len()), opens);
+    let bare_quote = is_quoted(text) && matches!(read_alone(text).kind, Kind::Blank);
+    let spaced = bare_quote && !written.ends_with([' ', '\t']) && !tail.starts_with([' ', '\t']);
+    if spaced && !tail.is_empty() {
+        written.push(' ');
+    }
     written.push_str(tail);
+    spaced && !tail.is_empty()
 }
 
 /// The tail line after closing fence `lines[closing]`, when it opens a block

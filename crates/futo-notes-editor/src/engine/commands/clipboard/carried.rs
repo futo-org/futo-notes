@@ -119,9 +119,16 @@ impl Engine {
             // Typing cannot take a format off here; neither can a paste.
             return None;
         }
+        // A format the pasted text starts in (a cut `**bold**` pasted back)
+        // is its own: it is not written around the text again.
+        let own = visible(text, &Carry::default()).1;
+        let shows = |format: InlineFormat| {
+            own.first()
+                .is_some_and(|&(.., style)| style & bit(format) != 0)
+        };
         let need: Vec<InlineFormat> = ORDER
             .into_iter()
-            .filter(|format| carried.contains(format) && !have.contains(format))
+            .filter(|format| carried.contains(format) && !have.contains(format) && !shows(*format))
             .collect();
         if need.is_empty() {
             return None;
@@ -140,7 +147,7 @@ impl Engine {
         let own: Vec<(usize, char, u8)> = if need.contains(&InlineFormat::Code) {
             text.char_indices().map(|(at, ch)| (at, ch, 0)).collect()
         } else {
-            visible(text, &Carry::default()).1
+            own
         };
         let split = old.partition_point(|(src, ..)| *src < local);
         let carried = bits(carried);

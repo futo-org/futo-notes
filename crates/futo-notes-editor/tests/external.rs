@@ -97,3 +97,29 @@ fn adoption_delta_keeps_a_typed_local_url_and_its_history() {
     editor.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap();
     assert_eq!(editor.source_text(), "REMOTE\n\n");
 }
+
+#[test]
+fn a_caret_left_ahead_of_hidden_indent_is_placed_by_the_adopted_text() {
+    // (adopted source, source after typing at the caret): the old place
+    // ahead of an indent does not stand in the new text, so typing lands
+    // where a fresh caret there does (before a bullet's marker, after the
+    // quote marker).
+    for (adopted, expected) in [
+        ("> **cd**\nremote\n", "> xy**cd**\nremote\n"),
+        (" - cd\nremote\n", " xy- cd\nremote\n"),
+    ] {
+        let mut editor = EditorSession::open("ab cd\nbelow");
+        editor
+            .cut_markdown(Revision(0), range(0, 2), &mut |_| Ok(()))
+            .unwrap();
+        let adoption = editor
+            .prepare_external_source_dropping_history(editor.revision(), adopted)
+            .unwrap();
+        editor.apply_external_source(adoption).unwrap();
+        let caret = editor.selection();
+        editor
+            .replace(editor.revision(), caret, "xy", &mut |_| Ok(()))
+            .unwrap();
+        assert_eq!(editor.source_text(), expected, "{adopted:?}");
+    }
+}

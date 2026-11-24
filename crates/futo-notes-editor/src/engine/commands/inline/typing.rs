@@ -315,8 +315,9 @@ fn quote_typed(entry: &Entry, start: usize, text: &str, formats: &[InlineFormat]
 
 impl Engine {
     /// Typing at a caret that changes how its line reads: on an empty quote
-    /// line that needs its space (`quote_typed`), or just before a list
-    /// item's marker (`before_marker_typed`). `None` elsewhere.
+    /// line that needs its space (`quote_typed`), just before a list
+    /// item's marker, or ahead of a plain line's hidden indent
+    /// (`before_marker_typed`). `None` elsewhere.
     fn edge_typed(
         &self,
         entry: &Entry,
@@ -329,14 +330,18 @@ impl Engine {
             return Some(quote_typed(entry, start, text, formats));
         }
         let before_marker = entry.marker_unit().is_some_and(|unit| unit.start == pin);
-        before_marker.then(|| before_marker_typed(entry, start, pin, text, formats))
+        // Or ahead of a plain line's hidden indent, where a deletion left the
+        // caret (`keep_before_indent`): the indent then shows as text.
+        (before_marker || entry.in_plain_indent(pin))
+            .then(|| before_marker_typed(entry, start, pin, text, formats))
     }
 }
 
-/// Text typed just before a list item's marker, at line offset `pin`: the
-/// line then reads as the file does (`x- a` is plain), so its marker shows
-/// as text. A placeholder written there plainly reads that line; the typed
-/// text takes its place in the carried formats.
+/// Text typed just before a list item's marker, or ahead of a plain line's
+/// hidden indent, at line offset `pin`: the line then reads as the file does
+/// (`x- a` is plain), so its marker shows as text. A placeholder written
+/// there plainly reads that line; the typed text takes its place in the
+/// carried formats.
 fn before_marker_typed(
     entry: &Entry,
     start: usize,
