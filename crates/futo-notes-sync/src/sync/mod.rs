@@ -59,10 +59,13 @@ pub(crate) async fn cycle(
     .map_err(|failure| failure.kind)
 }
 
-/// The visible push-first sequence: an optional bootstrap pull, then the push,
-/// then the pull from the cursor captured *before* the push. The journal wraps
-/// this without participating in it — every measurement is taken around a call
-/// whose arguments and ordering are unchanged.
+/// The visible push-first sequence: an optional bootstrap pull, then the push
+/// (minus unmapped byte-identical copies of mapped notes, held back so a peer's
+/// rename onto them can arrive first), then the pull from the cursor captured
+/// *before* the push, then a second push of the held-back copies the pull left
+/// unclaimed. The journal wraps this without participating in it — every
+/// measurement is taken around a call whose arguments and ordering are
+/// unchanged.
 #[cfg(test)]
 pub(crate) async fn cycle_with_checkpoint(
     state: &ConnectedState,
