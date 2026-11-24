@@ -89,12 +89,8 @@ describe('the nightly TestFlight schedule', () => {
 });
 
 describe('a main push', () => {
-  it('offers the TestFlight build as a button instead of uploading every push', () => {
-    expect(outcome(config['build:ios-native'], PUSH)).toBe('manual');
-    expect(rulesOf(config['build:ios-native']).find((r) => r.when === 'manual').allow_failure).toBe(
-      true,
-    );
-    // The upload follows the button press on its own.
+  it('builds and uploads a TestFlight build on every push', () => {
+    expect(outcome(config['build:ios-native'], PUSH)).toBe('on_success');
     expect(outcome(config['publish:ios:main'], PUSH)).toBe('on_success');
     expect(config['publish:ios:main'].needs).toContainEqual({
       job: 'build:ios-native',
@@ -102,9 +98,18 @@ describe('a main push', () => {
     });
   });
 
+  it('offers the build as a button on a main pipeline started from the UI', () => {
+    expect(outcome(config['build:ios-native'], { ...MAIN, CI_PIPELINE_SOURCE: 'web' })).toBe(
+      'manual',
+    );
+  });
+
   it('still builds the IPA automatically on a tag', () => {
     expect(
       outcome(config['build:ios-native'], { CI_COMMIT_TAG: 'v1.2.3', CI_PIPELINE_SOURCE: 'push' }),
     ).toBe('on_success');
+    // A tag uploads through publish:ios, never the main job.
+    const tag = { CI_COMMIT_TAG: 'v1.2.3', CI_DEFAULT_BRANCH: 'main', CI_PIPELINE_SOURCE: 'push' };
+    expect(outcome(config['publish:ios:main'], tag)).toBe('never');
   });
 });
