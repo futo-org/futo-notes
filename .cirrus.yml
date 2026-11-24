@@ -199,7 +199,7 @@ test_desktop_smoke_macos_task:
     - |
       target/debug/futo-notes-tauri > test-screenshots/tauri-smoke.log 2>&1 &
     # Run smoke tests (script handles port discovery from log)
-    - node tests/desktop-smoke.mjs --log-file test-screenshots/tauri-smoke.log
+    - node tests/desktop-smoke.mjs --log-file test-screenshots/tauri-smoke.log --notes-dir "$NOTES_DIR"
     - kill $(pgrep -f futo-notes-tauri) 2>/dev/null || true
   always:
     # See the note on testRustMacOS's upload_caches: naming any cache disables

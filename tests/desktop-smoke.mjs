@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 /**
  * Desktop smoke test — connects to a running Tauri debug binary via
- * the MCP bridge WebSocket and runs 4 essential checks.
+ * the MCP bridge WebSocket and runs the essential checks, including that a
+ * typed note is saved to the vault on disk (`--notes-dir` is the app's
+ * isolated vault, never a real one).
  *
  * Usage:
- *   node tests/desktop-smoke.mjs --port 9223
- *   node tests/desktop-smoke.mjs --log-file /tmp/tauri.log
- *   node tests/desktop-smoke.mjs --log-file /tmp/tauri.log --screenshot-dir ./shots
+ *   node tests/desktop-smoke.mjs --port 9223 --notes-dir /tmp/vault
+ *   node tests/desktop-smoke.mjs --log-file /tmp/tauri.log --notes-dir /tmp/vault
+ *   node tests/desktop-smoke.mjs --log-file /tmp/tauri.log --notes-dir /tmp/vault --screenshot-dir ./shots
  */
 
-import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { send, discoverPort, connectWs, sleep } from './lib/mcp-client.mjs';
@@ -20,12 +22,13 @@ const { values: args } = parseArgs({
   options: {
     port: { type: 'string' },
     'log-file': { type: 'string' },
+    'notes-dir': { type: 'string' },
     'screenshot-dir': { type: 'string', default: 'test-screenshots' },
   },
 });
 
-if (!args.port && !args['log-file']) {
-  console.error('Usage: desktop-smoke.mjs --port <N> | --log-file <path>');
+if ((!args.port && !args['log-file']) || !args['notes-dir']) {
+  console.error('Usage: desktop-smoke.mjs (--port <N> | --log-file <path>) --notes-dir <vault>');
   process.exit(1);
 }
 
@@ -45,6 +48,43 @@ async function check(name, fn) {
     results.push({ name, pass: false, ms, error: err.message });
     console.log(`  ✗ ${name} (${ms}ms) — ${err.message}`);
   }
+}
+
+// ── Vault on disk ───────────────────────────────────────────────
+
+const SAVE_TIMEOUT_MS = 10_000;
+
+/** Every `.md` in the vault (outside dot-directories) with its current bytes. */
+function readVaultNotes(dir) {
+  return readdirSync(dir, { recursive: true })
+    .filter((rel) => rel.endsWith('.md') && !rel.split(/[\\/]/).some((p) => p.startsWith('.')))
+    .flatMap((rel) => {
+      try {
+        const path = join(dir, rel);
+        return [{ rel, size: statSync(path).size, text: readFileSync(path, 'utf8') }];
+      } catch {
+        return []; // renamed or replaced between the listing and the read
+      }
+    });
+}
+
+/**
+ * Poll until `done(notes)` holds, failing at once if a note on disk is empty:
+ * a save must never pass through an empty file. `savedBefore` skips that guard
+ * until the first save has landed (a new note starts with nothing to save).
+ */
+async function waitForDisk(dir, what, done, { savedBefore = true } = {}) {
+  const deadline = Date.now() + SAVE_TIMEOUT_MS;
+  let notes = [];
+  while (Date.now() < deadline) {
+    notes = readVaultNotes(dir);
+    const empty = notes.find((n) => n.size === 0);
+    if (savedBefore && empty) throw new Error(`${empty.rel} was left empty on disk`);
+    if (done(notes)) return;
+    await sleep(100);
+  }
+  const seen = notes.map((n) => `${n.rel} (${n.size}B)`).join(', ') || 'no notes';
+  throw new Error(`${what} not on disk in ${dir} after ${SAVE_TIMEOUT_MS / 1000}s; found ${seen}`);
 }
 
 // ── Main ────────────────────────────────────────────────────────
@@ -138,7 +178,45 @@ async function main() {
     }
   });
 
-  // 4. Screenshot of the real window, kept as a CI artifact. Best-effort, not a
+  // 4. The typed note reaches the host and is written to the vault. The editor
+  // showing the text proves nothing about a save; the file on disk does.
+  const notesDir = args['notes-dir'];
+  let savedRel;
+  await check('typed note saved to disk', async () => {
+    await waitForDisk(
+      notesDir,
+      "'smoke-test-check'",
+      (notes) => {
+        savedRel = notes.find((n) => n.text.includes('smoke-test-check'))?.rel;
+        return savedRel !== undefined;
+      },
+      { savedBefore: false },
+    );
+  });
+
+  // 5. A second edit replaces the body: that same file follows it, and no file
+  // is left empty on the way. Skipped, without touching the editor, unless the
+  // first save landed in `--notes-dir`: that is what proves the app under test
+  // is the isolated one, so the select-all below can never hit another vault.
+  await check('edited note saved to disk', async () => {
+    if (!savedRel) throw new Error('skipped: the first edit never reached --notes-dir');
+    await send(ws, 'execute_js', {
+      script: `(() => {
+        const content = document.querySelector('.desktop-editor');
+        if (!content) return 'no .desktop-editor';
+        content.focus();
+        document.execCommand('selectAll');
+        document.execCommand('insertText', false, 'smoke-test-edited');
+        return 'typed';
+      })()`,
+    });
+    await waitForDisk(notesDir, `'smoke-test-edited' in ${savedRel}`, (notes) => {
+      const text = notes.find((n) => n.rel === savedRel)?.text;
+      return text?.includes('smoke-test-edited') && !text.includes('smoke-test-check');
+    });
+  });
+
+  // 6. Screenshot of the real window, kept as a CI artifact. Best-effort, not a
   // check: the tag job blocks the release and native capture is not proven on
   // every runner (e.g. without Screen Recording permission), so an unavailable
   // capture is reported, never replaced by a placeholder image.
