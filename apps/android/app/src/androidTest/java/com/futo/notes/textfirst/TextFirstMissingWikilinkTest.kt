@@ -5,16 +5,23 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composer
+import androidx.compose.runtime.CompositionTracer
+import androidx.compose.runtime.InternalComposeTracingApi
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.futo.notes.NotesStore
+import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.awaitEditorLeaves
+import com.futo.notes.createNote
 import com.futo.notes.localization.ProvideLocalization
 import com.futo.notes.ui.navigation.AppNavigation
 import com.futo.notes.ui.navigation.AppNavigator
 import com.futo.notes.ui.navigation.Screen
 import com.futo.notes.ui.theme.FutoNotesTheme
+import com.futo.notes.write
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -133,6 +140,34 @@ class TextFirstMissingWikilinkTest {
         backToDraft()
         compose.waitUntil(10_000) { drawnLink().noteId == "Fresh idea" }
         assertEquals("x", File(root, "Fresh idea.md").readText().trim())
+    }
+
+    @OptIn(InternalComposeTracingApi::class)
+    @Test fun anOpenEditorsLinksTrackNoteIdsWithoutRecomposingForMetadata() {
+        val editorCompositions = AtomicInteger()
+        Composer.setTracer(object : CompositionTracer {
+            override fun isTraceInProgress(): Boolean = true
+            override fun traceEventStart(key: Int, dirty1: Int, dirty2: Int, info: String) {
+                if (info.startsWith("com.futo.notes.textfirst.TextFirstEditorScreen ")) editorCompositions.incrementAndGet()
+            }
+            override fun traceEventEnd(): Unit = Unit
+        })
+        try {
+            val editor = openDraft("go [[Fresh idea]] now\n")
+            compose.waitUntil(10_000) { compose.runOnUiThread { editor.liftAllowed() } }
+            assertEquals(NoteMutationOutcome.Committed("Other"), runBlocking { store.createNote("Other") })
+            compose.waitForIdle()
+            val compositions = editorCompositions.get()
+            assertTrue("the tracer did not see the editor open", compositions > 0)
+            assertEquals(NoteMutationOutcome.Committed(Unit), runBlocking { store.write("Other", "A new preview") })
+            compose.waitForIdle()
+            assertEquals(compositions, editorCompositions.get())
+            assertEquals(NoteMutationOutcome.Committed("Fresh idea"), runBlocking { store.createNote("Fresh idea") })
+            compose.waitUntil(10_000) { drawnLink().noteId == "Fresh idea" }
+            assertTrue(editor === editorShowing("go "))
+        } finally {
+            Composer.setTracer(null)
+        }
     }
 
     @Test fun twoFastTapsMakeOneNoteAndNoneIsLeftUntouched() {

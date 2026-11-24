@@ -224,8 +224,10 @@ internal fun TextFirstEditorScreen(
 
     // Local mutations and remote summaries both commit this projection. Do not
     // rescan the vault for body updates or on each completion request.
-    LaunchedEffect(controller.opened, store.notes.map { it.id }.toSet()) {
-        if (controller.opened) controller.refreshCompletionNoteIds()
+    LaunchedEffect(controller, controller.opened) {
+        if (!controller.opened) return@LaunchedEffect
+        snapshotFlow { store.notes.mapTo(mutableSetOf()) { it.id } }
+            .collect { controller.refreshCompletionNoteIds() }
     }
 
     // The Store has already applied explicit remote identity changes. Reconcile
