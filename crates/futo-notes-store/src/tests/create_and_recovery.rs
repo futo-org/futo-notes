@@ -302,3 +302,30 @@ fn a_recovered_note_keeps_its_subfolder() {
     assert!(recovered[0].id.starts_with("Projects/"));
     assert_eq!(store.read(&recovered[0].id).unwrap(), "stranded");
 }
+
+// A crash mid-save leaves its hidden temp in the vault. Opening the vault sweeps
+// it, the note beside it is untouched, and a temp young enough to belong to a
+// live save in another process is kept (D-F2).
+#[test]
+fn opening_the_vault_sweeps_the_temp_a_crashed_save_left_behind() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    fs::write(root.0.join("Welcome.md"), "installed").unwrap();
+    let stale = root.0.join(".sf-tmp-4242-1-0");
+    let live = root.0.join(".sf-tmp-4243-1-0");
+    fs::write(&stale, "installed, then edited").unwrap();
+    fs::write(&live, "being written").unwrap();
+    let an_hour_ago = futo_notes_core::files::now_ms() - 60 * 60 * 1000;
+    futo_notes_core::files::set_file_mtime_ms(&stale, an_hour_ago).unwrap();
+
+    store.bootstrap().unwrap();
+
+    assert!(!stale.exists(), "the crash's leftover temp is swept");
+    assert!(live.exists(), "a young temp may belong to a live save");
+    assert_eq!(store.read("Welcome").unwrap(), "installed");
+    assert!(store
+        .snapshot()
+        .notes
+        .iter()
+        .all(|note| !note.id.contains("sf-tmp")));
+}

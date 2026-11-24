@@ -7,7 +7,7 @@ use rustix::fs::{renameat, unlinkat, AtFlags};
 
 use super::{
     entry_type, install_temp, open_parent, open_parent_with_policy, reject_symlink,
-    report_local_sync, sync_directory, write_temp_and_install,
+    report_local_sync, sync_directory, sync_directory_with, write_temp_and_install,
 };
 use crate::files::vault_fs::{context, OpenParentError};
 
@@ -59,13 +59,15 @@ fn write_with_policy(
     write_temp_and_install(&parent, relative, bytes, |temp| {
         install_temp(&parent, temp, relative, strict)
     })?;
-    let result = sync_directory(&parent.directory, "sync directory after write", relative);
-    if strict {
-        result
-    } else {
-        report_local_sync(result);
-        Ok(())
-    }
+    // The caller acknowledges the save when this returns, so the rename must be
+    // durable: a failed directory fsync is a failed save in both policies. The
+    // local one only forgives a filesystem that has no directory fsync at all.
+    sync_directory_with(
+        &parent.directory,
+        "sync directory after write",
+        relative,
+        !strict,
+    )
 }
 
 pub(in crate::files::vault_fs) fn remove(root: &Path, relative: &str) -> Result<bool, String> {

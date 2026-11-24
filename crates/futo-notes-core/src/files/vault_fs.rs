@@ -301,8 +301,9 @@ pub fn rename_case(root: &Path, source: &str, destination: &str) -> Result<(), S
     platform::rename_case(root, source, destination)
 }
 
-/// Local-store policy: report committed writes if directory fsync is unsupported.
-/// Sync uses `write_atomic` and retains strict journal durability.
+/// Local-store policy: a directory fsync that fails fails the write, except on a
+/// filesystem that has no directory fsync at all, which is tolerated. Sync uses
+/// `write_atomic` and retains strict journal durability, unsupported included.
 pub fn write_atomic_local(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
     platform::write_atomic_local(root, relative, bytes)
 }

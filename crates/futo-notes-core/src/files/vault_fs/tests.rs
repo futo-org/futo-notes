@@ -140,13 +140,28 @@ fn local_moves_report_committed_identity_when_directory_sync_fails() {
 }
 
 #[test]
-fn local_create_and_write_preserve_best_effort_directory_sync() {
+fn local_create_preserves_best_effort_directory_sync() {
     let root = tempfile::tempdir().unwrap();
     platform::fail_directory_sync_on_call(1);
     assert!(create_new(root.path(), "note.md", b"created").unwrap());
+    assert_eq!(read(root.path(), "note.md").unwrap(), b"created");
+}
+
+/// A save is acknowledged as durable, so a directory fsync that failed must
+/// fail it: the editor keeps the draft and writes again.
+#[test]
+fn local_write_reports_directory_sync_failure() {
+    let root = tempfile::tempdir().unwrap();
     platform::fail_directory_sync_on_call(1);
-    write_atomic_local(root.path(), "note.md", b"edited").unwrap();
+
+    let error = write_atomic_local(root.path(), "note.md", b"edited").unwrap_err();
+
+    assert!(error.contains("sync directory after write"));
+    // The bytes landed, so the retry's write (and the flush's converged check) is a no-surprise rewrite.
     assert_eq!(read(root.path(), "note.md").unwrap(), b"edited");
+    write_atomic_local(root.path(), "note.md", b"edited").unwrap();
+    platform::fail_directory_sync_on_call(1);
+    write_atomic_local_in_existing_parent(root.path(), "note.md", b"again").unwrap_err();
 }
 
 #[test]

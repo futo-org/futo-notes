@@ -94,6 +94,19 @@ pub(super) fn force_backup(interrupt: bool) {
 }
 
 fn sync_directory(directory: &OwnedFd, operation: &str, relative: &str) -> Result<(), String> {
+    sync_directory_with(directory, operation, relative, false)
+}
+
+/// `sync_directory`, except that with `tolerate_unsupported` a filesystem that
+/// has no directory fsync at all (see `is_directory_sync_unsupported`) is
+/// logged and passed, while every other failure — EIO, ENOSPC, EDQUOT — still
+/// fails: the rename it was meant to make durable may not have reached the disk.
+fn sync_directory_with(
+    directory: &OwnedFd,
+    operation: &str,
+    relative: &str,
+    tolerate_unsupported: bool,
+) -> Result<(), String> {
     #[cfg(any(test, feature = "test-support"))]
     FAIL_DIRECTORY_SYNC_ON_CALL.with(|failure| {
         if let Some(call) = failure.get() {
@@ -110,7 +123,17 @@ fn sync_directory(directory: &OwnedFd, operation: &str, relative: &str) -> Resul
         Ok(())
     })?;
 
-    fsync(directory).map_err(|error| context(operation, relative, error))
+    match fsync(directory) {
+        Ok(()) => Ok(()),
+        Err(error)
+            if tolerate_unsupported
+                && crate::files::atomic_write::is_directory_sync_unsupported(&error.into()) =>
+        {
+            report_local_sync(Err(context(operation, relative, error)));
+            Ok(())
+        }
+        Err(error) => Err(context(operation, relative, error)),
+    }
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -257,7 +280,7 @@ fn hidden_name(kind: &str) -> OsString {
 
 fn create_temp(parent: &Parent, relative: &str) -> Result<(OsString, File), String> {
     for _ in 0..32 {
-        let name = hidden_name("tmp");
+        let name = hidden_name(crate::files::parked_backup::TEMP_PURPOSE);
         let opened = super::refused_create(rustix::io::Errno::ACCESS).and_then(|()| {
             openat(
                 &parent.directory,
@@ -412,11 +435,34 @@ pub(super) fn open_optional(root: &Path, relative: &str) -> Result<Option<File>,
     }
 }
 
-// Local operations report the committed filesystem effect even when directory
-// fsync is unsupported. File bytes are still fsynced before install. Sync's
-// journal-facing operations retain strict directory durability and retry rules.
+// Local operations other than a note write report the committed filesystem effect
+// even when directory fsync fails: a create or move has already changed identity,
+// so an error would mislead the caller into retrying it. File bytes are still
+// fsynced before install. A note write is idempotent and acknowledged as durable,
+// so it fails instead (`write_with_policy`). Sync's journal-facing operations
+// retain strict directory durability and retry rules.
 fn report_local_sync(result: Result<(), String>) {
     if let Err(error) = result {
         crate::log_to_stderr!("local vault directory durability: {error}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A socket cannot be fsynced (EINVAL or ENOTSUP, depending on the OS),
+    /// which stands in for a filesystem with no directory fsync.
+    fn unsyncable() -> OwnedFd {
+        let (socket, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        OwnedFd::from(socket)
+    }
+
+    #[test]
+    fn a_filesystem_without_directory_fsync_is_tolerated_only_when_asked() {
+        let descriptor = unsyncable();
+        let strict = sync_directory_with(&descriptor, "sync", "note.md", false);
+        assert!(strict.is_err(), "the strict policy still fails: {strict:?}");
+        sync_directory_with(&descriptor, "sync", "note.md", true).unwrap();
     }
 }

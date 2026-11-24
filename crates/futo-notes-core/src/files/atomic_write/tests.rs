@@ -15,6 +15,41 @@ fn atomic_text_write_replaces_content_without_temp_litter() {
     }));
 }
 
+#[cfg(not(windows))]
+#[test]
+fn a_failed_directory_sync_fails_the_write() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("note.md");
+
+    fail_next_directory_sync();
+    let error = write_atomic_text(&path, "body").unwrap_err();
+
+    assert!(error.contains("syncing directory"), "{error}");
+    write_atomic_text(&path, "body").unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn only_a_filesystem_without_directory_fsync_is_tolerated() {
+    use std::io::Error;
+    for errno in [
+        rustix::io::Errno::INVAL,
+        rustix::io::Errno::NOSYS,
+        rustix::io::Errno::OPNOTSUPP,
+        rustix::io::Errno::NOTSUP,
+    ] {
+        assert!(is_directory_sync_unsupported(&Error::from(errno)));
+    }
+    for errno in [
+        rustix::io::Errno::IO,
+        rustix::io::Errno::NOSPC,
+        rustix::io::Errno::ACCESS,
+    ] {
+        assert!(!is_directory_sync_unsupported(&Error::from(errno)));
+    }
+    assert!(!is_directory_sync_unsupported(&Error::other("no errno")));
+}
+
 #[test]
 fn temp_hop_changes_the_directory_entry_without_losing_bytes() {
     let directory = tempfile::tempdir().unwrap();
