@@ -9,18 +9,8 @@ const artifacts = playwrightArtifacts('desktop', 'results.json');
 
 export default defineConfig({
   testDir: './tests',
-  // Runner-specific tests stay out of the default Playwright suite: the
-  // editor-embed harness has its own config, and Vitest unit files install a
-  // matcher runtime that conflicts with Playwright's.
-  testIgnore: [
-    '**/editor-embed-*.spec.ts',
-    '**/*.test.mjs',
-    'editor-gauntlet/**/*.test.ts',
-    // The gauntlet adapter drives the built editor.html bundle over file://,
-    // so it runs under playwright.editor-gauntlet.config.ts (which builds that
-    // bundle) rather than against this config's dev server.
-    'editor-gauntlet/milkdown-*.spec.ts',
-  ],
+  // Vitest unit files install a matcher runtime that conflicts with Playwright's.
+  testIgnore: ['**/*.test.mjs'],
   timeout: isCI ? 90000 : 30000,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

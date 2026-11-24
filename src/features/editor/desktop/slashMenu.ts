@@ -1,12 +1,12 @@
 /* The `/` menu (docs/spec/editor/desktop/slash-menu.md): a `/` at a line's start (slashRun.ts)
- * lists the items its query matches (the Milkdown menu's ranking, `filterSlashItems`) in a list
+ * lists the items its query matches (slashItems.ts's ranking, `filterSlashItems`) in a list
  * at the caret (caretList.ts); none matching hides it. Up and Down move, Enter or Tab pick
  * before any list or table rule gets the key, a press picks, Escape closes it and keeps what was
  * typed while that `/` stays. Read on the caret's frame: the caret's line up to the caret, no
  * layout, unless the run or its query changed; one caret box to place the list. */
 import { localizedText } from '$shared/localization';
 import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
-import { filterSlashItems, type SlashItem } from '../milkdown/slash/items';
+import { filterSlashItems, type SlashItem } from './slashItems';
 import { CaretList } from './caretList';
 import type { Engine } from './engine';
 import { DESKTOP_SLASH_ITEMS, IMAGE_SLASH_ITEM, runSlashItem } from './slashCommands';

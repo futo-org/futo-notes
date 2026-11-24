@@ -9,9 +9,6 @@
     "scripts/drift-registry/path-safety-pair.json",
     "scripts/drift-registry/title-validation-constants.json",
     "scripts/drift-registry/worktree-slot-derivation.json",
-    "scripts/drift-registry/wikilink-grammar.json",
-    "scripts/drift-registry/editor-perf-floor-fixture.json",
-    "scripts/drift-registry/embed-body-pin.json",
     "scripts/drift-registry/feedback-image-normalisation.json",
     "scripts/drift-registry/kitchensink-image-digest.json",
     "scripts/drift-registry/localization-template-grammar.json",
@@ -29,7 +26,6 @@
     "scripts/drift-registry/note-list-order-web-harness.json",
     "scripts/drift-registry/sort-menu-presentation.json",
     "scripts/drift-registry/mobile-app-icon-identities.json",
-    "scripts/drift-registry/markdown-house-normalizations.json",
     "scripts/drift-registry/tauri-cli-pin.json",
     "scripts/drift-registry/puppet-control-verb-label.json",
     "scripts/drift-registry/qa-claim-owner-lookup.json"

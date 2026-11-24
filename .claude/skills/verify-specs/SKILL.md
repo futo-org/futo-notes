@@ -49,7 +49,7 @@ out over fully-provisioned legs.
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-LAST_TAG=$(git describe --tags --abbrev=0 --exclude '*-*')   # skip pre-release tags (v1.7.2-6, -milkdown.3)
+LAST_TAG=$(git describe --tags --abbrev=0 --exclude '*-*')   # skip pre-release tags (v1.7.2-6, -rc.3)
 echo "last tag: $LAST_TAG"
 ```
 
@@ -86,7 +86,7 @@ macOS it's WKWebKit — the same engine as iOS). Mobile legs cover only what the
 native shells actually own: set each iOS/Android editor leg's **`focus`** to
 the shell-integration delta —
 
-> futoBridge round-trips, toolbar actions, keyboard/IME (insets,
+> editor-session round-trips, toolbar actions, keyboard/IME (insets,
 > scroll-during-IME), tap/selection/focus handoff, image insertion,
 > safe areas — plus every editor story explicitly tagged _(iOS)_ / _(Android)_.
 
@@ -111,7 +111,7 @@ death) — one entry per leg:
       "idPrefix": "ed",
       "worktree": "/abs/path/.claude/worktrees/extra-A",
       "surfaces": ["editor", "app"],
-      "focus": "Shell-integration delta only: futoBridge, toolbar, keyboard/IME, …",
+      "focus": "Shell-integration delta only: editor-session round-trips, toolbar, keyboard/IME, …",
       "device": "iOS sim <udid>",
       "deviceEnv": "export SIM=<udid>",
       "ledger": "/abs/path/extra-A/test-screenshots/A-ios-ledger.md",

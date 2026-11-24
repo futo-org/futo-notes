@@ -45,7 +45,7 @@ describe('the WebKit context menu', () => {
     [
       'the editor',
       false,
-      '<div class="ProseMirror" contenteditable="true"><p><span>hi</span></p></div>',
+      '<div class="desktop-editor" contenteditable="true"><div><span>hi</span></div></div>',
       'span',
     ],
     ['a textarea', false, '<textarea></textarea>', 'textarea'],

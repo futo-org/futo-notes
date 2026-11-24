@@ -5,7 +5,6 @@
  * only schedules one rescan for when typing settles, and in between the matches it carries
  * through the edits are what is drawn. */
 import type { DisplayRange, FindReport } from '@futo-notes/editor/wasm-payloads';
-import type { FindBarState } from '$features/editor/milkdown/find';
 import { localizedText } from '$shared/localization';
 import type { Engine } from './engine';
 import { findBands, findWindowRange, FindLayer, matchRects } from './findBands';
@@ -13,12 +12,25 @@ import { paneOf } from './caret';
 import { reveal } from './paneScroll';
 import type { EditorView } from './view';
 
+/**
+ * Everything the find bar renders: it owns no find logic, shows this and calls back in. `label`
+ * is the engine's own wording, never recomputed.
+ */
+export interface FindBarState {
+  open: boolean;
+  query: string;
+  label: string;
+  hasMatches: boolean;
+  /** Changes on every open, including one that finds the bar already up. */
+  focusToken: number;
+}
+
 /** How long input pauses before the note is scanned again (the Android host's
  *  FIND_REFRESH_MS). */
 const RESCAN_IDLE_MS = 150;
 
 /** How long a query waits for the frame it is scanned on before it is scanned anyway: a window
- *  in the background draws no frames (the Milkdown find's FIND_RESCAN_FALLBACK_MS). */
+ *  in the background draws no frames. */
 const QUERY_FALLBACK_MS = 200;
 
 /** Room kept above and below a revealed match, besides the bar over the pane's bottom. */

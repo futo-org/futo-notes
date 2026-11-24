@@ -8,10 +8,6 @@
       "count": 1,
       "why": "one button per window control, labelled from LABEL_PATHS: MinimizeWindow, ToggleMaximizeWindow, CloseWindow"
     },
-    "src/editor-embed/EmbedToolbar.svelte": {
-      "count": 3,
-      "why": "the phones' toolbar and its items, labelled from the toolbar manifest (packages/editor/src/toolbar.ts); each item is an editor verb"
-    },
     "src/features/editor/NoteTagBar.svelte": {
       "count": 1,
       "why": "a tag suggestion under the tag field, labelled by the tag: AddTag"
@@ -80,10 +76,6 @@
       "count": 2,
       "why": "the backdrop and the card's Escape: DismissDialog"
     },
-    "src/features/editor/milkdown/selectionToolbar/SelectionToolbar.svelte": {
-      "count": 2,
-      "why": "the floating toolbar's block and mark buttons, labelled from the toolbar manifest and its BUTTONS table; each runs a toolbar command, already an editor verb (Bold, Quote, Indent…)"
-    },
     "src/features/settings/hosted/UnlockStep.svelte": {
       "count": 1,
       "why": "the three unlock-method buttons, each labelled from its method (sync.hosted.unlock.doors.*): SelectUnlockMethod"
@@ -104,8 +96,6 @@
     "desktop:ToggleSortMenu": "the sort button is DropdownMenu.svelte's toggle, labelled through its label prop",
     "desktop:ReopenTab": "a keyboard shortcut (registerNotesShellShortcuts.ts)",
     "desktop:ActivateTabByNumber": "Cmd+1..9, a keyboard shortcut (registerNotesShellShortcuts.ts); a tab click is ActivateTab",
-    "desktop:PickImage": "a toolbar item, labelled from the toolbar manifest (packages/editor/src/toolbar.ts)",
-    "desktop:DismissKeyboard": "the toolbar's dismiss item, labelled from the toolbar manifest (packages/editor/src/toolbar.ts)",
     "desktop:CancelAddingTag": "Escape in the tag field, AddTag's control",
     "desktop:SubmitNewFolder": "the dialog's confirm button, labelled by its caller (Create, Create and move)",
     "desktop:ToggleFolder": "a folder row, labelled by its path; futo-puppet pairs it by the row's folder=",
@@ -128,10 +118,8 @@
     "desktop:ClearSyncStatus": "the sync error pill, labelled with the error (sync.errors.dismissWithMessageAccessibilityLabel takes it)",
     "desktop:RemoveFeedbackAttachment": "each screenshot's remove button, labelled with its number (feedback.removeScreenshot takes it)",
     "desktop:CancelLink": "Escape in the Link field, or a press outside it: keys and a dismissal, not a labelled control",
-    "desktop:OpenTableColumnMenu": "the column grip, a button tableGrips.ts builds in TypeScript (editor.tableGrips.columnOptionsAccessibilityLabel)",
-    "desktop:OpenTableRowMenu": "the row grip, a button tableGrips.ts builds in TypeScript (editor.tableGrips.rowOptionsAccessibilityLabel)",
     "desktop:PickLinkSuggestion": "a row of the [[ suggestions, labelled by the note's title",
-    "desktop:PickSlashItem": "a row of the `/` menu, labelled by the item's own name (slash/items.ts); the menu is built in TypeScript",
+    "desktop:PickSlashItem": "a row of the `/` menu, labelled by the item's own name (slashItems.ts); the menu is built in TypeScript",
     "desktop:SelectUnlockMethod": "the three unlock-method buttons are labelled from the method's name, so no one key names them",
     "desktop:SpinCoin": "a click on the supporter coin, a 3D canvas with no label",
     "desktop:ToggleNoteActionsMenu": "the note's ⋯ button, labelled through DropdownMenu's label prop, which the source scan does not follow",

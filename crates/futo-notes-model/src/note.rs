@@ -116,12 +116,11 @@ fn image_construct_end(bytes: &[u8], start: usize) -> Option<usize> {
 
 /// The line-break tag spellings a preview turns back into a space.
 ///
-/// These are exactly the four `@milkdown/preset-commonmark` writes for an empty
-/// paragraph — markdown cannot represent one, so its serializer parks a
-/// placeholder tag in the file (see `packages/editor/src/milkdown-compat/
-/// emptyLine.ts`, which owns the parse-side half). Blank lines the author typed
-/// therefore reach the vault as `<br />`, and a preview that showed it read
-/// `<br /> Some text` in the list. The same replacement covers an author's own
+/// These are exactly the four an earlier desktop editor wrote for an empty
+/// paragraph — markdown cannot represent one, so its serializer parked a
+/// placeholder tag in the file. Blank lines typed in it therefore reached the
+/// vault as `<br />`, and a preview that showed it read `<br /> Some text` in
+/// the list; such notes are still in vaults. The same replacement covers an author's own
 /// `<br>` — the standard way to break a line inside a GFM table cell — which as
 /// preview text is a space and nothing else.
 ///
@@ -428,7 +427,7 @@ mod tests {
         );
     }
 
-    /// The Milkdown serializer parks `<br />` in the file for every blank line
+    /// An earlier desktop editor parked `<br />` in the file for every blank line
     /// the author typed (markdown cannot represent an empty paragraph), and this
     /// is the preview the iOS and Android note lists actually show — so a note
     /// whose first blank line came back as a placeholder previewed as `<br />`.

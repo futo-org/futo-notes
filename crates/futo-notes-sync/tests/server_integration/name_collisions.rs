@@ -192,7 +192,7 @@ async fn same_name_offline_creations_preserve_both_bodies_on_both_clients() {
     let name = format!("{tag}.md");
     let bodies = [
         format!("{tag} iOS original body\n"),
-        format!("{tag} Milkdown original body\n"),
+        format!("{tag} desktop original body\n"),
     ];
     std::fs::write(va.join(&name), &bodies[0]).unwrap();
     std::fs::write(vb.join(&name), &bodies[1]).unwrap();

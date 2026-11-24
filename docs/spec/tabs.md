@@ -60,5 +60,4 @@ shells are single-document. → TabsStrip.svelte, tabsStore.svelte.ts
   Tab/Shift+Tab indent/dedent, Ctrl/Cmd+Alt+1…6 headings and Ctrl/Cmd+Alt+0 body
   text. These come from the editor's own keys, not from app chrome. →
   src/features/editor/desktop/keys.ts (desktop: editor/desktop/editing.md);
-  `@milkdown/preset-commonmark`, `@milkdown/preset-gfm`, `@milkdown/plugin-history`
-  (mobile)
+  crates/futo-notes-editor (mobile)

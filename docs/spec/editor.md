@@ -3,8 +3,6 @@
 Desktop draws the text-first engine's display text (editor/desktop/) and saves the
 note's own bytes. Mobile uses the Rust Linedown engine rendered by native TextKit (iOS)
 and Android views. Mobile behavior is specified under mobile and portable-core below.
-Milkdown on ProseMirror remains only as the standalone `editor-embed` fixture, which no
-app ships; the Milkdown rendering and serialization sections describe that fixture.
 Native views and the desktop host preserve the exact source through the Rust session; on
 every platform a note's hidden markers are never on screen. This file states the
 behaviors a human cares about.
@@ -12,8 +10,6 @@ behaviors a human cares about.
 - [Native host boot _(iOS/Android)_](editor/native-host-boot.md)
 - [Theming](editor/theming.md)
 - [WYSIWYG rendering](editor/wysiwyg-rendering.md)
-- [Paragraphs and lines](editor/paragraphs-and-lines.md)
-- [Markdown house style — what a save writes](editor/markdown-house-style.md)
 - [Localization](editor/localization.md)
 - [Cursor](editor/cursor.md)
 - [Markdown elements (rendered / decorated)](editor/markdown-elements.md)
@@ -22,7 +18,7 @@ behaviors a human cares about.
 - [Wikilinks — navigation & integrity](editor/wikilinks.md)
 - [External links](editor/external-links.md)
 - [Interactive elements](editor/interactive-elements.md)
-- [Markdown toolbar _(native shells / editor-embed fallback)_](editor/markdown-toolbar.md)
+- [Markdown toolbar _(native shells)_](editor/markdown-toolbar.md)
 - [Find in note](editor/find-in-note.md)
 - [Images](editor/images.md)
 - [Code / fence isolation](editor/code-fence-isolation.md)

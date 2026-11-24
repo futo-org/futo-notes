@@ -152,10 +152,9 @@ function fileUrisIn(uriList: string): string[] {
  * (`.types.includes`), not a content check (`.getData`) — see
  * `filePathsFromDrop`'s header for why that distinction is load-bearing.
  *
- * It is also the discriminator against the editor's OWN block drag
- * (`@milkdown/plugin-block`): that drag always sets `text/html` + `text/plain`
- * together and NEVER advertises `text/uri-list` (confirmed against the
- * plugin's source), so it never satisfies this check — even though its
+ * It is also the discriminator against a drag of text from inside the page:
+ * that sets `text/html` + `text/plain` together and NEVER advertises
+ * `text/uri-list`, so it never satisfies this check — even though its
  * `text/html` looks superficially like the real shape below.
  */
 function dropCarriesUriList(transfer: DataTransfer): boolean {
@@ -331,9 +330,9 @@ export function createImageInserter(options: ImageInserterOptions): ImageInserte
 /**
  * The inserter for whichever host this editor is running in.
  *
- * Resolved here rather than in `MilkdownEditor.svelte` because components never
+ * Resolved here rather than in the editor component because components never
  * branch on platform (src/AGENTS.md) — the same reason `resolveImagePasteSink`
- * and `blockDragMode.ts` exist.
+ * exists.
  */
 export function resolveImageInserter(
   insert: ImageInsertTarget,

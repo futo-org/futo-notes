@@ -1,6 +1,5 @@
 /* Links and wikilinks in the desktop editor (lineLinks.ts, wikilinkElements.ts), the Link
- * prompt (linkPrompt.ts) and the `[[` completion list (wikilinkCompletion.ts). The look is the
- * Milkdown editor's (src/styles/markdown-links.css, milkdownEditor.css). */
+ * prompt (linkPrompt.ts) and the `[[` completion list (wikilinkCompletion.ts). */
 
 /* A line's font size as a length its wikilinks' labels can take: the wikilink's own text is
  * drawn at no size, so its label cannot size itself from it. */
@@ -63,8 +62,7 @@
   text-decoration-color: currentColor;
 }
 
-/* The Link prompt: the old desktop toolbar's URL field (milkdownEditor.css
- * `.futo-selection-toolbar-url`, `.futo-link-prompt`), fixed on the viewport over the
+/* The Link prompt: the URL field (LinkUrlField.svelte), fixed on the viewport over the
  * selection. */
 .desktop-link-prompt {
   position: fixed;
@@ -109,4 +107,46 @@
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+}
+
+/* The `[[` completion list (wikilinkCompletion.ts, caretList.ts), fixed on the viewport so it
+ * stays put whichever scroller moves. */
+.futo-wikilink-suggest {
+  position: fixed;
+  z-index: 60;
+  max-height: 240px;
+  min-width: 180px;
+  max-width: min(360px, calc(100vw - 16px));
+  overflow-y: auto;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+.futo-wikilink-suggest ul {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+}
+
+.futo-wikilink-suggest li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--color-text);
+}
+
+.futo-wikilink-suggest li[aria-selected='true'] {
+  background: rgba(var(--primary-rgb), 0.1);
+}
+
+.futo-wikilink-suggest-detail {
+  color: var(--color-muted);
+  font-size: 12px;
 }

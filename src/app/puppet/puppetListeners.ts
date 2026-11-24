@@ -3,7 +3,7 @@
  * element's handlers from it and the trace records which of them ran.
  *
  * Installed synchronously before the app mounts (installPuppetInspector.ts):
- * ProseMirror and Svelte attach their listeners at mount, and a listener added
+ * the editor and Svelte attach their listeners at mount, and a listener added
  * before the patch is invisible to both consumers.
  */
 
@@ -67,9 +67,9 @@ export function installListenerRegistry(): void {
   const originalAdd = prototype.addEventListener;
   const originalRemove = prototype.removeEventListener;
 
-  // A bare `addEventListener(…)` call — Milkdown's ctx timers make one — has no receiver, which
-  // the platform resolves to the global object; the registry files it under the window. An
-  // undefined `this` as a WeakMap key threw, and the editor never started in a dev build.
+  // A bare `addEventListener(…)` call has no receiver, which the platform resolves to the
+  // global object; the registry files it under the window. An undefined `this` as a WeakMap
+  // key threw, and the editor never started in a dev build.
   prototype.addEventListener = function (
     this: EventTarget | undefined,
     type: string,

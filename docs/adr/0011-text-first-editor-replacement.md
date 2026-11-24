@@ -6,7 +6,7 @@ One Rust editor engine owns markdown interpretation and editing rules. Platform 
 hold display text only: native views on mobile, and on desktop a web text view (CodeMirror 6
 or a custom view — amended 2026-11-02: either is acceptable) driving the engine as WebAssembly. Opening never rewrites a note; an edit changes only the source text it touches.
 This replaces ADR-0002's permission for whole-note normalization for the replacement editor;
-the shipping Milkdown editor keeps its existing contract until each platform switches.
+the Milkdown editor kept its existing contract until each platform switched (it was removed in 2026-11).
 
 Plan the entire replacement at roadmap level, then detail and execute the Rust editor engine
 and its local-note-engine integration first (its recovery log was later dropped; see ADR-0012). Preserve ADR-0001's atomic save and

@@ -69,9 +69,9 @@ agent-browser open http://localhost:$WEB_VITE_PORT
 agent-browser snapshot -i -c          # interactive elements, one line each, with @refs
 agent-browser click @e7
 agent-browser fill @e10 "text"        # inputs
-agent-browser type @e11 "text"        # contenteditable (the editor is `.ProseMirror`)
+agent-browser type @e11 "text"        # contenteditable (the editor's view)
 agent-browser screenshot --annotate ./test-screenshots/web-<description>.png
-agent-browser eval 'document.querySelector("[data-wikilink]").click()'
+agent-browser eval 'document.querySelector(".wikilink").click()'
 
 agent-browser close                    # cleanup (and kill the dev server)
 ```
@@ -274,32 +274,13 @@ from the pre-edit computed style.
 
 ### Reaching the app's real editor state
 
-The editor is Milkdown (ProseMirror) and renders WYSIWYG, so `.ProseMirror`'s
-`innerText` is what the reader sees — not the markdown that gets saved. Almost
+The desktop editor is a `contenteditable` view over the Rust editor engine and renders WYSIWYG,
+so its DOM text is what the reader sees — not the markdown that gets saved. Almost
 every check means the second one: `just puppet doc` shows it for the lines on
 screen (`md`), and `just puppet file '{"noteId":"…"}'` reads the whole note as it is
 on disk, the open note's edits saved first unless `"save":false` (`"find"`/`"lines"` narrow it).
 
-The mount is `.futo-milkdown` and the editable element is `.ProseMirror`; wait
-for both plus `window.__notesShellTest` before driving anything.
-
-If you genuinely need one of the app's own module instances (a ProseMirror
-plugin's state, say), remember module identity is keyed by URL: import the
-**already-loaded** chunk, not the bare specifier. List what the page actually
-loaded first — the app reaches ProseMirror through `@milkdown/*`, so the chunk
-name is not always the package you expect:
-
-```js
-performance
-  .getEntriesByType('resource')
-  .map((entry) => entry.name)
-  .filter((name) => /prosemirror|milkdown/.test(name)); // pick the one you want
-const live = await import(url); // the app's live instance
-```
-
-A plain `import('prosemirror-history')` resolves to a _different_ module
-instance whose plugin state is not the app's, which is why depth reads come
-back 0 and undo appears to do nothing. Same trick for any dep the app loaded.
+The editable element is `.desktop-editor`; wait for it plus `window.__notesShellTest` before driving anything.
 
 ### Screenshots and frame evidence
 

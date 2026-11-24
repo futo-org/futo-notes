@@ -15,8 +15,7 @@ export interface TableGripsState {
   column: { left: number; top: number } | null;
 }
 
-/** A grip's size and its gap from the row or column it is for, CSS px: the current editor's
- *  (milkdown/table/tableGripsDom.ts). */
+/** A grip's size and its gap from the row or column it is for, CSS px. */
 const TABLE_GRIP_SIZE = 18;
 const TABLE_GRIP_GAP = 4;
 

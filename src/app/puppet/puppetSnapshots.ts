@@ -3,14 +3,11 @@
  * note as far as it shows, the selection — taken before and after every action, and the diff
  * between two. Ring-buffered alongside the trace (puppetTrace.ts).
  */
-import type { Node as ProseNode } from '@milkdown/kit/prose/model';
-import type { EditorView } from '@milkdown/kit/prose/view';
 import { flushSync } from 'svelte';
 
 import { collectElements, type ElementRow, type Rect } from './puppetElements';
-import { linesListing } from './puppetLines';
-import { linesOnScreen, noteLines, type NoteLines, type OnScreen } from './puppetNoteLines';
-import { puppetProviders, currentScreen } from './puppetRegistry';
+import { currentScreen } from './puppetRegistry';
+import type { OnScreen } from './puppetText';
 import { textEditorSnapshot, textSourceDiff } from './puppetTextSnapshots';
 
 export interface Selection {
@@ -71,51 +68,21 @@ export function push<T>(buffer: T[], item: T, limit: number): T {
   return item;
 }
 
-export function editorView(): EditorView | null {
-  return puppetProviders.editor?.getView() ?? null;
-}
-
-export function selectionOf(view: EditorView): Selection {
-  const { from, to } = view.state.selection;
-  return { from, to };
-}
-
-/** Each snapshot's document: immutable and shared with the editor, so keeping it costs nothing. */
-const documentOf = new WeakMap<Snapshot, ProseNode>();
-
 export function takeSnapshot(): Snapshot {
   // A verb that sets component state returns before Svelte applies it to the page: flush
   // first, or the snapshot is of the screen as it was and the receipt says nothing changed.
   flushSync();
-  if (puppetProviders.textEditor) {
-    return push(
-      snapshots,
-      {
-        id: nextSnapshotId++,
-        t: now(),
-        screen: currentScreen(),
-        elements: collectElements({}),
-        ...textEditorSnapshot(),
-      },
-      SNAPSHOT_LIMIT,
-    );
-  }
-  const view = editorView();
-  const note = view ? noteLines(view.state.doc) : null;
-  const snapshot = push(
+  return push(
     snapshots,
     {
       id: nextSnapshotId++,
       t: now(),
       screen: currentScreen(),
       elements: collectElements({}),
-      doc: view && note ? { onScreen: linesOnScreen(view, note) } : null,
-      selection: view ? selectionOf(view) : null,
+      ...textEditorSnapshot(),
     },
     SNAPSHOT_LIMIT,
   );
-  if (view) documentOf.set(snapshot, view.state.doc);
-  return snapshot;
 }
 
 export function snapshotById(id: number): Snapshot | undefined {
@@ -151,74 +118,6 @@ export function diffText(
     removed: clip(before.slice(start, before.length - end)),
     inserted: clip(after.slice(start, after.length - end)),
   };
-}
-
-/** Indexes `[from, to)` of the lines a position range touches. */
-function lineSpan(note: NoteLines, from: number, to: number): [number, number] {
-  const first = note.at(from)?.line ?? 1;
-  const last = note.at(to)?.line ?? first;
-  return [first - 1, Math.max(first, last)];
-}
-
-/** The part of a span of line indexes that `onScreen` shows. */
-function shownPart(span: [number, number], onScreen: OnScreen | null): [number, number] | null {
-  if (!onScreen) return null;
-  const from = Math.max(span[0], onScreen.first - 1);
-  const to = Math.min(span[1], onScreen.last);
-  return from < to ? [from, to] : null;
-}
-
-/**
- * What an action did to the note, as a person looking at it could see: the changed lines that
- * show, as `kind│markdown`, or only where the change is when none of it shows. ProseMirror's
- * own comparison skips the blocks two documents share, so the cost follows the edit.
- */
-function diffDocs(before: Snapshot, after: Snapshot): SnapshotDiff['doc'] {
-  if (before.source !== undefined || after.source !== undefined) {
-    return textSourceDiff(before, after);
-  }
-  const docBefore = documentOf.get(before) ?? null;
-  const docAfter = documentOf.get(after) ?? null;
-  // A note on no screen (the editor kept mounted behind home) changes where nobody looks.
-  if (docBefore === docAfter || (!before.doc?.onScreen && !after.doc?.onScreen)) return undefined;
-  const noteBefore = docBefore ? noteLines(docBefore) : null;
-  const noteAfter = docAfter ? noteLines(docAfter) : null;
-  let spanBefore: [number, number] = [0, noteBefore?.count ?? 0];
-  let spanAfter: [number, number] = [0, noteAfter?.count ?? 0];
-  if (docBefore && docAfter && noteBefore && noteAfter) {
-    const start = docBefore.content.findDiffStart(docAfter.content);
-    if (start === null) return undefined;
-    const end = docBefore.content.findDiffEnd(docAfter.content) ?? { a: start, b: start };
-    // An insert or a removal beside a run its edge repeats (a paragraph between two) reports
-    // its end before its start: both ends move by the overlap, as ProseMirror's readDOMChange.
-    const overlap = Math.max(0, start - Math.min(end.a, end.b));
-    spanBefore = lineSpan(noteBefore, start, end.a + overlap);
-    spanAfter = lineSpan(noteAfter, start, end.b + overlap);
-  }
-  const shownBefore = shownPart(spanBefore, before.doc?.onScreen ?? null);
-  const shownAfter = shownPart(spanAfter, after.doc?.onScreen ?? null);
-  if (!shownBefore && !shownAfter) {
-    return {
-      line: spanAfter[0] + 1,
-      to: Math.max(spanAfter[0] + 1, spanAfter[1]),
-      offScreen: true,
-    };
-  }
-  const serialize = (doc: ProseNode) => puppetProviders.editor?.serialize(doc) ?? null;
-  // Spans are line indexes from 0, `[from, to)`; a note numbers its lines from 1.
-  const listing = (doc: ProseNode | null, note: NoteLines | null, span: [number, number] | null) =>
-    doc && note && span ? linesListing(note.slice(span[0] + 1, span[1]), doc, serialize) : '';
-  // Both sides from the same line, so the hunk compares one stretch of the change in each
-  // version even when the edit scrolled the screen.
-  const first = Math.max(shownBefore?.[0] ?? 0, shownAfter?.[0] ?? 0);
-  const from = (span: [number, number] | null): [number, number] | null =>
-    span && first < span[1] ? [first, span[1]] : null;
-  const hunk = diffText(
-    listing(docBefore, noteBefore, from(shownBefore)),
-    listing(docAfter, noteAfter, from(shownAfter)),
-  );
-  if (!hunk) return undefined;
-  return { ...hunk, line: first + hunk.line };
 }
 
 export function diffElements(before: ElementRow[], after: ElementRow[]): SnapshotDiff['elements'] {
@@ -265,7 +164,7 @@ export function diffSnapshots(before: Snapshot, after: Snapshot): SnapshotDiff {
     elements: diffElements(before.elements, after.elements),
   };
   if (before.screen !== after.screen) diff.screen = [before.screen, after.screen];
-  const doc = diffDocs(before, after);
+  const doc = textSourceDiff(before, after);
   if (doc) diff.doc = doc;
   if (!sameJson(before.selection, after.selection))
     diff.selection = [before.selection, after.selection];

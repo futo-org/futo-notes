@@ -8,7 +8,6 @@ import {
   clearVaultImageUrlCache,
   requestVaultImageUrl,
   resolveVaultImageSrc,
-  setVaultImageBaseUrl,
   setVaultImageUrlResolver,
 } from './vaultImageSrc';
 import {
@@ -18,7 +17,6 @@ import {
 
 beforeEach(() => {
   clearVaultImageUrlCache();
-  setVaultImageBaseUrl('');
   setVaultImageUrlResolver(null);
   getPlatformFS.mockReset();
 });
@@ -33,24 +31,10 @@ describe('installVaultImageUrlResolver', () => {
       getImageUrl: vi.fn().mockResolvedValue('asset://vault/pic.png'),
     });
 
-    expect(installVaultImageUrlResolver()).toBe(true);
+    installVaultImageUrlResolver();
 
     requestVaultImageUrl('pic.png');
     await vi.waitFor(() => expect(resolveVaultImageSrc('pic.png')).toBe('asset://vault/pic.png'));
-  });
-
-  /* The host serves the whole vault off ONE base URL. A per-file resolver there
-   * would race it, and the web FS `getImageUrl` inside a shell throws — so a
-   * registered failure or a junk URL would win over the base URL forever. */
-  it('installs nothing when a native bridge host is present', () => {
-    vi.stubGlobal('futoBridge', { postMessage: vi.fn() });
-    const getImageUrl = vi.fn();
-    getPlatformFS.mockResolvedValue({ getImageUrl });
-
-    expect(installVaultImageUrlResolver()).toBe(false);
-
-    requestVaultImageUrl('pic.png');
-    expect(getImageUrl).not.toHaveBeenCalled();
   });
 
   /* The editor mounts with the restored tab before bootstrap has resolved the platform: a
@@ -59,7 +43,7 @@ describe('installVaultImageUrlResolver', () => {
     let platformReady: (fs: { getImageUrl: () => Promise<string> }) => void = () => {};
     getPlatformFS.mockReturnValue(new Promise((resolve) => (platformReady = resolve)));
 
-    expect(installVaultImageUrlResolver()).toBe(true);
+    installVaultImageUrlResolver();
     const resolved = requestVaultImageUrl('pic.png');
     platformReady({ getImageUrl: vi.fn().mockResolvedValue('asset://vault/pic.png') });
 

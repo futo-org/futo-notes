@@ -1,5 +1,3 @@
-import type { Node as ProseNode } from '@milkdown/kit/prose/model';
-import type { EditorView } from '@milkdown/kit/prose/view';
 import { getContext, onDestroy, setContext } from 'svelte';
 
 import { TEST_HOOKS_ENABLED } from '../testHooksEnabled';
@@ -60,29 +58,6 @@ export interface PuppetVerb {
   controlsMatching?: string;
 }
 
-/** What the mounted editor lends the inspector. Closures, so the editor stays the owner. */
-export interface PuppetEditorProvider {
-  getView(): EditorView | null;
-  /** Whether a large note's tail is still streaming in (progressiveLoad.ts). */
-  loading(): boolean;
-  /** The path of the note the editor holds, null for none. */
-  note(): string | null;
-  find(): { open: boolean; query: string; current: number; total: number };
-  /** The toolbar's commands (toolbarExec.ts), Undo and Redo aside: those are verbs of their own. */
-  execIds(): readonly string[];
-  exec(commandId: string): void;
-  /** Ctrl/Cmd+F: the desktop shell's find bar, which registers its own verbs once open. */
-  openFind(): void;
-  /** `markdown` parsed the way the editor loads a note: what the fast writes insert. */
-  parseMarkdown(markdown: string): ProseNode | null;
-  /** `doc` serialized the way the editor saves a note: the markdown `doc` shows beside each line. */
-  serialize(doc: ProseNode): string | null;
-  /** What a click on the link or wikilink at `pos` does; false when there is none there. */
-  openLinkAt(pos: number, newTab: boolean): boolean;
-  /** The image picker returned `path`: what the `/` menu's Image item inserts. Absent where nothing picks. */
-  insertImage?(path: string): Promise<void>;
-}
-
 /** What the desktop editor (features/editor/desktop) lends: its view and the note it holds. */
 export interface PuppetTextEditorProvider {
   view(): import('$features/editor/desktop/view').EditorView | null;
@@ -123,10 +98,9 @@ interface PuppetShellProvider {
 }
 
 export const puppetProviders: {
-  editor: PuppetEditorProvider | null;
   textEditor: PuppetTextEditorProvider | null;
   shell: PuppetShellProvider | null;
-} = { editor: null, textEditor: null, shell: null };
+} = { textEditor: null, shell: null };
 
 type VerbProvider = () => PuppetVerb[];
 
@@ -142,14 +116,14 @@ const MODAL_SCOPE = Symbol('puppet modal scope');
 /** The modal dialogs open now, in the order they opened: the last one is on top. */
 const openModals: object[] = [];
 
-/** The shell names its screen; an embedded editor with no shell is just `editor`. */
+/** The shell names its screen; an editor mounted with no shell (a test's) is just `editor`. */
 export function currentScreen(): string {
   if (puppetProviders.shell) return puppetProviders.shell.screen();
   return editorMounted() ? 'editor' : 'unknown';
 }
 
 function editorMounted(): boolean {
-  return Boolean(puppetProviders.editor?.getView() ?? puppetProviders.textEditor?.view());
+  return Boolean(puppetProviders.textEditor?.view());
 }
 
 /** The editor is mounted and on screen: the shell's `editor:<id>`, or the phones' shell-less `editor`. */
@@ -309,14 +283,6 @@ export function clearPuppetVerbs(): void {
 }
 
 /** No-ops in a shipped build: nothing reads the registry there. Returns the unregister. */
-export function registerPuppetEditor(provider: PuppetEditorProvider): () => void {
-  if (!TEST_HOOKS_ENABLED) return () => {};
-  puppetProviders.editor = provider;
-  return () => {
-    if (puppetProviders.editor === provider) puppetProviders.editor = null;
-  };
-}
-
 export function registerPuppetTextEditor(provider: PuppetTextEditorProvider): () => void {
   if (!TEST_HOOKS_ENABLED) return () => {};
   puppetProviders.textEditor = provider;

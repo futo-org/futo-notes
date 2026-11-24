@@ -204,11 +204,10 @@ describe('filePathsFromDrop', () => {
     ).toEqual([]);
   });
 
-  it("does not claim the editor's own block drag — it never advertises text/uri-list", () => {
-    // @milkdown/plugin-block's own drag sets text/html + text/plain together
-    // and never text/uri-list — confirmed against the plugin's source. That
-    // absence, not anything about the html content, is what rules it out:
-    // this drag's own html/text could otherwise read like a path.
+  it('does not claim a drag of text from the page — it never advertises text/uri-list', () => {
+    // A drag of text sets text/html + text/plain together and never
+    // text/uri-list. That absence, not anything about the html content, is
+    // what rules it out: the drag's own html/text could otherwise read like a path.
     expect(
       filePathsFromDrop(transferWithData({ 'text/html': '<p>hey</p>', 'text/plain': 'hey' })),
     ).toEqual([]);

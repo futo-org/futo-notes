@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/platform', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -7,9 +7,28 @@ vi.mock('$lib/platform', async (importOriginal) => ({
   onFileDrop: () => () => {},
 }));
 
-import { mountEditor } from './puppetEditor.fixture';
 import { runPuppetCommand } from './puppetInspector';
-import { puppetVerb, registerPuppetShell, registerPuppetVerbs } from './puppetRegistry';
+import {
+  clearPuppetVerbs,
+  puppetProviders,
+  puppetVerb,
+  registerPuppetShell,
+  registerPuppetVerbs,
+} from './puppetRegistry';
+
+afterEach(() => {
+  puppetProviders.shell = null;
+  clearPuppetVerbs();
+  document.body.innerHTML = '';
+});
+
+/** A button jsdom counts as visible: it lays nothing out, so the button gets a rect. */
+function visibleButton(text: string): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.textContent = text;
+  button.getBoundingClientRect = () => new DOMRect(10, 20, 100, 30);
+  return button;
+}
 
 /** Lets the verb's receipt chain (puppetVerb → recordDo) run to completion. */
 const settled = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
@@ -65,7 +84,6 @@ describe('registered verbs', () => {
   });
 
   it('an async verb answers 202 now and its action record settles with the result and diff', async () => {
-    const { view } = await mountEditor();
     let finish!: () => void;
     registerPuppetVerbs(() => [
       puppetVerb(
@@ -74,7 +92,7 @@ describe('registered verbs', () => {
         () =>
           new Promise<void>((resolve) => {
             finish = () => {
-              view.dispatch(view.state.tr.insertText('a', 1, 4));
+              document.body.append(visibleButton('Deleted'));
               resolve();
             };
           }),
@@ -92,7 +110,9 @@ describe('registered verbs', () => {
     const record = runPuppetCommand('diff', { action }).body as Record<string, unknown>;
     expect(record.pending).toBeUndefined();
     expect(record).toMatchObject({ status: 200, result: { ok: true, verb: 'DeleteNote' } });
-    expect(record.diff).toMatchObject({ doc: { line: 1, removed: 'the', inserted: 'a' } });
+    expect(record.diff).toMatchObject({
+      elements: { added: [{ role: 'button', text: 'Deleted' }] },
+    });
   });
 
   it('a rejected async verb settles as a 500 carrying the error text', async () => {

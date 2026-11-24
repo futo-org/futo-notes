@@ -6,7 +6,7 @@
 // sweep OOM-killed with no resumable per-shard status (pc_5dc7e3957a8e — the
 // durable-status half; memory-aware concurrency is still the recipe's job).
 //
-//   just detached start <name> <command…>   # e.g. just detached start census just milkdown-census --limit 2000
+//   just detached start <name> <command…>   # e.g. just detached start rust just test-rust-full
 //   just detached wait <name> [--timeout <sec>] [--lines <n>]   # blocks; exits with the command's code (124 on timeout)
 //   just detached status
 //   just detached tail <name> [--lines <n>]

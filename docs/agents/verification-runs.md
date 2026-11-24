@@ -81,7 +81,7 @@ the owning test with a bounded pool.
 
 ```bash
 just verify-run check
-just verify-run test-e2e
+just verify-run test-e2e-rest
 just verify-run test-desktop-journeys
 just verify-run test-cross-platform --no-android
 ```

@@ -2,7 +2,8 @@
 
 > For the text-first replacement, superseded by
 > [ADR-0011](0011-text-first-editor-replacement.md). This ADR continues to describe the
-> shipping Milkdown editor until its platform is replaced.
+> Milkdown editor, which was removed in 2026-11; every platform now edits through the
+> text-first engine.
 
 The editor contract historically required byte fidelity ("diff discipline"): saving changed only
 the bytes the user actually touched, and untouched content stayed byte-exact — marker style
@@ -32,7 +33,7 @@ diff/sync churn.
   gate** — zero data loss is the ideal to drive toward (known loss classes get root-caused and
   fixed as ordinary work), but a small measured residue does not block shipping. The census runs
   over both the foreign corpus and Justin's real vault (locally; results never committed). See
-  `docs/plan/milkdown-transition.md` §3.
+  the Milkdown transition plan (since deleted) §3.
 - **Opening a note never rewrites it.** Only a real user edit may trigger the normalized save;
   browse-and-close leaves the file byte-exact. The Milkdown spike's load-echo guard (compare
   emitted markdown against the serialization of the doc as loaded; hand back the host's original
@@ -64,8 +65,8 @@ churn disappears from sync entirely. That decision must land before a normalizin
 **Resolved 2026-08-28, then re-decided 2026-10-08:** the substrate is yrs holding the note's
 markdown text, owned by Rust, with the editor's re-spelling diffed against its own rendering so it
 never syncs as an edit. See `docs/plan/crdt-sync-and-sharing.md`, which replaces the old ADR-0003
-(tree CRDT). The editor shipped first on existing file sync. The editor choice and execution plan now live in
-`docs/plan/milkdown-transition.md`.
+(tree CRDT). The editor shipped first on existing file sync. The editor choice and execution plan now lived in
+the Milkdown transition plan (since deleted).
 
 Origin: Milkdown evaluation discussion (https://milkdown.dev/), 2026-08-27. Prior art: the
 rich-text bake-off (commit 6d3c50b0), the P1 zero-visible-syntax plan (branch

@@ -32,14 +32,8 @@
     "check:arch-gate:portable": "pnpm run check:command-reachability && pnpm run check:platform-discipline && pnpm run check:drift && pnpm run check:agent-docs && pnpm run check:qa-input-safety && pnpm run check:theme-single-pace && pnpm run check:supporter-coin-glyph",
     "check:arch-gate": "pnpm run check:arch-gate:portable && pnpm run check:sync-contract",
     "test:full": "node scripts/editor-deps.mjs && node scripts/build-editor-wasm.mjs && vitest run",
-    "test:e2e:smoke": "playwright test tests/p0-regressions.spec.ts",
-    "test:editor-gauntlet:foreign:aggregate": "tsx tests/editor-gauntlet/aggregateForeignReports.ts",
-    "test:editor-gauntlet:milkdown": "playwright test --config playwright.editor-gauntlet.config.ts tests/editor-gauntlet/milkdown-split-torture.spec.ts",
-    "test:editor-gauntlet:milkdown:perf": "playwright test --config playwright.editor-gauntlet.config.ts tests/editor-gauntlet/milkdown-performance-floor.spec.ts",
-    "test:editor-gauntlet:milkdown:foreign": "playwright test --config playwright.editor-gauntlet.config.ts tests/editor-gauntlet/milkdown-foreign-preservation.spec.ts",
     "test:e2e:full": "playwright test",
     "test:e2e:rest": "playwright test --workers=2",
-    "test:e2e:editor-embed": "playwright test --config playwright.editor-embed.config.ts",
     "_comment": "Entry points for the web build, lint/format, the check:* repo gates and the vitest/Playwright suites. Tauri, mobile, deploy and everything else live in the justfile — use `just` from the repo root.",
     "test:cross-platform": "node tests/cross-platform-sync.mjs"
   },
@@ -65,7 +59,6 @@
     "@lezer/common": "1.5.5",
     "@lezer/highlight": "1.2.5",
     "@lucide/svelte": "^1.72.0",
-    "@milkdown/kit": "7.22.3",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-clipboard-manager": "^2.5.0",
     "@tauri-apps/plugin-dialog": "^2.8.4",
@@ -79,7 +72,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@jridgewell/trace-mapping": "0.3.31",
     "@lezer/markdown": "1.8.1",
     "@playwright/test": "^1.64.1",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
@@ -100,7 +92,6 @@
     "typescript": "6.0.3",
     "typescript-eslint": "^8.72.2",
     "vite": "8.3.8",
-    "vite-plugin-singlefile": "^2.3.4",
     "vitest": "^5.1.0",
     "ws": "^8.22.2"
   }

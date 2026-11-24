@@ -5,14 +5,13 @@
  * a list item's marker unit left out. */
 import type { Line } from '$features/editor/desktop/lineModel';
 import type { EditorView } from '$features/editor/desktop/view';
-import type { OnScreen } from './puppetNoteLines';
 import {
   isPuppetOutcome,
   puppetRefusal as refuse,
   type Args,
   type PuppetOutcome,
 } from './puppetRegistry';
-import { showsLine, whatShows, type Range } from './puppetText';
+import { showsLine, whatShows, type OnScreen, type Range } from './puppetText';
 import { shownTextOf, textLinesOnScreen } from './puppetTextLines';
 
 const engineIds = new WeakMap<object, number>();

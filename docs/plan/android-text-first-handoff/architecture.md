@@ -33,7 +33,7 @@ behavior question is a Rust question unless it is about drawing, touch or IME me
 | `DisplayMirror.kt`, `DisplayIndex.kt` | The editor thread's copy of the display text plus the UTF-16 ⇄ UTF-8 index (Fenwick trees per line). |
 | `TextFirstEditText.kt` (+ `TextFirstEditText*.kt`) | The platform `EditText`. It never edits itself; updates arrive as `UiUpdate`s. The extensions cover styling, reveal, selection drawing, scroll, width changes, find marks, images, release. |
 | `ChunkedEditable.kt`, `EditableChunk.kt` | The `Editable`, split into chunks of whole lines so a keystroke's cost doesn't grow with the note (`SpannableStringBuilder` was over 150 ms a key on the Moto at 19k lines). |
-| `EditorEngineWindow.kt`, `EngineStyleSpans.kt`, `TextFirstSpans.kt`, `TfSpanFactory.kt` | Engine style plan (`stylePlan`, per-line span specs) → Android spans: headings, emphasis, list markers, quote bars, code, the look matched to Milkdown. |
+| `EditorEngineWindow.kt`, `EngineStyleSpans.kt`, `TextFirstSpans.kt`, `TfSpanFactory.kt` | Engine style plan (`stylePlan`, per-line span specs) → Android spans: headings, emphasis, list markers, quote bars, code, the look the retired Milkdown editor had. |
 | `RenderWork.kt`, `EditableRendererUpdate.kt`, `TextFirstRenderHold.kt` | Background style/stream slices, acknowledged one at a time. They hold while a finger or the text menu is up. |
 | `EditorEngineStream.kt`, `EditorEngineStorage.kt`, `EditorEngineOpening.kt`, `TextFirstOpening.kt` | Quick open of the first 16 KB, streaming the rest, queuing taps and keys typed while the note is still opening. |
 | `FastKeys.kt` | Per-key calls over plain JNI (`jni_keys.rs`) instead of JNA: about 2 ms a key cheaper on the Moto. |

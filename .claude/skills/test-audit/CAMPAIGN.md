@@ -15,8 +15,7 @@ remembered:
 - Kotlin: `apps/android/**/src/{test,androidTest}/`;
 - Rust: every `.rs` file carrying `#[test]`, `#[tokio::test]`, or `proptest!`
   (inline modules and `tests/` dirs alike);
-- real-app harnesses: `tests/*.mjs`, `tests/conformance/*.mjs`,
-  `tests/milkdown-census/`.
+- real-app harnesses: `tests/*.mjs`, `tests/conformance/*.mjs`.
 
 The `tests/conformance/*.json` and `tests/localization/` goldens are out of
 scope: editing one is a human decision about intended behavior.

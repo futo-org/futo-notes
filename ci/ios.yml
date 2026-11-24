@@ -32,13 +32,11 @@ build:ios-native:
     # cover this job's former MR paths (apps/ios, futo-notes-ffi, Cargo.lock,
     # build-rust-ios.sh).
     - if: $CI_COMMIT_TAG
-    # Main ships to TestFlight (publish:ios:main) once a night from the
-    # pipeline schedule, plus on demand: pressing this job on any main
-    # pipeline builds the SIGNED IPA and the upload follows. Every merge used
-    # to upload, and with the MR factory merging hourly that was a TestFlight
-    # build per merge and the single Mac runner tied up for each. No changes:
-    # filter — editor/UI changes in src/ and packages/editor bundle into the
-    # app too.
+    # Every main push ships to TestFlight (publish:ios:main follows this IPA),
+    # as does the nightly schedule; other main pipelines (web, API) offer it
+    # as a button. No changes: filter — editor/UI changes in src/ and
+    # packages/editor bundle into the app too.
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
     - if: $CI_PIPELINE_SOURCE == "schedule"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: manual
@@ -85,26 +83,6 @@ test:ios-native:
         - tests/conformance/**/*
         - tests/fixtures/editor-native-input/**/*
         - crates/futo-notes-editor/tests/fixtures/**/*
-        - packages/editor/src/bridge.ts
-        # .cirrus.yml builds editor.html (vite.editor.config.ts) and the Swift
-        # bridge tests run against it, so every input of that bundle counts —
-        # not just bridge.ts (RC-21 / L1-005). Same set as
-        # test:e2e:editor-embed's main `changes:`.
-        - src/editor-embed/**/*
-        - src/features/editor/**/*
-        - src/styles/**/*
-        - src/features/images/**/*
-        - packages/editor/**/*
-        - editor.html
-        - vite.editor.config.ts
-        - src/lib/platform/**/*
-        - src/lib/localNoteStore.ts
-        - src/lib/rules.ts
-        - src/shared/**/*
-        - src/features/sync/**/*
-        - src/features/notes/**/*
-        - src/features/folders/**/*
-        - svelte.config.js
         - scripts/build-rust-ios.sh
         - scripts/ci-ios-test-log.sh
         - scripts/ios-sdk-floor.mjs

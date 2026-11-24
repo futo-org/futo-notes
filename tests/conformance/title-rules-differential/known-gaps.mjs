@@ -5,13 +5,6 @@
 // Conformance corpora this differential deliberately does NOT drive, each with
 // the reason. The coverage guard fails on any corpus that is neither driven nor
 // listed here, so a new one cannot quietly arrive without a decision.
-const MARKDOWN_HOUSE_STYLE_REASON =
-  "The editor's markdown serializer (packages/editor/src/markdown/, #266) exists " +
-  'ONCE, in TypeScript: it writes the editor document, which only the editor holds, ' +
-  "and its escaping is decided by parsing with the editor's own parser. There is no " +
-  'Rust implementation to differentiate against. Locked by these fixtures plus ' +
-  'src/features/editor/milkdown/markdownHouseStyle.test.ts, which reads every source ' +
-  'with the shipping parser.';
 export const FIXTURES_OUTSIDE_THE_DIFFERENTIAL = {
   'server-url.json':
     'validateServerUrl has NO Rust implementation: the rule is hand-written three ' +
@@ -46,12 +39,6 @@ export const FIXTURES_OUTSIDE_THE_DIFFERENTIAL = {
     'the case counts asserted in apps/ios/Tests/Sync/SyncSessionModeConformanceTests' +
     '.swift and apps/android/.../SyncSessionModeConformanceTest.kt, and re-running ' +
     'both native suites.',
-  'markdown-house-style-marks-and-breaks.json': MARKDOWN_HOUSE_STYLE_REASON,
-  'markdown-house-style-lists-and-code.json': MARKDOWN_HOUSE_STYLE_REASON,
-  'markdown-house-style-tables-and-verbatim.json': MARKDOWN_HOUSE_STYLE_REASON,
-  'markdown-house-style-table-filler-rows.json': MARKDOWN_HOUSE_STYLE_REASON,
-  'markdown-house-style-escapes-and-empty-lines.json': MARKDOWN_HOUSE_STYLE_REASON,
-  'markdown-house-style-spaces-and-typing.json': MARKDOWN_HOUSE_STYLE_REASON,
 };
 
 // Divergences the two languages KNOWN-ship today. Each entry names the exact op

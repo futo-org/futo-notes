@@ -1,6 +1,6 @@
 ## Images
 
-Web rendering details here describe desktop and the standalone browser fixture. Native
+Web rendering details here describe desktop. Native
 mobile behavior is specified in [mobile images](mobile/images.md).
 
 - Pasting an image into the editor (desktop) saves it to the notes directory
@@ -28,51 +28,35 @@ mobile behavior is specified in [mobile images](mobile/images.md).
   blank white box; the gate is a real image-decode probe, not a HEAD probe).
   → `src/lib/platform/tauri/images.ts` `getImageUrl` / `canDecodeImageUrl`.
   _(Tauri)_
-- The native shells render local images inline through a host-registered
-  image base URL (`setImageBaseUrl`): iOS serves the vault root through a
-  `futo-asset://` WKURLSchemeHandler (path-traversal- and image-extension-
-  guarded); Android serves `file://<vault root>/` directly. Insert path is
-  the toolbar Camera/Image flow above; picked images save into the vault and
-  render inline (verified end-to-end on emulator + simulator 2026-06-09).
-  → EditorImages.swift `FutoAssetSchemeHandler`, ImagePicker.kt,
-  packages/editor/src/hostBoot.ts `setImageBaseUrl`,
-  src/features/images/vaultImageSrc.ts, tests/editor-embed-milkdown.spec.ts
 - Inline image rendering depends on the referenced file existing in the vault.
   That file is delivered across devices by sync — the image binary syncs
   alongside its note, so `![](image-…)` resolves on every device, not just the
   one that created it. → [sync.md](../sync.md) "Embedded images sync with their
   notes"
-- A vault image is a ProseMirror node whose rendered
-  `<img src>` is resolved for display only; the node's own `src` — what gets
-  serialized — stays the bare vault reference the note holds. Opening a note
-  with an image therefore leaves the file byte-identical, and an edit elsewhere
-  in the note still writes `![](image-…ext)`, never the shell's `futo-asset://`
-  or `asset://` URL. → milkdown/vaultImageView.ts, features/images/
-  vaultImageSrc.ts, tests/editor-embed-milkdown.spec.ts
+- A vault image's `<img src>` is resolved for display only; the note's own text — what
+  gets saved — stays the bare vault reference. Opening a note with an image therefore leaves
+  the file byte-identical, and an edit elsewhere in the note still writes `![](image-…ext)`,
+  never the shell's `asset://` URL. → src/features/editor/desktop/pictureLoading.ts,
+  features/images/vaultImageSrc.ts, tests/desktop-editor-image-stories.mjs
 - A vault image whose URL cannot be resolved yet renders as nothing rather than
-  a broken-image glyph, and resolves itself as soon as the URL arrives — the
-  host may call `setImageBaseUrl` after `setContent`, and a per-file resolution
-  is asynchronous, neither of which is accompanied by a document change.
-  → milkdown/vaultImageView.ts, features/images/vaultImageSrc.ts
+  a broken-image glyph, and resolves itself as soon as the URL arrives — a per-file
+  resolution is asynchronous and is not accompanied by a document change.
+  → src/features/editor/desktop/pictureLoading.ts, features/images/vaultImageSrc.ts
   `onVaultImageSrcChange`
-- The two hosts resolve a vault image two different ways, and the editor
-  asks per image RENDERED rather than scanning the document, so a large note
-  only pays for the images someone looks at (M5). The native shells serve the
-  whole vault off one host-registered base URL and need nothing per file
-  _(native shells)_; Tauri desktop has no base URL and resolves each file
-  through `PlatformFS.getImageUrl`, which the editor installs at mount as the
-  per-file resolver _(desktop)_. A file that will not resolve — it has not
-  synced in yet — is retried by a later render rather than remembered as
-  failed. → features/images/vaultImageUrlResolver.ts, features/images/
+- Tauri desktop resolves each file through
+  `PlatformFS.getImageUrl`, which the editor installs at mount as the per-file resolver. The
+  editor asks per image RENDERED rather than scanning the document, so a large note only
+  pays for the images someone looks at (M5). A file that will not resolve — it has not
+  synced in yet — is retried by a later render rather than remembered as failed.
+  _(desktop)_ → features/images/vaultImageUrlResolver.ts, features/images/
   vaultImageSrc.ts `requestVaultImageUrl`
 - **Desktop has three ways to add an image, and all three end in the same
   place**: the bytes land in the vault root under a generated space-free name
   and `![](image-…ext)` goes into the note at the caret. _(desktop)_
   1. **Paste** — the clipboard path above.
   2. **`/image`** — the `/` block menu's Image item opens the OS file picker
-     (`PlatformFS.pickImage`), copies the chosen file into the vault
-     (`saveImage` → `fs_save_image`) and inserts the reference. The pick is
-     asynchronous while the menu's exec map is not, so the typed `/image` run is
+     (`PlatformFS.pickImages`), copies the chosen file into the vault
+     (`saveImagePath` → `fs_save_image`) and inserts the reference. The typed `/image` run is
      deleted immediately and the reference lands whenever the file is chosen.
      The item is offered on every host the menu is (desktop only); where there
      is no picker it is inert rather than hidden, and inserts nothing.
@@ -80,14 +64,14 @@ mobile behavior is specified in [mobile images](mobile/images.md).
      inserts them at the drop point, or at the caret when the point resolves to
      no text position. Several images at once are inserted in the order dropped,
      and one that fails to save does not abort the rest.
-     → src/features/editor/imageInsert.ts, milkdown/slash/items.ts + exec.ts,
-     src/lib/platform/tauri/images.ts `pickImage`, tests/image-drop.spec.ts,
-     tests/slash-menu.spec.ts
+     → src/features/editor/imageInsert.ts, desktop/slashItems.ts,
+     src/lib/platform/tauri/images.ts `pickImages`, tests/desktop-editor-paste-stories.mjs,
+     tests/desktop-editor-slash-stories.mjs
 - **A file drop reaches the app as an ordinary HTML5 `drop`, but the SHAPE it
   carries is engine-dependent.** The desktop window config sets
   `dragDropEnabled: false` on every platform (Linux too since QA #017),
   which stops wry installing a native drop target, so the drop arrives in the
-  page and ProseMirror's `handleDrop` prop reads it directly. Linux used to
+  page and the editor reads it directly. Linux used to
   leave the flag at its default, reasoning that the same native layer was
   needed to leave the sidebar's internal drags alone; that GTK relay's own
   external file-URI handling turned out to never fire the `drag-drop` signal
@@ -113,7 +97,7 @@ mobile behavior is specified in [mobile images](mobile/images.md).
   src/lib/platform/tauri/fileDrop.ts,
   src/lib/platform/dragDropConfig.test.ts,
   src/features/editor/imageInsert.ts `filePathsFromDrop`,
-  milkdown/MilkdownEditor.svelte `dropHandler`
+  src/features/editor/desktop/imageInput.ts `drop`
 
 - **A drop carrying files, or one advertising `text/uri-list` with none, is
   always claimed, image or not.** The browser's default for an unclaimed file
@@ -121,10 +105,9 @@ mobile behavior is specified in [mobile images](mobile/images.md).
   app down mid-edit — so a dropped `.md`, PDF or archive is swallowed and
   ignored rather than inserted, and never becomes an `![](…)`. A drop
   carrying neither shape is left entirely alone, so an in-page drag is
-  unaffected. The editor's own block drag is pointer-driven and sends no drop
-  at all. _(desktop)_
+  unaffected. _(desktop)_
   → src/features/editor/imageInsert.ts `dropCarriesFiles` / `imageFilesIn` /
-  `filePathsFromDrop` / `imagePathsIn`, tests/image-drop.spec.ts
+  `filePathsFromDrop` / `imagePathsIn`, tests/desktop-editor-paste-stories.mjs
 - Which dropped or picked files count as images is `isImageFilename` — the same
   `IMAGE_EXTENSIONS` list paste uses, conformance-locked to the canonical Rust
   vault rule, never a second list. A file's own extension decides the name it is
@@ -143,33 +126,21 @@ mobile behavior is specified in [mobile images](mobile/images.md).
   chooser opening (`dialog:allow-open` is granted and the command reaches
   argument parsing, so the permission half is proven).
 
-- Clipboard image paste claims the paste through
-  ProseMirror's `handlePaste` and captures it through the sink for the host it
-  is running in: the `saveImageData` / `pasteClipboardImage` bridge messages on
-  the native shells (the host writes the file and calls `insertImage` back), or
-  `PlatformFS` on Tauri desktop. `classifyImagePaste` decides which pastes count
-  as an image, and a claimed image paste never also lands as pasted content. A
-  paste carrying plain text is left to the editor. →
+- Clipboard image paste is claimed by the desktop editor's paste handler and captured
+  through the sink for the host it is running in (`PlatformFS` on Tauri desktop).
+  `classifyImagePaste` decides which pastes count as an image, and a claimed image paste
+  never also lands as pasted content. A paste carrying plain text is left to the editor. →
   src/features/editor/imagePasteSink.ts, imagePaste.ts `classifyImagePaste`,
-  tests/editor-embed-milkdown.spec.ts
+  desktop/imageInput.ts `paste`, tests/desktop-editor-paste-stories.mjs
 - An image destination containing a space needs its CommonMark spelling
   (`![](<my photo.png>)`); the bare `![](my photo.png)`
   is not an image in CommonMark and renders as text. Every filename the app
   itself generates is space-free, so this only reaches notes written elsewhere.
-  → `image_commands::write_image`, tests/editor-embed-milkdown.spec.ts
-
-  Verified on a real Android device (moto g play 2023, WebView 140) and the iOS
-  26.5 simulator, 2026-08-28: a vault-relative image renders and decodes, and
-  opening the note leaves it byte-identical on disk. Android also verified
-  end-to-end for paste — the host wrote the file and `insertImage` put
-  `![](image-…png)` in the note.
-
-- iOS clipboard image paste is covered at the bundle seam and, for the shared
-  decision and bridge sink, end-to-end against the real Android host.
+  → `image_commands::write_image`
 
 - **A delayed image completion belongs to the note it was started on** — the
   same rule as the native attachment generation below, stated once for the
-  shared editor, which is a SINGLE component reused across every note. Drop,
+  desktop editor, which is a SINGLE component reused across every note. Drop,
   `/image` pick and clipboard paste each claim the live document BEFORE their
   first `await`; one claim covers a whole multi-image batch. When the editor
   has adopted another note (or been torn down) by the time the bytes land,
@@ -179,8 +150,7 @@ mobile behavior is specified in [mobile images](mobile/images.md).
   does not preserve the outgoing note's claim. Silent: there is no
   message, because the note the user is looking at is correct and untouched.
   _(desktop)_ → src/features/editor/imageInsertTarget.ts, imageInsert.ts,
-  imagePasteSink.ts, milkdown/documentSession.svelte.ts `documentIdentity`,
-  milkdown/imageInsertIdentity.test.ts
-- The Android text-first camera flow checkpoints accepted edits before launching and persists only the pending capture UUID, originating note ID, vault root and output URI through Activity/process recreation; after bootstrap it reopens that same existing note and acquires a fresh session claim before accepting more input. A missing note or changed vault abandons the result; no draft body is recovered. *(Android text-first editor)* → `ImagePicker.kt`, `MainActivityShell.kt`, `textfirst/TextFirstImages.kt`, `CameraRecreationTest`
-- *(Android text-first editor, dev builds only)* Committing image content from a keyboard (`InputConnection.commitContent`) saves it through the same gated attachment workflow as a pasted image ([mobile/images.md](mobile/images.md)): the originating session is claimed when the content arrives and the insertion is acknowledged before it can be abandoned, so the image lands in the note it came from. A closed session refuses image content without writing a file. Inside a table cell, image content is refused (cells carry one line of inline text) and no file is written. Verified live (clipboard paste, reopen) on the emulator 2026-11-03; real Gboard image insertion was not exercised, only the `commitContent` seam. → `TextFirstImageContentTest`, `textfirst/TextFirstClipboard.kt`, `TextFirstImages.kt`; evidence `spec-318-artifacts/331/` (`live-clipboard-paste.png`, `live-reopen.png`, `final2-TextFirstImageContentTest.xml`)
-- #326 outcome (emulator, 2026-11-03): the camera photo drawn behind un-displaced text was not reproduced; a 640x360 PNG reopened and natively inserted lays out with the following text below it, and the one defect found (a layout-order crash on insertion, from watcher priority) is fixed. The real camera shutter could not be driven, so a photo taken on a physical device remains unobserved. *(Android text-first editor)* → `TextFirstImageAttachmentTest`
+  imagePasteSink.ts, desktop/imageClaimTarget.ts, imageInsertTarget.test.ts
+- The Android text-first camera flow checkpoints accepted edits before launching and persists only the pending capture UUID, originating note ID, vault root and output URI through Activity/process recreation; after bootstrap it reopens that same existing note and acquires a fresh session claim before accepting more input. A missing note or changed vault abandons the result; no draft body is recovered. _(Android text-first editor)_ → `ImagePicker.kt`, `MainActivityShell.kt`, `textfirst/TextFirstImages.kt`, `CameraRecreationTest`
+- _(Android text-first editor, dev builds only)_ Committing image content from a keyboard (`InputConnection.commitContent`) saves it through the same gated attachment workflow as a pasted image ([mobile/images.md](mobile/images.md)): the originating session is claimed when the content arrives and the insertion is acknowledged before it can be abandoned, so the image lands in the note it came from. A closed session refuses image content without writing a file. Inside a table cell, image content is refused (cells carry one line of inline text) and no file is written. Verified live (clipboard paste, reopen) on the emulator 2026-11-03; real Gboard image insertion was not exercised, only the `commitContent` seam. → `TextFirstImageContentTest`, `textfirst/TextFirstClipboard.kt`, `TextFirstImages.kt`; evidence `spec-318-artifacts/331/` (`live-clipboard-paste.png`, `live-reopen.png`, `final2-TextFirstImageContentTest.xml`)
+- #326 outcome (emulator, 2026-11-03): the camera photo drawn behind un-displaced text was not reproduced; a 640x360 PNG reopened and natively inserted lays out with the following text below it, and the one defect found (a layout-order crash on insertion, from watcher priority) is fixed. The real camera shutter could not be driven, so a photo taken on a physical device remains unobserved. _(Android text-first editor)_ → `TextFirstImageAttachmentTest`

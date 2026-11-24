@@ -165,7 +165,6 @@
 </div>
 
 <style>
-  /* The old desktop toolbar's look (milkdownEditor.css `.futo-selection-toolbar`). */
   .desktop-format-toolbar {
     position: absolute;
     top: 0;

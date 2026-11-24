@@ -1,6 +1,6 @@
 /* A code line's syntax colours (codeColours.ts): `@lezer/highlight`'s `classHighlighter` names
- * each token `tok-*`, and the palette is theme.css's `--syntax-*`, light and dark, painted as the
- * Milkdown editor paints them (src/styles/code-tokens.css). Colour and slant only, never weight:
+ * each token `tok-*`, and the palette is theme.css's `--syntax-*`, light and dark. Colour and
+ * slant only, never weight:
  * Martian Mono is loaded at 400 alone, and a synthetic bold is drawn wider, so a block would move
  * when its colours arrive. */
 

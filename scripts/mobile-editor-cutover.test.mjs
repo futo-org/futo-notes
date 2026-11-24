@@ -1,4 +1,4 @@
-// Mobile must ship one native renderer. Keep desktop Milkdown and its standalone test bundle.
+// Mobile must ship one native renderer, with no web editor host.
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -48,7 +48,6 @@ describe('mobile Linedown cutover', () => {
     ]) {
       expect(read(file), file).not.toMatch(/vite build --config vite\.editor\.config\.ts/);
     }
-    expect(read('vite.editor.config.ts')).not.toMatch(/apps\/(ios|android)/);
     expect(read('apps/ios/project.yml')).toContain('- editor.html');
     expect(read('apps/android/app/build.gradle.kts')).toContain(
       'ignoreAssetsPattern += ":editor.html"',
@@ -71,22 +70,5 @@ describe('mobile Linedown cutover', () => {
     expect(read('apps/android/app/src/main/java/com/futo/notes/ui/NoteListScreen.kt')).not.toMatch(
       /CloseLedger/,
     );
-  });
-
-  it('keeps browser fixtures independent of retired native web hosts', () => {
-    const fixtures = files('tests').filter((file) =>
-      /^tests\/editor-embed.*\.spec\.ts$/.test(file),
-    );
-    const offenders = fixtures.filter((file) =>
-      /EditorEngineSupport\.kt|EditorWebView\.(kt|swift)|LegacyWebViewNotice\.kt/.test(read(file)),
-    );
-    expect(offenders).toEqual([]);
-  });
-
-  it('preserves the desktop web editor and its standalone bundle', () => {
-    expect(read('vite.editor.config.ts')).toContain('viteSingleFile()');
-    expect(read('vite.editor.config.ts')).toContain("'editor.html'");
-    expect(fs.existsSync(path.join(root, 'src/features/editor/milkdown'))).toBe(true);
-    expect(read('package.json')).toContain('test:e2e:editor-embed');
   });
 });

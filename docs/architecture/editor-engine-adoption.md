@@ -13,17 +13,16 @@ source types for field names rather than older examples in historical handoff ma
 No note conversion or vault migration is required for this engine. Notes remain Markdown files;
 opening and dropping an unchanged session writes nothing. The store saves the edited draft's
 exact bytes, including its final-newline spelling. Linedown reads existing bytes without
-rewriting them to fit the dialect. Its interpretation may differ from Milkdown or other
+rewriting them to fit the dialect. Its interpretation may differ from other
 Markdown readers: for example, each line break displays as a line break, and a setext underline
 is not a heading. See the dialect's differences and [saving spec](../spec/editor/portable-core/recovery.md).
 Edits and explicit commands can of course change source, and other writers can change it too.
 
-This branch does not change the sync payload, `BRIDGE_VERSION`, or `AppState` schema; it does
+This branch does not change the sync payload or `AppState` schema; it does
 change the in-process editor projection and native binding types. Rebuilding and adapting a
-client is therefore necessary even though converting stored notes is not. The current desktop
-Milkdown editor still appends a final newline when it edits a note; that difference remains
-until desktop adopts the text-first editor. Opening the same note in different renderers can
-show it differently during development; a client cutover must account for that behavior.
+client is therefore necessary even though converting stored notes is not. The desktop
+editor now runs the same engine; the Milkdown editor it replaced (which appended a final
+newline when it edited a note) was removed in 2026-11.
 
 ## Client status
 
@@ -32,10 +31,10 @@ show it differently during development; a client cutover must account for that b
 | Rust/store | `EditorSession` owns exact source and editing; `StoreEditorSession` owns the attachment and saving. | Embed through the session and store contracts; use the returned projection and changes. |
 | iOS        | TextKit 2 renders `NativeEditorSession` in debug and Release.                                       | Run native acceptance when changing the engine or renderer.                             |
 | Android    | Native views render `NativeEditorSession` in both distribution flavors, debug and release.          | Run native acceptance when changing the engine or renderer.                             |
-| Desktop    | The shipped UI remains Milkdown.                                                                    | Native mobile cleanup does not change the desktop renderer.                             |
+| Desktop    | The engine-backed desktop editor (`src/features/editor/desktop/`) renders an `EditorSession`.       | Run desktop Puppet stories when changing the engine or renderer.                        |
 
 Mobile has one renderer; old editor-selection preferences and launch flags have no effect.
-Mobile builds do not bundle `editor.html` or instantiate a web editor host.
+Mobile builds do not instantiate a web editor host.
 Native and desktop renderer work, including physical input and device acceptance, is separate
 from transport tests. Deferred capabilities are listed in the portable-core index.
 

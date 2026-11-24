@@ -6,10 +6,9 @@
    Two scoping rules apply to everything in this file:
 
    1. `html.desktop-chrome` — set by configureWindowChrome() only when the app
-      is running under Tauri. app.css is ALSO loaded by the native iOS/Android
-      editor embed (src/editor-embed/main.ts) and by the browser dev server;
-      neither ever gets the class, which is what keeps mobile and the Playwright
-      harness untouched. It sits on the ROOT rather than on `.notes-shell`
+      is running under Tauri. app.css is ALSO loaded by the browser dev server,
+      which never gets the class, which is what keeps the Playwright harness
+      untouched. It sits on the ROOT rather than on `.notes-shell`
       because popovers, dialogs and the settings screen render outside the
       shell element.
    2. `.desktop-editor-wrap` and its subtree are excluded from the cursor sweep.
@@ -87,7 +86,7 @@
 
 /* macOS "Reduce Motion" (System Settings ▸ Accessibility ▸ Display). A native
    app participates in this automatically; a webview only does if it is asked.
-   Scoped to the desktop shell so the embedded mobile editor keeps its own
+   Scoped to the desktop shell, so the browser dev server keeps its own
    timings. The editor's caret keeps its blink: a blink is not motion, and
    native carets keep blinking with reduced motion on. */
 @media (prefers-reduced-motion: reduce) {

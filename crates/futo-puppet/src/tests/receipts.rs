@@ -4,8 +4,8 @@ use super::*;
 fn events_render_one_line_each_and_collapse_move_runs() {
     let events = json!([
         {"id": 7, "t": 1200, "type": "touchstart", "trusted": true, "x": 40, "y": 60,
-         "target": "e9", "component": "MilkdownEditor.svelte",
-         "handlers": [{"fn": "pm", "on": "e9", "prevented": true, "stopped": false}],
+         "target": "e9", "component": "DesktopEditor.svelte",
+         "handlers": [{"fn": "keydown", "on": "e9", "prevented": true, "stopped": false}],
          "editor": {"resolved": 12, "settled": {"from": 12, "to": 12}}},
         {"id": 8, "t": 1210, "type": "pointermove", "trusted": true, "x": 41, "y": 60, "target": "e9", "component": null, "handlers": []},
         {"id": 9, "t": 1220, "type": "touchmove", "trusted": true, "x": 42, "y": 60, "target": "e9", "component": null, "handlers": []},
@@ -15,7 +15,7 @@ fn events_render_one_line_each_and_collapse_move_runs() {
     ]);
     assert_eq!(
         render_events(events.as_array().unwrap(), false),
-        "#7      1200ms  touchstart  @40,60  → e9 MilkdownEditor.svelte  handlers: pm@e9!prevent  editor: resolved 12 settled 12-12\n\
+        "#7      1200ms  touchstart  @40,60  → e9 DesktopEditor.svelte  handlers: keydown@e9!prevent  editor: resolved 12 settled 12-12\n\
          #8      1210ms  pointermove/touchmove ×2  @42,60  → e9 -\n\
          #10     1300ms  keydown  key=\"b\"  meta  synthetic  → e9 -  handlers: onKey@e2!threw(boom)\n\
          #11     1400ms  selectionchange  → e9 -  selection 10-15\n"
@@ -199,18 +199,18 @@ fn a_malformed_event_range_counts_nothing() {
 
 /// One key press the way the desktop editor records it: keydown through keyup.
 fn press(id: u64, key: &str, prevented: bool) -> Vec<Value> {
-    let on_key = json!([{"fn": "pm", "on": "e30", "prevented": prevented, "stopped": false}]);
+    let on_key = json!([{"fn": "keydown", "on": "e30", "prevented": prevented, "stopped": false}]);
     let mut press = vec![
-        json!({"id": id, "t": id * 10, "type": "keydown", "trusted": true, "key": key, "target": "e30", "component": "MilkdownEditor.svelte", "handlers": on_key}),
+        json!({"id": id, "t": id * 10, "type": "keydown", "trusted": true, "key": key, "target": "e30", "component": "DesktopEditor.svelte", "handlers": on_key}),
     ];
     if !prevented {
         for (offset, kind) in ["beforeinput", "input"].iter().enumerate() {
-            press.push(json!({"id": id + 1 + offset as u64, "t": id * 10, "type": kind, "trusted": true, "data": key, "target": "e30", "component": "MilkdownEditor.svelte",
+            press.push(json!({"id": id + 1 + offset as u64, "t": id * 10, "type": kind, "trusted": true, "data": key, "target": "e30", "component": "DesktopEditor.svelte",
                 "handlers": [{"fn": "onEdit", "on": "document", "prevented": false, "stopped": false}]}));
         }
     }
-    press.push(json!({"id": id + 3, "t": id * 10, "type": "selectionchange", "trusted": true, "target": "e30", "component": "MilkdownEditor.svelte", "handlers": [], "selection": {"from": id, "to": id}}));
-    press.push(json!({"id": id + 4, "t": id * 10, "type": "keyup", "trusted": true, "key": key, "target": "e30", "component": "MilkdownEditor.svelte", "handlers": []}));
+    press.push(json!({"id": id + 3, "t": id * 10, "type": "selectionchange", "trusted": true, "target": "e30", "component": "DesktopEditor.svelte", "handlers": [], "selection": {"from": id, "to": id}}));
+    press.push(json!({"id": id + 4, "t": id * 10, "type": "keyup", "trusted": true, "key": key, "target": "e30", "component": "DesktopEditor.svelte", "handlers": []}));
     press
 }
 
@@ -226,9 +226,9 @@ fn a_receipt_prints_each_run_of_alike_key_presses_as_one_line() {
     events.extend(press(60, "Backspace", false));
     assert_eq!(
         render_events(&events, true),
-        "#10      100ms  keys \"lea\" ×3: keydown/beforeinput/input/selectionchange/keyup  → e30 MilkdownEditor.svelte  handlers: pm@e30 onEdit@document  selection 30-30\n\
-         #40      400ms  keys \"Enter\": keydown/selectionchange/keyup  → e30 MilkdownEditor.svelte  handlers: pm@e30!prevent  selection 40-40\n\
-         #50      500ms  keys \"Backspace\" ×2: keydown/beforeinput/input/selectionchange/keyup  → e30 MilkdownEditor.svelte  handlers: pm@e30 onEdit@document  selection 60-60\n"
+        "#10      100ms  keys \"lea\" ×3: keydown/beforeinput/input/selectionchange/keyup  → e30 DesktopEditor.svelte  handlers: keydown@e30 onEdit@document  selection 30-30\n\
+         #40      400ms  keys \"Enter\": keydown/selectionchange/keyup  → e30 DesktopEditor.svelte  handlers: keydown@e30!prevent  selection 40-40\n\
+         #50      500ms  keys \"Backspace\" ×2: keydown/beforeinput/input/selectionchange/keyup  → e30 DesktopEditor.svelte  handlers: keydown@e30 onEdit@document  selection 60-60\n"
     );
     // `events` answers with every one of them.
     assert_eq!(render_events(&events, false).lines().count(), events.len());

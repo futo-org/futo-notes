@@ -52,24 +52,21 @@ once the Rust oracle is built; it needs `cargo`, so it runs in the
 
 ## The corpora
 
-| File                          | Family    | Ops                                                                                                                                                                                                                | TypeScript owner                       | Rust owner                                                                    |
-| ----------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------- | ----------------------------------------------------------------------------- |
-| `filename.json`               | title     | `sanitizeTitle`, `validateTitle`, `isValidTitle`, `isWindowsReservedName`, `validateFolderName`, `isValidFolderName`, `hasCaseInsensitiveSiblingCollision`, `validateFolderPath`, `isValidFolderPath`, `pathDepth` | `packages/editor/src/filename.ts`      | `futo-notes-core/src/files/filenames.rs` + `futo-notes-model/src/filename.rs` |
-| `tags.json`                   | tags      | `tagRegexMatches`, `isValidTagName`, `normalizeTagName`, `extractTags`, `extractHeaderTagBlock`                                                                                                                    | `packages/editor/src/tags.ts`          | `futo-notes-tags/src/lib.rs`                                                |
-| `image.json`                  | image     | `isImageFilename`, `imageExtensions`                                                                                                                                                                               | `packages/editor/src/images.ts`        | `futo-notes-image/src/lib.rs`                                                 |
-| `preview.json`                | preview   | `makePreview`                                                                                                                                                                                                      | `packages/editor/src/preview.ts`       | `futo-notes-model/src/note.rs`                                                |
-| `wikilinks-*.json`            | wikilinks | `resolveWikilink`, `shortestUniqueSuffix`, `rewriteWikilinks`                                                                                                                                                      | `src/shared/note/wikilinks.ts`         | `futo-notes-wikilinks/src/lib.rs`                                              |
-| `server-url.json`             | —         | `validateServerUrl`                                                                                                                                                                                                | `src/features/sync/syncServiceE2ee.ts` | **none — see below**                                                          |
-| `path-safety.json`            | —         | note-id acceptance                                                                                                                                                                                                 | `src/lib/platform/pathSafety.ts`       | `futo-notes-core/src/files/paths.rs`                                          |
-| `license.json`                | —         | the paid client license: key grammar, input shapes, deep link, v2 activation verification, entry                                                                                                                   | **none — see below**                   | `futo-notes-license`                                                          |
-| `constants.json`              | —         | shared scalars                                                                                                                                                                                                     | several                                | several                                                                       |
-| `markdown-house-style-*.json` | —         | what a save writes for a note: `{source, expected}` pairs, the markdown house style                                                                                                                                | `packages/editor/src/markdown/`        | **none — see below**                                                          |
+| File               | Family    | Ops                                                                                                                                                                                                                | TypeScript owner                       | Rust owner                                                                    |
+| ------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------- | ----------------------------------------------------------------------------- |
+| `filename.json`    | title     | `sanitizeTitle`, `validateTitle`, `isValidTitle`, `isWindowsReservedName`, `validateFolderName`, `isValidFolderName`, `hasCaseInsensitiveSiblingCollision`, `validateFolderPath`, `isValidFolderPath`, `pathDepth` | `packages/editor/src/filename.ts`      | `futo-notes-core/src/files/filenames.rs` + `futo-notes-model/src/filename.rs` |
+| `tags.json`        | tags      | `tagRegexMatches`, `isValidTagName`, `normalizeTagName`, `extractTags`, `extractHeaderTagBlock`                                                                                                                    | `packages/editor/src/tags.ts`          | `futo-notes-tags/src/lib.rs`                                                  |
+| `image.json`       | image     | `isImageFilename`, `imageExtensions`                                                                                                                                                                               | `packages/editor/src/images.ts`        | `futo-notes-image/src/lib.rs`                                                 |
+| `preview.json`     | preview   | `makePreview`                                                                                                                                                                                                      | `packages/editor/src/preview.ts`       | `futo-notes-model/src/note.rs`                                                |
+| `wikilinks-*.json` | wikilinks | `resolveWikilink`, `shortestUniqueSuffix`, `rewriteWikilinks`                                                                                                                                                      | `src/shared/note/wikilinks.ts`         | `futo-notes-wikilinks/src/lib.rs`                                             |
+| `server-url.json`  | —         | `validateServerUrl`                                                                                                                                                                                                | `src/features/sync/syncServiceE2ee.ts` | **none — see below**                                                          |
+| `path-safety.json` | —         | note-id acceptance                                                                                                                                                                                                 | `src/lib/platform/pathSafety.ts`       | `futo-notes-core/src/files/paths.rs`                                          |
+| `license.json`     | —         | the paid client license: key grammar, input shapes, deep link, v2 activation verification, entry                                                                                                                   | **none — see below**                   | `futo-notes-license`                                                          |
+| `constants.json`   | —         | shared scalars                                                                                                                                                                                                     | several                                | several                                                                       |
 
-Two corpora are split across several files to stay under the repo's per-file size
-limit: `wikilinks-{resolve,suffix,rewrite}.json` hold one op group each, and
-`markdown-house-style-*.json` hold the cases in story order (`marks-and-breaks`,
-`lists-and-code`, `tables-and-verbatim`, `table-filler-rows`,
-`escapes-and-empty-lines`, `spaces-and-typing`). Every loader reads all of a corpus's parts.
+One corpus is split across several files to stay under the repo's per-file size
+limit: `wikilinks-{resolve,suffix,rewrite}.json` hold one op group each. Every loader
+reads all of a corpus's parts.
 
 `op` names are the language-neutral verbs every binding dispatches on. Renaming one
 means touching the fixtures, the differential, the Rust dispatcher, and the native
@@ -166,15 +163,6 @@ A differential that skips something quietly is worse than no differential (M11):
 - **`path-safety.json`.** `safe_note_path` takes a vault root and returns a resolved
   path, so it is not answerable through the pure `futo-notes-model` oracle. Locked by
   the fixture plus the TS and Rust tests listed above.
-- **`markdown-house-style-*.json`.** TypeScript only: the editor's markdown
-  serializer (#266, docs/spec/editor.md "Markdown house style") writes the editor's
-  document, which only the editor holds, and decides its escaping by parsing with the
-  editor's own parser, so there is no Rust consumer and nothing to differentiate. Each
-  case is a hand-reviewed `{source, expected}` pair (or a hand-written `doc` for a
-  state no file produces), asserted by `src/features/editor/milkdown/markdownHouseStyle.test.ts`
-  with the shipping parser, together with two properties: `expected` reads back as the
-  same document, and writes itself again unchanged. The corpus-wide gates are the
-  round-trip census (`tests/milkdown-census/`, the default `compat` variant).
 
 ## Recorded divergence
 

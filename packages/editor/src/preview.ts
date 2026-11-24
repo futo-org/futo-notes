@@ -36,10 +36,9 @@ const IMAGE_MARKDOWN_PATTERN = /!\[[^\]]*\]\([^)]*\)/gu;
  * A `<br>`-family tag: `<br`, spaces/tabs, an optional `/`, spaces/tabs, `>`.
  *
  * These reach the vault on their own. Markdown cannot represent an empty
- * paragraph, so `@milkdown/preset-commonmark`'s serializer parks a placeholder
- * tag in the file for every blank line the author typed (its parse-side half is
- * `./milkdown-compat/emptyLine.ts`) — and a preview that showed it read
- * `<br /> Some text` in the note list. An author's own `<br>`, the standard way
+ * paragraph, so an earlier desktop editor parked a placeholder tag in the file
+ * for every blank line the author typed, and such notes are still in vaults —
+ * a preview that showed it read `<br /> Some text` in the note list. An author's own `<br>`, the standard way
  * to break a line inside a GFM table cell, reads as a space in preview text
  * too, so both are covered by the same replacement.
  *

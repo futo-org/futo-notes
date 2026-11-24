@@ -1,4 +1,4 @@
-//! Port of the TS `buildWikilinkIndex`: one pass over the note ids answers
+//! One pass over the note ids answers
 //! [`resolve_wikilink`](super::resolve_wikilink) and
 //! [`shortest_unique_suffix`](super::shortest_unique_suffix) without rescanning
 //! the ids for each link.

@@ -1,8 +1,7 @@
 # Images and non-text atoms
 
-These are the portable replacement core's contracts. The shipping Milkdown editor keeps
-its image node, `vaultImageSrc` resolution and picker flow (see `docs/spec/editor/images.md`)
-until renderer integration and cutover.
+These are the portable core's contracts. `vaultImageSrc` resolution and the picker flow
+are the shell's (see `docs/spec/editor/images.md`).
 
 - A projection reports each image, divider and list item's marker as an atom. An image is `![alt](destination)` or `![alt](destination "title")` on one line; its display is its whole source spelling as typed, and the atom's range covers those glyphs. Nothing inside an image is read: `*x*` in its alt shows its asterisks. Code, an escaped `\!`, `![[note]]` (a wikilink) and reference-style `![alt][id]` (not in Linedown version 1) are not atoms. A divider atom and a list marker atom (`ListMarker`, lists.md) each cover one object-replacement glyph. → crates/futo-notes-editor/src/lines/inline/scan.rs, crates/futo-notes-editor/src/engine/project.rs, crates/futo-notes-editor/src/engine/tests/images.rs
 - An image role carries the alt's source spelling, the destination, the title, and `vault`, the canonical vault-image classification: an image filename that is not a remote (`http:`, `https:`, `data:`) source. Its `reference` is always empty. A shell resolves a platform URL for display only; it never enters source or this role. → crates/futo-notes-image/src/lib.rs, crates/futo-notes-editor/src/engine/project.rs
