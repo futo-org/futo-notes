@@ -20,5 +20,11 @@
   {"name": "edges: the divider under front matter above a block", "before": "---\nt: 1\n---\n[a\n]```\ny\n```", "command": "Divider", "after": "---\nt: 1\n---\n---\n|\n```\ny\n```"},
   {"name": "edges: a text service's line break over a selection ending where a block's code starts", "before": "[a\n]```\ny\n```", "command": "os:\n", "after": "\n|\n```\ny\n```"},
   {"name": "edges: a committed composition's line break there", "before": "[a\n]```\ny\n```", "command": "commit:\n", "after": "\n|\n```\ny\n```"},
-  {"name": "edges: a committed composition's lines there", "before": "[a\n]```\ny\n```", "command": "commit:x\nz", "after": "x\nz|\n```\ny\n```"}
+  {"name": "edges: a committed composition's lines there", "before": "[a\n]```\ny\n```", "command": "commit:x\nz", "after": "x\nz|\n```\ny\n```"},
+  {"name": "edges: Enter over a whole note with a lone unclosed fence and a CRLF line", "before": "[a\n```\nc\r\n]", "command": "Enter", "after": "\n|"},
+  {"name": "edges: Shift+Enter over the same", "before": "[a\n```\nc\r\n]", "command": "ShiftEnter", "after": "\n|"},
+  {"name": "edges: the divider over CRLF lines around a lone fence changes nothing", "before": "d\n[\r\n~~~\r\nc\r\n]", "command": "Divider", "after": "d\n[\r\n~~~\r\nc\r\n]"},
+  {"name": "edges: a text service's line break over CRLF lines around a lone fence", "before": "[\r\n```\r\na\r\n]", "command": "os:\n", "after": "\n|"},
+  {"name": "edges: a committed composition's line break over the same", "before": "[\r\n```\r\na\r\n]", "command": "commit:\n", "after": "\n|"},
+  {"name": "edges: Enter over CRLF lines ending at a lone fence line", "before": "a\r\n[b\r\n```\r\n]c", "command": "Enter", "after": "a\r\n\r\n|\r\n```\r\nc"}
 ]

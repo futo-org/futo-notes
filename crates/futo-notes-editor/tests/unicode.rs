@@ -458,3 +458,48 @@ fn backspace_and_delete_still_take_whole_clusters_around_a_non_joiner() {
         bytes(0, 0)
     );
 }
+
+/// Deleting the last character of a span whose content ends in a Unicode
+/// space (`U+2028` is three bytes) hands the space to the outside of the
+/// marks, so the span keeps its format. Every entry that removes text
+/// reaches that repair, and the repair slices on the text it just edited.
+#[test]
+fn deleting_after_a_wide_space_inside_a_span_moves_the_space_outside_its_marks() {
+    let source = "**a\u{2028}b**";
+    let left = "**a**\u{2028}";
+    let gone = bytes(4, 5);
+    let ok = &mut |_: &futo_notes_editor::SourceEdit| Ok(());
+
+    let mut session = EditorSession::open(source);
+    session.replace(Revision(0), gone, "", ok).unwrap();
+    assert_eq!(session.source_text(), left);
+
+    let mut session = EditorSession::open(source);
+    press(&mut session, 5, ParagraphKey::Backspace);
+    assert_eq!(session.source_text(), left);
+
+    let mut session = EditorSession::open(source);
+    let isolated = futo_notes_editor::InputAction::Isolated;
+    session
+        .replace_action(Revision(0), gone, "", isolated, ok)
+        .unwrap();
+    assert_eq!(session.source_text(), left);
+
+    let mut session = EditorSession::open(source);
+    let run = futo_notes_editor::DisplayReplacement {
+        range: gone,
+        inserted: String::new(),
+    };
+    session.replace_many(Revision(0), &[run], ok).unwrap();
+    assert_eq!(session.source_text(), left);
+
+    // A space at each edge, and a span nested in another.
+    for (source, display, left) in [
+        ("**a\u{2028}b**", bytes(0, 1), "\u{2028}**b**"),
+        ("**a *b\u{2028}c* d**", bytes(8, 9), "**a *b\u{2028}c*** "),
+    ] {
+        let mut session = EditorSession::open(source);
+        session.replace(Revision(0), display, "", ok).unwrap();
+        assert_eq!(session.source_text(), left, "{source:?}");
+    }
+}

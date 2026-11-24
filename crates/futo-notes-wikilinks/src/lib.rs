@@ -119,6 +119,11 @@ pub fn find_wikilinks(text: &str) -> Vec<WikilinkOccurrence> {
                 i = j + 2;
                 continue;
             }
+            // Every later `[[` whose inner starts at or before `j` stops at
+            // this same `\n`, `]]` or EOF and fails the same way, so resume
+            // at the last position that can start a scan past it.
+            i = (j - 1).max(i + 1);
+            continue;
         }
         i += 1;
     }
@@ -317,6 +322,45 @@ mod tests {
         let occ = find_wikilinks("[[a\n[[b]]");
         assert_eq!(occ.len(), 1);
         assert_eq!(occ[0].target, "b");
+    }
+
+    /// The scan before it skipped failed starts: retry at every position.
+    fn find_by_retrying_every_start(text: &str) -> Vec<(usize, usize)> {
+        let bytes = text.as_bytes();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i + 1 < bytes.len() {
+            if bytes[i..].starts_with(b"[[") {
+                let mut j = i + 2;
+                while j < bytes.len() && bytes[j] != b'\n' && !bytes[j..].starts_with(b"]]") {
+                    j += 1;
+                }
+                if j > i + 2 && bytes[j..].starts_with(b"]]") {
+                    out.push((i, j + 2));
+                    i = j + 2;
+                    continue;
+                }
+            }
+            i += 1;
+        }
+        out
+    }
+
+    #[test]
+    fn find_skipping_failed_starts_equals_retrying_every_start() {
+        let pieces = ["[", "]", "\n", "a"];
+        for len in 0..=9u32 {
+            for code in 0..pieces.len().pow(len) {
+                let text: String = (0..len)
+                    .map(|k| pieces[code / pieces.len().pow(k) % pieces.len()])
+                    .collect();
+                let found: Vec<(usize, usize)> = find_wikilinks(&text)
+                    .iter()
+                    .map(|occ| (occ.start, occ.end))
+                    .collect();
+                assert_eq!(found, find_by_retrying_every_start(&text), "{text:?}");
+            }
+        }
     }
 
     #[test]

@@ -208,7 +208,8 @@ fn describe(
     }
     slice.blocks.push(block);
     correspond(entry, source, display, slice);
-    let to_display = |local: usize| display + entry.to_display(local);
+    let shown = Shown::of(entry);
+    let to_display = |local: usize| display + shown.at(entry, local);
     runs(entry, &to_display, slice);
 
     for span in &entry.spans {
@@ -259,6 +260,46 @@ fn describe(
             )),
             _ => {}
         }
+    }
+}
+
+/// `Entry::to_display` for the many offsets one line's description asks for:
+/// the hidden width before each cut is summed once, so an offset costs a
+/// search, not a walk over the cuts (a line of many marks has many).
+struct Shown {
+    /// Where each cut ends, and the width hidden by it and the cuts before.
+    ends: Vec<usize>,
+    hidden: Vec<isize>,
+}
+
+impl Shown {
+    fn of(entry: &Entry) -> Shown {
+        let mut hidden = 0;
+        let (ends, hidden) = entry
+            .view
+            .cuts
+            .iter()
+            .map(|(range, cut)| {
+                hidden += range.len() as isize - cut.shown().len() as isize;
+                (range.end, hidden)
+            })
+            .unzip();
+        Shown { ends, hidden }
+    }
+
+    /// Where source offset `at` of `entry`'s shown body displays, line-relative.
+    fn at(&self, entry: &Entry, at: usize) -> usize {
+        if at > entry.body_len() || entry.view.role != Role::Text {
+            return entry.to_display(at);
+        }
+        let cuts = &entry.view.cuts;
+        let done = self.ends.partition_point(|&end| end <= at);
+        let before = if done == 0 { 0 } else { self.hidden[done - 1] };
+        // Inside a cut, the cut's display point.
+        let inside = cuts
+            .get(done)
+            .map_or(0, |(range, _)| at.saturating_sub(range.start));
+        (at as isize - before) as usize - inside
     }
 }
 
@@ -389,38 +430,54 @@ fn correspond(entry: &Entry, source: usize, display: usize, slice: &mut Projecti
 
 /// Line `entry`'s inline formats: each visible stretch between format edges is one run.
 fn runs(entry: &Entry, to_display: &dyn Fn(usize) -> usize, slice: &mut ProjectionSlice) {
-    let formatted = |span: &&crate::lines::Span| format_of(&span.kind).is_some();
-    if entry.spans.iter().any(|span| formatted(&span)) {
-        let mut edges: Vec<usize> = entry
-            .spans
-            .iter()
-            .filter(formatted)
-            .flat_map(|span| [span.open.end, span.close.start])
-            .collect();
-        edges.sort_unstable();
-        edges.dedup();
-        for pair in edges.windows(2) {
-            let (from, to) = (pair[0], pair[1]);
-            let mut formats: Vec<InlineFormat> = reading_spans(&entry.spans, |span| {
-                span.open.end <= from && to <= span.close.start
-            })
-            .filter_map(|span| format_of(&span.kind))
-            .collect();
-            let (start, end) = (to_display(from), to_display(to));
-            if formats.is_empty() || start >= end {
-                continue;
+    // One sweep over the formatted spans' inner edges: how many spans of each
+    // format hold the stretch after the edge reached. Inline code reads as
+    // code only, so where a code span holds a stretch, the bold, italic and
+    // strike spans around it do not count (`reading_spans`).
+    let mut edges: Vec<(usize, InlineFormat, isize)> = Vec::new();
+    for span in &entry.spans {
+        if let Some(format) = format_of(&span.kind) {
+            edges.push((span.open.end, format, 1));
+            edges.push((span.close.start, format, -1));
+        }
+    }
+    edges.sort_unstable_by_key(|&(at, ..)| at);
+    let mut holding = [0isize; 4];
+    let mut next = 0;
+    while next < edges.len() {
+        let from = edges[next].0;
+        while let Some(&(_, format, step)) = edges.get(next).filter(|edge| edge.0 == from) {
+            holding[format as usize] += step;
+            next += 1;
+        }
+        let Some(&(to, ..)) = edges.get(next) else {
+            break;
+        };
+        let mut formats: Vec<InlineFormat> = if holding[InlineFormat::Code as usize] > 0 {
+            vec![InlineFormat::Code]
+        } else {
+            [
+                InlineFormat::Bold,
+                InlineFormat::Italic,
+                InlineFormat::Strike,
+            ]
+            .into_iter()
+            .filter(|&format| holding[format as usize] > 0)
+            .collect()
+        };
+        let (start, end) = (to_display(from), to_display(to));
+        if formats.is_empty() || start >= end {
+            continue;
+        }
+        formats.sort();
+        match slice.runs.last_mut() {
+            Some(run) if run.range.end.0 == start && run.formats == formats => {
+                run.range.end = DisplayOffset(end);
             }
-            formats.sort();
-            formats.dedup();
-            match slice.runs.last_mut() {
-                Some(run) if run.range.end.0 == start && run.formats == formats => {
-                    run.range.end = DisplayOffset(end);
-                }
-                _ => slice.runs.push(SemanticRun {
-                    range: display_range(start, end),
-                    formats,
-                }),
-            }
+            _ => slice.runs.push(SemanticRun {
+                range: display_range(start, end),
+                formats,
+            }),
         }
     }
 }
